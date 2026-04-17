@@ -1,0 +1,65 @@
+version: 2
+
+updates:
+  # GitHub Actions — keeps all `uses:` pins current
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, ci]
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Go modules — root go.mod, covers krit/krit-lsp/krit-mcp
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, go]
+    groups:
+      go-minor-patch:
+        update-types: [minor, patch]
+
+  # VS Code extension (Node/npm)
+  - package-ecosystem: npm
+    directory: /editors/vscode
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, vscode]
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+
+  # MkDocs deploy script (Python)
+  - package-ecosystem: pip
+    directory: /scripts/github
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, docs]
+
+  # Kotlin Analysis API subprocess (Gradle)
+  - package-ecosystem: gradle
+    directory: /tools/krit-types
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, gradle]
+    groups:
+      gradle-minor-patch:
+        update-types: [minor, patch]
+
+  # Gradle plugin (published artifact)
+  - package-ecosystem: gradle
+    directory: /krit-gradle-plugin
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, gradle]
+    groups:
+      gradle-minor-patch:
+        update-types: [minor, patch]

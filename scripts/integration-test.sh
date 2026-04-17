@@ -44,6 +44,10 @@ run_lint_test() {
     fi
 }
 
+echo "=== Generating build artifacts ==="
+python3 tools/rule_inventory.py
+go generate ./internal/rules/...
+
 echo "=== Building binaries ==="
 go build -o krit ./cmd/krit/
 go build -o krit-lsp ./cmd/krit-lsp/

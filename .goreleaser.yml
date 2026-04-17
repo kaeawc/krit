@@ -40,10 +40,10 @@ builds:
         goarch: arm64
 archives:
   - id: default
-    builds: [krit, krit-lsp, krit-mcp]
+    ids: [krit, krit-lsp, krit-mcp]
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 checksum:
   name_template: 'checksums.txt'
@@ -66,7 +66,7 @@ changelog:
       - '^docs:'
       - '^test:'
       - '^chore:'
-brews:
+homebrew_casks:
   - repository:
       owner: kaeawc
       name: homebrew-tap
@@ -74,11 +74,9 @@ brews:
     homepage: "https://github.com/kaeawc/krit"
     description: "Fast Kotlin static analysis powered by tree-sitter"
     license: "MIT"
-    install: |
-      bin.install "krit"
-      bin.install "krit-lsp"
-    test: |
-      system "#{bin}/krit", "--version"
+    binaries:
+      - krit
+      - krit-lsp
 scoops:
   - repository:
       owner: kaeawc

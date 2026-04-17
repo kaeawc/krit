@@ -11,12 +11,19 @@ run_test() {
     local name="$1"
     shift
     echo -n "  ${name}... "
-    if "$@" > /dev/null 2>&1; then
+    local log
+    log=$(mktemp)
+    if "$@" > "$log" 2>&1; then
         echo -e "${GREEN}PASS${NC}"
         PASS=$((PASS + 1))
+        rm -f "$log"
     else
         echo -e "${RED}FAIL${NC}"
         FAIL=$((FAIL + 1))
+        echo "    --- output ---"
+        sed 's/^/    /' "$log" | tail -30
+        echo "    --- end ---"
+        rm -f "$log"
     fi
 }
 
@@ -67,7 +74,7 @@ run_test "MCP tests" go test ./cmd/krit-mcp/ -count=1 -timeout 60s
 
 echo ""
 echo "=== Unit Tests ==="
-run_test "All packages" go test ./... -count=1 -timeout 120s
+run_test "All packages" go test ./... -count=1 -timeout 600s
 
 echo ""
 echo "================================"

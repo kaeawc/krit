@@ -24,7 +24,7 @@ gradlePlugin {
 
 dependencies {
     testImplementation(gradleTestKit())
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testImplementation("org.junit.jupiter:junit-jupiter:6.0.3")
 }
 
 tasks.test {

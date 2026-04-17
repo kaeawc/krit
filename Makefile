@@ -1,14 +1,21 @@
-.PHONY: build test vet lint fix schema clean bench integration playground ci regression docs all install install-completions watch
+.PHONY: build test vet lint fix schema clean bench integration playground ci regression docs all install install-completions watch generate
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
 
-build:
+# Regenerate build/rule_inventory.json and the downstream code-generated
+# Meta() files. Required before build/test because build/ is gitignored
+# and the inventory is a build artifact, not source.
+generate:
+	python3 tools/rule_inventory.py
+	go generate ./internal/rules/...
+
+build: generate
 	go build -ldflags "$(LDFLAGS)" -o krit ./cmd/krit/
 	go build -ldflags "$(LDFLAGS)" -o krit-lsp ./cmd/krit-lsp/
 	go build -ldflags "$(LDFLAGS)" -o krit-mcp ./cmd/krit-mcp/
 
-test:
+test: generate
 	go test ./... -count=1
 
 vet:

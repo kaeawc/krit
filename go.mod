@@ -1,6 +1,6 @@
 module github.com/kaeawc/krit
 
-go 1.24.2
+go 1.25.0
 
 require (
 	github.com/bits-and-blooms/bloom/v3 v3.7.1

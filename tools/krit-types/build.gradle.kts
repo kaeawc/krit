@@ -3,7 +3,7 @@ plugins {
     id("com.gradleup.shadow") version "9.4.1"
 }
 
-val kotlinVersion = "2.3.20"
+val kotlinVersion = "2.3.20-206"
 
 dependencies {
     // Kotlin compiler (non-embeddable, full APIs)

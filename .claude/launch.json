@@ -4,7 +4,10 @@
     {
       "name": "docs",
       "runtimeExecutable": "bash",
-      "runtimeArgs": ["-c", "mkdocs serve --dev-addr 127.0.0.1:${PORT:-8000} -f .claude/mkdocs-local.yml"],
+      "runtimeArgs": [
+        "-c",
+        "lsof -tiTCP:${PORT:-8000} -sTCP:LISTEN | xargs -r kill -9; exec python3 scripts/github/deploy_pages.py serve"
+      ],
       "port": 8000
     }
   ]

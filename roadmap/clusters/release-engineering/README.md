@@ -34,3 +34,9 @@ Parent: [`roadmap/58-release-engineering-rules.md`](../../58-release-engineering
 - [`gradle-build-contains-todo.md`](gradle-build-contains-todo.md)
 - [`merge-conflict-marker-leftover.md`](merge-conflict-marker-leftover.md)
 - [`non-ascii-identifier.md`](non-ascii-identifier.md)
+
+## Krit's own distribution
+
+- [`distribution-readiness.md`](distribution-readiness.md) — five open
+  decisions on Homebrew tap, Scoop bucket, winget, first GitHub release,
+  and Gradle plugin ID / task naming.

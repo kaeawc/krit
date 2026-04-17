@@ -1,35 +1,11 @@
-# Krit
+krit is a fast and accurate Kotlin static analysis tool.
 
-Fast Kotlin static analysis powered by tree-sitter.
-
----
-
-**472 rules** | **142 auto-fixable** | **single-pass AST dispatch** | **JSON / SARIF / Checkstyle output**
+It walks each Kotlin file's AST once, dispatches to rules via symbol-indexed routing, skips files using heuristics in the expensive type-analysis phase, and caches type information under content-addressable dep-closure fingerprints that survive across runs in a long-lived JVM daemon with AppCDS class-data-sharing. The goal is to use performance focused architecture to create the fastest possible feedback cycle.
 
 ---
 
-## Get started
+Get started:
 
 ```bash
-brew install kaeawc/tap/krit   # install
-krit --init                     # write a starter krit.yml
-krit .                          # analyze the current directory
+curl -fsSL https://raw.githubusercontent.com/kaeawc/krit/main/scripts/install.sh | bash
 ```
-
-## Features
-
-- **Single-pass analysis** — walks the AST once, dispatching to all matching rules
-- **detekt-compatible** — 230 rules with matching names and config format
-- **Android Lint–compatible** — 181 rules covering manifests, resources, icons, and Gradle
-- **Auto-fix** — 142 rules produce ktfmt-compatible fixes with declared safety levels
-- **Cross-file dead code detection** — indexes Kotlin, Java, and XML references with bloom filter lookups
-- **Suppression** — `@Suppress("RuleName")` on any declaration, zero extra cost
-- **Editor integration** — LSP server (11 capabilities), MCP server for AI agents, plus VS Code, Neovim, and IntelliJ configs
-
-## Next steps
-
-- [Install](install.md) — macOS, Linux, Windows, Go, Homebrew, Scoop
-- [Quickstart](quickstart.md) — first scan in under a minute
-- [Configuration](configuration.md) — `krit.yml` reference
-- [Rules](rules.md) — full rule catalog
-- [Integrations](integrations.md) — CI, editors, and MCP

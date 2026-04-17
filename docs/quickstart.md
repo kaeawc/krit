@@ -30,10 +30,12 @@ Safety levels: **cosmetic** (whitespace, redundant keywords), **idiomatic** (equ
 ## Only check what changed
 
 ```bash
-krit --diff origin/main .         # only new findings vs main
-krit --diff HEAD~1 .              # only findings from last commit
-krit --diff origin/main --fix .   # auto-fix only new issues
+krit --diff origin/main .         # findings in files touched since main
+krit --diff HEAD~1 .              # findings in files touched in the last commit
+krit --diff origin/main --fix .   # auto-fix findings in those files
 ```
+
+`--diff <ref>` is a file-level filter. It runs `git diff --name-only <ref>` to find changed files, then reports every finding inside those files — including pre-existing ones, not just new violations introduced by the change.
 
 ## Baselines
 

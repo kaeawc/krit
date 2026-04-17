@@ -22,11 +22,29 @@ type Request struct {
 }
 
 // Response is a JSON-RPC 2.0 response from the server.
+//
+// Per JSON-RPC 2.0, a response MUST contain either `result` or `error`, never
+// both and never neither. The `omitempty` on Result was a bug — it dropped the
+// field when Result was nil, producing responses with neither field, which
+// modern LSP clients reject. Use successResponse / errorResponse via
+// SendResponse instead of constructing Response directly for new code.
 type Response struct {
 	JSONRPC string      `json:"jsonrpc"`
 	ID      interface{} `json:"id"`
 	Result  interface{} `json:"result,omitempty"`
 	Error   *Error      `json:"error,omitempty"`
+}
+
+type successResponse struct {
+	JSONRPC string      `json:"jsonrpc"`
+	ID      interface{} `json:"id"`
+	Result  interface{} `json:"result"`
+}
+
+type errorResponse struct {
+	JSONRPC string      `json:"jsonrpc"`
+	ID      interface{} `json:"id"`
+	Error   *Error      `json:"error"`
 }
 
 // Notification is a JSON-RPC 2.0 notification from the server (no ID).
@@ -108,14 +126,16 @@ func WriteMessage(w io.Writer, mu *sync.Mutex, msg interface{}) {
 }
 
 // SendResponse sends a JSON-RPC 2.0 success or error response.
+//
+// A non-nil rpcErr produces an error response (no `result` field). Otherwise
+// produces a success response with a `result` field that is always emitted —
+// `null` if result is nil. Never produces a response with both or neither.
 func SendResponse(w io.Writer, mu *sync.Mutex, id interface{}, result interface{}, rpcErr *Error) {
-	resp := Response{
-		JSONRPC: "2.0",
-		ID:      id,
-		Result:  result,
-		Error:   rpcErr,
+	if rpcErr != nil {
+		WriteMessage(w, mu, errorResponse{JSONRPC: "2.0", ID: id, Error: rpcErr})
+		return
 	}
-	WriteMessage(w, mu, resp)
+	WriteMessage(w, mu, successResponse{JSONRPC: "2.0", ID: id, Result: result})
 }
 
 // SendNotification sends a JSON-RPC 2.0 notification (no ID).

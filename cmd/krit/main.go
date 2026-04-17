@@ -87,6 +87,7 @@ func main() {
 	}
 
 	formatFlag := flag.String("f", "json", "Output format: json, plain, sarif, checkstyle (auto: plain in terminal, json when piped)")
+	flag.StringVar(formatFlag, "format", "json", "Alias for -f")
 	reportFlag := flag.String("report", "", "Report format: json, plain, sarif, checkstyle (alias for -f, takes precedence)")
 	perfFlag := flag.Bool("perf", false, "Include performance timing in output")
 	profileDispatchFlag := flag.Bool("profile-dispatch", false, "Debug: emit per-file dispatch timing distribution to stderr")

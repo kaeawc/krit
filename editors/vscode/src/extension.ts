@@ -9,31 +9,46 @@ import { LanguageClient, LanguageClientOptions, ServerOptions } from 'vscode-lan
 
 let client: LanguageClient;
 let statusBarItem: vscode.StatusBarItem;
+let log: vscode.OutputChannel;
 
 export async function activate(context: vscode.ExtensionContext) {
+    log = vscode.window.createOutputChannel('Krit (extension)');
+    context.subscriptions.push(log);
+    const t0 = Date.now();
+    const logLine = (msg: string) => log.appendLine(`[${Date.now() - t0}ms] ${msg}`);
+    logLine('activate() entered');
+
     const config = vscode.workspace.getConfiguration('krit');
-    if (!config.get<boolean>('enable', true)) return;
+    if (!config.get<boolean>('enable', true)) {
+        logLine('krit.enable=false — bailing out');
+        return;
+    }
 
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
     statusBarItem.text = '$(loading~spin) Krit';
     statusBarItem.tooltip = 'Krit Kotlin Lint: starting...';
     statusBarItem.show();
     context.subscriptions.push(statusBarItem);
+    logLine('status bar shown');
 
     let binaryPath: string;
     try {
+        logLine('ensureBinary: begin');
         binaryPath = await ensureBinary(context);
+        logLine(`ensureBinary: resolved ${binaryPath}`);
     } catch (e) {
+        logLine(`ensureBinary: FAILED ${e}`);
         statusBarItem.text = '$(error) Krit';
-        statusBarItem.tooltip = 'Krit Kotlin Lint: binary not available';
+        statusBarItem.tooltip = `Krit Kotlin Lint: binary not available (${e})`;
         return;
     }
 
     const configPath = config.get<string>('configPath') || '';
+    logLine(`configPath=${configPath || '(empty)'}`);
 
     const serverOptions: ServerOptions = {
         command: binaryPath,
-        args: [],
+        args: ['--verbose'],
     };
 
     const clientOptions: LanguageClientOptions = {
@@ -50,12 +65,15 @@ export async function activate(context: vscode.ExtensionContext) {
     };
 
     client = new LanguageClient('krit', 'Krit Kotlin Lint', serverOptions, clientOptions);
+    logLine('LanguageClient constructed; calling start()');
 
     try {
         await client.start();
+        logLine('client.start(): resolved');
         statusBarItem.text = '$(check) Krit';
         statusBarItem.tooltip = 'Krit Kotlin Lint active';
     } catch (e) {
+        logLine(`client.start(): FAILED ${e}`);
         statusBarItem.text = '$(error) Krit';
         statusBarItem.tooltip = `Krit Kotlin Lint: failed to start (${e})`;
     }

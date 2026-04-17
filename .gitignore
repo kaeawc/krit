@@ -23,6 +23,11 @@ __pycache__/
 site/
 /build/
 
+# Node / VS Code extension
+node_modules/
+editors/vscode/out/
+*.vsix
+
 # Temp
 *.new
 

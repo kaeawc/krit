@@ -57,15 +57,6 @@ Pre-built binaries and `checksums.txt` live at [GitHub Releases](https://github.
 sha256sum -c checksums.txt --ignore-missing
 ```
 
-## Companion binaries
-
-Optional, same release channel:
-
-```bash
-go install github.com/kaeawc/krit/cmd/krit-lsp@latest   # editor LSP
-go install github.com/kaeawc/krit/cmd/krit-mcp@latest   # AI agent MCP
-```
-
 ## Shell completions
 
 ```bash

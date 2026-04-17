@@ -192,11 +192,10 @@ func (s *Server) handleInitialize(req *Request) {
 				OpenClose: true,
 				Change:    1, // Full sync
 			},
-			DiagnosticProvider: &DiagnosticOptions{
-				InterFileDependencies: false,
-				WorkspaceDiagnostics:  false,
-				Identifier:            "krit",
-			},
+			// Server uses push model (publishDiagnostics notifications on
+			// didOpen/didChange). Do not advertise DiagnosticProvider —
+			// that would cause 3.17+ clients to pull via textDocument/diagnostic,
+			// which this server does not implement.
 			CodeActionProvider:         true,
 			CodeLensProvider:           &CodeLensOptions{},
 			DocumentFormattingProvider: true,

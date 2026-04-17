@@ -4,6 +4,7 @@
   "description": "Kotlin static analysis powered by krit and tree-sitter",
   "version": "0.1.0",
   "publisher": "kaeawc",
+  "repository": { "type": "git", "url": "https://github.com/kaeawc/krit.git", "directory": "editors/vscode" },
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Linters", "Programming Languages"],
   "activationEvents": ["onLanguage:kotlin"],
@@ -36,14 +37,19 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "compile": "tsc -p ./ --noEmit",
+    "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --minify",
+    "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap --watch",
+    "package": "npm run compile && npm run bundle && vsce package"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
+    "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.24.0",
+    "esbuild": "^0.20.0",
     "typescript": "^5.3.3"
   }
 }

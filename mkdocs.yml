@@ -52,7 +52,7 @@ markdown_extensions:
   - md_in_html
 
 nav:
-  - Home: index.md
+  - krit: index.md
   - Install: install.md
   - Quickstart: quickstart.md
   - Configuration: configuration.md

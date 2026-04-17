@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">My Example App</string>
+    <string name="welcome_message">Welcome, %s!</string>
+    <!-- Format string with positional args -->
+    <string name="user_info">Name: %1$s, Age: %2$d</string>
+    <!-- PluralsCandidate: uses conditional text instead of plurals -->
+    <string name="item_count">%d items</string>
+    <string name="no_items">No items found</string>
+    <string name="loading">Loading...</string>
+    <string name="error_network">Network error occurred</string>
+    <string name="error_generic">Something went wrong</string>
+    <string name="btn_retry">Retry</string>
+    <string name="btn_cancel">Cancel</string>
+    <string name="btn_ok">OK</string>
+    <!-- Typographical issue: straight quotes -->
+    <string name="terms">By tapping "OK" you agree to our terms.</string>
+</resources>

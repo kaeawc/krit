@@ -1,0 +1,13 @@
+# Default owner for everything
+* @kaeawc
+
+# Rules require review
+internal/rules/ @kaeawc
+
+# Oracle/type system
+internal/oracle/ @kaeawc
+internal/typeinfer/ @kaeawc
+
+# CI/CD
+.github/ @kaeawc
+.goreleaser.yml @kaeawc

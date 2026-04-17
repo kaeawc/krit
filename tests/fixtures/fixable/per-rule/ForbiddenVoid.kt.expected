@@ -1,0 +1,7 @@
+package style
+
+fun foo(): Unit? = null
+
+fun bar(): Unit? {
+    return null
+}

@@ -1,0 +1,5 @@
+package style
+
+fun meaningOfLife(): Int = 42
+
+fun greet(name: String): String = "Hello, $name"

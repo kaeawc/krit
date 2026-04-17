@@ -1,0 +1,5 @@
+package fixtures.positive.coroutines
+
+fun simple() {
+    println("no suspend calls here")
+}

@@ -1,0 +1,16 @@
+package fixtures.positive.style
+
+fun validate(x: Any?) {
+    checkNotNull(x)
+    println(x)
+}
+
+fun validateReversed(x: Any?) {
+    checkNotNull(x)
+    println(x)
+}
+
+fun validateWithMessage(x: Any?) {
+    checkNotNull(x) { "x must not be null" }
+    println(x)
+}

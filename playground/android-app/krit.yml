@@ -1,0 +1,59 @@
+complexity:
+  LongMethod:
+    active: true
+    threshold: 50
+  LongParameterList:
+    active: true
+    threshold: 6
+  CyclomaticComplexMethod:
+    active: true
+    threshold: 15
+
+empty-blocks:
+  EmptyFunctionBlock:
+    active: true
+  EmptyCatchBlock:
+    active: true
+
+style:
+  WildcardImport:
+    active: true
+  MagicNumber:
+    active: true
+    ignoreNumbers:
+      - -1
+      - 0
+      - 1
+      - 2
+  UnusedParameter:
+    active: true
+  ReturnFromFinally:
+    active: true
+
+android-lint:
+  ShowToast:
+    active: true
+  SimpleDateFormat:
+    active: true
+  WrongThread:
+    active: true
+  FragmentConstructor:
+    active: true
+  AddJavascriptInterface:
+    active: true
+  SetJavaScriptEnabled:
+    active: true
+  HardcodedText:
+    active: true
+  Wakelock:
+    active: true
+  SdCardPath:
+    active: true
+  ExportedReceiver:
+    active: true
+  ExportedContentProvider:
+    active: true
+  HandlerLeak:
+    active: true
+  TrustedServer:
+    active: true

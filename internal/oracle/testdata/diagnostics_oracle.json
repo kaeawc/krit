@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "kotlinVersion": "2.1.0",
+  "files": {
+    "src/main/kotlin/com/example/Unreachable.kt": {
+      "package": "com.example",
+      "declarations": [],
+      "expressions": {},
+      "diagnostics": [
+        {
+          "factoryName": "UNREACHABLE_CODE",
+          "severity": "WARNING",
+          "message": "Unreachable code",
+          "line": 5,
+          "col": 9
+        },
+        {
+          "factoryName": "USELESS_ELVIS",
+          "severity": "WARNING",
+          "message": "Elvis operator (?:) always returns the left operand of non-nullable type String",
+          "line": 10,
+          "col": 20
+        }
+      ]
+    },
+    "src/main/kotlin/com/example/Clean.kt": {
+      "package": "com.example",
+      "declarations": [],
+      "expressions": {}
+    }
+  },
+  "dependencies": {}
+}

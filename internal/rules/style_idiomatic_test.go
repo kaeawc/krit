@@ -1,0 +1,438 @@
+package rules_test
+
+import "testing"
+
+// --- style_idiomatic.go rules ---
+
+func TestUseCheckNotNull_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UseCheckNotNull", `
+package test
+fun foo(x: String?) {
+    check(x != null)
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for check(x != null)")
+	}
+}
+
+func TestUseCheckNotNull_Negative(t *testing.T) {
+	findings := runRuleByName(t, "UseCheckNotNull", `
+package test
+fun foo(x: String?) {
+    checkNotNull(x)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseRequireNotNull_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UseRequireNotNull", `
+package test
+fun foo(x: String?) {
+    require(x != null)
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for require(x != null)")
+	}
+}
+
+func TestUseRequireNotNull_Negative(t *testing.T) {
+	findings := runRuleByName(t, "UseRequireNotNull", `
+package test
+fun foo(x: String?) {
+    requireNotNull(x)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseCheckOrError_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UseCheckOrError", `
+package test
+fun foo(valid: Boolean) {
+    if (!valid) throw IllegalStateException("invalid")
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for if (!x) throw IllegalStateException")
+	}
+}
+
+func TestUseCheckOrError_Negative(t *testing.T) {
+	findings := runRuleByName(t, "UseCheckOrError", `
+package test
+fun foo(valid: Boolean) {
+    check(valid) { "invalid" }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseRequire_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UseRequire", `
+package test
+fun foo(x: Int) {
+    if (!x.isValid()) throw IllegalArgumentException("bad arg")
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for if (!x) throw IllegalArgumentException")
+	}
+}
+
+func TestUseRequire_Negative(t *testing.T) {
+	findings := runRuleByName(t, "UseRequire", `
+package test
+fun foo(x: Int) {
+    require(x > 0) { "bad arg" }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseIsNullOrEmpty_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UseIsNullOrEmpty", `
+package test
+fun foo(x: String?) {
+    if (x == null || x.isEmpty()) println("empty")
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for x == null || x.isEmpty()")
+	}
+}
+
+func TestUseIsNullOrEmpty_PositiveSizeCheck(t *testing.T) {
+	findings := runRuleByName(t, "UseIsNullOrEmpty", `
+package test
+class Bytes(val size: Int)
+fun foo(value: Bytes?) {
+    if (value == null || value.size == 0) println("empty")
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for value == null || value.size == 0")
+	}
+}
+
+func TestUseIsNullOrEmpty_Negative(t *testing.T) {
+	findings := runRuleByName(t, "UseIsNullOrEmpty", `
+package test
+fun foo(x: String?) {
+    if (x.isNullOrEmpty()) println("empty")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseOrEmpty_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UseOrEmpty", `
+package test
+fun foo(x: List<String>?) {
+    val result = x ?: emptyList()
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for x ?: emptyList()")
+	}
+}
+
+func TestUseOrEmpty_Negative(t *testing.T) {
+	findings := runRuleByName(t, "UseOrEmpty", `
+package test
+fun foo(x: List<String>?) {
+    val result = x.orEmpty()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseAnyOrNoneInsteadOfFind_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UseAnyOrNoneInsteadOfFind", `
+package test
+fun foo(list: List<Int>) {
+    val found = list.find { it > 0 } != null
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for .find {} != null")
+	}
+}
+
+func TestUseAnyOrNoneInsteadOfFind_Negative(t *testing.T) {
+	findings := runRuleByName(t, "UseAnyOrNoneInsteadOfFind", `
+package test
+fun foo(list: List<Int>) {
+    val found = list.any { it > 0 }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseEmptyCounterpart_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UseEmptyCounterpart", `
+package test
+fun foo() {
+    val x = listOf()
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for listOf() with no args")
+	}
+}
+
+func TestUseEmptyCounterpart_Negative(t *testing.T) {
+	findings := runRuleByName(t, "UseEmptyCounterpart", `
+package test
+fun foo() {
+    val x = emptyList()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+// --- style_idiomatic_data.go rules ---
+
+func TestUseArrayLiteralsInAnnotations_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UseArrayLiteralsInAnnotations", `
+package test
+@Target(arrayOf(AnnotationTarget.CLASS))
+annotation class MyAnnotation
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for arrayOf() in annotation")
+	}
+}
+
+func TestUseArrayLiteralsInAnnotations_Negative(t *testing.T) {
+	findings := runRuleByName(t, "UseArrayLiteralsInAnnotations", `
+package test
+@Target([AnnotationTarget.CLASS])
+annotation class MyAnnotation
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseSumOfInsteadOfFlatMapSize_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UseSumOfInsteadOfFlatMapSize", `
+package test
+fun foo(lists: List<List<Int>>) {
+    val total = lists.flatMap { it }.size
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for flatMap{}.size")
+	}
+}
+
+func TestUseSumOfInsteadOfFlatMapSize_Negative(t *testing.T) {
+	findings := runRuleByName(t, "UseSumOfInsteadOfFlatMapSize", `
+package test
+fun foo(lists: List<List<Int>>) {
+    val total = lists.sumOf { it.size }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseLet_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UseLet", `
+package test
+fun foo(x: String?) {
+    if (x != null) {
+        println(x)
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for null check without else")
+	}
+}
+
+func TestUseLet_Negative(t *testing.T) {
+	findings := runRuleByName(t, "UseLet", `
+package test
+fun foo(x: String?) {
+    x?.let { println(it) }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseDataClass_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UseDataClass", `
+package test
+class Person(val name: String, val age: Int)
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for class that could be data class")
+	}
+}
+
+func TestUseDataClass_Negative(t *testing.T) {
+	findings := runRuleByName(t, "UseDataClass", `
+package test
+data class Person(val name: String, val age: Int)
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseIfInsteadOfWhen_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UseIfInsteadOfWhen", `
+package test
+fun foo(x: Boolean) {
+    when {
+        x -> println("yes")
+        else -> println("no")
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for when with two branches")
+	}
+}
+
+func TestUseIfInsteadOfWhen_Negative(t *testing.T) {
+	findings := runRuleByName(t, "UseIfInsteadOfWhen", `
+package test
+fun foo(x: Int) {
+    when (x) {
+        1 -> println("one")
+        2 -> println("two")
+        3 -> println("three")
+        else -> println("other")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseIfEmptyOrIfBlank_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UseIfEmptyOrIfBlank", `
+package test
+fun foo(s: String): String {
+    return if (s.isEmpty()) { "default" } else { s }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for manual isEmpty check")
+	}
+}
+
+func TestUseIfEmptyOrIfBlank_Negative(t *testing.T) {
+	findings := runRuleByName(t, "UseIfEmptyOrIfBlank", `
+package test
+fun foo(s: String): String {
+    return s.ifEmpty { "default" }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestExplicitCollectionElementAccessMethod_Positive(t *testing.T) {
+	findings := runRuleByName(t, "ExplicitCollectionElementAccessMethod", `
+package test
+fun foo(map: Map<String, Int>) {
+    val v = map.get("key")
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for explicit .get() call")
+	}
+}
+
+func TestExplicitCollectionElementAccessMethod_Negative(t *testing.T) {
+	findings := runRuleByName(t, "ExplicitCollectionElementAccessMethod", `
+package test
+fun foo(map: Map<String, Int>) {
+    val v = map["key"]
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestAlsoCouldBeApply_Positive(t *testing.T) {
+	findings := runRuleByName(t, "AlsoCouldBeApply", `
+package test
+fun foo() {
+    val x = StringBuilder().also {
+        it.append("hello")
+        it.append(" world")
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for also with multiple it. references")
+	}
+}
+
+func TestAlsoCouldBeApply_Negative(t *testing.T) {
+	findings := runRuleByName(t, "AlsoCouldBeApply", `
+package test
+fun foo() {
+    val x = StringBuilder().apply {
+        append("hello")
+        append(" world")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEqualsNullCall_Positive(t *testing.T) {
+	findings := runRuleByName(t, "EqualsNullCall", `
+package test
+fun foo(x: String?) {
+    if (x.equals(null)) println("null")
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for .equals(null)")
+	}
+}
+
+func TestEqualsNullCall_Negative(t *testing.T) {
+	findings := runRuleByName(t, "EqualsNullCall", `
+package test
+fun foo(x: String?) {
+    if (x == null) println("null")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "krit": {
+      "command": "go",
+      "args": ["run", "./cmd/krit-mcp/"],
+      "cwd": "."
+    }
+  }
+}

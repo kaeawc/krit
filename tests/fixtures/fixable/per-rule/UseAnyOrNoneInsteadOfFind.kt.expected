@@ -1,0 +1,17 @@
+package fixtures.positive.style
+
+fun hasPositive(list: List<Int>): Boolean {
+    return list.any { it > 0 }
+}
+
+fun noPositive(list: List<Int>): Boolean {
+    return list.none { it > 0 }
+}
+
+fun hasFirst(list: List<Int>): Boolean {
+    return list.any { it > 0 }
+}
+
+fun noLast(list: List<Int>): Boolean {
+    return list.none { it > 0 }
+}

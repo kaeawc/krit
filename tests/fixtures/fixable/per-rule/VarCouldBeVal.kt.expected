@@ -1,0 +1,11 @@
+package fixtures.positive.style
+
+fun compute() {
+    val x = 1
+    println(x)
+}
+
+class Holder {
+    private val unused = 42
+    fun read() = unused
+}

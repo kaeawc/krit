@@ -1,0 +1,112 @@
+# Profile: relaxed
+#
+# Large-codebase friendly. Disables the noisy opinionated rules and
+# raises every threshold so that an established project can adopt krit
+# without drowning in findings. Correctness rules (potential-bugs,
+# coroutines, exceptions) stay on.
+#
+# This profile is merged on top of `config/default-krit.yml` by
+# `LoadAndMerge` — unlisted rules keep their default state.
+#
+# Use when: onboarding a legacy codebase, or a team that considers most
+# style/complexity warnings churn rather than signal.
+
+config:
+  validation: true
+  warningsAsErrors: false
+
+complexity:
+  active: true
+  # Raise every threshold. Large codebases routinely exceed krit defaults.
+  ComplexCondition:
+    active: true
+    allowedConditions: 5
+  CyclomaticComplexMethod:
+    active: true
+    allowedComplexity: 20
+  LargeClass:
+    active: true
+    allowedLines: 1000
+  LongMethod:
+    active: true
+    allowedLines: 100
+  LongParameterList:
+    active: true
+    allowedFunctionParameters: 12
+    allowedConstructorParameters: 15
+  NestedBlockDepth:
+    active: true
+    allowedDepth: 5
+  TooManyFunctions:
+    active: true
+    allowedFunctionsPerFile: 25
+    allowedFunctionsPerClass: 25
+    allowedFunctionsPerInterface: 25
+    allowedFunctionsPerObject: 25
+    allowedFunctionsPerEnum: 25
+
+coroutines:
+  active: true
+  # Core safety kept on; relax the pedantic ones.
+  RedundantSuspendModifier:
+    active: false
+
+potential-bugs:
+  active: true
+  # The !! operator and unsafe casts are idiomatic in large Kotlin
+  # codebases. Keep the rest of potential-bugs on.
+  UnsafeCallOnNullableType:
+    active: false
+  MapGetWithNotNullAssertionOperator:
+    active: false
+  UnsafeCast:
+    active: false
+
+naming:
+  active: true
+  # Shadowing is common in DSLs / builders.
+  NoNameShadowing:
+    active: false
+
+performance:
+  active: true
+  # Spread is common in test factories.
+  SpreadOperator:
+    active: false
+
+style:
+  active: true
+  # The top-offending noise rules across detekt audit runs.
+  MagicNumber:
+    active: false
+  MaxLineLength:
+    active: true
+    maxLineLength: 140
+  ReturnCount:
+    active: true
+    max: 5
+  ThrowsCount:
+    active: true
+    max: 4
+  DestructuringDeclarationWithTooManyEntries:
+    active: true
+    maxDestructuringEntries: 5
+  ForbiddenComment:
+    active: false
+  LoopWithTooManyJumpStatements:
+    active: true
+    maxJumpCount: 5
+  WildcardImport:
+    active: false
+  UnusedParameter:
+    active: false
+  UnusedPrivateProperty:
+    active: false
+  UnusedVariable:
+    active: false
+  FunctionOnlyReturningConstant:
+    active: false
+  ExplicitItLambdaParameter:
+    active: false
+  ExplicitItLambdaMultipleParameters:
+    active: false

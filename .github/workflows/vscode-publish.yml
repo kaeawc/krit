@@ -1,0 +1,27 @@
+name: Publish VS Code Extension
+on:
+  release:
+    types: [published]
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: cd editors/vscode && npm install
+      - name: Compile extension
+        run: cd editors/vscode && npm run compile
+      - name: Package VSIX
+        run: cd editors/vscode && npx @vscode/vsce package
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: krit-lint.vsix
+          path: editors/vscode/*.vsix
+      - name: Publish to VS Code Marketplace
+        run: cd editors/vscode && npx @vscode/vsce publish
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}

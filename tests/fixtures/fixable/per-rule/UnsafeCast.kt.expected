@@ -1,0 +1,7 @@
+package potentialbugs
+
+class UnsafeCast {
+    fun example(x: Any): String {
+        return x as? String
+    }
+}

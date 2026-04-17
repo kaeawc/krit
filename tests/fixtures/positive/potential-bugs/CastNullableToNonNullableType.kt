@@ -1,0 +1,10 @@
+package potentialbugs
+
+class Example {
+    fun process() {
+        val result = getValue() as String
+        println(result)
+    }
+
+    private fun getValue(): String? = null
+}

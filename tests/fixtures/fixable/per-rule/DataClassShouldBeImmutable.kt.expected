@@ -1,0 +1,5 @@
+package style
+
+data class MutableUser(val name: String, val age: Int)
+
+data class PartiallyMutable(val id: Int, val status: String)

@@ -1,0 +1,31 @@
+package fixtures.positive.style
+
+fun check(x: String?) {
+    if (x.isNullOrEmpty()) {
+        println("nothing")
+    }
+}
+
+fun checkCountZero(x: List<Int>?) {
+    if (x.isNullOrEmpty()) {
+        println("empty")
+    }
+}
+
+fun checkSizeZero(x: List<Int>?) {
+    if (x.isNullOrEmpty()) {
+        println("empty")
+    }
+}
+
+fun checkLengthZero(x: String?) {
+    if (x.isNullOrEmpty()) {
+        println("empty")
+    }
+}
+
+fun checkEmptyString(x: String?) {
+    if (x.isNullOrEmpty()) {
+        println("empty")
+    }
+}

@@ -1,0 +1,354 @@
+package rules
+
+import (
+	"strings"
+
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+func flatCallExpressionParts(file *scanner.File, idx uint32) (navExpr uint32, args uint32) {
+	if file == nil || file.FlatType(idx) != "call_expression" {
+		return 0, 0
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		switch file.FlatType(child) {
+		case "navigation_expression":
+			navExpr = child
+		case "value_arguments":
+			args = child
+		case "call_suffix":
+			if args == 0 {
+				args = file.FlatFindChild(child, "value_arguments")
+			}
+		}
+	}
+	return navExpr, args
+}
+
+func flatNavigationExpressionLastIdentifier(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 {
+		return ""
+	}
+	last := ""
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		switch file.FlatType(child) {
+		case "navigation_suffix":
+			for gc := file.FlatFirstChild(child); gc != 0; gc = file.FlatNextSib(gc) {
+				if file.FlatIsNamed(gc) && file.FlatType(gc) == "simple_identifier" {
+					last = file.FlatNodeString(gc, nil)
+				}
+			}
+		case "simple_identifier":
+			last = file.FlatNodeString(child, nil)
+		}
+	}
+	return last
+}
+
+func flatCallExpressionName(file *scanner.File, idx uint32) string {
+	if file == nil || file.FlatType(idx) != "call_expression" {
+		return ""
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "simple_identifier":
+			return file.FlatNodeString(child, nil)
+		case "navigation_expression":
+			if name := flatNavigationExpressionLastIdentifier(file, child); name != "" {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+// flatCallNameAny returns the method name of a call_expression whether the
+// call uses the direct form (`name(args)`, `name { body }`) or the
+// trailing-lambda idiom where tree-sitter nests the arg-ful call under an
+// outer call_expression (`name(args) { body }` → outer call whose first
+// child is the inner `name(args)` call_expression).
+func flatCallNameAny(file *scanner.File, idx uint32) string {
+	if name := flatCallExpressionName(file, idx); name != "" {
+		return name
+	}
+	// Trailing-lambda outer call: recurse into a nested inner call_expression.
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "call_expression" {
+			return flatCallExpressionName(file, child)
+		}
+	}
+	return ""
+}
+
+// flatCallTrailingLambda returns the lambda_literal idx of the trailing
+// lambda attached to a call_expression, or 0. Handles both `name { body }`
+// and `name(args) { body }`.
+func flatCallTrailingLambda(file *scanner.File, idx uint32) uint32 {
+	if file == nil || file.FlatType(idx) != "call_expression" {
+		return 0
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "call_suffix" {
+			continue
+		}
+		for sub := file.FlatFirstChild(child); sub != 0; sub = file.FlatNextSib(sub) {
+			switch file.FlatType(sub) {
+			case "annotated_lambda":
+				if lit := file.FlatFindChild(sub, "lambda_literal"); lit != 0 {
+					return lit
+				}
+			case "lambda_literal":
+				return sub
+			}
+		}
+	}
+	return 0
+}
+
+// flatCallKeyArguments returns the value_arguments idx of a call_expression
+// — the positional/named argument list — or 0 if the call has no arguments.
+// Handles both direct calls and trailing-lambda outer calls (where the args
+// live on the nested inner call).
+func flatCallKeyArguments(file *scanner.File, idx uint32) uint32 {
+	if file == nil || file.FlatType(idx) != "call_expression" {
+		return 0
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "call_suffix":
+			if va := file.FlatFindChild(child, "value_arguments"); va != 0 {
+				return va
+			}
+		case "call_expression":
+			// Trailing-lambda idiom: the args live on the nested inner call.
+			if suffix := file.FlatFindChild(child, "call_suffix"); suffix != 0 {
+				if va := file.FlatFindChild(suffix, "value_arguments"); va != 0 {
+					return va
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// flatFunctionParameterNames returns the simple_identifier names of every
+// parameter in a function_declaration's function_value_parameters block.
+func flatFunctionParameterNames(file *scanner.File, funcDecl uint32) []string {
+	if file == nil || file.FlatType(funcDecl) != "function_declaration" {
+		return nil
+	}
+	params := file.FlatFindChild(funcDecl, "function_value_parameters")
+	if params == 0 {
+		return nil
+	}
+	var names []string
+	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "parameter" {
+			continue
+		}
+		if ident := file.FlatFindChild(child, "simple_identifier"); ident != 0 {
+			names = append(names, file.FlatNodeString(ident, nil))
+		}
+	}
+	return names
+}
+
+func flatReceiverNameFromCall(file *scanner.File, idx uint32) string {
+	navExpr, _ := flatCallExpressionParts(file, idx)
+	if navExpr == 0 || file.FlatNamedChildCount(navExpr) == 0 {
+		return ""
+	}
+	first := file.FlatNamedChild(navExpr, 0)
+	switch file.FlatType(first) {
+	case "simple_identifier":
+		return file.FlatNodeString(first, nil)
+	case "navigation_expression":
+		return flatNavigationExpressionLastIdentifier(file, first)
+	default:
+		return ""
+	}
+}
+
+func flatEnclosingAncestor(file *scanner.File, idx uint32, types ...string) (uint32, bool) {
+	if file == nil || len(types) == 0 {
+		return 0, false
+	}
+	wants := make(map[string]struct{}, len(types))
+	for _, t := range types {
+		wants[t] = struct{}{}
+	}
+	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
+		if _, ok := wants[file.FlatType(current)]; ok {
+			return current, true
+		}
+	}
+	return 0, false
+}
+
+func flatEnclosingFunction(file *scanner.File, idx uint32) (uint32, bool) {
+	return flatEnclosingAncestor(file, idx, "function_declaration")
+}
+
+func flatNamedValueArgument(file *scanner.File, args uint32, name string) uint32 {
+	if file == nil || args == 0 {
+		return 0
+	}
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		if flatValueArgumentLabel(file, arg) == name {
+			return arg
+		}
+	}
+	return 0
+}
+
+func flatPositionalValueArgument(file *scanner.File, args uint32, index int) uint32 {
+	if file == nil || args == 0 || index < 0 {
+		return 0
+	}
+	current := 0
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		if flatHasValueArgumentLabel(file, arg) {
+			continue
+		}
+		if current == index {
+			return arg
+		}
+		current++
+	}
+	return 0
+}
+
+func flatLastNamedChild(file *scanner.File, idx uint32) uint32 {
+	if file == nil || idx == 0 || file.FlatNamedChildCount(idx) == 0 {
+		return 0
+	}
+	return file.FlatNamedChild(idx, file.FlatNamedChildCount(idx)-1)
+}
+
+func flatValueArgumentLabel(file *scanner.File, arg uint32) string {
+	if file == nil || arg == 0 {
+		return ""
+	}
+	for child := file.FlatFirstChild(arg); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "value_argument_label":
+			text := strings.TrimSpace(file.FlatNodeText(child))
+			return strings.TrimSuffix(text, "=")
+		case "simple_identifier":
+			if next, ok := file.FlatNextSibling(child); ok && file.FlatType(next) == "=" {
+				return file.FlatNodeString(child, nil)
+			}
+		}
+	}
+	return ""
+}
+
+func flatHasValueArgumentLabel(file *scanner.File, arg uint32) bool {
+	if file == nil || arg == 0 {
+		return false
+	}
+	for child := file.FlatFirstChild(arg); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "value_argument_label":
+			return true
+		case "simple_identifier":
+			if next, ok := file.FlatNextSibling(child); ok && file.FlatType(next) == "=" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func flatValueArgumentExpression(file *scanner.File, arg uint32) uint32 {
+	if file == nil || arg == 0 || file.FlatNamedChildCount(arg) == 0 {
+		return 0
+	}
+	return file.FlatNamedChild(arg, 0)
+}
+
+func flatContainsStringInterpolation(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(idx, func(candidate uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(candidate) {
+		case "interpolated_identifier", "interpolated_expression",
+			"line_string_expression", "multi_line_string_expression",
+			"line_str_ref", "multi_line_str_ref":
+			found = true
+		}
+	})
+	return found
+}
+
+func flatCallSuffixLambdaNode(file *scanner.File, suffix uint32) uint32 {
+	if file == nil || suffix == 0 {
+		return 0
+	}
+	if lambda := file.FlatFindChild(suffix, "annotated_lambda"); lambda != 0 {
+		if lit := file.FlatFindChild(lambda, "lambda_literal"); lit != 0 {
+			return lit
+		}
+		return lambda
+	}
+	if lambda := file.FlatFindChild(suffix, "lambda_literal"); lambda != 0 {
+		return lambda
+	}
+	return 0
+}
+
+func flatCallSuffixHasArgs(file *scanner.File, suffix uint32) bool {
+	if file == nil || suffix == 0 {
+		return false
+	}
+	args := file.FlatFindChild(suffix, "value_arguments")
+	return args != 0 && file.FlatNamedChildCount(args) > 0
+}
+
+func flatCallSuffixValueArgs(file *scanner.File, suffix uint32) uint32 {
+	if file == nil || suffix == 0 {
+		return 0
+	}
+	if args := file.FlatFindChild(suffix, "value_arguments"); args != 0 {
+		return args
+	}
+	return 0
+}
+
+func flatLastChildOfType(file *scanner.File, idx uint32, childType string) uint32 {
+	if file == nil || idx == 0 {
+		return 0
+	}
+	var last uint32
+	for i := 0; i < file.FlatChildCount(idx); i++ {
+		child := file.FlatChild(idx, i)
+		if file.FlatType(child) == childType {
+			last = child
+		}
+	}
+	return last
+}
+
+func flatUnwrapParenExpr(file *scanner.File, idx uint32) uint32 {
+	for idx != 0 && file.FlatType(idx) == "parenthesized_expression" && file.FlatNamedChildCount(idx) > 0 {
+		idx = file.FlatNamedChild(idx, 0)
+	}
+	return idx
+}

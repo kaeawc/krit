@@ -1,0 +1,8 @@
+package fixtures.positive.potentialbugs
+
+class DoubleMutabilityForCollection {
+    fun example() {
+        val list = mutableListOf<String>()
+        list.add("hello")
+    }
+}

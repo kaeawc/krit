@@ -1,0 +1,16 @@
+package fixtures.positive.style
+
+data class Config(var name: String = "", var version: String = "")
+
+fun setup(): Config {
+    val config = Config()
+    config
+    return config
+}
+
+fun externalOnly(): Config {
+    val config = Config()
+    val x = "hello"
+    config
+    return config
+}

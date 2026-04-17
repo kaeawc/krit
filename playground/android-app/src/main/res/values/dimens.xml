@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- px values that should be dp -->
+    <dimen name="padding_small">8px</dimen>
+    <dimen name="padding_medium">16px</dimen>
+    <dimen name="padding_large">24px</dimen>
+    <dimen name="text_size_title">24sp</dimen>
+    <dimen name="text_size_body">16sp</dimen>
+    <dimen name="icon_size">48px</dimen>
+    <dimen name="button_height">48dp</dimen>
+    <dimen name="margin_default">16dp</dimen>
+    <dimen name="divider_height">1px</dimen>
+    <dimen name="avatar_size">40px</dimen>
+</resources>

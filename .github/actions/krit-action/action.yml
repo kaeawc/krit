@@ -1,0 +1,154 @@
+name: "Krit Kotlin Analyzer"
+description: "Run krit static analysis on Kotlin code with PR annotations and SARIF upload"
+author: "kaeawc"
+branding:
+  icon: "wind"
+  color: "blue"
+
+inputs:
+  version:
+    description: "Krit version to use (e.g., v0.2.0). Use 'latest' for most recent release."
+    required: false
+    default: "latest"
+  args:
+    description: "Additional arguments passed to the krit CLI"
+    required: false
+    default: ""
+  config:
+    description: "Path to krit.yml configuration file"
+    required: false
+    default: ""
+  paths:
+    description: "Space-separated paths to scan"
+    required: false
+    default: "."
+  reporter:
+    description: "How to report findings: github-annotations, sarif, none"
+    required: false
+    default: "github-annotations"
+  sarif-upload:
+    description: "Upload SARIF results to GitHub Code Scanning (requires reporter=sarif or github-annotations)"
+    required: false
+    default: "true"
+  fail-on-findings:
+    description: "Set step exit code to 1 when findings exist"
+    required: false
+    default: "true"
+  diff:
+    description: "Only report findings on lines changed since this git ref (e.g., origin/main). Empty = check all lines."
+    required: false
+    default: ""
+  cache:
+    description: "Cache the krit binary between runs"
+    required: false
+    default: "true"
+  cache-analysis:
+    description: "Cache krit incremental analysis data between runs"
+    required: false
+    default: "true"
+  github-token:
+    description: "GitHub token for SARIF upload"
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  findings-count:
+    description: "Total number of findings"
+    value: ${{ steps.run-krit.outputs.findings-count }}
+  sarif-file:
+    description: "Path to SARIF output file"
+    value: ${{ steps.run-krit.outputs.sarif-file }}
+  exit-code:
+    description: "Raw exit code from krit"
+    value: ${{ steps.run-krit.outputs.exit-code }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Resolve krit version
+      id: resolve-version
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        if [ "$VERSION" = "latest" ]; then
+          VERSION=$(curl -sL \
+            -H "Authorization: Bearer ${{ inputs.github-token }}" \
+            "https://api.github.com/repos/kaeawc/krit/releases/latest" \
+            | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+        fi
+        # Strip leading v for download URL
+        VERSION_BARE="${VERSION#v}"
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "version-bare=$VERSION_BARE" >> "$GITHUB_OUTPUT"
+
+        # Determine OS and arch for download
+        OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        ARCH="$(uname -m)"
+        case "$ARCH" in
+          x86_64)  ARCH="amd64" ;;
+          aarch64) ARCH="arm64" ;;
+          arm64)   ARCH="arm64" ;;
+        esac
+        echo "os=$OS" >> "$GITHUB_OUTPUT"
+        echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
+
+    - name: Restore krit binary cache
+      if: inputs.cache == 'true'
+      id: cache-binary
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.tool_cache }}/krit/${{ steps.resolve-version.outputs.version }}
+        key: krit-${{ steps.resolve-version.outputs.os }}-${{ steps.resolve-version.outputs.arch }}-${{ steps.resolve-version.outputs.version }}
+
+    - name: Download krit
+      if: steps.cache-binary.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        KRIT_VERSION_BARE: ${{ steps.resolve-version.outputs.version-bare }}
+        KRIT_OS: ${{ steps.resolve-version.outputs.os }}
+        KRIT_ARCH: ${{ steps.resolve-version.outputs.arch }}
+        KRIT_TAG: ${{ steps.resolve-version.outputs.version }}
+        KRIT_INSTALL_DIR: ${{ runner.tool_cache }}/krit/${{ steps.resolve-version.outputs.version }}
+      run: bash ${{ github.action_path }}/../../../scripts/download-krit.sh
+
+    - name: Add krit to PATH
+      shell: bash
+      run: |
+        INSTALL_DIR="${{ runner.tool_cache }}/krit/${{ steps.resolve-version.outputs.version }}"
+        echo "$INSTALL_DIR" >> "$GITHUB_PATH"
+        echo "Krit $(krit --version 2>/dev/null || ${INSTALL_DIR}/krit --version)"
+
+    - name: Restore analysis cache
+      if: inputs.cache-analysis == 'true'
+      uses: actions/cache@v4
+      with:
+        path: .krit-cache
+        key: krit-analysis-${{ hashFiles('**/*.kt', '**/*.kts') }}
+        restore-keys: |
+          krit-analysis-
+
+    - name: Register problem matcher
+      shell: bash
+      run: echo "::add-matcher::${{ github.action_path }}/problem-matcher.json"
+
+    - name: Run krit
+      id: run-krit
+      shell: bash
+      env:
+        KRIT_CONFIG: ${{ inputs.config }}
+        KRIT_CACHE_ANALYSIS: ${{ inputs.cache-analysis }}
+        KRIT_REPORTER: ${{ inputs.reporter }}
+        KRIT_SARIF_FILE: ${{ runner.temp }}/krit-results.sarif
+        KRIT_EXTRA_ARGS: ${{ inputs.args }}
+        KRIT_PATHS: ${{ inputs.paths }}
+        KRIT_SARIF_UPLOAD: ${{ inputs.sarif-upload }}
+        KRIT_FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+        KRIT_DIFF: ${{ inputs.diff }}
+      run: bash ${{ github.action_path }}/../../../scripts/run-krit-action.sh
+
+    - name: Upload SARIF to Code Scanning
+      if: inputs.sarif-upload == 'true' && (inputs.reporter == 'sarif' || inputs.reporter == 'github-annotations') && always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.run-krit.outputs.sarif-file }}
+        category: krit

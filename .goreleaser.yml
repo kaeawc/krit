@@ -1,0 +1,93 @@
+version: 2
+project_name: krit
+before:
+  hooks:
+    - go mod tidy
+    - go vet ./...
+builds:
+  - id: krit
+    main: ./cmd/krit
+    binary: krit
+    env: [CGO_ENABLED=1]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+  - id: krit-lsp
+    main: ./cmd/krit-lsp
+    binary: krit-lsp
+    env: [CGO_ENABLED=1]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+  - id: krit-mcp
+    main: ./cmd/krit-mcp
+    binary: krit-mcp
+    env: [CGO_ENABLED=1]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+archives:
+  - id: default
+    builds: [krit, krit-lsp, krit-mcp]
+    format_overrides:
+      - goos: windows
+        format: zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+checksum:
+  name_template: 'checksums.txt'
+signs:
+  - artifacts: checksum
+    args:
+      - "--batch"
+      - "--local-user"
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - "--output"
+      - "${signature}"
+      - "--detach-sign"
+      - "${artifact}"
+sboms:
+  - artifacts: archive
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+brews:
+  - repository:
+      owner: kaeawc
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/kaeawc/krit"
+    description: "Fast Kotlin static analysis powered by tree-sitter"
+    license: "MIT"
+    install: |
+      bin.install "krit"
+      bin.install "krit-lsp"
+    test: |
+      system "#{bin}/krit", "--version"
+scoops:
+  - repository:
+      owner: kaeawc
+      name: scoop-krit
+      token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
+    homepage: "https://github.com/kaeawc/krit"
+    description: "Fast Kotlin static analysis powered by tree-sitter"
+    license: "MIT"
+release:
+  github:
+    owner: kaeawc
+    name: krit

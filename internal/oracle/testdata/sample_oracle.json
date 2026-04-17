@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "kotlinVersion": "2.1.0",
+  "files": {
+    "src/main/kotlin/com/example/App.kt": {
+      "package": "com.example",
+      "declarations": [
+        {
+          "fqn": "com.example.App",
+          "kind": "class",
+          "supertypes": ["android.app.Application"],
+          "isSealed": false,
+          "isData": false,
+          "isOpen": false,
+          "isAbstract": false,
+          "visibility": "public",
+          "annotations": ["javax.inject.Singleton"],
+          "members": [
+            {
+              "name": "onCreate",
+              "kind": "function",
+              "returnType": "kotlin.Unit",
+              "nullable": false,
+              "visibility": "public",
+              "isOverride": true,
+              "annotations": ["androidx.annotation.CallSuper"]
+            }
+          ]
+        }
+      ],
+      "expressions": {
+        "10:5": {"type": "kotlin.String", "nullable": false, "callTarget": "kotlin.text.lowercase"},
+        "12:9": {"type": "kotlin.Int", "nullable": false},
+        "15:3": {"type": "android.app.Application", "nullable": true}
+      }
+    }
+  },
+  "dependencies": {
+    "android.app.Application": {
+      "fqn": "android.app.Application",
+      "kind": "class",
+      "supertypes": ["android.content.ContextWrapper"],
+      "isSealed": false,
+      "isData": false,
+      "isOpen": true,
+      "isAbstract": false,
+      "visibility": "public",
+      "members": [
+        {
+          "name": "onCreate",
+          "kind": "function",
+          "returnType": "kotlin.Unit",
+          "nullable": false,
+          "visibility": "public"
+        }
+      ]
+    },
+    "android.content.ContextWrapper": {
+      "fqn": "android.content.ContextWrapper",
+      "kind": "class",
+      "supertypes": ["android.content.Context"],
+      "isSealed": false,
+      "isData": false,
+      "isOpen": true,
+      "isAbstract": false,
+      "visibility": "public"
+    },
+    "android.content.Context": {
+      "fqn": "android.content.Context",
+      "kind": "class",
+      "supertypes": ["kotlin.Any"],
+      "isSealed": false,
+      "isData": false,
+      "isOpen": false,
+      "isAbstract": true,
+      "visibility": "public"
+    },
+    "retrofit2.Response": {
+      "fqn": "retrofit2.Response",
+      "kind": "class",
+      "supertypes": ["kotlin.Any"],
+      "isSealed": false,
+      "isData": false,
+      "isOpen": false,
+      "isAbstract": false,
+      "visibility": "public",
+      "typeParameters": ["T"],
+      "members": [
+        {
+          "name": "body",
+          "kind": "function",
+          "returnType": "T",
+          "nullable": true,
+          "visibility": "public"
+        },
+        {
+          "name": "isSuccessful",
+          "kind": "property",
+          "returnType": "kotlin.Boolean",
+          "nullable": false,
+          "visibility": "public"
+        }
+      ]
+    },
+    "java.io.IOException": {
+      "fqn": "java.io.IOException",
+      "kind": "class",
+      "supertypes": ["java.lang.Exception"],
+      "isSealed": false,
+      "isData": false,
+      "isOpen": true,
+      "isAbstract": false,
+      "visibility": "public"
+    },
+    "java.lang.Exception": {
+      "fqn": "java.lang.Exception",
+      "kind": "class",
+      "supertypes": ["java.lang.Throwable"],
+      "isSealed": false,
+      "isData": false,
+      "isOpen": true,
+      "isAbstract": false,
+      "visibility": "public"
+    },
+    "java.lang.Throwable": {
+      "fqn": "java.lang.Throwable",
+      "kind": "class",
+      "supertypes": ["kotlin.Any"],
+      "isSealed": false,
+      "isData": false,
+      "isOpen": true,
+      "isAbstract": false,
+      "visibility": "public"
+    },
+    "com.example.NetworkResult": {
+      "fqn": "com.example.NetworkResult",
+      "kind": "sealed class",
+      "supertypes": ["kotlin.Any"],
+      "isSealed": true,
+      "isData": false,
+      "isOpen": false,
+      "isAbstract": false,
+      "visibility": "public"
+    },
+    "com.example.NetworkResult.Success": {
+      "fqn": "com.example.NetworkResult.Success",
+      "kind": "class",
+      "supertypes": ["com.example.NetworkResult"],
+      "isSealed": false,
+      "isData": true,
+      "isOpen": false,
+      "isAbstract": false,
+      "visibility": "public"
+    },
+    "com.example.NetworkResult.Error": {
+      "fqn": "com.example.NetworkResult.Error",
+      "kind": "class",
+      "supertypes": ["com.example.NetworkResult"],
+      "isSealed": false,
+      "isData": true,
+      "isOpen": false,
+      "isAbstract": false,
+      "visibility": "public"
+    }
+  }
+}

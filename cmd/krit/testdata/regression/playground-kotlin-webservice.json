@@ -1,0 +1,470 @@
+{
+  "project": "../../playground/kotlin-webservice/",
+  "findings_count": 58,
+  "findings": [
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/Application.kt",
+      "line": 3,
+      "col": 0,
+      "message": "Wildcard import 'io.ktor.server.application.*' should be replaced with explicit imports."
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/Application.kt",
+      "line": 4,
+      "col": 0,
+      "message": "Wildcard import 'io.ktor.server.engine.*' should be replaced with explicit imports."
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/Application.kt",
+      "line": 5,
+      "col": 0,
+      "message": "Wildcard import 'io.ktor.server.netty.*' should be replaced with explicit imports."
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/Application.kt",
+      "line": 6,
+      "col": 0,
+      "message": "Wildcard import 'io.ktor.server.routing.*' should be replaced with explicit imports."
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/routes/UserRoutes.kt",
+      "line": 4,
+      "col": 0,
+      "message": "Wildcard import 'io.ktor.server.application.*' should be replaced with explicit imports."
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/routes/UserRoutes.kt",
+      "line": 5,
+      "col": 0,
+      "message": "Wildcard import 'io.ktor.server.request.*' should be replaced with explicit imports."
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/routes/UserRoutes.kt",
+      "line": 6,
+      "col": 0,
+      "message": "Wildcard import 'io.ktor.server.response.*' should be replaced with explicit imports."
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/routes/UserRoutes.kt",
+      "line": 7,
+      "col": 0,
+      "message": "Wildcard import 'io.ktor.server.routing.*' should be replaced with explicit imports."
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/routes/UserRoutes.kt",
+      "line": 8,
+      "col": 0,
+      "message": "Wildcard import 'io.ktor.http.*' should be replaced with explicit imports."
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/routes/UserRoutes.kt",
+      "line": 9,
+      "col": 0,
+      "message": "Wildcard import 'com.example.models.*' should be replaced with explicit imports."
+    },
+    {
+      "rule": "WildcardImport",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/routes/UserRoutes.kt",
+      "line": 10,
+      "col": 0,
+      "message": "Wildcard import 'com.example.services.*' should be replaced with explicit imports."
+    },
+    {
+      "rule": "EmptyFunctionBlock",
+      "ruleSet": "empty-blocks",
+      "file": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 14,
+      "col": 0,
+      "message": "Empty function body detected."
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 18,
+      "col": 0,
+      "message": "Parameter 'format' is unused."
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 37,
+      "col": 0,
+      "message": "Parameter 'outputPath' is unused."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 44,
+      "col": 0,
+      "message": "Magic number '999'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 73,
+      "col": 0,
+      "message": "Magic number '18'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "TooGenericExceptionCaught",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 110,
+      "col": 0,
+      "message": "Caught too-generic exception type 'Exception'."
+    },
+    {
+      "rule": "EmptyCatchBlock",
+      "ruleSet": "empty-blocks",
+      "file": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 119,
+      "col": 0,
+      "message": "Empty catch block detected. Empty catch blocks should be avoided."
+    },
+    {
+      "rule": "ReturnFromFinally",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 129,
+      "col": 0,
+      "message": "Return from finally block. This can swallow exceptions from try/catch."
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 7,
+      "col": 0,
+      "message": "Object property 'API_VERSION' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "HardcodedLocalhostUrl",
+      "ruleSet": "release-engineering",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 8,
+      "col": 0,
+      "message": "Hardcoded localhost URL in production source; use a build config or environment variable."
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 8,
+      "col": 0,
+      "message": "Object property 'BASE_URL' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 9,
+      "col": 0,
+      "message": "Object property 'DEFAULT_PAGE_SIZE' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 10,
+      "col": 0,
+      "message": "Object property 'MAX_PAGE_SIZE' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 11,
+      "col": 0,
+      "message": "Object property 'MIN_PASSWORD_LENGTH' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 12,
+      "col": 0,
+      "message": "Object property 'MAX_PASSWORD_LENGTH' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 13,
+      "col": 0,
+      "message": "Object property 'SESSION_TIMEOUT_SECONDS' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 14,
+      "col": 0,
+      "message": "Object property 'RATE_LIMIT_PER_MINUTE' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 15,
+      "col": 0,
+      "message": "Object property 'MAX_RETRY_COUNT' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 16,
+      "col": 0,
+      "message": "Object property 'RETRY_DELAY_MS' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 17,
+      "col": 0,
+      "message": "Object property 'CONNECTION_TIMEOUT' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 18,
+      "col": 0,
+      "message": "Object property 'READ_TIMEOUT' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 19,
+      "col": 0,
+      "message": "Object property 'CACHE_TTL_SECONDS' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 22,
+      "col": 0,
+      "message": "Object property 'DATABASE_HOST' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 23,
+      "col": 0,
+      "message": "Object property 'DATABASE_PORT' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 24,
+      "col": 0,
+      "message": "Object property 'DATABASE_NAME' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 25,
+      "col": 0,
+      "message": "Object property 'DATABASE_USER' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 26,
+      "col": 0,
+      "message": "Object property 'DATABASE_PASSWORD' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 28,
+      "col": 0,
+      "message": "Object property 'JWT_SECRET' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 29,
+      "col": 0,
+      "message": "Object property 'JWT_EXPIRATION_HOURS' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 31,
+      "col": 0,
+      "message": "Object property 'SMTP_HOST' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 32,
+      "col": 0,
+      "message": "Object property 'SMTP_PORT' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 33,
+      "col": 0,
+      "message": "Object property 'SMTP_USER' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 35,
+      "col": 0,
+      "message": "Object property 'ERROR_NOT_FOUND' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 36,
+      "col": 0,
+      "message": "Object property 'ERROR_UNAUTHORIZED' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 37,
+      "col": 0,
+      "message": "Object property 'ERROR_BAD_REQUEST' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 38,
+      "col": 0,
+      "message": "Object property 'ERROR_INTERNAL' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 39,
+      "col": 0,
+      "message": "Object property 'ERROR_FORBIDDEN' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 41,
+      "col": 0,
+      "message": "Object property 'CONTENT_TYPE_JSON' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/Constants.kt",
+      "line": 42,
+      "col": 0,
+      "message": "Object property 'CONTENT_TYPE_XML' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "UtilityClassWithPublicConstructor",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 5,
+      "col": 0,
+      "message": "Utility class 'StringUtils' should have a private constructor."
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 9,
+      "col": 0,
+      "message": "Object property 'MAX_LENGTH' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "UnusedPrivateMember",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 9,
+      "col": 0,
+      "message": "Private member 'MAX_LENGTH' is never used."
+    },
+    {
+      "rule": "UnusedPrivateProperty",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 9,
+      "col": 0,
+      "message": "Private property 'MAX_LENGTH' is never used."
+    },
+    {
+      "rule": "ObjectPropertyNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 10,
+      "col": 0,
+      "message": "Object property 'TRUNCATE_SUFFIX_LENGTH' does not match pattern: ^[a-z][A-Za-z0-9]*$"
+    },
+    {
+      "rule": "UnusedPrivateMember",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 10,
+      "col": 0,
+      "message": "Private member 'TRUNCATE_SUFFIX_LENGTH' is never used."
+    },
+    {
+      "rule": "UnusedPrivateProperty",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 10,
+      "col": 0,
+      "message": "Private property 'TRUNCATE_SUFFIX_LENGTH' is never used."
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 35,
+      "col": 0,
+      "message": "Parameter 'locale' is unused."
+    }
+  ]
+}

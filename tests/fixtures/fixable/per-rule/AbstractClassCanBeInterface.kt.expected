@@ -1,0 +1,6 @@
+package style
+
+interface Foo {
+    fun bar()
+    fun baz(): Int
+}

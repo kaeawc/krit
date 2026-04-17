@@ -1,0 +1,609 @@
+package rules
+
+// Android Lint source-only rules: 13 checks that analyze Kotlin/Java source
+// using tree-sitter AST or line scanning. No XML infrastructure needed.
+//
+// Ported from AOSP Android Lint detectors:
+//   FragmentDetector, GetSignaturesDetector, JavaPerformance (SparseArray, ValueOf),
+//   LogDetector (LONG_TAG, WRONG_TAG), NonInternationalizedSmsDetector,
+//   ServiceCastDetector, ToastDetector, ViewConstructorDetector, ViewTagDetector,
+//   WrongImportDetector, LayoutInflationDetector.
+
+import (
+	"regexp"
+	"strings"
+
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+// =====================================================================
+// 1. FragmentConstructorRule
+// =====================================================================
+
+// FragmentConstructorRule flags Fragment subclasses that have non-default
+// (parameterized) constructors without a no-arg constructor. The Android
+// framework re-instantiates fragments via reflection using the no-arg ctor.
+type FragmentConstructorRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. This is an
+// Android-lint port from AOSP; the detection relies on source-text
+// patterns (call names, string literal contents, hardcoded allow-
+// lists of API names) rather than type resolution, so project-
+// specific wrapper APIs can cause false positives or negatives.
+// Classified per roadmap/17.
+func (r *FragmentConstructorRule) Confidence() float64 { return 0.75 }
+
+func (r *FragmentConstructorRule) NodeTypes() []string { return []string{"class_declaration"} }
+
+// fragmentSuperclasses covers common Fragment base classes.
+var fragmentSuperclasses = []string{
+	"Fragment", "DialogFragment", "ListFragment", "PreferenceFragment",
+	"PreferenceFragmentCompat", "BottomSheetDialogFragment",
+}
+
+func (r *FragmentConstructorRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+	// Skip abstract Fragment base classes — their constructors are
+	// invoked by concrete subclasses, not by the framework directly.
+	if file.FlatHasModifier(idx, "abstract") ||
+		file.FlatHasModifier(idx, "sealed") {
+		return nil
+	}
+	// Check delegation_specifier children for Fragment supertypes, using AST-based
+	// exact name matching (not substring). This avoids false positives from classes
+	// like FragmentStateAdapter or classes with Fragment-typed constructor parameters.
+	isFragment := false
+	for i := 0; i < file.FlatChildCount(idx); i++ {
+		child := file.FlatChild(idx, i)
+		if file.FlatType(child) != "delegation_specifier" {
+			continue
+		}
+		typeName := viewConstructorSupertypeNameFlat(file, child)
+		if typeName == "" {
+			continue
+		}
+		for _, base := range fragmentSuperclasses {
+			if typeName == base {
+				isFragment = true
+				break
+			}
+		}
+		if isFragment {
+			break
+		}
+	}
+	if !isFragment {
+		return nil
+	}
+
+	// Look for constructors in the class body
+	hasNoArgCtor := true // If no explicit constructor, Kotlin provides one
+	hasParamCtor := false
+
+	// Check primary constructor: class Foo(val x: Int) : Fragment()
+	// If class has primary constructor with parameters, check for defaults
+	for i := 0; i < file.FlatChildCount(idx); i++ {
+		child := file.FlatChild(idx, i)
+		if file.FlatType(child) == "primary_constructor" {
+			ctorText := file.FlatNodeText(child)
+			// Check if it has parameters (not just empty parens)
+			// Strip annotations, modifiers
+			paramStart := strings.Index(ctorText, "(")
+			if paramStart >= 0 {
+				paramBody := ctorText[paramStart+1:]
+				paramEnd := strings.LastIndex(paramBody, ")")
+				if paramEnd > 0 {
+					params := strings.TrimSpace(paramBody[:paramEnd])
+					if len(params) > 0 {
+						hasParamCtor = true
+						// If all params have defaults, that's OK
+						if allParamsHaveDefaults(params) {
+							hasNoArgCtor = true
+						} else {
+							hasNoArgCtor = false
+						}
+					}
+				}
+			}
+		}
+		if file.FlatType(child) == "class_body" {
+			bodyText := file.FlatNodeText(child)
+			// Look for secondary constructors
+			if strings.Contains(bodyText, "constructor()") || strings.Contains(bodyText, "constructor ()") {
+				hasNoArgCtor = true
+			}
+			if secondaryCtorRe.MatchString(bodyText) {
+				hasParamCtor = true
+			}
+		}
+	}
+
+	if hasParamCtor && !hasNoArgCtor {
+		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
+			"Fragment subclass must have a default (no-arg) constructor for framework re-instantiation.")}
+	}
+
+	return nil
+}
+
+var secondaryCtorRe = regexp.MustCompile(`constructor\s*\([^)]+\)`)
+
+// allParamsHaveDefaults checks if every parameter in the param list has a default value.
+func allParamsHaveDefaults(params string) bool {
+	// Split by comma, accounting for nested generics
+	depth := 0
+	start := 0
+	var parts []string
+	for i, c := range params {
+		switch c {
+		case '<', '(':
+			depth++
+		case '>', ')':
+			depth--
+		case ',':
+			if depth == 0 {
+				parts = append(parts, params[start:i])
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, params[start:])
+
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if len(p) == 0 {
+			continue
+		}
+		if !strings.Contains(p, "=") {
+			return false
+		}
+	}
+	return true
+}
+
+// =====================================================================
+// 2. GetSignaturesRule
+// =====================================================================
+
+// GetSignaturesRule flags use of the deprecated PackageManager.GET_SIGNATURES
+// constant. GET_SIGNING_CERTIFICATES should be used instead (API 28+).
+type GetSignaturesRule struct {
+	LineBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. This is an
+// Android-lint port from AOSP; the detection relies on source-text
+// patterns (call names, string literal contents, hardcoded allow-
+// lists of API names) rather than type resolution, so project-
+// specific wrapper APIs can cause false positives or negatives.
+// Classified per roadmap/17.
+func (r *GetSignaturesRule) Confidence() float64 { return 0.75 }
+
+func (r *GetSignaturesRule) CheckLines(file *scanner.File) []scanner.Finding {
+	var findings []scanner.Finding
+	for i, line := range file.Lines {
+		if strings.Contains(line, "GET_SIGNATURES") &&
+			!strings.Contains(line, "GET_SIGNING_CERTIFICATES") {
+			findings = append(findings, r.Finding(file, i+1, 1,
+				"GET_SIGNATURES is deprecated and can be spoofed. Use GET_SIGNING_CERTIFICATES (API 28+) instead."))
+		}
+	}
+	return findings
+}
+
+// =====================================================================
+// 3. SparseArrayRule
+// =====================================================================
+
+// SparseArrayRule flags HashMap<Integer, ...> / HashMap<Int, ...> usage where
+// SparseArray or SparseIntArray would be more efficient on Android.
+type SparseArrayRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. This is an
+// Android-lint port from AOSP; the detection relies on source-text
+// patterns (call names, string literal contents, hardcoded allow-
+// lists of API names) rather than type resolution, so project-
+// specific wrapper APIs can cause false positives or negatives.
+// Classified per roadmap/17.
+func (r *SparseArrayRule) Confidence() float64 { return 0.75 }
+
+func (r *SparseArrayRule) NodeTypes() []string { return []string{"call_expression"} }
+
+var sparseArrayRe = regexp.MustCompile(`(?:^|[^a-zA-Z])HashMap\s*<\s*(Int|Integer|Long)\s*,`)
+
+func (r *SparseArrayRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+	text := file.FlatNodeText(idx)
+	matches := sparseArrayRe.FindStringSubmatch(text)
+	if matches == nil {
+		return nil
+	}
+	keyType := matches[1]
+	suggestion := "SparseArray"
+	if keyType == "Long" {
+		suggestion = "LongSparseArray"
+	}
+	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
+		"Use "+suggestion+" instead of HashMap<"+keyType+", ...> for better performance on Android.")}
+}
+
+// =====================================================================
+// 4. UseValueOfRule
+// =====================================================================
+
+// UseValueOfRule flags direct constructor calls for boxed primitive types
+// (e.g., Integer(42), Boolean(true)) where valueOf() should be used instead
+// for object reuse.
+type UseValueOfRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. This is an
+// Android-lint port from AOSP; the detection relies on source-text
+// patterns (call names, string literal contents, hardcoded allow-
+// lists of API names) rather than type resolution, so project-
+// specific wrapper APIs can cause false positives or negatives.
+// Classified per roadmap/17.
+func (r *UseValueOfRule) Confidence() float64 { return 0.75 }
+
+func (r *UseValueOfRule) NodeTypes() []string { return []string{"call_expression"} }
+
+var valueOfRe = regexp.MustCompile(`\b(Integer|Long|Float|Double|Short|Byte|Boolean|Character)\s*\(`)
+var boxedPrimitiveConstructors = map[string]bool{
+	"Integer":   true,
+	"Long":      true,
+	"Float":     true,
+	"Double":    true,
+	"Short":     true,
+	"Byte":      true,
+	"Boolean":   true,
+	"Character": true,
+}
+
+func (r *UseValueOfRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+	first := file.FlatChild(idx, 0)
+	if first != 0 && file.FlatType(first) == "simple_identifier" {
+		typeName := file.FlatNodeText(first)
+		if !boxedPrimitiveConstructors[typeName] {
+			return nil
+		}
+		// Boxed primitive constructors take exactly 0 or 1 argument. Anything
+		// with 2+ args cannot be a boxed primitive — it's a user-defined type.
+		suffix := file.FlatFindChild(idx, "call_suffix")
+		if suffix != 0 {
+			args := file.FlatFindChild(suffix, "value_arguments")
+			if args != 0 {
+				argCount := 0
+				for i := 0; i < file.FlatChildCount(args); i++ {
+					if file.FlatType(file.FlatChild(args, i)) == "value_argument" {
+						argCount++
+					}
+				}
+				if argCount > 1 {
+					return nil
+				}
+			}
+		}
+		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
+			"Use "+typeName+".valueOf() instead of new "+typeName+"() constructor for better performance.")}
+	}
+
+	text := file.FlatNodeText(idx)
+	matches := valueOfRe.FindStringSubmatch(text)
+	if matches == nil {
+		return nil
+	}
+	typeName := matches[1]
+	// Don't flag when preceded by "class " or "fun " (declarations)
+	if strings.Contains(text, "class "+typeName) || strings.Contains(text, "fun "+typeName) {
+		return nil
+	}
+	// Don't flag type annotations like ": Integer"
+	callPos := strings.Index(text, typeName+"(")
+	if callPos > 0 {
+		prev := text[callPos-1]
+		if prev == ':' || prev == '<' {
+			return nil
+		}
+	}
+	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
+		"Use "+typeName+".valueOf() instead of new "+typeName+"() constructor for better performance.")}
+}
+
+// =====================================================================
+// 5. LogTagLengthRule (LogDetector.LONG_TAG)
+// =====================================================================
+
+// LogTagLengthRule flags Log.x() calls where the tag string literal exceeds
+// 23 characters (the maximum enforced by older Android versions).
+type LogTagLengthRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. This is an
+// Android-lint port from AOSP; the detection relies on source-text
+// patterns (call names, string literal contents, hardcoded allow-
+// lists of API names) rather than type resolution, so project-
+// specific wrapper APIs can cause false positives or negatives.
+// Classified per roadmap/17.
+func (r *LogTagLengthRule) Confidence() float64 { return 0.75 }
+
+func (r *LogTagLengthRule) NodeTypes() []string { return []string{"call_expression"} }
+
+var logTagLiteralRe = regexp.MustCompile(`\bLog\.[vdiwes]\s*\(\s*"([^"]*)"`)
+
+func (r *LogTagLengthRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+	text := file.FlatNodeText(idx)
+	matches := logTagLiteralRe.FindStringSubmatch(text)
+	if matches == nil {
+		return nil
+	}
+	tag := matches[1]
+	if len(tag) > 23 {
+		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
+			"Log tag \""+tag+"\" exceeds the 23 character limit.")}
+	}
+	return nil
+}
+
+// =====================================================================
+// 6. LogTagMismatchRule (LogDetector.WRONG_TAG)
+// =====================================================================
+
+// LogTagMismatchRule flags Log.x(TAG, ...) calls where the TAG companion
+// constant value doesn't match the enclosing class name.
+type LogTagMismatchRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. This is an
+// Android-lint port from AOSP; the detection relies on source-text
+// patterns (call names, string literal contents, hardcoded allow-
+// lists of API names) rather than type resolution, so project-
+// specific wrapper APIs can cause false positives or negatives.
+// Classified per roadmap/17.
+func (r *LogTagMismatchRule) Confidence() float64 { return 0.75 }
+
+func (r *LogTagMismatchRule) NodeTypes() []string { return []string{"class_declaration"} }
+
+var (
+	logTagRefRe = regexp.MustCompile(`\bLog\.[vdiwes]\s*\(\s*TAG\b`)
+	tagConstRe  = regexp.MustCompile(`(?:const\s+val|val)\s+TAG\s*(?::\s*String)?\s*=\s*"([^"]*)"`)
+	classNameRe = regexp.MustCompile(`(?:class|object)\s+(\w+)`)
+)
+
+func (r *LogTagMismatchRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+	if isTestFile(file.Path) {
+		return nil
+	}
+	// Get the class name from the AST (not regex) to avoid matching nested classes.
+	className := extractIdentifierFlat(file, idx)
+	if className == "" {
+		return nil
+	}
+
+	// Find TAG in this class's direct companion object only (skip nested classes).
+	tagValue := findDirectCompanionTagFlat(file, idx)
+	if tagValue == "" {
+		return nil
+	}
+
+	if tagValue == className {
+		return nil
+	}
+
+	// Allow intentional prefix truncation for Android's historic 23-char log tag limit.
+	if len(className) > 23 && strings.HasPrefix(className, tagValue) {
+		return nil
+	}
+
+	// Check if there are Log calls using TAG in this class
+	text := file.FlatNodeText(idx)
+	if !logTagRefRe.MatchString(text) {
+		return nil
+	}
+
+	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
+		"Log TAG value \""+tagValue+"\" doesn't match class name \""+className+"\".")}
+}
+
+// findDirectCompanionTag searches the direct children of a class_declaration
+// for a companion_object containing a TAG constant, returning its string value.
+// This avoids matching TAG constants defined in nested classes.
+func findDirectCompanionTagFlat(file *scanner.File, classNode uint32) string {
+	for i := 0; i < file.FlatChildCount(classNode); i++ {
+		child := file.FlatChild(classNode, i)
+		if file.FlatType(child) == "class_body" {
+			for j := 0; j < file.FlatChildCount(child); j++ {
+				member := file.FlatChild(child, j)
+				if file.FlatType(member) == "companion_object" {
+					companionText := file.FlatNodeText(member)
+					m := tagConstRe.FindStringSubmatch(companionText)
+					if m != nil {
+						return m[1]
+					}
+				}
+			}
+			break
+		}
+	}
+	return ""
+}
+
+// =====================================================================
+// 7. NonInternationalizedSmsRule
+// =====================================================================
+
+// NonInternationalizedSmsRule flags SmsManager.sendTextMessage() calls that
+// may not handle internationalization of phone numbers or message encoding.
+type NonInternationalizedSmsRule struct {
+	LineBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. This is an
+// Android-lint port from AOSP; the detection relies on source-text
+// patterns (call names, string literal contents, hardcoded allow-
+// lists of API names) rather than type resolution, so project-
+// specific wrapper APIs can cause false positives or negatives.
+// Classified per roadmap/17.
+func (r *NonInternationalizedSmsRule) Confidence() float64 { return 0.75 }
+
+func (r *NonInternationalizedSmsRule) CheckLines(file *scanner.File) []scanner.Finding {
+	var findings []scanner.Finding
+	for i, line := range file.Lines {
+		if strings.Contains(line, "sendTextMessage") || strings.Contains(line, "sendMultipartTextMessage") {
+			if strings.Contains(line, "SmsManager") || strings.Contains(line, "smsManager") {
+				findings = append(findings, r.Finding(file, i+1, 1,
+					"SMS sending may not handle internationalization of phone numbers properly."))
+			}
+		}
+	}
+	return findings
+}
+
+// =====================================================================
+// 8. ServiceCastRule
+// =====================================================================
+
+// ServiceCastRule flags getSystemService() calls cast to the wrong type.
+// For example, getSystemService(ALARM_SERVICE) as PowerManager.
+type ServiceCastRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. This is an
+// Android-lint port from AOSP; the detection relies on source-text
+// patterns (call names, string literal contents, hardcoded allow-
+// lists of API names) rather than type resolution, so project-
+// specific wrapper APIs can cause false positives or negatives.
+// Classified per roadmap/17.
+func (r *ServiceCastRule) Confidence() float64 { return 0.75 }
+
+func (r *ServiceCastRule) NodeTypes() []string { return []string{"as_expression"} }
+
+// serviceCastMap maps service constant names to their correct manager types.
+var serviceCastMap = map[string]string{
+	"ACCESSIBILITY_SERVICE":   "AccessibilityManager",
+	"ACCOUNT_SERVICE":         "AccountManager",
+	"ACTIVITY_SERVICE":        "ActivityManager",
+	"ALARM_SERVICE":           "AlarmManager",
+	"AUDIO_SERVICE":           "AudioManager",
+	"BATTERY_SERVICE":         "BatteryManager",
+	"BLUETOOTH_SERVICE":       "BluetoothManager",
+	"CAMERA_SERVICE":          "CameraManager",
+	"CLIPBOARD_SERVICE":       "ClipboardManager",
+	"CONNECTIVITY_SERVICE":    "ConnectivityManager",
+	"DEVICE_POLICY_SERVICE":   "DevicePolicyManager",
+	"DISPLAY_SERVICE":         "DisplayManager",
+	"DOWNLOAD_SERVICE":        "DownloadManager",
+	"INPUT_METHOD_SERVICE":    "InputMethodManager",
+	"JOB_SCHEDULER_SERVICE":   "JobScheduler",
+	"KEYGUARD_SERVICE":        "KeyguardManager",
+	"LAYOUT_INFLATER_SERVICE": "LayoutInflater",
+	"LOCATION_SERVICE":        "LocationManager",
+	"MEDIA_ROUTER_SERVICE":    "MediaRouter",
+	"NOTIFICATION_SERVICE":    "NotificationManager",
+	"NSD_SERVICE":             "NsdManager",
+	"POWER_SERVICE":           "PowerManager",
+	"SEARCH_SERVICE":          "SearchManager",
+	"SENSOR_SERVICE":          "SensorManager",
+	"STORAGE_SERVICE":         "StorageManager",
+	"TELECOM_SERVICE":         "TelecomManager",
+	"TELEPHONY_SERVICE":       "TelephonyManager",
+	"USB_SERVICE":             "UsbManager",
+	"VIBRATOR_SERVICE":        "Vibrator",
+	"WALLPAPER_SERVICE":       "WallpaperManager",
+	"WIFI_SERVICE":            "WifiManager",
+	"WINDOW_SERVICE":          "WindowManager",
+}
+
+var serviceCastRe = regexp.MustCompile(`getSystemService\s*\(\s*(?:\w+\.)?(\w+_SERVICE)\s*\)\s*(?:as\s+(\w+))`)
+
+func (r *ServiceCastRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+	text := file.FlatNodeText(idx)
+	matches := serviceCastRe.FindStringSubmatch(text)
+	if matches == nil {
+		return nil
+	}
+	svcConst := matches[1]
+	castType := matches[2]
+	expectedType, ok := serviceCastMap[svcConst]
+	if !ok {
+		return nil
+	}
+	if castType != expectedType {
+		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
+			"Service cast mismatch: "+svcConst+" should be cast to "+expectedType+", not "+castType+".")}
+	}
+	return nil
+}
+
+// =====================================================================
+// 9. ToastRule (ShowToast)
+// =====================================================================
+
+// ToastRule flags Toast.makeText() calls where .show() is never called
+// on the result. The Toast will not be displayed without show().
+type ToastRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. This is an
+// Android-lint port from AOSP; the detection relies on source-text
+// patterns (call names, string literal contents, hardcoded allow-
+// lists of API names) rather than type resolution, so project-
+// specific wrapper APIs can cause false positives or negatives.
+// Classified per roadmap/17.
+func (r *ToastRule) Confidence() float64 { return 0.75 }
+
+func (r *ToastRule) NodeTypes() []string { return []string{"call_expression"} }
+
+var toastMakeRe = regexp.MustCompile(`Toast\.makeText\s*\(`)
+
+func (r *ToastRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+	text := file.FlatNodeText(idx)
+	if !toastMakeRe.MatchString(text) {
+		return nil
+	}
+	// If .show() is chained in this expression or a parent call chain, it's fine
+	if strings.Contains(text, ".show()") {
+		return nil
+	}
+	// Walk up to see if .show() is chained on an enclosing expression
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		pt := file.FlatType(parent)
+		if pt == "call_expression" || pt == "navigation_expression" {
+			parentText := file.FlatNodeText(parent)
+			if strings.Contains(parentText, ".show()") {
+				return nil
+			}
+		}
+		if pt == "function_declaration" || pt == "source_file" {
+			break
+		}
+	}
+	// Also check subsequent lines within a small window for .show() on an assigned variable
+	line := file.FlatRow(idx)
+	for j := line + 1; j < len(file.Lines) && j < line+10; j++ {
+		if strings.Contains(file.Lines[j], ".show()") {
+			return nil
+		}
+		trimmed := strings.TrimSpace(file.Lines[j])
+		if strings.HasPrefix(trimmed, "fun ") || strings.HasPrefix(trimmed, "override fun ") {
+			break
+		}
+	}
+	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
+		"Toast.makeText() called without .show(). The toast will not be displayed.")}
+}

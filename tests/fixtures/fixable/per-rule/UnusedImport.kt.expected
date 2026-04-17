@@ -1,0 +1,7 @@
+package style
+
+import java.io.File
+
+fun example() {
+    val f = File("test.txt")
+}

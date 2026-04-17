@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "docs",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "mkdocs serve --dev-addr 127.0.0.1:${PORT:-8000} -f .claude/mkdocs-local.yml"],
+      "port": 8000
+    }
+  ]
+}

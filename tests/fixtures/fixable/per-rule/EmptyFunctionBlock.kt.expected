@@ -1,0 +1,5 @@
+package fixtures.positive.emptyblocks
+
+fun doNothing() {
+    TODO("Not yet implemented")
+}

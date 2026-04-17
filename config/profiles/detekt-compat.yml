@@ -1,0 +1,86 @@
+# Profile: detekt-compat
+#
+# Mirrors detekt's default rule surface as closely as krit's rule
+# catalog allows. Disables every krit-specific ruleset so teams
+# migrating from detekt see only findings detekt would have produced.
+#
+# Detekt parity is a best-effort target — krit has stricter AST
+# matching than detekt for some detekt-aligned rules, so finding
+# counts can differ even when the rule set is identical.
+#
+# This profile is merged on top of `config/default-krit.yml` by
+# `LoadAndMerge` — unlisted rules keep their default state.
+#
+# Use when: migrating from detekt and want finding-count parity as a
+# baseline before opting in to krit's native rulesets.
+
+config:
+  validation: true
+  warningsAsErrors: false
+
+# --- Detekt-aligned rulesets: match detekt's default thresholds ---
+
+complexity:
+  active: true
+  CyclomaticComplexMethod:
+    active: true
+    allowedComplexity: 15
+  LongParameterList:
+    active: true
+    allowedFunctionParameters: 6
+    allowedConstructorParameters: 7
+  # Other detekt thresholds already match krit defaults.
+
+style:
+  active: true
+  ReturnCount:
+    active: true
+    max: 2
+  # Detekt has these inactive by default; krit defaults match.
+
+# --- Krit-specific rulesets: disabled for detekt parity ---
+
+compose:
+  active: false
+
+a11y:
+  active: false
+
+architecture:
+  active: false
+
+dead-code:
+  active: false
+
+database:
+  active: false
+
+observability:
+  active: false
+
+resource-cost:
+  active: false
+
+security:
+  active: false
+
+privacy:
+  active: false
+
+release-engineering:
+  active: false
+
+supply-chain:
+  active: false
+
+testing-quality:
+  active: false
+
+licensing:
+  active: false
+
+di-hygiene:
+  active: false
+
+android-lint:
+  active: false

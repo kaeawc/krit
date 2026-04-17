@@ -1,0 +1,37 @@
+package fixtures.positive.style
+
+fun getFirstPositive(list: List<Int>): Int {
+    return list.first { it > 0 }
+}
+
+fun getFirstOrNullPositive(list: List<Int>): Int? {
+    return list.firstOrNull { it > 0 }
+}
+
+fun getLastPositive(list: List<Int>): Int {
+    return list.last { it > 0 }
+}
+
+fun getLastOrNullPositive(list: List<Int>): Int? {
+    return list.lastOrNull { it > 0 }
+}
+
+fun getSinglePositive(list: List<Int>): Int {
+    return list.single { it > 0 }
+}
+
+fun getSingleOrNullPositive(list: List<Int>): Int? {
+    return list.singleOrNull { it > 0 }
+}
+
+fun countPositive(list: List<Int>): Int {
+    return list.count { it > 0 }
+}
+
+fun anyPositive(list: List<Int>): Boolean {
+    return list.any { it > 0 }
+}
+
+fun nonePositive(list: List<Int>): Boolean {
+    return list.none { it > 0 }
+}

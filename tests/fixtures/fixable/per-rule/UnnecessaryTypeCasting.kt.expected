@@ -1,0 +1,7 @@
+package performance
+
+fun process() {
+    val x: String = "hello"
+    val y: String = x
+    println(y)
+}

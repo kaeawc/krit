@@ -1,0 +1,356 @@
+# Profile: strict
+#
+# Maximum guardrails. Enables the `DefaultInactive` detekt rules krit
+# ships with, tightens every threshold, and turns on krit-specific
+# quality rulesets (architecture, dead-code, observability, testing).
+#
+# This profile is merged on top of `config/default-krit.yml` by
+# `LoadAndMerge` — unlisted rules keep their default state.
+#
+# Use when: greenfield projects, library code, or teams that want a
+# hard stance on every controversial rule.
+
+config:
+  validation: true
+  warningsAsErrors: true
+
+comments:
+  active: true
+  # Enable every doc-quality rule.
+  DocumentationOverPrivateFunction:
+    active: true
+  DocumentationOverPrivateProperty:
+    active: true
+  EndOfSentenceFormat:
+    active: true
+  KDocReferencesNonPublicProperty:
+    active: true
+  OutdatedDocumentation:
+    active: true
+    matchTypeParameters: true
+    matchDeclarationsOrder: true
+  UndocumentedPublicClass:
+    active: true
+  UndocumentedPublicFunction:
+    active: true
+  UndocumentedPublicProperty:
+    active: true
+
+complexity:
+  active: true
+  # Tighten every threshold.
+  ComplexCondition:
+    active: true
+    allowedConditions: 2
+  CognitiveComplexMethod:
+    active: true
+    allowedComplexity: 10
+  CyclomaticComplexMethod:
+    active: true
+    allowedComplexity: 10
+  LargeClass:
+    active: true
+    allowedLines: 400
+  LongMethod:
+    active: true
+    allowedLines: 40
+  LongParameterList:
+    active: true
+    allowedFunctionParameters: 6
+    allowedConstructorParameters: 8
+  NestedBlockDepth:
+    active: true
+    allowedDepth: 3
+  ComplexInterface:
+    active: true
+    allowedDefinitions: 8
+  LabeledExpression:
+    active: true
+  MethodOverloading:
+    active: true
+    allowedOverloads: 4
+  NamedArguments:
+    active: true
+    allowedArguments: 3
+  NestedScopeFunctions:
+    active: true
+    allowedDepth: 1
+  ReplaceSafeCallChainWithRun:
+    active: true
+  StringLiteralDuplication:
+    active: true
+    allowedDuplications: 2
+  TooManyFunctions:
+    active: true
+    allowedFunctionsPerFile: 8
+    allowedFunctionsPerClass: 8
+    allowedFunctionsPerInterface: 8
+    allowedFunctionsPerObject: 8
+    allowedFunctionsPerEnum: 8
+
+coroutines:
+  active: true
+  # Enable every coroutine safety rule.
+  CoroutineLaunchedInTestWithoutRunTest:
+    active: true
+  GlobalCoroutineUsage:
+    active: true
+  SuspendFunInFinallySection:
+    active: true
+  SuspendFunSwallowedCancellation:
+    active: true
+  SuspendFunWithCoroutineScopeReceiver:
+    active: true
+
+exceptions:
+  active: true
+  NotImplementedDeclaration:
+    active: true
+  ErrorUsageWithThrowable:
+    active: true
+  ObjectExtendsThrowable:
+    active: true
+  ThrowingExceptionInMain:
+    active: true
+
+naming:
+  active: true
+  BooleanPropertyNaming:
+    active: true
+  ForbiddenClassName:
+    active: true
+  FunctionNameMaxLength:
+    active: true
+    maximumFunctionNameLength: 30
+  FunctionNameMinLength:
+    active: true
+    minimumFunctionNameLength: 3
+  LambdaParameterNaming:
+    active: true
+  NonBooleanPropertyPrefixedWithIs:
+    active: true
+  VariableMaxLength:
+    active: true
+    maximumVariableNameLength: 48
+  VariableMinLength:
+    active: true
+    minimumVariableNameLength: 2
+
+performance:
+  active: true
+  CouldBeSequence:
+    active: true
+    allowedOperations: 2
+  UnnecessaryInitOnArray:
+    active: true
+  UnnecessaryPartOfBinaryExpression:
+    active: true
+  UnnecessaryTypeCasting:
+    active: true
+
+potential-bugs:
+  active: true
+  CastNullableToNonNullableType:
+    active: true
+  CastToNullableType:
+    active: true
+  CharArrayToStringCall:
+    active: true
+  Deprecation:
+    active: true
+  DontDowncastCollectionTypes:
+    active: true
+  ElseCaseInsteadOfExhaustiveWhen:
+    active: true
+  ExitOutsideMain:
+    active: true
+  ImplicitUnitReturnType:
+    active: true
+  LateinitUsage:
+    active: true
+  MissingPackageDeclaration:
+    active: true
+  MissingSuperCall:
+    active: true
+  MissingUseCall:
+    active: true
+  NullCheckOnMutableProperty:
+    active: true
+  NullableToStringCall:
+    active: true
+  PropertyUsedBeforeDeclaration:
+    active: true
+  UnconditionalJumpStatementInLoop:
+    active: true
+  UnnamedParameterUse:
+    active: true
+  UnnecessaryNotNullCheck:
+    active: true
+
+style:
+  active: true
+  # Tighten thresholds and enable every opinionated style rule.
+  MagicNumber:
+    active: true
+  MaxLineLength:
+    active: true
+    maxLineLength: 100
+  ReturnCount:
+    active: true
+    max: 2
+  ThrowsCount:
+    active: true
+    max: 1
+  DestructuringDeclarationWithTooManyEntries:
+    active: true
+    maxDestructuringEntries: 3
+  AlsoCouldBeApply:
+    active: true
+  BracesOnIfStatements:
+    active: true
+    singleLine: 'never'
+    multiLine: 'always'
+  BracesOnWhenStatements:
+    active: true
+    singleLine: 'never'
+    multiLine: 'always'
+  CanBeNonNullable:
+    active: true
+  CascadingCallWrapping:
+    active: true
+  ClassOrdering:
+    active: true
+  CollapsibleIfStatements:
+    active: true
+  DataClassContainsFunctions:
+    active: true
+  DataClassShouldBeImmutable:
+    active: true
+  DoubleNegativeExpression:
+    active: true
+  DoubleNegativeLambda:
+    active: true
+  EqualsOnSignatureLine:
+    active: true
+  ExplicitCollectionElementAccessMethod:
+    active: true
+  ExpressionBodySyntax:
+    active: true
+  ForbiddenAnnotation:
+    active: true
+  ForbiddenMethodCall:
+    active: true
+  ForbiddenNamedParam:
+    active: true
+  MandatoryBracesLoops:
+    active: true
+  MaxChainedCallsOnSameLine:
+    active: true
+    maxChainedCalls: 5
+  MultilineLambdaItParameter:
+    active: true
+  MultilineRawStringIndentation:
+    active: true
+  NoTabs:
+    active: true
+  NullableBooleanCheck:
+    active: true
+  OptionalUnit:
+    active: true
+  RangeUntilInsteadOfRangeTo:
+    active: true
+  RedundantConstructorKeyword:
+    active: true
+  RedundantExplicitType:
+    active: true
+  RedundantVisibilityModifier:
+    active: true
+  SpacingAfterPackageAndImports:
+    active: true
+  StringShouldBeRawString:
+    active: true
+  TrailingWhitespace:
+    active: true
+  TrimMultilineRawString:
+    active: true
+  UnderscoresInNumericLiterals:
+    active: true
+  UnnecessaryAny:
+    active: true
+  UnnecessaryBackticks:
+    active: true
+  UnnecessaryBracesAroundTrailingLambda:
+    active: true
+  UnnecessaryFullyQualifiedName:
+    active: true
+  UnnecessaryInnerClass:
+    active: true
+  UnnecessaryLet:
+    active: true
+  UnnecessaryParentheses:
+    active: true
+  UnusedImport:
+    active: true
+  UnusedPrivateMember:
+    active: true
+  UseArrayLiteralsInAnnotations:
+    active: true
+  UseDataClass:
+    active: true
+  UseIfEmptyOrIfBlank:
+    active: true
+  UseIfInsteadOfWhen:
+    active: true
+  UseLet:
+    active: true
+  UseSumOfInsteadOfFlatMapSize:
+    active: true
+
+# Krit-specific rulesets: all enabled in strict mode.
+dead-code:
+  active: true
+  DeadCode:
+    active: true
+  ModuleDeadCode:
+    active: true
+
+architecture:
+  active: true
+  GodClassOrModule:
+    active: true
+  FanInFanOutHotspot:
+    active: true
+  PackageNamingConventionDrift:
+    active: true
+  PackageDependencyCycle:
+    active: true
+
+observability:
+  active: true
+  LogLevelGuardMissing:
+    active: true
+  LogWithoutCorrelationId:
+    active: true
+
+testing-quality:
+  active: true
+  AssertEqualsArgumentOrder:
+    active: true
+  MixedAssertionLibraries:
+    active: true
+
+a11y:
+  active: true
+  AnimatorDurationIgnoresScale:
+    active: true
+
+compose:
+  active: true
+  ComposeModifierFillAfterSize:
+    active: true
+  ComposeModifierBackgroundAfterClip:
+    active: true
+  ComposeModifierClickableBeforePadding:
+    active: true
+  ComposePreviewAnnotationMissing:
+    active: true

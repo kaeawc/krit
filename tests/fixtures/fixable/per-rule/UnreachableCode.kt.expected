@@ -1,0 +1,45 @@
+package fixtures.positive.potentialbugs
+
+class UnreachableCode {
+    // Statement after return
+    fun afterReturn(x: Int): Int {
+        return x    }
+
+    // Statement after throw
+    fun afterThrow() {
+        throw IllegalStateException("boom")    }
+
+    // Statement after break
+    fun afterBreak() {
+        for (i in 1..10) {
+            break        }
+    }
+
+    // Statement after continue
+    fun afterContinue() {
+        for (i in 1..10) {
+            continue        }
+    }
+
+    // Statement after TODO()
+    fun afterTodo() {
+        TODO()    }
+
+    // Statement after error()
+    fun afterError() {
+        error("fatal")    }
+
+    // Code after if where all branches return
+    fun afterExhaustiveIf(x: Int): String {
+        if (x > 0) {
+            return "positive"
+        } else {
+            return "non-positive"
+        }    }
+
+    // Code after while(true) with no break
+    fun afterInfiniteLoop() {
+        while (true) {
+            println("forever")
+        }    }
+}

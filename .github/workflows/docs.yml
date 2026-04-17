@@ -1,0 +1,36 @@
+name: Documentation
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**', 'mkdocs.yml', 'README.md', 'CONTRIBUTING.md']
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install mkdocs mkdocs-material
+
+      - run: python scripts/github/deploy_pages.py build
+
+      - uses: actions/configure-pages@v4
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - uses: actions/deploy-pages@v4

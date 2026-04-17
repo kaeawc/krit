@@ -1,0 +1,5 @@
+package style
+
+class MyClass {
+    fun doSomething() = Unit
+}

@@ -1,0 +1,60 @@
+site_name: Krit
+site_url: https://kaeawc.github.io/krit/
+site_description: Fast Kotlin static analysis powered by tree-sitter
+repo_name: kaeawc/krit
+repo_url: https://github.com/kaeawc/krit
+
+theme:
+  name: material
+  logo: img/logo.svg
+  favicon: img/favicon.svg
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: Fira Code
+  features:
+    - content.code.copy
+    - content.code.select
+    - navigation.sections
+    - navigation.expand
+    - search.highlight
+
+plugins:
+  - search
+
+markdown_extensions:
+  - smarty
+  - codehilite
+  - footnotes
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - admonition
+  - tables
+  - attr_list
+  - md_in_html
+
+nav:
+  - Home: index.md
+  - Install: install.md
+  - Quickstart: quickstart.md
+  - Configuration: configuration.md
+  - Rules: rules.md
+  - Integrations: integrations.md

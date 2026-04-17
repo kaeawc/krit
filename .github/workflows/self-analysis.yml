@@ -1,0 +1,47 @@
+name: Self Analysis
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build
+        run: make build
+
+      - name: Self-lint (Kotlin files)
+        run: |
+          ./krit -f json -no-type-inference -no-type-oracle \
+            krit-gradle-plugin/ playground/ tools/ \
+            > self-analysis.json 2>/dev/null || true
+
+      - name: Summary
+        run: |
+          python3 -c "
+          import json
+          with open('self-analysis.json') as f:
+              d = json.load(f)
+          findings = d.get('findings', [])
+          rules = {}
+          for x in findings:
+              rules[x['rule']] = rules.get(x['rule'], 0) + 1
+          print(f'### Krit Self-Analysis')
+          print(f'- Files: {d.get(\"files\", 0)}')
+          print(f'- Findings: {len(findings)}')
+          print(f'- Rules triggered: {len(rules)}')
+          if rules:
+              print(f'- Top issue: {max(rules, key=rules.get)} ({max(rules.values())})')
+          " >> $GITHUB_STEP_SUMMARY

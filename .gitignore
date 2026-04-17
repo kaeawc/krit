@@ -1,0 +1,56 @@
+# Go binaries (built artifacts, not source)
+/krit
+/krit-lsp
+/krit-mcp
+/krit-gen
+cmd/profile/
+cmd/debug-index/
+
+# OS
+.DS_Store
+
+# Python cache (from scripts/)
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+*.iml
+
+# Build artifacts
+*.test
+*.out
+site/
+/build/
+
+# Temp
+*.new
+
+# Local benchmark/debug artifacts
+/debug*.txt
+/krit*.json
+/krit*.txt
+
+# Krit cache (generated during analysis)
+.krit-cache
+.krit/
+
+# Android lint catalog (fetched, not committed)
+android-lint-checks/
+lint-catalog
+/debug
+
+# Claude scheduled tasks
+.claude/scheduled_tasks.lock
+
+# Claude sub-agent worktrees (isolated per-task copies)
+.claude/worktrees/
+
+# Local roadmap scratch notes
+/roadmap/[0-9][0-9]-*.md
+
+# /loop cron state (per-iteration runtime state, not source)
+roadmap/clusters/.loop/
+
+# Local analysis scratch
+/.plans/scratch/

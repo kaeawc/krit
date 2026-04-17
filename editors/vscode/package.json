@@ -1,0 +1,49 @@
+{
+  "name": "krit-lint",
+  "displayName": "Krit Kotlin Lint",
+  "description": "Kotlin static analysis powered by krit and tree-sitter",
+  "version": "0.1.0",
+  "publisher": "kaeawc",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Linters", "Programming Languages"],
+  "activationEvents": ["onLanguage:kotlin"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Krit",
+      "properties": {
+        "krit.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable krit linting"
+        },
+        "krit.configPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to krit.yml config file"
+        },
+        "krit.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to krit-lsp binary (auto-detected if empty)"
+        },
+        "krit.version": {
+          "type": "string",
+          "default": "latest",
+          "description": "Version of krit-lsp to download (e.g. 'v0.1.0' or 'latest')"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3"
+  }
+}

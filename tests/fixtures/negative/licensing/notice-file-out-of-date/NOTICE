@@ -1,0 +1,8 @@
+This product includes third-party software.
+
+Attribution notices currently included:
+- org.jetbrains.kotlin:kotlin-stdlib
+- com.example:attrib-required-lib
+  Attribution Required Lib
+  Copyright Example Corp.
+  Redistribution requires preserving this notice text.

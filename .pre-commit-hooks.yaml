@@ -1,0 +1,15 @@
+- id: krit
+  name: krit
+  description: Run krit Kotlin static analysis
+  entry: krit
+  language: golang
+  types: [kotlin]
+  require_serial: false
+  
+- id: krit-fix
+  name: krit-fix
+  description: Run krit auto-fix on Kotlin files
+  entry: krit --fix
+  language: golang
+  types: [kotlin]
+  require_serial: false

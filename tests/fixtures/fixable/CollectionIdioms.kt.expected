@@ -1,0 +1,39 @@
+package com.example.collections
+
+class CollectionIdioms {
+
+    fun findToAnyNone(items: List<Int>) {
+        val hasPositive = items.any { it > 0 }
+        val noNegative = items.none { it < 0 }
+    }
+
+    fun filterChains(items: List<Int>) {
+        val first = items.first { it > 5 }
+        val last = items.last { it < 10 }
+        val count = items.count { it % 2 == 0 }
+    }
+
+    fun emptyCollections() {
+        val strings = emptyList()
+        val numbers = emptySet()
+        val mapping = emptyMap()
+    }
+
+    fun sortReversed(items: List<Int>) {
+        val desc = items.sortedDescending()
+    }
+
+    fun elementAccess(items: List<String>, map: Map<String, Int>) {
+        val elem = items.get(0)
+        val value = map.get("key")
+    }
+
+    fun redundantMap(items: List<String>) {
+        val same = items
+    }
+
+    fun primitiveArrays() {
+        val ints: IntArray = arrayOf(1, 2, 3)
+        val bools: BooleanArray = arrayOf(true, false)
+    }
+}

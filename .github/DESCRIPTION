@@ -1,0 +1,1 @@
+Fast Kotlin static analysis powered by tree-sitter. 480 rules, LSP server, MCP server for AI agents. Drop-in detekt replacement. No JVM required.

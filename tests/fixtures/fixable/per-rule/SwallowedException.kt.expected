@@ -1,0 +1,25 @@
+package com.example.exceptions
+
+class Processor {
+
+    fun process() {
+        try {
+            doWork()
+        } catch (e: Exception) {
+            println("error occurred")
+                    throw e
+        }
+    }
+
+    fun swallowedInThrow() {
+        try {
+            doWork()
+        } catch (e: IllegalStateException) {
+            throw IllegalArgumentException(e.message)
+        }
+    }
+
+    private fun doWork() {
+        throw RuntimeException("failure")
+    }
+}

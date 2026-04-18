@@ -42,7 +42,15 @@ var javaParserPool = sync.Pool{
 	},
 }
 
-// Finding represents a single lint finding.
+// Finding is the serialization-boundary representation of a single lint
+// finding. Internally krit stores findings in columnar form via
+// FindingColumns (see findings.go) — Finding is the per-row struct used
+// at boundaries: output formatters (JSON/SARIF/plain/checkstyle) marshal
+// from it, rule bodies produce it for Context.Emit (which immediately
+// writes into a FindingCollector), and tests construct it to seed
+// columns via CollectFindings. New internal code should prefer the
+// columnar accessors; construct Finding only at serialization or emit
+// boundaries.
 type Finding struct {
 	File       string
 	Line       int

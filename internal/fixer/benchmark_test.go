@@ -112,20 +112,16 @@ func BenchmarkValidateFixResult(b *testing.B) {
 }
 
 func BenchmarkSplitByMode(b *testing.B) {
-	findings := make([]scanner.Finding, 100)
-	for i := range findings {
+	rows := make([]textFixRow, 100)
+	for i := range rows {
 		if i%2 == 0 {
-			findings[i] = scanner.Finding{
-				Fix: &scanner.Fix{ByteMode: true, StartByte: i, EndByte: i + 1, Replacement: "x"},
-			}
+			rows[i] = textFixRow{fix: scanner.Fix{ByteMode: true, StartByte: i, EndByte: i + 1, Replacement: "x"}}
 		} else {
-			findings[i] = scanner.Finding{
-				Fix: &scanner.Fix{StartLine: i, EndLine: i, Replacement: "x"},
-			}
+			rows[i] = textFixRow{fix: scanner.Fix{StartLine: i, EndLine: i, Replacement: "x"}}
 		}
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		splitByMode(findings)
+		splitTextFixRowsByMode(rows)
 	}
 }

@@ -82,8 +82,9 @@ func WrapAsV2(r Rule) *v2.Rule {
 	}); ok {
 		rule.NodeTypes = v.NodeTypes()
 		rule.Check = func(ctx *v2.Context) {
-			findings := v.CheckFlatNode(ctx.Idx, ctx.File)
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range v.CheckFlatNode(ctx.Idx, ctx.File) {
+				ctx.Emit(f)
+			}
 		}
 		if _, ok := r.(typeAware); ok {
 			rule.Needs |= v2.NeedsResolver
@@ -113,8 +114,9 @@ func WrapAsV2(r Rule) *v2.Rule {
 			rule.Needs |= v2.NeedsResolver
 		}
 		rule.Check = func(ctx *v2.Context) {
-			findings := v.CheckLines(ctx.File)
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range v.CheckLines(ctx.File) {
+				ctx.Emit(f)
+			}
 		}
 		return rule
 	}
@@ -124,8 +126,9 @@ func WrapAsV2(r Rule) *v2.Rule {
 	}); ok {
 		rule.Needs = v2.NeedsCrossFile
 		rule.Check = func(ctx *v2.Context) {
-			findings := v.CheckCrossFile(ctx.CodeIndex)
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range v.CheckCrossFile(ctx.CodeIndex) {
+				ctx.Emit(f)
+			}
 		}
 		return rule
 	}
@@ -137,8 +140,9 @@ func WrapAsV2(r Rule) *v2.Rule {
 		rule.Needs = v2.NeedsModuleIndex
 		rule.Check = func(ctx *v2.Context) {
 			v.SetModuleIndex(ctx.ModuleIndex)
-			findings := v.CheckModuleAware()
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range v.CheckModuleAware() {
+				ctx.Emit(f)
+			}
 		}
 		return rule
 	}
@@ -149,8 +153,9 @@ func WrapAsV2(r Rule) *v2.Rule {
 		rule.Needs = v2.NeedsManifest
 		rule.Check = func(ctx *v2.Context) {
 			m, _ := ctx.Manifest.(*Manifest)
-			findings := v.CheckManifest(m)
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range v.CheckManifest(m) {
+				ctx.Emit(f)
+			}
 		}
 		return rule
 	}
@@ -160,8 +165,9 @@ func WrapAsV2(r Rule) *v2.Rule {
 	}); ok {
 		rule.Needs = v2.NeedsResources
 		rule.Check = func(ctx *v2.Context) {
-			findings := v.CheckResources(ctx.ResourceIndex)
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range v.CheckResources(ctx.ResourceIndex) {
+				ctx.Emit(f)
+			}
 		}
 		return rule
 	}
@@ -171,16 +177,18 @@ func WrapAsV2(r Rule) *v2.Rule {
 	}); ok {
 		rule.Needs = v2.NeedsGradle
 		rule.Check = func(ctx *v2.Context) {
-			findings := v.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig)
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range v.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+				ctx.Emit(f)
+			}
 		}
 		return rule
 	}
 
 	// Legacy rules — use the old Check() method
 	rule.Check = func(ctx *v2.Context) {
-		findings := r.Check(ctx.File)
-		ctx.Findings = append(ctx.Findings, findings...)
+		for _, f := range r.Check(ctx.File) {
+			ctx.Emit(f)
+		}
 	}
 	return rule
 }

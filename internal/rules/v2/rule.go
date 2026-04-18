@@ -183,8 +183,27 @@ type Context struct {
 	Node *scanner.FlatNode // nil for line-pass rules
 	Idx  uint32            // flat tree index of Node (0 for line-pass rules)
 
-	// Finding output — rules append findings here:
+	// Finding output — rules may append findings here (legacy path) or
+	// call Emit/EmitAt which route to Collector when it is set.
 	Findings []scanner.Finding
+
+	// Rule is the rule whose Check is currently executing. Populated by
+	// the dispatcher before invoking Check so Emit can stamp
+	// Rule/RuleSet/Severity/Confidence defaults without the rule body
+	// having to know them.
+	Rule *Rule
+
+	// DefaultConfidence is the family-level fallback confidence applied
+	// to findings emitted through Emit when the rule doesn't set its own
+	// Confidence. Set by the dispatcher (0.95 node-dispatch, 0.75 line,
+	// 0.50 legacy).
+	DefaultConfidence float64
+
+	// Collector, when non-nil, receives findings written via Emit/EmitAt
+	// directly in columnar form, bypassing the Findings slice. Rules
+	// that still mutate Findings work; the dispatcher drains the slice
+	// into Collector after Check returns.
+	Collector *scanner.FindingCollector
 
 	// Populated only when the rule declares NeedsResolver:
 	Resolver typeinfer.TypeResolver
@@ -210,20 +229,52 @@ type Context struct {
 	GradleConfig  *android.BuildConfig
 }
 
-// Emit appends a finding to the context. This is the primary way rules
-// report issues.
+// Emit reports a finding. When Collector is set the finding is stamped
+// and written directly into the columnar collector; otherwise it falls
+// back to appending to Findings (legacy rule-return path).
 func (c *Context) Emit(f scanner.Finding) {
+	c.stamp(&f)
+	if c.Collector != nil {
+		c.Collector.Append(f)
+		return
+	}
 	c.Findings = append(c.Findings, f)
 }
 
 // EmitAt is a convenience for emitting a finding at a specific location.
 func (c *Context) EmitAt(line, col int, msg string) {
-	c.Findings = append(c.Findings, scanner.Finding{
-		File:    c.File.Path,
+	c.Emit(scanner.Finding{
 		Line:    line,
 		Col:     col,
 		Message: msg,
 	})
+}
+
+// stamp fills in Rule/RuleSet/Severity/File/Confidence fields that the
+// rule body didn't populate, using Context.Rule / Context.File /
+// Context.DefaultConfidence as the source of truth.
+func (c *Context) stamp(f *scanner.Finding) {
+	if c.Rule != nil {
+		if f.Rule == "" {
+			f.Rule = c.Rule.ID
+		}
+		if f.RuleSet == "" {
+			f.RuleSet = c.Rule.Category
+		}
+		if f.Severity == "" {
+			f.Severity = string(c.Rule.Sev)
+		}
+		if f.Confidence == 0 {
+			if c.Rule.Confidence != 0 {
+				f.Confidence = c.Rule.Confidence
+			} else {
+				f.Confidence = c.DefaultConfidence
+			}
+		}
+	}
+	if c.File != nil && f.File == "" {
+		f.File = c.File.Path
+	}
 }
 
 // Registry holds all registered v2 rules.

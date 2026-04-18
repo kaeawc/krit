@@ -27,6 +27,58 @@ func readFile(t *testing.T, path string) string {
 	return string(data)
 }
 
+// ApplyFixes / ApplyFixesWithValidation / ApplyFixesDetailed are test-only
+// shims that preserve the old API shape by routing through the columnar
+// fixer entry point. They exist so the test suite can continue to exercise
+// per-file fix application without a wholesale rewrite.
+func ApplyFixes(path string, findings []scanner.Finding, suffix string) (int, error) {
+	return ApplyFixesWithValidation(path, findings, suffix, false)
+}
+
+func ApplyFixesWithValidation(path string, findings []scanner.Finding, suffix string, validate bool) (int, error) {
+	res, err := ApplyFixesDetailed(path, findings, suffix, validate)
+	return res.Applied, err
+}
+
+func ApplyFixesDetailed(path string, findings []scanner.Finding, suffix string, validate bool) (FixResult, error) {
+	filtered := make([]scanner.Finding, 0, len(findings))
+	for _, f := range findings {
+		if f.File == path && f.Fix != nil {
+			filtered = append(filtered, f)
+		}
+	}
+	if len(filtered) == 0 {
+		return FixResult{}, nil
+	}
+	columns := scanner.CollectFindings(filtered)
+	rows := make([]int, 0, columns.Len())
+	for i := 0; i < columns.Len(); i++ {
+		if columns.HasFix(i) {
+			rows = append(rows, i)
+		}
+	}
+	return applyFixesDetailedColumns(path, &columns, rows, suffix, validate)
+}
+
+func ApplyAllFixes(findings []scanner.Finding, suffix string) (int, int, []error) {
+	columns := scanner.CollectFindings(findings)
+	return ApplyAllFixesColumns(&columns, suffix)
+}
+
+// splitByMode is a test-only helper kept after the production splitByMode
+// was deleted with ApplyFixesDetailed. It mirrors the old semantics so
+// the few remaining split-by-mode tests continue to pass.
+func splitByMode(fixes []scanner.Finding) (byteFixes, lineFixes []scanner.Finding) {
+	for _, f := range fixes {
+		if f.Fix != nil && f.Fix.ByteMode {
+			byteFixes = append(byteFixes, f)
+		} else {
+			lineFixes = append(lineFixes, f)
+		}
+	}
+	return
+}
+
 func finding(file string, fix *scanner.Fix) scanner.Finding {
 	return scanner.Finding{
 		File:     file,
@@ -622,17 +674,15 @@ func TestSplitByMode_Mixed(t *testing.T) {
 
 // --------------- Mixed-mode rejection tests ---------------
 
-func TestMixedMode_PrefersByteFixes(t *testing.T) {
+func TestMixedMode_ReturnsError(t *testing.T) {
 	path := writeTestFile(t, "aaa\nbbb\nccc")
 	findings := []scanner.Finding{
-		// Byte-mode fix: replace "aaa" with "AAA"
 		finding(path, &scanner.Fix{
 			StartByte:   0,
 			EndByte:     3,
 			Replacement: "AAA",
 			ByteMode:    true,
 		}),
-		// Line-mode fix: replace line 3 with "CCC"
 		finding(path, &scanner.Fix{
 			StartLine:   3,
 			EndLine:     3,
@@ -640,17 +690,17 @@ func TestMixedMode_PrefersByteFixes(t *testing.T) {
 		}),
 	}
 
-	n, err := ApplyFixes(path, findings, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := ApplyFixes(path, findings, "")
+	if err == nil {
+		t.Fatalf("expected mixed-mode error, got nil")
 	}
-	if n != 2 {
-		t.Fatalf("expected 2 fixes counted, got %d", n)
+	if !strings.Contains(err.Error(), "mixed-mode fixes") {
+		t.Fatalf("expected mixed-mode error, got %v", err)
 	}
+	// File must remain unchanged when the mixed-mode conflict is detected.
 	got := readFile(t, path)
-	// Byte-mode fix should be applied, line-mode should be dropped
-	if got != "AAA\nbbb\nccc" {
-		t.Fatalf("expected %q, got %q", "AAA\nbbb\nccc", got)
+	if got != "aaa\nbbb\nccc" {
+		t.Fatalf("expected file unchanged, got %q", got)
 	}
 }
 
@@ -970,7 +1020,7 @@ func TestDeduplicateByteFixesReverse_SingleFix(t *testing.T) {
 			StartByte: 0, EndByte: 5, ByteMode: true,
 		}),
 	}
-	kept, dropped := deduplicateByteFixesReverse(fixes)
+	kept, dropped := deduplicateFixesReverse(fixes, findingByteEnd, findingByteStart, findingDropped)
 	if len(kept) != 1 {
 		t.Fatalf("expected 1 kept, got %d", len(kept))
 	}
@@ -985,7 +1035,7 @@ func TestDeduplicateLineFixesReverse_SingleFix(t *testing.T) {
 			StartLine: 1, EndLine: 2,
 		}),
 	}
-	kept, dropped := deduplicateLineFixesReverse(fixes)
+	kept, dropped := deduplicateFixesReverse(fixes, findingLineEnd, findingLineStart, findingDropped)
 	if len(kept) != 1 {
 		t.Fatalf("expected 1 kept, got %d", len(kept))
 	}

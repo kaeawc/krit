@@ -44,6 +44,33 @@ type ParseInput struct {
 	ActiveRules []*v2.Rule
 	// IncludeGenerated, when true, retains files under /generated/.
 	IncludeGenerated bool
+	// Logger, when non-nil, receives verbose progress messages from the
+	// phase. Format matches fmt.Printf. Nil means no-op. Callers that
+	// want the pre-refactor "verbose: ..." stderr lines pass a closure
+	// wrapping fmt.Fprintf(os.Stderr, ...).
+	Logger func(format string, args ...any)
+	// Tracker, when non-nil, wraps expensive sub-phases with
+	// Tracker.Serial(name). Zero value (nil interface) means no tracking.
+	Tracker perf.Tracker
+}
+
+// logf invokes Logger when set; nil Logger is a no-op.
+func (in ParseInput) logf(format string, args ...any) {
+	if in.Logger != nil {
+		in.Logger(format, args...)
+	}
+}
+
+// trackSerial runs fn under a child Tracker named name when Tracker is
+// non-nil; otherwise it just runs fn. Returns any error fn produced.
+func (in ParseInput) trackSerial(name string, fn func() error) error {
+	if in.Tracker == nil {
+		return fn()
+	}
+	child := in.Tracker.Serial(name)
+	err := fn()
+	child.End()
+	return err
 }
 
 // ParseResult is the output of Parse and the input of Index.

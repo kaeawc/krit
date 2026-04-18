@@ -53,7 +53,15 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 		return ParseResult{}, err
 	}
 
-	kotlinFiles, parseErrs := scanner.ScanFiles(kotlinPaths, workers)
+	var (
+		kotlinFiles []*scanner.File
+		parseErrs   []error
+	)
+	_ = in.trackSerial("parse", func() error {
+		kotlinFiles, parseErrs = scanner.ScanFiles(kotlinPaths, workers)
+		return nil
+	})
+	in.logf("verbose: Parsed %d Kotlin files", len(kotlinFiles))
 
 	// Filter generated files unless explicitly requested. Mirrors the
 	// main.go behaviour at lines 921-935 — generated dirs contain codegen

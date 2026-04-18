@@ -6,6 +6,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/module"
+	"github.com/kaeawc/krit/internal/perf"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -40,6 +41,31 @@ type IndexInput struct {
 	// call is made. When nil, IndexPhase builds one if any active rule
 	// declares NeedsResolver.
 	PrebuiltResolver typeinfer.TypeResolver
+	// Logger, when non-nil, receives verbose progress messages. Nil
+	// means no-op.
+	Logger func(format string, args ...any)
+	// Tracker, when non-nil, wraps expensive sub-phases with
+	// Tracker.Serial(name). Nil means no tracking.
+	Tracker perf.Tracker
+}
+
+// logf invokes Logger when set; nil Logger is a no-op.
+func (in IndexInput) logf(format string, args ...any) {
+	if in.Logger != nil {
+		in.Logger(format, args...)
+	}
+}
+
+// trackSerial runs fn under a child Tracker named name when Tracker is
+// non-nil; otherwise it just runs fn.
+func (in IndexInput) trackSerial(name string, fn func() error) error {
+	if in.Tracker == nil {
+		return fn()
+	}
+	child := in.Tracker.Serial(name)
+	err := fn()
+	child.End()
+	return err
 }
 
 // Name implements Phase.
@@ -70,7 +96,11 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		if indexer, ok := interface{}(r).(interface {
 			IndexFilesParallel([]*scanner.File, int)
 		}); ok {
-			indexer.IndexFilesParallel(in.KotlinFiles, workers)
+			_ = in.trackSerial("typeIndex", func() error {
+				indexer.IndexFilesParallel(in.KotlinFiles, workers)
+				return nil
+			})
+			in.logf("verbose: Indexed %d Kotlin files for type resolution", len(in.KotlinFiles))
 		}
 		result.Resolver = r
 	}

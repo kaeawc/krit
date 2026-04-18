@@ -70,6 +70,12 @@ type V2Dispatcher struct {
 
 	flatTypeIndexSize int
 	mu                sync.RWMutex
+
+	// languageExcluded caches, per scanner.Language, the set of rule IDs
+	// that do NOT apply to that language. Rules are static after
+	// construction so the map per language is computed once and reused
+	// for every file of that language.
+	languageExcluded sync.Map // scanner.Language -> map[string]bool
 }
 
 // NewV2Dispatcher constructs a V2Dispatcher from the supplied v2 rules.
@@ -252,17 +258,12 @@ func (d *V2Dispatcher) RunWithStats(file *scanner.File) ([]scanner.Finding, RunS
 	// Determine per-file rule exclusions once.
 	excludedRules := d.buildExcludedSet(file.Path)
 
-	// Language filter: skip rules whose declared Languages list does
-	// not include this file's Language. Folds into the excluded set so
-	// the hot-path walkDispatch/line/legacy loops only need one map
-	// lookup. See issue #19 (UnifiedFileModel).
-	for _, r := range d.collectAllRules() {
-		if excludedRules[r.ID] {
-			continue
-		}
-		if !v2.RuleAppliesToLanguage(r, file.Language) {
-			excludedRules[r.ID] = true
-		}
+	// Fold in the per-language excluded set so the hot-path
+	// walkDispatch/line/legacy loops only need one map lookup. The
+	// language-to-excluded-IDs map is cached on the dispatcher and
+	// reused across files — rules are static after construction.
+	for id := range d.excludedForLanguage(file.Language) {
+		excludedRules[id] = true
 	}
 
 	var findings []scanner.Finding
@@ -765,27 +766,11 @@ func (d *V2Dispatcher) ResourceRules() []*v2.Rule { return d.resourceRules }
 // filtered by the per-rule YAML excludes and the Languages filter.
 // Panics are recovered and surfaced via stderr to match Run().
 func (d *V2Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) []scanner.Finding {
-	if file == nil {
-		return nil
-	}
-	excluded := d.buildExcludedSet(file.Path)
-	var findings []scanner.Finding
-	for _, r := range d.gradleRules {
-		if excluded[r.ID] {
-			continue
-		}
-		if !v2.RuleAppliesToLanguage(r, file.Language) {
-			continue
-		}
-		results := d.runProjectRule(r, file, func(ctx *v2.Context) {
-			ctx.GradlePath = file.Path
-			ctx.GradleContent = string(file.Content)
-			ctx.GradleConfig = cfg
-		})
-		setV2RuleConfidence(results, r, 0.75)
-		findings = append(findings, results...)
-	}
-	return findings
+	return d.runProjectRuleSet(file, d.gradleRules, func(ctx *v2.Context) {
+		ctx.GradlePath = file.Path
+		ctx.GradleContent = string(file.Content)
+		ctx.GradleConfig = cfg
+	})
 }
 
 // RunManifest runs every registered manifest rule against a parsed
@@ -793,45 +778,35 @@ func (d *V2Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) [
 // import cycle — callers in the rules package pass *rules.Manifest; the
 // underlying rule Check functions type-assert through ctx.Manifest.
 func (d *V2Dispatcher) RunManifest(file *scanner.File, manifest interface{}) []scanner.Finding {
-	if file == nil {
-		return nil
-	}
-	excluded := d.buildExcludedSet(file.Path)
-	var findings []scanner.Finding
-	for _, r := range d.manifestRules {
-		if excluded[r.ID] {
-			continue
-		}
-		if !v2.RuleAppliesToLanguage(r, file.Language) {
-			continue
-		}
-		results := d.runProjectRule(r, file, func(ctx *v2.Context) {
-			ctx.Manifest = manifest
-		})
-		setV2RuleConfidence(results, r, 0.75)
-		findings = append(findings, results...)
-	}
-	return findings
+	return d.runProjectRuleSet(file, d.manifestRules, func(ctx *v2.Context) {
+		ctx.Manifest = manifest
+	})
 }
 
 // RunResource runs every registered resource rule against a merged
 // ResourceIndex for a single res/ directory.
 func (d *V2Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) []scanner.Finding {
+	return d.runProjectRuleSet(file, d.resourceRules, func(ctx *v2.Context) {
+		ctx.ResourceIndex = idx
+	})
+}
+
+// runProjectRuleSet is the shared driver for RunGradle/RunManifest/RunResource.
+// It applies config excludes + language filtering, invokes each rule's
+// Check with a fresh Context populated by the supplied closure, stamps
+// the base confidence, and returns aggregated findings.
+func (d *V2Dispatcher) runProjectRuleSet(file *scanner.File, ruleSet []*v2.Rule, populate func(*v2.Context)) []scanner.Finding {
 	if file == nil {
 		return nil
 	}
 	excluded := d.buildExcludedSet(file.Path)
+	langExcluded := d.excludedForLanguage(file.Language)
 	var findings []scanner.Finding
-	for _, r := range d.resourceRules {
-		if excluded[r.ID] {
+	for _, r := range ruleSet {
+		if excluded[r.ID] || langExcluded[r.ID] {
 			continue
 		}
-		if !v2.RuleAppliesToLanguage(r, file.Language) {
-			continue
-		}
-		results := d.runProjectRule(r, file, func(ctx *v2.Context) {
-			ctx.ResourceIndex = idx
-		})
+		results := d.runProjectRule(r, file, populate)
 		setV2RuleConfidence(results, r, 0.75)
 		findings = append(findings, results...)
 	}
@@ -855,6 +830,26 @@ func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate f
 	r.Check(ctx)
 	stampV2Findings(ctx.Findings, r, file)
 	return ctx.Findings
+}
+
+// excludedForLanguage returns the set of rule IDs that do NOT apply to
+// the given file language. The result is cached per language — rules
+// are static after construction, so we amortize the collectAllRules +
+// filter scan across every file of that language.
+func (d *V2Dispatcher) excludedForLanguage(lang scanner.Language) map[string]bool {
+	if cached, ok := d.languageExcluded.Load(lang); ok {
+		return cached.(map[string]bool)
+	}
+	m := make(map[string]bool)
+	for _, r := range d.collectAllRules() {
+		if !v2.RuleAppliesToLanguage(r, lang) {
+			m[r.ID] = true
+		}
+	}
+	if actual, loaded := d.languageExcluded.LoadOrStore(lang, m); loaded {
+		return actual.(map[string]bool)
+	}
+	return m
 }
 
 // CrossFileRules returns the cross-file rules stored on this dispatcher.

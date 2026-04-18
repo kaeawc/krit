@@ -906,9 +906,6 @@ func (s *Server) toolAnalyzeAndroid(arguments json.RawMessage) ToolResult {
 
 	collector := scanner.NewFindingCollector(len(proj.ManifestPaths)*4 + len(proj.ResDirs)*8 + len(proj.GradlePaths)*4)
 
-	// Build a dispatcher over the full v1 Registry so Android rules
-	// route through the unified RunManifest/RunResource/RunGradle path
-	// (see issue #19 / UnifiedFileModel).
 	dispatcher := rules.NewDispatcher(rules.Registry)
 
 	// Manifest analysis
@@ -919,11 +916,9 @@ func (s *Server) toolAnalyzeAndroid(arguments json.RawMessage) ToolResult {
 				continue
 			}
 			rManifest := convertManifest(manifestPath, manifest)
-			content, _ := os.ReadFile(manifestPath)
 			file := &scanner.File{
 				Path:     manifestPath,
 				Language: scanner.LangXML,
-				Content:  content,
 				Metadata: rManifest,
 			}
 			collector.AppendAll(dispatcher.RunManifest(file, rManifest))

@@ -122,7 +122,7 @@ type Rule struct {
 	//   NeedsGradle     → [LangGradle]
 	//   otherwise       → [LangKotlin]
 	// The dispatcher uses RuleLanguages() to skip rules whose language
-	// list does not include the current file's Language. See issue #19.
+	// list does not include the current file's Language.
 	Languages []scanner.Language
 
 	// Fix metadata

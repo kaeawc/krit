@@ -2,16 +2,13 @@ package pipeline
 
 // AndroidPhase runs project-level Android analysis: manifest, resource,
 // Gradle, and icon rules. The phase owns the async resource/icon scan
-// providers, dispatch wiring, and perf tracking that previously lived
-// in cmd/krit/main.go's runAndroidProjectAnalysisColumns. See issue #19
-// (UnifiedFileModel) for the motivation — all three Android rule
-// families now dispatch through the unified rules.Dispatcher.
+// providers, dispatch wiring, and perf tracking. All three Android rule
+// families dispatch through the unified rules.Dispatcher.
 
 import (
 	"context"
 	"os"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -101,12 +98,11 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 		manifest := ConvertManifestForRules(android.ConvertManifest(parsed, path))
 		start = time.Now()
 		if in.Dispatcher != nil {
-			content, _ := os.ReadFile(path)
+			// Manifest rules consume ctx.Manifest, not file.Content/Lines,
+			// so skip re-reading the file we just parsed.
 			file := &scanner.File{
 				Path:     path,
 				Language: scanner.LangXML,
-				Content:  content,
-				Lines:    strings.Split(string(content), "\n"),
 				Metadata: manifest,
 			}
 			collector.AppendAll(in.Dispatcher.RunManifest(file, manifest))
@@ -270,11 +266,12 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 		}
 		start = time.Now()
 		if in.Dispatcher != nil {
+			// Gradle rules consume ctx.GradleContent (populated by
+			// RunGradle from file.Content); no rule reads file.Lines today.
 			file := &scanner.File{
 				Path:     path,
 				Language: scanner.LangGradle,
 				Content:  content,
-				Lines:    strings.Split(string(content), "\n"),
 				Metadata: cfg,
 			}
 			collector.AppendAll(in.Dispatcher.RunGradle(file, cfg))

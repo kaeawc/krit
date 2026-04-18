@@ -78,7 +78,7 @@ type Fix struct {
 
 // Language identifies which source language a File holds. Used by the
 // dispatcher to skip rules whose declared Languages list excludes this
-// file. See issue #19 (UnifiedFileModel).
+// file.
 type Language uint8
 
 const (

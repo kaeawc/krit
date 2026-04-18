@@ -1037,8 +1037,15 @@ potential-bugs:
 		}
 	}
 
-	// Cross-file analysis (dead code detection)
-	// Also index Java files for references — Kotlin calls Java and Java calls Kotlin
+	// Cross-file analysis (dead code detection) + Module-aware analysis.
+	// IndexPhase now owns the Java collection, CodeIndex build, module
+	// discovery, and PerModuleIndex construction. Rule execution
+	// (crossRules / moduleRuleExecution) stays here because it needs the
+	// dispatcher and allFindings accumulator. Main.go creates the
+	// "crossFileAnalysis" and "moduleAwareAnalysis" parent trackers so
+	// both the indexing children (in IndexPhase) and the rule-execution
+	// siblings (below) nest under the same parent, preserving the perf
+	// tree byte-for-byte.
 	var codeIndex *scanner.CodeIndex
 	hasIndexBackedCrossFileRule := false
 	hasParsedFilesRule := false
@@ -1055,40 +1062,60 @@ potential-bugs:
 			hasIndexBackedCrossFileRule = true
 		}
 	}
+	hasModuleAwareRule := false
+	for _, rule := range activeRules {
+		if _, ok := rule.(interface {
+			SetModuleIndex(pmi *module.PerModuleIndex)
+			CheckModuleAware() []scanner.Finding
+		}); ok {
+			hasModuleAwareRule = true
+			break
+		}
+	}
+
+	var crossTracker perf.Tracker
+	if hasIndexBackedCrossFileRule || hasParsedFilesRule {
+		crossTracker = tracker.Serial("crossFileAnalysis")
+	}
+	moduleTracker := tracker.Serial("moduleAwareAnalysis")
+
+	scanRoot := "."
+	if len(paths) > 0 {
+		scanRoot = paths[0]
+	}
+
+	indexResult2, err := (pipeline.IndexPhase{
+		SkipModules:       true,
+		SkipAndroid:       true,
+		SkipResolverIndex: true,
+	}).Run(context.Background(), pipeline.IndexInput{
+		ParseResult:            parseResult,
+		Logger:                 verboseLogger,
+		Tracker:                tracker,
+		SkipOracle:             true,
+		SkipCache:              true,
+		Verbose:                *verboseFlag,
+		ActiveRulesV1:          activeRules,
+		BuildCodeIndex:         hasIndexBackedCrossFileRule,
+		CrossFileParentTracker: crossTracker,
+		CrossFileJobsFlag:      *jobsFlag,
+		BuildModuleIndex:       true,
+		ModuleParentTracker:    moduleTracker,
+		ModuleScanRoot:         scanRoot,
+		ModuleJobsFlag:         *jobsFlag,
+		ModuleHasAwareRule:     hasModuleAwareRule,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
+	codeIndex = indexResult2.CodeIndex
+	parsedJavaFiles := indexResult2.JavaFiles
+	moduleGraph := indexResult2.ModuleGraph
+	pmi := indexResult2.ModuleIndex
+
 	if hasIndexBackedCrossFileRule || hasParsedFilesRule {
 		crossStart := time.Now()
-		var javaFilePaths []string
-		var parsedJavaFiles []*scanner.File
-		crossWorkers := phaseWorkerCount("crossFileAnalysis", *jobsFlag, len(parsedFiles))
-		crossTracker := tracker.Serial("crossFileAnalysis")
-
-		if hasIndexBackedCrossFileRule {
-			_ = crossTracker.Track("javaIndexing", func() error {
-				javaFilePaths, err = scanner.CollectJavaFiles(paths, nil) // err non-fatal: Java indexing is best-effort
-				if err != nil && *verboseFlag {
-					fmt.Fprintf(os.Stderr, "verbose: Java file collection: %v\n", err)
-				}
-				if len(javaFilePaths) > 0 {
-					crossWorkers = phaseWorkerCount("crossFileAnalysis", *jobsFlag, len(parsedFiles)+len(javaFilePaths))
-					var javaErrs []error
-					parsedJavaFiles, javaErrs = scanner.ScanJavaFiles(javaFilePaths, crossWorkers)
-					if len(javaErrs) > 0 && *verboseFlag {
-						fmt.Fprintf(os.Stderr, "verbose: Java file parsing: %d errors\n", len(javaErrs))
-					}
-					if *verboseFlag {
-						fmt.Fprintf(os.Stderr, "verbose: Parsed %d Java files for cross-reference indexing\n", len(parsedJavaFiles))
-					}
-				}
-				return nil
-			})
-
-			_ = crossTracker.Track("codeIndexBuild", func() error {
-				indexTracker := crossTracker.Serial("indexBuild")
-				codeIndex = scanner.BuildIndexWithTracker(parsedFiles, crossWorkers, indexTracker, parsedJavaFiles...)
-				indexTracker.End()
-				return nil
-			})
-		}
 
 		_ = crossTracker.Track("crossRuleExecution", func() error {
 			ruleTracker := crossTracker.Serial("crossRules")
@@ -1133,65 +1160,11 @@ potential-bugs:
 		fmt.Fprintln(os.Stderr, "verbose: Skipped cross-file analysis (no active cross-file rules)")
 	}
 
-	// Module-aware analysis: auto-detect Gradle modules and run module-aware rule implementations
+	// Module-aware rule execution. IndexPhase has already populated
+	// moduleGraph + pmi under the moduleAwareAnalysis parent tracker.
 	{
 		moduleStart := time.Now()
-		moduleTracker := tracker.Serial("moduleAwareAnalysis")
-		scanRoot := "."
-		if len(paths) > 0 {
-			scanRoot = paths[0]
-		}
-		var (
-			graph  *module.ModuleGraph
-			modErr error
-		)
-		_ = moduleTracker.Track("moduleDiscovery", func() error {
-			graph, modErr = module.DiscoverModules(scanRoot)
-			return nil
-		})
-		if modErr != nil && *verboseFlag {
-			fmt.Fprintf(os.Stderr, "verbose: Module discovery error: %v\n", modErr)
-		}
-		hasModuleAwareRule := false
-		for _, rule := range activeRules {
-			if _, ok := rule.(interface {
-				SetModuleIndex(pmi *module.PerModuleIndex)
-				CheckModuleAware() []scanner.Finding
-			}); ok {
-				hasModuleAwareRule = true
-				break
-			}
-		}
-		if graph != nil && len(graph.Modules) > 0 && hasModuleAwareRule {
-			moduleNeeds := rules.CollectModuleAwareNeeds(activeRules)
-			moduleWorkers := phaseWorkerCount("moduleAwareAnalysis", *jobsFlag, len(graph.Modules))
-
-			var pmi *module.PerModuleIndex
-			if moduleNeeds.NeedsDependencies {
-				_ = moduleTracker.Track("moduleDependencies", func() error {
-					if err := module.ParseAllDependencies(graph); err != nil {
-						if *verboseFlag {
-							fmt.Fprintf(os.Stderr, "verbose: Module dependency parse error: %v\n", err)
-						}
-					}
-					return nil
-				})
-			}
-			if *verboseFlag {
-				fmt.Fprintf(os.Stderr, "verbose: Detected %d Gradle modules\n", len(graph.Modules))
-			}
-
-			_ = moduleTracker.Track("moduleIndexBuild", func() error {
-				pmi = &module.PerModuleIndex{Graph: graph}
-				switch {
-				case moduleNeeds.NeedsIndex:
-					pmi = module.BuildPerModuleIndexWithGlobal(graph, parsedFiles, moduleWorkers, codeIndex)
-				case moduleNeeds.NeedsFiles:
-					pmi.ModuleFiles = module.GroupFilesByModule(graph, parsedFiles)
-				}
-				return nil
-			})
-
+		if moduleGraph != nil && len(moduleGraph.Modules) > 0 && hasModuleAwareRule {
 			_ = moduleTracker.Track("moduleRuleExecution", func() error {
 				// The v2 bridge threads ModuleIndex through the rule's Context
 				// automatically, so no explicit SetModuleIndex call is required.

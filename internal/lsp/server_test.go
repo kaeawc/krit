@@ -893,7 +893,7 @@ func TestDispatcherReusedAcrossDidOpen(t *testing.T) {
 
 	// The dispatcher should be non-nil and the same instance across calls.
 	// (The server creates it once in handleInitialize.)
-	if server.dispatcher == nil {
+	if server.analyzer == nil {
 		t.Fatal("dispatcher should be non-nil after initialize")
 	}
 
@@ -950,7 +950,7 @@ func TestConfigLoadingFromWorkspaceRoot(t *testing.T) {
 	}
 
 	// Verify dispatcher was built
-	if server.dispatcher == nil {
+	if server.analyzer == nil {
 		t.Fatal("expected dispatcher to be built")
 	}
 }
@@ -1845,7 +1845,7 @@ func TestDidChangeConfigurationRebuildsDispatcher(t *testing.T) {
 	server.Run()
 
 	// Verify the server handled it without error and dispatcher is still valid
-	if server.dispatcher == nil {
+	if server.analyzer == nil {
 		t.Fatal("dispatcher should be non-nil after didChangeConfiguration")
 	}
 }

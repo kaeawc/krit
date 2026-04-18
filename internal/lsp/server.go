@@ -41,9 +41,9 @@ type Server struct {
 	docsMu sync.Mutex           // protects docs map
 	docs   map[string]*Document // URI -> Document
 
-	// Analysis
-	dispatcher *rules.Dispatcher
-	cfg        *config.Config
+	// Analysis: pipeline-driven single-file analyzer shared with MCP + CLI.
+	analyzer *pipeline.SingleFileAnalyzer
+	cfg      *config.Config
 
 	// Verbose gates informational log output.
 	Verbose bool
@@ -373,10 +373,13 @@ func (s *Server) loadConfigAndBuildDispatcher() {
 
 	// Delegate rule discovery and dispatcher construction to the
 	// pipeline package so the LSP, MCP, and CLI entry points share one
-	// source of truth for the active rule set.
-	active := pipeline.DefaultActiveRules()
-	s.dispatcher = pipeline.BuildDispatcher(active, nil)
-	s.logInfo("dispatcher: %d active rules", len(active))
+	// source of truth for the active rule set. The SingleFileAnalyzer
+	// wraps the pipeline Parse → Dispatch path for single-buffer
+	// analysis (didOpen / didChange / formatting); cross-file and
+	// module-aware rules are skipped because the LSP only sees one
+	// buffer at a time.
+	s.analyzer = pipeline.NewSingleFileAnalyzer(nil, nil)
+	s.logInfo("dispatcher: %d active rules", len(s.analyzer.ActiveRules))
 }
 
 // handleDidChangeConfiguration reloads config and rebuilds the dispatcher.
@@ -415,7 +418,7 @@ func (s *Server) getDocumentFlatFile(uri string) (*scanner.File, bool) {
 		return file, true
 	}
 
-	parsed, err := parseLSPKotlinFile(uriToPath(uri), content)
+	parsed, err := pipeline.ParseSingle(context.Background(), uriToPath(uri), content)
 	if err != nil {
 		log.Printf("parse error for %s: %v", uri, err)
 		return nil, false
@@ -431,7 +434,7 @@ func (s *Server) getDocumentFlatFile(uri string) (*scanner.File, bool) {
 
 // analyzeAndPublish parses the content and publishes diagnostics.
 func (s *Server) analyzeAndPublish(uri string, content []byte) {
-	if s.dispatcher == nil {
+	if s.analyzer == nil {
 		return
 	}
 
@@ -441,15 +444,15 @@ func (s *Server) analyzeAndPublish(uri string, content []byte) {
 		return
 	}
 
-	file, err := parseLSPKotlinFile(path, content)
+	file, err := pipeline.ParseSingle(context.Background(), path, content)
 	if err != nil {
 		log.Printf("parse error for %s: %v", uri, err)
 		s.publishDiagnostics(uri, nil)
 		return
 	}
 
-	// Run rules
-	findings := s.dispatcher.Run(file)
+	// Run per-file rules through the shared pipeline analyzer.
+	findings := s.analyzer.AnalyzeFile(file)
 
 	// Store findings and cached tree alongside the document for code actions
 	s.docsMu.Lock()
@@ -599,13 +602,13 @@ func (s *Server) handleFormatting(req *Request) {
 	}
 
 	// If we don't have findings yet, run analysis now
-	if findings == nil && s.dispatcher != nil {
+	if findings == nil && s.analyzer != nil {
 		path := uriToPath(uri)
 		if strings.HasSuffix(path, ".kt") || strings.HasSuffix(path, ".kts") {
 			file := doc.File
 			if file == nil {
 				var err error
-				file, err = parseLSPKotlinFile(path, content)
+				file, err = pipeline.ParseSingle(context.Background(), path, content)
 				if err == nil {
 					s.docsMu.Lock()
 					if currentDoc, ok := s.docs[uri]; ok {
@@ -615,7 +618,7 @@ func (s *Server) handleFormatting(req *Request) {
 				}
 			}
 			if file != nil {
-				findings = s.dispatcher.Run(file)
+				findings = s.analyzer.AnalyzeFile(file)
 			}
 		}
 	}
@@ -744,16 +747,6 @@ func (s *Server) handleDocumentSymbol(req *Request) {
 		symbols = []DocumentSymbol{}
 	}
 	s.sendResponse(req.ID, symbols, nil)
-}
-
-func parseLSPKotlinFile(path string, content []byte) (*scanner.File, error) {
-	parser := scanner.GetKotlinParser()
-	defer scanner.PutKotlinParser(parser)
-	tree, err := parser.ParseCtx(context.Background(), nil, content)
-	if err != nil {
-		return nil, err
-	}
-	return scanner.NewParsedFile(path, content, tree), nil
 }
 
 // extractSymbolsFlat walks the flat tree and extracts class, function, and property declarations.

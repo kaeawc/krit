@@ -303,9 +303,201 @@ func (d *V2Dispatcher) RunWithStats(file *scanner.File) ([]scanner.Finding, RunS
 }
 
 // RunColumnsWithStats runs all per-file rules and returns columnar findings.
+// Rules that emit via ctx.Emit write directly into the per-file collector;
+// rules that still return []Finding via the v2shim compat path have their
+// slice drained into the collector after each Check.
 func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingColumns, RunStats) {
-	findings, stats := d.RunWithStats(file)
-	return scanner.CollectFindings(findings), stats
+	stats := RunStats{
+		DispatchRuleNsByRule: make(map[string]int64),
+	}
+	if file == nil {
+		return scanner.FindingColumns{}, stats
+	}
+
+	flatTypeRules := d.ensureFlatTypeIndex(d.collectAllRules())
+
+	start := time.Now()
+	suppressIndex := scanner.BuildSuppressionIndexFlat(file.FlatTree, file.Content)
+	stats.SuppressionIndexMs += time.Since(start).Milliseconds()
+
+	excludedRules := d.buildExcludedSet(file.Path)
+
+	collector := scanner.NewFindingCollector(0)
+
+	// Single-pass AST walk for node-dispatch rules.
+	start = time.Now()
+	d.walkDispatchColumns(file, collector, excludedRules, &stats, flatTypeRules)
+	stats.DispatchWalkMs += time.Since(start).Milliseconds()
+
+	// Line-pass rules.
+	start = time.Now()
+	for _, r := range d.lineRules {
+		if excludedRules[r.ID] {
+			continue
+		}
+		d.runLineRuleColumns(r, file, collector, &stats)
+	}
+	stats.LineRuleMs += time.Since(start).Milliseconds()
+
+	// Legacy / catch-all rules.
+	start = time.Now()
+	for _, r := range d.legacyRules {
+		if excludedRules[r.ID] {
+			continue
+		}
+		d.runLegacyRuleColumns(r, file, collector, &stats)
+	}
+	stats.LegacyRuleMs += time.Since(start).Milliseconds()
+
+	columns := *collector.Columns()
+
+	// Suppression filter (same semantics as slice path).
+	start = time.Now()
+	if columns.Len() > 0 {
+		filtered := columns.FilterRows(func(row int) bool {
+			line := columns.LineAt(row)
+			byteOffset := 0
+			if line > 0 {
+				byteOffset = file.LineOffset(line - 1)
+			}
+			return !suppressIndex.IsSuppressed(byteOffset, columns.RuleAt(row), columns.RuleSetAt(row))
+		})
+		columns = filtered
+	}
+	stats.SuppressionFilterMs += time.Since(start).Milliseconds()
+
+	for _, e := range stats.Errors {
+		fmt.Fprintln(os.Stderr, e.Error())
+	}
+
+	return columns, stats
+}
+
+// walkDispatchColumns performs the per-node dispatch pass emitting
+// directly into the provided collector.
+func (d *V2Dispatcher) walkDispatchColumns(file *scanner.File, collector *scanner.FindingCollector, excludedRules map[string]bool, stats *RunStats, flatTypeRules [][]*v2.Rule) {
+	if file == nil || file.FlatTree == nil || len(file.FlatTree.Nodes) == 0 {
+		return
+	}
+
+	for idx := range file.FlatTree.Nodes {
+		flatIdx := uint32(idx)
+		flatNode := file.FlatTree.Nodes[idx]
+
+		if int(flatNode.Type) < len(flatTypeRules) {
+			if handlers := flatTypeRules[flatNode.Type]; handlers != nil {
+				for _, r := range handlers {
+					if excludedRules[r.ID] {
+						continue
+					}
+					start := time.Now()
+					safeCheckV2NodeColumns(r, flatIdx, &flatNode, file, collector, stats)
+					elapsed := time.Since(start).Nanoseconds()
+					stats.DispatchRuleNs += elapsed
+					stats.DispatchRuleNsByRule[r.ID] += elapsed
+				}
+			}
+		}
+
+		for _, r := range d.allNodeRules {
+			if excludedRules[r.ID] {
+				continue
+			}
+			start := time.Now()
+			safeCheckV2NodeColumns(r, flatIdx, &flatNode, file, collector, stats)
+			elapsed := time.Since(start).Nanoseconds()
+			stats.DispatchRuleNs += elapsed
+			stats.DispatchRuleNsByRule[r.ID] += elapsed
+		}
+	}
+}
+
+// safeCheckV2NodeColumns is the columnar twin of safeCheckV2Node. It
+// constructs the Context with the collector attached so ctx.Emit writes
+// directly into columns; any residual Findings slice mutation from
+// unmigrated rules is drained into the collector after Check returns.
+func safeCheckV2NodeColumns(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			line := 0
+			if node != nil {
+				line = int(node.StartRow) + 1
+			} else if file != nil {
+				line = file.FlatRow(idx) + 1
+			}
+			stats.Errors = append(stats.Errors, DispatchError{
+				RuleName:   r.ID,
+				FilePath:   filePathOrEmpty(file),
+				Line:       line,
+				PanicValue: rec,
+			})
+		}
+	}()
+
+	ctx := &v2.Context{
+		File:              file,
+		Node:              node,
+		Idx:               idx,
+		Rule:              r,
+		DefaultConfidence: 0.95,
+		Collector:         collector,
+	}
+	r.Check(ctx)
+	drainContextFindings(ctx, r, collector)
+}
+
+func (d *V2Dispatcher) runLineRuleColumns(r *v2.Rule, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			stats.Errors = append(stats.Errors, DispatchError{
+				RuleName:   r.ID,
+				FilePath:   filePathOrEmpty(file),
+				Line:       0,
+				PanicValue: rec,
+			})
+		}
+	}()
+	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector}
+	r.Check(ctx)
+	drainContextFindings(ctx, r, collector)
+}
+
+func (d *V2Dispatcher) runLegacyRuleColumns(r *v2.Rule, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			stats.Errors = append(stats.Errors, DispatchError{
+				RuleName:   r.ID,
+				FilePath:   filePathOrEmpty(file),
+				Line:       0,
+				PanicValue: rec,
+			})
+		}
+	}()
+	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.50, Collector: collector}
+	r.Check(ctx)
+	drainContextFindings(ctx, r, collector)
+}
+
+// drainContextFindings stamps and appends any findings a rule mutated
+// onto ctx.Findings (rather than via ctx.Emit) into the collector. Once
+// all rules are migrated this will become a no-op.
+func drainContextFindings(ctx *v2.Context, r *v2.Rule, collector *scanner.FindingCollector) {
+	if len(ctx.Findings) == 0 {
+		return
+	}
+	stampV2Findings(ctx.Findings, r, ctx.File)
+	fallback := ctx.DefaultConfidence
+	confidence := r.Confidence
+	if confidence == 0 {
+		confidence = fallback
+	}
+	for i := range ctx.Findings {
+		if ctx.Findings[i].Confidence == 0 {
+			ctx.Findings[i].Confidence = confidence
+		}
+	}
+	collector.AppendAll(ctx.Findings)
+	ctx.Findings = ctx.Findings[:0]
 }
 
 // walkDispatch performs a single pass over the flat tree, invoking each

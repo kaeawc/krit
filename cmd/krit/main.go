@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"sort"
 	"strings"
 	"sync"
@@ -90,6 +91,8 @@ func main() {
 	flag.StringVar(formatFlag, "format", "json", "Alias for -f")
 	reportFlag := flag.String("report", "", "Report format: json, plain, sarif, checkstyle (alias for -f, takes precedence)")
 	perfFlag := flag.Bool("perf", false, "Include performance timing in output")
+	cpuProfileFlag := flag.String("cpuprofile", "", "Write CPU profile to file")
+	memProfileFlag := flag.String("memprofile", "", "Write memory profile to file")
 	profileDispatchFlag := flag.Bool("profile-dispatch", false, "Debug: emit per-file dispatch timing distribution to stderr")
 	includeGeneratedFlag := flag.Bool("include-generated", false, "Include files under */generated/* directories (default: skipped, not user-maintained code)")
 	outputFlag := flag.String("o", "", "Write output to file")
@@ -588,6 +591,23 @@ potential-bugs:
 
 	start := time.Now()
 	tracker := perf.New(*perfFlag)
+
+	// cpuProfileFile is stopped explicitly alongside the memory profile write —
+	// defer won't fire through os.Exit, so we manage the lifecycle manually.
+	var cpuProfileFile *os.File
+	if *cpuProfileFlag != "" {
+		f, err := os.Create(*cpuProfileFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: could not create CPU profile: %v\n", err)
+			os.Exit(2)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			fmt.Fprintf(os.Stderr, "error: could not start CPU profile: %v\n", err)
+			f.Close()
+			os.Exit(2)
+		}
+		cpuProfileFile = f
+	}
 
 	// Collect files
 	var files []string
@@ -1105,8 +1125,17 @@ potential-bugs:
 	}
 
 	perf.AddEntry(ruleTracker, "suppressionIndex", time.Duration(ruleStats.SuppressionIndexMs)*time.Millisecond)
-	perf.AddEntry(ruleTracker, "dispatchWalk", time.Duration(ruleStats.DispatchWalkMs)*time.Millisecond)
-	perf.AddEntry(ruleTracker, "dispatchRuleCallbacks", time.Duration(ruleStats.DispatchRuleNs))
+	// dispatchWalk covers the full AST traversal including rule callbacks.
+	// walkTraversal is the traversal-only overhead (walk minus rule time).
+	// ruleCallbacks is the accumulated time spent inside rule CheckNode functions.
+	walkTotal := time.Duration(ruleStats.DispatchWalkMs) * time.Millisecond
+	ruleCallbackTotal := time.Duration(ruleStats.DispatchRuleNs)
+	walkTraversal := walkTotal - ruleCallbackTotal
+	if walkTraversal < 0 {
+		walkTraversal = 0
+	}
+	perf.AddEntry(ruleTracker, "walkTraversal", walkTraversal)
+	perf.AddEntry(ruleTracker, "ruleCallbacks", ruleCallbackTotal)
 	perf.AddEntry(ruleTracker, "aggregateCollect", time.Duration(ruleStats.AggregateCollectNs))
 	perf.AddEntry(ruleTracker, "aggregateFinalize", time.Duration(ruleStats.AggregateFinalizeMs)*time.Millisecond)
 	perf.AddEntry(ruleTracker, "lineRules", time.Duration(ruleStats.LineRuleMs)*time.Millisecond)
@@ -1537,6 +1566,24 @@ potential-bugs:
 	// Record total wall-clock time
 	perf.AddEntry(tracker, "total", time.Since(start))
 
+	if cpuProfileFile != nil {
+		pprof.StopCPUProfile()
+		cpuProfileFile.Close()
+	}
+
+	if *memProfileFlag != "" {
+		f, err := os.Create(*memProfileFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: could not create memory profile: %v\n", err)
+		} else {
+			runtime.GC()
+			if err := pprof.WriteHeapProfile(f); err != nil {
+				fmt.Fprintf(os.Stderr, "error: could not write memory profile: %v\n", err)
+			}
+			f.Close()
+		}
+	}
+
 	// Elevate warnings to errors before output if requested
 	warningsAsErrors := *warningsAsErrorsFlag || cfg.GetTopLevelBool("warningsAsErrors", false)
 	if warningsAsErrors {
@@ -1832,12 +1879,15 @@ func runAndroidProjectAnalysisColumns(project *android.AndroidProject, activeRul
 		collector.AppendColumns(&iconColumns)
 		iconRulesDur += time.Since(start)
 	}
-	perf.AddEntry(resourceTracker, "resourceDirScan", resourceScanDur)
-	perf.AddEntry(resourceTracker, "resourceProviderWait", resourceWaitDur)
+	// resourceDirScan and iconScan are wall-clock wait times (time blocked waiting
+	// for the provider future or inline scan). The *CPU variants are accumulated
+	// goroutine time from parallel workers — they can exceed the parent wall-clock.
+	perf.AddEntry(resourceTracker, "resourceDirScan", resourceWaitDur)
+	perf.AddEntry(resourceTracker, "resourceDirScanCPU", resourceScanDur)
 	perf.AddEntry(resourceTracker, "layoutDirScan", resourceLayoutScanDur)
-	perf.AddEntry(resourceTracker, "valuesDirScan", resourceValuesScanDur)
+	perf.AddEntry(resourceTracker, "valuesDirScanCPU", resourceValuesScanDur)
 	perf.AddEntry(resourceTracker, "valuesFileRead", resourceValuesReadDur)
-	perf.AddEntry(resourceTracker, "valuesXMLParse", resourceValuesParseDur)
+	perf.AddEntry(resourceTracker, "valuesXMLParseCPU", resourceValuesParseDur)
 	perf.AddEntry(resourceTracker, "valuesIndexBuild", resourceValuesIndexDur)
 	perf.AddEntry(resourceTracker, "resourceMerge", resourceMergeDur)
 	perf.AddEntry(resourceTracker, "maxLayoutDirScan", resourceMaxLayoutDur)
@@ -1845,8 +1895,8 @@ func runAndroidProjectAnalysisColumns(project *android.AndroidProject, activeRul
 	perf.AddEntry(resourceTracker, "maxDrawableDirScan", resourceMaxDrawableDur)
 	perf.AddEntry(resourceTracker, "drawableDirScan", resourceDrawableScanDur)
 	perf.AddEntry(resourceTracker, "resourceRuleChecks", resourceRulesDur)
-	perf.AddEntry(resourceTracker, "iconScan", iconScanDur)
-	perf.AddEntry(resourceTracker, "iconProviderWait", iconWaitDur)
+	perf.AddEntry(resourceTracker, "iconScan", iconWaitDur)
+	perf.AddEntry(resourceTracker, "iconScanCPU", iconScanDur)
 	perf.AddEntry(resourceTracker, "iconRuleChecks", iconRulesDur)
 	resourceTracker.End()
 

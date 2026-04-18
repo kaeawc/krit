@@ -3,6 +3,7 @@ package scanner
 import (
 	"math"
 	"sync"
+	"sync/atomic"
 
 	sitter "github.com/smacker/go-tree-sitter"
 )
@@ -16,6 +17,12 @@ var (
 	nodeTypeMu    sync.RWMutex
 	NodeTypeTable []string
 	nodeTypeIndex = make(map[string]uint16)
+
+	// nodeTypeSnapshot is an atomically-updated pointer to a snapshot of
+	// NodeTypeTable. Reads during dispatch use this for lock-free access —
+	// the table only grows during parsing, so the snapshot is stable by the
+	// time any rule calls FlatType(). Writes hold nodeTypeMu.
+	nodeTypeSnapshot atomic.Pointer[[]string]
 )
 
 // FlatNode stores a tree-sitter node in a compact, cgo-free form.
@@ -528,6 +535,11 @@ func internNodeType(nodeType string) uint16 {
 	idx := uint16(len(NodeTypeTable))
 	NodeTypeTable = append(NodeTypeTable, nodeType)
 	nodeTypeIndex[nodeType] = idx
+	// Publish a snapshot for lock-free reads during dispatch. The slice header
+	// is copied so readers always see a consistent (ptr, len, cap) triple even
+	// if a future append reallocates the backing array.
+	snapshot := NodeTypeTable
+	nodeTypeSnapshot.Store(&snapshot)
 	return idx
 }
 
@@ -544,6 +556,18 @@ func LookupFlatNodeType(nodeType string) (uint16, bool) {
 }
 
 func nodeTypeName(typeID uint16) string {
+	// Fast path: load the atomically-published snapshot without taking any lock.
+	// The snapshot is always set before any typeID for that entry can be observed
+	// by a caller (internNodeType publishes before returning the ID).
+	if p := nodeTypeSnapshot.Load(); p != nil {
+		tbl := *p
+		if int(typeID) < len(tbl) {
+			return tbl[typeID]
+		}
+		return ""
+	}
+	// Fallback for the rare case where snapshot hasn't been published yet
+	// (before the first internNodeType call).
 	nodeTypeMu.RLock()
 	defer nodeTypeMu.RUnlock()
 	if int(typeID) >= len(NodeTypeTable) {

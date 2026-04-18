@@ -120,11 +120,14 @@ func ApplyFixesDetailed(path string, findings []scanner.Finding, suffix string, 
 	// Separate byte-mode and line-mode fixes
 	byteFixes, lineFixes := splitByMode(fixes)
 
-	// Mixed-mode rejection: if both modes present, prefer byte-mode and drop line-mode
+	// Mixed-mode rejection: byte and line fixes cannot be safely combined
+	// in a single pass (line-mode edits would shift byte offsets the
+	// byte-mode pass already captured). Surface this as an error rather
+	// than silently dropping one mode's fixes.
 	if len(byteFixes) > 0 && len(lineFixes) > 0 {
-		log.Printf("warning: %s has both byte-mode (%d) and line-mode (%d) fixes; dropping line-mode fixes",
-			path, len(byteFixes), len(lineFixes))
-		lineFixes = nil
+		return FixResult{}, fmt.Errorf(
+			"mixed-mode fixes in %s: %d byte-mode fix(es) and %d line-mode fix(es) cannot be combined; rules %s",
+			path, len(byteFixes), len(lineFixes), mixedModeRules(byteFixes, lineFixes))
 	}
 
 	result := string(content)
@@ -138,7 +141,7 @@ func ApplyFixesDetailed(path string, findings []scanner.Finding, suffix string, 
 		})
 		// Deduplicate overlapping byte ranges
 		var byteDropped []DroppedFix
-		byteFixes, byteDropped = deduplicateByteFixesReverse(byteFixes)
+		byteFixes, byteDropped = deduplicateFixesReverse(byteFixes, findingByteEnd, findingByteStart, findingDropped)
 		droppedFixes = append(droppedFixes, byteDropped...)
 		buf := []byte(result)
 		for _, f := range byteFixes {
@@ -157,7 +160,7 @@ func ApplyFixesDetailed(path string, findings []scanner.Finding, suffix string, 
 			return lineFixes[i].Fix.StartLine > lineFixes[j].Fix.StartLine
 		})
 		var lineDropped []DroppedFix
-		lineFixes, lineDropped = deduplicateLineFixesReverse(lineFixes)
+		lineFixes, lineDropped = deduplicateFixesReverse(lineFixes, findingLineEnd, findingLineStart, findingDropped)
 		droppedFixes = append(droppedFixes, lineDropped...)
 		lines := strings.Split(result, "\n")
 		for _, f := range lineFixes {
@@ -299,9 +302,9 @@ func applyFixesDetailedColumns(path string, columns *scanner.FindingColumns, row
 	byteFixes, lineFixes := splitTextFixRowsByMode(fixes)
 
 	if len(byteFixes) > 0 && len(lineFixes) > 0 {
-		log.Printf("warning: %s has both byte-mode (%d) and line-mode (%d) fixes; dropping line-mode fixes",
-			path, len(byteFixes), len(lineFixes))
-		lineFixes = nil
+		return FixResult{}, fmt.Errorf(
+			"mixed-mode fixes in %s: %d byte-mode fix(es) and %d line-mode fix(es) cannot be combined; rules %s",
+			path, len(byteFixes), len(lineFixes), mixedModeRulesRows(byteFixes, lineFixes))
 	}
 
 	result := string(content)
@@ -312,7 +315,7 @@ func applyFixesDetailedColumns(path string, columns *scanner.FindingColumns, row
 			return byteFixes[i].fix.StartByte > byteFixes[j].fix.StartByte
 		})
 		var byteDropped []DroppedFix
-		byteFixes, byteDropped = deduplicateByteTextFixRowsReverse(path, byteFixes)
+		byteFixes, byteDropped = deduplicateFixesReverse(byteFixes, textFixRowByteEnd, textFixRowByteStart, textFixRowDroppedFor(path))
 		droppedFixes = append(droppedFixes, byteDropped...)
 		buf := []byte(result)
 		for _, f := range byteFixes {
@@ -330,7 +333,7 @@ func applyFixesDetailedColumns(path string, columns *scanner.FindingColumns, row
 			return lineFixes[i].fix.StartLine > lineFixes[j].fix.StartLine
 		})
 		var lineDropped []DroppedFix
-		lineFixes, lineDropped = deduplicateLineTextFixRowsReverse(path, lineFixes)
+		lineFixes, lineDropped = deduplicateFixesReverse(lineFixes, textFixRowLineEnd, textFixRowLineStart, textFixRowDroppedFor(path))
 		droppedFixes = append(droppedFixes, lineDropped...)
 		lines := strings.Split(result, "\n")
 		for _, f := range lineFixes {
@@ -381,6 +384,34 @@ func applyFixesDetailedColumns(path string, columns *scanner.FindingColumns, row
 	return FixResult{Applied: len(fixes), DroppedFixes: droppedFixes}, nil
 }
 
+// mixedModeRules returns a compact "[byte: A,B | line: C,D]" description
+// of which rules emitted which mode when a mixed-mode conflict occurs.
+func mixedModeRules(byteFixes, lineFixes []scanner.Finding) string {
+	byteNames := uniqueNames(len(byteFixes), func(i int) string { return byteFixes[i].Rule })
+	lineNames := uniqueNames(len(lineFixes), func(i int) string { return lineFixes[i].Rule })
+	return fmt.Sprintf("[byte: %s | line: %s]", strings.Join(byteNames, ","), strings.Join(lineNames, ","))
+}
+
+func mixedModeRulesRows(byteFixes, lineFixes []textFixRow) string {
+	byteNames := uniqueNames(len(byteFixes), func(i int) string { return byteFixes[i].rule })
+	lineNames := uniqueNames(len(lineFixes), func(i int) string { return lineFixes[i].rule })
+	return fmt.Sprintf("[byte: %s | line: %s]", strings.Join(byteNames, ","), strings.Join(lineNames, ","))
+}
+
+func uniqueNames(n int, get func(int) string) []string {
+	seen := make(map[string]struct{}, n)
+	out := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		name := get(i)
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
+}
+
 // DroppedFix records a fix that was dropped due to overlap conflict.
 type DroppedFix struct {
 	Rule string
@@ -388,94 +419,42 @@ type DroppedFix struct {
 	Line int
 }
 
-// deduplicateByteFixesReverse removes overlapping byte fixes (already sorted descending).
-// Returns the kept fixes and any dropped fixes.
-func deduplicateByteFixesReverse(fixes []scanner.Finding) ([]scanner.Finding, []DroppedFix) {
+// deduplicateFixesReverse removes overlapping fixes from a reverse-sorted
+// slice. The caller supplies key extractors that return the start and end
+// offsets (byte or line depending on the fix mode) and a meta extractor
+// that shapes the DroppedFix entry for conflicts.
+func deduplicateFixesReverse[T any](fixes []T, endKey, startKey func(T) int, meta func(T) DroppedFix) ([]T, []DroppedFix) {
 	if len(fixes) <= 1 {
 		return fixes, nil
 	}
-	var result []scanner.Finding
+	var result []T
 	var dropped []DroppedFix
 	lastStart := -1
 	for _, f := range fixes {
-		if lastStart >= 0 && f.Fix.EndByte > lastStart {
-			dropped = append(dropped, DroppedFix{
-				Rule: f.Rule,
-				File: f.File,
-				Line: f.Line,
-			})
+		if lastStart >= 0 && endKey(f) > lastStart {
+			dropped = append(dropped, meta(f))
 			continue // overlaps with previous fix
 		}
 		result = append(result, f)
-		lastStart = f.Fix.StartByte
+		lastStart = startKey(f)
 	}
 	return result, dropped
 }
 
-// deduplicateLineFixesReverse removes overlapping line fixes (already sorted descending).
-// Returns the kept fixes and any dropped fixes.
-func deduplicateLineFixesReverse(fixes []scanner.Finding) ([]scanner.Finding, []DroppedFix) {
-	if len(fixes) <= 1 {
-		return fixes, nil
-	}
-	var result []scanner.Finding
-	var dropped []DroppedFix
-	lastStart := -1
-	for _, f := range fixes {
-		if lastStart >= 0 && f.Fix.EndLine > lastStart {
-			dropped = append(dropped, DroppedFix{
-				Rule: f.Rule,
-				File: f.File,
-				Line: f.Line,
-			})
-			continue
-		}
-		result = append(result, f)
-		lastStart = f.Fix.StartLine
-	}
-	return result, dropped
+func findingByteEnd(f scanner.Finding) int    { return f.Fix.EndByte }
+func findingByteStart(f scanner.Finding) int  { return f.Fix.StartByte }
+func findingLineEnd(f scanner.Finding) int    { return f.Fix.EndLine }
+func findingLineStart(f scanner.Finding) int  { return f.Fix.StartLine }
+func findingDropped(f scanner.Finding) DroppedFix {
+	return DroppedFix{Rule: f.Rule, File: f.File, Line: f.Line}
 }
 
-func deduplicateByteTextFixRowsReverse(path string, fixes []textFixRow) ([]textFixRow, []DroppedFix) {
-	if len(fixes) <= 1 {
-		return fixes, nil
+func textFixRowByteEnd(f textFixRow) int   { return f.fix.EndByte }
+func textFixRowByteStart(f textFixRow) int { return f.fix.StartByte }
+func textFixRowLineEnd(f textFixRow) int   { return f.fix.EndLine }
+func textFixRowLineStart(f textFixRow) int { return f.fix.StartLine }
+func textFixRowDroppedFor(path string) func(textFixRow) DroppedFix {
+	return func(f textFixRow) DroppedFix {
+		return DroppedFix{Rule: f.rule, File: path, Line: f.line}
 	}
-	var result []textFixRow
-	var dropped []DroppedFix
-	lastStart := -1
-	for _, f := range fixes {
-		if lastStart >= 0 && f.fix.EndByte > lastStart {
-			dropped = append(dropped, DroppedFix{
-				Rule: f.rule,
-				File: path,
-				Line: f.line,
-			})
-			continue
-		}
-		result = append(result, f)
-		lastStart = f.fix.StartByte
-	}
-	return result, dropped
-}
-
-func deduplicateLineTextFixRowsReverse(path string, fixes []textFixRow) ([]textFixRow, []DroppedFix) {
-	if len(fixes) <= 1 {
-		return fixes, nil
-	}
-	var result []textFixRow
-	var dropped []DroppedFix
-	lastStart := -1
-	for _, f := range fixes {
-		if lastStart >= 0 && f.fix.EndLine > lastStart {
-			dropped = append(dropped, DroppedFix{
-				Rule: f.rule,
-				File: path,
-				Line: f.line,
-			})
-			continue
-		}
-		result = append(result, f)
-		lastStart = f.fix.StartLine
-	}
-	return result, dropped
 }

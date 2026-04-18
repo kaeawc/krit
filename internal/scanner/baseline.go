@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"os"
@@ -35,18 +36,25 @@ type DetektIDList struct {
 	IDs []string `xml:"ID"`
 }
 
-// LoadBaseline reads a detekt-format baseline XML file.
+// LoadBaseline reads a baseline file.  Detects format automatically:
+// files ending in .json are read as JSON; all others are parsed as detekt XML.
 func LoadBaseline(path string) (*Baseline, error) {
+	if strings.HasSuffix(path, ".json") {
+		return LoadBaselineJSON(path)
+	}
+	return LoadBaselineXML(path)
+}
+
+// LoadBaselineXML reads a detekt-format baseline XML file.
+func LoadBaselineXML(path string) (*Baseline, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-
 	var db DetektBaseline
 	if err := xml.Unmarshal(data, &db); err != nil {
 		return nil, fmt.Errorf("invalid baseline XML: %w", err)
 	}
-
 	b := &Baseline{
 		ManuallySuppressed: make(map[string]bool),
 		CurrentIssues:      make(map[string]bool),
@@ -58,6 +66,63 @@ func LoadBaseline(path string) (*Baseline, error) {
 		b.CurrentIssues[id] = true
 	}
 	return b, nil
+}
+
+// baselineJSON is the JSON encoding of a Baseline used for krit-native files.
+type baselineJSON struct {
+	ManuallySuppressed []string `json:"manuallySuppressed,omitempty"`
+	CurrentIssues      []string `json:"currentIssues,omitempty"`
+}
+
+// LoadBaselineJSON reads a krit-native JSON baseline file.
+func LoadBaselineJSON(path string) (*Baseline, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var bj baselineJSON
+	if err := json.Unmarshal(data, &bj); err != nil {
+		return nil, fmt.Errorf("invalid baseline JSON: %w", err)
+	}
+	b := &Baseline{
+		ManuallySuppressed: make(map[string]bool, len(bj.ManuallySuppressed)),
+		CurrentIssues:      make(map[string]bool, len(bj.CurrentIssues)),
+	}
+	for _, id := range bj.ManuallySuppressed {
+		b.ManuallySuppressed[id] = true
+	}
+	for _, id := range bj.CurrentIssues {
+		b.CurrentIssues[id] = true
+	}
+	return b, nil
+}
+
+// WriteBaselineJSON writes a Baseline to a JSON file.  The output is sorted
+// for stable diffs.  Atomically replaces any existing file.
+func WriteBaselineJSON(path string, b *Baseline) error {
+	ms := make([]string, 0, len(b.ManuallySuppressed))
+	ci := make([]string, 0, len(b.CurrentIssues))
+	for id := range b.ManuallySuppressed {
+		ms = append(ms, id)
+	}
+	for id := range b.CurrentIssues {
+		ci = append(ci, id)
+	}
+	sort.Strings(ms)
+	sort.Strings(ci)
+	bj := baselineJSON{
+		ManuallySuppressed: ms,
+		CurrentIssues:      ci,
+	}
+	data, err := json.MarshalIndent(bj, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // Contains checks if a finding ID is in the baseline (either section).

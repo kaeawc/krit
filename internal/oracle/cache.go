@@ -27,6 +27,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/kaeawc/krit/internal/store"
 )
 
 // CacheVersion is bumped whenever the on-disk entry layout changes in a
@@ -537,6 +539,174 @@ func WriteFreshEntries(
 				},
 			}
 			if err := WriteEntry(cacheDir, entry); err != nil {
+				continue
+			}
+			written++
+		}
+	}
+	return written, nil
+}
+
+// oracleVersionHash returns the 16-byte RuleSetHash used for oracle store
+// keys.  It encodes CacheVersion so that a version bump automatically
+// produces a different key prefix, invalidating all prior oracle entries.
+func oracleVersionHash() [16]byte {
+	h := sha256.Sum256([]byte(fmt.Sprintf("oracle-v%d", CacheVersion)))
+	var out [16]byte
+	copy(out[:], h[:])
+	return out
+}
+
+// oracleStoreKey builds the store.Key for a given content hash (hex string).
+func oracleStoreKey(contentHash string) store.Key {
+	b, _ := hex.DecodeString(contentHash)
+	var fh [32]byte
+	copy(fh[:], b)
+	return store.Key{
+		FileHash:    fh,
+		RuleSetHash: oracleVersionHash(),
+		Kind:        store.KindOracle,
+	}
+}
+
+// LoadEntryFromStore retrieves a CacheEntry from s by content hash.
+// Returns (nil, nil) on a miss.  Treats any malformed value as a miss.
+func LoadEntryFromStore(s *store.FileStore, contentHash string) (*CacheEntry, error) {
+	data, ok := s.Get(oracleStoreKey(contentHash))
+	if !ok {
+		return nil, nil
+	}
+	var e CacheEntry
+	if err := json.Unmarshal(data, &e); err != nil {
+		return nil, fmt.Errorf("parse oracle store entry %s: %w", contentHash, err)
+	}
+	if e.V != CacheVersion {
+		return nil, fmt.Errorf("oracle store entry version %d != %d", e.V, CacheVersion)
+	}
+	return &e, nil
+}
+
+// WriteEntryToStore persists a CacheEntry in s keyed by its content hash.
+func WriteEntryToStore(s *store.FileStore, entry *CacheEntry) error {
+	entry.V = CacheVersion
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("marshal oracle entry: %w", err)
+	}
+	return s.Put(oracleStoreKey(entry.ContentHash), data)
+}
+
+// ClassifyFilesWithStore is like ClassifyFiles but reads from s instead of
+// the legacy cacheDir layout.  Falls back to ClassifyFiles(cacheDir, paths)
+// when s is nil.
+func ClassifyFilesWithStore(s *store.FileStore, cacheDir string, paths []string) (hits []*CacheEntry, misses []string) {
+	if s == nil {
+		return ClassifyFiles(cacheDir, paths)
+	}
+	hits = make([]*CacheEntry, 0, len(paths))
+	misses = make([]string, 0)
+	hashCache := make(map[string]string, len(paths))
+
+	for _, p := range paths {
+		hash, err := ContentHash(p)
+		if err != nil {
+			continue
+		}
+		hashCache[p] = hash
+
+		entry, err := LoadEntryFromStore(s, hash)
+		if err != nil || entry == nil {
+			misses = append(misses, p)
+			continue
+		}
+		if !VerifyClosure(entry, hashCache) {
+			misses = append(misses, p)
+			continue
+		}
+		if entry.FilePath != p {
+			synthetic := *entry
+			synthetic.FilePath = p
+			hits = append(hits, &synthetic)
+			continue
+		}
+		hits = append(hits, entry)
+	}
+	return hits, misses
+}
+
+// WriteFreshEntriesToStore is like WriteFreshEntries but writes to s instead
+// of the legacy cacheDir layout.  Falls back to WriteFreshEntries when s is nil.
+func WriteFreshEntriesToStore(
+	s *store.FileStore,
+	cacheDir string,
+	fresh *OracleData,
+	deps *CacheDepsFile,
+) (int, error) {
+	if s == nil {
+		return WriteFreshEntries(cacheDir, fresh, deps)
+	}
+	if fresh == nil {
+		return 0, nil
+	}
+	written := 0
+	hashCache := make(map[string]string, len(fresh.Files))
+	approx := ""
+	if deps != nil {
+		approx = deps.Approximation
+	}
+	for path, fr := range fresh.Files {
+		hash, err := ContentHash(path)
+		if err != nil {
+			continue
+		}
+		hashCache[path] = hash
+		var depEntry *CacheDepsEntry
+		if deps != nil {
+			depEntry = deps.Files[path]
+		}
+		var depPaths []string
+		var perFileDeps map[string]*OracleClass
+		if depEntry != nil {
+			depPaths = depEntry.DepPaths
+			perFileDeps = depEntry.PerFileDeps
+		}
+		fp, err := closureFingerprint(depPaths, hashCache)
+		if err != nil {
+			continue
+		}
+		entry := &CacheEntry{
+			V:             CacheVersion,
+			ContentHash:   hash,
+			FilePath:      path,
+			FileResult:    fr,
+			PerFileDeps:   perFileDeps,
+			Approximation: approx,
+			Closure: CacheClosure{
+				DepPaths:    depPaths,
+				Fingerprint: fp,
+			},
+		}
+		if err := WriteEntryToStore(s, entry); err != nil {
+			continue
+		}
+		written++
+	}
+	if deps != nil {
+		for path, errMsg := range deps.Crashed {
+			hash, err := ContentHash(path)
+			if err != nil {
+				continue
+			}
+			entry := &CacheEntry{
+				V:             CacheVersion,
+				ContentHash:   hash,
+				FilePath:      path,
+				Crashed:       true,
+				CrashError:    errMsg,
+				Approximation: approx,
+				Closure:       CacheClosure{},
+			}
+			if err := WriteEntryToStore(s, entry); err != nil {
 				continue
 			}
 			written++

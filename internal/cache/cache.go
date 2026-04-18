@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/store"
 )
 
 const CacheFileName = ".krit-cache"
@@ -76,6 +78,12 @@ type Cache struct {
 	RuleHash  string               `json:"ruleHash"`
 	ScanPaths []string             `json:"scanPaths,omitempty"`
 	Files     map[string]FileEntry `json:"files"`
+
+	// store, when non-nil, backs all reads and writes instead of the
+	// in-memory Files map.  Entries are persisted per-file so Save becomes
+	// a no-op.  Set via AttachStore after loading.
+	backingStore    *store.FileStore
+	storeRuleSetHash [16]byte
 }
 
 // CacheResult holds the outcome of checking files against the cache.
@@ -165,8 +173,12 @@ func LoadFromDir(dir string) *Cache {
 
 // Save writes the cache file atomically to the given path.
 // It writes to a temporary file first, then renames for crash safety
-// and safe concurrent access.
+// and safe concurrent access.  When a store is attached, Save is a no-op
+// because entries are persisted individually on each UpdateEntry call.
 func (c *Cache) Save(cacheFilePath string) error {
+	if c.backingStore != nil {
+		return nil
+	}
 	dir := filepath.Dir(cacheFilePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
@@ -294,6 +306,44 @@ func ComputeFileHash(path string) string {
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
+// computeFileHash32 returns the full 32-byte SHA-256 of a file's content.
+// Used as the FileHash component of a store.Key.
+func computeFileHash32(path string) ([32]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return [32]byte{}, err
+	}
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out, nil
+}
+
+// ParseRuleSetHash converts a 32-hex-char config hash string (from
+// ComputeConfigHash) into the 16-byte form used in store.Key.
+func ParseRuleSetHash(hexStr string) [16]byte {
+	b, _ := hex.DecodeString(hexStr)
+	var out [16]byte
+	copy(out[:], b)
+	return out
+}
+
+// AttachStore configures c to read and write all incremental cache entries
+// through s instead of the in-memory Files map.  ruleSetHash must be the
+// parsed form of ComputeConfigHash (use ParseRuleSetHash).
+//
+// Once attached, CheckFiles consults the store; UpdateEntryColumns writes to
+// the store; Save becomes a no-op.  The existing JSON file is no longer read
+// after AttachStore — the first warm run regenerates entries in the store.
+func (c *Cache) AttachStore(s *store.FileStore, ruleSetHash [16]byte) {
+	c.backingStore = s
+	c.storeRuleSetHash = ruleSetHash
+}
+
 // CheckFiles checks which files can use cached results and which need reanalysis.
 // Returns cached findings and a set of paths that are cache hits.
 // When scanPaths is non-empty, the cache is invalidated if the scan paths differ.
@@ -303,6 +353,10 @@ func (c *Cache) CheckFiles(filePaths []string, ruleHash string, scanPaths ...str
 		TotalFiles:  len(filePaths),
 	}
 	collector := scanner.NewFindingCollector(0)
+
+	if c.backingStore != nil {
+		return c.checkFilesFromStore(filePaths, result, collector)
+	}
 
 	// If rule hash changed, everything needs reanalysis
 	if c.RuleHash != ruleHash {
@@ -330,6 +384,36 @@ func (c *Cache) CheckFiles(filePaths []string, ruleHash string, scanPaths ...str
 	}
 	result.CachedColumns = *collector.Columns()
 
+	return result
+}
+
+// checkFilesFromStore performs cache lookup via the unified store.
+// Each file is keyed by its full SHA-256 content hash + the active rule-set
+// hash, so a content change or rule change automatically produces a miss.
+func (c *Cache) checkFilesFromStore(filePaths []string, result *CacheResult, collector *scanner.FindingCollector) *CacheResult {
+	for _, path := range filePaths {
+		fh, err := computeFileHash32(path)
+		if err != nil {
+			continue
+		}
+		key := store.Key{
+			FileHash:    fh,
+			RuleSetHash: c.storeRuleSetHash,
+			Kind:        store.KindIncremental,
+		}
+		data, ok := c.backingStore.Get(key)
+		if !ok {
+			continue
+		}
+		var cols scanner.FindingColumns
+		if err := json.Unmarshal(data, &cols); err != nil {
+			continue
+		}
+		result.CachedPaths[path] = true
+		collector.AppendColumns(&cols)
+		result.TotalCached++
+	}
+	result.CachedColumns = *collector.Columns()
 	return result
 }
 
@@ -381,6 +465,23 @@ func (c *Cache) UpdateEntryColumns(path string, columns *scanner.FindingColumns)
 }
 
 func (c *Cache) updateEntry(path string, columns scanner.FindingColumns) {
+	if c.backingStore != nil {
+		fh, err := computeFileHash32(path)
+		if err != nil {
+			return
+		}
+		data, err := json.Marshal(columns)
+		if err != nil {
+			return
+		}
+		key := store.Key{
+			FileHash:    fh,
+			RuleSetHash: c.storeRuleSetHash,
+			Kind:        store.KindIncremental,
+		}
+		_ = c.backingStore.Put(key, data)
+		return
+	}
 	abs, _ := filepath.Abs(path)
 	info, err := os.Stat(path)
 	if err != nil {

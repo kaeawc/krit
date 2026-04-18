@@ -3,8 +3,11 @@ package pipeline
 import (
 	"context"
 	"runtime"
+	"sort"
 	"sync"
+	"time"
 
+	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -27,12 +30,23 @@ func (DispatchPhase) Name() string { return "dispatch" }
 // Run executes the Dispatch phase. It walks every non-cached file in
 // in.KotlinFiles in parallel, dispatching per-file rules through the
 // shared dispatcher, and accumulates the findings and run statistics.
+//
+// When in.ActiveRulesV1 is non-nil the phase uses it directly. Otherwise
+// it derives a v1 rule slice from in.ActiveRules via v2.ToV1. When
+// in.Tracker is non-nil it wraps the dispatch loop in a "ruleExecution"
+// serial child and emits per-family timing entries + a topDispatchRules
+// breakdown matching the pre-refactor CLI. When in.UseCache / Cache /
+// Version are set, the phase updates and saves the cache under a
+// "cacheSave" tracker entry.
 func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult, error) {
 	if err := ctx.Err(); err != nil {
 		return DispatchResult{}, err
 	}
 
-	v1Rules := v2RulesToV1(in.ActiveRules)
+	v1Rules := in.ActiveRulesV1
+	if v1Rules == nil {
+		v1Rules = v2RulesToV1(in.ActiveRules)
+	}
 
 	// Pass the resolver through unconditionally — NewDispatcher handles a
 	// nil resolver gracefully (internal/rules/dispatch.go:54-84 checks
@@ -41,20 +55,32 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 
 	workers := d.Workers
 	if workers <= 0 {
+		workers = in.Jobs
+	}
+	if workers <= 0 {
 		workers = runtime.NumCPU()
 	}
 	if workers <= 0 {
 		workers = 1
 	}
 
+	useCache := in.Cache != nil && in.CacheFilePath != ""
+	findingsByFile := map[string]scanner.FindingColumns{}
+
 	var (
 		wg          sync.WaitGroup
 		mu          sync.Mutex
 		allFindings []scanner.Finding
+		fileTimings []FileTiming
 		acc         = rules.RunStats{
 			DispatchRuleNsByRule: make(map[string]int64),
 		}
 	)
+
+	ruleTracker := perf.Tracker(nil)
+	if in.Tracker != nil {
+		ruleTracker = in.Tracker.Serial("ruleExecution")
+	}
 
 	sem := make(chan struct{}, workers)
 	for _, f := range in.KotlinFiles {
@@ -62,31 +88,163 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 			continue
 		}
 		wg.Add(1)
+		var dispatchedAt time.Time
+		if in.ProfileDispatch {
+			dispatchedAt = time.Now()
+		}
 		sem <- struct{}{}
-		go func(file *scanner.File) {
+		go func(file *scanner.File, dispatched time.Time) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
+			var startedAt, finishedRunAt, lockedAt time.Time
+			if in.ProfileDispatch {
+				startedAt = time.Now()
+			}
+
 			fileFindings, fileStats := dispatcher.RunWithStats(file)
 
+			if in.ProfileDispatch {
+				finishedRunAt = time.Now()
+			}
+
 			mu.Lock()
+			if in.ProfileDispatch {
+				lockedAt = time.Now()
+			}
 			if len(fileFindings) > 0 {
 				allFindings = append(allFindings, fileFindings...)
 			}
+			if useCache {
+				findingsByFile[file.Path] = scanner.CollectFindings(fileFindings)
+			}
 			mergeStats(&acc, fileStats)
+			if in.ProfileDispatch {
+				endAt := time.Now()
+				fileTimings = append(fileTimings, FileTiming{
+					Path:     file.Path,
+					Size:     len(file.Content),
+					QueueMs:  startedAt.Sub(dispatched).Milliseconds(),
+					RunMs:    finishedRunAt.Sub(startedAt).Milliseconds(),
+					LockMs:   lockedAt.Sub(finishedRunAt).Milliseconds(),
+					AggMs:    endAt.Sub(lockedAt).Milliseconds(),
+					TotalMs:  endAt.Sub(dispatched).Milliseconds(),
+					Findings: len(fileFindings),
+				})
+			}
 			mu.Unlock()
-		}(f)
+		}(f, dispatchedAt)
 	}
 	wg.Wait()
 
 	if err := ctx.Err(); err != nil {
+		if ruleTracker != nil {
+			ruleTracker.End()
+		}
 		return DispatchResult{}, err
 	}
 
+	// Emit panic diagnostics in the same format as cmd/krit/main.go.
+	if len(acc.Errors) > 0 && in.Logger != nil {
+		for _, de := range acc.Errors {
+			in.Logger("%s\n", de.Error())
+		}
+		in.Logger("krit: %d rule panic(s) during scan\n", len(acc.Errors))
+	}
+
+	// Emit per-family + topDispatchRules timing entries, matching the
+	// pre-refactor AddEntry sequence.
+	if ruleTracker != nil && in.EmitPerFileStats {
+		perf.AddEntry(ruleTracker, "suppressionIndex", time.Duration(acc.SuppressionIndexMs)*time.Millisecond)
+		walkTotal := time.Duration(acc.DispatchWalkMs) * time.Millisecond
+		ruleCallbackTotal := time.Duration(acc.DispatchRuleNs)
+		walkTraversal := walkTotal - ruleCallbackTotal
+		if walkTraversal < 0 {
+			walkTraversal = 0
+		}
+		perf.AddEntry(ruleTracker, "walkTraversal", walkTraversal)
+		perf.AddEntry(ruleTracker, "ruleCallbacks", ruleCallbackTotal)
+		perf.AddEntry(ruleTracker, "aggregateCollect", time.Duration(acc.AggregateCollectNs))
+		perf.AddEntry(ruleTracker, "aggregateFinalize", time.Duration(acc.AggregateFinalizeMs)*time.Millisecond)
+		perf.AddEntry(ruleTracker, "lineRules", time.Duration(acc.LineRuleMs)*time.Millisecond)
+		perf.AddEntry(ruleTracker, "legacyRules", time.Duration(acc.LegacyRuleMs)*time.Millisecond)
+		perf.AddEntry(ruleTracker, "suppressionFilter", time.Duration(acc.SuppressionFilterMs)*time.Millisecond)
+		if len(acc.DispatchRuleNsByRule) > 0 {
+			type timedRule struct {
+				name string
+				dur  int64
+			}
+			var topRules []timedRule
+			for name, dur := range acc.DispatchRuleNsByRule {
+				topRules = append(topRules, timedRule{name: name, dur: dur})
+			}
+			sort.Slice(topRules, func(i, j int) bool {
+				if topRules[i].dur == topRules[j].dur {
+					return topRules[i].name < topRules[j].name
+				}
+				return topRules[i].dur > topRules[j].dur
+			})
+			if len(topRules) > 10 {
+				topRules = topRules[:10]
+			}
+			topDispatchTracker := ruleTracker.Serial("topDispatchRules")
+			for _, tr := range topRules {
+				perf.AddEntry(topDispatchTracker, tr.name, time.Duration(tr.dur))
+			}
+			topDispatchTracker.End()
+		}
+	}
+	if ruleTracker != nil {
+		ruleTracker.End()
+	}
+
+	// Merge cached findings back in, mirroring main.go.
+	if in.CacheResult != nil && in.CacheResult.CachedColumns.Len() > 0 {
+		allFindings = append(allFindings, in.CacheResult.CachedColumns.Findings()...)
+	}
+
+	// Cache write-back: update per-file entries, set header metadata,
+	// prune, and save under a "cacheSave" tracker entry.
+	if useCache && in.Version != "" {
+		for _, pf := range in.KotlinFiles {
+			if in.CacheResult == nil || !in.CacheResult.CachedPaths[pf.Path] {
+				fileColumns := findingsByFile[pf.Path]
+				in.Cache.UpdateEntryColumns(pf.Path, &fileColumns)
+			}
+		}
+		in.Cache.Version = in.Version
+		in.Cache.RuleHash = in.RuleHash
+		if len(in.CacheScanPaths) > 0 {
+			in.Cache.ScanPaths = in.CacheScanPaths
+		}
+		in.Cache.Prune()
+
+		var saveStart time.Time
+		saveFn := func() error {
+			saveStart = time.Now()
+			if err := in.Cache.Save(in.CacheFilePath); err != nil {
+				if in.Logger != nil {
+					in.Logger("warning: Failed to save cache: %v\n", err)
+				}
+			}
+			return nil
+		}
+		if in.Tracker != nil {
+			_ = in.Tracker.Track("cacheSave", saveFn)
+		} else {
+			_ = saveFn()
+		}
+		if in.CacheStats != nil {
+			in.CacheStats.SaveDurMs = time.Since(saveStart).Milliseconds()
+		}
+	}
+
 	return DispatchResult{
-		IndexResult: in,
-		Findings:    scanner.CollectFindings(allFindings),
-		Stats:       acc,
+		IndexResult:    in,
+		Findings:       scanner.CollectFindings(allFindings),
+		Stats:          acc,
+		FileTimings:    fileTimings,
+		FindingsByFile: findingsByFile,
 	}, nil
 }
 

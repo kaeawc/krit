@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -18,6 +19,7 @@ import (
 // declares NeedsCrossFile.
 type ParsePhase struct {
 	// Workers overrides the parse worker count. Zero = runtime.NumCPU().
+	// When ParseInput.Workers is non-zero, that takes precedence.
 	Workers int
 }
 
@@ -27,14 +29,16 @@ func (ParsePhase) Name() string { return "parse" }
 // Run executes the Parse phase.
 //
 // Steps:
-//  1. Collect Kotlin files under in.Paths (minus in.Excludes).
+//  1. Collect Kotlin files under in.Paths (minus in.Excludes). If
+//     in.KotlinPaths is non-nil, use it directly and skip collection.
 //  2. Parse them in parallel.
 //  3. Drop files under */generated/* unless IncludeGenerated is true.
 //  4. Sort by content length descending (LPT scheduling).
 //  5. Populate each file's SuppressionIdx so cross-file rules can consult
 //     the same @Suppress map as per-file dispatch.
 //  6. When any active rule declares NeedsCrossFile, also collect and parse
-//     Java sources for cross-reference indexing.
+//     Java sources for cross-reference indexing. Skipped entirely when
+//     in.SkipJavaCollection is true (caller handles Java elsewhere).
 //
 // Non-fatal per-file parse failures are returned via ParseResult.ParseErrors
 // so downstream phases can still run on the files that did parse.
@@ -43,30 +47,52 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 		return ParseResult{}, err
 	}
 
-	workers := p.Workers
+	workers := in.Workers
+	if workers <= 0 {
+		workers = p.Workers
+	}
 	if workers <= 0 {
 		workers = runtime.NumCPU()
 	}
 
-	kotlinPaths, err := scanner.CollectKotlinFiles(in.Paths, in.Excludes)
-	if err != nil {
-		return ParseResult{}, err
+	kotlinPaths := in.KotlinPaths
+	if kotlinPaths == nil {
+		collected, err := scanner.CollectKotlinFiles(in.Paths, in.Excludes)
+		if err != nil {
+			return ParseResult{}, err
+		}
+		kotlinPaths = collected
 	}
 
-	kotlinFiles, parseErrs := scanner.ScanFiles(kotlinPaths, workers)
+	var (
+		kotlinFiles []*scanner.File
+		parseErrs   []error
+	)
+	parseStart := time.Now()
+	_ = in.trackSerial("parse", func() error {
+		kotlinFiles, parseErrs = scanner.ScanFiles(kotlinPaths, workers)
+		return nil
+	})
+	in.logf("verbose: Parsed %d files in %v (%d errors, %d workers)\n",
+		len(kotlinFiles), time.Since(parseStart).Round(time.Millisecond), len(parseErrs), workers)
 
 	// Filter generated files unless explicitly requested. Mirrors the
 	// main.go behaviour at lines 921-935 — generated dirs contain codegen
 	// output that dwarfs hand-written sources and strands workers.
 	if !in.IncludeGenerated {
 		filtered := kotlinFiles[:0]
+		var droppedGenerated int
 		for _, f := range kotlinFiles {
 			if strings.Contains(f.Path, "/generated/") {
+				droppedGenerated++
 				continue
 			}
 			filtered = append(filtered, f)
 		}
 		kotlinFiles = filtered
+		if droppedGenerated > 0 {
+			in.logf("verbose: Skipped %d files in */generated/* dirs (pass --include-generated to re-enable)\n", droppedGenerated)
+		}
 	}
 
 	// LPT scheduling: longest files first so workers pick up the heavy
@@ -88,9 +114,11 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 
 	// Collect Java files only when at least one active rule needs them.
 	// All 481 rules already declare their Needs; rules that don't need
-	// cross-file data leave this work undone.
+	// cross-file data leave this work undone. Callers that manage Java
+	// collection themselves (e.g. inside a later phase tracker scope)
+	// pass SkipJavaCollection=true.
 	var javaFiles []*scanner.File
-	if unionNeeds(in.ActiveRules).Has(v2.NeedsCrossFile) {
+	if !in.SkipJavaCollection && unionNeeds(in.ActiveRules).Has(v2.NeedsCrossFile) {
 		javaPaths, javaErr := scanner.CollectJavaFiles(in.Paths, nil)
 		if javaErr != nil {
 			// Java indexing is best-effort — surface the error via
@@ -107,6 +135,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 		Config:      in.Config,
 		ActiveRules: in.ActiveRules,
 		KotlinFiles: kotlinFiles,
+		KotlinPaths: kotlinPaths,
 		JavaFiles:   javaFiles,
 		Paths:       in.Paths,
 		ParseErrors: parseErrs,

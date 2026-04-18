@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"time"
 
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/rules"
@@ -37,8 +38,15 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 
 	result := CrossFileResult{DispatchResult: in}
 
-	// Build v1 adapter slice once for interface assertions.
-	v1Rules := v2RulesToV1(in.ActiveRules)
+	// Build v1 adapter slice once for interface assertions. Prefer the
+	// explicitly-supplied v1 rule slice so main.go's rule set is dispatched
+	// unchanged (the v2→v1 conversion drops V1CrossFile etc. wrappers that
+	// aren't in main.go's registry anyway, but defending against a nil slice
+	// here makes the phase drop-in-compatible with both callers).
+	v1Rules := in.ActiveRulesV1
+	if v1Rules == nil {
+		v1Rules = v2RulesToV1(in.ActiveRules)
+	}
 
 	// Detect which cross-file paths any active rule needs.
 	var hasIndexBackedCrossFileRule, hasParsedFilesRule bool
@@ -76,36 +84,109 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 	// suppression uniformly at the end.
 	var crossFindings []scanner.Finding
 
+	crossStart := time.Now()
 	if hasIndexBackedCrossFileRule || hasParsedFilesRule {
-		for i, r := range v1Rules {
-			if err := ctx.Err(); err != nil {
-				return CrossFileResult{}, err
+		crossTracker := in.CrossFileParentTracker
+		runCrossRules := func() error {
+			ruleTracker := crossTracker
+			if ruleTracker != nil {
+				ruleTracker = ruleTracker.Serial("crossRules")
 			}
-			v2Rule := in.ActiveRules[i]
-			if pfr, ok := r.(interface {
-				CheckParsedFiles(files []*scanner.File) []scanner.Finding
-			}); ok {
-				found := pfr.CheckParsedFiles(in.KotlinFiles)
-				rules.ApplyRuleConfidence(found, r, 0.95)
-				_ = v2Rule
-				crossFindings = append(crossFindings, found...)
-				continue
+			for _, r := range v1Rules {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if pfr, ok := r.(interface {
+					CheckParsedFiles(files []*scanner.File) []scanner.Finding
+				}); ok {
+					ruleName := r.Name()
+					call := func() error {
+						found := pfr.CheckParsedFiles(in.KotlinFiles)
+						rules.ApplyRuleConfidence(found, r, 0.95)
+						crossFindings = append(crossFindings, found...)
+						return nil
+					}
+					if ruleTracker != nil {
+						_ = ruleTracker.Track(ruleName, call)
+					} else {
+						_ = call()
+					}
+					continue
+				}
+				if cfr, ok := r.(interface {
+					CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding
+				}); ok {
+					ruleName := r.Name()
+					call := func() error {
+						found := cfr.CheckCrossFile(codeIndex)
+						rules.ApplyRuleConfidence(found, r, 0.95)
+						crossFindings = append(crossFindings, found...)
+						return nil
+					}
+					if ruleTracker != nil {
+						_ = ruleTracker.Track(ruleName, call)
+					} else {
+						_ = call()
+					}
+				}
 			}
-			if cfr, ok := r.(interface {
-				CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding
-			}); ok {
-				found := cfr.CheckCrossFile(codeIndex)
-				rules.ApplyRuleConfidence(found, r, 0.95)
-				crossFindings = append(crossFindings, found...)
+			if ruleTracker != nil {
+				ruleTracker.End()
 			}
+			return nil
+		}
+		if crossTracker != nil {
+			_ = crossTracker.Track("crossRuleExecution", runCrossRules)
+		} else {
+			_ = runCrossRules()
+		}
+		if in.Logger != nil {
+			if codeIndex != nil {
+				in.Logger("verbose: Cross-file analysis in %v (indexed %d symbols, %d references from %d kt + %d java files)\n",
+					time.Since(crossStart).Round(time.Millisecond), len(codeIndex.Symbols), len(codeIndex.References),
+					len(in.KotlinFiles), len(in.JavaFiles))
+			} else {
+				in.Logger("verbose: Cross-file analysis in %v (%d kt files, no shared code index needed)\n",
+					time.Since(crossStart).Round(time.Millisecond), len(in.KotlinFiles))
+			}
+		}
+	} else if in.Logger != nil {
+		in.Logger("verbose: Skipped cross-file analysis (no active cross-file rules)\n")
+	}
+
+	// Module-aware rule execution. Main.go iterates
+	// dispatcher.V2Rules().ModuleAware, which BuildV2Index derives from the
+	// v1 rule slice. We reproduce that shape here so the phase produces the
+	// same rule set regardless of whether the caller supplied v1 or v2.
+	moduleStart := time.Now()
+	moduleAwareRules := pickModuleAwareV2Rules(in.ActiveRules, v1Rules)
+	hasModuleAwareRule := len(moduleAwareRules) > 0
+	if in.ModuleGraph != nil && len(in.ModuleGraph.Modules) > 0 && hasModuleAwareRule {
+		runModuleRules := func() error {
+			for _, r := range moduleAwareRules {
+				rctx := &v2.Context{ModuleIndex: in.ModuleIndex}
+				r.Check(rctx)
+				rules.ApplyV2Confidence(rctx.Findings, r, 0.95)
+				crossFindings = append(crossFindings, rctx.Findings...)
+			}
+			return nil
+		}
+		if in.ModuleParentTracker != nil {
+			_ = in.ModuleParentTracker.Track("moduleRuleExecution", runModuleRules)
+		} else {
+			_ = runModuleRules()
+		}
+		if in.Logger != nil {
+			in.Logger("verbose: Module-aware analysis in %v\n", time.Since(moduleStart).Round(time.Millisecond))
 		}
 	}
 
-	// Module-aware rules (v2-native). Mirrors the logic in
-	// cmd/krit/main.go for module discovery + PerModuleIndex build +
-	// dispatch.
+	// On-demand PerModuleIndex build for callers that did not pre-build
+	// one (e.g. tests or LSP paths that only supplied a ModuleGraph).
+	// Skipped when in.ModuleIndex is already populated, which is the
+	// main.go path.
 	caps := unionNeeds(in.ActiveRules)
-	if caps.Has(v2.NeedsModuleIndex) && in.ModuleGraph != nil && len(in.ModuleGraph.Modules) > 0 {
+	if caps.Has(v2.NeedsModuleIndex) && in.ModuleGraph != nil && len(in.ModuleGraph.Modules) > 0 && in.ModuleIndex == nil {
 		moduleNeeds := rules.CollectModuleAwareNeeds(v1Rules)
 		workers := p.Workers
 		if workers <= 0 {
@@ -114,24 +195,17 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 				workers = 1
 			}
 		}
-
 		if moduleNeeds.NeedsDependencies {
-			// Best-effort: errors are non-fatal, mirroring main.go.
 			_ = module.ParseAllDependencies(in.ModuleGraph)
 		}
-
-		pmi := in.ModuleIndex
-		if pmi == nil {
-			pmi = &module.PerModuleIndex{Graph: in.ModuleGraph}
-			switch {
-			case moduleNeeds.NeedsIndex:
-				pmi = module.BuildPerModuleIndexWithGlobal(in.ModuleGraph, in.KotlinFiles, workers, codeIndex)
-			case moduleNeeds.NeedsFiles:
-				pmi.ModuleFiles = module.GroupFilesByModule(in.ModuleGraph, in.KotlinFiles)
-			}
-			result.ModuleIndex = pmi
+		pmi := &module.PerModuleIndex{Graph: in.ModuleGraph}
+		switch {
+		case moduleNeeds.NeedsIndex:
+			pmi = module.BuildPerModuleIndexWithGlobal(in.ModuleGraph, in.KotlinFiles, workers, codeIndex)
+		case moduleNeeds.NeedsFiles:
+			pmi.ModuleFiles = module.GroupFilesByModule(in.ModuleGraph, in.KotlinFiles)
 		}
-
+		result.ModuleIndex = pmi
 		for _, r := range in.ActiveRules {
 			if !r.Needs.Has(v2.NeedsModuleIndex) {
 				continue
@@ -157,6 +231,27 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 	result.Findings = scanner.CollectFindings(merged)
 
 	return result, nil
+}
+
+// pickModuleAwareV2Rules returns the v2 rules that should receive
+// module-aware dispatch. Main.go's legacy path derives this from
+// BuildV2Index(v1Rules).ModuleAware, but when the caller only supplied
+// v2 rules (LSP / tests) we fall back to Needs-based filtering.
+func pickModuleAwareV2Rules(v2Rules []*v2.Rule, v1Rules []rules.Rule) []*v2.Rule {
+	if len(v1Rules) > 0 {
+		idx := rules.BuildV2Index(v1Rules)
+		return idx.ModuleAware
+	}
+	out := make([]*v2.Rule, 0, len(v2Rules))
+	for _, r := range v2Rules {
+		if r == nil {
+			continue
+		}
+		if r.Needs.Has(v2.NeedsModuleIndex) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // ApplySuppression drops findings whose target file, line, and rule/ruleset

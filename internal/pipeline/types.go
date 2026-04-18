@@ -9,6 +9,7 @@ import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -43,6 +44,47 @@ type ParseInput struct {
 	ActiveRules []*v2.Rule
 	// IncludeGenerated, when true, retains files under /generated/.
 	IncludeGenerated bool
+	// KotlinPaths, when non-nil, short-circuits CollectKotlinFiles and
+	// uses the supplied paths directly. Main already collects paths
+	// early (for cache lookups and empty-project detection) and passes
+	// them in so the phase doesn't walk the tree twice.
+	KotlinPaths []string
+	// Workers overrides ParsePhase.Workers. Zero falls through to
+	// ParsePhase.Workers which itself defaults to runtime.NumCPU().
+	// Main plugs its phaseWorkerCount("parse", ...) result here.
+	Workers int
+	// SkipJavaCollection, when true, suppresses the NeedsCrossFile-driven
+	// Java collect/parse step. CLI callers keep Java collection in a
+	// later phase scope so the "javaIndexing" perf label stays nested
+	// under "crossFileAnalysis" as before.
+	SkipJavaCollection bool
+	// Logger, when non-nil, receives verbose progress messages from the
+	// phase. Format matches fmt.Printf. Nil means no-op. Callers that
+	// want the pre-refactor "verbose: ..." stderr lines pass a closure
+	// wrapping fmt.Fprintf(os.Stderr, ...).
+	Logger func(format string, args ...any)
+	// Tracker, when non-nil, wraps expensive sub-phases with
+	// Tracker.Serial(name). Zero value (nil interface) means no tracking.
+	Tracker perf.Tracker
+}
+
+// logf invokes Logger when set; nil Logger is a no-op.
+func (in ParseInput) logf(format string, args ...any) {
+	if in.Logger != nil {
+		in.Logger(format, args...)
+	}
+}
+
+// trackSerial runs fn under a child Tracker named name when Tracker is
+// non-nil; otherwise it just runs fn. Returns any error fn produced.
+func (in ParseInput) trackSerial(name string, fn func() error) error {
+	if in.Tracker == nil {
+		return fn()
+	}
+	child := in.Tracker.Serial(name)
+	err := fn()
+	child.End()
+	return err
 }
 
 // ParseResult is the output of Parse and the input of Index.
@@ -54,6 +96,11 @@ type ParseResult struct {
 	// KotlinFiles are successfully parsed Kotlin sources, sorted by
 	// content length descending for LPT scheduling.
 	KotlinFiles []*scanner.File
+	// KotlinPaths echoes the collected Kotlin file paths (either the
+	// KotlinPaths input when supplied, or the internally collected
+	// slice otherwise). Downstream callers need the raw path list for
+	// incremental cache lookups.
+	KotlinPaths []string
 	// JavaFiles are Java sources collected when any active rule needs
 	// cross-file analysis. Nil otherwise.
 	JavaFiles []*scanner.File
@@ -80,6 +127,10 @@ type IndexResult struct {
 	// Oracle is the Kotlin Analysis API-backed type oracle. Nil when
 	// --no-type-oracle or no rule needs oracle data.
 	Oracle *oracle.Oracle
+	// Daemon is the optional long-lived krit-types daemon handle
+	// (populated when --daemon is set). Callers are responsible for
+	// Close()-ing it at program exit.
+	Daemon *oracle.Daemon
 	// CodeIndex is the cross-file symbol/reference index. Nil when
 	// no active rule declares NeedsCrossFile.
 	CodeIndex *scanner.CodeIndex
@@ -107,6 +158,64 @@ type IndexResult struct {
 	// CacheFilePath is the resolved cache file location, empty when
 	// caching is disabled.
 	CacheFilePath string
+	// CacheStats holds hit-rate / load-duration counters populated by
+	// IndexPhase's cache load block. Nil when caching is disabled.
+	CacheStats *cache.CacheStats
+
+	// ActiveRulesV1 overrides the v2→v1 conversion DispatchPhase and
+	// CrossFilePhase would otherwise derive from ActiveRules. Main.go
+	// carries a v1 rule slice and plugs it here so the phases dispatch
+	// against the exact same set of rules the legacy loop used.
+	ActiveRulesV1 []rules.Rule
+	// Logger, when non-nil, receives verbose progress messages from the
+	// Dispatch and CrossFile phases. Matches fmt.Printf. Nil means no-op.
+	Logger func(format string, args ...any)
+	// Tracker, when non-nil, wraps expensive sub-phases with
+	// Tracker.Serial(name). Matches the pre-refactor perf label tree.
+	Tracker perf.Tracker
+	// Jobs is the CLI --jobs value used to derive worker counts in
+	// DispatchPhase and CrossFilePhase. Zero falls back to DispatchPhase
+	// / CrossFilePhase defaults.
+	Jobs int
+	// ProfileDispatch, when true, causes DispatchPhase to record per-file
+	// timings for -profile-dispatch reporting. Result lands in
+	// DispatchResult.FileTimings.
+	ProfileDispatch bool
+	// Version is the krit version string written into the cache on
+	// write-back. Empty disables cache write-back (the caller keeps
+	// ownership).
+	Version string
+	// CacheScanPaths is the scan-path list recorded on the cache before
+	// Save. Zero-length leaves analysisCache.ScanPaths unchanged.
+	CacheScanPaths []string
+	// EmitPerFileStats, when true, makes DispatchPhase append
+	// suppressionIndex / walkTraversal / ruleCallbacks / aggregateCollect
+	// / aggregateFinalize / lineRules / legacyRules / suppressionFilter /
+	// topDispatchRules entries onto the per-run ruleExecution tracker.
+	EmitPerFileStats bool
+	// CrossFileParentTracker, when non-nil, is the "crossFileAnalysis"
+	// parent tracker the CLI creates so IndexPhase and CrossFilePhase can
+	// nest their children (indexing + rule execution) under the same
+	// perf node. CrossFilePhase wraps its rule loop in a
+	// "crossRuleExecution" Track under this parent.
+	CrossFileParentTracker perf.Tracker
+	// ModuleParentTracker, when non-nil, is the "moduleAwareAnalysis"
+	// parent tracker used by IndexPhase (for pmi build) and
+	// CrossFilePhase (moduleRuleExecution).
+	ModuleParentTracker perf.Tracker
+}
+
+// FileTiming captures per-file dispatch timing recorded when
+// IndexResult.ProfileDispatch is set.
+type FileTiming struct {
+	Path     string
+	Size     int
+	QueueMs  int64
+	RunMs    int64
+	LockMs   int64
+	AggMs    int64
+	TotalMs  int64
+	Findings int
 }
 
 // DispatchResult is the output of Dispatch and the input of CrossFile.
@@ -119,6 +228,12 @@ type DispatchResult struct {
 	Findings scanner.FindingColumns
 	// Stats captures per-rule CPU time, walk time, and any panics.
 	Stats rules.RunStats
+	// FileTimings is populated when IndexResult.ProfileDispatch is true.
+	// One entry per dispatched (non-cached) file.
+	FileTimings []FileTiming
+	// FindingsByFile is populated when ActiveRulesV1 is non-nil and a
+	// cache is present on the input IndexResult, for cache write-back.
+	FindingsByFile map[string]scanner.FindingColumns
 }
 
 // CrossFileResult is the output of CrossFile and the input of Fixup.
@@ -134,14 +249,33 @@ type CrossFileResult struct {
 type FixupResult struct {
 	CrossFileResult
 	// AppliedFixes is the count of findings whose fix was applied to
-	// disk. Zero when --fix is not set.
+	// disk (text + binary combined). Zero when --fix is not set.
 	AppliedFixes int
+	// TextApplied is the count of text fixes applied to disk. Zero when
+	// Apply was false.
+	TextApplied int
+	// BinaryApplied is the count of binary fixes applied (or, when
+	// DryRunBinary is true, the count that would be applied). Zero when
+	// ApplyBinary was false.
+	BinaryApplied int
+	// StrippedByLevel is the number of text fixes dropped because their
+	// rule's fix level exceeded MaxFixLevel. Zero when MaxFixLevel is 0
+	// (no cap).
+	StrippedByLevel int
+	// FixableCount is the number of rows that still carry a text fix
+	// after the MaxFixLevel filter ran. Callers use this to decide
+	// whether there is anything to apply / report as available.
+	FixableCount int
 	// ModifiedFiles lists the files touched by Fixup, in stable order.
 	ModifiedFiles []string
 	// FixErrors captures non-fatal errors raised while applying text or
 	// binary fixes. Callers surface these to stderr; Fixup itself does
 	// not fail on per-file fix errors.
 	FixErrors []error
+	// BinaryErrors captures the subset of FixErrors that originated from
+	// binary fix application. Callers that distinguish text vs binary in
+	// their stderr output can use this slice directly.
+	BinaryErrors []error
 }
 
 // OutputInput is the entry value for the Output phase. Output is the
@@ -176,6 +310,22 @@ type OutputInput struct {
 	// ExperimentNames are the active experiment flag names, echoed in
 	// JSON output.
 	ExperimentNames []string
+	// PerfTimings, when non-nil, are forwarded into FormatJSONColumns
+	// so the JSON header includes a --perf timing summary.
+	PerfTimings []perf.TimingEntry
+	// CacheStats, when non-nil, are forwarded into FormatJSONColumns so
+	// the JSON header includes cache hit/miss counters.
+	CacheStats *cache.CacheStats
+	// WarningsAsErrors, when true, promotes warning-severity findings
+	// to errors before format dispatch.
+	WarningsAsErrors bool
+	// MinConfidence, when >0, drops findings whose confidence is below
+	// the threshold before format dispatch.
+	MinConfidence float64
+	// ActiveRulesV1, when non-nil, overrides the v2→v1 conversion that
+	// Output would otherwise derive from FixupResult.ActiveRules. Main
+	// already has the v1 rule slice handy, so it can skip the conversion.
+	ActiveRulesV1 []rules.Rule
 }
 
 // OutputResult captures post-Output metadata.

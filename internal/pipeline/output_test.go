@@ -208,6 +208,83 @@ func TestOutputPhase_Run_EmptyFindings_SuccessTrue(t *testing.T) {
 	}
 }
 
+func TestOutputPhase_Run_WarningsAsErrors(t *testing.T) {
+	in, buf := twoFindingsInput(t, "json")
+	in.WarningsAsErrors = true
+
+	res, err := (OutputPhase{}).Run(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	for row := 0; row < res.FinalFindings.Len(); row++ {
+		if sev := res.FinalFindings.SeverityAt(row); sev != "error" {
+			t.Errorf("row %d severity = %q, want error", row, sev)
+		}
+	}
+	out := buf.String()
+	if strings.Contains(out, `"severity": "warning"`) {
+		t.Errorf("warnings-as-errors should have removed warning severity from JSON; got:\n%s", out)
+	}
+}
+
+func TestOutputPhase_Run_MinConfidenceFilter(t *testing.T) {
+	// Build two findings: a high-confidence RuleA and a low-confidence
+	// RuleB. Setting MinConfidence=0.5 should drop only RuleB.
+	columns := scanner.CollectFindings([]scanner.Finding{
+		{
+			File:       "/tmp/foo.kt",
+			Line:       1,
+			Col:        1,
+			RuleSet:    "style",
+			Rule:       "RuleA",
+			Severity:   "warning",
+			Message:    "high confidence",
+			Confidence: 0.9,
+		},
+		{
+			File:       "/tmp/bar.kt",
+			Line:       2,
+			Col:        3,
+			RuleSet:    "style",
+			Rule:       "RuleB",
+			Severity:   "warning",
+			Message:    "low confidence",
+			Confidence: 0.2,
+		},
+	})
+
+	var buf bytes.Buffer
+	in := OutputInput{
+		FixupResult: FixupResult{
+			CrossFileResult: CrossFileResult{
+				DispatchResult: DispatchResult{
+					Findings: columns,
+				},
+			},
+		},
+		Writer:        &buf,
+		Format:        "json",
+		StartTime:     time.Now(),
+		Version:       "test-v0",
+		MinConfidence: 0.5,
+	}
+
+	res, err := (OutputPhase{}).Run(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if res.FinalFindings.Len() != 1 {
+		t.Fatalf("FinalFindings.Len() = %d, want 1", res.FinalFindings.Len())
+	}
+	out := buf.String()
+	if !strings.Contains(out, "RuleA") {
+		t.Errorf("min-confidence should have kept RuleA; got:\n%s", out)
+	}
+	if strings.Contains(out, "RuleB") {
+		t.Errorf("min-confidence should have dropped RuleB; got:\n%s", out)
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

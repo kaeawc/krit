@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/perf"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
@@ -219,6 +221,85 @@ func TestParsePhase_Run_SkipsJavaFiles_WhenNoCrossFileRule(t *testing.T) {
 	}
 	if out.JavaFiles != nil {
 		t.Errorf("JavaFiles = %v, want nil when no rule needs cross-file data", out.JavaFiles)
+	}
+}
+
+func TestParsePhase_Run_LoggerReceivesVerboseLine(t *testing.T) {
+	dir := t.TempDir()
+	writeKt(t, filepath.Join(dir, "Foo.kt"), "class Foo {}\n")
+
+	var lines []string
+	in := ParseInput{
+		Paths: []string{dir},
+		Logger: func(format string, args ...any) {
+			lines = append(lines, fmt.Sprintf(format, args...))
+		},
+	}
+	if _, err := (ParsePhase{}).Run(context.Background(), in); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	found := false
+	for _, l := range lines {
+		if strings.Contains(l, "verbose: Parsed") && strings.Contains(l, "files in") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Logger never received the Parsed-files line. Got: %v", lines)
+	}
+}
+
+func TestParsePhase_Run_NilLoggerIsNoOp(t *testing.T) {
+	dir := t.TempDir()
+	writeKt(t, filepath.Join(dir, "Foo.kt"), "class Foo {}\n")
+
+	in := ParseInput{
+		Paths:  []string{dir},
+		Logger: nil,
+	}
+	// Must not panic when Logger is nil.
+	if _, err := (ParsePhase{}).Run(context.Background(), in); err != nil {
+		t.Fatalf("Run with nil Logger: %v", err)
+	}
+}
+
+func TestParsePhase_Run_TrackerRecordsParseSubPhase(t *testing.T) {
+	dir := t.TempDir()
+	writeKt(t, filepath.Join(dir, "Foo.kt"), "class Foo {}\n")
+
+	tracker := perf.New(true)
+	in := ParseInput{
+		Paths:   []string{dir},
+		Tracker: tracker,
+	}
+	if _, err := (ParsePhase{}).Run(context.Background(), in); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	entries := tracker.GetTimings()
+	found := false
+	for _, e := range entries {
+		if e.Name == "parse" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Tracker missing 'parse' sub-phase. Got: %+v", entries)
+	}
+}
+
+func TestParsePhase_Run_NilTrackerIsNoOp(t *testing.T) {
+	dir := t.TempDir()
+	writeKt(t, filepath.Join(dir, "Foo.kt"), "class Foo {}\n")
+
+	in := ParseInput{
+		Paths:   []string{dir},
+		Tracker: nil,
+	}
+	// Must not panic with a nil Tracker interface value.
+	if _, err := (ParsePhase{}).Run(context.Background(), in); err != nil {
+		t.Fatalf("Run with nil Tracker: %v", err)
 	}
 }
 

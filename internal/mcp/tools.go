@@ -805,7 +805,7 @@ func (s *Server) toolAnalyzeProject(arguments json.RawMessage) ToolResult {
 	var perFile []fileResult
 
 	for _, f := range files {
-		fileColumns, _ := s.dispatcher.RunColumnsWithStats(f)
+		fileColumns, _ := s.analyzer.Dispatcher.RunColumnsWithStats(f)
 		collector.AppendColumns(&fileColumns)
 		if format == "detailed" || fileColumns.Len() > 0 {
 			perFile = append(perFile, fileResult{

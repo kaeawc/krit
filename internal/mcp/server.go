@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/kaeawc/krit/internal/jsonrpc"
 	"github.com/kaeawc/krit/internal/pipeline"
-	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -24,7 +22,12 @@ type Server struct {
 	writer io.Writer
 	mu     sync.Mutex // protects writes
 
-	dispatcher *rules.Dispatcher
+	// analyzer wraps the pipeline Parse → Dispatch path for single-buffer
+	// analysis (analyze, suggest_fixes, inspect_types tools). Path-based
+	// tools (analyze_project) still reuse analyzer.Dispatcher for the
+	// per-file dispatch loop because DispatchPhase expects the full
+	// IndexResult state they don't need.
+	analyzer *pipeline.SingleFileAnalyzer
 
 	// Verbose gates informational log output.
 	Verbose bool
@@ -70,14 +73,13 @@ func (s *Server) Run() {
 	}
 }
 
-// buildDispatcher creates the rule dispatcher with all active rules.
-// Delegates rule discovery and dispatcher construction to the pipeline
-// package so the LSP, MCP, and CLI entry points share one source of
-// truth for the active rule set.
+// buildDispatcher constructs the shared single-file analyzer. Delegates
+// rule discovery and dispatcher construction to the pipeline package so
+// the LSP, MCP, and CLI entry points share one source of truth for the
+// active rule set.
 func (s *Server) buildDispatcher() {
-	active := pipeline.DefaultActiveRules()
-	s.dispatcher = pipeline.BuildDispatcher(active, nil)
-	s.logInfo("dispatcher: %d active rules", len(active))
+	s.analyzer = pipeline.NewSingleFileAnalyzer(nil, nil)
+	s.logInfo("dispatcher: %d active rules", len(s.analyzer.ActiveRules))
 }
 
 // sendResponse sends a JSON-RPC 2.0 response via the shared transport.
@@ -248,25 +250,11 @@ func (s *Server) handlePromptsGet(req *MCPRequest) {
 	s.sendResponse(req.ID, result, nil)
 }
 
-// parseAndAnalyzeColumns parses Kotlin code and runs the dispatcher, returning
-// findings in columnar form.
+// parseAndAnalyzeColumns parses Kotlin code and runs the dispatcher
+// through pipeline.SingleFileAnalyzer, returning findings in columnar form.
 func (s *Server) parseAndAnalyzeColumns(code string, path string) (scanner.FindingColumns, error) {
-	if path == "" {
-		path = "input.kt"
-	}
-
-	parser := scanner.GetKotlinParser()
-	defer scanner.PutKotlinParser(parser)
-	content := []byte(code)
-	tree, err := parser.ParseCtx(context.Background(), nil, content)
-	if err != nil {
-		return scanner.FindingColumns{}, fmt.Errorf("parse error: %w", err)
-	}
-
-	file := scanner.NewParsedFile(path, content, tree)
-
-	findings, _ := s.dispatcher.RunColumnsWithStats(file)
-	return findings, nil
+	columns, _, err := s.analyzer.AnalyzeBufferColumns(context.Background(), path, []byte(code))
+	return columns, err
 }
 
 // parseAndAnalyze parses Kotlin code and runs the dispatcher, returning
@@ -279,17 +267,10 @@ func (s *Server) parseAndAnalyze(code string, path string) ([]scanner.Finding, e
 	return columns.Findings(), nil
 }
 
-// parseKotlinCode parses Kotlin source code string into a scanner.File.
+// parseKotlinCode parses Kotlin source code string into a scanner.File via
+// the shared pipeline.ParseSingle helper.
 func parseKotlinCode(code string, path string) (*scanner.File, error) {
-	parser := scanner.GetKotlinParser()
-	defer scanner.PutKotlinParser(parser)
-	content := []byte(code)
-	tree, err := parser.ParseCtx(context.Background(), nil, content)
-	if err != nil {
-		return nil, fmt.Errorf("parse error: %w", err)
-	}
-
-	return scanner.NewParsedFile(path, content, tree), nil
+	return pipeline.ParseSingle(context.Background(), path, []byte(code))
 }
 
 // exitFunc is os.Exit by default, but can be overridden for testing.

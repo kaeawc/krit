@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"flag"
 	"fmt"
@@ -11,7 +12,6 @@ import (
 	"runtime/pprof"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"encoding/json"
@@ -21,14 +21,11 @@ import (
 	"github.com/kaeawc/krit/internal/store"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/experiment"
-	"github.com/kaeawc/krit/internal/fixer"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
-	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
-	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/schema"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -714,181 +711,74 @@ potential-bugs:
 		os.Exit(0)
 	}
 
-	// Type oracle: auto-detect, --input-types, --daemon, or --no-type-oracle
+	// Type oracle + incremental cache load both run inside IndexPhase.
+	// Oracle does type-resolver wrapping (auto-detect / --input-types /
+	// --daemon); the cache block loads the JSON, attaches the store, and
+	// runs per-file hit/miss lookup. Both operate on the raw file path
+	// list so they can run before ParsePhase.
 	var daemon *oracle.Daemon
-	if resolver != nil && !*noTypeOracleFlag {
-		oracleTracker := tracker.Serial("typeOracle")
+	var analysisCache *cache.Cache
+	var cacheResult *cache.CacheResult
+	var ruleHash string
+	var cacheStats *cache.CacheStats
+	useCache := !*noCacheFlag
+	{
+		oracleIdxInput := pipeline.IndexInput{
+			// ParseResult is intentionally zero here: IndexPhase runs
+			// in oracle-only mode below (SkipModules + SkipAndroid +
+			// SkipResolverIndex) so it doesn't need KotlinFiles. Paths
+			// and ActiveRules are threaded via the OracleScanPaths and
+			// ActiveRulesV1 knobs instead.
+			Logger:          nil, // oracle logs directly to stderr, matching pre-refactor
+			Tracker:         tracker,
+			OracleEnabled:   resolver != nil && !*noTypeOracleFlag,
+			BaseResolver:    resolver,
+			OracleScanPaths: flag.Args(),
+			KotlinFilePaths: files,
+			ActiveRulesV1:   activeRules,
+			InputTypesPath:  *inputTypesFlag,
+			NoCacheOracle:   *noCacheOracleFlag,
+			NoOracleFilter:  *noOracleFilterFlag,
+			UseDaemon:       *daemonFlag,
+			Store:           resolvedStore(storeDirFlag),
+			Verbose:         *verboseFlag,
 
-		if *daemonFlag {
-			// Daemon mode: start a long-lived JVM process
-			var d *oracle.Daemon
-			var daemonErr error
-			oracleTracker.Track("jvmStart", func() error {
-				d, daemonErr = oracle.InvokeDaemon(flag.Args(), *verboseFlag)
-				return daemonErr
-			})
-			if daemonErr != nil {
-				fmt.Fprintf(os.Stderr, "warning: daemon: %v\n", daemonErr)
-			} else {
-				daemon = d
-				defer daemon.Close()
-
-				var oracleData *oracle.OracleData
-				oracleTracker.Track("jvmAnalyze", func() error {
-					od, err := daemon.AnalyzeAll()
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "warning: daemon analyzeAll: %v\n", err)
-						return err
-					}
-					oracleData = od
-					return nil
-				})
-				if oracleData != nil {
-					var oracleLoaded *oracle.Oracle
-					oracleTracker.Track("indexBuild", func() error {
-						ol, err := oracle.LoadFromData(oracleData)
-						if err != nil {
-							fmt.Fprintf(os.Stderr, "warning: daemon oracle: %v\n", err)
-							return err
-						}
-						oracleLoaded = ol
-						return nil
-					})
-					if oracleLoaded != nil {
-						resolver = oracle.NewCompositeResolver(oracleLoaded, resolver)
-						if *verboseFlag {
-							depCount := len(oracleLoaded.Dependencies())
-							fmt.Fprintf(os.Stderr, "verbose: Type oracle loaded from daemon (%d dependency types)\n", depCount)
-						}
-					}
-				}
-			}
-		} else {
-			var oraclePath string
-
-			oracleTracker.Track("findSources", func() error {
-				if *inputTypesFlag != "" {
-					// Explicit input path
-					oraclePath = *inputTypesFlag
-					return nil
-				}
-				// Auto-detect: try cached types.json
-				cached := oracle.CachePath(flag.Args())
-				if cached != "" {
-					if _, err := os.Stat(cached); err == nil {
-						oraclePath = cached
-					}
-				}
-				return nil
-			})
-
-			// If no cached oracle, try to run krit-types automatically
-			if oraclePath == "" {
-				oracleTracker.Track("jvmAnalyze", func() error {
-					jarPath := oracle.FindJar(flag.Args())
-					if jarPath == "" {
-						return nil
-					}
-					sourceDirs := oracle.FindSourceDirs(flag.Args())
-					if len(sourceDirs) == 0 {
-						return nil
-					}
-					cacheDest := oracle.CachePath(flag.Args())
-					if cacheDest == "" {
-						cacheDest = filepath.Join(os.TempDir(), "krit-types.json")
-					}
-					if *verboseFlag {
-						fmt.Fprintf(os.Stderr, "verbose: Running krit-types (%d source dirs)...\n", len(sourceDirs))
-					}
-					// Pre-scan step: compute the subset of files any enabled
-					// rule has declared (via OracleFilter) it actually needs
-					// oracle access on. Files where no filter matches are
-					// tree-sitter-sufficient and can be dropped from the
-					// krit-types analyze loop. Unclassified rules fall
-					// through to AllFiles: true, so this is a no-op until
-					// a meaningful fraction of rules has been audited. Guard
-					// with -no-oracle-filter for diagnostics / baseline
-					// reproduction.
-					var filterListPath string
-					if !*noOracleFilterFlag {
-						filterRules := rules.BuildOracleFilterRules(activeRules)
-						lightFiles := loadFilesForOracleFilter(files)
-						summary := oracle.CollectOracleFiles(filterRules, lightFiles)
-						if *verboseFlag {
-							switch {
-							case summary.AllFiles:
-								fmt.Fprintf(os.Stderr, "verbose: Oracle filter: %d/%d files (AllFiles short-circuit — no reduction)\n",
-									summary.MarkedFiles, summary.TotalFiles)
-							case summary.MarkedFiles == summary.TotalFiles:
-								fmt.Fprintf(os.Stderr, "verbose: Oracle filter: %d/%d files (no reduction)\n",
-									summary.MarkedFiles, summary.TotalFiles)
-							default:
-								fmt.Fprintf(os.Stderr, "verbose: Oracle filter: %d/%d files (%.1f%% of corpus)\n",
-									summary.MarkedFiles, summary.TotalFiles,
-									100*float64(summary.MarkedFiles)/float64(maxInt(summary.TotalFiles, 1)))
-							}
-						}
-						// Skip the filter entirely if it doesn't reduce the
-						// file set (no benefit, just overhead of writing the
-						// temp file and a krit-types flag).
-						if !summary.AllFiles && summary.MarkedFiles < summary.TotalFiles {
-							p, werr := oracle.WriteFilterListFile(summary, "")
-							if werr != nil {
-								fmt.Fprintf(os.Stderr, "warning: oracle filter list: %v\n", werr)
-							} else if p != "" {
-								filterListPath = p
-								defer os.Remove(p)
-							}
-						}
-					}
-
-					// Route to cache-aware path unless the user opted out.
-					// Both paths accept filterListPath so rule filtering and
-					// per-file caching compose: the filter narrows the
-					// universe first, then the cache classifies what's left.
-					var result string
-					var err error
-					if *noCacheOracleFlag {
-						result, err = oracle.InvokeWithFiles(jarPath, sourceDirs, cacheDest, filterListPath, *verboseFlag)
-					} else {
-						result, err = oracle.InvokeCached(jarPath, sourceDirs, oracle.FindRepoDir(flag.Args()), cacheDest, filterListPath, *verboseFlag, resolvedStore(storeDirFlag))
-					}
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "warning: krit-types: %v\n", err)
-						return nil
-					}
-					oraclePath = result
-					return nil
-				})
-			}
-
-			if oraclePath != "" {
-				var oracleData *oracle.Oracle
-				oracleTracker.Track("jsonLoad", func() error {
-					od, err := oracle.Load(oraclePath)
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "warning: type oracle: %v\n", err)
-						return err
-					}
-					oracleData = od
-					return nil
-				})
-				if oracleData != nil {
-					resolver = oracle.NewCompositeResolver(oracleData, resolver)
-					if *verboseFlag {
-						depCount := len(oracleData.Dependencies())
-						fmt.Fprintf(os.Stderr, "verbose: Type oracle loaded from %s (%d dependency types)\n", oraclePath, depCount)
-					}
-				}
-			}
+			CacheEnabled:             useCache,
+			CacheFilePath:            cacheFilePath,
+			CacheDirExplicit:         *cacheDirFlag != "",
+			CacheScanPaths:           paths,
+			CacheFilePaths:           files,
+			CacheConfig:              cfg,
+			CacheEditorConfigEnabled: *editorConfigFlag,
 		}
-
-		oracleTracker.End()
+		oracleIdxResult, oracleErr := (pipeline.IndexPhase{
+			SkipModules:       true,
+			SkipAndroid:       true,
+			SkipResolverIndex: true,
+		}).Run(context.Background(), oracleIdxInput)
+		if oracleErr != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", oracleErr)
+			os.Exit(2)
+		}
+		if oracleIdxResult.Resolver != nil {
+			resolver = oracleIdxResult.Resolver
+		}
+		if oracleIdxResult.Daemon != nil {
+			daemon = oracleIdxResult.Daemon
+			defer daemon.Close()
+		}
+		if useCache {
+			analysisCache = oracleIdxResult.Cache
+			cacheResult = oracleIdxResult.CacheResult
+			ruleHash = oracleIdxResult.RuleHash
+			cacheStats = oracleIdxResult.CacheStats
+		}
 	}
 
-	// Build dispatcher for single-pass execution
-	dispatcher := rules.NewDispatcher(activeRules, resolver)
-	dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, legacyCount := dispatcher.Stats()
+	// Stats come from a throwaway dispatcher so the verbose banner can
+	// report per-family rule counts before the phase runs. Construction
+	// is side-effect free (beyond classifying rules by capability).
+	dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, legacyCount := rules.NewDispatcher(activeRules, resolver).Stats()
 
 	if *verboseFlag {
 		fmt.Fprintf(os.Stderr, "verbose: Found %d Kotlin files\n", len(files))
@@ -904,119 +794,36 @@ potential-bugs:
 	androidDeps := collectAndroidDependencies(activeRules)
 	androidProviders := newAndroidProjectProviders(androidProject, androidDeps, *jobsFlag)
 
-	// Load cache and determine which files can be skipped
-	var analysisCache *cache.Cache
-	var cacheResult *cache.CacheResult
-	var ruleHash string
-	var cacheStats *cache.CacheStats
-	useCache := !*noCacheFlag
+	// Cache load + per-file lookup moved into the IndexPhase call above.
+	// analysisCache / cacheResult / ruleHash / cacheStats are populated
+	// there; the write-back below still uses them directly.
 
-	if useCache {
-		ruleNames := make([]string, len(activeRules))
-		for i, r := range activeRules {
-			ruleNames[i] = r.Name()
-		}
-		ruleHash = cache.ComputeConfigHash(ruleNames, cfg, *editorConfigFlag)
-
-		var loadStart time.Time
-		tracker.Track("cacheLoad", func() error {
-			loadStart = time.Now()
-			analysisCache = cache.Load(cacheFilePath)
-			return nil
-		})
-
-		// Attach the unified store when available so incremental cache
-		// entries are persisted per-file in the store instead of the JSON file.
-		if s := resolvedStore(storeDirFlag); s != nil {
-			analysisCache.AttachStore(s, cache.ParseRuleSetHash(ruleHash))
-		}
-		loadDur := time.Since(loadStart).Milliseconds()
-
-		cacheResult = analysisCache.CheckFiles(files, ruleHash, paths...)
-
-		cacheStats = &cache.CacheStats{
-			Cached:    cacheResult.TotalCached,
-			Total:     cacheResult.TotalFiles,
-			LoadDurMs: loadDur,
-		}
-		if cacheResult.TotalFiles > 0 {
-			cacheStats.HitRate = float64(cacheResult.TotalCached) / float64(cacheResult.TotalFiles)
-		}
-
-		if *verboseFlag && cacheResult.TotalCached > 0 {
-			pct := 100 * cacheResult.TotalCached / cacheResult.TotalFiles
-			fmt.Fprintf(os.Stderr, "verbose: Cache: %d/%d files cached (%d%% hit rate)\n",
-				cacheResult.TotalCached, cacheResult.TotalFiles, pct)
-			if *cacheDirFlag != "" {
-				fmt.Fprintf(os.Stderr, "verbose: Cache file: %s\n", cacheFilePath)
-			}
-		}
-	}
-
-	// Parse all files in parallel (all files needed for cross-file indexing)
-	parseStart := time.Now()
-	var parsedFiles []*scanner.File
-	var parseErrs []error
+	// Parse + filter + LPT sort + suppression index now live in ParsePhase.
+	// Java collection stays in the cross-file block (SkipJavaCollection=true)
+	// so the "javaIndexing" perf label remains nested under "crossFileAnalysis".
 	parseWorkers := phaseWorkerCount("parse", *jobsFlag, len(files))
-	tracker.Track("parse", func() error {
-		parsedFiles, parseErrs = scanner.ScanFiles(files, parseWorkers)
-		return nil
-	})
+	var verboseLogger func(format string, args ...any)
 	if *verboseFlag {
-		fmt.Fprintf(os.Stderr, "verbose: Parsed %d files in %v (%d errors, %d workers)\n",
-			len(parsedFiles), time.Since(parseStart).Round(time.Millisecond), len(parseErrs), parseWorkers)
-	}
-
-	// Filter out generated files unless --include-generated was passed.
-	// Generated directories (`*/generated/*`) contain codegen output that users
-	// don't maintain and typically dwarfs hand-written sources in size. On
-	// kotlinlang.org/kotlin itself a single generated file (stdlib _Arrays.kt,
-	// ~814KB with thousands of array-extension functions) consumes ~87% of
-	// total dispatch wall time, stranding 15 of 16 workers waiting for it to
-	// finish. Skipping generated dirs is consistent with krit's existing skip
-	// list for vendor/third-party/build output.
-	//
-	// This filter runs BEFORE typeIndex so that both typeIndex and
-	// ruleExecution skip generated files — otherwise typeIndex still pays
-	// the full cost of parsing thousands of generated declarations.
-	if !*includeGeneratedFlag {
-		filtered := parsedFiles[:0]
-		var droppedGenerated int
-		for _, f := range parsedFiles {
-			if strings.Contains(f.Path, "/generated/") {
-				droppedGenerated++
-				continue
-			}
-			filtered = append(filtered, f)
-		}
-		parsedFiles = filtered
-		if *verboseFlag && droppedGenerated > 0 {
-			fmt.Fprintf(os.Stderr, "verbose: Skipped %d files in */generated/* dirs (pass --include-generated to re-enable)\n", droppedGenerated)
+		verboseLogger = func(format string, args ...any) {
+			fmt.Fprintf(os.Stderr, format, args...)
 		}
 	}
-
-	// Sort files by content size descending (LPT — longest processing time
-	// first scheduling). For long-tailed corpora, having workers pick up the
-	// largest files first prevents them from draining the small-file queue and
-	// stranding idle while one worker chews on a giant file. Applied before
-	// typeIndex so that phase also benefits. O(N log N) sort on parsedFiles;
-	// cost is negligible vs the dispatch work.
-	sort.Slice(parsedFiles, func(i, j int) bool {
-		return len(parsedFiles[i].Content) > len(parsedFiles[j].Content)
+	parseResult, err := pipeline.ParsePhase{}.Run(context.Background(), pipeline.ParseInput{
+		Config:             cfg,
+		Paths:              paths,
+		KotlinPaths:        files,
+		Workers:            parseWorkers,
+		IncludeGenerated:   *includeGeneratedFlag,
+		SkipJavaCollection: true,
+		Logger:             verboseLogger,
+		Tracker:            tracker,
 	})
-
-	// Build each file's SuppressionIndex once here so both per-file
-	// dispatch and cross-file/module-aware rules (which flow through
-	// pipeline.ApplySuppression below) consult the same @Suppress map.
-	// Prior to this, cross-file rules bypassed the suppression index
-	// entirely — see roadmap/clusters/core-infra/phase-pipeline.md
-	// acceptance criterion #3.
-	for _, f := range parsedFiles {
-		if f.FlatTree == nil {
-			continue
-		}
-		f.SuppressionIdx = scanner.BuildSuppressionIndexFlat(f.FlatTree, f.Content)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
 	}
+	parsedFiles := parseResult.KotlinFiles
+	_ = parseResult.ParseErrors
 
 	hasTypeAwareRule := false
 	for _, rule := range activeRules {
@@ -1054,183 +861,49 @@ potential-bugs:
 		fmt.Fprintln(os.Stderr, "verbose: Skipped type index (no active type-aware rules)")
 	}
 
-	// Run per-file rules only on uncached files
+	// Run per-file rules through DispatchPhase. The phase owns the
+	// "ruleExecution" tracker, per-family timing entries, the top-
+	// DispatchRules breakdown, cached-findings merge, and cache write-back
+	// (as a "cacheSave" sibling entry). main.go still owns the
+	// -profile-dispatch reporting because it pulls in CLI-only output.
 	ruleStart := time.Now()
-
-	// Per-file dispatch timing instrumentation (opt-in via -profile-dispatch).
-	// Used to investigate parallelism-collapse hypotheses on large corpora.
-	var fileTimings []fileTiming
-
-	var (
-		mu             sync.Mutex
-		allFindings    []scanner.Finding
-		findingsByFile = make(map[string]scanner.FindingColumns)
-		wg             sync.WaitGroup
-		ruleWorkers    = phaseWorkerCount("ruleExecution", *jobsFlag, len(parsedFiles))
-		sem            = make(chan struct{}, ruleWorkers)
-		ruleStats      = rules.RunStats{DispatchRuleNsByRule: make(map[string]int64)}
-	)
-
-	ruleTracker := tracker.Serial("ruleExecution")
-	for _, f := range parsedFiles {
-		// Skip rule execution for cached files
-		if useCache && cacheResult != nil && cacheResult.CachedPaths[f.Path] {
-			continue
-		}
-		wg.Add(1)
-		var dispatchedAt time.Time
-		if *profileDispatchFlag {
-			dispatchedAt = time.Now()
-		}
-		sem <- struct{}{}
-		go func(file *scanner.File, dispatched time.Time) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			var startedAt, finishedRunAt, lockedAt time.Time
-			if *profileDispatchFlag {
-				startedAt = time.Now()
-			}
-
-			fileFindings, fileStats := dispatcher.RunWithStats(file)
-
-			if *profileDispatchFlag {
-				finishedRunAt = time.Now()
-			}
-
-			mu.Lock()
-
-			if *profileDispatchFlag {
-				lockedAt = time.Now()
-			}
-
-			if len(fileFindings) > 0 {
-				allFindings = append(allFindings, fileFindings...)
-			}
-			if useCache && analysisCache != nil {
-				findingsByFile[file.Path] = scanner.CollectFindings(fileFindings)
-			}
-			ruleStats.SuppressionIndexMs += fileStats.SuppressionIndexMs
-			ruleStats.DispatchWalkMs += fileStats.DispatchWalkMs
-			ruleStats.DispatchRuleNs += fileStats.DispatchRuleNs
-			ruleStats.AggregateCollectNs += fileStats.AggregateCollectNs
-			ruleStats.AggregateFinalizeMs += fileStats.AggregateFinalizeMs
-			ruleStats.LineRuleMs += fileStats.LineRuleMs
-			ruleStats.LegacyRuleMs += fileStats.LegacyRuleMs
-			ruleStats.SuppressionFilterMs += fileStats.SuppressionFilterMs
-			for name, dur := range fileStats.DispatchRuleNsByRule {
-				ruleStats.DispatchRuleNsByRule[name] += dur
-			}
-			if len(fileStats.Errors) > 0 {
-				ruleStats.Errors = append(ruleStats.Errors, fileStats.Errors...)
-			}
-
-			if *profileDispatchFlag {
-				endAt := time.Now()
-				fileTimings = append(fileTimings, fileTiming{
-					path:     file.Path,
-					size:     len(file.Content),
-					queueMs:  startedAt.Sub(dispatched).Milliseconds(),
-					runMs:    finishedRunAt.Sub(startedAt).Milliseconds(),
-					lockMs:   lockedAt.Sub(finishedRunAt).Milliseconds(),
-					aggMs:    endAt.Sub(lockedAt).Milliseconds(),
-					totalMs:  endAt.Sub(dispatched).Milliseconds(),
-					findings: len(fileFindings),
-				})
-			}
-
-			mu.Unlock()
-		}(f, dispatchedAt)
+	ruleWorkers := phaseWorkerCount("ruleExecution", *jobsFlag, len(parsedFiles))
+	dispatchIdx := pipeline.IndexResult{
+		ParseResult:            parseResult,
+		Resolver:               resolver,
+		CacheResult:            cacheResult,
+		Cache:                  analysisCache,
+		RuleHash:               ruleHash,
+		CacheFilePath:          cacheFilePath,
+		CacheStats:             cacheStats,
+		ActiveRulesV1:          activeRules,
+		Logger:                 verboseLogger,
+		Tracker:                tracker,
+		Jobs:                   *jobsFlag,
+		ProfileDispatch:        *profileDispatchFlag,
+		Version:                version,
+		CacheScanPaths:         paths,
+		EmitPerFileStats:       true,
 	}
-	wg.Wait()
-
-	if *profileDispatchFlag && len(fileTimings) > 0 {
-		reportDispatchProfile(fileTimings, ruleWorkers, time.Since(ruleStart))
+	dispatchResult, err := (pipeline.DispatchPhase{Workers: ruleWorkers}).Run(context.Background(), dispatchIdx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
 	}
-	if len(ruleStats.Errors) > 0 {
-		for _, de := range ruleStats.Errors {
-			fmt.Fprintln(os.Stderr, de.Error())
-		}
-		fmt.Fprintf(os.Stderr, "krit: %d rule panic(s) during scan\n", len(ruleStats.Errors))
+	allFindings := dispatchResult.Findings.Findings()
+	if *profileDispatchFlag && len(dispatchResult.FileTimings) > 0 {
+		reportDispatchProfile(dispatchResult.FileTimings, ruleWorkers, time.Since(ruleStart))
 	}
 
-	perf.AddEntry(ruleTracker, "suppressionIndex", time.Duration(ruleStats.SuppressionIndexMs)*time.Millisecond)
-	// dispatchWalk covers the full AST traversal including rule callbacks.
-	// walkTraversal is the traversal-only overhead (walk minus rule time).
-	// ruleCallbacks is the accumulated time spent inside rule CheckNode functions.
-	walkTotal := time.Duration(ruleStats.DispatchWalkMs) * time.Millisecond
-	ruleCallbackTotal := time.Duration(ruleStats.DispatchRuleNs)
-	walkTraversal := walkTotal - ruleCallbackTotal
-	if walkTraversal < 0 {
-		walkTraversal = 0
-	}
-	perf.AddEntry(ruleTracker, "walkTraversal", walkTraversal)
-	perf.AddEntry(ruleTracker, "ruleCallbacks", ruleCallbackTotal)
-	perf.AddEntry(ruleTracker, "aggregateCollect", time.Duration(ruleStats.AggregateCollectNs))
-	perf.AddEntry(ruleTracker, "aggregateFinalize", time.Duration(ruleStats.AggregateFinalizeMs)*time.Millisecond)
-	perf.AddEntry(ruleTracker, "lineRules", time.Duration(ruleStats.LineRuleMs)*time.Millisecond)
-	perf.AddEntry(ruleTracker, "legacyRules", time.Duration(ruleStats.LegacyRuleMs)*time.Millisecond)
-	perf.AddEntry(ruleTracker, "suppressionFilter", time.Duration(ruleStats.SuppressionFilterMs)*time.Millisecond)
-	if len(ruleStats.DispatchRuleNsByRule) > 0 {
-		type timedRule struct {
-			name string
-			dur  int64
-		}
-		var topRules []timedRule
-		for name, dur := range ruleStats.DispatchRuleNsByRule {
-			topRules = append(topRules, timedRule{name: name, dur: dur})
-		}
-		sort.Slice(topRules, func(i, j int) bool {
-			if topRules[i].dur == topRules[j].dur {
-				return topRules[i].name < topRules[j].name
-			}
-			return topRules[i].dur > topRules[j].dur
-		})
-		if len(topRules) > 10 {
-			topRules = topRules[:10]
-		}
-		topDispatchTracker := ruleTracker.Serial("topDispatchRules")
-		for _, tr := range topRules {
-			perf.AddEntry(topDispatchTracker, tr.name, time.Duration(tr.dur))
-		}
-		topDispatchTracker.End()
-	}
-	ruleTracker.End()
-
-	// Merge cached findings
-	if useCache && cacheResult != nil && cacheResult.CachedColumns.Len() > 0 {
-		allFindings = append(allFindings, cacheResult.CachedColumns.Findings()...)
-	}
-
-	// Update cache with new analysis results
-	if useCache && analysisCache != nil {
-		// Update entries for newly analyzed files
-		for _, pf := range parsedFiles {
-			if cacheResult == nil || !cacheResult.CachedPaths[pf.Path] {
-				fileColumns := findingsByFile[pf.Path]
-				analysisCache.UpdateEntryColumns(pf.Path, &fileColumns)
-			}
-		}
-		analysisCache.Version = version
-		analysisCache.RuleHash = ruleHash
-		analysisCache.ScanPaths = paths
-		analysisCache.Prune()
-
-		var saveStart time.Time
-		tracker.Track("cacheSave", func() error {
-			saveStart = time.Now()
-			if err := analysisCache.Save(cacheFilePath); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: Failed to save cache: %v\n", err)
-			}
-			return nil
-		})
-		if cacheStats != nil {
-			cacheStats.SaveDurMs = time.Since(saveStart).Milliseconds()
-		}
-	}
-
-	// Cross-file analysis (dead code detection)
-	// Also index Java files for references — Kotlin calls Java and Java calls Kotlin
+	// Cross-file analysis (dead code detection) + Module-aware analysis.
+	// IndexPhase now owns the Java collection, CodeIndex build, module
+	// discovery, and PerModuleIndex construction. Rule execution
+	// (crossRules / moduleRuleExecution) stays here because it needs the
+	// dispatcher and allFindings accumulator. Main.go creates the
+	// "crossFileAnalysis" and "moduleAwareAnalysis" parent trackers so
+	// both the indexing children (in IndexPhase) and the rule-execution
+	// siblings (below) nest under the same parent, preserving the perf
+	// tree byte-for-byte.
 	var codeIndex *scanner.CodeIndex
 	hasIndexBackedCrossFileRule := false
 	hasParsedFilesRule := false
@@ -1247,170 +920,87 @@ potential-bugs:
 			hasIndexBackedCrossFileRule = true
 		}
 	}
+	hasModuleAwareRule := false
+	for _, rule := range activeRules {
+		if _, ok := rule.(interface {
+			SetModuleIndex(pmi *module.PerModuleIndex)
+			CheckModuleAware() []scanner.Finding
+		}); ok {
+			hasModuleAwareRule = true
+			break
+		}
+	}
+
+	var crossTracker perf.Tracker
 	if hasIndexBackedCrossFileRule || hasParsedFilesRule {
-		crossStart := time.Now()
-		var javaFilePaths []string
-		var parsedJavaFiles []*scanner.File
-		crossWorkers := phaseWorkerCount("crossFileAnalysis", *jobsFlag, len(parsedFiles))
-		crossTracker := tracker.Serial("crossFileAnalysis")
+		crossTracker = tracker.Serial("crossFileAnalysis")
+	}
+	moduleTracker := tracker.Serial("moduleAwareAnalysis")
 
-		if hasIndexBackedCrossFileRule {
-			_ = crossTracker.Track("javaIndexing", func() error {
-				javaFilePaths, err = scanner.CollectJavaFiles(paths, nil) // err non-fatal: Java indexing is best-effort
-				if err != nil && *verboseFlag {
-					fmt.Fprintf(os.Stderr, "verbose: Java file collection: %v\n", err)
-				}
-				if len(javaFilePaths) > 0 {
-					crossWorkers = phaseWorkerCount("crossFileAnalysis", *jobsFlag, len(parsedFiles)+len(javaFilePaths))
-					var javaErrs []error
-					parsedJavaFiles, javaErrs = scanner.ScanJavaFiles(javaFilePaths, crossWorkers)
-					if len(javaErrs) > 0 && *verboseFlag {
-						fmt.Fprintf(os.Stderr, "verbose: Java file parsing: %d errors\n", len(javaErrs))
-					}
-					if *verboseFlag {
-						fmt.Fprintf(os.Stderr, "verbose: Parsed %d Java files for cross-reference indexing\n", len(parsedJavaFiles))
-					}
-				}
-				return nil
-			})
+	scanRoot := "."
+	if len(paths) > 0 {
+		scanRoot = paths[0]
+	}
 
-			_ = crossTracker.Track("codeIndexBuild", func() error {
-				indexTracker := crossTracker.Serial("indexBuild")
-				codeIndex = scanner.BuildIndexWithTracker(parsedFiles, crossWorkers, indexTracker, parsedJavaFiles...)
-				indexTracker.End()
-				return nil
-			})
-		}
+	indexResult2, err := (pipeline.IndexPhase{
+		SkipModules:       true,
+		SkipAndroid:       true,
+		SkipResolverIndex: true,
+	}).Run(context.Background(), pipeline.IndexInput{
+		ParseResult:            parseResult,
+		Logger:                 verboseLogger,
+		Tracker:                tracker,
+		SkipOracle:             true,
+		SkipCache:              true,
+		Verbose:                *verboseFlag,
+		ActiveRulesV1:          activeRules,
+		BuildCodeIndex:         hasIndexBackedCrossFileRule,
+		CrossFileParentTracker: crossTracker,
+		CrossFileJobsFlag:      *jobsFlag,
+		BuildModuleIndex:       true,
+		ModuleParentTracker:    moduleTracker,
+		ModuleScanRoot:         scanRoot,
+		ModuleJobsFlag:         *jobsFlag,
+		ModuleHasAwareRule:     hasModuleAwareRule,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
+	codeIndex = indexResult2.CodeIndex
+	parsedJavaFiles := indexResult2.JavaFiles
+	moduleGraph := indexResult2.ModuleGraph
+	pmi := indexResult2.ModuleIndex
 
-		_ = crossTracker.Track("crossRuleExecution", func() error {
-			ruleTracker := crossTracker.Serial("crossRules")
-			for _, rule := range activeRules {
-				if pfr, ok := rule.(interface {
-					CheckParsedFiles(files []*scanner.File) []scanner.Finding
-				}); ok {
-					ruleName := rule.Name()
-					_ = ruleTracker.Track(ruleName, func() error {
-						findings := pfr.CheckParsedFiles(parsedFiles)
-						rules.ApplyRuleConfidence(findings, rule, 0.95)
-						allFindings = append(allFindings, findings...)
-						return nil
-					})
-				} else if cfr, ok := rule.(interface {
-					CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding
-				}); ok {
-					ruleName := rule.Name()
-					_ = ruleTracker.Track(ruleName, func() error {
-						findings := cfr.CheckCrossFile(codeIndex)
-						rules.ApplyRuleConfidence(findings, rule, 0.95)
-						allFindings = append(allFindings, findings...)
-						return nil
-					})
-				}
-			}
-			ruleTracker.End()
-			return nil
-		})
+	// Hand off cross-file + module-aware rule execution to CrossFilePhase.
+	// The phase owns the crossRuleExecution / crossRules / moduleRuleExecution
+	// tracker labels (nested under the crossTracker / moduleTracker parents
+	// main.go already created), the verbose "Cross-file analysis in ..." and
+	// "Module-aware analysis in ..." log lines, and the unified
+	// ApplySuppression pass. Suppression now covers cross-file findings the
+	// same way it covers per-file ones (phase-pipeline acceptance #3).
+	dispatchForCross := dispatchResult
+	dispatchForCross.IndexResult = indexResult2
+	dispatchForCross.IndexResult.ActiveRulesV1 = activeRules
+	dispatchForCross.IndexResult.Logger = verboseLogger
+	dispatchForCross.IndexResult.Tracker = tracker
+	dispatchForCross.IndexResult.CrossFileParentTracker = crossTracker
+	dispatchForCross.IndexResult.ModuleParentTracker = moduleTracker
+	dispatchForCross.Findings = scanner.CollectFindings(allFindings)
+	crossResult, err := (pipeline.CrossFilePhase{Workers: *jobsFlag}).Run(context.Background(), dispatchForCross)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
+	if crossTracker != nil {
 		crossTracker.End()
-		if *verboseFlag {
-			if codeIndex != nil {
-				fmt.Fprintf(os.Stderr, "verbose: Cross-file analysis in %v (indexed %d symbols, %d references from %d kt + %d java files)\n",
-					time.Since(crossStart).Round(time.Millisecond), len(codeIndex.Symbols), len(codeIndex.References),
-					len(parsedFiles), len(parsedJavaFiles))
-			} else {
-				fmt.Fprintf(os.Stderr, "verbose: Cross-file analysis in %v (%d kt files, no shared code index needed)\n",
-					time.Since(crossStart).Round(time.Millisecond), len(parsedFiles))
-			}
-		}
-	} else if *verboseFlag {
-		fmt.Fprintln(os.Stderr, "verbose: Skipped cross-file analysis (no active cross-file rules)")
 	}
-
-	// Module-aware analysis: auto-detect Gradle modules and run module-aware rule implementations
-	{
-		moduleStart := time.Now()
-		moduleTracker := tracker.Serial("moduleAwareAnalysis")
-		scanRoot := "."
-		if len(paths) > 0 {
-			scanRoot = paths[0]
-		}
-		var (
-			graph  *module.ModuleGraph
-			modErr error
-		)
-		_ = moduleTracker.Track("moduleDiscovery", func() error {
-			graph, modErr = module.DiscoverModules(scanRoot)
-			return nil
-		})
-		if modErr != nil && *verboseFlag {
-			fmt.Fprintf(os.Stderr, "verbose: Module discovery error: %v\n", modErr)
-		}
-		hasModuleAwareRule := false
-		for _, rule := range activeRules {
-			if _, ok := rule.(interface {
-				SetModuleIndex(pmi *module.PerModuleIndex)
-				CheckModuleAware() []scanner.Finding
-			}); ok {
-				hasModuleAwareRule = true
-				break
-			}
-		}
-		if graph != nil && len(graph.Modules) > 0 && hasModuleAwareRule {
-			moduleNeeds := rules.CollectModuleAwareNeeds(activeRules)
-			moduleWorkers := phaseWorkerCount("moduleAwareAnalysis", *jobsFlag, len(graph.Modules))
-
-			var pmi *module.PerModuleIndex
-			if moduleNeeds.NeedsDependencies {
-				_ = moduleTracker.Track("moduleDependencies", func() error {
-					if err := module.ParseAllDependencies(graph); err != nil {
-						if *verboseFlag {
-							fmt.Fprintf(os.Stderr, "verbose: Module dependency parse error: %v\n", err)
-						}
-					}
-					return nil
-				})
-			}
-			if *verboseFlag {
-				fmt.Fprintf(os.Stderr, "verbose: Detected %d Gradle modules\n", len(graph.Modules))
-			}
-
-			_ = moduleTracker.Track("moduleIndexBuild", func() error {
-				pmi = &module.PerModuleIndex{Graph: graph}
-				switch {
-				case moduleNeeds.NeedsIndex:
-					pmi = module.BuildPerModuleIndexWithGlobal(graph, parsedFiles, moduleWorkers, codeIndex)
-				case moduleNeeds.NeedsFiles:
-					pmi.ModuleFiles = module.GroupFilesByModule(graph, parsedFiles)
-				}
-				return nil
-			})
-
-			_ = moduleTracker.Track("moduleRuleExecution", func() error {
-				// The v2 bridge threads ModuleIndex through the rule's Context
-				// automatically, so no explicit SetModuleIndex call is required.
-				for _, r := range dispatcher.V2Rules().ModuleAware {
-					ctx := &v2.Context{ModuleIndex: pmi}
-					r.Check(ctx)
-					rules.ApplyV2Confidence(ctx.Findings, r, 0.95)
-					allFindings = append(allFindings, ctx.Findings...)
-				}
-				return nil
-			})
-
-			if *verboseFlag {
-				fmt.Fprintf(os.Stderr, "verbose: Module-aware analysis in %v\n",
-					time.Since(moduleStart).Round(time.Millisecond))
-			}
-		}
-		moduleTracker.End()
-	}
-
-	// Apply per-file @Suppress to findings produced by cross-file and
-	// module-aware rules. The per-file dispatcher already honours
-	// @Suppress for its own findings (via v2dispatcher.go); before this
-	// refactor, findings produced by CheckCrossFile / CheckParsedFiles /
-	// CheckModuleAware bypassed suppression entirely. See
-	// roadmap/clusters/core-infra/phase-pipeline.md acceptance criterion #3.
-	allFindings = pipeline.ApplySuppression(allFindings, parsedFiles)
+	moduleTracker.End()
+	_ = parsedJavaFiles
+	_ = codeIndex
+	_ = moduleGraph
+	_ = pmi
+	allFindings = crossResult.Findings.Findings()
 
 	if *verboseFlag {
 		fmt.Fprintf(os.Stderr, "verbose: Analyzed in %v\n", time.Since(ruleStart).Round(time.Millisecond))
@@ -1503,15 +1093,27 @@ potential-bugs:
 		os.Exit(runDeadCodeRemovalColumns(allColumns, effectiveFormat, *dryRunFlag, *fixSuffix))
 	}
 
-	// Filter fixes by level and count
-	fixableCount := 0
-	strippedByLevel := 0
+	// Apply (or dry-run) fixes if requested via the Fixup pipeline phase.
 	if *fixFlag || *dryRunFlag {
-		fixableCount, strippedByLevel = filterFixesByLevelColumns(allColumns, rules.Registry, maxFixLevel)
-	}
+		fixRes, _ := (pipeline.FixupPhase{}).Run(context.Background(), pipeline.FixupInput{
+			CrossFileResult: pipeline.CrossFileResult{
+				DispatchResult: pipeline.DispatchResult{
+					Findings: *allColumns,
+				},
+			},
+			Apply:        *fixFlag && !*dryRunFlag,
+			ApplyBinary:  *fixBinaryFlag,
+			Suffix:       *fixSuffix,
+			MaxFixLevel:  maxFixLevel,
+			DryRunBinary: *dryRunFlag,
+			CountOnly:    *dryRunFlag,
+		})
+		postColumns := fixRes.Findings
+		allColumns = &postColumns
 
-	// Apply fixes if requested
-	if *fixFlag || *dryRunFlag {
+		fixableCount := fixRes.FixableCount
+		strippedByLevel := fixRes.StrippedByLevel
+
 		if fixableCount == 0 {
 			if !*quietFlag {
 				if strippedByLevel > 0 {
@@ -1538,8 +1140,15 @@ potential-bugs:
 				fmt.Fprintf(os.Stderr, "info: %d fix(es) available across %d file(s).\n", fixableCount, len(seen))
 			}
 		} else {
-			totalFixes, filesModified, fixErrs := fixer.ApplyAllFixesColumns(allColumns, *fixSuffix)
-			for _, e := range fixErrs {
+			// Text fix errors: everything in FixErrors minus BinaryErrors.
+			binarySet := make(map[error]bool, len(fixRes.BinaryErrors))
+			for _, e := range fixRes.BinaryErrors {
+				binarySet[e] = true
+			}
+			for _, e := range fixRes.FixErrors {
+				if binarySet[e] {
+					continue
+				}
 				fmt.Fprintf(os.Stderr, "error: %v\n", e)
 			}
 			if !*quietFlag {
@@ -1548,22 +1157,21 @@ potential-bugs:
 					suffix = "with suffix '" + *fixSuffix + "'"
 				}
 				fmt.Fprintf(os.Stderr, "info: Applied %d fix(es) across %d file(s) %s in %v.\n",
-					totalFixes, filesModified, suffix, time.Since(start).Round(time.Millisecond))
+					fixRes.TextApplied, len(fixRes.ModifiedFiles), suffix, time.Since(start).Round(time.Millisecond))
 			}
 		}
 
-		// Apply binary fixes if requested
+		// Binary fix reporting
 		if *fixBinaryFlag {
-			binaryApplied, binaryErrs := fixer.ApplyBinaryFixesBatchColumns(allColumns, *dryRunFlag)
-			for _, e := range binaryErrs {
+			for _, e := range fixRes.BinaryErrors {
 				fmt.Fprintf(os.Stderr, "error: binary fix: %v\n", e)
 			}
-			if binaryApplied > 0 && !*quietFlag {
+			if fixRes.BinaryApplied > 0 && !*quietFlag {
 				mode := "applied"
 				if *dryRunFlag {
 					mode = "available"
 				}
-				fmt.Fprintf(os.Stderr, "info: %d binary fix(es) %s.\n", binaryApplied, mode)
+				fmt.Fprintf(os.Stderr, "info: %d binary fix(es) %s.\n", fixRes.BinaryApplied, mode)
 			}
 		}
 
@@ -1612,18 +1220,6 @@ potential-bugs:
 			}
 			f.Close()
 		}
-	}
-
-	// Elevate warnings to errors before output if requested
-	warningsAsErrors := *warningsAsErrorsFlag || cfg.GetTopLevelBool("warningsAsErrors", false)
-	if warningsAsErrors {
-		allColumns.PromoteWarningsToErrors()
-	}
-
-	// Drop findings below the configured confidence threshold, if any.
-	if *minConfidenceFlag > 0 {
-		filtered := allColumns.FilterByMinConfidence(*minConfidenceFlag)
-		allColumns = &filtered
 	}
 
 	// Surface Oracle.Stats() hit/miss counters to stderr when --perf is on.
@@ -1688,25 +1284,39 @@ potential-bugs:
 		}))
 	}
 
-	var formatErr error
-	switch effectiveFormat {
-	case "json":
-		formatErr = output.FormatJSONColumns(w, allColumns, version, len(parsedFiles), len(activeRules),
-			start, perfTimings, activeRules, experiment.Current().Names(), cacheStats)
-	case "plain":
-		output.FormatPlainColumns(w, allColumns)
-	case "sarif":
-		formatErr = output.FormatSARIFColumns(w, allColumns, version)
-	case "checkstyle":
-		output.FormatCheckstyleColumns(w, allColumns)
-	default:
-		fmt.Fprintf(os.Stderr, "error: unknown format: %s\n", effectiveFormat)
+	warningsAsErrors := *warningsAsErrorsFlag || cfg.GetTopLevelBool("warningsAsErrors", false)
+	outRes, outErr := (pipeline.OutputPhase{}).Run(context.Background(), pipeline.OutputInput{
+		FixupResult: pipeline.FixupResult{
+			CrossFileResult: pipeline.CrossFileResult{
+				DispatchResult: pipeline.DispatchResult{
+					IndexResult: pipeline.IndexResult{
+						ParseResult: pipeline.ParseResult{
+							KotlinFiles: parsedFiles,
+							Paths:       paths,
+						},
+					},
+					Findings: *allColumns,
+				},
+			},
+		},
+		Writer:           w,
+		Format:           effectiveFormat,
+		BasePath:         basePath,
+		StartTime:        start,
+		Version:          version,
+		ExperimentNames:  experiment.Current().Names(),
+		PerfTimings:      perfTimings,
+		CacheStats:       cacheStats,
+		WarningsAsErrors: warningsAsErrors,
+		MinConfidence:    *minConfidenceFlag,
+		ActiveRulesV1:    activeRules,
+	})
+	if outErr != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", outErr)
 		os.Exit(2)
 	}
-	if formatErr != nil {
-		fmt.Fprintf(os.Stderr, "error: output format %s: %v\n", effectiveFormat, formatErr)
-		os.Exit(2)
-	}
+	finalColumns := outRes.FinalFindings
+	allColumns = &finalColumns
 
 	if !*quietFlag {
 		findingCount := allColumns.Len()
@@ -2073,17 +1683,9 @@ func collectAndroidDependencies(activeRules []rules.Rule) rules.AndroidDataDepen
 	return deps
 }
 
-// fileTiming captures per-file dispatch timing for profile-dispatch mode.
-type fileTiming struct {
-	path     string
-	size     int
-	queueMs  int64 // time between loop dispatch and worker start
-	runMs    int64 // time spent in dispatcher.RunWithStats
-	lockMs   int64 // time spent waiting for the aggregation mutex
-	aggMs    int64 // time spent under the mutex (aggregation)
-	totalMs  int64 // total from dispatch to unlock
-	findings int
-}
+// fileTiming is an alias for pipeline.FileTiming so profile-dispatch
+// reporting can stay in main.go while the phase owns the capture path.
+type fileTiming = pipeline.FileTiming
 
 // reportDispatchProfile prints a distribution analysis of per-file dispatch
 // timings. Used to diagnose parallelism-collapse on large corpora.
@@ -2100,23 +1702,23 @@ func reportDispatchProfile(timings []fileTiming, workers int, wall time.Duration
 	var sumRun, sumQueue, sumLock, sumAgg, sumTotal int64
 	var maxRun, maxTotal int64
 	for _, t := range timings {
-		sumRun += t.runMs
-		sumQueue += t.queueMs
-		sumLock += t.lockMs
-		sumAgg += t.aggMs
-		sumTotal += t.totalMs
-		if t.runMs > maxRun {
-			maxRun = t.runMs
+		sumRun += t.RunMs
+		sumQueue += t.QueueMs
+		sumLock += t.LockMs
+		sumAgg += t.AggMs
+		sumTotal += t.TotalMs
+		if t.RunMs > maxRun {
+			maxRun = t.RunMs
 		}
-		if t.totalMs > maxTotal {
-			maxTotal = t.totalMs
+		if t.TotalMs > maxTotal {
+			maxTotal = t.TotalMs
 		}
 	}
 
 	// Duration distribution (percentiles of runMs)
 	runs := make([]int64, n)
 	for i, t := range timings {
-		runs[i] = t.runMs
+		runs[i] = t.RunMs
 	}
 	sort.Slice(runs, func(i, j int) bool { return runs[i] < runs[j] })
 	pct := func(p float64) int64 {
@@ -2139,7 +1741,7 @@ func reportDispatchProfile(timings []fileTiming, workers int, wall time.Duration
 		sorted[i] = i
 	}
 	sort.Slice(sorted, func(i, j int) bool {
-		return timings[sorted[i]].runMs > timings[sorted[j]].runMs
+		return timings[sorted[i]].RunMs > timings[sorted[j]].RunMs
 	})
 
 	fmt.Fprintln(os.Stderr, "")
@@ -2173,12 +1775,12 @@ func reportDispatchProfile(timings []fileTiming, workers int, wall time.Duration
 	for i := 0; i < limit; i++ {
 		t := timings[sorted[i]]
 		fmt.Fprintf(os.Stderr, "  %6dms  %7dkb  %4d findings  %s\n",
-			t.runMs, t.size/1024, t.findings, t.path)
+			t.RunMs, t.Size/1024, t.Findings, t.Path)
 	}
 	// Sum of top 20 vs total: what fraction of work comes from the tail?
 	var topSum int64
 	for i := 0; i < limit; i++ {
-		topSum += timings[sorted[i]].runMs
+		topSum += timings[sorted[i]].RunMs
 	}
 	fmt.Fprintf(os.Stderr, "  top %d account for %d%% of cumulative runMs\n",
 		limit, int(topSum*100/sumRun))
@@ -2194,20 +1796,20 @@ func reportDispatchProfile(timings []fileTiming, workers int, wall time.Duration
 	fmt.Fprintln(os.Stderr, "")
 }
 
-// lockWaits extracts lockMs values for percentile computation.
+// lockWaits extracts LockMs values for percentile computation.
 func lockWaits(timings []fileTiming) []int64 {
 	out := make([]int64, len(timings))
 	for i, t := range timings {
-		out[i] = t.lockMs
+		out[i] = t.LockMs
 	}
 	return out
 }
 
-// aggHolds extracts aggMs values for percentile computation.
+// aggHolds extracts AggMs values for percentile computation.
 func aggHolds(timings []fileTiming) []int64 {
 	out := make([]int64, len(timings))
 	for i, t := range timings {
-		out[i] = t.aggMs
+		out[i] = t.AggMs
 	}
 	return out
 }
@@ -2483,31 +2085,3 @@ func getChangedFiles(ref string, scanPaths []string) (map[string]bool, error) {
 	return result, nil
 }
 
-// loadFilesForOracleFilter reads the raw bytes of each .kt path into a
-// lightweight *scanner.File so oracle.CollectOracleFiles can run its
-// substring-based filter before krit-types is invoked. The returned
-// files are NOT fully parsed (no FlatTree) — the filter is byte-only,
-// so the cgo tree-sitter pass is deliberately skipped to keep the
-// pre-scan cheap. Files that fail to read are dropped silently; they
-// will show up later in the real parse loop as parse errors and be
-// surfaced there.
-func loadFilesForOracleFilter(paths []string) []*scanner.File {
-	out := make([]*scanner.File, 0, len(paths))
-	for _, p := range paths {
-		content, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		out = append(out, &scanner.File{Path: p, Content: content})
-	}
-	return out
-}
-
-// maxInt avoids a division-by-zero in the filter's verbose reporting
-// when the file set is empty.
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

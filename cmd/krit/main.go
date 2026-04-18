@@ -801,7 +801,7 @@ potential-bugs:
 	// Parse + filter + LPT sort + suppression index now live in ParsePhase.
 	// Java collection stays in the cross-file block (SkipJavaCollection=true)
 	// so the "javaIndexing" perf label remains nested under "crossFileAnalysis".
-	parseWorkers := phaseWorkerCount("parse", *jobsFlag, len(files))
+	parseWorkers := pipeline.PhaseWorkerCount("parse", *jobsFlag, len(files))
 	var verboseLogger func(format string, args ...any)
 	if *verboseFlag {
 		verboseLogger = func(format string, args ...any) {
@@ -838,7 +838,7 @@ potential-bugs:
 	// Index all files for type inference (parallel two-phase: index per-file, then merge)
 	if resolver != nil && hasTypeAwareRule {
 		indexStart := time.Now()
-		indexWorkers := phaseWorkerCount("typeIndex", *jobsFlag, len(parsedFiles))
+		indexWorkers := pipeline.PhaseWorkerCount("typeIndex", *jobsFlag, len(parsedFiles))
 		if indexer, ok := resolver.(interface {
 			IndexFilesParallelWithTracker([]*scanner.File, int, perf.Tracker)
 		}); ok {
@@ -867,7 +867,7 @@ potential-bugs:
 	// (as a "cacheSave" sibling entry). main.go still owns the
 	// -profile-dispatch reporting because it pulls in CLI-only output.
 	ruleStart := time.Now()
-	ruleWorkers := phaseWorkerCount("ruleExecution", *jobsFlag, len(parsedFiles))
+	ruleWorkers := pipeline.PhaseWorkerCount("ruleExecution", *jobsFlag, len(parsedFiles))
 	dispatchIdx := pipeline.IndexResult{
 		ParseResult:            parseResult,
 		Resolver:               resolver,
@@ -935,7 +935,10 @@ potential-bugs:
 	if hasIndexBackedCrossFileRule || hasParsedFilesRule {
 		crossTracker = tracker.Serial("crossFileAnalysis")
 	}
-	moduleTracker := tracker.Serial("moduleAwareAnalysis")
+	var moduleTracker perf.Tracker
+	if hasModuleAwareRule {
+		moduleTracker = tracker.Serial("moduleAwareAnalysis")
+	}
 
 	scanRoot := "."
 	if len(paths) > 0 {
@@ -995,7 +998,9 @@ potential-bugs:
 	if crossTracker != nil {
 		crossTracker.End()
 	}
-	moduleTracker.End()
+	if moduleTracker != nil {
+		moduleTracker.End()
+	}
 	_ = parsedJavaFiles
 	_ = codeIndex
 	_ = moduleGraph
@@ -1073,7 +1078,7 @@ potential-bugs:
 
 	// Filter by git diff (only report findings in changed files)
 	if *diffFlag != "" {
-		changedFiles, err := getChangedFiles(*diffFlag, paths)
+		changedFiles, err := pipeline.GitChangedFiles(*diffFlag, paths)
 		if err != nil {
 			if *verboseFlag {
 				fmt.Fprintf(os.Stderr, "verbose: git diff failed: %v (showing all findings)\n", err)
@@ -1832,37 +1837,6 @@ func percentileInt(xs []int64, p float64) int64 {
 	return sorted[idx]
 }
 
-func phaseWorkerCount(phase string, maxWorkers, workItems int) int {
-	if maxWorkers < 1 {
-		maxWorkers = 1
-	}
-	if workItems < 1 {
-		return 1
-	}
-
-	workers := maxWorkers
-	if workItems < workers {
-		workers = workItems
-	}
-
-	var phaseCap int
-	switch phase {
-	case "moduleAwareAnalysis":
-		phaseCap = 8
-	case "ruleExecution", "parse", "typeIndex", "crossFileAnalysis":
-		phaseCap = 16
-	default:
-		phaseCap = workers
-	}
-	if phaseCap < 1 {
-		phaseCap = 1
-	}
-	if workers > phaseCap {
-		workers = phaseCap
-	}
-	return workers
-}
-
 func androidProviderWorkerCount(maxWorkers int) int {
 	if maxWorkers < 1 {
 		return 1
@@ -2057,31 +2031,4 @@ func countActive(registry []rules.Rule) int {
 	return count
 }
 
-// getChangedLines runs git diff and returns a map of absolute file path → set of changed line numbers.
-// getChangedFiles returns the set of absolute file paths that have changed
-// since the given git ref. Uses git diff --name-only for robust file discovery.
-func getChangedFiles(ref string, scanPaths []string) (map[string]bool, error) {
-	// Get changed files: staged + unstaged modifications since ref
-	args := []string{"diff", "--name-only", "--diff-filter=ACMR", ref, "--"}
-	for _, p := range scanPaths {
-		args = append(args, p)
-	}
-	cmd := exec.Command("git", args...)
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("git diff %s: %w", ref, err)
-	}
-
-	result := make(map[string]bool)
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" {
-			continue
-		}
-		absPath, _ := filepath.Abs(line)
-		if absPath != "" {
-			result[absPath] = true
-		}
-	}
-	return result, nil
-}
 

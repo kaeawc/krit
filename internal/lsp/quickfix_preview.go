@@ -101,8 +101,8 @@ func buildUnifiedPreviewDiff(label, before, after string) string {
 		return ""
 	}
 
-	oldStart := maxInt(prefix-quickFixPreviewContextLines, 0)
-	newStart := maxInt(prefix-quickFixPreviewContextLines, 0)
+	oldStart := max(prefix-quickFixPreviewContextLines, 0)
+	newStart := max(prefix-quickFixPreviewContextLines, 0)
 	oldEnd := minInt(len(beforeLines)-suffix+quickFixPreviewContextLines, len(beforeLines))
 	newEnd := minInt(len(afterLines)-suffix+quickFixPreviewContextLines, len(afterLines))
 
@@ -124,13 +124,13 @@ func buildUnifiedPreviewDiff(label, before, after string) string {
 	for _, line := range beforeLines[oldStart:minInt(oldChangedStart, oldEnd)] {
 		writeUnifiedDiffLine(&sb, ' ', line)
 	}
-	for _, line := range beforeLines[maxInt(oldChangedStart, oldStart):minInt(oldChangedEnd, oldEnd)] {
+	for _, line := range beforeLines[max(oldChangedStart, oldStart):minInt(oldChangedEnd, oldEnd)] {
 		writeUnifiedDiffLine(&sb, '-', line)
 	}
-	for _, line := range afterLines[maxInt(newChangedStart, newStart):minInt(newChangedEnd, newEnd)] {
+	for _, line := range afterLines[max(newChangedStart, newStart):minInt(newChangedEnd, newEnd)] {
 		writeUnifiedDiffLine(&sb, '+', line)
 	}
-	for _, line := range beforeLines[maxInt(oldChangedEnd, oldStart):oldEnd] {
+	for _, line := range beforeLines[max(oldChangedEnd, oldStart):oldEnd] {
 		writeUnifiedDiffLine(&sb, ' ', line)
 	}
 
@@ -190,9 +190,3 @@ func minInt(a, b int) int {
 	return b
 }
 
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

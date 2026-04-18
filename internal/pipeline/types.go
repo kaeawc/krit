@@ -59,32 +59,16 @@ type ParseInput struct {
 	// under "crossFileAnalysis" as before.
 	SkipJavaCollection bool
 	// Logger, when non-nil, receives verbose progress messages from the
-	// phase. Format matches fmt.Printf. Nil means no-op. Callers that
-	// want the pre-refactor "verbose: ..." stderr lines pass a closure
-	// wrapping fmt.Fprintf(os.Stderr, ...).
+	// phase (same format as fmt.Printf). Nil is a no-op.
 	Logger func(format string, args ...any)
 	// Tracker, when non-nil, wraps expensive sub-phases with
 	// Tracker.Serial(name). Zero value (nil interface) means no tracking.
 	Tracker perf.Tracker
 }
 
-// logf invokes Logger when set; nil Logger is a no-op.
-func (in ParseInput) logf(format string, args ...any) {
-	if in.Logger != nil {
-		in.Logger(format, args...)
-	}
-}
-
-// trackSerial runs fn under a child Tracker named name when Tracker is
-// non-nil; otherwise it just runs fn. Returns any error fn produced.
+func (in ParseInput) logf(format string, args ...any) { phaseLogf(in.Logger, format, args...) }
 func (in ParseInput) trackSerial(name string, fn func() error) error {
-	if in.Tracker == nil {
-		return fn()
-	}
-	child := in.Tracker.Serial(name)
-	err := fn()
-	child.End()
-	return err
+	return phaseTrackSerial(in.Tracker, name, fn)
 }
 
 // ParseResult is the output of Parse and the input of Index.
@@ -171,7 +155,7 @@ type IndexResult struct {
 	// Dispatch and CrossFile phases. Matches fmt.Printf. Nil means no-op.
 	Logger func(format string, args ...any)
 	// Tracker, when non-nil, wraps expensive sub-phases with
-	// Tracker.Serial(name). Matches the pre-refactor perf label tree.
+	// Tracker.Serial(name). Nil means no tracking.
 	Tracker perf.Tracker
 	// Jobs is the CLI --jobs value used to derive worker counts in
 	// DispatchPhase and CrossFilePhase. Zero falls back to DispatchPhase
@@ -231,16 +215,12 @@ type DispatchResult struct {
 	// FileTimings is populated when IndexResult.ProfileDispatch is true.
 	// One entry per dispatched (non-cached) file.
 	FileTimings []FileTiming
-	// FindingsByFile is populated when ActiveRulesV1 is non-nil and a
-	// cache is present on the input IndexResult, for cache write-back.
-	FindingsByFile map[string]scanner.FindingColumns
 }
 
 // CrossFileResult is the output of CrossFile and the input of Fixup.
 // Cross-file, module-aware, and Android rule findings are appended to
 // Findings after being run through each finding's target-file
-// SuppressionIndex — fixing the bug where cross-file rules bypassed
-// suppression in the pre-refactor code.
+// SuppressionIndex, so @Suppress annotations apply uniformly.
 type CrossFileResult struct {
 	DispatchResult
 }

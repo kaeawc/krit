@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/output"
-	"github.com/kaeawc/krit/internal/rules"
-	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -74,20 +72,9 @@ func (OutputPhase) Run(ctx context.Context, in OutputInput) (OutputResult, error
 		columns = &filtered
 	}
 
-	// Use the caller-supplied v1 rule slice when present; otherwise
-	// derive it from the v2 ActiveRules via ToV1. Any rule whose v2→v1
-	// conversion does not yield a rules.Rule is dropped (defensive —
-	// all 481 current rules satisfy rules.Rule via their V1* wrappers).
 	activeRulesV1 := in.ActiveRulesV1
 	if activeRulesV1 == nil {
-		for _, r := range in.FixupResult.ActiveRules {
-			if r == nil {
-				continue
-			}
-			if v1, ok := v2.ToV1(r).(rules.Rule); ok {
-				activeRulesV1 = append(activeRulesV1, v1)
-			}
-		}
+		activeRulesV1 = v2RulesToV1(in.FixupResult.ActiveRules)
 	}
 
 	fileCount := len(in.FixupResult.KotlinFiles)

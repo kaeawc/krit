@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kaeawc/krit/internal/pipeline"
+)
 
 func TestPhaseWorkerCount(t *testing.T) {
 	tests := []struct {
@@ -23,8 +27,8 @@ func TestPhaseWorkerCount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := phaseWorkerCount(tt.phase, tt.max, tt.items); got != tt.expected {
-				t.Fatalf("phaseWorkerCount(%q, %d, %d) = %d, want %d", tt.phase, tt.max, tt.items, got, tt.expected)
+			if got := pipeline.PhaseWorkerCount(tt.phase, tt.max, tt.items); got != tt.expected {
+				t.Fatalf("PhaseWorkerCount(%q, %d, %d) = %d, want %d", tt.phase, tt.max, tt.items, got, tt.expected)
 			}
 		})
 	}

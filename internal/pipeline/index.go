@@ -151,15 +151,8 @@ type IndexInput struct {
 	// CacheEnabled. Used by the post-parse IndexPhase call.
 	SkipCache bool
 
-	// --- CodeIndex construction knobs. These mirror the pre-refactor
-	// cross-file block in cmd/krit/main.go. IndexPhase builds the
-	// scanner.CodeIndex (optionally with Java files parsed in parallel)
-	// under a caller-supplied parent tracker so the "crossFileAnalysis"
-	// perf label stays at the CLI tracker scope.
-
 	// BuildCodeIndex, when true, runs Java collection + parse and
-	// scanner.BuildIndex. Matches the pre-refactor
-	// hasIndexBackedCrossFileRule branch.
+	// scanner.BuildIndex under CrossFileParentTracker.
 	BuildCodeIndex bool
 	// CrossFileParentTracker is the caller-created parent tracker
 	// (tracker.Serial("crossFileAnalysis")) under which IndexPhase nests
@@ -168,7 +161,7 @@ type IndexInput struct {
 	// execution siblings can nest under the same parent.
 	CrossFileParentTracker perf.Tracker
 	// CrossFileJobsFlag is the -jobs flag value used by
-	// phaseWorkerCount("crossFileAnalysis", ...).
+	// PhaseWorkerCount("crossFileAnalysis", ...).
 	CrossFileJobsFlag int
 	// CrossFileWorkers is the pre-computed initial worker count for the
 	// Kotlin-only case (before Java file paths are known). IndexPhase
@@ -176,12 +169,8 @@ type IndexInput struct {
 	// from CrossFileJobsFlag + len(KotlinFiles).
 	CrossFileWorkers int
 
-	// --- Module graph + PerModuleIndex knobs. Mirrors the pre-refactor
-	// moduleAwareAnalysis block in cmd/krit/main.go.
-
 	// BuildModuleIndex, when true, runs module.DiscoverModules and, when
-	// any active rule declares module-awareness, builds the
-	// PerModuleIndex. Matches the pre-refactor moduleAwareAnalysis block.
+	// ModuleHasAwareRule is set, builds the PerModuleIndex.
 	BuildModuleIndex bool
 	// ModuleParentTracker is the caller-created parent tracker
 	// (tracker.Serial("moduleAwareAnalysis")) under which IndexPhase
@@ -193,31 +182,16 @@ type IndexInput struct {
 	// Empty means "use Paths[0] or '.'".
 	ModuleScanRoot string
 	// ModuleJobsFlag is the -jobs flag value used by
-	// phaseWorkerCount("moduleAwareAnalysis", ...).
+	// PhaseWorkerCount("moduleAwareAnalysis", ...).
 	ModuleJobsFlag int
-	// ModuleHasAwareRule is the pre-computed boolean indicating whether
-	// any active rule declares module-awareness. When false, IndexPhase
-	// only runs moduleDiscovery (matches pre-refactor behaviour).
+	// ModuleHasAwareRule indicates whether any active rule declares
+	// module-awareness. When false, IndexPhase only runs moduleDiscovery.
 	ModuleHasAwareRule bool
 }
 
-// logf invokes Logger when set; nil Logger is a no-op.
-func (in IndexInput) logf(format string, args ...any) {
-	if in.Logger != nil {
-		in.Logger(format, args...)
-	}
-}
-
-// trackSerial runs fn under a child Tracker named name when Tracker is
-// non-nil; otherwise it just runs fn.
+func (in IndexInput) logf(format string, args ...any) { phaseLogf(in.Logger, format, args...) }
 func (in IndexInput) trackSerial(name string, fn func() error) error {
-	if in.Tracker == nil {
-		return fn()
-	}
-	child := in.Tracker.Serial(name)
-	err := fn()
-	child.End()
-	return err
+	return phaseTrackSerial(in.Tracker, name, fn)
 }
 
 // Name implements Phase.
@@ -234,11 +208,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	caps := unionNeeds(in.ActiveRules)
 
 	// Oracle construction (auto-detect / --input-types / --daemon).
-	// When OracleEnabled is false or BaseResolver is nil there's nothing
-	// to wrap; the CLI caller sets those gates to match --no-type-oracle.
-	// When enabled, this block mirrors the pre-refactor main.go oracle
-	// pipeline verbatim so verbose log lines and perf tracker labels
-	// stay byte-identical.
+	// Skipped when OracleEnabled is false or BaseResolver is nil.
 	resolverForOracle := in.BaseResolver
 	if !in.SkipOracle && in.OracleEnabled && resolverForOracle != nil {
 		resolverForOracle = p.runOracle(in, resolverForOracle, &result)
@@ -295,26 +265,14 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		result.AndroidProject = android.DetectAndroidProject(in.Paths)
 	}
 
-	// CodeIndex build (+ Java collection/parse) under the
-	// caller-supplied crossFileAnalysis parent tracker. Mirrors the
-	// pre-refactor hasIndexBackedCrossFileRule branch in cmd/krit/main.go.
 	if in.BuildCodeIndex {
 		p.runCodeIndexBuild(in, &result)
 	}
 
-	// Module graph + PerModuleIndex build under the caller-supplied
-	// moduleAwareAnalysis parent tracker. Mirrors the pre-refactor
-	// moduleAwareAnalysis block's indexing phase (rule execution stays
-	// in main.go).
 	if in.BuildModuleIndex {
 		p.runModuleIndexBuild(in, &result)
 	}
 
-	// Incremental analysis cache load + per-file lookup. Write-back
-	// (post-dispatch merge of new findings) still lives in the CLI. This
-	// mirrors the pre-refactor block in cmd/krit/main.go verbatim so
-	// tracker labels ("cacheLoad") and verbose stderr lines stay
-	// byte-identical.
 	if !in.SkipCache && in.CacheEnabled {
 		p.runCacheLoad(in, &result)
 	}
@@ -322,14 +280,10 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	return result, nil
 }
 
-// runCacheLoad is a verbatim port of the pre-refactor cache load/lookup
-// block in cmd/krit/main.go. It computes the rule hash, loads the cache
-// JSON, optionally attaches the unified store, runs CheckFiles for
-// per-path hit/miss classification, and populates IndexResult.Cache,
-// CacheResult, RuleHash, CacheFilePath, and CacheStats for downstream
-// consumers. The cache write-back (UpdateEntryColumns + Save) is NOT
-// done here — it lives with dispatch in main.go and moves to Fixup in a
-// later slice.
+// runCacheLoad computes the rule hash, loads the cache JSON, attaches
+// the unified store, runs per-path hit/miss classification, and
+// populates IndexResult.Cache, CacheResult, RuleHash, CacheFilePath,
+// and CacheStats. Cache write-back lives in DispatchPhase.
 func (p IndexPhase) runCacheLoad(in IndexInput, result *IndexResult) {
 	ruleNames := in.CacheRuleNames
 	if ruleNames == nil {
@@ -393,13 +347,9 @@ func (p IndexPhase) runCacheLoad(in IndexInput, result *IndexResult) {
 // Compile-time check.
 var _ Phase[IndexInput, IndexResult] = IndexPhase{}
 
-// runOracle is a verbatim port of the pre-refactor oracle block in
-// cmd/krit/main.go (previously lines 716-886). It auto-detects a
-// krit-types oracle JSON, honours --input-types, --daemon,
-// --no-cache-oracle, and --no-oracle-filter, starts the JVM daemon
-// where requested, and wraps base in an oracle.CompositeResolver on
-// success. Verbose stderr lines and perf tracker labels match the
-// pre-refactor output exactly.
+// runOracle auto-detects a krit-types oracle JSON, honours --input-types,
+// --daemon, --no-cache-oracle, and --no-oracle-filter, starts the JVM
+// daemon where requested, and wraps base in an oracle.CompositeResolver.
 func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
 	resolver := base
 	scanPaths := in.OracleScanPaths
@@ -517,7 +467,7 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 						default:
 							fmt.Fprintf(os.Stderr, "verbose: Oracle filter: %d/%d files (%.1f%% of corpus)\n",
 								summary.MarkedFiles, summary.TotalFiles,
-								100*float64(summary.MarkedFiles)/float64(maxIntLocal(summary.TotalFiles, 1)))
+								100*float64(summary.MarkedFiles)/float64(max(summary.TotalFiles, 1)))
 						}
 					}
 					// Skip the filter entirely if it doesn't reduce the
@@ -609,14 +559,9 @@ func loadFilesForOracleFilter(paths []string) []*scanner.File {
 	return out
 }
 
-// runCodeIndexBuild is a verbatim port of the pre-refactor
-// hasIndexBackedCrossFileRule branch in cmd/krit/main.go. It collects
-// Java files, parses them in parallel, and invokes
-// scanner.BuildIndexWithTracker to produce the cross-file code index.
-// Tracker labels ("javaIndexing", "codeIndexBuild", inner "indexBuild")
-// and verbose stderr lines match the pre-refactor output byte-for-byte.
-// The caller supplies the "crossFileAnalysis" parent tracker so rule
-// execution siblings can continue to nest under it.
+// runCodeIndexBuild collects Java files, parses them in parallel, and
+// builds the cross-file code index. The caller supplies the parent tracker
+// so rule-execution siblings nest under the same "crossFileAnalysis" span.
 func (p IndexPhase) runCodeIndexBuild(in IndexInput, result *IndexResult) {
 	if in.CrossFileParentTracker == nil {
 		return
@@ -627,7 +572,7 @@ func (p IndexPhase) runCodeIndexBuild(in IndexInput, result *IndexResult) {
 
 	crossWorkers := in.CrossFileWorkers
 	if crossWorkers <= 0 {
-		crossWorkers = phaseWorkerCount("crossFileAnalysis", in.CrossFileJobsFlag, len(parsedFiles))
+		crossWorkers = PhaseWorkerCount("crossFileAnalysis", in.CrossFileJobsFlag, len(parsedFiles))
 	}
 
 	var javaFilePaths []string
@@ -640,7 +585,7 @@ func (p IndexPhase) runCodeIndexBuild(in IndexInput, result *IndexResult) {
 			fmt.Fprintf(os.Stderr, "verbose: Java file collection: %v\n", err)
 		}
 		if len(javaFilePaths) > 0 {
-			crossWorkers = phaseWorkerCount("crossFileAnalysis", in.CrossFileJobsFlag, len(parsedFiles)+len(javaFilePaths))
+			crossWorkers = PhaseWorkerCount("crossFileAnalysis", in.CrossFileJobsFlag, len(parsedFiles)+len(javaFilePaths))
 			var javaErrs []error
 			parsedJavaFiles, javaErrs = scanner.ScanJavaFiles(javaFilePaths, crossWorkers)
 			if len(javaErrs) > 0 && in.Verbose {
@@ -665,12 +610,10 @@ func (p IndexPhase) runCodeIndexBuild(in IndexInput, result *IndexResult) {
 	result.JavaFiles = parsedJavaFiles
 }
 
-// runModuleIndexBuild is a verbatim port of the pre-refactor
-// moduleAwareAnalysis block's indexing phase in cmd/krit/main.go. It
-// discovers Gradle modules, optionally parses their dependencies, and
-// builds the PerModuleIndex. The caller supplies the
-// "moduleAwareAnalysis" parent tracker and End()-s it after rule
-// execution siblings have run. Rule execution itself stays in main.go.
+// runModuleIndexBuild discovers Gradle modules, optionally parses
+// dependencies, and builds the PerModuleIndex. The caller supplies the
+// "moduleAwareAnalysis" parent tracker; rule execution nests under it
+// in CrossFilePhase.
 func (p IndexPhase) runModuleIndexBuild(in IndexInput, result *IndexResult) {
 	if in.ModuleParentTracker == nil {
 		return
@@ -700,7 +643,7 @@ func (p IndexPhase) runModuleIndexBuild(in IndexInput, result *IndexResult) {
 
 	if graph != nil && len(graph.Modules) > 0 && in.ModuleHasAwareRule {
 		moduleNeeds := rules.CollectModuleAwareNeeds(in.ActiveRulesV1)
-		moduleWorkers := phaseWorkerCount("moduleAwareAnalysis", in.ModuleJobsFlag, len(graph.Modules))
+		moduleWorkers := PhaseWorkerCount("moduleAwareAnalysis", in.ModuleJobsFlag, len(graph.Modules))
 
 		var pmi *module.PerModuleIndex
 		if moduleNeeds.NeedsDependencies {
@@ -732,10 +675,10 @@ func (p IndexPhase) runModuleIndexBuild(in IndexInput, result *IndexResult) {
 	}
 }
 
-// phaseWorkerCount is a pipeline-local copy of the CLI's worker-count
-// helper. Kept in sync with cmd/krit/main.go phaseWorkerCount so tracker
-// labels using the same phase name get the same worker count.
-func phaseWorkerCount(phase string, maxWorkers, workItems int) int {
+// PhaseWorkerCount caps the number of workers for a named phase. Callers
+// pass the user's --jobs flag as maxWorkers and the number of work items;
+// the function returns the actual count to use.
+func PhaseWorkerCount(phase string, maxWorkers, workItems int) int {
 	if maxWorkers < 1 {
 		maxWorkers = 1
 	}
@@ -764,13 +707,3 @@ func phaseWorkerCount(phase string, maxWorkers, workItems int) int {
 	return workers
 }
 
-// maxIntLocal avoids a division-by-zero in the oracle filter's verbose
-// reporting when the file set is empty. Named maxIntLocal so it doesn't
-// collide with the identical helper in cmd/krit/main.go during
-// incremental migration.
-func maxIntLocal(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

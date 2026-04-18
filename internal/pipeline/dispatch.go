@@ -35,7 +35,7 @@ func (DispatchPhase) Name() string { return "dispatch" }
 // it derives a v1 rule slice from in.ActiveRules via v2.ToV1. When
 // in.Tracker is non-nil it wraps the dispatch loop in a "ruleExecution"
 // serial child and emits per-family timing entries + a topDispatchRules
-// breakdown matching the pre-refactor CLI. When in.UseCache / Cache /
+// breakdown. When in.UseCache / Cache /
 // Version are set, the phase updates and saves the cache under a
 // "cacheSave" tracker entry.
 func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult, error) {
@@ -152,8 +152,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 		in.Logger("krit: %d rule panic(s) during scan\n", len(acc.Errors))
 	}
 
-	// Emit per-family + topDispatchRules timing entries, matching the
-	// pre-refactor AddEntry sequence.
+	// Emit per-family + topDispatchRules timing entries.
 	if ruleTracker != nil && in.EmitPerFileStats {
 		perf.AddEntry(ruleTracker, "suppressionIndex", time.Duration(acc.SuppressionIndexMs)*time.Millisecond)
 		walkTotal := time.Duration(acc.DispatchWalkMs) * time.Millisecond
@@ -240,11 +239,10 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	}
 
 	return DispatchResult{
-		IndexResult:    in,
-		Findings:       scanner.CollectFindings(allFindings),
-		Stats:          acc,
-		FileTimings:    fileTimings,
-		FindingsByFile: findingsByFile,
+		IndexResult: in,
+		Findings:    scanner.CollectFindings(allFindings),
+		Stats:       acc,
+		FileTimings: fileTimings,
 	}, nil
 }
 

@@ -7,7 +7,11 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"time"
+
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/cache"
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
@@ -103,6 +107,37 @@ type IndexInput struct {
 	Store *store.FileStore
 	// Verbose gates oracle stderr diagnostics. Matches --verbose.
 	Verbose bool
+
+	// --- Incremental cache knobs. These mirror the CLI flags that used to
+	// drive the cache load/lookup block in cmd/krit/main.go. When
+	// CacheEnabled is false, IndexPhase skips cache load/lookup entirely.
+	// Cache write-back (post-dispatch merge) stays in the caller for now.
+
+	// CacheEnabled, when true, runs cache.Load + CheckFiles inside
+	// IndexPhase. When false, no cache work happens (matches --no-cache).
+	CacheEnabled bool
+	// CacheFilePath is the resolved cache file location (from
+	// cache.ResolveCacheDir). Required when CacheEnabled is true.
+	CacheFilePath string
+	// CacheDirExplicit, when true, matches "--cache-dir was set
+	// explicitly". Controls the "verbose: Cache file: ..." log line.
+	CacheDirExplicit bool
+	// CacheScanPaths are the raw CLI scan paths passed to
+	// analysisCache.CheckFiles (base path calculation). When nil,
+	// IndexInput.Paths is used.
+	CacheScanPaths []string
+	// CacheFilePaths is the collected list of Kotlin file paths used for
+	// the per-file cache lookup. When nil, IndexInput.KotlinFilePaths is
+	// used.
+	CacheFilePaths []string
+	// CacheConfig is the *config.Config used to compute the rule hash.
+	CacheConfig *config.Config
+	// CacheRuleNames are the active rule names (v1) used to compute the
+	// rule hash. When nil, derived from ActiveRulesV1.
+	CacheRuleNames []string
+	// CacheEditorConfigEnabled is the --editorconfig flag value used by
+	// ComputeConfigHash.
+	CacheEditorConfigEnabled bool
 }
 
 // logf invokes Logger when set; nil Logger is a no-op.
@@ -197,7 +232,84 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		result.AndroidProject = android.DetectAndroidProject(in.Paths)
 	}
 
+	// Incremental analysis cache load + per-file lookup. Write-back
+	// (post-dispatch merge of new findings) still lives in the CLI. This
+	// mirrors the pre-refactor block in cmd/krit/main.go verbatim so
+	// tracker labels ("cacheLoad") and verbose stderr lines stay
+	// byte-identical.
+	if in.CacheEnabled {
+		p.runCacheLoad(in, &result)
+	}
+
 	return result, nil
+}
+
+// runCacheLoad is a verbatim port of the pre-refactor cache load/lookup
+// block in cmd/krit/main.go. It computes the rule hash, loads the cache
+// JSON, optionally attaches the unified store, runs CheckFiles for
+// per-path hit/miss classification, and populates IndexResult.Cache,
+// CacheResult, RuleHash, CacheFilePath, and CacheStats for downstream
+// consumers. The cache write-back (UpdateEntryColumns + Save) is NOT
+// done here — it lives with dispatch in main.go and moves to Fixup in a
+// later slice.
+func (p IndexPhase) runCacheLoad(in IndexInput, result *IndexResult) {
+	ruleNames := in.CacheRuleNames
+	if ruleNames == nil {
+		ruleNames = make([]string, len(in.ActiveRulesV1))
+		for i, r := range in.ActiveRulesV1 {
+			ruleNames[i] = r.Name()
+		}
+	}
+	ruleHash := cache.ComputeConfigHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled)
+
+	var loadStart time.Time
+	var analysisCache *cache.Cache
+	_ = in.trackSerial("cacheLoad", func() error {
+		loadStart = time.Now()
+		analysisCache = cache.Load(in.CacheFilePath)
+		return nil
+	})
+
+	// Attach the unified store when available so incremental cache
+	// entries are persisted per-file in the store instead of the JSON file.
+	if in.Store != nil {
+		analysisCache.AttachStore(in.Store, cache.ParseRuleSetHash(ruleHash))
+	}
+	loadDur := time.Since(loadStart).Milliseconds()
+
+	scanPaths := in.CacheScanPaths
+	if scanPaths == nil {
+		scanPaths = in.Paths
+	}
+	filePaths := in.CacheFilePaths
+	if filePaths == nil {
+		filePaths = in.KotlinFilePaths
+	}
+	cacheResult := analysisCache.CheckFiles(filePaths, ruleHash, scanPaths...)
+
+	cacheStats := &cache.CacheStats{
+		Cached:    cacheResult.TotalCached,
+		Total:     cacheResult.TotalFiles,
+		LoadDurMs: loadDur,
+	}
+	if cacheResult.TotalFiles > 0 {
+		cacheStats.HitRate = float64(cacheResult.TotalCached) / float64(cacheResult.TotalFiles)
+	}
+
+	if in.Verbose && cacheResult.TotalCached > 0 {
+		pct := 100 * cacheResult.TotalCached / cacheResult.TotalFiles
+		fmt.Fprintf(os.Stderr, "verbose: Cache: %d/%d files cached (%d%% hit rate)\n",
+			cacheResult.TotalCached, cacheResult.TotalFiles, pct)
+		if in.CacheDirExplicit {
+			fmt.Fprintf(os.Stderr, "verbose: Cache file: %s\n", in.CacheFilePath)
+		}
+	}
+
+	result.Cache = analysisCache
+	result.CacheResult = cacheResult
+	result.RuleHash = ruleHash
+	result.CacheFilePath = in.CacheFilePath
+	result.CacheStats = cacheStats
 }
 
 // Compile-time check.

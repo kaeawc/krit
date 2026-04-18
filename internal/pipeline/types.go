@@ -158,6 +158,9 @@ type IndexResult struct {
 	// CacheFilePath is the resolved cache file location, empty when
 	// caching is disabled.
 	CacheFilePath string
+	// CacheStats holds hit-rate / load-duration counters populated by
+	// IndexPhase's cache load block. Nil when caching is disabled.
+	CacheStats *cache.CacheStats
 }
 
 // DispatchResult is the output of Dispatch and the input of CrossFile.

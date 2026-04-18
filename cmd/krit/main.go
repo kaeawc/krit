@@ -713,10 +713,17 @@ potential-bugs:
 		os.Exit(0)
 	}
 
-	// Type oracle: auto-detect, --input-types, --daemon, or --no-type-oracle.
-	// The oracle construction pipeline lives in IndexPhase — CLI just
-	// supplies the flag knobs and consumes the wrapped resolver.
+	// Type oracle + incremental cache load both run inside IndexPhase.
+	// Oracle does type-resolver wrapping (auto-detect / --input-types /
+	// --daemon); the cache block loads the JSON, attaches the store, and
+	// runs per-file hit/miss lookup. Both operate on the raw file path
+	// list so they can run before ParsePhase.
 	var daemon *oracle.Daemon
+	var analysisCache *cache.Cache
+	var cacheResult *cache.CacheResult
+	var ruleHash string
+	var cacheStats *cache.CacheStats
+	useCache := !*noCacheFlag
 	{
 		oracleIdxInput := pipeline.IndexInput{
 			// ParseResult is intentionally zero here: IndexPhase runs
@@ -737,6 +744,14 @@ potential-bugs:
 			UseDaemon:       *daemonFlag,
 			Store:           resolvedStore(storeDirFlag),
 			Verbose:         *verboseFlag,
+
+			CacheEnabled:             useCache,
+			CacheFilePath:            cacheFilePath,
+			CacheDirExplicit:         *cacheDirFlag != "",
+			CacheScanPaths:           paths,
+			CacheFilePaths:           files,
+			CacheConfig:              cfg,
+			CacheEditorConfigEnabled: *editorConfigFlag,
 		}
 		oracleIdxResult, oracleErr := (pipeline.IndexPhase{
 			SkipModules:       true,
@@ -753,6 +768,12 @@ potential-bugs:
 		if oracleIdxResult.Daemon != nil {
 			daemon = oracleIdxResult.Daemon
 			defer daemon.Close()
+		}
+		if useCache {
+			analysisCache = oracleIdxResult.Cache
+			cacheResult = oracleIdxResult.CacheResult
+			ruleHash = oracleIdxResult.RuleHash
+			cacheStats = oracleIdxResult.CacheStats
 		}
 	}
 
@@ -774,54 +795,9 @@ potential-bugs:
 	androidDeps := collectAndroidDependencies(activeRules)
 	androidProviders := newAndroidProjectProviders(androidProject, androidDeps, *jobsFlag)
 
-	// Load cache and determine which files can be skipped
-	var analysisCache *cache.Cache
-	var cacheResult *cache.CacheResult
-	var ruleHash string
-	var cacheStats *cache.CacheStats
-	useCache := !*noCacheFlag
-
-	if useCache {
-		ruleNames := make([]string, len(activeRules))
-		for i, r := range activeRules {
-			ruleNames[i] = r.Name()
-		}
-		ruleHash = cache.ComputeConfigHash(ruleNames, cfg, *editorConfigFlag)
-
-		var loadStart time.Time
-		tracker.Track("cacheLoad", func() error {
-			loadStart = time.Now()
-			analysisCache = cache.Load(cacheFilePath)
-			return nil
-		})
-
-		// Attach the unified store when available so incremental cache
-		// entries are persisted per-file in the store instead of the JSON file.
-		if s := resolvedStore(storeDirFlag); s != nil {
-			analysisCache.AttachStore(s, cache.ParseRuleSetHash(ruleHash))
-		}
-		loadDur := time.Since(loadStart).Milliseconds()
-
-		cacheResult = analysisCache.CheckFiles(files, ruleHash, paths...)
-
-		cacheStats = &cache.CacheStats{
-			Cached:    cacheResult.TotalCached,
-			Total:     cacheResult.TotalFiles,
-			LoadDurMs: loadDur,
-		}
-		if cacheResult.TotalFiles > 0 {
-			cacheStats.HitRate = float64(cacheResult.TotalCached) / float64(cacheResult.TotalFiles)
-		}
-
-		if *verboseFlag && cacheResult.TotalCached > 0 {
-			pct := 100 * cacheResult.TotalCached / cacheResult.TotalFiles
-			fmt.Fprintf(os.Stderr, "verbose: Cache: %d/%d files cached (%d%% hit rate)\n",
-				cacheResult.TotalCached, cacheResult.TotalFiles, pct)
-			if *cacheDirFlag != "" {
-				fmt.Fprintf(os.Stderr, "verbose: Cache file: %s\n", cacheFilePath)
-			}
-		}
-	}
+	// Cache load + per-file lookup moved into the IndexPhase call above.
+	// analysisCache / cacheResult / ruleHash / cacheStats are populated
+	// there; the write-back below still uses them directly.
 
 	// Parse + filter + LPT sort + suppression index now live in ParsePhase.
 	// Java collection stays in the cross-file block (SkipJavaCollection=true)

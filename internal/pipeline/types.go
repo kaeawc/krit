@@ -127,6 +127,10 @@ type IndexResult struct {
 	// Oracle is the Kotlin Analysis API-backed type oracle. Nil when
 	// --no-type-oracle or no rule needs oracle data.
 	Oracle *oracle.Oracle
+	// Daemon is the optional long-lived krit-types daemon handle
+	// (populated when --daemon is set). Callers are responsible for
+	// Close()-ing it at program exit.
+	Daemon *oracle.Daemon
 	// CodeIndex is the cross-file symbol/reference index. Nil when
 	// no active rule declares NeedsCrossFile.
 	CodeIndex *scanner.CodeIndex

@@ -713,176 +713,47 @@ potential-bugs:
 		os.Exit(0)
 	}
 
-	// Type oracle: auto-detect, --input-types, --daemon, or --no-type-oracle
+	// Type oracle: auto-detect, --input-types, --daemon, or --no-type-oracle.
+	// The oracle construction pipeline lives in IndexPhase — CLI just
+	// supplies the flag knobs and consumes the wrapped resolver.
 	var daemon *oracle.Daemon
-	if resolver != nil && !*noTypeOracleFlag {
-		oracleTracker := tracker.Serial("typeOracle")
-
-		if *daemonFlag {
-			// Daemon mode: start a long-lived JVM process
-			var d *oracle.Daemon
-			var daemonErr error
-			oracleTracker.Track("jvmStart", func() error {
-				d, daemonErr = oracle.InvokeDaemon(flag.Args(), *verboseFlag)
-				return daemonErr
-			})
-			if daemonErr != nil {
-				fmt.Fprintf(os.Stderr, "warning: daemon: %v\n", daemonErr)
-			} else {
-				daemon = d
-				defer daemon.Close()
-
-				var oracleData *oracle.OracleData
-				oracleTracker.Track("jvmAnalyze", func() error {
-					od, err := daemon.AnalyzeAll()
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "warning: daemon analyzeAll: %v\n", err)
-						return err
-					}
-					oracleData = od
-					return nil
-				})
-				if oracleData != nil {
-					var oracleLoaded *oracle.Oracle
-					oracleTracker.Track("indexBuild", func() error {
-						ol, err := oracle.LoadFromData(oracleData)
-						if err != nil {
-							fmt.Fprintf(os.Stderr, "warning: daemon oracle: %v\n", err)
-							return err
-						}
-						oracleLoaded = ol
-						return nil
-					})
-					if oracleLoaded != nil {
-						resolver = oracle.NewCompositeResolver(oracleLoaded, resolver)
-						if *verboseFlag {
-							depCount := len(oracleLoaded.Dependencies())
-							fmt.Fprintf(os.Stderr, "verbose: Type oracle loaded from daemon (%d dependency types)\n", depCount)
-						}
-					}
-				}
-			}
-		} else {
-			var oraclePath string
-
-			oracleTracker.Track("findSources", func() error {
-				if *inputTypesFlag != "" {
-					// Explicit input path
-					oraclePath = *inputTypesFlag
-					return nil
-				}
-				// Auto-detect: try cached types.json
-				cached := oracle.CachePath(flag.Args())
-				if cached != "" {
-					if _, err := os.Stat(cached); err == nil {
-						oraclePath = cached
-					}
-				}
-				return nil
-			})
-
-			// If no cached oracle, try to run krit-types automatically
-			if oraclePath == "" {
-				oracleTracker.Track("jvmAnalyze", func() error {
-					jarPath := oracle.FindJar(flag.Args())
-					if jarPath == "" {
-						return nil
-					}
-					sourceDirs := oracle.FindSourceDirs(flag.Args())
-					if len(sourceDirs) == 0 {
-						return nil
-					}
-					cacheDest := oracle.CachePath(flag.Args())
-					if cacheDest == "" {
-						cacheDest = filepath.Join(os.TempDir(), "krit-types.json")
-					}
-					if *verboseFlag {
-						fmt.Fprintf(os.Stderr, "verbose: Running krit-types (%d source dirs)...\n", len(sourceDirs))
-					}
-					// Pre-scan step: compute the subset of files any enabled
-					// rule has declared (via OracleFilter) it actually needs
-					// oracle access on. Files where no filter matches are
-					// tree-sitter-sufficient and can be dropped from the
-					// krit-types analyze loop. Unclassified rules fall
-					// through to AllFiles: true, so this is a no-op until
-					// a meaningful fraction of rules has been audited. Guard
-					// with -no-oracle-filter for diagnostics / baseline
-					// reproduction.
-					var filterListPath string
-					if !*noOracleFilterFlag {
-						filterRules := rules.BuildOracleFilterRules(activeRules)
-						lightFiles := loadFilesForOracleFilter(files)
-						summary := oracle.CollectOracleFiles(filterRules, lightFiles)
-						if *verboseFlag {
-							switch {
-							case summary.AllFiles:
-								fmt.Fprintf(os.Stderr, "verbose: Oracle filter: %d/%d files (AllFiles short-circuit — no reduction)\n",
-									summary.MarkedFiles, summary.TotalFiles)
-							case summary.MarkedFiles == summary.TotalFiles:
-								fmt.Fprintf(os.Stderr, "verbose: Oracle filter: %d/%d files (no reduction)\n",
-									summary.MarkedFiles, summary.TotalFiles)
-							default:
-								fmt.Fprintf(os.Stderr, "verbose: Oracle filter: %d/%d files (%.1f%% of corpus)\n",
-									summary.MarkedFiles, summary.TotalFiles,
-									100*float64(summary.MarkedFiles)/float64(maxInt(summary.TotalFiles, 1)))
-							}
-						}
-						// Skip the filter entirely if it doesn't reduce the
-						// file set (no benefit, just overhead of writing the
-						// temp file and a krit-types flag).
-						if !summary.AllFiles && summary.MarkedFiles < summary.TotalFiles {
-							p, werr := oracle.WriteFilterListFile(summary, "")
-							if werr != nil {
-								fmt.Fprintf(os.Stderr, "warning: oracle filter list: %v\n", werr)
-							} else if p != "" {
-								filterListPath = p
-								defer os.Remove(p)
-							}
-						}
-					}
-
-					// Route to cache-aware path unless the user opted out.
-					// Both paths accept filterListPath so rule filtering and
-					// per-file caching compose: the filter narrows the
-					// universe first, then the cache classifies what's left.
-					var result string
-					var err error
-					if *noCacheOracleFlag {
-						result, err = oracle.InvokeWithFiles(jarPath, sourceDirs, cacheDest, filterListPath, *verboseFlag)
-					} else {
-						result, err = oracle.InvokeCached(jarPath, sourceDirs, oracle.FindRepoDir(flag.Args()), cacheDest, filterListPath, *verboseFlag, resolvedStore(storeDirFlag))
-					}
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "warning: krit-types: %v\n", err)
-						return nil
-					}
-					oraclePath = result
-					return nil
-				})
-			}
-
-			if oraclePath != "" {
-				var oracleData *oracle.Oracle
-				oracleTracker.Track("jsonLoad", func() error {
-					od, err := oracle.Load(oraclePath)
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "warning: type oracle: %v\n", err)
-						return err
-					}
-					oracleData = od
-					return nil
-				})
-				if oracleData != nil {
-					resolver = oracle.NewCompositeResolver(oracleData, resolver)
-					if *verboseFlag {
-						depCount := len(oracleData.Dependencies())
-						fmt.Fprintf(os.Stderr, "verbose: Type oracle loaded from %s (%d dependency types)\n", oraclePath, depCount)
-					}
-				}
-			}
+	{
+		oracleIdxInput := pipeline.IndexInput{
+			// ParseResult is intentionally zero here: IndexPhase runs
+			// in oracle-only mode below (SkipModules + SkipAndroid +
+			// SkipResolverIndex) so it doesn't need KotlinFiles. Paths
+			// and ActiveRules are threaded via the OracleScanPaths and
+			// ActiveRulesV1 knobs instead.
+			Logger:          nil, // oracle logs directly to stderr, matching pre-refactor
+			Tracker:         tracker,
+			OracleEnabled:   resolver != nil && !*noTypeOracleFlag,
+			BaseResolver:    resolver,
+			OracleScanPaths: flag.Args(),
+			KotlinFilePaths: files,
+			ActiveRulesV1:   activeRules,
+			InputTypesPath:  *inputTypesFlag,
+			NoCacheOracle:   *noCacheOracleFlag,
+			NoOracleFilter:  *noOracleFilterFlag,
+			UseDaemon:       *daemonFlag,
+			Store:           resolvedStore(storeDirFlag),
+			Verbose:         *verboseFlag,
 		}
-
-		oracleTracker.End()
+		oracleIdxResult, oracleErr := (pipeline.IndexPhase{
+			SkipModules:       true,
+			SkipAndroid:       true,
+			SkipResolverIndex: true,
+		}).Run(context.Background(), oracleIdxInput)
+		if oracleErr != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", oracleErr)
+			os.Exit(2)
+		}
+		if oracleIdxResult.Resolver != nil {
+			resolver = oracleIdxResult.Resolver
+		}
+		if oracleIdxResult.Daemon != nil {
+			daemon = oracleIdxResult.Daemon
+			defer daemon.Close()
+		}
 	}
 
 	// Build dispatcher for single-pass execution
@@ -2464,31 +2335,3 @@ func getChangedFiles(ref string, scanPaths []string) (map[string]bool, error) {
 	return result, nil
 }
 
-// loadFilesForOracleFilter reads the raw bytes of each .kt path into a
-// lightweight *scanner.File so oracle.CollectOracleFiles can run its
-// substring-based filter before krit-types is invoked. The returned
-// files are NOT fully parsed (no FlatTree) — the filter is byte-only,
-// so the cgo tree-sitter pass is deliberately skipped to keep the
-// pre-scan cheap. Files that fail to read are dropped silently; they
-// will show up later in the real parse loop as parse errors and be
-// surfaced there.
-func loadFilesForOracleFilter(paths []string) []*scanner.File {
-	out := make([]*scanner.File, 0, len(paths))
-	for _, p := range paths {
-		content, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		out = append(out, &scanner.File{Path: p, Content: content})
-	}
-	return out
-}
-
-// maxInt avoids a division-by-zero in the filter's verbose reporting
-// when the file set is empty.
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

@@ -906,6 +906,8 @@ func (s *Server) toolAnalyzeAndroid(arguments json.RawMessage) ToolResult {
 
 	collector := scanner.NewFindingCollector(len(proj.ManifestPaths)*4 + len(proj.ResDirs)*8 + len(proj.GradlePaths)*4)
 
+	dispatcher := rules.NewDispatcher(rules.Registry)
+
 	// Manifest analysis
 	if scope == "manifest" || scope == "all" {
 		for _, manifestPath := range proj.ManifestPaths {
@@ -913,11 +915,13 @@ func (s *Server) toolAnalyzeAndroid(arguments json.RawMessage) ToolResult {
 			if err != nil {
 				continue
 			}
-			// Convert to rules.Manifest and run ManifestRules
 			rManifest := convertManifest(manifestPath, manifest)
-			for _, rule := range rules.ManifestRules {
-				collector.AppendAll(rule.CheckManifest(rManifest))
+			file := &scanner.File{
+				Path:     manifestPath,
+				Language: scanner.LangXML,
+				Metadata: rManifest,
 			}
+			collector.AppendAll(dispatcher.RunManifest(file, rManifest))
 		}
 	}
 
@@ -928,9 +932,12 @@ func (s *Server) toolAnalyzeAndroid(arguments json.RawMessage) ToolResult {
 			if err != nil {
 				continue
 			}
-			for _, rule := range rules.ResourceRules {
-				collector.AppendAll(rule.CheckResources(idx))
+			file := &scanner.File{
+				Path:     resDir,
+				Language: scanner.LangXML,
+				Metadata: idx,
 			}
+			collector.AppendAll(dispatcher.RunResource(file, idx))
 		}
 	}
 
@@ -945,9 +952,13 @@ func (s *Server) toolAnalyzeAndroid(arguments json.RawMessage) ToolResult {
 			if err != nil {
 				continue
 			}
-			for _, rule := range rules.GradleRules {
-				collector.AppendAll(rule.CheckGradle(gradlePath, string(content), cfg))
+			file := &scanner.File{
+				Path:     gradlePath,
+				Language: scanner.LangGradle,
+				Content:  content,
+				Metadata: cfg,
 			}
+			collector.AppendAll(dispatcher.RunGradle(file, cfg))
 		}
 	}
 

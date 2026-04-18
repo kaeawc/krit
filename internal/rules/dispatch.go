@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -105,6 +106,25 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 // Stats returns counts for logging.
 func (d *Dispatcher) Stats() (dispatched, aggregate, lineRules, crossFile, moduleAware, legacy int) {
 	return d.v2.Stats()
+}
+
+// RunGradle runs all registered Gradle rules against a single parsed
+// Gradle build script. See V2Dispatcher.RunGradle.
+func (d *Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) []scanner.Finding {
+	return d.v2.RunGradle(file, cfg)
+}
+
+// RunManifest runs all registered manifest rules against a parsed
+// AndroidManifest.xml. manifest must be a *Manifest; typed as interface{}
+// to avoid import cycles in the v2 dispatcher.
+func (d *Dispatcher) RunManifest(file *scanner.File, manifest *Manifest) []scanner.Finding {
+	return d.v2.RunManifest(file, manifest)
+}
+
+// RunResource runs all registered resource rules against a merged
+// ResourceIndex for a res/ directory.
+func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) []scanner.Finding {
+	return d.v2.RunResource(file, idx)
 }
 
 // setDefaultConfidence sets the Confidence field on findings that don't already have one.

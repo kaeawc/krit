@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaeawc/krit/internal/android"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -250,6 +251,19 @@ func (d *V2Dispatcher) RunWithStats(file *scanner.File) ([]scanner.Finding, RunS
 
 	// Determine per-file rule exclusions once.
 	excludedRules := d.buildExcludedSet(file.Path)
+
+	// Language filter: skip rules whose declared Languages list does
+	// not include this file's Language. Folds into the excluded set so
+	// the hot-path walkDispatch/line/legacy loops only need one map
+	// lookup. See issue #19 (UnifiedFileModel).
+	for _, r := range d.collectAllRules() {
+		if excludedRules[r.ID] {
+			continue
+		}
+		if !v2.RuleAppliesToLanguage(r, file.Language) {
+			excludedRules[r.ID] = true
+		}
+	}
 
 	var findings []scanner.Finding
 
@@ -733,6 +747,114 @@ func (d *V2Dispatcher) Stats() (dispatched, aggregate, lineRules, crossFile, mod
 	}
 	dispatched += len(d.allNodeRules)
 	return dispatched, 0, len(d.lineRules), len(d.crossFileRules), len(d.moduleAwareRules), len(d.legacyRules)
+}
+
+// GradleRules returns the Gradle rules stored on this dispatcher. The
+// main pipeline invokes these via RunGradle once per parsed Gradle file.
+func (d *V2Dispatcher) GradleRules() []*v2.Rule { return d.gradleRules }
+
+// ManifestRules returns the manifest rules stored on this dispatcher.
+func (d *V2Dispatcher) ManifestRules() []*v2.Rule { return d.manifestRules }
+
+// ResourceRules returns the resource rules stored on this dispatcher.
+func (d *V2Dispatcher) ResourceRules() []*v2.Rule { return d.resourceRules }
+
+// RunGradle runs every registered Gradle rule against a single parsed
+// Gradle build script. The file argument carries path/content with
+// Language == LangGradle; cfg is the parsed BuildConfig. Findings are
+// filtered by the per-rule YAML excludes and the Languages filter.
+// Panics are recovered and surfaced via stderr to match Run().
+func (d *V2Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) []scanner.Finding {
+	if file == nil {
+		return nil
+	}
+	excluded := d.buildExcludedSet(file.Path)
+	var findings []scanner.Finding
+	for _, r := range d.gradleRules {
+		if excluded[r.ID] {
+			continue
+		}
+		if !v2.RuleAppliesToLanguage(r, file.Language) {
+			continue
+		}
+		results := d.runProjectRule(r, file, func(ctx *v2.Context) {
+			ctx.GradlePath = file.Path
+			ctx.GradleContent = string(file.Content)
+			ctx.GradleConfig = cfg
+		})
+		setV2RuleConfidence(results, r, 0.75)
+		findings = append(findings, results...)
+	}
+	return findings
+}
+
+// RunManifest runs every registered manifest rule against a parsed
+// AndroidManifest.xml. manifest is typed as interface{} to avoid an
+// import cycle — callers in the rules package pass *rules.Manifest; the
+// underlying rule Check functions type-assert through ctx.Manifest.
+func (d *V2Dispatcher) RunManifest(file *scanner.File, manifest interface{}) []scanner.Finding {
+	if file == nil {
+		return nil
+	}
+	excluded := d.buildExcludedSet(file.Path)
+	var findings []scanner.Finding
+	for _, r := range d.manifestRules {
+		if excluded[r.ID] {
+			continue
+		}
+		if !v2.RuleAppliesToLanguage(r, file.Language) {
+			continue
+		}
+		results := d.runProjectRule(r, file, func(ctx *v2.Context) {
+			ctx.Manifest = manifest
+		})
+		setV2RuleConfidence(results, r, 0.75)
+		findings = append(findings, results...)
+	}
+	return findings
+}
+
+// RunResource runs every registered resource rule against a merged
+// ResourceIndex for a single res/ directory.
+func (d *V2Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) []scanner.Finding {
+	if file == nil {
+		return nil
+	}
+	excluded := d.buildExcludedSet(file.Path)
+	var findings []scanner.Finding
+	for _, r := range d.resourceRules {
+		if excluded[r.ID] {
+			continue
+		}
+		if !v2.RuleAppliesToLanguage(r, file.Language) {
+			continue
+		}
+		results := d.runProjectRule(r, file, func(ctx *v2.Context) {
+			ctx.ResourceIndex = idx
+		})
+		setV2RuleConfidence(results, r, 0.75)
+		findings = append(findings, results...)
+	}
+	return findings
+}
+
+// runProjectRule invokes a project-level rule's Check function with a
+// freshly constructed Context, recovering from panics the same way
+// safeCheckV2Node does for per-node dispatch.
+func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate func(*v2.Context)) (results []scanner.Finding) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			fmt.Fprintf(os.Stderr, "krit: panic in rule %s on %s: %v\n", r.ID, file.Path, rec)
+			results = nil
+		}
+	}()
+	ctx := &v2.Context{File: file}
+	if populate != nil {
+		populate(ctx)
+	}
+	r.Check(ctx)
+	stampV2Findings(ctx.Findings, r, file)
+	return ctx.Findings
 }
 
 // CrossFileRules returns the cross-file rules stored on this dispatcher.

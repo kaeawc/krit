@@ -239,102 +239,6 @@ func TestConfigDisablesRule(t *testing.T) {
 	}
 }
 
-type testManifestRule struct {
-	rules.ManifestBase
-	rules.BaseRule
-	findings []scanner.Finding
-}
-
-func (r *testManifestRule) CheckManifest(_ *rules.Manifest) []scanner.Finding {
-	return append([]scanner.Finding(nil), r.findings...)
-}
-
-type testResourceRule struct {
-	rules.ResourceBase
-	rules.BaseRule
-	findings []scanner.Finding
-}
-
-func (r *testResourceRule) CheckResources(_ *android.ResourceIndex) []scanner.Finding {
-	return append([]scanner.Finding(nil), r.findings...)
-}
-
-func TestRuleCheckManifestColumnsMatchesSlice(t *testing.T) {
-	ruleset := []rules.ManifestFamily{
-		&testManifestRule{
-			BaseRule: rules.BaseRule{RuleName: "ManifestOne", RuleSetName: "android", Sev: "warning"},
-			findings: []scanner.Finding{{
-				File:     "AndroidManifest.xml",
-				Line:     2,
-				Col:      1,
-				RuleSet:  "android",
-				Rule:     "ManifestOne",
-				Severity: "warning",
-				Message:  "manifest finding",
-			}},
-		},
-		&testManifestRule{
-			BaseRule: rules.BaseRule{RuleName: "ManifestTwo", RuleSetName: "android", Sev: "error"},
-			findings: []scanner.Finding{{
-				File:     "AndroidManifest.xml",
-				Line:     4,
-				Col:      1,
-				RuleSet:  "android",
-				Rule:     "ManifestTwo",
-				Severity: "error",
-				Message:  "second manifest finding",
-			}},
-		},
-	}
-
-	manifest := &rules.Manifest{Path: "AndroidManifest.xml"}
-	columns := ruleCheckManifestColumns(ruleset, manifest)
-	got := columns.Findings()
-	want := ruleCheckManifest(ruleset, manifest)
-
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("manifest columns mismatch:\nwant: %#v\ngot:  %#v", want, got)
-	}
-}
-
-func TestRunResourceRulesColumnsMatchesSlice(t *testing.T) {
-	ruleset := []rules.ResourceFamily{
-		&testResourceRule{
-			BaseRule: rules.BaseRule{RuleName: "ResourceOne", RuleSetName: "android", Sev: "warning"},
-			findings: []scanner.Finding{{
-				File:     "layout/main.xml",
-				Line:     3,
-				Col:      1,
-				RuleSet:  "android",
-				Rule:     "ResourceOne",
-				Severity: "warning",
-				Message:  "resource finding",
-			}},
-		},
-		&testResourceRule{
-			BaseRule: rules.BaseRule{RuleName: "ResourceTwo", RuleSetName: "android", Sev: "warning"},
-			findings: []scanner.Finding{{
-				File:     "layout/main.xml",
-				Line:     7,
-				Col:      1,
-				RuleSet:  "android",
-				Rule:     "ResourceTwo",
-				Severity: "warning",
-				Message:  "second resource finding",
-			}},
-		},
-	}
-
-	idx := &android.ResourceIndex{}
-	columns := runResourceRulesColumns(ruleset, idx)
-	got := columns.Findings()
-	want := runResourceRules(ruleset, idx)
-
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("resource columns mismatch:\nwant: %#v\ngot:  %#v", want, got)
-	}
-}
-
 func TestRunActiveIconChecksColumnsMatchesUnderlyingRules(t *testing.T) {
 	gifIcon := &android.IconFile{
 		Path:    "res/drawable-mdpi/anim.gif",
@@ -380,7 +284,7 @@ func TestRunActiveIconChecksColumnsMatchesUnderlyingRules(t *testing.T) {
 
 func TestRunAndroidProjectAnalysisColumns_EmptyProject(t *testing.T) {
 	project := &android.AndroidProject{}
-	columns := runAndroidProjectAnalysisColumns(project, nil, nil, nil)
+	columns := runAndroidProjectAnalysisColumns(project, nil, nil, nil, nil)
 	if columns.Len() != 0 {
 		t.Fatalf("expected no findings for empty project, got %d", columns.Len())
 	}

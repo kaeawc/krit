@@ -115,6 +115,16 @@ type Rule struct {
 	NodeTypes []string     // nil + no NeedsLinePass → legacy; nil + NeedsLinePass → line rule
 	Needs     Capabilities // zero → no extra deps
 
+	// Languages declares which source languages this rule applies to.
+	// When nil the effective default is computed from Needs:
+	//   NeedsManifest   → [LangXML]
+	//   NeedsResources  → [LangXML]
+	//   NeedsGradle     → [LangGradle]
+	//   otherwise       → [LangKotlin]
+	// The dispatcher uses RuleLanguages() to skip rules whose language
+	// list does not include the current file's Language. See issue #19.
+	Languages []scanner.Language
+
 	// Fix metadata
 	Fix FixLevel // FixNone → not fixable
 
@@ -275,6 +285,38 @@ func (c *Context) stamp(f *scanner.Finding) {
 	if c.File != nil && f.File == "" {
 		f.File = c.File.Path
 	}
+}
+
+// RuleLanguages returns the languages a rule applies to, falling back to
+// the sensible default derived from Needs when Languages is nil.
+func RuleLanguages(r *Rule) []scanner.Language {
+	if r == nil {
+		return nil
+	}
+	if len(r.Languages) > 0 {
+		return r.Languages
+	}
+	switch {
+	case r.Needs.Has(NeedsManifest):
+		return []scanner.Language{scanner.LangXML}
+	case r.Needs.Has(NeedsResources):
+		return []scanner.Language{scanner.LangXML}
+	case r.Needs.Has(NeedsGradle):
+		return []scanner.Language{scanner.LangGradle}
+	default:
+		return []scanner.Language{scanner.LangKotlin}
+	}
+}
+
+// RuleAppliesToLanguage reports whether a rule should run on a file of
+// the given language. Used by the dispatcher to filter rules per file.
+func RuleAppliesToLanguage(r *Rule, lang scanner.Language) bool {
+	for _, l := range RuleLanguages(r) {
+		if l == lang {
+			return true
+		}
+	}
+	return false
 }
 
 // Registry holds all registered v2 rules.

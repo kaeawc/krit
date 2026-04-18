@@ -76,14 +76,55 @@ type Fix struct {
 	ByteMode  bool // if true, use byte offsets instead of line offsets
 }
 
-// File holds parsed Kotlin source in flat form. The cgo parse tree is used
+// Language identifies which source language a File holds. Used by the
+// dispatcher to skip rules whose declared Languages list excludes this
+// file. See issue #19 (UnifiedFileModel).
+type Language uint8
+
+const (
+	// LangKotlin is the default for files parsed by ParseFile. Rules with
+	// no declared Languages list default to targeting Kotlin only.
+	LangKotlin Language = iota
+	LangJava
+	// LangXML covers both AndroidManifest.xml and res/ XML files. The
+	// specific kind (manifest vs resource) lives in File.Metadata.
+	LangXML
+	LangGradle
+	LangVersionCatalog
+)
+
+// String returns a short human-readable name for the language.
+func (l Language) String() string {
+	switch l {
+	case LangKotlin:
+		return "kotlin"
+	case LangJava:
+		return "java"
+	case LangXML:
+		return "xml"
+	case LangGradle:
+		return "gradle"
+	case LangVersionCatalog:
+		return "version-catalog"
+	default:
+		return "unknown"
+	}
+}
+
+// File holds parsed source in flat form. The cgo parse tree is used
 // only during flattening and is not retained on the File.
 type File struct {
 	Path        string
+	Language    Language
 	Content     []byte
 	Lines       []string
 	FlatTree    *FlatTree
 	lineOffsets []int // cached byte offset of each line start
+
+	// Metadata carries language-specific parsed structures (e.g.
+	// *android.ManifestMeta, *android.ResourceMeta, *android.BuildConfig)
+	// for non-source-language files. Nil for Kotlin/Java.
+	Metadata any
 
 	// SuppressionIdx is populated by the pipeline.Parse phase with a
 	// per-file SuppressionIndex so cross-file and module-aware rules
@@ -146,6 +187,7 @@ func NewParsedFile(path string, content []byte, tree *sitter.Tree) *File {
 
 	return &File{
 		Path:     internString(path),
+		Language: LangKotlin,
 		Content:  content,
 		Lines:    lines,
 		FlatTree: flatTree,
@@ -293,6 +335,7 @@ func ParseJavaFile(path string) (*File, error) {
 
 	return &File{
 		Path:     internString(path),
+		Language: LangJava,
 		Content:  content,
 		Lines:    lines,
 		FlatTree: flatTree,

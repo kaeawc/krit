@@ -34,25 +34,6 @@ import (
 // version is set by goreleaser via ldflags: -X main.version=...
 var version = "dev"
 
-// Local structural interfaces used to detect Android manifest/resource/Gradle
-// rules without referencing the named v1 family interfaces in rules/. These
-// mirror the manifest/resource/gradle rule contracts so the main binary can
-// iterate them without importing the legacy family interface names.
-type manifestRuleIface interface {
-	rules.Rule
-	CheckManifest(m *rules.Manifest) []scanner.Finding
-}
-
-type resourceRuleIface interface {
-	rules.Rule
-	CheckResources(idx *android.ResourceIndex) []scanner.Finding
-}
-
-type gradleRuleIface interface {
-	rules.Rule
-	CheckGradle(path string, content string, cfg *android.BuildConfig) []scanner.Finding
-}
-
 //go:embed completions
 var completionsFS embed.FS
 
@@ -1009,7 +990,8 @@ potential-bugs:
 	// Project-level Android analysis: manifest/resource/Gradle/icon files.
 	androidStart := time.Now()
 	androidTracker := tracker.Serial("androidProjectAnalysis")
-	androidColumns := runAndroidProjectAnalysisColumns(androidProject, activeRules, androidTracker, androidProviders)
+	androidDispatcher := rules.NewDispatcher(activeRules, resolver)
+	androidColumns := runAndroidProjectAnalysisColumns(androidProject, activeRules, androidDispatcher, androidTracker, androidProviders)
 	androidTracker.End()
 	if androidColumns.Len() > 0 {
 		allFindings = append(allFindings, androidColumns.Findings()...)
@@ -1345,39 +1327,22 @@ func filterFixesByLevelColumns(columns *scanner.FindingColumns, registry []rules
 	return columns.CountTextFixes(), strippedByLevel
 }
 
-func runAndroidProjectAnalysis(project *android.AndroidProject, activeRules []rules.Rule, tracker perf.Tracker, providers *androidProjectProviders) []scanner.Finding {
-	columns := runAndroidProjectAnalysisColumns(project, activeRules, tracker, providers)
-	return columns.Findings()
-}
-
-func runAndroidProjectAnalysisColumns(project *android.AndroidProject, activeRules []rules.Rule, tracker perf.Tracker, providers *androidProjectProviders) scanner.FindingColumns {
+func runAndroidProjectAnalysisColumns(project *android.AndroidProject, activeRules []rules.Rule, dispatcher *rules.Dispatcher, tracker perf.Tracker, providers *androidProjectProviders) scanner.FindingColumns {
 	if project == nil || project.IsEmpty() {
 		return scanner.FindingColumns{}
 	}
 
-	var (
-		manifestRules []manifestRuleIface
-		resourceRules []resourceRuleIface
-		gradleRules   []gradleRuleIface
-		activeNames   = make(map[string]bool, len(activeRules))
-	)
+	activeNames := make(map[string]bool, len(activeRules))
 	collector := scanner.NewFindingCollector(len(project.ManifestPaths)*4 + len(project.ResDirs)*8 + len(project.GradlePaths)*4)
 
 	for _, rule := range activeRules {
 		activeNames[rule.Name()] = true
-		if mr, ok := rule.(manifestRuleIface); ok {
-			manifestRules = append(manifestRules, mr)
-		}
-		if rr, ok := rule.(resourceRuleIface); ok {
-			resourceRules = append(resourceRules, rr)
-		}
-		if gr, ok := rule.(gradleRuleIface); ok {
-			gradleRules = append(gradleRules, gr)
-		}
 	}
 	var resourceDeps rules.AndroidDataDependency
-	for _, rule := range resourceRules {
-		resourceDeps |= rules.AndroidDependenciesOf(rule)
+	for _, rule := range activeRules {
+		if rules.AndroidDependenciesOf(rule)&(rules.AndroidDepValues|rules.AndroidDepLayout|rules.AndroidDepResources|rules.AndroidDepValuesStrings|rules.AndroidDepValuesPlurals|rules.AndroidDepValuesArrays|rules.AndroidDepValuesExtraText) != 0 {
+			resourceDeps |= rules.AndroidDependenciesOf(rule)
+		}
 	}
 	valueKinds := androidValuesScanKinds(resourceDeps)
 	if providers == nil {
@@ -1402,8 +1367,17 @@ func runAndroidProjectAnalysisColumns(project *android.AndroidProject, activeRul
 		}
 		manifest := convertManifestForRules(android.ConvertManifest(parsed, path))
 		start = time.Now()
-		manifestColumns := ruleCheckManifestColumns(manifestRules, manifest)
-		collector.AppendColumns(&manifestColumns)
+		if dispatcher != nil {
+			content, _ := os.ReadFile(path)
+			file := &scanner.File{
+				Path:     path,
+				Language: scanner.LangXML,
+				Content:  content,
+				Lines:    strings.Split(string(content), "\n"),
+				Metadata: manifest,
+			}
+			collector.AppendAll(dispatcher.RunManifest(file, manifest))
+		}
 		manifestRuleDur += time.Since(start)
 	}
 	perf.AddEntry(manifestTracker, "manifestParse", manifestParseDur)
@@ -1495,8 +1469,15 @@ func runAndroidProjectAnalysisColumns(project *android.AndroidProject, activeRul
 		}
 		if !hadResourceErr && len(partialIndexes) > 0 {
 			start := time.Now()
-			resourceColumns := runResourceRulesColumns(resourceRules, android.MergeResourceIndexes(partialIndexes...))
-			collector.AppendColumns(&resourceColumns)
+			mergedIdx := android.MergeResourceIndexes(partialIndexes...)
+			if dispatcher != nil {
+				file := &scanner.File{
+					Path:     resDir,
+					Language: scanner.LangXML,
+					Metadata: mergedIdx,
+				}
+				collector.AppendAll(dispatcher.RunResource(file, mergedIdx))
+			}
 			resourceRulesDur += time.Since(start)
 		}
 
@@ -1558,8 +1539,15 @@ func runAndroidProjectAnalysisColumns(project *android.AndroidProject, activeRul
 			continue
 		}
 		start = time.Now()
-		for _, rule := range gradleRules {
-			collector.AppendAll(rule.CheckGradle(path, string(content), cfg))
+		if dispatcher != nil {
+			file := &scanner.File{
+				Path:     path,
+				Language: scanner.LangGradle,
+				Content:  content,
+				Lines:    strings.Split(string(content), "\n"),
+				Metadata: cfg,
+			}
+			collector.AppendAll(dispatcher.RunGradle(file, cfg))
 		}
 		gradleRulesDur += time.Since(start)
 	}
@@ -1567,32 +1555,6 @@ func runAndroidProjectAnalysisColumns(project *android.AndroidProject, activeRul
 	perf.AddEntry(gradleTracker, "gradleRuleChecks", gradleRulesDur)
 	gradleTracker.End()
 
-	return *collector.Columns()
-}
-
-func ruleCheckManifest[R manifestRuleIface](ruleset []R, manifest *rules.Manifest) []scanner.Finding {
-	columns := ruleCheckManifestColumns(ruleset, manifest)
-	return columns.Findings()
-}
-
-func ruleCheckManifestColumns[R manifestRuleIface](ruleset []R, manifest *rules.Manifest) scanner.FindingColumns {
-	collector := scanner.NewFindingCollector(len(ruleset))
-	for _, rule := range ruleset {
-		collector.AppendAll(rule.CheckManifest(manifest))
-	}
-	return *collector.Columns()
-}
-
-func runResourceRules[R resourceRuleIface](ruleset []R, idx *android.ResourceIndex) []scanner.Finding {
-	columns := runResourceRulesColumns(ruleset, idx)
-	return columns.Findings()
-}
-
-func runResourceRulesColumns[R resourceRuleIface](ruleset []R, idx *android.ResourceIndex) scanner.FindingColumns {
-	collector := scanner.NewFindingCollector(len(ruleset))
-	for _, rule := range ruleset {
-		collector.AppendAll(rule.CheckResources(idx))
-	}
 	return *collector.Columns()
 }
 

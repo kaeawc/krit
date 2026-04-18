@@ -12,7 +12,6 @@ import (
 	"runtime/pprof"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"encoding/json"
@@ -27,7 +26,6 @@ import (
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
-	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/schema"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -777,9 +775,10 @@ potential-bugs:
 		}
 	}
 
-	// Build dispatcher for single-pass execution
-	dispatcher := rules.NewDispatcher(activeRules, resolver)
-	dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, legacyCount := dispatcher.Stats()
+	// Stats come from a throwaway dispatcher so the verbose banner can
+	// report per-family rule counts before the phase runs. Construction
+	// is side-effect free (beyond classifying rules by capability).
+	dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, legacyCount := rules.NewDispatcher(activeRules, resolver).Stats()
 
 	if *verboseFlag {
 		fmt.Fprintf(os.Stderr, "verbose: Found %d Kotlin files\n", len(files))
@@ -862,179 +861,38 @@ potential-bugs:
 		fmt.Fprintln(os.Stderr, "verbose: Skipped type index (no active type-aware rules)")
 	}
 
-	// Run per-file rules only on uncached files
+	// Run per-file rules through DispatchPhase. The phase owns the
+	// "ruleExecution" tracker, per-family timing entries, the top-
+	// DispatchRules breakdown, cached-findings merge, and cache write-back
+	// (as a "cacheSave" sibling entry). main.go still owns the
+	// -profile-dispatch reporting because it pulls in CLI-only output.
 	ruleStart := time.Now()
-
-	// Per-file dispatch timing instrumentation (opt-in via -profile-dispatch).
-	// Used to investigate parallelism-collapse hypotheses on large corpora.
-	var fileTimings []fileTiming
-
-	var (
-		mu             sync.Mutex
-		allFindings    []scanner.Finding
-		findingsByFile = make(map[string]scanner.FindingColumns)
-		wg             sync.WaitGroup
-		ruleWorkers    = phaseWorkerCount("ruleExecution", *jobsFlag, len(parsedFiles))
-		sem            = make(chan struct{}, ruleWorkers)
-		ruleStats      = rules.RunStats{DispatchRuleNsByRule: make(map[string]int64)}
-	)
-
-	ruleTracker := tracker.Serial("ruleExecution")
-	for _, f := range parsedFiles {
-		// Skip rule execution for cached files
-		if useCache && cacheResult != nil && cacheResult.CachedPaths[f.Path] {
-			continue
-		}
-		wg.Add(1)
-		var dispatchedAt time.Time
-		if *profileDispatchFlag {
-			dispatchedAt = time.Now()
-		}
-		sem <- struct{}{}
-		go func(file *scanner.File, dispatched time.Time) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			var startedAt, finishedRunAt, lockedAt time.Time
-			if *profileDispatchFlag {
-				startedAt = time.Now()
-			}
-
-			fileFindings, fileStats := dispatcher.RunWithStats(file)
-
-			if *profileDispatchFlag {
-				finishedRunAt = time.Now()
-			}
-
-			mu.Lock()
-
-			if *profileDispatchFlag {
-				lockedAt = time.Now()
-			}
-
-			if len(fileFindings) > 0 {
-				allFindings = append(allFindings, fileFindings...)
-			}
-			if useCache && analysisCache != nil {
-				findingsByFile[file.Path] = scanner.CollectFindings(fileFindings)
-			}
-			ruleStats.SuppressionIndexMs += fileStats.SuppressionIndexMs
-			ruleStats.DispatchWalkMs += fileStats.DispatchWalkMs
-			ruleStats.DispatchRuleNs += fileStats.DispatchRuleNs
-			ruleStats.AggregateCollectNs += fileStats.AggregateCollectNs
-			ruleStats.AggregateFinalizeMs += fileStats.AggregateFinalizeMs
-			ruleStats.LineRuleMs += fileStats.LineRuleMs
-			ruleStats.LegacyRuleMs += fileStats.LegacyRuleMs
-			ruleStats.SuppressionFilterMs += fileStats.SuppressionFilterMs
-			for name, dur := range fileStats.DispatchRuleNsByRule {
-				ruleStats.DispatchRuleNsByRule[name] += dur
-			}
-			if len(fileStats.Errors) > 0 {
-				ruleStats.Errors = append(ruleStats.Errors, fileStats.Errors...)
-			}
-
-			if *profileDispatchFlag {
-				endAt := time.Now()
-				fileTimings = append(fileTimings, fileTiming{
-					path:     file.Path,
-					size:     len(file.Content),
-					queueMs:  startedAt.Sub(dispatched).Milliseconds(),
-					runMs:    finishedRunAt.Sub(startedAt).Milliseconds(),
-					lockMs:   lockedAt.Sub(finishedRunAt).Milliseconds(),
-					aggMs:    endAt.Sub(lockedAt).Milliseconds(),
-					totalMs:  endAt.Sub(dispatched).Milliseconds(),
-					findings: len(fileFindings),
-				})
-			}
-
-			mu.Unlock()
-		}(f, dispatchedAt)
+	ruleWorkers := phaseWorkerCount("ruleExecution", *jobsFlag, len(parsedFiles))
+	dispatchIdx := pipeline.IndexResult{
+		ParseResult:            parseResult,
+		Resolver:               resolver,
+		CacheResult:            cacheResult,
+		Cache:                  analysisCache,
+		RuleHash:               ruleHash,
+		CacheFilePath:          cacheFilePath,
+		CacheStats:             cacheStats,
+		ActiveRulesV1:          activeRules,
+		Logger:                 verboseLogger,
+		Tracker:                tracker,
+		Jobs:                   *jobsFlag,
+		ProfileDispatch:        *profileDispatchFlag,
+		Version:                version,
+		CacheScanPaths:         paths,
+		EmitPerFileStats:       true,
 	}
-	wg.Wait()
-
-	if *profileDispatchFlag && len(fileTimings) > 0 {
-		reportDispatchProfile(fileTimings, ruleWorkers, time.Since(ruleStart))
+	dispatchResult, err := (pipeline.DispatchPhase{Workers: ruleWorkers}).Run(context.Background(), dispatchIdx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
 	}
-	if len(ruleStats.Errors) > 0 {
-		for _, de := range ruleStats.Errors {
-			fmt.Fprintln(os.Stderr, de.Error())
-		}
-		fmt.Fprintf(os.Stderr, "krit: %d rule panic(s) during scan\n", len(ruleStats.Errors))
-	}
-
-	perf.AddEntry(ruleTracker, "suppressionIndex", time.Duration(ruleStats.SuppressionIndexMs)*time.Millisecond)
-	// dispatchWalk covers the full AST traversal including rule callbacks.
-	// walkTraversal is the traversal-only overhead (walk minus rule time).
-	// ruleCallbacks is the accumulated time spent inside rule CheckNode functions.
-	walkTotal := time.Duration(ruleStats.DispatchWalkMs) * time.Millisecond
-	ruleCallbackTotal := time.Duration(ruleStats.DispatchRuleNs)
-	walkTraversal := walkTotal - ruleCallbackTotal
-	if walkTraversal < 0 {
-		walkTraversal = 0
-	}
-	perf.AddEntry(ruleTracker, "walkTraversal", walkTraversal)
-	perf.AddEntry(ruleTracker, "ruleCallbacks", ruleCallbackTotal)
-	perf.AddEntry(ruleTracker, "aggregateCollect", time.Duration(ruleStats.AggregateCollectNs))
-	perf.AddEntry(ruleTracker, "aggregateFinalize", time.Duration(ruleStats.AggregateFinalizeMs)*time.Millisecond)
-	perf.AddEntry(ruleTracker, "lineRules", time.Duration(ruleStats.LineRuleMs)*time.Millisecond)
-	perf.AddEntry(ruleTracker, "legacyRules", time.Duration(ruleStats.LegacyRuleMs)*time.Millisecond)
-	perf.AddEntry(ruleTracker, "suppressionFilter", time.Duration(ruleStats.SuppressionFilterMs)*time.Millisecond)
-	if len(ruleStats.DispatchRuleNsByRule) > 0 {
-		type timedRule struct {
-			name string
-			dur  int64
-		}
-		var topRules []timedRule
-		for name, dur := range ruleStats.DispatchRuleNsByRule {
-			topRules = append(topRules, timedRule{name: name, dur: dur})
-		}
-		sort.Slice(topRules, func(i, j int) bool {
-			if topRules[i].dur == topRules[j].dur {
-				return topRules[i].name < topRules[j].name
-			}
-			return topRules[i].dur > topRules[j].dur
-		})
-		if len(topRules) > 10 {
-			topRules = topRules[:10]
-		}
-		topDispatchTracker := ruleTracker.Serial("topDispatchRules")
-		for _, tr := range topRules {
-			perf.AddEntry(topDispatchTracker, tr.name, time.Duration(tr.dur))
-		}
-		topDispatchTracker.End()
-	}
-	ruleTracker.End()
-
-	// Merge cached findings
-	if useCache && cacheResult != nil && cacheResult.CachedColumns.Len() > 0 {
-		allFindings = append(allFindings, cacheResult.CachedColumns.Findings()...)
-	}
-
-	// Update cache with new analysis results
-	if useCache && analysisCache != nil {
-		// Update entries for newly analyzed files
-		for _, pf := range parsedFiles {
-			if cacheResult == nil || !cacheResult.CachedPaths[pf.Path] {
-				fileColumns := findingsByFile[pf.Path]
-				analysisCache.UpdateEntryColumns(pf.Path, &fileColumns)
-			}
-		}
-		analysisCache.Version = version
-		analysisCache.RuleHash = ruleHash
-		analysisCache.ScanPaths = paths
-		analysisCache.Prune()
-
-		var saveStart time.Time
-		tracker.Track("cacheSave", func() error {
-			saveStart = time.Now()
-			if err := analysisCache.Save(cacheFilePath); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: Failed to save cache: %v\n", err)
-			}
-			return nil
-		})
-		if cacheStats != nil {
-			cacheStats.SaveDurMs = time.Since(saveStart).Milliseconds()
-		}
+	allFindings := dispatchResult.Findings.Findings()
+	if *profileDispatchFlag && len(dispatchResult.FileTimings) > 0 {
+		reportDispatchProfile(dispatchResult.FileTimings, ruleWorkers, time.Since(ruleStart))
 	}
 
 	// Cross-file analysis (dead code detection) + Module-aware analysis.
@@ -1114,84 +972,35 @@ potential-bugs:
 	moduleGraph := indexResult2.ModuleGraph
 	pmi := indexResult2.ModuleIndex
 
-	if hasIndexBackedCrossFileRule || hasParsedFilesRule {
-		crossStart := time.Now()
-
-		_ = crossTracker.Track("crossRuleExecution", func() error {
-			ruleTracker := crossTracker.Serial("crossRules")
-			for _, rule := range activeRules {
-				if pfr, ok := rule.(interface {
-					CheckParsedFiles(files []*scanner.File) []scanner.Finding
-				}); ok {
-					ruleName := rule.Name()
-					_ = ruleTracker.Track(ruleName, func() error {
-						findings := pfr.CheckParsedFiles(parsedFiles)
-						rules.ApplyRuleConfidence(findings, rule, 0.95)
-						allFindings = append(allFindings, findings...)
-						return nil
-					})
-				} else if cfr, ok := rule.(interface {
-					CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding
-				}); ok {
-					ruleName := rule.Name()
-					_ = ruleTracker.Track(ruleName, func() error {
-						findings := cfr.CheckCrossFile(codeIndex)
-						rules.ApplyRuleConfidence(findings, rule, 0.95)
-						allFindings = append(allFindings, findings...)
-						return nil
-					})
-				}
-			}
-			ruleTracker.End()
-			return nil
-		})
+	// Hand off cross-file + module-aware rule execution to CrossFilePhase.
+	// The phase owns the crossRuleExecution / crossRules / moduleRuleExecution
+	// tracker labels (nested under the crossTracker / moduleTracker parents
+	// main.go already created), the verbose "Cross-file analysis in ..." and
+	// "Module-aware analysis in ..." log lines, and the unified
+	// ApplySuppression pass. Suppression now covers cross-file findings the
+	// same way it covers per-file ones (phase-pipeline acceptance #3).
+	dispatchForCross := dispatchResult
+	dispatchForCross.IndexResult = indexResult2
+	dispatchForCross.IndexResult.ActiveRulesV1 = activeRules
+	dispatchForCross.IndexResult.Logger = verboseLogger
+	dispatchForCross.IndexResult.Tracker = tracker
+	dispatchForCross.IndexResult.CrossFileParentTracker = crossTracker
+	dispatchForCross.IndexResult.ModuleParentTracker = moduleTracker
+	dispatchForCross.Findings = scanner.CollectFindings(allFindings)
+	crossResult, err := (pipeline.CrossFilePhase{Workers: *jobsFlag}).Run(context.Background(), dispatchForCross)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
+	if crossTracker != nil {
 		crossTracker.End()
-		if *verboseFlag {
-			if codeIndex != nil {
-				fmt.Fprintf(os.Stderr, "verbose: Cross-file analysis in %v (indexed %d symbols, %d references from %d kt + %d java files)\n",
-					time.Since(crossStart).Round(time.Millisecond), len(codeIndex.Symbols), len(codeIndex.References),
-					len(parsedFiles), len(parsedJavaFiles))
-			} else {
-				fmt.Fprintf(os.Stderr, "verbose: Cross-file analysis in %v (%d kt files, no shared code index needed)\n",
-					time.Since(crossStart).Round(time.Millisecond), len(parsedFiles))
-			}
-		}
-	} else if *verboseFlag {
-		fmt.Fprintln(os.Stderr, "verbose: Skipped cross-file analysis (no active cross-file rules)")
 	}
-
-	// Module-aware rule execution. IndexPhase has already populated
-	// moduleGraph + pmi under the moduleAwareAnalysis parent tracker.
-	{
-		moduleStart := time.Now()
-		if moduleGraph != nil && len(moduleGraph.Modules) > 0 && hasModuleAwareRule {
-			_ = moduleTracker.Track("moduleRuleExecution", func() error {
-				// The v2 bridge threads ModuleIndex through the rule's Context
-				// automatically, so no explicit SetModuleIndex call is required.
-				for _, r := range dispatcher.V2Rules().ModuleAware {
-					ctx := &v2.Context{ModuleIndex: pmi}
-					r.Check(ctx)
-					rules.ApplyV2Confidence(ctx.Findings, r, 0.95)
-					allFindings = append(allFindings, ctx.Findings...)
-				}
-				return nil
-			})
-
-			if *verboseFlag {
-				fmt.Fprintf(os.Stderr, "verbose: Module-aware analysis in %v\n",
-					time.Since(moduleStart).Round(time.Millisecond))
-			}
-		}
-		moduleTracker.End()
-	}
-
-	// Apply per-file @Suppress to findings produced by cross-file and
-	// module-aware rules. The per-file dispatcher already honours
-	// @Suppress for its own findings (via v2dispatcher.go); before this
-	// refactor, findings produced by CheckCrossFile / CheckParsedFiles /
-	// CheckModuleAware bypassed suppression entirely. See
-	// roadmap/clusters/core-infra/phase-pipeline.md acceptance criterion #3.
-	allFindings = pipeline.ApplySuppression(allFindings, parsedFiles)
+	moduleTracker.End()
+	_ = parsedJavaFiles
+	_ = codeIndex
+	_ = moduleGraph
+	_ = pmi
+	allFindings = crossResult.Findings.Findings()
 
 	if *verboseFlag {
 		fmt.Fprintf(os.Stderr, "verbose: Analyzed in %v\n", time.Since(ruleStart).Round(time.Millisecond))
@@ -1874,17 +1683,9 @@ func collectAndroidDependencies(activeRules []rules.Rule) rules.AndroidDataDepen
 	return deps
 }
 
-// fileTiming captures per-file dispatch timing for profile-dispatch mode.
-type fileTiming struct {
-	path     string
-	size     int
-	queueMs  int64 // time between loop dispatch and worker start
-	runMs    int64 // time spent in dispatcher.RunWithStats
-	lockMs   int64 // time spent waiting for the aggregation mutex
-	aggMs    int64 // time spent under the mutex (aggregation)
-	totalMs  int64 // total from dispatch to unlock
-	findings int
-}
+// fileTiming is an alias for pipeline.FileTiming so profile-dispatch
+// reporting can stay in main.go while the phase owns the capture path.
+type fileTiming = pipeline.FileTiming
 
 // reportDispatchProfile prints a distribution analysis of per-file dispatch
 // timings. Used to diagnose parallelism-collapse on large corpora.
@@ -1901,23 +1702,23 @@ func reportDispatchProfile(timings []fileTiming, workers int, wall time.Duration
 	var sumRun, sumQueue, sumLock, sumAgg, sumTotal int64
 	var maxRun, maxTotal int64
 	for _, t := range timings {
-		sumRun += t.runMs
-		sumQueue += t.queueMs
-		sumLock += t.lockMs
-		sumAgg += t.aggMs
-		sumTotal += t.totalMs
-		if t.runMs > maxRun {
-			maxRun = t.runMs
+		sumRun += t.RunMs
+		sumQueue += t.QueueMs
+		sumLock += t.LockMs
+		sumAgg += t.AggMs
+		sumTotal += t.TotalMs
+		if t.RunMs > maxRun {
+			maxRun = t.RunMs
 		}
-		if t.totalMs > maxTotal {
-			maxTotal = t.totalMs
+		if t.TotalMs > maxTotal {
+			maxTotal = t.TotalMs
 		}
 	}
 
 	// Duration distribution (percentiles of runMs)
 	runs := make([]int64, n)
 	for i, t := range timings {
-		runs[i] = t.runMs
+		runs[i] = t.RunMs
 	}
 	sort.Slice(runs, func(i, j int) bool { return runs[i] < runs[j] })
 	pct := func(p float64) int64 {
@@ -1940,7 +1741,7 @@ func reportDispatchProfile(timings []fileTiming, workers int, wall time.Duration
 		sorted[i] = i
 	}
 	sort.Slice(sorted, func(i, j int) bool {
-		return timings[sorted[i]].runMs > timings[sorted[j]].runMs
+		return timings[sorted[i]].RunMs > timings[sorted[j]].RunMs
 	})
 
 	fmt.Fprintln(os.Stderr, "")
@@ -1974,12 +1775,12 @@ func reportDispatchProfile(timings []fileTiming, workers int, wall time.Duration
 	for i := 0; i < limit; i++ {
 		t := timings[sorted[i]]
 		fmt.Fprintf(os.Stderr, "  %6dms  %7dkb  %4d findings  %s\n",
-			t.runMs, t.size/1024, t.findings, t.path)
+			t.RunMs, t.Size/1024, t.Findings, t.Path)
 	}
 	// Sum of top 20 vs total: what fraction of work comes from the tail?
 	var topSum int64
 	for i := 0; i < limit; i++ {
-		topSum += timings[sorted[i]].runMs
+		topSum += timings[sorted[i]].RunMs
 	}
 	fmt.Fprintf(os.Stderr, "  top %d account for %d%% of cumulative runMs\n",
 		limit, int(topSum*100/sumRun))
@@ -1995,20 +1796,20 @@ func reportDispatchProfile(timings []fileTiming, workers int, wall time.Duration
 	fmt.Fprintln(os.Stderr, "")
 }
 
-// lockWaits extracts lockMs values for percentile computation.
+// lockWaits extracts LockMs values for percentile computation.
 func lockWaits(timings []fileTiming) []int64 {
 	out := make([]int64, len(timings))
 	for i, t := range timings {
-		out[i] = t.lockMs
+		out[i] = t.LockMs
 	}
 	return out
 }
 
-// aggHolds extracts aggMs values for percentile computation.
+// aggHolds extracts AggMs values for percentile computation.
 func aggHolds(timings []fileTiming) []int64 {
 	out := make([]int64, len(timings))
 	for i, t := range timings {
-		out[i] = t.aggMs
+		out[i] = t.AggMs
 	}
 	return out
 }

@@ -161,6 +161,61 @@ type IndexResult struct {
 	// CacheStats holds hit-rate / load-duration counters populated by
 	// IndexPhase's cache load block. Nil when caching is disabled.
 	CacheStats *cache.CacheStats
+
+	// ActiveRulesV1 overrides the v2→v1 conversion DispatchPhase and
+	// CrossFilePhase would otherwise derive from ActiveRules. Main.go
+	// carries a v1 rule slice and plugs it here so the phases dispatch
+	// against the exact same set of rules the legacy loop used.
+	ActiveRulesV1 []rules.Rule
+	// Logger, when non-nil, receives verbose progress messages from the
+	// Dispatch and CrossFile phases. Matches fmt.Printf. Nil means no-op.
+	Logger func(format string, args ...any)
+	// Tracker, when non-nil, wraps expensive sub-phases with
+	// Tracker.Serial(name). Matches the pre-refactor perf label tree.
+	Tracker perf.Tracker
+	// Jobs is the CLI --jobs value used to derive worker counts in
+	// DispatchPhase and CrossFilePhase. Zero falls back to DispatchPhase
+	// / CrossFilePhase defaults.
+	Jobs int
+	// ProfileDispatch, when true, causes DispatchPhase to record per-file
+	// timings for -profile-dispatch reporting. Result lands in
+	// DispatchResult.FileTimings.
+	ProfileDispatch bool
+	// Version is the krit version string written into the cache on
+	// write-back. Empty disables cache write-back (the caller keeps
+	// ownership).
+	Version string
+	// CacheScanPaths is the scan-path list recorded on the cache before
+	// Save. Zero-length leaves analysisCache.ScanPaths unchanged.
+	CacheScanPaths []string
+	// EmitPerFileStats, when true, makes DispatchPhase append
+	// suppressionIndex / walkTraversal / ruleCallbacks / aggregateCollect
+	// / aggregateFinalize / lineRules / legacyRules / suppressionFilter /
+	// topDispatchRules entries onto the per-run ruleExecution tracker.
+	EmitPerFileStats bool
+	// CrossFileParentTracker, when non-nil, is the "crossFileAnalysis"
+	// parent tracker the CLI creates so IndexPhase and CrossFilePhase can
+	// nest their children (indexing + rule execution) under the same
+	// perf node. CrossFilePhase wraps its rule loop in a
+	// "crossRuleExecution" Track under this parent.
+	CrossFileParentTracker perf.Tracker
+	// ModuleParentTracker, when non-nil, is the "moduleAwareAnalysis"
+	// parent tracker used by IndexPhase (for pmi build) and
+	// CrossFilePhase (moduleRuleExecution).
+	ModuleParentTracker perf.Tracker
+}
+
+// FileTiming captures per-file dispatch timing recorded when
+// IndexResult.ProfileDispatch is set.
+type FileTiming struct {
+	Path     string
+	Size     int
+	QueueMs  int64
+	RunMs    int64
+	LockMs   int64
+	AggMs    int64
+	TotalMs  int64
+	Findings int
 }
 
 // DispatchResult is the output of Dispatch and the input of CrossFile.
@@ -173,6 +228,12 @@ type DispatchResult struct {
 	Findings scanner.FindingColumns
 	// Stats captures per-rule CPU time, walk time, and any panics.
 	Stats rules.RunStats
+	// FileTimings is populated when IndexResult.ProfileDispatch is true.
+	// One entry per dispatched (non-cached) file.
+	FileTimings []FileTiming
+	// FindingsByFile is populated when ActiveRulesV1 is non-nil and a
+	// cache is present on the input IndexResult, for cache write-back.
+	FindingsByFile map[string]scanner.FindingColumns
 }
 
 // CrossFileResult is the output of CrossFile and the input of Fixup.

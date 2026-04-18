@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -266,7 +268,7 @@ func TestRunActiveIconChecksColumnsMatchesUnderlyingRules(t *testing.T) {
 		"IconMissingDensityFolder": true,
 	}
 
-	columns := runActiveIconChecksColumns(idx, activeNames)
+	columns := pipeline.RunActiveIconChecksColumns(idx, activeNames)
 	got := columns.Findings()
 	want := append([]scanner.Finding(nil), rules.CheckGifUsage(idx)...)
 	want = append(want, rules.CheckConvertToWebp(idx)...)
@@ -277,16 +279,19 @@ func TestRunActiveIconChecksColumnsMatchesUnderlyingRules(t *testing.T) {
 	if !reflect.DeepEqual(got, normalizedWant) {
 		t.Fatalf("icon columns mismatch:\nwant: %#v\ngot:  %#v", normalizedWant, got)
 	}
-	if wrapper := runActiveIconChecks(idx, activeNames); !reflect.DeepEqual(wrapper, normalizedWant) {
+	if wrapper := pipeline.RunActiveIconChecks(idx, activeNames); !reflect.DeepEqual(wrapper, normalizedWant) {
 		t.Fatalf("icon wrapper mismatch:\nwant: %#v\ngot:  %#v", normalizedWant, wrapper)
 	}
 }
 
 func TestRunAndroidProjectAnalysisColumns_EmptyProject(t *testing.T) {
 	project := &android.AndroidProject{}
-	columns := runAndroidProjectAnalysisColumns(project, nil, nil, nil, nil)
-	if columns.Len() != 0 {
-		t.Fatalf("expected no findings for empty project, got %d", columns.Len())
+	result, err := (pipeline.AndroidPhase{}).Run(context.Background(), pipeline.AndroidInput{Project: project})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Findings.Len() != 0 {
+		t.Fatalf("expected no findings for empty project, got %d", result.Findings.Len())
 	}
 }
 

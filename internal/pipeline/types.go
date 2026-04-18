@@ -44,6 +44,20 @@ type ParseInput struct {
 	ActiveRules []*v2.Rule
 	// IncludeGenerated, when true, retains files under /generated/.
 	IncludeGenerated bool
+	// KotlinPaths, when non-nil, short-circuits CollectKotlinFiles and
+	// uses the supplied paths directly. Main already collects paths
+	// early (for cache lookups and empty-project detection) and passes
+	// them in so the phase doesn't walk the tree twice.
+	KotlinPaths []string
+	// Workers overrides ParsePhase.Workers. Zero falls through to
+	// ParsePhase.Workers which itself defaults to runtime.NumCPU().
+	// Main plugs its phaseWorkerCount("parse", ...) result here.
+	Workers int
+	// SkipJavaCollection, when true, suppresses the NeedsCrossFile-driven
+	// Java collect/parse step. CLI callers keep Java collection in a
+	// later phase scope so the "javaIndexing" perf label stays nested
+	// under "crossFileAnalysis" as before.
+	SkipJavaCollection bool
 	// Logger, when non-nil, receives verbose progress messages from the
 	// phase. Format matches fmt.Printf. Nil means no-op. Callers that
 	// want the pre-refactor "verbose: ..." stderr lines pass a closure
@@ -82,6 +96,11 @@ type ParseResult struct {
 	// KotlinFiles are successfully parsed Kotlin sources, sorted by
 	// content length descending for LPT scheduling.
 	KotlinFiles []*scanner.File
+	// KotlinPaths echoes the collected Kotlin file paths (either the
+	// KotlinPaths input when supplied, or the internally collected
+	// slice otherwise). Downstream callers need the raw path list for
+	// incremental cache lookups.
+	KotlinPaths []string
 	// JavaFiles are Java sources collected when any active rule needs
 	// cross-file analysis. Nil otherwise.
 	JavaFiles []*scanner.File

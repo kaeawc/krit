@@ -952,70 +952,32 @@ potential-bugs:
 		}
 	}
 
-	// Parse all files in parallel (all files needed for cross-file indexing)
-	parseStart := time.Now()
-	var parsedFiles []*scanner.File
-	var parseErrs []error
+	// Parse + filter + LPT sort + suppression index now live in ParsePhase.
+	// Java collection stays in the cross-file block (SkipJavaCollection=true)
+	// so the "javaIndexing" perf label remains nested under "crossFileAnalysis".
 	parseWorkers := phaseWorkerCount("parse", *jobsFlag, len(files))
-	tracker.Track("parse", func() error {
-		parsedFiles, parseErrs = scanner.ScanFiles(files, parseWorkers)
-		return nil
-	})
+	var verboseLogger func(format string, args ...any)
 	if *verboseFlag {
-		fmt.Fprintf(os.Stderr, "verbose: Parsed %d files in %v (%d errors, %d workers)\n",
-			len(parsedFiles), time.Since(parseStart).Round(time.Millisecond), len(parseErrs), parseWorkers)
-	}
-
-	// Filter out generated files unless --include-generated was passed.
-	// Generated directories (`*/generated/*`) contain codegen output that users
-	// don't maintain and typically dwarfs hand-written sources in size. On
-	// kotlinlang.org/kotlin itself a single generated file (stdlib _Arrays.kt,
-	// ~814KB with thousands of array-extension functions) consumes ~87% of
-	// total dispatch wall time, stranding 15 of 16 workers waiting for it to
-	// finish. Skipping generated dirs is consistent with krit's existing skip
-	// list for vendor/third-party/build output.
-	//
-	// This filter runs BEFORE typeIndex so that both typeIndex and
-	// ruleExecution skip generated files — otherwise typeIndex still pays
-	// the full cost of parsing thousands of generated declarations.
-	if !*includeGeneratedFlag {
-		filtered := parsedFiles[:0]
-		var droppedGenerated int
-		for _, f := range parsedFiles {
-			if strings.Contains(f.Path, "/generated/") {
-				droppedGenerated++
-				continue
-			}
-			filtered = append(filtered, f)
-		}
-		parsedFiles = filtered
-		if *verboseFlag && droppedGenerated > 0 {
-			fmt.Fprintf(os.Stderr, "verbose: Skipped %d files in */generated/* dirs (pass --include-generated to re-enable)\n", droppedGenerated)
+		verboseLogger = func(format string, args ...any) {
+			fmt.Fprintf(os.Stderr, format, args...)
 		}
 	}
-
-	// Sort files by content size descending (LPT — longest processing time
-	// first scheduling). For long-tailed corpora, having workers pick up the
-	// largest files first prevents them from draining the small-file queue and
-	// stranding idle while one worker chews on a giant file. Applied before
-	// typeIndex so that phase also benefits. O(N log N) sort on parsedFiles;
-	// cost is negligible vs the dispatch work.
-	sort.Slice(parsedFiles, func(i, j int) bool {
-		return len(parsedFiles[i].Content) > len(parsedFiles[j].Content)
+	parseResult, err := pipeline.ParsePhase{}.Run(context.Background(), pipeline.ParseInput{
+		Config:             cfg,
+		Paths:              paths,
+		KotlinPaths:        files,
+		Workers:            parseWorkers,
+		IncludeGenerated:   *includeGeneratedFlag,
+		SkipJavaCollection: true,
+		Logger:             verboseLogger,
+		Tracker:            tracker,
 	})
-
-	// Build each file's SuppressionIndex once here so both per-file
-	// dispatch and cross-file/module-aware rules (which flow through
-	// pipeline.ApplySuppression below) consult the same @Suppress map.
-	// Prior to this, cross-file rules bypassed the suppression index
-	// entirely — see roadmap/clusters/core-infra/phase-pipeline.md
-	// acceptance criterion #3.
-	for _, f := range parsedFiles {
-		if f.FlatTree == nil {
-			continue
-		}
-		f.SuppressionIdx = scanner.BuildSuppressionIndexFlat(f.FlatTree, f.Content)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
 	}
+	parsedFiles := parseResult.KotlinFiles
+	_ = parseResult.ParseErrors
 
 	hasTypeAwareRule := false
 	for _, rule := range activeRules {

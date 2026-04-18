@@ -240,7 +240,7 @@ func TestParsePhase_Run_LoggerReceivesVerboseLine(t *testing.T) {
 	}
 	found := false
 	for _, l := range lines {
-		if strings.Contains(l, "verbose: Parsed") && strings.Contains(l, "Kotlin files") {
+		if strings.Contains(l, "verbose: Parsed") && strings.Contains(l, "files in") {
 			found = true
 			break
 		}

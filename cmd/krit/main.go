@@ -18,6 +18,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/cache"
+	"github.com/kaeawc/krit/internal/store"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/fixer"
@@ -58,6 +59,23 @@ type gradleRuleIface interface {
 //go:embed completions
 var completionsFS embed.FS
 
+// resolvedStore returns a *store.FileStore for the given --store-dir flag
+// pointer, or nil when no store directory is configured and the default
+// .krit/store does not yet exist.
+func resolvedStore(storeDirFlag *string) *store.FileStore {
+	if storeDirFlag == nil {
+		return nil
+	}
+	dir := *storeDirFlag
+	if dir == "" {
+		if _, err := os.Stat(".krit/store"); err != nil {
+			return nil
+		}
+		dir = ".krit/store"
+	}
+	return store.New(dir)
+}
+
 func main() {
 	// Bridge any v2 rules into the v1 Registry before anything reads it.
 	rules.RegisterV2Rules()
@@ -68,6 +86,10 @@ func main() {
 	initVerb := len(os.Args) > 1 && os.Args[1] == "init"
 	apiSnapshotVerb := len(os.Args) > 1 && os.Args[1] == "api-snapshot"
 	apiDiffVerb := len(os.Args) > 1 && os.Args[1] == "api-diff"
+	cacheVerb := len(os.Args) > 1 && os.Args[1] == "cache"
+	if cacheVerb {
+		os.Exit(runCacheSubcommand(os.Args[2:]))
+	}
 	if harvestVerb {
 		os.Exit(runHarvestSubcommand(os.Args[2:]))
 	}
@@ -114,6 +136,7 @@ func main() {
 	noMatrixCacheFlag := flag.Bool("no-matrix-cache", false, "Disable the experiment-matrix baseline cache (no read, no write)")
 	clearMatrixCacheFlag := flag.Bool("clear-matrix-cache", false, "Delete the experiment-matrix baseline cache and exit")
 	cacheDirFlag := flag.String("cache-dir", "", "Shared cache directory (cache file named by hash of scan paths)")
+	storeDirFlag := flag.String("store-dir", "", "Unified store directory (enables store-backed incremental cache; default: .krit/store when present)")
 	configFlag := flag.String("config", "", "Path to YAML config file (default: auto-detect krit.yml or .krit.yml)")
 	listFlag := flag.Bool("list-rules", false, "List all rules (add -v to show fixable)")
 	noTypeInferFlag := flag.Bool("no-type-inference", false, "Disable type inference (faster but less precise)")
@@ -562,6 +585,7 @@ potential-bugs:
 			flagArgs:   flagArgsForMatrix,
 			targets:    matrixTargets,
 			noCache:    *noMatrixCacheFlag,
+			store:      resolvedStore(storeDirFlag),
 		})
 		os.Exit(code)
 	}
@@ -681,7 +705,7 @@ potential-bugs:
 		if *noCacheOracleFlag {
 			_, err = oracle.Invoke(jarPath, sourceDirs, *outputTypesFlag, *verboseFlag)
 		} else {
-			_, err = oracle.InvokeCached(jarPath, sourceDirs, oracle.FindRepoDir(flag.Args()), *outputTypesFlag, "", *verboseFlag)
+			_, err = oracle.InvokeCached(jarPath, sourceDirs, oracle.FindRepoDir(flag.Args()), *outputTypesFlag, "", *verboseFlag, resolvedStore(storeDirFlag))
 		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -827,7 +851,7 @@ potential-bugs:
 					if *noCacheOracleFlag {
 						result, err = oracle.InvokeWithFiles(jarPath, sourceDirs, cacheDest, filterListPath, *verboseFlag)
 					} else {
-						result, err = oracle.InvokeCached(jarPath, sourceDirs, oracle.FindRepoDir(flag.Args()), cacheDest, filterListPath, *verboseFlag)
+						result, err = oracle.InvokeCached(jarPath, sourceDirs, oracle.FindRepoDir(flag.Args()), cacheDest, filterListPath, *verboseFlag, resolvedStore(storeDirFlag))
 					}
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "warning: krit-types: %v\n", err)
@@ -900,6 +924,12 @@ potential-bugs:
 			analysisCache = cache.Load(cacheFilePath)
 			return nil
 		})
+
+		// Attach the unified store when available so incremental cache
+		// entries are persisted per-file in the store instead of the JSON file.
+		if s := resolvedStore(storeDirFlag); s != nil {
+			analysisCache.AttachStore(s, cache.ParseRuleSetHash(ruleHash))
+		}
 		loadDur := time.Since(loadStart).Milliseconds()
 
 		cacheResult = analysisCache.CheckFiles(files, ruleHash, paths...)

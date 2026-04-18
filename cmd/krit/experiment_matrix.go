@@ -12,6 +12,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/perf"
+	"github.com/kaeawc/krit/internal/store"
 )
 
 type matrixChildReport struct {
@@ -115,6 +116,7 @@ type matrixRunOptions struct {
 	flagArgs   []string
 	targets    []string
 	noCache    bool
+	store      *store.FileStore
 }
 
 func runExperimentMatrix(opts matrixRunOptions) int {
@@ -147,7 +149,7 @@ func runExperimentMatrix(opts matrixRunOptions) int {
 		if c.Name == "baseline" && !noCache {
 			key, keyErr := computeMatrixBaselineCacheKey(exe, c.Enabled, flagArgs, targets)
 			if keyErr == nil {
-				if cached, ok := tryLoadBaseline(key); ok {
+				if cached, ok := tryLoadBaseline(key, opts.store); ok {
 					short := key
 					if len(short) > 8 {
 						short = short[:8]
@@ -166,7 +168,7 @@ func runExperimentMatrix(opts matrixRunOptions) int {
 					fmt.Fprintf(os.Stderr, "error: experiment case %s: %v\n", c.Name, err)
 					return 2
 				}
-				saveBaseline(key, caseReport)
+				saveBaseline(key, caseReport, opts.store)
 				report.Cases = append(report.Cases, caseReport)
 				continue
 			}

@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kaeawc/krit/internal/store"
 )
 
 // readFilterListFile parses a rule-classification filter list (one
@@ -146,6 +148,9 @@ func CollectKtFiles(sourceDirs []string) ([]string, error) {
 // Returns the output path on success. If no files were discovered or the
 // cache can't be created, the function falls back to a plain Invoke so
 // the caller still gets a complete oracle.
+// InvokeCached is the cache-aware variant of Invoke.
+// s is the optional unified store; when non-nil, oracle cache entries are
+// read from and written to s instead of the legacy cacheDir file layout.
 func InvokeCached(
 	jarPath string,
 	sourceDirs []string,
@@ -153,6 +158,7 @@ func InvokeCached(
 	outputPath string,
 	filterListPath string,
 	verbose bool,
+	s *store.FileStore,
 ) (string, error) {
 	if repoDir == "" {
 		// Fall back to the filter-only path — we need a repo root to anchor
@@ -203,7 +209,7 @@ func InvokeCached(
 	}
 
 	startClassify := time.Now()
-	hits, misses := ClassifyFiles(cacheDir, ktFiles)
+	hits, misses := ClassifyFilesWithStore(s, cacheDir, ktFiles)
 	classifyElapsed := time.Since(startClassify)
 	if verbose {
 		fmt.Fprintf(os.Stderr, "verbose: cache classify: %d hits, %d misses (%s, %d files)\n",
@@ -258,7 +264,7 @@ func InvokeCached(
 			fmt.Fprintf(os.Stderr, "verbose: no cache deps returned; cache not updated\n")
 		}
 	} else {
-		written, _ := WriteFreshEntries(cacheDir, freshData, depsFile)
+		written, _ := WriteFreshEntriesToStore(s, cacheDir, freshData, depsFile)
 		if verbose {
 			fmt.Fprintf(os.Stderr, "verbose: wrote %d new cache entries\n", written)
 		}
@@ -299,7 +305,13 @@ func InvokeCached(
 			Crashed:     true,
 			CrashError:  "jar-skipped: file not in Analysis API KtFile set (typically oversized source)",
 		}
-		if werr := WriteEntry(cacheDir, entry); werr == nil {
+		writeErr := func() error {
+			if s != nil {
+				return WriteEntryToStore(s, entry)
+			}
+			return WriteEntry(cacheDir, entry)
+		}()
+		if writeErr == nil {
 			skipped++
 		}
 	}

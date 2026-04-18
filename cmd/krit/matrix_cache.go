@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kaeawc/krit/internal/store"
 )
 
 // matrixBaselineCacheEntry is the on-disk wrapper around a cached
@@ -201,18 +203,38 @@ func matrixCachePath(key string) string {
 	return filepath.Join(matrixCacheDir(), key+".json")
 }
 
+// matrixStoreKey converts a matrix baseline cache key (SHA-256 hex) into a
+// store.Key.  The matrix cache key already encodes all versioning inputs
+// (exe hash, target tree hash, flags), so RuleSetHash is unused.
+func matrixStoreKey(cacheKey string) store.Key {
+	b, _ := hex.DecodeString(cacheKey)
+	var fh [32]byte
+	copy(fh[:], b)
+	return store.Key{FileHash: fh, Kind: store.KindMatrix}
+}
+
 // tryLoadBaseline attempts to load a cached baseline report for the
 // given cache key. Returns (report, true) on a verified hit and
-// (nil, false) on any miss, error, or key mismatch — callers must be
-// prepared to fall through to a fresh run on miss.
-func tryLoadBaseline(key string) (*matrixCaseReport, bool) {
+// (nil, false) on any miss, error, or key mismatch.  When s is non-nil
+// it reads from the unified store; otherwise it falls back to the legacy
+// ~/.cache/krit/matrix-baseline file layout.
+func tryLoadBaseline(key string, s *store.FileStore) (*matrixCaseReport, bool) {
 	if key == "" {
 		return nil, false
 	}
-	path := matrixCachePath(key)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, false
+	var data []byte
+	if s != nil {
+		raw, ok := s.Get(matrixStoreKey(key))
+		if !ok {
+			return nil, false
+		}
+		data = raw
+	} else {
+		raw, err := os.ReadFile(matrixCachePath(key))
+		if err != nil {
+			return nil, false
+		}
+		data = raw
 	}
 	var entry matrixBaselineCacheEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
@@ -234,14 +256,15 @@ func tryLoadBaseline(key string) (*matrixCaseReport, bool) {
 
 // saveBaseline writes a freshly-computed baseline report to the cache.
 // All errors are swallowed — the cache is best-effort and must never
-// fail the outer matrix run.
-func saveBaseline(key string, report matrixCaseReport) {
+// fail the outer matrix run.  When s is non-nil it writes to the unified
+// store; otherwise it uses the legacy ~/.cache/krit/matrix-baseline layout.
+func saveBaseline(key string, report matrixCaseReport, s *store.FileStore) {
 	if key == "" {
 		return
 	}
 	sampleKeys := make([][]string, len(report.Samples))
-	for i, s := range report.Samples {
-		sampleKeys[i] = append([]string(nil), s.FindingKeys...)
+	for i, sm := range report.Samples {
+		sampleKeys[i] = append([]string(nil), sm.FindingKeys...)
 	}
 	entry := matrixBaselineCacheEntry{
 		KritVersion:       version,
@@ -252,6 +275,10 @@ func saveBaseline(key string, report matrixCaseReport) {
 	}
 	data, err := json.MarshalIndent(entry, "", "  ")
 	if err != nil {
+		return
+	}
+	if s != nil {
+		_ = s.Put(matrixStoreKey(key), data)
 		return
 	}
 	path := matrixCachePath(key)

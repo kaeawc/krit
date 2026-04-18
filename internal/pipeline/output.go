@@ -63,17 +63,30 @@ func (OutputPhase) Run(ctx context.Context, in OutputInput) (OutputResult, error
 		}
 	}
 
-	// Convert []*v2.Rule → []rules.Rule for FormatJSONColumns. Any rule
-	// whose v2→v1 conversion does not yield a rules.Rule is dropped
-	// (defensive — all 481 current rules satisfy rules.Rule via their
-	// V1* wrappers).
-	var activeRulesV1 []rules.Rule
-	for _, r := range in.FixupResult.ActiveRules {
-		if r == nil {
-			continue
-		}
-		if v1, ok := v2.ToV1(r).(rules.Rule); ok {
-			activeRulesV1 = append(activeRulesV1, v1)
+	// Promote warnings → errors before min-confidence / format dispatch.
+	if in.WarningsAsErrors {
+		columns.PromoteWarningsToErrors()
+	}
+
+	// Drop findings below the configured confidence threshold, if any.
+	if in.MinConfidence > 0 {
+		filtered := columns.FilterByMinConfidence(in.MinConfidence)
+		columns = &filtered
+	}
+
+	// Use the caller-supplied v1 rule slice when present; otherwise
+	// derive it from the v2 ActiveRules via ToV1. Any rule whose v2→v1
+	// conversion does not yield a rules.Rule is dropped (defensive —
+	// all 481 current rules satisfy rules.Rule via their V1* wrappers).
+	activeRulesV1 := in.ActiveRulesV1
+	if activeRulesV1 == nil {
+		for _, r := range in.FixupResult.ActiveRules {
+			if r == nil {
+				continue
+			}
+			if v1, ok := v2.ToV1(r).(rules.Rule); ok {
+				activeRulesV1 = append(activeRulesV1, v1)
+			}
 		}
 	}
 
@@ -89,10 +102,10 @@ func (OutputPhase) Run(ctx context.Context, in OutputInput) (OutputResult, error
 			fileCount,
 			ruleCount,
 			in.StartTime,
-			nil, // perfTimings — wired in Stage 6
+			in.PerfTimings,
 			activeRulesV1,
 			in.ExperimentNames,
-			nil, // cacheStats — wired in Stage 6
+			in.CacheStats,
 		); err != nil {
 			return OutputResult{}, fmt.Errorf("format json: %w", err)
 		}

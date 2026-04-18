@@ -31,6 +31,11 @@ type FixupInput struct {
 	// DryRunBinary, when true, runs binary fix application in dry-run
 	// mode (reports what would happen without modifying disk).
 	DryRunBinary bool
+	// CountOnly, when true, causes Run to execute the MaxFixLevel filter
+	// and populate StrippedByLevel/FixableCount without applying any
+	// text fixes. Useful for --dry-run callers that want the counts but
+	// not the side effects. Has no effect on ApplyBinary.
+	CountOnly bool
 }
 
 // FixupPhase applies auto-fixes (text and/or binary) that were attached
@@ -48,7 +53,7 @@ func (FixupPhase) Name() string { return "fixup" }
 // not cause Run itself to fail. Only catastrophic failures bubble up as
 // a non-nil error return.
 func (FixupPhase) Run(_ context.Context, in FixupInput) (FixupResult, error) {
-	if !in.Apply && !in.ApplyBinary {
+	if !in.Apply && !in.ApplyBinary && !in.CountOnly {
 		return FixupResult{CrossFileResult: in.CrossFileResult}, nil
 	}
 
@@ -57,15 +62,17 @@ func (FixupPhase) Run(_ context.Context, in FixupInput) (FixupResult, error) {
 	// Filter by fix level: strip text fixes whose rule exceeds the cap.
 	// Findings stay in the result; only the Fix pointer is dropped so
 	// downstream Output still reports them.
+	var strippedByLevel int
 	if in.MaxFixLevel > 0 {
 		ruleLevels := make(map[string]rules.FixLevel, len(rules.Registry))
 		for _, r := range rules.Registry {
 			ruleLevels[r.Name()] = rules.GetFixLevel(r)
 		}
-		columns.StripTextFixes(func(row int) bool {
+		strippedByLevel = columns.StripTextFixes(func(row int) bool {
 			return ruleLevels[columns.RuleAt(row)] > in.MaxFixLevel
 		})
 	}
+	fixableCount := columns.CountTextFixes()
 
 	var (
 		fixErrs       []error
@@ -93,9 +100,11 @@ func (FixupPhase) Run(_ context.Context, in FixupInput) (FixupResult, error) {
 		}
 	}
 
+	var binaryErrs []error
 	if in.ApplyBinary {
 		applied, errs := fixer.ApplyBinaryFixesBatchColumns(&columns, in.DryRunBinary)
 		binaryFixes = applied
+		binaryErrs = errs
 		fixErrs = append(fixErrs, errs...)
 	}
 
@@ -109,8 +118,13 @@ func (FixupPhase) Run(_ context.Context, in FixupInput) (FixupResult, error) {
 	result := FixupResult{
 		CrossFileResult: out,
 		AppliedFixes:    textFixes + binaryFixes,
+		TextApplied:     textFixes,
+		BinaryApplied:   binaryFixes,
+		StrippedByLevel: strippedByLevel,
+		FixableCount:    fixableCount,
 		ModifiedFiles:   modifiedFiles,
 		FixErrors:       fixErrs,
+		BinaryErrors:    binaryErrs,
 	}
 
 	// errors.Join on an empty slice returns nil — catastrophic failures

@@ -227,6 +227,102 @@ func TestFixupPhase_RespectsMaxFixLevel(t *testing.T) {
 	}
 }
 
+func TestFixupPhase_SplitsTextAndBinaryApplied(t *testing.T) {
+	// With only text fixes, TextApplied must equal AppliedFixes and
+	// BinaryApplied must be zero. Also covers StrippedByLevel/FixableCount
+	// population when MaxFixLevel is set.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Sample.kt")
+	if err := os.WriteFile(path, []byte("val x  =  1\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	columns := scanner.CollectFindings([]scanner.Finding{
+		{
+			File: path, Line: 1, Col: 1,
+			RuleSet: "style", Rule: "TrailingWhitespace",
+			Severity: "warning", Message: "cosmetic",
+			Fix: &scanner.Fix{StartLine: 1, EndLine: 1, Replacement: "val x = 1"},
+		},
+		{
+			File: path, Line: 1, Col: 1,
+			RuleSet: "naming", Rule: "BooleanPropertyNaming",
+			Severity: "warning", Message: "semantic (stripped)",
+			Fix: &scanner.Fix{StartLine: 1, EndLine: 1, Replacement: "val isDone = true"},
+		},
+	})
+
+	out, err := (FixupPhase{}).Run(context.Background(), FixupInput{
+		CrossFileResult: CrossFileResult{
+			DispatchResult: DispatchResult{Findings: columns},
+		},
+		Apply:       true,
+		MaxFixLevel: rules.FixCosmetic,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.TextApplied != 1 {
+		t.Errorf("TextApplied = %d, want 1", out.TextApplied)
+	}
+	if out.BinaryApplied != 0 {
+		t.Errorf("BinaryApplied = %d, want 0", out.BinaryApplied)
+	}
+	if out.AppliedFixes != out.TextApplied+out.BinaryApplied {
+		t.Errorf("AppliedFixes = %d, want TextApplied+BinaryApplied = %d",
+			out.AppliedFixes, out.TextApplied+out.BinaryApplied)
+	}
+	if out.StrippedByLevel != 1 {
+		t.Errorf("StrippedByLevel = %d, want 1", out.StrippedByLevel)
+	}
+	if out.FixableCount != 1 {
+		t.Errorf("FixableCount = %d, want 1 (post-strip)", out.FixableCount)
+	}
+}
+
+func TestFixupPhase_CountOnly(t *testing.T) {
+	// CountOnly should populate counts without touching disk.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Sample.kt")
+	original := "val x  =  1\n"
+	if err := os.WriteFile(path, []byte(original), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	columns := scanner.CollectFindings([]scanner.Finding{
+		{
+			File: path, Line: 1, Col: 1,
+			RuleSet: "style", Rule: "TrailingWhitespace",
+			Severity: "warning", Message: "cosmetic",
+			Fix: &scanner.Fix{StartLine: 1, EndLine: 1, Replacement: "val x = 1"},
+		},
+	})
+
+	out, err := (FixupPhase{}).Run(context.Background(), FixupInput{
+		CrossFileResult: CrossFileResult{
+			DispatchResult: DispatchResult{Findings: columns},
+		},
+		CountOnly: true,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.TextApplied != 0 || out.AppliedFixes != 0 {
+		t.Errorf("no fixes should be applied in CountOnly; got TextApplied=%d AppliedFixes=%d",
+			out.TextApplied, out.AppliedFixes)
+	}
+	if out.FixableCount != 1 {
+		t.Errorf("FixableCount = %d, want 1", out.FixableCount)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != original {
+		t.Errorf("file was modified in CountOnly mode: got %q, want %q", string(got), original)
+	}
+}
+
 func TestFixupPhase_PreservesFindings(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "Sample.kt")

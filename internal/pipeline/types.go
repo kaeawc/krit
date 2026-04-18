@@ -9,6 +9,7 @@ import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -134,14 +135,33 @@ type CrossFileResult struct {
 type FixupResult struct {
 	CrossFileResult
 	// AppliedFixes is the count of findings whose fix was applied to
-	// disk. Zero when --fix is not set.
+	// disk (text + binary combined). Zero when --fix is not set.
 	AppliedFixes int
+	// TextApplied is the count of text fixes applied to disk. Zero when
+	// Apply was false.
+	TextApplied int
+	// BinaryApplied is the count of binary fixes applied (or, when
+	// DryRunBinary is true, the count that would be applied). Zero when
+	// ApplyBinary was false.
+	BinaryApplied int
+	// StrippedByLevel is the number of text fixes dropped because their
+	// rule's fix level exceeded MaxFixLevel. Zero when MaxFixLevel is 0
+	// (no cap).
+	StrippedByLevel int
+	// FixableCount is the number of rows that still carry a text fix
+	// after the MaxFixLevel filter ran. Callers use this to decide
+	// whether there is anything to apply / report as available.
+	FixableCount int
 	// ModifiedFiles lists the files touched by Fixup, in stable order.
 	ModifiedFiles []string
 	// FixErrors captures non-fatal errors raised while applying text or
 	// binary fixes. Callers surface these to stderr; Fixup itself does
 	// not fail on per-file fix errors.
 	FixErrors []error
+	// BinaryErrors captures the subset of FixErrors that originated from
+	// binary fix application. Callers that distinguish text vs binary in
+	// their stderr output can use this slice directly.
+	BinaryErrors []error
 }
 
 // OutputInput is the entry value for the Output phase. Output is the
@@ -176,6 +196,22 @@ type OutputInput struct {
 	// ExperimentNames are the active experiment flag names, echoed in
 	// JSON output.
 	ExperimentNames []string
+	// PerfTimings, when non-nil, are forwarded into FormatJSONColumns
+	// so the JSON header includes a --perf timing summary.
+	PerfTimings []perf.TimingEntry
+	// CacheStats, when non-nil, are forwarded into FormatJSONColumns so
+	// the JSON header includes cache hit/miss counters.
+	CacheStats *cache.CacheStats
+	// WarningsAsErrors, when true, promotes warning-severity findings
+	// to errors before format dispatch.
+	WarningsAsErrors bool
+	// MinConfidence, when >0, drops findings whose confidence is below
+	// the threshold before format dispatch.
+	MinConfidence float64
+	// ActiveRulesV1, when non-nil, overrides the v2→v1 conversion that
+	// Output would otherwise derive from FixupResult.ActiveRules. Main
+	// already has the v1 rule slice handy, so it can skip the conversion.
+	ActiveRulesV1 []rules.Rule
 }
 
 // OutputResult captures post-Output metadata.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"flag"
 	"fmt"
@@ -21,10 +22,8 @@ import (
 	"github.com/kaeawc/krit/internal/store"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/experiment"
-	"github.com/kaeawc/krit/internal/fixer"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
-	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
@@ -1503,15 +1502,27 @@ potential-bugs:
 		os.Exit(runDeadCodeRemovalColumns(allColumns, effectiveFormat, *dryRunFlag, *fixSuffix))
 	}
 
-	// Filter fixes by level and count
-	fixableCount := 0
-	strippedByLevel := 0
+	// Apply (or dry-run) fixes if requested via the Fixup pipeline phase.
 	if *fixFlag || *dryRunFlag {
-		fixableCount, strippedByLevel = filterFixesByLevelColumns(allColumns, rules.Registry, maxFixLevel)
-	}
+		fixRes, _ := (pipeline.FixupPhase{}).Run(context.Background(), pipeline.FixupInput{
+			CrossFileResult: pipeline.CrossFileResult{
+				DispatchResult: pipeline.DispatchResult{
+					Findings: *allColumns,
+				},
+			},
+			Apply:        *fixFlag && !*dryRunFlag,
+			ApplyBinary:  *fixBinaryFlag,
+			Suffix:       *fixSuffix,
+			MaxFixLevel:  maxFixLevel,
+			DryRunBinary: *dryRunFlag,
+			CountOnly:    *dryRunFlag,
+		})
+		postColumns := fixRes.Findings
+		allColumns = &postColumns
 
-	// Apply fixes if requested
-	if *fixFlag || *dryRunFlag {
+		fixableCount := fixRes.FixableCount
+		strippedByLevel := fixRes.StrippedByLevel
+
 		if fixableCount == 0 {
 			if !*quietFlag {
 				if strippedByLevel > 0 {
@@ -1538,8 +1549,15 @@ potential-bugs:
 				fmt.Fprintf(os.Stderr, "info: %d fix(es) available across %d file(s).\n", fixableCount, len(seen))
 			}
 		} else {
-			totalFixes, filesModified, fixErrs := fixer.ApplyAllFixesColumns(allColumns, *fixSuffix)
-			for _, e := range fixErrs {
+			// Text fix errors: everything in FixErrors minus BinaryErrors.
+			binarySet := make(map[error]bool, len(fixRes.BinaryErrors))
+			for _, e := range fixRes.BinaryErrors {
+				binarySet[e] = true
+			}
+			for _, e := range fixRes.FixErrors {
+				if binarySet[e] {
+					continue
+				}
 				fmt.Fprintf(os.Stderr, "error: %v\n", e)
 			}
 			if !*quietFlag {
@@ -1548,22 +1566,21 @@ potential-bugs:
 					suffix = "with suffix '" + *fixSuffix + "'"
 				}
 				fmt.Fprintf(os.Stderr, "info: Applied %d fix(es) across %d file(s) %s in %v.\n",
-					totalFixes, filesModified, suffix, time.Since(start).Round(time.Millisecond))
+					fixRes.TextApplied, len(fixRes.ModifiedFiles), suffix, time.Since(start).Round(time.Millisecond))
 			}
 		}
 
-		// Apply binary fixes if requested
+		// Binary fix reporting
 		if *fixBinaryFlag {
-			binaryApplied, binaryErrs := fixer.ApplyBinaryFixesBatchColumns(allColumns, *dryRunFlag)
-			for _, e := range binaryErrs {
+			for _, e := range fixRes.BinaryErrors {
 				fmt.Fprintf(os.Stderr, "error: binary fix: %v\n", e)
 			}
-			if binaryApplied > 0 && !*quietFlag {
+			if fixRes.BinaryApplied > 0 && !*quietFlag {
 				mode := "applied"
 				if *dryRunFlag {
 					mode = "available"
 				}
-				fmt.Fprintf(os.Stderr, "info: %d binary fix(es) %s.\n", binaryApplied, mode)
+				fmt.Fprintf(os.Stderr, "info: %d binary fix(es) %s.\n", fixRes.BinaryApplied, mode)
 			}
 		}
 
@@ -1612,18 +1629,6 @@ potential-bugs:
 			}
 			f.Close()
 		}
-	}
-
-	// Elevate warnings to errors before output if requested
-	warningsAsErrors := *warningsAsErrorsFlag || cfg.GetTopLevelBool("warningsAsErrors", false)
-	if warningsAsErrors {
-		allColumns.PromoteWarningsToErrors()
-	}
-
-	// Drop findings below the configured confidence threshold, if any.
-	if *minConfidenceFlag > 0 {
-		filtered := allColumns.FilterByMinConfidence(*minConfidenceFlag)
-		allColumns = &filtered
 	}
 
 	// Surface Oracle.Stats() hit/miss counters to stderr when --perf is on.
@@ -1688,25 +1693,39 @@ potential-bugs:
 		}))
 	}
 
-	var formatErr error
-	switch effectiveFormat {
-	case "json":
-		formatErr = output.FormatJSONColumns(w, allColumns, version, len(parsedFiles), len(activeRules),
-			start, perfTimings, activeRules, experiment.Current().Names(), cacheStats)
-	case "plain":
-		output.FormatPlainColumns(w, allColumns)
-	case "sarif":
-		formatErr = output.FormatSARIFColumns(w, allColumns, version)
-	case "checkstyle":
-		output.FormatCheckstyleColumns(w, allColumns)
-	default:
-		fmt.Fprintf(os.Stderr, "error: unknown format: %s\n", effectiveFormat)
+	warningsAsErrors := *warningsAsErrorsFlag || cfg.GetTopLevelBool("warningsAsErrors", false)
+	outRes, outErr := (pipeline.OutputPhase{}).Run(context.Background(), pipeline.OutputInput{
+		FixupResult: pipeline.FixupResult{
+			CrossFileResult: pipeline.CrossFileResult{
+				DispatchResult: pipeline.DispatchResult{
+					IndexResult: pipeline.IndexResult{
+						ParseResult: pipeline.ParseResult{
+							KotlinFiles: parsedFiles,
+							Paths:       paths,
+						},
+					},
+					Findings: *allColumns,
+				},
+			},
+		},
+		Writer:           w,
+		Format:           effectiveFormat,
+		BasePath:         basePath,
+		StartTime:        start,
+		Version:          version,
+		ExperimentNames:  experiment.Current().Names(),
+		PerfTimings:      perfTimings,
+		CacheStats:       cacheStats,
+		WarningsAsErrors: warningsAsErrors,
+		MinConfidence:    *minConfidenceFlag,
+		ActiveRulesV1:    activeRules,
+	})
+	if outErr != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", outErr)
 		os.Exit(2)
 	}
-	if formatErr != nil {
-		fmt.Fprintf(os.Stderr, "error: output format %s: %v\n", effectiveFormat, formatErr)
-		os.Exit(2)
-	}
+	finalColumns := outRes.FinalFindings
+	allColumns = &finalColumns
 
 	if !*quietFlag {
 		findingCount := allColumns.Len()

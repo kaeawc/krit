@@ -199,9 +199,10 @@ func applyAndCompare(t *testing.T, ktPath, baseName string, findings []scanner.F
 		findings[i].File = tmpPath
 	}
 
-	nFixes, fixErr := fixer.ApplyFixes(tmpPath, findings, "")
-	if fixErr != nil {
-		t.Fatalf("ApplyFixes error: %v", fixErr)
+	columns := scanner.CollectFindings(findings)
+	nFixes, _, fixErrs := fixer.ApplyAllFixesColumns(&columns, "")
+	if len(fixErrs) > 0 {
+		t.Fatalf("ApplyAllFixesColumns error: %v", fixErrs[0])
 	}
 	if nFixes == 0 {
 		t.Fatalf("no fixes applied for %s (had %d fixable findings)", name, len(findings))

@@ -11,18 +11,6 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// splitByMode separates findings into byte-mode and line-mode fixes.
-func splitByMode(fixes []scanner.Finding) (byteFixes, lineFixes []scanner.Finding) {
-	for _, f := range fixes {
-		if f.Fix.ByteMode {
-			byteFixes = append(byteFixes, f)
-		} else {
-			lineFixes = append(lineFixes, f)
-		}
-	}
-	return
-}
-
 type textFixRow struct {
 	rule string
 	line int
@@ -82,164 +70,6 @@ func countParseErrors(content []byte) int {
 type FixResult struct {
 	Applied      int
 	DroppedFixes []DroppedFix
-}
-
-// ApplyFixes applies all fixes for a single file.
-// If suffix is empty, edits the file in place. Otherwise writes to path+suffix.
-// Fixes are applied in reverse order (bottom-up) to preserve line/byte offsets.
-// If validate is true, the result is parsed to check for new syntax errors.
-// Returns the number of fixes applied.
-func ApplyFixes(path string, findings []scanner.Finding, suffix string) (int, error) {
-	return ApplyFixesWithValidation(path, findings, suffix, false)
-}
-
-// ApplyFixesWithValidation is like ApplyFixes but with an opt-in validation flag.
-func ApplyFixesWithValidation(path string, findings []scanner.Finding, suffix string, validate bool) (int, error) {
-	res, err := ApplyFixesDetailed(path, findings, suffix, validate)
-	return res.Applied, err
-}
-
-// ApplyFixesDetailed is like ApplyFixes but returns a FixResult with dropped fix info.
-func ApplyFixesDetailed(path string, findings []scanner.Finding, suffix string, validate bool) (FixResult, error) {
-	// Filter to findings with fixes for this file
-	var fixes []scanner.Finding
-	for _, f := range findings {
-		if f.File == path && f.Fix != nil {
-			fixes = append(fixes, f)
-		}
-	}
-	if len(fixes) == 0 {
-		return FixResult{}, nil
-	}
-
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return FixResult{}, err
-	}
-
-	// Separate byte-mode and line-mode fixes
-	byteFixes, lineFixes := splitByMode(fixes)
-
-	// Mixed-mode rejection: byte and line fixes cannot be safely combined
-	// in a single pass (line-mode edits would shift byte offsets the
-	// byte-mode pass already captured). Surface this as an error rather
-	// than silently dropping one mode's fixes.
-	if len(byteFixes) > 0 && len(lineFixes) > 0 {
-		return FixResult{}, fmt.Errorf(
-			"mixed-mode fixes in %s: %d byte-mode fix(es) and %d line-mode fix(es) cannot be combined; rules %s",
-			path, len(byteFixes), len(lineFixes), mixedModeRules(byteFixes, lineFixes))
-	}
-
-	result := string(content)
-
-	var droppedFixes []DroppedFix
-
-	// Apply byte-mode fixes first (more precise), in reverse order
-	if len(byteFixes) > 0 {
-		sort.Slice(byteFixes, func(i, j int) bool {
-			return byteFixes[i].Fix.StartByte > byteFixes[j].Fix.StartByte
-		})
-		// Deduplicate overlapping byte ranges
-		var byteDropped []DroppedFix
-		byteFixes, byteDropped = deduplicateFixesReverse(byteFixes, findingByteEnd, findingByteStart, findingDropped)
-		droppedFixes = append(droppedFixes, byteDropped...)
-		buf := []byte(result)
-		for _, f := range byteFixes {
-			fix := f.Fix
-			if fix.StartByte < 0 || fix.EndByte > len(buf) || fix.StartByte > fix.EndByte {
-				continue
-			}
-			buf = append(buf[:fix.StartByte], append([]byte(fix.Replacement), buf[fix.EndByte:]...)...)
-		}
-		result = string(buf)
-	}
-
-	// Apply line-mode fixes in reverse order
-	if len(lineFixes) > 0 {
-		sort.Slice(lineFixes, func(i, j int) bool {
-			return lineFixes[i].Fix.StartLine > lineFixes[j].Fix.StartLine
-		})
-		var lineDropped []DroppedFix
-		lineFixes, lineDropped = deduplicateFixesReverse(lineFixes, findingLineEnd, findingLineStart, findingDropped)
-		droppedFixes = append(droppedFixes, lineDropped...)
-		lines := strings.Split(result, "\n")
-		for _, f := range lineFixes {
-			fix := f.Fix
-			start := fix.StartLine - 1 // 1-indexed to 0-indexed
-			end := fix.EndLine
-			if start < 0 || end > len(lines) || start > end {
-				continue
-			}
-			replacement := strings.Split(fix.Replacement, "\n")
-			// If replacement is empty string, we're deleting lines
-			if fix.Replacement == "" {
-				replacement = nil
-			}
-			newLines := make([]string, 0, len(lines)-end+start+len(replacement))
-			newLines = append(newLines, lines[:start]...)
-			newLines = append(newLines, replacement...)
-			newLines = append(newLines, lines[end:]...)
-			lines = newLines
-		}
-		result = strings.Join(lines, "\n")
-	}
-
-	// Log dropped fixes
-	for _, d := range droppedFixes {
-		log.Printf("warning: dropped overlapping fix for rule %s in %s at line %d", d.Rule, d.File, d.Line)
-	}
-	if len(droppedFixes) > 0 {
-		log.Printf("warning: %d fix(es) dropped due to overlapping conflicts in %s", len(droppedFixes), path)
-	}
-
-	// Only write if content changed
-	if result == string(content) {
-		return FixResult{DroppedFixes: droppedFixes}, nil
-	}
-
-	// Post-fix validation (opt-in)
-	if validate {
-		if err := ValidateFixResult(path, content, []byte(result)); err != nil {
-			return FixResult{DroppedFixes: droppedFixes}, fmt.Errorf("fix validation failed for %s: %w", path, err)
-		}
-	}
-
-	outPath := path
-	if suffix != "" {
-		outPath = path + suffix
-	}
-	err = os.WriteFile(outPath, []byte(result), 0644)
-	if err != nil {
-		return FixResult{DroppedFixes: droppedFixes}, err
-	}
-
-	return FixResult{Applied: len(fixes), DroppedFixes: droppedFixes}, nil
-}
-
-// ApplyAllFixes applies fixes across all files.
-// If suffix is empty, edits files in place. Otherwise writes to path+suffix.
-// Returns total fixes applied and files modified.
-func ApplyAllFixes(findings []scanner.Finding, suffix string) (totalFixes int, filesModified int, errors []error) {
-	// Group findings by file
-	byFile := make(map[string][]scanner.Finding)
-	for _, f := range findings {
-		if f.Fix != nil {
-			byFile[f.File] = append(byFile[f.File], f)
-		}
-	}
-
-	for path, fileFindings := range byFile {
-		n, err := ApplyFixes(path, fileFindings, suffix)
-		if err != nil {
-			errors = append(errors, fmt.Errorf("%s: %w", path, err))
-			continue
-		}
-		if n > 0 {
-			totalFixes += n
-			filesModified++
-		}
-	}
-	return
 }
 
 // ApplyAllFixesColumns applies text fixes from columnar findings across all files.
@@ -384,14 +214,8 @@ func applyFixesDetailedColumns(path string, columns *scanner.FindingColumns, row
 	return FixResult{Applied: len(fixes), DroppedFixes: droppedFixes}, nil
 }
 
-// mixedModeRules returns a compact "[byte: A,B | line: C,D]" description
+// mixedModeRulesRows returns a compact "[byte: A,B | line: C,D]" description
 // of which rules emitted which mode when a mixed-mode conflict occurs.
-func mixedModeRules(byteFixes, lineFixes []scanner.Finding) string {
-	byteNames := uniqueNames(len(byteFixes), func(i int) string { return byteFixes[i].Rule })
-	lineNames := uniqueNames(len(lineFixes), func(i int) string { return lineFixes[i].Rule })
-	return fmt.Sprintf("[byte: %s | line: %s]", strings.Join(byteNames, ","), strings.Join(lineNames, ","))
-}
-
 func mixedModeRulesRows(byteFixes, lineFixes []textFixRow) string {
 	byteNames := uniqueNames(len(byteFixes), func(i int) string { return byteFixes[i].rule })
 	lineNames := uniqueNames(len(lineFixes), func(i int) string { return lineFixes[i].rule })

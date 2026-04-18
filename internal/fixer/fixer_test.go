@@ -27,6 +27,58 @@ func readFile(t *testing.T, path string) string {
 	return string(data)
 }
 
+// ApplyFixes / ApplyFixesWithValidation / ApplyFixesDetailed are test-only
+// shims that preserve the old API shape by routing through the columnar
+// fixer entry point. They exist so the test suite can continue to exercise
+// per-file fix application without a wholesale rewrite.
+func ApplyFixes(path string, findings []scanner.Finding, suffix string) (int, error) {
+	return ApplyFixesWithValidation(path, findings, suffix, false)
+}
+
+func ApplyFixesWithValidation(path string, findings []scanner.Finding, suffix string, validate bool) (int, error) {
+	res, err := ApplyFixesDetailed(path, findings, suffix, validate)
+	return res.Applied, err
+}
+
+func ApplyFixesDetailed(path string, findings []scanner.Finding, suffix string, validate bool) (FixResult, error) {
+	filtered := make([]scanner.Finding, 0, len(findings))
+	for _, f := range findings {
+		if f.File == path && f.Fix != nil {
+			filtered = append(filtered, f)
+		}
+	}
+	if len(filtered) == 0 {
+		return FixResult{}, nil
+	}
+	columns := scanner.CollectFindings(filtered)
+	rows := make([]int, 0, columns.Len())
+	for i := 0; i < columns.Len(); i++ {
+		if columns.HasFix(i) {
+			rows = append(rows, i)
+		}
+	}
+	return applyFixesDetailedColumns(path, &columns, rows, suffix, validate)
+}
+
+func ApplyAllFixes(findings []scanner.Finding, suffix string) (int, int, []error) {
+	columns := scanner.CollectFindings(findings)
+	return ApplyAllFixesColumns(&columns, suffix)
+}
+
+// splitByMode is a test-only helper kept after the production splitByMode
+// was deleted with ApplyFixesDetailed. It mirrors the old semantics so
+// the few remaining split-by-mode tests continue to pass.
+func splitByMode(fixes []scanner.Finding) (byteFixes, lineFixes []scanner.Finding) {
+	for _, f := range fixes {
+		if f.Fix != nil && f.Fix.ByteMode {
+			byteFixes = append(byteFixes, f)
+		} else {
+			lineFixes = append(lineFixes, f)
+		}
+	}
+	return
+}
+
 func finding(file string, fix *scanner.Fix) scanner.Finding {
 	return scanner.Finding{
 		File:     file,

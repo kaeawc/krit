@@ -377,9 +377,11 @@ func safeCheckV2Node(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scann
 	}()
 
 	ctx := &v2.Context{
-		File: file,
-		Node: node,
-		Idx:  idx,
+		File:              file,
+		Node:              node,
+		Idx:               idx,
+		Rule:              r,
+		DefaultConfidence: 0.95,
 	}
 	r.Check(ctx)
 	stampV2Findings(ctx.Findings, r, file)
@@ -400,7 +402,7 @@ func (d *V2Dispatcher) runLineRule(r *v2.Rule, file *scanner.File, stats *RunSta
 			results = nil
 		}
 	}()
-	ctx := &v2.Context{File: file}
+	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75}
 	r.Check(ctx)
 	stampV2Findings(ctx.Findings, r, file)
 	return ctx.Findings
@@ -421,7 +423,7 @@ func (d *V2Dispatcher) runLegacyRule(r *v2.Rule, file *scanner.File, stats *RunS
 			results = nil
 		}
 	}()
-	ctx := &v2.Context{File: file}
+	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.50}
 	r.Check(ctx)
 	stampV2Findings(ctx.Findings, r, file)
 	return ctx.Findings

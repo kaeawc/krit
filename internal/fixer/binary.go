@@ -147,170 +147,160 @@ func ApplyBinaryFixes(findings []scanner.Finding, dryRun bool) (applied int, err
 // references (e.g. "icon.png" in source code), the fix is downgraded to
 // HintOnly and skipped. Pass nil to skip reference validation.
 func ApplyBinaryFixesBatch(findings []scanner.Finding, dryRun bool, searchDirs ...[]string) (applied int, errors []error) {
-	var refDirs []string
-	if len(searchDirs) > 0 {
-		refDirs = searchDirs[0]
-	}
-	// Partition findings into categories.
-	var conversions, creates, moves, deletions, optimizations []scanner.Finding
-	for _, f := range findings {
-		if f.BinaryFix == nil {
-			continue
-		}
-		if f.BinaryFix.HintOnly {
-			continue
-		}
-		switch f.BinaryFix.Type {
-		case scanner.BinaryFixConvertWebP:
-			conversions = append(conversions, f)
-		case scanner.BinaryFixDeleteFile:
-			deletions = append(deletions, f)
-		case scanner.BinaryFixCreateFile:
-			creates = append(creates, f)
-		case scanner.BinaryFixMoveFile:
-			moves = append(moves, f)
-		case scanner.BinaryFixOptimizePNG:
-			optimizations = append(optimizations, f)
+	var fixes []*scanner.BinaryFix
+	for i := range findings {
+		if findings[i].BinaryFix != nil {
+			fixes = append(fixes, findings[i].BinaryFix)
 		}
 	}
-
-	// Track which source paths were successfully converted, so we know
-	// it is safe to honour DeleteSource and explicit delete findings.
-	converted := make(map[string]bool)
-
-	// First pass: apply all conversions (with safety validation).
-	for i := range conversions {
-		f := &conversions[i]
-
-		// Always run safety checks (animated assets, minSdk).
-		refs, safetyErr := ValidateBinaryFix(f.BinaryFix, refDirs)
-		if safetyErr != nil {
-			// Safety failure: animated asset or minSdk incompatibility.
-			f.BinaryFix.HintOnly = true
-			f.BinaryFix.Description = fmt.Sprintf("skipped: %s", safetyErr.Error())
-			errors = append(errors, fmt.Errorf(
-				"skipped conversion of %s: %s",
-				f.BinaryFix.SourcePath, safetyErr.Error(),
-			))
-			continue
-		}
-		if len(refs) > 0 {
-			// Downgrade to hint-only: direct file references exist.
-			f.BinaryFix.HintOnly = true
-			f.BinaryFix.Description = fmt.Sprintf(
-				"skipped: %d direct reference(s) to %q would break after conversion",
-				len(refs), filepath.Base(f.BinaryFix.SourcePath),
-			)
-			errors = append(errors, fmt.Errorf(
-				"skipped conversion of %s: %d direct file reference(s) found",
-				f.BinaryFix.SourcePath, len(refs),
-			))
-			continue
-		}
-		err := convertToWebP(f.BinaryFix.SourcePath, f.BinaryFix.TargetPath, dryRun)
-		if err != nil {
-			errors = append(errors, err)
-			continue
-		}
-		applied++
-		converted[f.BinaryFix.SourcePath] = true
-	}
-
-	// Second pass: optimizations.
-	for _, f := range optimizations {
-		err := optimizePNG(f.BinaryFix.SourcePath, dryRun)
-		if err != nil {
-			errors = append(errors, err)
-		} else {
-			applied++
-		}
-	}
-
-	// Third pass: file creations.
-	for _, f := range creates {
-		if dryRun {
-			applied++
-			continue
-		}
-		dir := filepath.Dir(f.BinaryFix.TargetPath)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			errors = append(errors, fmt.Errorf("mkdir %s: %w", dir, err))
-			continue
-		}
-		if err := os.WriteFile(f.BinaryFix.TargetPath, f.BinaryFix.Content, 0644); err != nil {
-			errors = append(errors, fmt.Errorf("create %s: %w", f.BinaryFix.TargetPath, err))
-		} else {
-			applied++
-		}
-	}
-
-	// Fourth pass: file moves.
-	for _, f := range moves {
-		if dryRun {
-			applied++
-			continue
-		}
-		dir := filepath.Dir(f.BinaryFix.TargetPath)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			errors = append(errors, fmt.Errorf("mkdir %s: %w", dir, err))
-			continue
-		}
-		if err := os.Rename(f.BinaryFix.SourcePath, f.BinaryFix.TargetPath); err != nil {
-			errors = append(errors, fmt.Errorf("move %s -> %s: %w", f.BinaryFix.SourcePath, f.BinaryFix.TargetPath, err))
-		} else {
-			applied++
-		}
-	}
-
-	// Fifth pass: delete source files where conversion succeeded and
-	// DeleteSource was requested.
-	for _, f := range conversions {
-		if !f.BinaryFix.DeleteSource {
-			continue
-		}
-		if !converted[f.BinaryFix.SourcePath] {
-			continue // conversion failed; do not delete source
-		}
-		if dryRun {
-			continue // already counted in first pass
-		}
-		if err := os.Remove(f.BinaryFix.SourcePath); err != nil {
-			errors = append(errors, fmt.Errorf("delete source %s: %w", f.BinaryFix.SourcePath, err))
-		}
-	}
-
-	// Sixth pass: explicit BinaryFixDeleteFile findings.
-	for _, f := range deletions {
-		if dryRun {
-			applied++
-			continue
-		}
-		if err := os.Remove(f.BinaryFix.SourcePath); err != nil {
-			errors = append(errors, fmt.Errorf("delete %s: %w", f.BinaryFix.SourcePath, err))
-		} else {
-			applied++
-		}
-	}
-
-	return
+	return applyBinaryFixesBatchRaw(fixes, dryRun, searchDirs...)
 }
 
 // ApplyBinaryFixesBatchColumns applies binary fixes from columnar findings in the
-// same safe order as ApplyBinaryFixesBatch while reconstructing only binary-fix rows.
+// same safe order as ApplyBinaryFixesBatch, working directly with columnar data.
 func ApplyBinaryFixesBatchColumns(columns *scanner.FindingColumns, dryRun bool, searchDirs ...[]string) (applied int, errors []error) {
 	if columns == nil || columns.Len() == 0 {
 		return 0, nil
 	}
 
-	findings := make([]scanner.Finding, 0)
+	var fixes []*scanner.BinaryFix
 	columns.VisitRowsWithBinaryFixes(func(row int) {
-		findings = append(findings, scanner.Finding{
-			File:      columns.FileAt(row),
-			Rule:      columns.RuleAt(row),
-			BinaryFix: columns.BinaryFixAt(row),
-		})
+		if bf := columns.BinaryFixAt(row); bf != nil {
+			fixes = append(fixes, bf)
+		}
 	})
-	return ApplyBinaryFixesBatch(findings, dryRun, searchDirs...)
+	return applyBinaryFixesBatchRaw(fixes, dryRun, searchDirs...)
+}
+
+// applyBinaryFixesBatchRaw is the core implementation shared by ApplyBinaryFixesBatch
+// and ApplyBinaryFixesBatchColumns, operating on raw *BinaryFix pointers.
+func applyBinaryFixesBatchRaw(fixes []*scanner.BinaryFix, dryRun bool, searchDirs ...[]string) (applied int, errors []error) {
+	var refDirs []string
+	if len(searchDirs) > 0 {
+		refDirs = searchDirs[0]
+	}
+	var conversions, creates, moves, deletions, optimizations []*scanner.BinaryFix
+	for _, bf := range fixes {
+		if bf == nil || bf.HintOnly {
+			continue
+		}
+		switch bf.Type {
+		case scanner.BinaryFixConvertWebP:
+			conversions = append(conversions, bf)
+		case scanner.BinaryFixDeleteFile:
+			deletions = append(deletions, bf)
+		case scanner.BinaryFixCreateFile:
+			creates = append(creates, bf)
+		case scanner.BinaryFixMoveFile:
+			moves = append(moves, bf)
+		case scanner.BinaryFixOptimizePNG:
+			optimizations = append(optimizations, bf)
+		}
+	}
+	return applyBinaryFixPartitions(conversions, creates, moves, deletions, optimizations, dryRun, refDirs)
+}
+
+// applyBinaryFixPartitions runs the 6-pass ordered apply logic on pre-partitioned fix slices.
+// Order: conversions → optimizations → creates → moves → (delete-source for conversions) → explicit deletions.
+func applyBinaryFixPartitions(
+	conversions, creates, moves, deletions, optimizations []*scanner.BinaryFix,
+	dryRun bool,
+	refDirs []string,
+) (applied int, errors []error) {
+	// Pass 1: WebP conversions (with safety validation).
+	for _, bf := range conversions {
+		refs, err := ValidateBinaryFix(&scanner.BinaryFix{
+			Type:       bf.Type,
+			SourcePath: bf.SourcePath,
+			TargetPath: bf.TargetPath,
+			MinSdk:     bf.MinSdk,
+		}, refDirs)
+		if err != nil {
+			errors = append(errors, err)
+			continue
+		}
+		if len(refs) > 0 {
+			bf.HintOnly = true
+			continue
+		}
+		err = convertToWebP(bf.SourcePath, bf.TargetPath, dryRun)
+		if err != nil {
+			errors = append(errors, err)
+			continue
+		}
+		applied++
+	}
+
+	// Pass 2: PNG optimizations.
+	for _, bf := range optimizations {
+		if err := optimizePNG(bf.SourcePath, dryRun); err != nil {
+			errors = append(errors, err)
+		} else {
+			applied++
+		}
+	}
+
+	// Pass 3: file creates.
+	for _, bf := range creates {
+		if dryRun {
+			applied++
+			continue
+		}
+		dir := filepath.Dir(bf.TargetPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			errors = append(errors, fmt.Errorf("mkdir %s: %w", dir, err))
+			continue
+		}
+		if err := os.WriteFile(bf.TargetPath, bf.Content, 0644); err != nil {
+			errors = append(errors, fmt.Errorf("create %s: %w", bf.TargetPath, err))
+		} else {
+			applied++
+		}
+	}
+
+	// Pass 4: file moves.
+	for _, bf := range moves {
+		if dryRun {
+			applied++
+			continue
+		}
+		dir := filepath.Dir(bf.TargetPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			errors = append(errors, fmt.Errorf("mkdir %s: %w", dir, err))
+			continue
+		}
+		if err := os.Rename(bf.SourcePath, bf.TargetPath); err != nil {
+			errors = append(errors, fmt.Errorf("move %s -> %s: %w", bf.SourcePath, bf.TargetPath, err))
+		} else {
+			applied++
+		}
+	}
+
+	// Pass 5: delete source files for conversions that succeeded (DeleteSource flag).
+	if !dryRun {
+		for _, bf := range conversions {
+			if bf.HintOnly || !bf.DeleteSource {
+				continue
+			}
+			if err := os.Remove(bf.SourcePath); err != nil {
+				errors = append(errors, fmt.Errorf("delete source %s: %w", bf.SourcePath, err))
+			}
+		}
+	}
+
+	// Pass 6: explicit deletions.
+	for _, bf := range deletions {
+		if dryRun {
+			applied++
+			continue
+		}
+		if err := os.Remove(bf.SourcePath); err != nil {
+			errors = append(errors, fmt.Errorf("delete %s: %w", bf.SourcePath, err))
+		} else {
+			applied++
+		}
+	}
+	return
 }
 
 // convertToWebP converts an image file to WebP format using cwebp.

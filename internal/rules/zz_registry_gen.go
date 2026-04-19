@@ -858,7 +858,7 @@ func registerAllRules() {
 		r := &SetTextI18nRule{AndroidRule: alcRule("SetTextI18n", "TextView with internationalization issues", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Needs: v2.NeedsLinePass, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				for _, f := range r.CheckLines(ctx.File) {
 					ctx.Emit(f)
@@ -2605,722 +2605,1591 @@ func registerAllRules() {
 	}
 
 	// --- from android_resource_a11y.go ---
-	v2.Register(WrapAsV2(&HardcodedValuesResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "HardcodedValuesResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "HardcodedText",
-		Brief:      "Hardcoded text in layout XML",
-		Category:   ALCI18N,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MissingContentDescriptionResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MissingContentDescriptionResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ContentDescription",
-		Brief:      "Image without contentDescription",
-		Category:   ALCAccessibility,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&LabelForResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "LabelForResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "LabelFor",
-		Brief:      "EditText without a corresponding labelFor",
-		Category:   ALCAccessibility,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ClickableViewAccessibilityResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ClickableViewAccessibilityResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ClickableViewAccessibility",
-		Brief:      "Clickable view missing contentDescription",
-		Category:   ALCAccessibility,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&BackButtonResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "BackButtonResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "BackButton",
-		Brief:      "Explicit back button in layout",
-		Category:   ALCUsability,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ButtonCaseResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ButtonCaseResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ButtonCase",
-		Brief:      "OK/Cancel button with wrong capitalization",
-		Category:   ALCUsability,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ButtonOrderResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ButtonOrderResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ButtonOrder",
-		Brief:      "Cancel button should appear before OK button",
-		Category:   ALCUsability,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ButtonStyleResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ButtonStyleResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ButtonStyle",
-		Brief:      "Dialog button without borderless style",
-		Category:   ALCUsability,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&LayoutClickableWithoutMinSizeRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "LayoutClickableWithoutMinSize", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ClickableMinSize",
-		Brief:      "Clickable view below 48dp",
-		Category:   ALCAccessibility,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "krit",
-	}}))
-	v2.Register(WrapAsV2(&LayoutEditTextMissingImportanceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "LayoutEditTextMissingImportance", RuleSetName: androidRuleSet, Sev: "info"},
-		IssueID:    "AutofillImportance",
-		Brief:      "EditText missing importantForAutofill",
-		Category:   ALCAccessibility,
-		ALSeverity: ALSInformational,
-		Priority:   4,
-		Origin:     "krit",
-	}}))
-	v2.Register(WrapAsV2(&LayoutImportantForAccessibilityNoRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "LayoutImportantForAccessibilityNo", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ImportantForAccessibility",
-		Brief:      "Interactive view hidden from accessibility",
-		Category:   ALCAccessibility,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "krit",
-	}}))
-	v2.Register(WrapAsV2(&LayoutAutofillHintMismatchRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "LayoutAutofillHintMismatch", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "AutofillHintMismatch",
-		Brief:      "inputType without matching autofillHints",
-		Category:   ALCAccessibility,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "krit",
-	}}))
-	v2.Register(WrapAsV2(&LayoutMinTouchTargetInButtonRowRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "LayoutMinTouchTargetInButtonRow", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "MinTouchTargetInButtonRow",
-		Brief:      "Button in row without 48dp min height",
-		Category:   ALCAccessibility,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "krit",
-	}}))
-	v2.Register(WrapAsV2(&StringNotSelectableRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "StringNotSelectable", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "TextNotSelectable",
-		Brief:      "Non-selectable text with URLs or phone numbers",
-		Category:   ALCAccessibility,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "krit",
-	}}))
-	v2.Register(WrapAsV2(&StringRepeatedInContentDescriptionRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "StringRepeatedInContentDescription", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "RepeatedContentDescription",
-		Brief:      "contentDescription duplicates visible text",
-		Category:   ALCAccessibility,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "krit",
-	}}))
-	v2.Register(WrapAsV2(&StringSpanInContentDescriptionRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "StringSpanInContentDescription", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "SpanInContentDescription",
-		Brief:      "String with HTML used in contentDescription",
-		Category:   ALCAccessibility,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "krit",
-	}}))
+	{
+		r := &HardcodedValuesResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "HardcodedValuesResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "HardcodedText",
+			Brief:      "Hardcoded text in layout XML",
+			Category:   ALCI18N,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MissingContentDescriptionResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MissingContentDescriptionResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ContentDescription",
+			Brief:      "Image without contentDescription",
+			Category:   ALCAccessibility,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &LabelForResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "LabelForResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "LabelFor",
+			Brief:      "EditText without a corresponding labelFor",
+			Category:   ALCAccessibility,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ClickableViewAccessibilityResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ClickableViewAccessibilityResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ClickableViewAccessibility",
+			Brief:      "Clickable view missing contentDescription",
+			Category:   ALCAccessibility,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &BackButtonResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "BackButtonResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "BackButton",
+			Brief:      "Explicit back button in layout",
+			Category:   ALCUsability,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ButtonCaseResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ButtonCaseResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ButtonCase",
+			Brief:      "OK/Cancel button with wrong capitalization",
+			Category:   ALCUsability,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ButtonOrderResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ButtonOrderResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ButtonOrder",
+			Brief:      "Cancel button should appear before OK button",
+			Category:   ALCUsability,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ButtonStyleResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ButtonStyleResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ButtonStyle",
+			Brief:      "Dialog button without borderless style",
+			Category:   ALCUsability,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &LayoutClickableWithoutMinSizeRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "LayoutClickableWithoutMinSize", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ClickableMinSize",
+			Brief:      "Clickable view below 48dp",
+			Category:   ALCAccessibility,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "krit",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &LayoutEditTextMissingImportanceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "LayoutEditTextMissingImportance", RuleSetName: androidRuleSet, Sev: "info"},
+			IssueID:    "AutofillImportance",
+			Brief:      "EditText missing importantForAutofill",
+			Category:   ALCAccessibility,
+			ALSeverity: ALSInformational,
+			Priority:   4,
+			Origin:     "krit",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &LayoutImportantForAccessibilityNoRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "LayoutImportantForAccessibilityNo", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ImportantForAccessibility",
+			Brief:      "Interactive view hidden from accessibility",
+			Category:   ALCAccessibility,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "krit",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &LayoutAutofillHintMismatchRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "LayoutAutofillHintMismatch", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "AutofillHintMismatch",
+			Brief:      "inputType without matching autofillHints",
+			Category:   ALCAccessibility,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "krit",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &LayoutMinTouchTargetInButtonRowRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "LayoutMinTouchTargetInButtonRow", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "MinTouchTargetInButtonRow",
+			Brief:      "Button in row without 48dp min height",
+			Category:   ALCAccessibility,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "krit",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &StringNotSelectableRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "StringNotSelectable", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "TextNotSelectable",
+			Brief:      "Non-selectable text with URLs or phone numbers",
+			Category:   ALCAccessibility,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "krit",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &StringRepeatedInContentDescriptionRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "StringRepeatedInContentDescription", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "RepeatedContentDescription",
+			Brief:      "contentDescription duplicates visible text",
+			Category:   ALCAccessibility,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "krit",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &StringSpanInContentDescriptionRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "StringSpanInContentDescription", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "SpanInContentDescription",
+			Brief:      "String with HTML used in contentDescription",
+			Category:   ALCAccessibility,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "krit",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from android_resource_ids.go ---
-	v2.Register(WrapAsV2(&DuplicateIdsResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "DuplicateIdsResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "DuplicateIds",
-		Brief:      "Duplicate android:id in layout",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   7,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&InvalidIdResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "InvalidIdResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "InvalidId",
-		Brief:      "Malformed android:id value",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   8,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MissingIdResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MissingIdResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "MissingId",
-		Brief:      "Fragments should specify an id or tag",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&CutPasteIdResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "CutPasteIdResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "CutPasteId",
-		Brief:      "Likely cut & paste mistakes",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&DuplicateIncludedIdsResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "DuplicateIncludedIdsResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "DuplicateIncludedIds",
-		Brief:      "Duplicate ids across included layouts",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MissingPrefixResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MissingPrefixResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "MissingPrefix",
-		Brief:      "Attribute missing android: namespace prefix",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   8,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&NamespaceTypoResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "NamespaceTypoResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "NamespaceTypo",
-		Brief:      "Misspelled namespace URI",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   8,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ResAutoResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ResAutoResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "ResAuto",
-		Brief:      "Namespace used in resource files should be res-auto",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&UnusedNamespaceResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "UnusedNamespaceResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "UnusedNamespace",
-		Brief:      "Unused namespace",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&IllegalResourceRefResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "IllegalResourceRefResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "IllegalResourceRef",
-		Brief:      "Name is not a valid resource reference format",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   8,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&WrongCaseResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "WrongCaseResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "WrongCase",
-		Brief:      "Wrong case in view tag",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSFatal,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&WrongFolderResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "WrongFolderResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "WrongFolder",
-		Brief:      "Resource file in the wrong res folder",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&InvalidResourceFolderResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "InvalidResourceFolderResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "InvalidResourceFolder",
-		Brief:      "Invalid resource folder name",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&AppCompatResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "AppCompatResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "AppCompatResource",
-		Brief:      "Using android:showAsAction instead of app:showAsAction",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
+	{
+		r := &DuplicateIdsResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "DuplicateIdsResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "DuplicateIds",
+			Brief:      "Duplicate android:id in layout",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   7,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &InvalidIdResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "InvalidIdResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "InvalidId",
+			Brief:      "Malformed android:id value",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MissingIdResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MissingIdResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "MissingId",
+			Brief:      "Fragments should specify an id or tag",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &CutPasteIdResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "CutPasteIdResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "CutPasteId",
+			Brief:      "Likely cut & paste mistakes",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &DuplicateIncludedIdsResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "DuplicateIncludedIdsResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "DuplicateIncludedIds",
+			Brief:      "Duplicate ids across included layouts",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MissingPrefixResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MissingPrefixResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "MissingPrefix",
+			Brief:      "Attribute missing android: namespace prefix",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &NamespaceTypoResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "NamespaceTypoResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "NamespaceTypo",
+			Brief:      "Misspelled namespace URI",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ResAutoResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ResAutoResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "ResAuto",
+			Brief:      "Namespace used in resource files should be res-auto",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UnusedNamespaceResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UnusedNamespaceResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "UnusedNamespace",
+			Brief:      "Unused namespace",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &IllegalResourceRefResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "IllegalResourceRefResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "IllegalResourceRef",
+			Brief:      "Name is not a valid resource reference format",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &WrongCaseResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "WrongCaseResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "WrongCase",
+			Brief:      "Wrong case in view tag",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSFatal,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &WrongFolderResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "WrongFolderResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "WrongFolder",
+			Brief:      "Resource file in the wrong res folder",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &InvalidResourceFolderResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "InvalidResourceFolderResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "InvalidResourceFolder",
+			Brief:      "Invalid resource folder name",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &AppCompatResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "AppCompatResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "AppCompatResource",
+			Brief:      "Using android:showAsAction instead of app:showAsAction",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from android_resource_layout.go ---
-	v2.Register(WrapAsV2(&TooManyViewsResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "TooManyViewsResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "TooManyViews",
-		Brief:      "Layout has too many views",
-		Category:   ALCPerformance,
-		ALSeverity: ALSWarning,
-		Priority:   1,
-		Origin:     "AOSP Android Lint",
-	}, MaxViews: 80}))
-	v2.Register(WrapAsV2(&TooDeepLayoutResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "TooDeepLayoutResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "TooDeepLayout",
-		Brief:      "Layout nesting too deep",
-		Category:   ALCPerformance,
-		ALSeverity: ALSWarning,
-		Priority:   1,
-		Origin:     "AOSP Android Lint",
-	}, MaxDepth: 10}))
-	v2.Register(WrapAsV2(&UselessParentResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "UselessParentResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "UselessParent",
-		Brief:      "Useless parent layout with single child",
-		Category:   ALCPerformance,
-		ALSeverity: ALSWarning,
-		Priority:   2,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&UselessLeafResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "UselessLeafResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "UselessLeaf",
-		Brief:      "Empty ViewGroup with no background or id",
-		Category:   ALCPerformance,
-		ALSeverity: ALSWarning,
-		Priority:   2,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&NestedScrollingResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "NestedScrollingResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "NestedScrolling",
-		Brief:      "ScrollView inside ScrollView",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   7,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ScrollViewCountResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ScrollViewCountResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "ScrollViewCount",
-		Brief:      "ScrollView with more than one child",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   7,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ScrollViewSizeResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ScrollViewSizeResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ScrollViewSize",
-		Brief:      "ScrollView size validation",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   7,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&RequiredSizeResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "RequiredSizeResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "RequiredSize",
-		Brief:      "View missing layout_width or layout_height",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   8,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&OrientationResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "OrientationResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "Orientation",
-		Brief:      "LinearLayout missing explicit orientation",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&AdapterViewChildrenResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "AdapterViewChildrenResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "AdapterViewChildren",
-		Brief:      "AdapterView cannot have children in XML",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&IncludeLayoutParamResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "IncludeLayoutParamResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "IncludeLayoutParam",
-		Brief:      "<include> with layout_width/height is ignored",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&UseCompoundDrawablesResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "UseCompoundDrawablesResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "UseCompoundDrawables",
-		Brief:      "Node can be replaced by a TextView with compound drawables",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&InconsistentLayoutResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "InconsistentLayout", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "InconsistentLayout",
-		Brief:      "Inconsistent layouts in different configurations",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
+	{
+		r := &TooManyViewsResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "TooManyViewsResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "TooManyViews",
+			Brief:      "Layout has too many views",
+			Category:   ALCPerformance,
+			ALSeverity: ALSWarning,
+			Priority:   1,
+			Origin:     "AOSP Android Lint",
+		}, MaxViews: 80}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &TooDeepLayoutResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "TooDeepLayoutResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "TooDeepLayout",
+			Brief:      "Layout nesting too deep",
+			Category:   ALCPerformance,
+			ALSeverity: ALSWarning,
+			Priority:   1,
+			Origin:     "AOSP Android Lint",
+		}, MaxDepth: 10}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UselessParentResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UselessParentResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "UselessParent",
+			Brief:      "Useless parent layout with single child",
+			Category:   ALCPerformance,
+			ALSeverity: ALSWarning,
+			Priority:   2,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UselessLeafResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UselessLeafResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "UselessLeaf",
+			Brief:      "Empty ViewGroup with no background or id",
+			Category:   ALCPerformance,
+			ALSeverity: ALSWarning,
+			Priority:   2,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &NestedScrollingResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "NestedScrollingResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "NestedScrolling",
+			Brief:      "ScrollView inside ScrollView",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   7,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ScrollViewCountResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ScrollViewCountResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "ScrollViewCount",
+			Brief:      "ScrollView with more than one child",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   7,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ScrollViewSizeResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ScrollViewSizeResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ScrollViewSize",
+			Brief:      "ScrollView size validation",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   7,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &RequiredSizeResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "RequiredSizeResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "RequiredSize",
+			Brief:      "View missing layout_width or layout_height",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &OrientationResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "OrientationResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "Orientation",
+			Brief:      "LinearLayout missing explicit orientation",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &AdapterViewChildrenResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "AdapterViewChildrenResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "AdapterViewChildren",
+			Brief:      "AdapterView cannot have children in XML",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &IncludeLayoutParamResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "IncludeLayoutParamResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "IncludeLayoutParam",
+			Brief:      "<include> with layout_width/height is ignored",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UseCompoundDrawablesResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UseCompoundDrawablesResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "UseCompoundDrawables",
+			Brief:      "Node can be replaced by a TextView with compound drawables",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &InconsistentLayoutResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "InconsistentLayout", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "InconsistentLayout",
+			Brief:      "Inconsistent layouts in different configurations",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from android_resource_rtl.go ---
-	v2.Register(WrapAsV2(&RtlHardcodedResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "RtlHardcodedResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "RtlHardcoded",
-		Brief:      "Using left/right instead of start/end for RTL",
-		Category:   ALCI18N,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&RtlSymmetryResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "RtlSymmetryResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "RtlSymmetry",
-		Brief:      "Asymmetric padding or margin (Left without Right or vice versa)",
-		Category:   ALCI18N,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&RtlSuperscriptResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "RtlSuperscriptResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "RtlSuperscript",
-		Brief:      "Superscript/subscript may break in RTL",
-		Category:   ALCI18N,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&RelativeOverlapResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "RelativeOverlapResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "RelativeOverlap",
-		Brief:      "Views in RelativeLayout may overlap",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&NotSiblingResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "NotSiblingResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "NotSibling",
-		Brief:      "RelativeLayout Invalid Constraints",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
+	{
+		r := &RtlHardcodedResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "RtlHardcodedResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "RtlHardcoded",
+			Brief:      "Using left/right instead of start/end for RTL",
+			Category:   ALCI18N,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &RtlSymmetryResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "RtlSymmetryResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "RtlSymmetry",
+			Brief:      "Asymmetric padding or margin (Left without Right or vice versa)",
+			Category:   ALCI18N,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &RtlSuperscriptResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "RtlSuperscriptResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "RtlSuperscript",
+			Brief:      "Superscript/subscript may break in RTL",
+			Category:   ALCI18N,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &RelativeOverlapResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "RelativeOverlapResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "RelativeOverlap",
+			Brief:      "Views in RelativeLayout may overlap",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &NotSiblingResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "NotSiblingResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "NotSibling",
+			Brief:      "RelativeLayout Invalid Constraints",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from android_resource_style.go ---
-	v2.Register(WrapAsV2(&PxUsageResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "PxUsageResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "PxUsage",
-		Brief:      "Using px instead of dp in dimensions",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&SpUsageResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "SpUsageResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "SpUsage",
-		Brief:      "Using dp instead of sp for textSize",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&SmallSpResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "SmallSpResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "SmallSp",
-		Brief:      "Text size below 12sp",
-		Category:   ALCUsability,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&InOrMmUsageResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "InOrMmUsageResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "InOrMmUsage",
-		Brief:      "Using in or mm dimension units",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&NegativeMarginResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "NegativeMarginResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "NegativeMargin",
-		Brief:      "Negative margin value",
-		Category:   ALCUsability,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&Suspicious0dpResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "Suspicious0dpResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "Suspicious0dp",
-		Brief:      "0dp dimension on wrong axis in LinearLayout",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&DisableBaselineAlignmentResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "DisableBaselineAlignmentResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "DisableBaselineAlignment",
-		Brief:      "Missing baselineAligned=false on weighted LinearLayout",
-		Category:   ALCPerformance,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&InefficientWeightResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "InefficientWeightResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "InefficientWeight",
-		Brief:      "LinearLayout with weights missing orientation",
-		Category:   ALCPerformance,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&NestedWeightsResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "NestedWeightsResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "NestedWeights",
-		Brief:      "Nested layout_weight causes exponential measure passes",
-		Category:   ALCPerformance,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ObsoleteLayoutParamsResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ObsoleteLayoutParamsResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ObsoleteLayoutParam",
-		Brief:      "layout_weight on non-LinearLayout child",
-		Category:   ALCPerformance,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MergeRootFrameResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MergeRootFrameResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "MergeRootFrame",
-		Brief:      "Root FrameLayout replaceable with merge tag",
-		Category:   ALCPerformance,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&OverdrawResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "OverdrawResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "Overdraw",
-		Brief:      "Root and child layout both have background (overdraw)",
-		Category:   ALCPerformance,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&AlwaysShowActionResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "AlwaysShowActionResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "AlwaysShowAction",
-		Brief:      "showAsAction=always can crowd the action bar",
-		Category:   ALCUsability,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&StateListReachableResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "StateListReachableResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "StateListReachable",
-		Brief:      "Unreachable item in selector drawable",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
+	{
+		r := &PxUsageResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "PxUsageResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "PxUsage",
+			Brief:      "Using px instead of dp in dimensions",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &SpUsageResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "SpUsageResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "SpUsage",
+			Brief:      "Using dp instead of sp for textSize",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &SmallSpResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "SmallSpResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "SmallSp",
+			Brief:      "Text size below 12sp",
+			Category:   ALCUsability,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &InOrMmUsageResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "InOrMmUsageResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "InOrMmUsage",
+			Brief:      "Using in or mm dimension units",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &NegativeMarginResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "NegativeMarginResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "NegativeMargin",
+			Brief:      "Negative margin value",
+			Category:   ALCUsability,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &Suspicious0dpResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "Suspicious0dpResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "Suspicious0dp",
+			Brief:      "0dp dimension on wrong axis in LinearLayout",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &DisableBaselineAlignmentResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "DisableBaselineAlignmentResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "DisableBaselineAlignment",
+			Brief:      "Missing baselineAligned=false on weighted LinearLayout",
+			Category:   ALCPerformance,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &InefficientWeightResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "InefficientWeightResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "InefficientWeight",
+			Brief:      "LinearLayout with weights missing orientation",
+			Category:   ALCPerformance,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &NestedWeightsResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "NestedWeightsResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "NestedWeights",
+			Brief:      "Nested layout_weight causes exponential measure passes",
+			Category:   ALCPerformance,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ObsoleteLayoutParamsResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ObsoleteLayoutParamsResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ObsoleteLayoutParam",
+			Brief:      "layout_weight on non-LinearLayout child",
+			Category:   ALCPerformance,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MergeRootFrameResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MergeRootFrameResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "MergeRootFrame",
+			Brief:      "Root FrameLayout replaceable with merge tag",
+			Category:   ALCPerformance,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &OverdrawResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "OverdrawResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "Overdraw",
+			Brief:      "Root and child layout both have background (overdraw)",
+			Category:   ALCPerformance,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &AlwaysShowActionResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "AlwaysShowActionResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "AlwaysShowAction",
+			Brief:      "showAsAction=always can crowd the action bar",
+			Category:   ALCUsability,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &StateListReachableResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "StateListReachableResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "StateListReachable",
+			Brief:      "Unreachable item in selector drawable",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from android_resource_values.go ---
-	v2.Register(WrapAsV2(&WebViewInScrollViewResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "WebViewInScrollViewResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "WebViewLayout",
-		Brief:      "WebView inside ScrollView",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   7,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&OnClickResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "OnClickResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "OnClick",
-		Brief:      "android:onClick in layout XML is discouraged",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&TextFieldsResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "TextFieldsResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "TextFields",
-		Brief:      "EditText missing inputType or hint",
-		Category:   ALCUsability,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&UnusedAttributeResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "UnusedAttributeResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "UnusedAttribute",
-		Brief:      "Attribute unused on older platforms",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&WrongRegionResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "WrongRegionResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "WrongRegion",
-		Brief:      "Suspicious Language/Region Combination",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&LocaleConfigStaleResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "LocaleConfigStale", RuleSetName: androidRuleSet, Sev: "info"},
-		IssueID:    "LocaleConfigStale",
-		Brief:      "locales_config.xml is out of sync with locale-specific values folders",
-		Category:   ALCI18N,
-		ALSeverity: ALSInformational,
-		Priority:   3,
-		Origin:     "Krit roadmap",
-	}}))
-	v2.Register(WrapAsV2(&MissingQuantityResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MissingQuantityResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "MissingQuantity",
-		Brief:      "Plural missing required quantity",
-		Category:   ALCMessages,
-		ALSeverity: ALSError,
-		Priority:   8,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&UnusedQuantityResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "UnusedQuantityResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "UnusedQuantity",
-		Brief:      "Plural defines quantity unused for language",
-		Category:   ALCMessages,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ImpliedQuantityResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ImpliedQuantityResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ImpliedQuantity",
-		Brief:      "Plural 'one' without %d placeholder",
-		Category:   ALCMessages,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&StringFormatInvalidResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "StringFormatInvalidResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "StringFormatInvalid",
-		Brief:      "Invalid format string",
-		Category:   ALCMessages,
-		ALSeverity: ALSError,
-		Priority:   9,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&StringFormatCountResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "StringFormatCountResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "StringFormatCount",
-		Brief:      "Formatting argument types incomplete or inconsistent",
-		Category:   ALCMessages,
-		ALSeverity: ALSWarning,
-		Priority:   7,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&StringFormatMatchesResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "StringFormatMatchesResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "StringFormatMatches",
-		Brief:      "String.format string doesn't match the XML format string",
-		Category:   ALCMessages,
-		ALSeverity: ALSError,
-		Priority:   9,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&StringFormatTrivialResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "StringFormatTrivialResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "StringFormatTrivial",
-		Brief:      "Trivial string format with single %s",
-		Category:   ALCMessages,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&StringNotLocalizableResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "StringNotLocalizableResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "StringNotLocalizable",
-		Brief:      "String resource should not be localized",
-		Category:   ALCI18N,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&GoogleApiKeyInResourcesRule{BaseRule: BaseRule{
-		RuleName: "GoogleApiKeyInResources", RuleSetName: "security", Sev: "warning",
-		Desc: "Detects Google API keys embedded directly in XML resource files",
-	}}))
-	v2.Register(WrapAsV2(&InconsistentArraysResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "InconsistentArraysResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "InconsistentArrays",
-		Brief:      "Inconsistencies in array element counts",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   7,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ExtraTextResourceRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ExtraTextResource", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "ExtraText",
-		Brief:      "Extraneous text in resource files",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
+	{
+		r := &WebViewInScrollViewResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "WebViewInScrollViewResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "WebViewLayout",
+			Brief:      "WebView inside ScrollView",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   7,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &OnClickResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "OnClickResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "OnClick",
+			Brief:      "android:onClick in layout XML is discouraged",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &TextFieldsResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "TextFieldsResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "TextFields",
+			Brief:      "EditText missing inputType or hint",
+			Category:   ALCUsability,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UnusedAttributeResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UnusedAttributeResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "UnusedAttribute",
+			Brief:      "Attribute unused on older platforms",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &WrongRegionResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "WrongRegionResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "WrongRegion",
+			Brief:      "Suspicious Language/Region Combination",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &LocaleConfigStaleResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "LocaleConfigStale", RuleSetName: androidRuleSet, Sev: "info"},
+			IssueID:    "LocaleConfigStale",
+			Brief:      "locales_config.xml is out of sync with locale-specific values folders",
+			Category:   ALCI18N,
+			ALSeverity: ALSInformational,
+			Priority:   3,
+			Origin:     "Krit roadmap",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MissingQuantityResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MissingQuantityResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "MissingQuantity",
+			Brief:      "Plural missing required quantity",
+			Category:   ALCMessages,
+			ALSeverity: ALSError,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UnusedQuantityResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UnusedQuantityResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "UnusedQuantity",
+			Brief:      "Plural defines quantity unused for language",
+			Category:   ALCMessages,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ImpliedQuantityResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ImpliedQuantityResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ImpliedQuantity",
+			Brief:      "Plural 'one' without %d placeholder",
+			Category:   ALCMessages,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &StringFormatInvalidResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "StringFormatInvalidResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "StringFormatInvalid",
+			Brief:      "Invalid format string",
+			Category:   ALCMessages,
+			ALSeverity: ALSError,
+			Priority:   9,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &StringFormatCountResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "StringFormatCountResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "StringFormatCount",
+			Brief:      "Formatting argument types incomplete or inconsistent",
+			Category:   ALCMessages,
+			ALSeverity: ALSWarning,
+			Priority:   7,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &StringFormatMatchesResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "StringFormatMatchesResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "StringFormatMatches",
+			Brief:      "String.format string doesn't match the XML format string",
+			Category:   ALCMessages,
+			ALSeverity: ALSError,
+			Priority:   9,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &StringFormatTrivialResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "StringFormatTrivialResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "StringFormatTrivial",
+			Brief:      "Trivial string format with single %s",
+			Category:   ALCMessages,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &StringNotLocalizableResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "StringNotLocalizableResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "StringNotLocalizable",
+			Brief:      "String resource should not be localized",
+			Category:   ALCI18N,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &GoogleApiKeyInResourcesRule{BaseRule: BaseRule{
+			RuleName: "GoogleApiKeyInResources", RuleSetName: "security", Sev: "warning",
+			Desc: "Detects Google API keys embedded directly in XML resource files",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &InconsistentArraysResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "InconsistentArraysResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "InconsistentArrays",
+			Brief:      "Inconsistencies in array element counts",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   7,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ExtraTextResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ExtraTextResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "ExtraText",
+			Brief:      "Extraneous text in resource files",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from android_security.go ---
 	{

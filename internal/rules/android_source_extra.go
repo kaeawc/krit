@@ -46,8 +46,6 @@ type ViewConstructorRule struct {
 // Classified per roadmap/17.
 func (r *ViewConstructorRule) Confidence() float64 { return 0.75 }
 
-func (r *ViewConstructorRule) NodeTypes() []string { return []string{"class_declaration"} }
-
 var viewSuperclasses = []string{"View", "ViewGroup", "TextView", "ImageView", "LinearLayout", "RelativeLayout", "FrameLayout", "ConstraintLayout", "RecyclerView", "SurfaceView", "EditText", "Button", "ScrollView", "HorizontalScrollView", "AppBarLayout", "CoordinatorLayout", "CardView", "Toolbar"}
 
 func nodeAtPoint(file *scanner.File, line, column int) uint32 {
@@ -126,75 +124,6 @@ func containsAny(text string, needles []string) bool {
 		}
 	}
 	return false
-}
-
-func (r *ViewConstructorRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if file.FlatHasModifier(idx, "abstract") {
-		return nil
-	}
-	// Check only the class's own delegation_specifier children (not nested classes).
-	// Extract the actual supertype name from the AST to avoid substring false positives
-	// (e.g., "ViewModel" matching "View").
-	isView := false
-	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatType(child) != "delegation_specifier" {
-			continue
-		}
-		// delegation_specifier -> constructor_invocation -> user_type -> type_identifier
-		typeName := viewConstructorSupertypeNameFlat(file, child)
-		if typeName == "" {
-			continue
-		}
-		for _, base := range viewSuperclasses {
-			if typeName == base {
-				isView = true
-				break
-			}
-		}
-		if isView {
-			break
-		}
-	}
-	if !isView {
-		return nil
-	}
-	hasContextCtor, hasAttrSetCtor := false, false
-	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatType(child) == "primary_constructor" {
-			ctorText := file.FlatNodeText(child)
-			if strings.Contains(ctorText, "Context") {
-				if strings.Contains(ctorText, "AttributeSet") {
-					hasAttrSetCtor = true
-				} else {
-					hasContextCtor = true
-				}
-			}
-		}
-		if file.FlatType(child) == "class_body" {
-			bodyText := file.FlatNodeText(child)
-			if strings.Contains(bodyText, "constructor") {
-				if strings.Contains(bodyText, "Context") && strings.Contains(bodyText, "AttributeSet") {
-					hasAttrSetCtor = true
-				}
-				if strings.Contains(bodyText, "Context") {
-					hasContextCtor = true
-				}
-			}
-			if strings.Contains(file.FlatNodeText(idx), "@JvmOverloads") {
-				hasContextCtor = true
-				hasAttrSetCtor = true
-			}
-		}
-	}
-	if !hasContextCtor && !hasAttrSetCtor {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			"Custom View subclass is missing (Context) and (Context, AttributeSet) constructors.")}
-	}
-	if !hasAttrSetCtor {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			"Custom View subclass is missing (Context, AttributeSet) constructor needed for XML inflation.")}
-	}
-	return nil
 }
 
 func viewConstructorSupertypeNameFlat(file *scanner.File, deleg uint32) string {
@@ -298,9 +227,9 @@ var layoutInflationDialogContexts = []string{
 	"MaterialAlertDialogBuilder", "AlertDialog.Builder",
 	"onCreateDialog", "setView(", ".setContentView(",
 	"PopupWindow(",
-	// Compose interop via AndroidView — Compose manages attachment.
+	// Compose interop via AndroidView -- Compose manages attachment.
 	"AndroidView(", "AndroidView {",
-	// Offscreen rendering to a Bitmap/Canvas — no parent exists by design.
+	// Offscreen rendering to a Bitmap/Canvas -- no parent exists by design.
 	"Bitmap.createBitmap", "createBitmap(",
 	"Canvas(", "drawToBitmap",
 }
@@ -484,41 +413,7 @@ type InstantiatableRule struct {
 // Classified per roadmap/17.
 func (r *InstantiatableRule) Confidence() float64 { return 0.75 }
 
-func (r *InstantiatableRule) NodeTypes() []string { return []string{"class_declaration"} }
-
 var componentSuperclasses = []string{"Activity", "AppCompatActivity", "ComponentActivity", "FragmentActivity", "Service", "IntentService", "BroadcastReceiver", "ContentProvider", "Application"}
-
-func (r *InstantiatableRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	isComponent := false
-	for _, base := range componentSuperclasses {
-		if strings.Contains(text, ": "+base+"(") || strings.Contains(text, ": "+base+" ") ||
-			strings.Contains(text, ": "+base+",") || strings.Contains(text, ": "+base+"{") {
-			isComponent = true
-			break
-		}
-	}
-	if !isComponent {
-		return nil
-	}
-	hasPrivateCtor := false
-	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatType(child) == "primary_constructor" {
-			ctorText := file.FlatNodeText(child)
-			if strings.Contains(ctorText, "private constructor") || strings.Contains(ctorText, "private ") {
-				hasPrivateCtor = true
-			}
-		}
-	}
-	if strings.Contains(text, "private class ") {
-		hasPrivateCtor = true
-	}
-	if hasPrivateCtor {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			"This class is registered as an Android component but cannot be instantiated. Remove the private constructor or add a public no-arg constructor.")}
-	}
-	return nil
-}
 
 type RtlAwareRule struct {
 	FlatDispatchBase
@@ -533,20 +428,7 @@ type RtlAwareRule struct {
 // Classified per roadmap/17.
 func (r *RtlAwareRule) Confidence() float64 { return 0.75 }
 
-func (r *RtlAwareRule) NodeTypes() []string { return []string{"call_expression"} }
-
 var rtlAwareMethods = map[string]string{".getLeft()": ".getStart()", ".getRight()": ".getEnd()", ".getPaddingLeft()": ".getPaddingStart()", ".getPaddingRight()": ".getPaddingEnd()", ".getLeft(": ".getStart(", ".getRight(": ".getEnd(", ".getPaddingLeft(": ".getPaddingStart(", ".getPaddingRight(": ".getPaddingEnd("}
-
-func (r *RtlAwareRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	for old, repl := range rtlAwareMethods {
-		if strings.Contains(text, old) {
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-				"Use RTL-aware "+repl+" instead of "+old+" for bidirectional layout support.")}
-		}
-	}
-	return nil
-}
 
 type RtlFieldAccessRule struct {
 	FlatDispatchBase
@@ -561,20 +443,7 @@ type RtlFieldAccessRule struct {
 // Classified per roadmap/17.
 func (r *RtlFieldAccessRule) Confidence() float64 { return 0.75 }
 
-func (r *RtlFieldAccessRule) NodeTypes() []string { return []string{"string_literal"} }
-
 var rtlFieldNames = []string{"mLeft", "mRight", "mPaddingLeft", "mPaddingRight"}
-
-func (r *RtlFieldAccessRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	for _, field := range rtlFieldNames {
-		if text == "\""+field+"\"" {
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-				"Direct access to View."+field+" via reflection is not RTL-aware. Use the corresponding getter method instead.")}
-		}
-	}
-	return nil
-}
 
 type GridLayoutRule struct {
 	FlatDispatchBase
@@ -589,32 +458,7 @@ type GridLayoutRule struct {
 // Classified per roadmap/17.
 func (r *GridLayoutRule) Confidence() float64 { return 0.75 }
 
-func (r *GridLayoutRule) NodeTypes() []string { return []string{"call_expression"} }
-
 var gridLayoutCreateRe = regexp.MustCompile(`GridLayout\s*\(`)
-
-func (r *GridLayoutRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if !gridLayoutCreateRe.MatchString(text) {
-		return nil
-	}
-	// Check surrounding context for columnCount
-	startByte := int(file.FlatStartByte(idx))
-	endByte := int(file.FlatEndByte(idx))
-	contextStart := startByte - 200
-	if contextStart < 0 {
-		contextStart = 0
-	}
-	contextEnd := endByte + 200
-	if contextEnd > len(file.Content) {
-		contextEnd = len(file.Content)
-	}
-	context := string(file.Content[contextStart:contextEnd])
-	if strings.Contains(context, "columnCount") {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1, "GridLayout should specify a columnCount. Without it, all children will be in a single row.")}
-}
 
 type LocaleFolderRule struct {
 	LineBase
@@ -675,7 +519,7 @@ type MangledCRLFRule struct {
 }
 
 // Confidence bumps this line rule from the 0.75 line-rule default to
-// 0.95 — mixed line endings is a literal substring check on the
+// 0.95 -- mixed line endings is a literal substring check on the
 // file bytes. Deterministic with no heuristic path.
 func (r *MangledCRLFRule) Confidence() float64 { return 0.95 }
 
@@ -701,20 +545,8 @@ type ResourceNameRule struct {
 // Classified per roadmap/17.
 func (r *ResourceNameRule) Confidence() float64 { return 0.75 }
 
-func (r *ResourceNameRule) NodeTypes() []string { return []string{"navigation_expression"} }
-
 var resourceRefRe = regexp.MustCompile(`R\.(layout|drawable|string|color|dimen|style|menu|anim|xml|raw|id)\.([a-zA-Z_]\w*)`)
 var snakeCaseRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-
-func (r *ResourceNameRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	for _, m := range resourceRefRe.FindAllStringSubmatch(text, -1) {
-		if !snakeCaseRe.MatchString(m[2]) {
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1, "Resource name `R."+m[1]+"."+m[2]+"` should use snake_case.")}
-		}
-	}
-	return nil
-}
 
 type ProguardRule struct {
 	FlatDispatchBase
@@ -728,15 +560,6 @@ type ProguardRule struct {
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
 func (r *ProguardRule) Confidence() float64 { return 0.75 }
-
-func (r *ProguardRule) NodeTypes() []string { return []string{"string_literal"} }
-func (r *ProguardRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if strings.Contains(text, "proguard.cfg") {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1, "Reference to obsolete `proguard.cfg`. Use `proguard-rules.pro` instead.")}
-	}
-	return nil
-}
 
 type ProguardSplitRule struct {
 	LineBase
@@ -780,17 +603,7 @@ type NfcTechWhitespaceRule struct {
 // Classified per roadmap/17.
 func (r *NfcTechWhitespaceRule) Confidence() float64 { return 0.75 }
 
-func (r *NfcTechWhitespaceRule) NodeTypes() []string { return []string{"string_literal"} }
-
 var nfcTechRe = regexp.MustCompile(`<tech>\s+\S+|<tech>\S+\s+</tech>`)
-
-func (r *NfcTechWhitespaceRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if strings.Contains(text, "<tech>") && nfcTechRe.MatchString(text) {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1, "Whitespace in <tech> element value. NFC tech names must not have leading/trailing whitespace.")}
-	}
-	return nil
-}
 
 type LibraryCustomViewRule struct {
 	FlatDispatchBase
@@ -805,17 +618,7 @@ type LibraryCustomViewRule struct {
 // Classified per roadmap/17.
 func (r *LibraryCustomViewRule) Confidence() float64 { return 0.75 }
 
-func (r *LibraryCustomViewRule) NodeTypes() []string { return []string{"string_literal"} }
-
 var hardcodedNsRe = regexp.MustCompile(`http://schemas\.android\.com/apk/res/[a-z][a-z0-9_.]+`)
-
-func (r *LibraryCustomViewRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if hardcodedNsRe.MatchString(text) && !strings.Contains(text, "apk/res-auto") && !strings.Contains(text, "apk/res/android") {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1, "Use `http://schemas.android.com/apk/res-auto` instead of a hardcoded package namespace. Hardcoded namespaces don't work in library projects.")}
-	}
-	return nil
-}
 
 type UnknownIdInLayoutRule struct {
 	FlatDispatchBase
@@ -830,16 +633,4 @@ type UnknownIdInLayoutRule struct {
 // Classified per roadmap/17.
 func (r *UnknownIdInLayoutRule) Confidence() float64 { return 0.75 }
 
-func (r *UnknownIdInLayoutRule) NodeTypes() []string { return []string{"navigation_expression"} }
-
 var idRefRe = regexp.MustCompile(`R\.id\.([a-zA-Z_]\w*)`)
-
-func (r *UnknownIdInLayoutRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	for _, m := range idRefRe.FindAllStringSubmatch(text, -1) {
-		if strings.Contains(m[1], "__") || strings.HasPrefix(m[1], "_") {
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1, "Suspicious ID reference `R.id."+m[1]+"`. Verify this ID exists in your layout resources.")}
-		}
-	}
-	return nil
-}

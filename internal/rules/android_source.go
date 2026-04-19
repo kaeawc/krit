@@ -36,8 +36,6 @@ type FragmentConstructorRule struct {
 // Classified per roadmap/17.
 func (r *FragmentConstructorRule) Confidence() float64 { return 0.75 }
 
-func (r *FragmentConstructorRule) NodeTypes() []string { return []string{"class_declaration"} }
-
 // fragmentSuperclasses covers common Fragment base classes.
 var fragmentSuperclasses = []string{
 	"Fragment", "DialogFragment", "ListFragment", "PreferenceFragment",

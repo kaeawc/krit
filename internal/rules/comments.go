@@ -149,20 +149,6 @@ type DeprecatedBlockTagRule struct {
 // heuristic path. Classified per roadmap/17.
 func (r *DeprecatedBlockTagRule) Confidence() float64 { return 0.95 }
 
-func (r *DeprecatedBlockTagRule) NodeTypes() []string { return []string{"multiline_comment"} }
-
-func (r *DeprecatedBlockTagRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !flatIsKDoc(file, idx) {
-		return nil
-	}
-	text := file.FlatNodeText(idx)
-	if strings.Contains(text, "@deprecated") {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			"Use @Deprecated annotation instead of @deprecated KDoc tag.")}
-	}
-	return nil
-}
-
 // DocumentationOverPrivateFunctionRule detects KDoc on private functions.
 type DocumentationOverPrivateFunctionRule struct {
 	FlatDispatchBase
@@ -174,37 +160,6 @@ type DocumentationOverPrivateFunctionRule struct {
 // heuristic path. Classified per roadmap/17.
 func (r *DocumentationOverPrivateFunctionRule) Confidence() float64 { return 0.95 }
 
-func (r *DocumentationOverPrivateFunctionRule) NodeTypes() []string {
-	return []string{"function_declaration"}
-}
-
-func (r *DocumentationOverPrivateFunctionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !isPrivateDeclarationFlat(file, idx) {
-		return nil
-	}
-	if kdocIdx, ok := flatPrecedingKDoc(file, idx); ok {
-		f := r.Finding(file, file.FlatRow(idx)+1, 1,
-			"Private function should not have KDoc documentation.")
-		// Remove KDoc including trailing newline
-		endByte := int(file.FlatEndByte(kdocIdx))
-		if endByte < len(file.Content) && file.Content[endByte] == '\n' {
-			endByte++
-		}
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   int(file.FlatStartByte(kdocIdx)),
-			EndByte:     endByte,
-			Replacement: "",
-		}
-		return []scanner.Finding{f}
-	}
-	return nil
-}
-
-func (r *DocumentationOverPrivateFunctionRule) Check(file *scanner.File) []scanner.Finding {
-	return nil
-}
-
 // DocumentationOverPrivatePropertyRule detects KDoc on private properties.
 type DocumentationOverPrivatePropertyRule struct {
 	FlatDispatchBase
@@ -215,37 +170,6 @@ type DocumentationOverPrivatePropertyRule struct {
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.
 func (r *DocumentationOverPrivatePropertyRule) Confidence() float64 { return 0.95 }
-
-func (r *DocumentationOverPrivatePropertyRule) NodeTypes() []string {
-	return []string{"property_declaration"}
-}
-
-func (r *DocumentationOverPrivatePropertyRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !isPrivateDeclarationFlat(file, idx) {
-		return nil
-	}
-	if kdocIdx, ok := flatPrecedingKDoc(file, idx); ok {
-		f := r.Finding(file, file.FlatRow(idx)+1, 1,
-			"Private property should not have KDoc documentation.")
-		// Remove KDoc including trailing newline
-		endByte := int(file.FlatEndByte(kdocIdx))
-		if endByte < len(file.Content) && file.Content[endByte] == '\n' {
-			endByte++
-		}
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   int(file.FlatStartByte(kdocIdx)),
-			EndByte:     endByte,
-			Replacement: "",
-		}
-		return []scanner.Finding{f}
-	}
-	return nil
-}
-
-func (r *DocumentationOverPrivatePropertyRule) Check(file *scanner.File) []scanner.Finding {
-	return nil
-}
 
 // EndOfSentenceFormatRule checks KDoc first sentence ends with proper punctuation.
 type EndOfSentenceFormatRule struct {
@@ -260,29 +184,6 @@ type EndOfSentenceFormatRule struct {
 // heuristic path. Classified per roadmap/17.
 func (r *EndOfSentenceFormatRule) Confidence() float64 { return 0.95 }
 
-func (r *EndOfSentenceFormatRule) NodeTypes() []string { return []string{"multiline_comment"} }
-
-func (r *EndOfSentenceFormatRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !flatIsKDoc(file, idx) {
-		return nil
-	}
-	text := flatKdocText(file, idx)
-	if text == "" {
-		return nil
-	}
-	// Get first line (first sentence)
-	firstLine := strings.SplitN(text, "\n", 2)[0]
-	// Skip @-tag lines
-	if strings.HasPrefix(firstLine, "@") {
-		return nil
-	}
-	if !r.Pattern.MatchString(firstLine) {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			"KDoc first sentence should end with proper punctuation.")}
-	}
-	return nil
-}
-
 // KDocReferencesNonPublicPropertyRule finds KDoc [ref] to non-public properties.
 type KDocReferencesNonPublicPropertyRule struct {
 	FlatDispatchBase
@@ -294,47 +195,7 @@ type KDocReferencesNonPublicPropertyRule struct {
 // heuristic path. Classified per roadmap/17.
 func (r *KDocReferencesNonPublicPropertyRule) Confidence() float64 { return 0.95 }
 
-func (r *KDocReferencesNonPublicPropertyRule) NodeTypes() []string {
-	return []string{"multiline_comment"}
-}
-
 var kdocRefRe = regexp.MustCompile(`\[([A-Za-z_][A-Za-z0-9_]*)\]`)
-
-func (r *KDocReferencesNonPublicPropertyRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !flatIsKDoc(file, idx) {
-		return nil
-	}
-	text := file.FlatNodeText(idx)
-	matches := kdocRefRe.FindAllStringSubmatch(text, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-
-	// Collect non-public property names
-	nonPublic := make(map[string]bool)
-	file.FlatWalkNodes(0, "property_declaration", func(pidx uint32) {
-		if isPublicDeclarationFlat(file, pidx) {
-			return
-		}
-		if name := extractIdentifierFlat(file, pidx); name != "" {
-			nonPublic[name] = true
-		}
-	})
-
-	if len(nonPublic) == 0 {
-		return nil
-	}
-
-	var findings []scanner.Finding
-	for _, m := range matches {
-		name := m[1]
-		if nonPublic[name] {
-			findings = append(findings, r.Finding(file, file.FlatRow(idx)+1, 1,
-				"KDoc references non-public property \""+name+"\"."))
-		}
-	}
-	return findings
-}
 
 // OutdatedDocumentationRule detects @param tags that don't match actual function parameters.
 type OutdatedDocumentationRule struct {
@@ -351,42 +212,6 @@ var paramTagRe = regexp.MustCompile(`@param\s+([A-Za-z_][A-Za-z0-9_]*)`)
 // heuristic path. Classified per roadmap/17.
 func (r *OutdatedDocumentationRule) Confidence() float64 { return 0.95 }
 
-func (r *OutdatedDocumentationRule) NodeTypes() []string { return []string{"function_declaration"} }
-
-func (r *OutdatedDocumentationRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Check for preceding KDoc
-	prev, ok := flatPrecedingKDoc(file, idx)
-	if !ok {
-		return nil
-	}
-
-	kdoc := file.FlatNodeText(prev)
-	docParams := paramTagRe.FindAllStringSubmatch(kdoc, -1)
-	if len(docParams) == 0 {
-		return nil
-	}
-
-	// Collect actual parameter names
-	actualParams := make(map[string]bool)
-	summary := getFunctionDeclSummaryFlat(file, idx)
-	for _, param := range summary.params {
-		if param.name != "" {
-			actualParams[param.name] = true
-		}
-	}
-
-	// Check each documented @param against actual params
-	var findings []scanner.Finding
-	for _, dp := range docParams {
-		name := dp[1]
-		if !actualParams[name] {
-			findings = append(findings, r.Finding(file, file.FlatRow(prev)+1, 1,
-				"KDoc @param \""+name+"\" does not match any actual parameter."))
-		}
-	}
-	return findings
-}
-
 // UndocumentedPublicClassRule detects public classes without KDoc.
 type UndocumentedPublicClassRule struct {
 	FlatDispatchBase
@@ -402,27 +227,6 @@ type UndocumentedPublicClassRule struct {
 // heuristic path. Classified per roadmap/17.
 func (r *UndocumentedPublicClassRule) Confidence() float64 { return 0.95 }
 
-func (r *UndocumentedPublicClassRule) NodeTypes() []string { return []string{"class_declaration"} }
-
-func (r *UndocumentedPublicClassRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !isPublicDeclarationFlat(file, idx) {
-		return nil
-	}
-	// Skip override declarations using AST modifier check
-	if file.FlatHasModifier(idx, "override") {
-		return nil
-	}
-	if _, ok := flatPrecedingKDoc(file, idx); ok {
-		return nil
-	}
-	name := extractIdentifierFlat(file, idx)
-	msg := "Public class is not documented with KDoc."
-	if name != "" {
-		msg = "Public class '" + name + "' is not documented with KDoc."
-	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1, msg)}
-}
-
 // UndocumentedPublicFunctionRule detects public functions without KDoc.
 type UndocumentedPublicFunctionRule struct {
 	FlatDispatchBase
@@ -434,29 +238,6 @@ type UndocumentedPublicFunctionRule struct {
 // heuristic path. Classified per roadmap/17.
 func (r *UndocumentedPublicFunctionRule) Confidence() float64 { return 0.95 }
 
-func (r *UndocumentedPublicFunctionRule) NodeTypes() []string {
-	return []string{"function_declaration"}
-}
-
-func (r *UndocumentedPublicFunctionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !isPublicDeclarationFlat(file, idx) {
-		return nil
-	}
-	// Skip override functions using AST modifier check
-	if file.FlatHasModifier(idx, "override") {
-		return nil
-	}
-	if _, ok := flatPrecedingKDoc(file, idx); ok {
-		return nil
-	}
-	name := extractIdentifierFlat(file, idx)
-	msg := "Public function is not documented with KDoc."
-	if name != "" {
-		msg = "Public function '" + name + "' is not documented with KDoc."
-	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1, msg)}
-}
-
 // UndocumentedPublicPropertyRule detects public properties without KDoc.
 type UndocumentedPublicPropertyRule struct {
 	FlatDispatchBase
@@ -467,26 +248,3 @@ type UndocumentedPublicPropertyRule struct {
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.
 func (r *UndocumentedPublicPropertyRule) Confidence() float64 { return 0.95 }
-
-func (r *UndocumentedPublicPropertyRule) NodeTypes() []string {
-	return []string{"property_declaration"}
-}
-
-func (r *UndocumentedPublicPropertyRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !isPublicDeclarationFlat(file, idx) {
-		return nil
-	}
-	// Skip override properties using AST modifier check
-	if file.FlatHasModifier(idx, "override") {
-		return nil
-	}
-	if _, ok := flatPrecedingKDoc(file, idx); ok {
-		return nil
-	}
-	name := extractIdentifierFlat(file, idx)
-	msg := "Public property is not documented with KDoc."
-	if name != "" {
-		msg = "Public property '" + name + "' is not documented with KDoc."
-	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1, msg)}
-}

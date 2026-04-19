@@ -31,9 +31,7 @@ func (r *UnsafeCastRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = 
 // the same locations from a different angle.
 func (r *UnsafeCastRule) Confidence() float64 { return 0.75 }
 
-func (r *UnsafeCastRule) NodeTypes() []string { return []string{"as_expression"} }
-
-func (r *UnsafeCastRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *UnsafeCastRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	// Skip .gradle.kts files — Gradle's extra properties and configuration
 	// delegates commonly require `as` casts with no safer alternative.
 	if strings.HasSuffix(file.Path, ".gradle.kts") {
@@ -508,9 +506,7 @@ func (r *CastNullableToNonNullableTypeRule) Confidence() float64 { return 0.75 }
 
 var castNullableRe = regexp.MustCompile(`\?\s+as\s+[A-Z]\w+\s*$|[?!]\s+as\s+[A-Z]`)
 
-func (r *CastNullableToNonNullableTypeRule) NodeTypes() []string { return []string{"as_expression"} }
-
-func (r *CastNullableToNonNullableTypeRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *CastNullableToNonNullableTypeRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	text := file.FlatNodeText(idx)
 	// Skip safe casts
 	if strings.Contains(text, "as?") {
@@ -559,9 +555,7 @@ type CastToNullableTypeRule struct {
 // resolver is absent. Classified per roadmap/17.
 func (r *CastToNullableTypeRule) Confidence() float64 { return 0.75 }
 
-func (r *CastToNullableTypeRule) NodeTypes() []string { return []string{"as_expression"} }
-
-func (r *CastToNullableTypeRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *CastToNullableTypeRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	text := file.FlatNodeText(idx)
 	// Skip safe casts
 	if strings.Contains(text, "as?") {

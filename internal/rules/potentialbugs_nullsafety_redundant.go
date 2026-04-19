@@ -24,8 +24,6 @@ type UnnecessaryNotNullCheckRule struct {
 // resolver is absent. Classified per roadmap/17.
 func (r *UnnecessaryNotNullCheckRule) Confidence() float64 { return 0.75 }
 
-func (r *UnnecessaryNotNullCheckRule) NodeTypes() []string { return []string{"equality_expression"} }
-
 var unnecessaryNullCheckRe = regexp.MustCompile(`\bval\s+(\w+)\s*:\s*([A-Z]\w+)\s*=`)
 
 // mutableVarPropertyRe matches `[modifiers] var name` declarations (not val).
@@ -116,7 +114,7 @@ func isExplicitNullableDeclaration(file *scanner.File, name string) bool {
 	return false
 }
 
-func (r *UnnecessaryNotNullCheckRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *UnnecessaryNotNullCheckRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	text := file.FlatNodeText(idx)
 	// Check for "name != null" or "name == null" patterns
 	isNotNull := strings.Contains(text, "!= null")
@@ -180,9 +178,7 @@ func (r *UnnecessaryNotNullOperatorRule) SetResolver(res typeinfer.TypeResolver)
 // conservative but noisy. Classified per roadmap/17.
 func (r *UnnecessaryNotNullOperatorRule) Confidence() float64 { return 0.75 }
 
-func (r *UnnecessaryNotNullOperatorRule) NodeTypes() []string { return []string{"postfix_expression"} }
-
-func (r *UnnecessaryNotNullOperatorRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *UnnecessaryNotNullOperatorRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	text := file.FlatNodeText(idx)
 	if !strings.HasSuffix(text, "!!") {
 		return nil
@@ -452,9 +448,7 @@ func (r *UnnecessarySafeCallRule) SetResolver(res typeinfer.TypeResolver) { r.re
 // name-based heuristic. Classified per roadmap/17.
 func (r *UnnecessarySafeCallRule) Confidence() float64 { return 0.75 }
 
-func (r *UnnecessarySafeCallRule) NodeTypes() []string { return []string{"navigation_expression"} }
-
-func (r *UnnecessarySafeCallRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *UnnecessarySafeCallRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	text := file.FlatNodeText(idx)
 	if !strings.Contains(text, "?.") {
 		return nil
@@ -950,12 +944,10 @@ func (r *NullableToStringCallRule) SetResolver(res typeinfer.TypeResolver) { r.r
 // common null-returning APIs. Classified per roadmap/17.
 func (r *NullableToStringCallRule) Confidence() float64 { return 0.75 }
 
-func (r *NullableToStringCallRule) NodeTypes() []string { return []string{"call_expression"} }
-
 var nullableToStringRe = regexp.MustCompile(`\?\s*\.\s*toString\(\)`)
 var nullableToStringReceiverRe = regexp.MustCompile(`(\w+)\?\s*\.\s*toString\(\)`)
 
-func (r *NullableToStringCallRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *NullableToStringCallRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	text := file.FlatNodeText(idx)
 	if !nullableToStringRe.MatchString(text) {
 		return nil

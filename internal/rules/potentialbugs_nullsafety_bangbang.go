@@ -389,9 +389,7 @@ func (r *UnsafeCallOnNullableTypeRule) Confidence() float64 { return 0.75 }
 
 func (r *UnsafeCallOnNullableTypeRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
-func (r *UnsafeCallOnNullableTypeRule) NodeTypes() []string { return []string{"postfix_expression"} }
-
-func (r *UnsafeCallOnNullableTypeRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *UnsafeCallOnNullableTypeRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	text := file.FlatNodeText(idx)
 	if !strings.HasSuffix(text, "!!") {
 		return nil
@@ -870,16 +868,12 @@ func (r *MapGetWithNotNullAssertionRule) SetResolver(res typeinfer.TypeResolver)
 // name-based assumption. Classified per roadmap/17.
 func (r *MapGetWithNotNullAssertionRule) Confidence() float64 { return 0.75 }
 
-func (r *MapGetWithNotNullAssertionRule) NodeTypes() []string {
-	return []string{"postfix_expression"}
-}
-
 var mapBangRe = regexp.MustCompile(`\[[^\]]+\]\s*!!|\.get\([^)]+\)\s*!!`)
 
 var mapBracketBangRe = regexp.MustCompile(`(\w+(?:\.\w+)*)\[([^\]]+)\]\s*!!`)
 var mapGetBangRe = regexp.MustCompile(`(\w+(?:\.\w+)*)\.get\(([^)]+)\)\s*!!`)
 
-func (r *MapGetWithNotNullAssertionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *MapGetWithNotNullAssertionRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	// Skip test files — fail-fast `map[key]!!` is idiomatic in tests.
 	if isTestFile(file.Path) {
 		return nil

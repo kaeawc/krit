@@ -21,11 +21,7 @@ type SharedPreferencesForSensitiveKeyRule struct {
 
 func (r *SharedPreferencesForSensitiveKeyRule) Confidence() float64 { return 0.75 }
 
-func (r *SharedPreferencesForSensitiveKeyRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *SharedPreferencesForSensitiveKeyRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *SharedPreferencesForSensitiveKeyRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	name := flatCallExpressionName(file, idx)
 	if !isSharedPrefsPutMethod(name) {
 		return nil
@@ -78,11 +74,7 @@ type PlainFileWriteOfSensitiveRule struct {
 
 func (r *PlainFileWriteOfSensitiveRule) Confidence() float64 { return 0.75 }
 
-func (r *PlainFileWriteOfSensitiveRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *PlainFileWriteOfSensitiveRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *PlainFileWriteOfSensitiveRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	name := flatCallExpressionName(file, idx)
 	if name != "writeText" && name != "writeBytes" {
 		return nil
@@ -123,11 +115,7 @@ type LogOfSharedPreferenceReadRule struct {
 
 func (r *LogOfSharedPreferenceReadRule) Confidence() float64 { return 0.75 }
 
-func (r *LogOfSharedPreferenceReadRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *LogOfSharedPreferenceReadRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *LogOfSharedPreferenceReadRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	name := flatCallExpressionName(file, idx)
 	if !isLogMethod(name) {
 		return nil

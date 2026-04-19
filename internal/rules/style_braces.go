@@ -19,9 +19,7 @@ type BracesOnIfStatementsRule struct {
 // roadmap/17.
 func (r *BracesOnIfStatementsRule) Confidence() float64 { return 0.75 }
 
-func (r *BracesOnIfStatementsRule) NodeTypes() []string { return []string{"if_expression"} }
-
-func (r *BracesOnIfStatementsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *BracesOnIfStatementsRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	var findings []scanner.Finding
 
 	body := file.FlatFindChild(idx, "control_structure_body")
@@ -139,9 +137,7 @@ type BracesOnWhenStatementsRule struct {
 // roadmap/17.
 func (r *BracesOnWhenStatementsRule) Confidence() float64 { return 0.75 }
 
-func (r *BracesOnWhenStatementsRule) NodeTypes() []string { return []string{"when_entry"} }
-
-func (r *BracesOnWhenStatementsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *BracesOnWhenStatementsRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	body := file.FlatFindChild(idx, "control_structure_body")
 	if body == 0 {
 		return nil
@@ -254,11 +250,7 @@ type MandatoryBracesLoopsRule struct {
 // roadmap/17.
 func (r *MandatoryBracesLoopsRule) Confidence() float64 { return 0.75 }
 
-func (r *MandatoryBracesLoopsRule) NodeTypes() []string {
-	return []string{"for_statement", "while_statement", "do_while_statement"}
-}
-
-func (r *MandatoryBracesLoopsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *MandatoryBracesLoopsRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	body := file.FlatFindChild(idx, "control_structure_body")
 	if body == 0 {
 		return nil

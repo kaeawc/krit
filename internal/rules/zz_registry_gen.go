@@ -730,7 +730,18 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&ShiftFlagsRule{AndroidRule: alcRule("ShiftFlags", "Suspicious flag constant declarations", ALSWarning, 6)}))
+	{
+		r := &ShiftFlagsRule{AndroidRule: alcRule("ShiftFlags", "Suspicious flag constant declarations", ALSWarning, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &UniqueConstantsRule{AndroidRule: alcRule("UniqueConstants", "Overlapping enumeration constants", ALSError, 6)}
 		v2.Register(&v2.Rule{
@@ -786,7 +797,18 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&SQLiteStringRule{AndroidRule: alcRule("SQLiteString", "Using STRING instead of TEXT in SQLite", ALSWarning, 5)}))
+	{
+		r := &SQLiteStringRule{AndroidRule: alcRule("SQLiteString", "Using STRING instead of TEXT in SQLite", ALSWarning, 5)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &RegisteredRule{AndroidRule: alcRule("Registered", "Class is not registered in the manifest", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
@@ -807,12 +829,67 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&NestedScrollingRule{AndroidRule: alcRule("NestedScrolling", "Nested scrolling widgets", ALSWarning, 7)}))
+	{
+		r := &NestedScrollingRule{AndroidRule: alcRule("NestedScrolling", "Nested scrolling widgets", ALSWarning, 7)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&ScrollViewCountRule{AndroidRule: alcRule("ScrollViewCount", "ScrollViews can have only one child", ALSWarning, 7)}))
-	v2.Register(WrapAsV2(&SimpleDateFormatRule{AndroidRule: alcRule("SimpleDateFormat", "Using SimpleDateFormat directly without Locale", ALSWarning, 6)}))
-	v2.Register(WrapAsV2(&SetTextI18nRule{AndroidRule: alcRule("SetTextI18n", "TextView with internationalization issues", ALSWarning, 6)}))
-	v2.Register(WrapAsV2(&StopShipRule{AndroidRule: alcRule("StopShip", "STOPSHIP comment found", ALSFatal, 10)}))
-	v2.Register(WrapAsV2(&WrongCallRule{AndroidRule: alcRule("WrongCall", "Using wrong draw/layout method", ALSError, 6)}))
+	{
+		r := &SimpleDateFormatRule{AndroidRule: alcRule("SimpleDateFormat", "Using SimpleDateFormat directly without Locale", ALSWarning, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &SetTextI18nRule{AndroidRule: alcRule("SetTextI18n", "TextView with internationalization issues", ALSWarning, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &StopShipRule{AndroidRule: alcRule("StopShip", "STOPSHIP comment found", ALSFatal, 10)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &WrongCallRule{AndroidRule: alcRule("WrongCall", "Using wrong draw/layout method", ALSError, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from android_correctness_checks.go ---
 	{
@@ -862,16 +939,126 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&SwitchIntDefRule{AndroidRule: alcRule("SwitchIntDef", "Missing @IntDef constants in switch", ALSWarning, 6)}))
-	v2.Register(WrapAsV2(&TextViewEditsRule{AndroidRule: alcRule("TextViewEdits", "Calling setText on an EditText", ALSWarning, 5)}))
-	v2.Register(WrapAsV2(&WrongViewCastRule{AndroidRule: alcRule("WrongViewCast", "Mismatched view type", ALSError, 9)}))
-	v2.Register(WrapAsV2(&DeprecatedRule{AndroidRule: alcRule("Deprecated", "Using deprecated API", ALSWarning, 2)}))
-	v2.Register(WrapAsV2(&RangeRule{AndroidRule: alcRule("Range", "Outside allowed range", ALSError, 6)}))
-	v2.Register(WrapAsV2(&ResourceTypeRule{AndroidRule: alcRule("ResourceType", "Wrong resource type", ALSError, 7)}))
-	v2.Register(WrapAsV2(&ResourceAsColorRule{AndroidRule: alcRule("ResourceAsColor", "Should pass resolved color instead of resource id", ALSError, 7)}))
-	v2.Register(WrapAsV2(&SupportAnnotationUsageRule{AndroidRule: alcRule("SupportAnnotationUsage", "Incorrect support annotation usage", ALSError, 6)}))
-	v2.Register(WrapAsV2(&AccidentalOctalRule{AndroidRule: alcRule("AccidentalOctal", "Accidental octal interpretation", ALSWarning, 5)}))
-	v2.Register(WrapAsV2(&AppCompatMethodRule{AndroidRule: alcRule("AppCompatMethod", "Using Wrong AppCompat Method", ALSWarning, 6)}))
+	{
+		r := &SwitchIntDefRule{AndroidRule: alcRule("SwitchIntDef", "Missing @IntDef constants in switch", ALSWarning, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &TextViewEditsRule{AndroidRule: alcRule("TextViewEdits", "Calling setText on an EditText", ALSWarning, 5)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &WrongViewCastRule{AndroidRule: alcRule("WrongViewCast", "Mismatched view type", ALSError, 9)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &DeprecatedRule{AndroidRule: alcRule("Deprecated", "Using deprecated API", ALSWarning, 2)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &RangeRule{AndroidRule: alcRule("Range", "Outside allowed range", ALSError, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ResourceTypeRule{AndroidRule: alcRule("ResourceType", "Wrong resource type", ALSError, 7)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ResourceAsColorRule{AndroidRule: alcRule("ResourceAsColor", "Should pass resolved color instead of resource id", ALSError, 7)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &SupportAnnotationUsageRule{AndroidRule: alcRule("SupportAnnotationUsage", "Incorrect support annotation usage", ALSError, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &AccidentalOctalRule{AndroidRule: alcRule("AccidentalOctal", "Accidental octal interpretation", ALSWarning, 5)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &AppCompatMethodRule{AndroidRule: alcRule("AppCompatMethod", "Using Wrong AppCompat Method", ALSWarning, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &CustomViewStyleableRule{AndroidRule: alcRule("CustomViewStyleable", "Mismatched Styleable/Custom View Name", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
@@ -903,13 +1090,79 @@ func registerAllRules() {
 		})
 	}
 	v2.Register(WrapAsV2(&DalvikOverrideRule{AndroidRule: alcRule("DalvikOverride", "Method considered overridden by Dalvik", ALSError, 6)}))
-	v2.Register(WrapAsV2(&InnerclassSeparatorRule{AndroidRule: alcRule("InnerclassSeparator", "Inner classes should use '$' not '/'", ALSWarning, 3)}))
-	v2.Register(WrapAsV2(&ObjectAnimatorBindingRule{AndroidRule: alcRule("ObjectAnimatorBinding", "Incorrect ObjectAnimator Property", ALSError, 4)}))
+	{
+		r := &InnerclassSeparatorRule{AndroidRule: alcRule("InnerclassSeparator", "Inner classes should use '$' not '/'", ALSWarning, 3)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ObjectAnimatorBindingRule{AndroidRule: alcRule("ObjectAnimatorBinding", "Incorrect ObjectAnimator Property", ALSError, 4)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&OnClickRule{AndroidRule: alcRule("OnClick", "onClick handler issue", ALSError, 6)}))
-	v2.Register(WrapAsV2(&PropertyEscapeRule{AndroidRule: alcRule("PropertyEscape", "Invalid property file escapes", ALSError, 5)}))
-	v2.Register(WrapAsV2(&ShortAlarmRule{AndroidRule: alcRule("ShortAlarm", "Short or frequent alarm", ALSWarning, 6)}))
-	v2.Register(WrapAsV2(&LocalSuppressRule{AndroidRule: alcRule("LocalSuppress", "@SuppressLint misuse", ALSWarning, 6)}))
-	v2.Register(WrapAsV2(&PluralsCandidateRule{AndroidRule: alcRule("PluralsCandidate", "Potential plurals", ALSWarning, 5)}))
+	{
+		r := &PropertyEscapeRule{AndroidRule: alcRule("PropertyEscape", "Invalid property file escapes", ALSError, 5)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ShortAlarmRule{AndroidRule: alcRule("ShortAlarm", "Short or frequent alarm", ALSWarning, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &LocalSuppressRule{AndroidRule: alcRule("LocalSuppress", "@SuppressLint misuse", ALSWarning, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &PluralsCandidateRule{AndroidRule: alcRule("PluralsCandidate", "Potential plurals", ALSWarning, 5)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from android_gradle.go ---
 	{

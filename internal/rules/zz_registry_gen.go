@@ -1141,426 +1141,978 @@ func registerAllRules() {
 	}}))
 
 	// --- from android_manifest_features.go ---
-	v2.Register(WrapAsV2(&RtlEnabledManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "RtlEnabledManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "RtlEnabled",
-		Brief:      "Missing supportsRtl=true on <application>",
-		Category:   ALCUsability,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&RtlCompatManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "RtlCompatManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "RtlCompat",
-		Brief:      "Missing supportsRtl with targetSdkVersion >= 17",
-		Category:   ALCI18N,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&AppIndexingErrorManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "AppIndexingErrorManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "AppIndexingError",
-		Brief:      "VIEW intent filter missing http/https data scheme",
-		Category:   ALCUsability,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&AppIndexingWarningManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "AppIndexingWarningManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "AppIndexingWarning",
-		Brief:      "Browsable intent filter missing VIEW action",
-		Category:   ALCUsability,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&GoogleAppIndexingDeepLinkErrorManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "GoogleAppIndexingDeepLinkErrorManifest", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "GoogleAppIndexingDeepLinkError",
-		Brief:      "Deep link data element with scheme but no host",
-		Category:   ALCUsability,
-		ALSeverity: ALSError,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&GoogleAppIndexingWarningManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "GoogleAppIndexingWarningManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "GoogleAppIndexingWarning",
-		Brief:      "No activity with deep link support",
-		Category:   ALCUsability,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MissingLeanbackLauncherManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MissingLeanbackLauncherManifest", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "MissingLeanbackLauncher",
-		Brief:      "Leanback feature without LEANBACK_LAUNCHER activity",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MissingLeanbackSupportManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MissingLeanbackSupportManifest", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "MissingLeanbackSupport",
-		Brief:      "Leanback feature without touchscreen opt-out",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&PermissionImpliesUnsupportedHardwareManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "PermissionImpliesUnsupportedHardwareManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "PermissionImpliesUnsupportedHardware",
-		Brief:      "Permission implies hardware feature not declared optional",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&UnsupportedChromeOsHardwareManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "UnsupportedChromeOsHardwareManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "UnsupportedChromeOsHardware",
-		Brief:      "Hardware feature unsupported on Chrome OS not marked optional",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&DeviceAdminManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "DeviceAdminManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "DeviceAdmin",
-		Brief:      "Malformed Device Admin",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&FullBackupContentManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "FullBackupContentManifest", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "FullBackupContent",
-		Brief:      "Invalid fullBackupContent or dataExtractionRules",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSFatal,
-		Priority:   8,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MissingRegisteredManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MissingRegisteredManifest", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "MissingRegistered",
-		Brief:      "Missing registered class",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   8,
-		Origin:     "AOSP Android Lint",
-	}}))
+	{
+		r := &RtlEnabledManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "RtlEnabledManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "RtlEnabled",
+			Brief:      "Missing supportsRtl=true on <application>",
+			Category:   ALCUsability,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &RtlCompatManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "RtlCompatManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "RtlCompat",
+			Brief:      "Missing supportsRtl with targetSdkVersion >= 17",
+			Category:   ALCI18N,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &AppIndexingErrorManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "AppIndexingErrorManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "AppIndexingError",
+			Brief:      "VIEW intent filter missing http/https data scheme",
+			Category:   ALCUsability,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &AppIndexingWarningManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "AppIndexingWarningManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "AppIndexingWarning",
+			Brief:      "Browsable intent filter missing VIEW action",
+			Category:   ALCUsability,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &GoogleAppIndexingDeepLinkErrorManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GoogleAppIndexingDeepLinkErrorManifest", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "GoogleAppIndexingDeepLinkError",
+			Brief:      "Deep link data element with scheme but no host",
+			Category:   ALCUsability,
+			ALSeverity: ALSError,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &GoogleAppIndexingWarningManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GoogleAppIndexingWarningManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "GoogleAppIndexingWarning",
+			Brief:      "No activity with deep link support",
+			Category:   ALCUsability,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MissingLeanbackLauncherManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MissingLeanbackLauncherManifest", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "MissingLeanbackLauncher",
+			Brief:      "Leanback feature without LEANBACK_LAUNCHER activity",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MissingLeanbackSupportManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MissingLeanbackSupportManifest", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "MissingLeanbackSupport",
+			Brief:      "Leanback feature without touchscreen opt-out",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &PermissionImpliesUnsupportedHardwareManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "PermissionImpliesUnsupportedHardwareManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "PermissionImpliesUnsupportedHardware",
+			Brief:      "Permission implies hardware feature not declared optional",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UnsupportedChromeOsHardwareManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UnsupportedChromeOsHardwareManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "UnsupportedChromeOsHardware",
+			Brief:      "Hardware feature unsupported on Chrome OS not marked optional",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &DeviceAdminManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "DeviceAdminManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "DeviceAdmin",
+			Brief:      "Malformed Device Admin",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &FullBackupContentManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "FullBackupContentManifest", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "FullBackupContent",
+			Brief:      "Invalid fullBackupContent or dataExtractionRules",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSFatal,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MissingRegisteredManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MissingRegisteredManifest", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "MissingRegistered",
+			Brief:      "Missing registered class",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from android_manifest_i18n.go ---
-	v2.Register(WrapAsV2(&LocaleConfigMissingRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "LocaleConfigMissing", RuleSetName: androidRuleSet, Sev: "info"},
-		IssueID:    "LocaleConfigMissing",
-		Brief:      "android:localeConfig points at a missing XML resource",
-		Category:   ALCI18N,
-		ALSeverity: ALSInformational,
-		Priority:   3,
-		Origin:     "Krit roadmap",
-	}}))
+	{
+		r := &LocaleConfigMissingRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "LocaleConfigMissing", RuleSetName: androidRuleSet, Sev: "info"},
+			IssueID:    "LocaleConfigMissing",
+			Brief:      "android:localeConfig points at a missing XML resource",
+			Category:   ALCI18N,
+			ALSeverity: ALSInformational,
+			Priority:   3,
+			Origin:     "Krit roadmap",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from android_manifest_security.go ---
-	v2.Register(WrapAsV2(&AllowBackupManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "AllowBackupManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "AllowBackup",
-		Brief:      "Missing or true allowBackup attribute",
-		Category:   ALCSecurity,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&DebuggableManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "DebuggableManifest", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "HardcodedDebugMode",
-		Brief:      "Hardcoded value of android:debuggable in manifest",
-		Category:   ALCSecurity,
-		ALSeverity: ALSError,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ExportedWithoutPermissionRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ExportedWithoutPermission", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ExportedWithoutPermission",
-		Brief:      "Exported component without required permission",
-		Category:   ALCSecurity,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MissingExportedFlagRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MissingExportedFlag", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "MissingExportedFlag",
-		Brief:      "Component with intent-filter missing android:exported (API 31+)",
-		Category:   ALCSecurity,
-		ALSeverity: ALSError,
-		Priority:   8,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ExportedServiceManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ExportedServiceManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ExportedService",
-		Brief:      "Exported service without required permission",
-		Category:   ALCSecurity,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ExportedPreferenceActivityManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ExportedPreferenceActivityManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ExportedPreferenceActivity",
-		Brief:      "Exported PreferenceActivity is vulnerable to fragment injection",
-		Category:   ALCSecurity,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&CleartextTrafficRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "CleartextTraffic", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "CleartextTraffic",
-		Brief:      "usesCleartextTraffic enabled",
-		Category:   ALCSecurity,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&BackupRulesRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "BackupRules", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "BackupRules",
-		Brief:      "Missing backup configuration",
-		Category:   ALCSecurity,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&InsecureBaseConfigurationManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "InsecureBaseConfigurationManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "InsecureBaseConfiguration",
-		Brief:      "Missing networkSecurityConfig on API 28+",
-		Category:   ALCSecurity,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&UnprotectedSMSBroadcastReceiverManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "UnprotectedSMSBroadcastReceiverManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "UnprotectedSMSBroadcastReceiver",
-		Brief:      "SMS receiver without permission protection",
-		Category:   ALCSecurity,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&UnsafeProtectedBroadcastReceiverManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "UnsafeProtectedBroadcastReceiverManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "UnsafeProtectedBroadcastReceiver",
-		Brief:      "Exported receiver for protected broadcast without permission",
-		Category:   ALCSecurity,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&UseCheckPermissionManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "UseCheckPermissionManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "UseCheckPermission",
-		Brief:      "Exported service with sensitive action but no permission",
-		Category:   ALCSecurity,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ProtectedPermissionsManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ProtectedPermissionsManifest", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "ProtectedPermissions",
-		Brief:      "Using system app permission",
-		Category:   ALCSecurity,
-		ALSeverity: ALSError,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ServiceExportedManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ServiceExportedManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ServiceExported",
-		Brief:      "Exported service does not require permission",
-		Category:   ALCSecurity,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
+	{
+		r := &AllowBackupManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "AllowBackupManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "AllowBackup",
+			Brief:      "Missing or true allowBackup attribute",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &DebuggableManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "DebuggableManifest", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "HardcodedDebugMode",
+			Brief:      "Hardcoded value of android:debuggable in manifest",
+			Category:   ALCSecurity,
+			ALSeverity: ALSError,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ExportedWithoutPermissionRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ExportedWithoutPermission", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ExportedWithoutPermission",
+			Brief:      "Exported component without required permission",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MissingExportedFlagRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MissingExportedFlag", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "MissingExportedFlag",
+			Brief:      "Component with intent-filter missing android:exported (API 31+)",
+			Category:   ALCSecurity,
+			ALSeverity: ALSError,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ExportedServiceManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ExportedServiceManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ExportedService",
+			Brief:      "Exported service without required permission",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ExportedPreferenceActivityManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ExportedPreferenceActivityManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ExportedPreferenceActivity",
+			Brief:      "Exported PreferenceActivity is vulnerable to fragment injection",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &CleartextTrafficRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "CleartextTraffic", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "CleartextTraffic",
+			Brief:      "usesCleartextTraffic enabled",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &BackupRulesRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "BackupRules", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "BackupRules",
+			Brief:      "Missing backup configuration",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &InsecureBaseConfigurationManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "InsecureBaseConfigurationManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "InsecureBaseConfiguration",
+			Brief:      "Missing networkSecurityConfig on API 28+",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UnprotectedSMSBroadcastReceiverManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UnprotectedSMSBroadcastReceiverManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "UnprotectedSMSBroadcastReceiver",
+			Brief:      "SMS receiver without permission protection",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UnsafeProtectedBroadcastReceiverManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UnsafeProtectedBroadcastReceiverManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "UnsafeProtectedBroadcastReceiver",
+			Brief:      "Exported receiver for protected broadcast without permission",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UseCheckPermissionManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UseCheckPermissionManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "UseCheckPermission",
+			Brief:      "Exported service with sensitive action but no permission",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ProtectedPermissionsManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ProtectedPermissionsManifest", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "ProtectedPermissions",
+			Brief:      "Using system app permission",
+			Category:   ALCSecurity,
+			ALSeverity: ALSError,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ServiceExportedManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ServiceExportedManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ServiceExported",
+			Brief:      "Exported service does not require permission",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from android_manifest_structure.go ---
-	v2.Register(WrapAsV2(&DuplicateActivityManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "DuplicateActivityManifest", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "DuplicateActivity",
-		Brief:      "Activity registered more than once",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&WrongManifestParentManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "WrongManifestParentManifest", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "WrongManifestParent",
-		Brief:      "Element declared under wrong parent in manifest",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSFatal,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&GradleOverridesManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "GradleOverridesManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "GradleOverrides",
-		Brief:      "SDK version in manifest overridden by Gradle",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&UsesSdkManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "UsesSdkManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "UsesMinSdkAttributes",
-		Brief:      "Missing <uses-sdk> element in manifest",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   9,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MipmapLauncherRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MipmapLauncher", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "MipmapIcons",
-		Brief:      "Launcher icon should use @mipmap/ not @drawable/",
-		Category:   ALCUsability,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&UniquePermissionRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "UniquePermission", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "UniquePermission",
-		Brief:      "Custom permission collides with system permission",
-		Category:   ALCSecurity,
-		ALSeverity: ALSError,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&SystemPermissionRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "SystemPermission", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "SystemPermission",
-		Brief:      "Requesting dangerous system permission",
-		Category:   ALCSecurity,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ManifestTypoRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ManifestTypoManifest", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "ManifestTypo",
-		Brief:      "Typos in manifest element tags",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSFatal,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MissingApplicationIconRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MissingApplicationIconManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "MissingApplicationIcon",
-		Brief:      "Missing android:icon on <application>",
-		Category:   ALCUsability,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&TargetNewerRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "TargetNewer", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "OldTargetApi",
-		Brief:      "Target SDK version is too old",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&IntentFilterExportRequiredRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "IntentFilterExportRequired", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "IntentFilterExportRequired",
-		Brief:      "Component with intent-filter missing android:exported (API 31+)",
-		Category:   ALCSecurity,
-		ALSeverity: ALSError,
-		Priority:   8,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&DuplicateUsesFeatureManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "DuplicateUsesFeatureManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "DuplicateUsesFeature",
-		Brief:      "Duplicate <uses-feature> declaration",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MultipleUsesSdkManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MultipleUsesSdkManifest", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "MultipleUsesSdk",
-		Brief:      "More than one <uses-sdk> element",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&ManifestOrderManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "ManifestOrderManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "ManifestOrder",
-		Brief:      "<application> appears before <uses-permission> or <uses-sdk>",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   3,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MissingVersionManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MissingVersionManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "MissingVersion",
-		Brief:      "Missing versionCode or versionName on <manifest>",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   2,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MockLocationManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MockLocationManifest", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "MockLocation",
-		Brief:      "ACCESS_MOCK_LOCATION in non-debug manifest",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&UnpackedNativeCodeManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "UnpackedNativeCodeManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "UnpackedNativeCode",
-		Brief:      "Missing extractNativeLibs=false with native libraries",
-		Category:   ALCPerformance,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&InvalidUsesTagAttributeManifestRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "InvalidUsesTagAttributeManifest", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "InvalidUsesTagAttribute",
-		Brief:      "Invalid android:required value on <uses-feature>",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   5,
-		Origin:     "AOSP Android Lint",
-	}}))
+	{
+		r := &DuplicateActivityManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "DuplicateActivityManifest", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "DuplicateActivity",
+			Brief:      "Activity registered more than once",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &WrongManifestParentManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "WrongManifestParentManifest", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "WrongManifestParent",
+			Brief:      "Element declared under wrong parent in manifest",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSFatal,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &GradleOverridesManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GradleOverridesManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "GradleOverrides",
+			Brief:      "SDK version in manifest overridden by Gradle",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UsesSdkManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UsesSdkManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "UsesMinSdkAttributes",
+			Brief:      "Missing <uses-sdk> element in manifest",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   9,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MipmapLauncherRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MipmapLauncher", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "MipmapIcons",
+			Brief:      "Launcher icon should use @mipmap/ not @drawable/",
+			Category:   ALCUsability,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UniquePermissionRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UniquePermission", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "UniquePermission",
+			Brief:      "Custom permission collides with system permission",
+			Category:   ALCSecurity,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &SystemPermissionRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "SystemPermission", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "SystemPermission",
+			Brief:      "Requesting dangerous system permission",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ManifestTypoRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ManifestTypoManifest", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "ManifestTypo",
+			Brief:      "Typos in manifest element tags",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSFatal,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MissingApplicationIconRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MissingApplicationIconManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "MissingApplicationIcon",
+			Brief:      "Missing android:icon on <application>",
+			Category:   ALCUsability,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &TargetNewerRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "TargetNewer", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "OldTargetApi",
+			Brief:      "Target SDK version is too old",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &IntentFilterExportRequiredRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "IntentFilterExportRequired", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "IntentFilterExportRequired",
+			Brief:      "Component with intent-filter missing android:exported (API 31+)",
+			Category:   ALCSecurity,
+			ALSeverity: ALSError,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &DuplicateUsesFeatureManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "DuplicateUsesFeatureManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "DuplicateUsesFeature",
+			Brief:      "Duplicate <uses-feature> declaration",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MultipleUsesSdkManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MultipleUsesSdkManifest", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "MultipleUsesSdk",
+			Brief:      "More than one <uses-sdk> element",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ManifestOrderManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ManifestOrderManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ManifestOrder",
+			Brief:      "<application> appears before <uses-permission> or <uses-sdk>",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   3,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MissingVersionManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MissingVersionManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "MissingVersion",
+			Brief:      "Missing versionCode or versionName on <manifest>",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   2,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MockLocationManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MockLocationManifest", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "MockLocation",
+			Brief:      "ACCESS_MOCK_LOCATION in non-debug manifest",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UnpackedNativeCodeManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "UnpackedNativeCodeManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "UnpackedNativeCode",
+			Brief:      "Missing extractNativeLibs=false with native libraries",
+			Category:   ALCPerformance,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &InvalidUsesTagAttributeManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "InvalidUsesTagAttributeManifest", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "InvalidUsesTagAttribute",
+			Brief:      "Invalid android:required value on <uses-feature>",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				m, _ := ctx.Manifest.(*Manifest)
+				for _, f := range r.CheckManifest(m) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from android_resource_a11y.go ---
 	v2.Register(WrapAsV2(&HardcodedValuesResourceRule{AndroidRule: AndroidRule{
@@ -2816,12 +3368,78 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&WrongImportRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "WrongImport", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "WrongImport", Brief: "Importing android.R instead of app R", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}))
-	v2.Register(WrapAsV2(&LayoutInflationRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "LayoutInflation", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "InflateParams", Brief: "Layout inflation without parent", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}))
-	v2.Register(WrapAsV2(&ViewTagRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ViewTag", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ViewTag", Brief: "Tagged object may leak", Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}))
-	v2.Register(WrapAsV2(&TrulyRandomRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "TrulyRandom", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "TrulyRandom", Brief: "Hardcoded seed defeats SecureRandom", Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 9, Origin: "AOSP Android Lint"}}))
-	v2.Register(WrapAsV2(&MissingPermissionRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "MissingPermission", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "MissingPermission", Brief: "Missing permission check before API call", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 9, Origin: "AOSP Android Lint"}}))
-	v2.Register(WrapAsV2(&WrongConstantRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "WrongConstant", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "WrongConstant", Brief: "Wrong constant passed to API", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}))
+	{
+		r := &WrongImportRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "WrongImport", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "WrongImport", Brief: "Importing android.R instead of app R", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &LayoutInflationRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "LayoutInflation", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "InflateParams", Brief: "Layout inflation without parent", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &ViewTagRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ViewTag", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ViewTag", Brief: "Tagged object may leak", Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &TrulyRandomRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "TrulyRandom", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "TrulyRandom", Brief: "Hardcoded seed defeats SecureRandom", Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 9, Origin: "AOSP Android Lint"}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MissingPermissionRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "MissingPermission", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "MissingPermission", Brief: "Missing permission check before API call", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 9, Origin: "AOSP Android Lint"}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &WrongConstantRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "WrongConstant", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "WrongConstant", Brief: "Wrong constant passed to API", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &InstantiatableRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "Instantiatable", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "Instantiatable", Brief: "Registered class not instantiatable", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
@@ -2925,9 +3543,42 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&LocaleFolderRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "LocaleFolder", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "LocaleFolder", Brief: "Wrong locale folder naming", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}))
-	v2.Register(WrapAsV2(&UseAlpha2Rule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "UseAlpha2", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "UseAlpha2", Brief: "3-letter ISO code in locale folder", Category: ALCI18N, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}))
-	v2.Register(WrapAsV2(&MangledCRLFRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "MangledCRLF", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "MangledCRLF", Brief: "Mixed line endings in file", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 3, Origin: "AOSP Android Lint"}}))
+	{
+		r := &LocaleFolderRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "LocaleFolder", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "LocaleFolder", Brief: "Wrong locale folder naming", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UseAlpha2Rule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "UseAlpha2", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "UseAlpha2", Brief: "3-letter ISO code in locale folder", Category: ALCI18N, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MangledCRLFRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "MangledCRLF", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "MangledCRLF", Brief: "Mixed line endings in file", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 3, Origin: "AOSP Android Lint"}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &ResourceNameRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ResourceName", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ResourceName", Brief: "Resource name not in snake_case", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 4, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
@@ -2959,7 +3610,18 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&ProguardSplitRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ProguardSplit", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ProguardSplit", Brief: "Proguard config should be split", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 3, Origin: "AOSP Android Lint"}}))
+	{
+		r := &ProguardSplitRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ProguardSplit", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ProguardSplit", Brief: "Proguard config should be split", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 3, Origin: "AOSP Android Lint"}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &NfcTechWhitespaceRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "NfcTechWhitespace", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "NfcTechWhitespace", Brief: "Whitespace in NFC tech-list", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{

@@ -652,7 +652,18 @@ func registerAllRules() {
 	}
 
 	// --- from android_correctness.go ---
-	v2.Register(WrapAsV2(&DefaultLocaleRule{AndroidRule: alcRule("DefaultLocale", "Implied default locale in case conversion", ALSWarning, 6)}))
+	{
+		r := &DefaultLocaleRule{AndroidRule: alcRule("DefaultLocale", "Implied default locale in case conversion", ALSWarning, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &CommitPrefEditsRule{AndroidRule: alcRule("CommitPrefEdits", "Missing commit() on SharedPreferences editor", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
@@ -703,7 +714,18 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&AssertRule{AndroidRule: alcRule("Assert", "Assertions are unreliable on Android", ALSWarning, 6)}))
+	{
+		r := &AssertRule{AndroidRule: alcRule("Assert", "Assertions are unreliable on Android", ALSWarning, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &CheckResultRule{AndroidRule: alcRule("CheckResult", "Ignoring results", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
@@ -8791,10 +8813,21 @@ func registerAllRules() {
 	}
 
 	// --- from hotspot.go ---
-	v2.Register(WrapAsV2(&GodClassOrModuleRule{
-		BaseRule:                BaseRule{RuleName: "GodClassOrModule", RuleSetName: "architecture", Sev: "warning", Desc: "Detects source files that import from an unusually broad set of packages, suggesting too many responsibilities."},
-		AllowedDistinctPackages: 12,
-	}))
+	{
+		r := &GodClassOrModuleRule{
+			BaseRule:                BaseRule{RuleName: "GodClassOrModule", RuleSetName: "architecture", Sev: "warning", Desc: "Detects source files that import from an unusually broad set of packages, suggesting too many responsibilities."},
+			AllowedDistinctPackages: 12,
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&FanInFanOutHotspotRule{
 		BaseRule:                BaseRule{RuleName: "FanInFanOutHotspot", RuleSetName: "architecture", Sev: "info", Desc: "Detects class-like declarations with unusually high fan-in across the project."},
 		AllowedFanIn:            20,
@@ -8873,14 +8906,36 @@ func registerAllRules() {
 	}
 
 	// --- from licensing.go ---
-	v2.Register(WrapAsV2(&CopyrightYearOutdatedRule{
-		BaseRule:         BaseRule{RuleName: "CopyrightYearOutdated", RuleSetName: licensingRuleSet, Sev: "info", Desc: "Detects stale copyright years in file header comments."},
-		RecentYearCutoff: recentCopyrightYearCutoff,
-	}))
-	v2.Register(WrapAsV2(&MissingSpdxIdentifierRule{
-		BaseRule:       BaseRule{RuleName: "MissingSpdxIdentifier", RuleSetName: licensingRuleSet, Sev: "info", Desc: "Detects file header comments that are missing a SPDX license identifier."},
-		RequiredPrefix: spdxIdentifierPrefix,
-	}))
+	{
+		r := &CopyrightYearOutdatedRule{
+			BaseRule:         BaseRule{RuleName: "CopyrightYearOutdated", RuleSetName: licensingRuleSet, Sev: "info", Desc: "Detects stale copyright years in file header comments."},
+			RecentYearCutoff: recentCopyrightYearCutoff,
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MissingSpdxIdentifierRule{
+			BaseRule:       BaseRule{RuleName: "MissingSpdxIdentifier", RuleSetName: licensingRuleSet, Sev: "info", Desc: "Detects file header comments that are missing a SPDX license identifier."},
+			RequiredPrefix: spdxIdentifierPrefix,
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&DependencyLicenseUnknownRule{
 		BaseRule: BaseRule{RuleName: "DependencyLicenseUnknown", RuleSetName: licensingRuleSet, Sev: "info", Desc: "Detects external dependencies not present in the embedded license registry."},
 	}))
@@ -12099,10 +12154,21 @@ func registerAllRules() {
 	}
 
 	// --- from public_to_internal_leaky_abstraction.go ---
-	v2.Register(WrapAsV2(&PublicToInternalLeakyAbstractionRule{
-		BaseRule:  BaseRule{RuleName: "PublicToInternalLeakyAbstraction", RuleSetName: "architecture", Sev: "info", Desc: "Flags public classes that are thin wrappers delegating to a single private or internal field, which leak internal abstractions through a nominally public API."},
-		Threshold: 0.80,
-	}))
+	{
+		r := &PublicToInternalLeakyAbstractionRule{
+			BaseRule:  BaseRule{RuleName: "PublicToInternalLeakyAbstraction", RuleSetName: "architecture", Sev: "info", Desc: "Flags public classes that are thin wrappers delegating to a single private or internal field, which leak internal abstractions through a nominally public API."},
+			Threshold: 0.80,
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from release_engineering.go ---
 	{
@@ -17986,9 +18052,20 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&MixedAssertionLibrariesRule{
-		BaseRule: BaseRule{RuleName: "MixedAssertionLibraries", RuleSetName: testingQualityRuleSet, Sev: "info", Desc: "Detects files that import both JUnit Assert and Google Truth assertion APIs."},
-	}))
+	{
+		r := &MixedAssertionLibrariesRule{
+			BaseRule: BaseRule{RuleName: "MixedAssertionLibraries", RuleSetName: testingQualityRuleSet, Sev: "info", Desc: "Detects files that import both JUnit Assert and Google Truth assertion APIs."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &AssertNullableWithNotNullAssertionRule{
 			BaseRule: BaseRule{RuleName: "AssertNullableWithNotNullAssertion", RuleSetName: testingQualityRuleSet, Sev: "warning", Desc: "Detects non-null assertions (!!) inside assertion calls where assertNotNull should be used instead."},

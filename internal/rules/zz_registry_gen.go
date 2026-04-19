@@ -4305,21 +4305,528 @@ func registerAllRules() {
 	}
 
 	// --- from emptyblocks.go ---
-	v2.Register(WrapAsV2(&EmptyCatchBlockRule{BaseRule: BaseRule{RuleName: "EmptyCatchBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects catch blocks with an empty body that silently swallow exceptions."}}))
-	v2.Register(WrapAsV2(&EmptyClassBlockRule{BaseRule: BaseRule{RuleName: "EmptyClassBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects class declarations with an empty body that can have their braces removed."}}))
-	v2.Register(WrapAsV2(&EmptyDefaultConstructorRule{BaseRule: BaseRule{RuleName: "EmptyDefaultConstructor", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects explicit empty default constructors that are redundant and can be removed."}}))
-	v2.Register(WrapAsV2(&EmptyDoWhileBlockRule{BaseRule: BaseRule{RuleName: "EmptyDoWhileBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects do-while loops with an empty body."}}))
-	v2.Register(WrapAsV2(&EmptyElseBlockRule{BaseRule: BaseRule{RuleName: "EmptyElseBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects else blocks with an empty body."}}))
-	v2.Register(WrapAsV2(&EmptyFinallyBlockRule{BaseRule: BaseRule{RuleName: "EmptyFinallyBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects finally blocks with an empty body that serve no purpose."}}))
-	v2.Register(WrapAsV2(&EmptyForBlockRule{BaseRule: BaseRule{RuleName: "EmptyForBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects for loops with an empty body."}}))
-	v2.Register(WrapAsV2(&EmptyFunctionBlockRule{BaseRule: BaseRule{RuleName: "EmptyFunctionBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects function declarations with an empty body."}}))
-	v2.Register(WrapAsV2(&EmptyIfBlockRule{BaseRule: BaseRule{RuleName: "EmptyIfBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects if blocks with an empty body."}}))
-	v2.Register(WrapAsV2(&EmptyInitBlockRule{BaseRule: BaseRule{RuleName: "EmptyInitBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects init blocks with an empty body that can be removed."}}))
+	{
+		r := &EmptyCatchBlockRule{BaseRule: BaseRule{RuleName: "EmptyCatchBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects catch blocks with an empty body that silently swallow exceptions."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"catch_block"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !isBlockEmptyFlat(file, idx) {
+					return
+				}
+				if r.AllowedExceptionNameRegex != nil {
+					caughtVar := extractCaughtVarNameFlat(file, idx)
+					if caughtVar != "" && r.AllowedExceptionNameRegex.MatchString(caughtVar) {
+						return
+					}
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"Empty catch block detected. Empty catch blocks should be avoided.")
+				nodeText := file.FlatNodeText(idx)
+				braceStart := strings.Index(nodeText, "{")
+				braceEnd := strings.LastIndex(nodeText, "}")
+				if braceStart >= 0 && braceEnd > braceStart {
+					indent := detectIndent(file.Content, int(file.FlatStartByte(idx)))
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   int(file.FlatStartByte(idx)) + braceStart,
+						EndByte:     int(file.FlatStartByte(idx)) + braceEnd + 1,
+						Replacement: "{\n" + indent + "    // TODO: handle exception\n" + indent + "}",
+					}
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &EmptyClassBlockRule{BaseRule: BaseRule{RuleName: "EmptyClassBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects class declarations with an empty body that can have their braces removed."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_body"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) {
+					return
+				}
+				if parent, ok := file.FlatParent(idx); ok && file.FlatType(parent) == "object_literal" {
+					return
+				}
+				text := file.FlatNodeText(idx)
+				inner := strings.TrimSpace(text)
+				if len(inner) >= 2 && inner[0] == '{' && inner[len(inner)-1] == '}' {
+					body := strings.TrimSpace(inner[1 : len(inner)-1])
+					cleaned := stripComments(body)
+					if strings.TrimSpace(cleaned) == "" {
+						f := r.Finding(file, file.FlatRow(idx)+1, 1,
+							"Empty class body detected. Consider removing the empty braces.")
+						startByte := int(file.FlatStartByte(idx))
+						for startByte > 0 && (file.Content[startByte-1] == ' ' || file.Content[startByte-1] == '\t') {
+							startByte--
+						}
+						f.Fix = &scanner.Fix{
+							ByteMode:    true,
+							StartByte:   startByte,
+							EndByte:     int(file.FlatEndByte(idx)),
+							Replacement: "",
+						}
+						ctx.Emit(f)
+					}
+				}
+			},
+		})
+	}
+	{
+		r := &EmptyDefaultConstructorRule{BaseRule: BaseRule{RuleName: "EmptyDefaultConstructor", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects explicit empty default constructors that are redundant and can be removed."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if file.FlatHasModifier(idx, "annotation") {
+					return
+				}
+				ctor := file.FlatFindChild(idx, "primary_constructor")
+				if ctor == 0 {
+					return
+				}
+				ctorText := file.FlatNodeText(ctor)
+				emptyCtorRe := regexp.MustCompile(`constructor\s*\(\s*\)`)
+				emptyParenRe := regexp.MustCompile(`^\s*\(\s*\)\s*$`)
+				if !emptyCtorRe.MatchString(ctorText) && !emptyParenRe.MatchString(ctorText) {
+					return
+				}
+				if file.FlatHasModifier(ctor, "private") ||
+					file.FlatHasModifier(ctor, "internal") ||
+					file.FlatHasModifier(ctor, "protected") ||
+					file.FlatHasModifier(ctor, "public") {
+					return
+				}
+				if mods := file.FlatFindChild(ctor, "modifiers"); mods != 0 && file.FlatFindChild(mods, "annotation") != 0 {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(ctor)+1, 1,
+					"Empty default constructor detected. It can be removed.")
+				startByte := int(file.FlatStartByte(ctor))
+				for startByte > 0 && (file.Content[startByte-1] == ' ' || file.Content[startByte-1] == '\t') {
+					startByte--
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   startByte,
+					EndByte:     int(file.FlatEndByte(ctor)),
+					Replacement: "",
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &EmptyDoWhileBlockRule{BaseRule: BaseRule{RuleName: "EmptyDoWhileBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects do-while loops with an empty body."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"do_while_statement"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !isBlockEmptyFlat(file, idx) {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"Empty do-while block detected.")
+				doS, doE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   doS,
+					EndByte:     doE,
+					Replacement: "",
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &EmptyElseBlockRule{BaseRule: BaseRule{RuleName: "EmptyElseBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects else blocks with an empty body."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"if_expression"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				elseIdx := strings.LastIndex(text, "else")
+				if elseIdx < 0 {
+					return
+				}
+				afterElse := text[elseIdx+4:]
+				braceStart := strings.Index(afterElse, "{")
+				if braceStart < 0 {
+					return
+				}
+				braceEnd := strings.Index(afterElse[braceStart:], "}")
+				if braceEnd < 0 {
+					return
+				}
+				body := afterElse[braceStart+1 : braceStart+braceEnd]
+				cleaned := stripComments(body)
+				if strings.TrimSpace(cleaned) == "" {
+					beforeElse := text[:elseIdx]
+					elseLine := file.FlatRow(idx) + strings.Count(beforeElse, "\n") + 1
+					f := r.Finding(file, elseLine, 1,
+						"Empty else block detected.")
+					elseByteStart := int(file.FlatStartByte(idx)) + elseIdx
+					for elseByteStart > 0 && (file.Content[elseByteStart-1] == ' ' || file.Content[elseByteStart-1] == '\t' || file.Content[elseByteStart-1] == '\n' || file.Content[elseByteStart-1] == '\r') {
+						elseByteStart--
+					}
+					elseByteEnd := int(file.FlatStartByte(idx)) + elseIdx + 4 + braceStart + braceEnd + 1
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   elseByteStart,
+						EndByte:     elseByteEnd,
+						Replacement: "",
+					}
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &EmptyFinallyBlockRule{BaseRule: BaseRule{RuleName: "EmptyFinallyBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects finally blocks with an empty body that serve no purpose."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"finally_block"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !isBlockEmptyFlat(file, idx) {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"Empty finally block detected.")
+				startByte := int(file.FlatStartByte(idx))
+				for startByte > 0 && (file.Content[startByte-1] == ' ' || file.Content[startByte-1] == '\t' || file.Content[startByte-1] == '\n' || file.Content[startByte-1] == '\r') {
+					startByte--
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   startByte,
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: "",
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &EmptyForBlockRule{BaseRule: BaseRule{RuleName: "EmptyForBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects for loops with an empty body."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"for_statement"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				body := file.FlatFindChild(idx, "control_structure_body")
+				if body == 0 {
+					return
+				}
+				bodyText := file.FlatNodeText(body)
+				if !strings.Contains(bodyText, "{") {
+					return
+				}
+				if !isBlockEmptyFlat(file, body) {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"Empty for block detected.")
+				forS, forE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   forS,
+					EndByte:     forE,
+					Replacement: "",
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &EmptyFunctionBlockRule{BaseRule: BaseRule{RuleName: "EmptyFunctionBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects function declarations with an empty body."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if file.FlatHasModifier(idx, "override") || file.FlatHasModifier(idx, "open") {
+					return
+				}
+				if HasIgnoredAnnotation(file.FlatNodeText(idx),
+					[]string{"Inject", "Provides", "Binds", "BindsInstance",
+						"BindsOptionalOf", "IntoSet", "IntoMap", "ElementsIntoSet",
+						"Multibinds", "ContributesBinding", "ContributesMultibinding",
+						"ContributesTo", "ContributesSubcomponent"}) {
+					return
+				}
+				for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+					if file.FlatType(p) == "class_declaration" {
+						break
+					}
+					if file.FlatType(p) == "interface" {
+						return
+					}
+				}
+				for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+					if file.FlatType(p) != "class_declaration" {
+						continue
+					}
+					for i := 0; i < file.FlatChildCount(p); i++ {
+						if file.FlatType(file.FlatChild(p, i)) == "interface" {
+							return
+						}
+					}
+					break
+				}
+				body := file.FlatFindChild(idx, "function_body")
+				if body == 0 {
+					return
+				}
+				bodyText := file.FlatNodeText(body)
+				if !strings.Contains(bodyText, "{") {
+					return
+				}
+				if !isBlockEmptyFlat(file, body) {
+					return
+				}
+				inner := bodyText
+				if i := strings.Index(inner, "{"); i >= 0 {
+					inner = inner[i+1:]
+				}
+				if j := strings.LastIndex(inner, "}"); j >= 0 {
+					inner = inner[:j]
+				}
+				trimmedInner := strings.TrimSpace(inner)
+				if strings.HasPrefix(trimmedInner, "//") || strings.HasPrefix(trimmedInner, "/*") ||
+					strings.Contains(trimmedInner, "TODO") {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"Empty function body detected.")
+				braceStart := strings.Index(bodyText, "{")
+				braceEnd := strings.LastIndex(bodyText, "}")
+				if braceStart >= 0 && braceEnd > braceStart {
+					indent := detectIndent(file.Content, int(file.FlatStartByte(body)))
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   int(file.FlatStartByte(body)) + braceStart,
+						EndByte:     int(file.FlatStartByte(body)) + braceEnd + 1,
+						Replacement: "{\n" + indent + "    TODO(\"Not yet implemented\")\n" + indent + "}",
+					}
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &EmptyIfBlockRule{BaseRule: BaseRule{RuleName: "EmptyIfBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects if blocks with an empty body."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"if_expression"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				condEnd := strings.Index(text, ")")
+				if condEnd < 0 {
+					return
+				}
+				rest := text[condEnd+1:]
+				elseIdx := strings.Index(rest, "else")
+				ifPart := rest
+				if elseIdx >= 0 {
+					ifPart = rest[:elseIdx]
+				}
+				braceStart := strings.Index(ifPart, "{")
+				if braceStart < 0 {
+					return
+				}
+				braceEnd := strings.LastIndex(ifPart, "}")
+				if braceEnd <= braceStart {
+					return
+				}
+				body := ifPart[braceStart+1 : braceEnd]
+				cleaned := stripComments(body)
+				if strings.TrimSpace(cleaned) == "" {
+					f := r.Finding(file, file.FlatRow(idx)+1, 1,
+						"Empty if block detected.")
+					ifS, ifE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   ifS,
+						EndByte:     ifE,
+						Replacement: "",
+					}
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &EmptyInitBlockRule{BaseRule: BaseRule{RuleName: "EmptyInitBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects init blocks with an empty body that can be removed."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"anonymous_initializer"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !isBlockEmptyFlat(file, idx) {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"Empty init block detected.")
+				initS, initE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   initS,
+					EndByte:     initE,
+					Replacement: "",
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&EmptyKotlinFileRule{BaseRule: BaseRule{RuleName: "EmptyKotlinFile", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects Kotlin files with no meaningful code beyond package and import declarations."}}))
-	v2.Register(WrapAsV2(&EmptySecondaryConstructorRule{BaseRule: BaseRule{RuleName: "EmptySecondaryConstructor", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects secondary constructors with an empty body."}}))
-	v2.Register(WrapAsV2(&EmptyTryBlockRule{BaseRule: BaseRule{RuleName: "EmptyTryBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects try blocks with an empty body."}}))
-	v2.Register(WrapAsV2(&EmptyWhenBlockRule{BaseRule: BaseRule{RuleName: "EmptyWhenBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects when expressions with no entries."}}))
-	v2.Register(WrapAsV2(&EmptyWhileBlockRule{BaseRule: BaseRule{RuleName: "EmptyWhileBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects while loops with an empty body."}}))
+	{
+		r := &EmptySecondaryConstructorRule{BaseRule: BaseRule{RuleName: "EmptySecondaryConstructor", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects secondary constructors with an empty body."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"secondary_constructor"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				nodeText := file.FlatNodeText(idx)
+				if !strings.Contains(nodeText, "{") {
+					return
+				}
+				if !isBlockEmptyFlat(file, idx) {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"Empty secondary constructor detected.")
+				braceStart := strings.LastIndex(nodeText, "{")
+				if braceStart >= 0 {
+					removStart := int(file.FlatStartByte(idx)) + braceStart
+					for removStart > int(file.FlatStartByte(idx)) && (file.Content[removStart-1] == ' ' || file.Content[removStart-1] == '\t') {
+						removStart--
+					}
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   removStart,
+						EndByte:     int(file.FlatEndByte(idx)),
+						Replacement: "",
+					}
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &EmptyTryBlockRule{BaseRule: BaseRule{RuleName: "EmptyTryBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects try blocks with an empty body."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"try_expression"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				tryIdx := strings.Index(text, "try")
+				if tryIdx < 0 {
+					return
+				}
+				afterTry := text[tryIdx+3:]
+				braceStart := strings.Index(afterTry, "{")
+				if braceStart < 0 {
+					return
+				}
+				depth := 0
+				braceEnd := -1
+				for i := braceStart; i < len(afterTry); i++ {
+					if afterTry[i] == '{' {
+						depth++
+					} else if afterTry[i] == '}' {
+						depth--
+						if depth == 0 {
+							braceEnd = i
+							break
+						}
+					}
+				}
+				if braceEnd < 0 {
+					return
+				}
+				body := afterTry[braceStart+1 : braceEnd]
+				cleaned := stripComments(body)
+				if strings.TrimSpace(cleaned) == "" {
+					f := r.Finding(file, file.FlatRow(idx)+1, 1,
+						"Empty try block detected.")
+					tryS, tryE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   tryS,
+						EndByte:     tryE,
+						Replacement: "",
+					}
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &EmptyWhenBlockRule{BaseRule: BaseRule{RuleName: "EmptyWhenBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects when expressions with no entries."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"when_expression"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				hasEntries := false
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					if file.FlatType(file.FlatChild(idx, i)) == "when_entry" {
+						hasEntries = true
+						break
+					}
+				}
+				if hasEntries {
+					return
+				}
+				if isBlockEmptyFlat(file, idx) {
+					f := r.Finding(file, file.FlatRow(idx)+1, 1,
+						"Empty when block detected.")
+					whenS, whenE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   whenS,
+						EndByte:     whenE,
+						Replacement: "",
+					}
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &EmptyWhileBlockRule{BaseRule: BaseRule{RuleName: "EmptyWhileBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects while loops with an empty body."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"while_statement"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !isBlockEmptyFlat(file, idx) {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"Empty while block detected.")
+				whileS, whileE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   whileS,
+					EndByte:     whileE,
+					Replacement: "",
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+
 
 	// --- from exceptions.go ---
 	{
@@ -8633,24 +9140,408 @@ func registerAllRules() {
 	v2.Register(WrapAsV2(&UseEmptyCounterpartRule{BaseRule: BaseRule{RuleName: "UseEmptyCounterpart", RuleSetName: "style", Sev: "warning", Desc: "Detects listOf(), setOf(), and similar calls with no arguments that should use emptyList(), emptySet(), etc."}}))
 
 	// --- from style_idiomatic_data.go ---
-	v2.Register(WrapAsV2(&UseArrayLiteralsInAnnotationsRule{BaseRule: BaseRule{RuleName: "UseArrayLiteralsInAnnotations", RuleSetName: "style", Sev: "warning", Desc: "Detects arrayOf() calls in annotations that should use array literal [] syntax."}}))
-	v2.Register(WrapAsV2(&UseSumOfInsteadOfFlatMapSizeRule{BaseRule: BaseRule{RuleName: "UseSumOfInsteadOfFlatMapSize", RuleSetName: "style", Sev: "warning", Desc: "Detects flatMap/map followed by size/count/sum chains that should use sumOf instead."}}))
+	{
+		r := &UseArrayLiteralsInAnnotationsRule{BaseRule: BaseRule{RuleName: "UseArrayLiteralsInAnnotations", RuleSetName: "style", Sev: "warning", Desc: "Detects arrayOf() calls in annotations that should use array literal [] syntax."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"annotation"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if !strings.Contains(text, "arrayOf(") {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1, "Use array literal '[]' syntax in annotations instead of 'arrayOf()'.")
+				nodeStart := int(file.FlatStartByte(idx))
+				loc := strings.Index(text, "arrayOf(")
+				if loc >= 0 {
+					depth := 1
+					start := loc + len("arrayOf(")
+					end := -1
+					for k := start; k < len(text); k++ {
+						if text[k] == '(' {
+							depth++
+						} else if text[k] == ')' {
+							depth--
+							if depth == 0 {
+								end = k
+								break
+							}
+						}
+					}
+					if end >= 0 {
+						inner := text[start:end]
+						f.Fix = &scanner.Fix{ByteMode: true, StartByte: nodeStart, EndByte: int(file.FlatEndByte(idx)), Replacement: text[:loc] + "[" + inner + "]" + text[end+1:]}
+					}
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &UseSumOfInsteadOfFlatMapSizeRule{BaseRule: BaseRule{RuleName: "UseSumOfInsteadOfFlatMapSize", RuleSetName: "style", Sev: "warning", Desc: "Detects flatMap/map followed by size/count/sum chains that should use sumOf instead."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				if !sumOfSourceCalls[name] {
+					return
+				}
+				parent, ok := file.FlatParent(idx)
+				if !ok {
+					return
+				}
+				var selectorName string
+				var chainEnd uint32
+				if file.FlatType(parent) == "navigation_expression" {
+					suffix := sumOfNavSelectorFlat(file, parent)
+					gp, ok := file.FlatParent(parent)
+					if ok && file.FlatType(gp) == "call_expression" {
+						if outerName := flatCallExpressionName(file, gp); outerName != "" {
+							selectorName = outerName
+							chainEnd = gp
+						}
+					}
+					if selectorName == "" && suffix != "" {
+						selectorName = suffix
+						chainEnd = parent
+					}
+				}
+				if selectorName == "" {
+					return
+				}
+				var msg string
+				switch selectorName {
+				case "size":
+					msg = fmt.Sprintf("Use 'sumOf' instead of '%s' and 'size'.", name)
+				case "count":
+					msg = fmt.Sprintf("Use 'sumOf' instead of '%s' and 'count'.", name)
+				case "sum":
+					if name != "map" {
+						return
+					}
+					msg = "Use 'sumOf' instead of 'map' and 'sum'."
+				default:
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+				if name == "flatMap" && selectorName == "size" && chainEnd != 0 {
+					if lambdaSuffix := file.FlatFindChild(idx, "call_suffix"); lambdaSuffix != 0 {
+						if lambdaNode := file.FlatFindChild(lambdaSuffix, "annotated_lambda"); lambdaNode != 0 {
+							body := strings.TrimSpace(file.FlatNodeText(lambdaNode))
+							if len(body) >= 2 && body[0] == '{' && body[len(body)-1] == '}' {
+								body = strings.TrimSpace(body[1 : len(body)-1])
+							}
+							var receiverText string
+							for i := 0; i < file.FlatChildCount(idx); i++ {
+								child := file.FlatChild(idx, i)
+								if file.FlatType(child) == "navigation_expression" {
+									if file.FlatChildCount(child) > 0 {
+										receiverText = file.FlatNodeText(file.FlatChild(child, 0))
+									}
+									break
+								} else if file.FlatType(child) == "simple_identifier" && file.FlatNodeTextEquals(child, "flatMap") {
+									break
+								}
+							}
+							if receiverText != "" {
+								f.Fix = &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(chainEnd)), EndByte: int(file.FlatEndByte(chainEnd)), Replacement: receiverText + ".sumOf { " + body + ".size }"}
+							} else {
+								f.Fix = &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(chainEnd)), EndByte: int(file.FlatEndByte(chainEnd)), Replacement: "sumOf { " + body + ".size }"}
+							}
+						}
+					}
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
 	{
 		r := &UseLetRule{BaseRule: BaseRule{RuleName: "UseLet", RuleSetName: "style", Sev: "warning", Desc: "Detects null checks that could be replaced with ?.let {} scope function."}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"if_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if strings.Contains(text, "!= null") && !strings.Contains(text, "else") {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Null check could be replaced with ?.let { }.")
+				}
+			},
+		})
 	}
-	v2.Register(WrapAsV2(&UseDataClassRule{BaseRule: BaseRule{RuleName: "UseDataClass", RuleSetName: "style", Sev: "warning", Desc: "Detects classes with only properties in the constructor that could be data classes."}}))
-	v2.Register(WrapAsV2(&UseIfInsteadOfWhenRule{BaseRule: BaseRule{RuleName: "UseIfInsteadOfWhen", RuleSetName: "style", Sev: "warning", Desc: "Detects when expressions with two or fewer branches that could be replaced with if."}}))
+	{
+		r := &UseDataClassRule{BaseRule: BaseRule{RuleName: "UseDataClass", RuleSetName: "style", Sev: "warning", Desc: "Detects classes with only properties in the constructor that could be data classes."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if file.FlatHasModifier(idx, "data") || file.FlatHasModifier(idx, "abstract") || file.FlatHasModifier(idx, "open") || file.FlatHasModifier(idx, "sealed") || file.FlatHasModifier(idx, "enum") || file.FlatHasModifier(idx, "annotation") {
+					return
+				}
+				ctor := file.FlatFindChild(idx, "primary_constructor")
+				if ctor == 0 {
+					return
+				}
+				paramCount := 0
+				file.FlatWalkNodes(ctor, "class_parameter", func(p uint32) {
+					trimmed := strings.TrimSpace(file.FlatNodeText(p))
+					if strings.HasPrefix(trimmed, "val ") || strings.HasPrefix(trimmed, "var ") {
+						paramCount++
+					}
+				})
+				if paramCount == 0 {
+					return
+				}
+				body := file.FlatFindChild(idx, "class_body")
+				if body != 0 {
+					for i := 0; i < file.FlatChildCount(body); i++ {
+						if file.FlatType(file.FlatChild(body, i)) == "function_declaration" {
+							return
+						}
+					}
+				}
+				name := extractIdentifierFlat(file, idx)
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Class '%s' could be a data class.", name))
+			},
+		})
+	}
+	{
+		r := &UseIfInsteadOfWhenRule{BaseRule: BaseRule{RuleName: "UseIfInsteadOfWhen", RuleSetName: "style", Sev: "warning", Desc: "Detects when expressions with two or fewer branches that could be replaced with if."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"when_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				entryCount := 0
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					if file.FlatType(file.FlatChild(idx, i)) == "when_entry" {
+						entryCount++
+					}
+				}
+				if entryCount <= 2 {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "When expression with two or fewer branches could be replaced with if.")
+				}
+			},
+		})
+	}
 	{
 		r := &UseIfEmptyOrIfBlankRule{BaseRule: BaseRule{RuleName: "UseIfEmptyOrIfBlank", RuleSetName: "style", Sev: "warning", Desc: "Detects manual isEmpty/isBlank checks that could use .ifEmpty {} or .ifBlank {} instead."}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"if_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				var condNode, thenNode, elseNode uint32
+				sawElse := false
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					child := file.FlatChild(idx, i)
+					switch file.FlatType(child) {
+					case "if", "(", ")", "{", "}":
+						continue
+					case "else":
+						sawElse = true
+						continue
+					default:
+						if condNode == 0 {
+							condNode = child
+						} else if !sawElse {
+							thenNode = child
+						} else if elseNode == 0 {
+							elseNode = child
+						}
+					}
+				}
+				if condNode == 0 || thenNode == 0 || elseNode == 0 {
+					return
+				}
+				if file.FlatType(elseNode) == "if_expression" {
+					return
+				}
+				condText := strings.TrimSpace(file.FlatNodeText(condNode))
+				isNegatedPrefix := false
+				innerCondText := condText
+				if file.FlatType(condNode) == "prefix_expression" && file.FlatChildCount(condNode) >= 2 {
+					if opNode := file.FlatChild(condNode, 0); opNode != 0 && file.FlatNodeTextEquals(opNode, "!") {
+						isNegatedPrefix = true
+						if argNode := file.FlatChild(condNode, 1); argNode != 0 {
+							innerCondText = strings.TrimSpace(file.FlatNodeText(argNode))
+						}
+					}
+				}
+				parenIdx := strings.LastIndex(innerCondText, "()")
+				if parenIdx < 0 {
+					return
+				}
+				beforeParen := innerCondText[:parenIdx]
+				dotIdx := strings.LastIndex(beforeParen, ".")
+				if dotIdx < 0 {
+					return
+				}
+				receiver := beforeParen[:dotIdx]
+				methodName := beforeParen[dotIdx+1:]
+				info, ok := ifEmptyOrBlankMethods[methodName]
+				if !ok {
+					return
+				}
+				negated := info.negated != isNegatedPrefix
+				var selfBranch, defaultBranch uint32
+				if negated {
+					selfBranch = thenNode
+					defaultBranch = elseNode
+				} else {
+					selfBranch = elseNode
+					defaultBranch = thenNode
+				}
+				selfText := strings.TrimSpace(file.FlatNodeText(selfBranch))
+				if strings.HasPrefix(selfText, "{") && strings.HasSuffix(selfText, "}") {
+					selfText = strings.TrimSpace(selfText[1 : len(selfText)-1])
+				}
+				if selfText != receiver {
+					return
+				}
+				defaultText := strings.TrimSpace(file.FlatNodeText(defaultBranch))
+				if strings.HasPrefix(defaultText, "{") && strings.HasSuffix(defaultText, "}") {
+					defaultText = strings.TrimSpace(defaultText[1 : len(defaultText)-1])
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("Use '.%s {}' instead of manual %s() check.", info.replacement, methodName))
+				f.Fix = &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(idx)), EndByte: int(file.FlatEndByte(idx)), Replacement: receiver + "." + info.replacement + " { " + defaultText + " }"}
+				ctx.Emit(f)
+			},
+		})
 	}
-	v2.Register(WrapAsV2(&ExplicitCollectionElementAccessMethodRule{BaseRule: BaseRule{RuleName: "ExplicitCollectionElementAccessMethod", RuleSetName: "style", Sev: "warning", Desc: "Detects explicit .get() and .set() calls that should use index operator syntax."}}))
+	{
+		r := &ExplicitCollectionElementAccessMethodRule{BaseRule: BaseRule{RuleName: "ExplicitCollectionElementAccessMethod", RuleSetName: "style", Sev: "warning", Desc: "Detects explicit .get() and .set() calls that should use index operator syntax."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				var navNode uint32
+				var methodName string
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					child := file.FlatChild(idx, i)
+					if file.FlatType(child) == "navigation_expression" {
+						navText := file.FlatNodeText(child)
+						if strings.HasSuffix(navText, ".get") {
+							navNode = child
+							methodName = "get"
+							break
+						}
+						if strings.HasSuffix(navText, ".set") {
+							navNode = child
+							methodName = "set"
+							break
+						}
+					}
+				}
+				if navNode == 0 {
+					return
+				}
+				argsNode := uint32(0)
+				if callSuffix := file.FlatFindChild(idx, "call_suffix"); callSuffix != 0 {
+					argsNode = file.FlatFindChild(callSuffix, "value_arguments")
+				}
+				if argsNode == 0 {
+					return
+				}
+				argCount := 0
+				for i := 0; i < file.FlatChildCount(argsNode); i++ {
+					if file.FlatType(file.FlatChild(argsNode, i)) == "value_argument" {
+						argCount++
+					}
+				}
+				if methodName == "get" && argCount < 1 {
+					return
+				}
+				if methodName == "set" && argCount < 2 {
+					return
+				}
+				row := file.FlatRow(idx) + 1
+				col := file.FlatCol(idx) + 1
+				var argTexts []string
+				for i := 0; i < file.FlatChildCount(argsNode); i++ {
+					child := file.FlatChild(argsNode, i)
+					if file.FlatType(child) == "value_argument" {
+						argTexts = append(argTexts, file.FlatNodeText(child))
+					}
+				}
+				receiver := file.FlatChild(navNode, 0)
+				if receiver == 0 {
+					return
+				}
+				receiverText := file.FlatNodeText(receiver)
+				if methodName == "get" {
+					f := r.Finding(file, row, col, "Use index operator instead of explicit 'get' call.")
+					f.Fix = &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(idx)), EndByte: int(file.FlatEndByte(idx)), Replacement: receiverText + "[" + strings.Join(argTexts, ", ") + "]"}
+					ctx.Emit(f)
+					return
+				}
+				keys := strings.Join(argTexts[:len(argTexts)-1], ", ")
+				value := argTexts[len(argTexts)-1]
+				f := r.Finding(file, row, col, "Use index operator instead of explicit 'set' call.")
+				f.Fix = &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(idx)), EndByte: int(file.FlatEndByte(idx)), Replacement: receiverText + "[" + keys + "] = " + value}
+				ctx.Emit(f)
+			},
+		})
+	}
 	{
 		r := &AlsoCouldBeApplyRule{BaseRule: BaseRule{RuleName: "AlsoCouldBeApply", RuleSetName: "style", Sev: "warning", Desc: "Detects .also {} blocks with multiple it. references that could use .apply {} instead."}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if !strings.Contains(text, ".also") {
+					return
+				}
+				lambdaStart := strings.Index(text, "{")
+				if lambdaStart < 0 {
+					return
+				}
+				if strings.Count(text[lambdaStart:], "it.") >= 2 {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "'also' with multiple 'it.' references could be replaced with 'apply'.")
+				}
+			},
+		})
 	}
-	v2.Register(WrapAsV2(&EqualsNullCallRule{BaseRule: BaseRule{RuleName: "EqualsNullCall", RuleSetName: "style", Sev: "warning", Desc: "Detects .equals(null) calls that should use == null instead."}}))
+	{
+		r := &EqualsNullCallRule{BaseRule: BaseRule{RuleName: "EqualsNullCall", RuleSetName: "style", Sev: "warning", Desc: "Detects .equals(null) calls that should use == null instead."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				var navNode uint32
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					child := file.FlatChild(idx, i)
+					if file.FlatType(child) == "navigation_expression" && strings.HasSuffix(file.FlatNodeText(child), ".equals") {
+						navNode = child
+						break
+					}
+				}
+				if navNode == 0 {
+					return
+				}
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					child := file.FlatChild(idx, i)
+					if (file.FlatType(child) == "call_suffix" || file.FlatType(child) == "value_arguments") && strings.Contains(file.FlatNodeText(child), "null") {
+						f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Use '== null' instead of '.equals(null)'.")
+						navText := file.FlatNodeText(navNode)
+						if dotIdx := strings.LastIndex(navText, ".equals"); dotIdx >= 0 {
+							f.Fix = &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(navNode)) + dotIdx, EndByte: int(file.FlatEndByte(idx)), Replacement: " == null"}
+						}
+						ctx.Emit(f)
+						return
+					}
+				}
+			},
+		})
+	}
 
 	// --- from style_redundant.go ---
 	v2.Register(WrapAsV2(&RedundantVisibilityModifierRule{BaseRule: BaseRule{RuleName: "RedundantVisibilityModifier", RuleSetName: "style", Sev: "warning", Desc: "Detects explicit public modifier which is redundant since public is the default visibility in Kotlin."}}))

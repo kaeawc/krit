@@ -1,38 +1,88 @@
-package rules_test
+package rules
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/kaeawc/krit/internal/rules"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
+
+// parseBracesInline writes code to a temp file and parses it. Used instead of
+// the rules_test.parseInline helper since this file lives in package rules.
+func parseBracesInline(t *testing.T, code string) *scanner.File {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.kt")
+	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := scanner.ParseFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// makeBracesIfV2Rule wraps a BracesOnIfStatementsRule in a native v2.Rule,
+// delegating to the (unexported) checkFlatNode implementation.
+func makeBracesIfV2Rule(rule *BracesOnIfStatementsRule) *v2.Rule {
+	return &v2.Rule{
+		ID:         rule.RuleName,
+		Category:   rule.RuleSetName,
+		Sev:        v2.Severity(rule.Sev),
+		NodeTypes:  []string{"if_expression"},
+		Confidence: rule.Confidence(),
+		Check: func(ctx *v2.Context) {
+			for _, f := range rule.checkFlatNode(ctx.Idx, ctx.File) {
+				ctx.Emit(f)
+			}
+		},
+	}
+}
+
+// makeBracesWhenV2Rule wraps a BracesOnWhenStatementsRule in a native v2.Rule.
+func makeBracesWhenV2Rule(rule *BracesOnWhenStatementsRule) *v2.Rule {
+	return &v2.Rule{
+		ID:         rule.RuleName,
+		Category:   rule.RuleSetName,
+		Sev:        v2.Severity(rule.Sev),
+		NodeTypes:  []string{"when_entry"},
+		Confidence: rule.Confidence(),
+		Check: func(ctx *v2.Context) {
+			for _, f := range rule.checkFlatNode(ctx.Idx, ctx.File) {
+				ctx.Emit(f)
+			}
+		},
+	}
+}
 
 // runBracesIfRule runs BracesOnIfStatements with given config on inline code.
 func runBracesIfRule(t *testing.T, singleLine, multiLine, code string) []scanner.Finding {
 	t.Helper()
-	rule := &rules.BracesOnIfStatementsRule{
-		BaseRule:    rules.BaseRule{RuleName: "BracesOnIfStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects if/else statements that are missing braces around their bodies."},
-		SingleLine:  singleLine,
-		MultiLine:   multiLine,
+	rule := &BracesOnIfStatementsRule{
+		BaseRule:   BaseRule{RuleName: "BracesOnIfStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects if/else statements that are missing braces around their bodies."},
+		SingleLine: singleLine,
+		MultiLine:  multiLine,
 	}
 
-	file := parseInline(t, code)
-	d := rules.NewDispatcher([]rules.Rule{rule})
+	file := parseBracesInline(t, code)
+	d := NewDispatcherV2([]*v2.Rule{makeBracesIfV2Rule(rule)})
 	return d.Run(file)
 }
 
 // runBracesWhenRule runs BracesOnWhenStatements with given config on inline code.
 func runBracesWhenRule(t *testing.T, singleLine, multiLine, code string) []scanner.Finding {
 	t.Helper()
-	rule := &rules.BracesOnWhenStatementsRule{
-		BaseRule:    rules.BaseRule{RuleName: "BracesOnWhenStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects when branches that are missing braces around their bodies."},
-		SingleLine:  singleLine,
-		MultiLine:   multiLine,
+	rule := &BracesOnWhenStatementsRule{
+		BaseRule:   BaseRule{RuleName: "BracesOnWhenStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects when branches that are missing braces around their bodies."},
+		SingleLine: singleLine,
+		MultiLine:  multiLine,
 	}
 
-	file := parseInline(t, code)
-	d := rules.NewDispatcher([]rules.Rule{rule})
+	file := parseBracesInline(t, code)
+	d := NewDispatcherV2([]*v2.Rule{makeBracesWhenV2Rule(rule)})
 	return d.Run(file)
 }
 

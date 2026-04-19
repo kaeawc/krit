@@ -4,7 +4,22 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
+
+// packageNamingV2Rule looks up the PackageNamingConventionDrift rule from
+// the v2 registry, which has the correct dispatch wiring.
+func packageNamingV2Rule(t *testing.T) *v2.Rule {
+	t.Helper()
+	for _, r := range v2.Registry {
+		if r.ID == "PackageNamingConventionDrift" {
+			return r
+		}
+	}
+	t.Fatal("PackageNamingConventionDrift not found in v2.Registry")
+	return nil
+}
 
 func TestPackageNamingConventionDriftRule_FlagsPackageOutsideSourcePathPrefix(t *testing.T) {
 	root := t.TempDir()
@@ -16,11 +31,7 @@ func TestPackageNamingConventionDriftRule_FlagsPackageOutsideSourcePathPrefix(t 
 class PackageNamingConventionDrift
 `)
 
-	rule := &PackageNamingConventionDriftRule{
-		FlatDispatchBase: FlatDispatchBase{},
-		BaseRule:         BaseRule{RuleName: "PackageNamingConventionDrift", RuleSetName: "architecture", Sev: "info"},
-	}
-	findings := NewDispatcher([]Rule{rule}).Run(file)
+	findings := NewDispatcherV2([]*v2.Rule{packageNamingV2Rule(t)}).Run(file)
 
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
@@ -40,11 +51,7 @@ func TestPackageNamingConventionDriftRule_AcceptsNestedPackageBelowSourcePathPre
 class PackageNamingConventionDrift
 `)
 
-	rule := &PackageNamingConventionDriftRule{
-		FlatDispatchBase: FlatDispatchBase{},
-		BaseRule:         BaseRule{RuleName: "PackageNamingConventionDrift", RuleSetName: "architecture", Sev: "info"},
-	}
-	findings := NewDispatcher([]Rule{rule}).Run(file)
+	findings := NewDispatcherV2([]*v2.Rule{packageNamingV2Rule(t)}).Run(file)
 
 	if len(findings) != 0 {
 		t.Fatalf("expected 0 findings, got %d", len(findings))

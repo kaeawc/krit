@@ -3,7 +3,6 @@ package rules
 import (
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
@@ -122,104 +121,6 @@ func TestV2Dispatcher_RoutesFamiliesIndependently(t *testing.T) {
 	if !sawNode || !sawLine || !sawLegacy {
 		t.Errorf("missing findings: node=%v line=%v legacy=%v", sawNode, sawLine, sawLegacy)
 	}
-}
-
-// --- 2. V2 output matches V1 output for equivalent wrapped rules -------------
-
-// testWrappedRule is a minimal v1 flat-dispatch rule that emits one
-// finding per node of the given type. We build a matching v2 wrapper
-// for it and verify both dispatchers produce the same set of findings.
-type testWrappedRule struct {
-	name       string
-	ruleset    string
-	sev        string
-	desc       string
-	nodeTypes  []string
-	findingMsg string
-}
-
-func (r *testWrappedRule) Name() string        { return r.name }
-func (r *testWrappedRule) Description() string { return r.desc }
-func (r *testWrappedRule) RuleSet() string     { return r.ruleset }
-func (r *testWrappedRule) Severity() string    { return r.sev }
-func (r *testWrappedRule) Check(*scanner.File) []scanner.Finding {
-	return nil
-}
-func (r *testWrappedRule) NodeTypes() []string { return r.nodeTypes }
-func (r *testWrappedRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	n := file.FlatTree.Nodes[idx]
-	return []scanner.Finding{{
-		File: file.Path, Line: int(n.StartRow) + 1, Col: int(n.StartCol) + 1,
-		Rule: r.name, RuleSet: r.ruleset, Severity: r.sev,
-		Message: r.findingMsg,
-	}}
-}
-
-func TestV2Dispatcher_MatchesV1DispatcherOutput(t *testing.T) {
-	file := writeKotlinFile(t, sampleKotlin, "Compare.kt")
-
-	v1Rule := &testWrappedRule{
-		name: "CompareRule", ruleset: "style", sev: "warning",
-		desc: "test", nodeTypes: []string{"call_expression"},
-		findingMsg: "call here",
-	}
-
-	// Run the v1 dispatcher with the v1 rule directly.
-	v1Disp := NewDispatcher([]Rule{v1Rule})
-	v1Findings := v1Disp.Run(file)
-
-	// Now wrap the same v1 rule into v2 via WrapAsV2 and run through V2Dispatcher.
-	v2Rule := WrapAsV2(v1Rule)
-	v2Disp := NewV2Dispatcher([]*v2.Rule{v2Rule})
-	v2Findings := v2Disp.Run(file)
-
-	if len(v1Findings) == 0 {
-		t.Fatal("v1 dispatcher returned no findings; fixture does not trigger the rule")
-	}
-	if len(v1Findings) != len(v2Findings) {
-		t.Fatalf("finding count differs: v1=%d v2=%d\nv1=%+v\nv2=%+v",
-			len(v1Findings), len(v2Findings), v1Findings, v2Findings)
-	}
-
-	normalize := func(fs []scanner.Finding) []string {
-		out := make([]string, 0, len(fs))
-		for _, f := range fs {
-			out = append(out, f.Rule+"|"+f.RuleSet+"|"+itoa(f.Line)+"|"+itoa(f.Col)+"|"+f.Message)
-		}
-		sort.Strings(out)
-		return out
-	}
-	v1Keys := normalize(v1Findings)
-	v2Keys := normalize(v2Findings)
-
-	for i := range v1Keys {
-		if v1Keys[i] != v2Keys[i] {
-			t.Errorf("finding %d differs:\n  v1=%s\n  v2=%s", i, v1Keys[i], v2Keys[i])
-		}
-	}
-}
-
-func itoa(n int) string {
-	// Avoid importing strconv just for a test helper.
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	s := string(buf[i:])
-	if neg {
-		return "-" + s
-	}
-	return s
 }
 
 // --- 3. Panic recovery -------------------------------------------------------

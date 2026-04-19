@@ -41,14 +41,10 @@ func (e DispatchError) Error() string {
 // See v2.Rule.Needs for the canonical classification.
 
 // Dispatcher is a thin wrapper around V2Dispatcher. All per-file execution
-// delegates to the v2 engine; the v1 family slices have been removed as
-// dead code now that WrapAllAsV2 handles classification internally.
+// delegates to the v2 engine.
 type Dispatcher struct {
 	v2           *V2Dispatcher
 	typeResolver typeinfer.TypeResolver
-	// activeRules is retained so V2Rules() (in v2dispatch.go) can rebuild
-	// its cached V2Index from the original rule list.
-	activeRules []Rule
 }
 
 // NewDispatcherV2 creates a dispatcher directly from v2 rules, skipping
@@ -73,40 +69,6 @@ func NewDispatcherV2(activeRules []*v2.Rule, resolver ...typeinfer.TypeResolver)
 		d = NewV2Dispatcher(activeRules)
 	}
 	return &Dispatcher{v2: d, typeResolver: res}
-}
-
-// NewDispatcher creates a dispatcher from the given rules.
-// An optional TypeResolver enables type-aware analysis for rules with a SetResolver method.
-func NewDispatcher(activeRules []Rule, resolver ...typeinfer.TypeResolver) *Dispatcher {
-	var res typeinfer.TypeResolver
-	if len(resolver) > 0 && resolver[0] != nil {
-		res = resolver[0]
-	}
-
-	// Set the resolver on any rule that declares a SetResolver method.
-	if res != nil {
-		for _, r := range activeRules {
-			if ta, ok := r.(interface {
-				SetResolver(resolver typeinfer.TypeResolver)
-			}); ok {
-				ta.SetResolver(res)
-			}
-		}
-	}
-
-	v2rules := WrapAllAsV2(activeRules)
-	var d *V2Dispatcher
-	if res != nil {
-		d = NewV2Dispatcher(v2rules, res)
-	} else {
-		d = NewV2Dispatcher(v2rules)
-	}
-
-	return &Dispatcher{
-		v2:           d,
-		typeResolver: res,
-		activeRules:  activeRules,
-	}
 }
 
 // Run executes all rules on a file using single-pass dispatch.

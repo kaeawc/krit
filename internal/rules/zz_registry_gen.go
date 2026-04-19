@@ -912,203 +912,440 @@ func registerAllRules() {
 	v2.Register(WrapAsV2(&PluralsCandidateRule{AndroidRule: alcRule("PluralsCandidate", "Potential plurals", ALSWarning, 5)}))
 
 	// --- from android_gradle.go ---
-	v2.Register(WrapAsV2(&GradlePluginCompatibilityRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "GradlePluginCompatibility", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "GradleCompatibility",
-		Brief:      "AGP version incompatible with Gradle version",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   8,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&StringIntegerRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "StringInteger", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "StringInteger",
-		Brief:      "String value where integer expected in Gradle DSL",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&RemoteVersionRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "RemoteVersion", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "RemoteVersion",
-		Brief:      "Non-deterministic dependency version (+ or latest)",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&DynamicVersionRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "DynamicVersion", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "DynamicVersion",
-		Brief:      "Dynamic dependency version with partial wildcard",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&GradleOldTargetApiRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "OldTargetApi", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "OldTargetApi",
-		Brief:      "targetSdkVersion below recommended minimum",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}, Threshold: 33}))
-	v2.Register(WrapAsV2(&DeprecatedDependencyRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "DeprecatedDependency", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "DeprecatedDependency",
-		Brief:      "Deprecated library dependency",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MavenLocalRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MavenLocal", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "MavenLocal",
-		Brief:      "mavenLocal() causes unreproducible builds",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&MinSdkTooLowRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "MinSdkTooLow", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "MinSdkTooLow",
-		Brief:      "minSdkVersion below recommended minimum",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}, Threshold: 21}))
-	v2.Register(WrapAsV2(&GradleDeprecatedRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "GradleDeprecated", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "GradleDeprecated",
-		Brief:      "Deprecated Gradle construct",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&GradleGetterRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "GradleGetter", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "GradleGetter",
-		Brief:      "Gradle implicit getter call",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&GradlePathRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "GradlePath", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "GradlePath",
-		Brief:      "Gradle path issues",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&GradleOverridesRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "GradleOverrides", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "GradleOverrides",
-		Brief:      "Value overridden by Gradle build script",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&GradleIdeErrorRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "GradleIdeError", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "GradleIdeError",
-		Brief:      "Gradle IDE Support Issues",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   7,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&AndroidGradlePluginVersionRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "AndroidGradlePluginVersion", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "AndroidGradlePluginVersion",
-		Brief:      "AGP version too old",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   8,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&NewerVersionAvailableRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "NewerVersionAvailable", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "NewerVersionAvailable",
-		Brief:      "Newer library version available",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&StringIntegerRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "StringShouldBeInt", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "StringShouldBeInt",
-		Brief:      "String value where integer expected in Gradle DSL",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   6,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&GradlePluginCompatibilityRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "GradleCompatible", RuleSetName: androidRuleSet, Sev: "error"},
-		IssueID:    "GradleCompatible",
-		Brief:      "Incompatible Gradle versions",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSError,
-		Priority:   8,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&NewerVersionAvailableRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "GradleDependency", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "GradleDependency",
-		Brief:      "Obsolete Gradle dependency",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&DynamicVersionRule{AndroidRule: AndroidRule{
-		BaseRule:   BaseRule{RuleName: "GradleDynamicVersion", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:    "GradleDynamicVersion",
-		Brief:      "Gradle dynamic version",
-		Category:   ALCCorrectness,
-		ALSeverity: ALSWarning,
-		Priority:   4,
-		Origin:     "AOSP Android Lint",
-	}}))
+	{
+		r := &GradlePluginCompatibilityRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GradlePluginCompatibility", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "GradleCompatibility",
+			Brief:      "AGP version incompatible with Gradle version",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &StringIntegerRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "StringInteger", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "StringInteger",
+			Brief:      "String value where integer expected in Gradle DSL",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &RemoteVersionRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "RemoteVersion", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "RemoteVersion",
+			Brief:      "Non-deterministic dependency version (+ or latest)",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &DynamicVersionRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "DynamicVersion", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "DynamicVersion",
+			Brief:      "Dynamic dependency version with partial wildcard",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &GradleOldTargetApiRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "OldTargetApi", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "OldTargetApi",
+			Brief:      "targetSdkVersion below recommended minimum",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}, Threshold: 33}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &DeprecatedDependencyRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "DeprecatedDependency", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "DeprecatedDependency",
+			Brief:      "Deprecated library dependency",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MavenLocalRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MavenLocal", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "MavenLocal",
+			Brief:      "mavenLocal() causes unreproducible builds",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MinSdkTooLowRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "MinSdkTooLow", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "MinSdkTooLow",
+			Brief:      "minSdkVersion below recommended minimum",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}, Threshold: 21}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &GradleDeprecatedRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GradleDeprecated", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "GradleDeprecated",
+			Brief:      "Deprecated Gradle construct",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &GradleGetterRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GradleGetter", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "GradleGetter",
+			Brief:      "Gradle implicit getter call",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &GradlePathRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GradlePath", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "GradlePath",
+			Brief:      "Gradle path issues",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &GradleOverridesRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GradleOverrides", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "GradleOverrides",
+			Brief:      "Value overridden by Gradle build script",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &GradleIdeErrorRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GradleIdeError", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "GradleIdeError",
+			Brief:      "Gradle IDE Support Issues",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   7,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &AndroidGradlePluginVersionRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "AndroidGradlePluginVersion", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "AndroidGradlePluginVersion",
+			Brief:      "AGP version too old",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &NewerVersionAvailableRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "NewerVersionAvailable", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "NewerVersionAvailable",
+			Brief:      "Newer library version available",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &StringIntegerRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "StringShouldBeInt", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "StringShouldBeInt",
+			Brief:      "String value where integer expected in Gradle DSL",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &GradlePluginCompatibilityRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GradleCompatible", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "GradleCompatible",
+			Brief:      "Incompatible Gradle versions",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &NewerVersionAvailableRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GradleDependency", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "GradleDependency",
+			Brief:      "Obsolete Gradle dependency",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &DynamicVersionRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GradleDynamicVersion", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "GradleDynamicVersion",
+			Brief:      "Gradle dynamic version",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from android_icons.go ---
-	v2.Register(WrapAsV2(&IconDensitiesRule{AndroidRule: AndroidRule{
-		BaseRule: BaseRule{RuleName: "IconDensities", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:  "IconDensities", Brief: "Missing density variants for icon",
-		Category: ALCIcons, ALSeverity: ALSWarning, Priority: 4,
-		Origin: "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&IconDipSizeRule{AndroidRule: AndroidRule{
-		BaseRule: BaseRule{RuleName: "IconDipSize", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:  "IconDipSize", Brief: "Icon dimensions don't match expected DPI ratios",
-		Category: ALCIcons, ALSeverity: ALSWarning, Priority: 4,
-		Origin: "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&IconDuplicatesRule{AndroidRule: AndroidRule{
-		BaseRule: BaseRule{RuleName: "IconDuplicates", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:  "IconDuplicates", Brief: "Same image across densities without scaling",
-		Category: ALCIcons, ALSeverity: ALSWarning, Priority: 3,
-		Origin: "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&GifUsageRule{AndroidRule: AndroidRule{
-		BaseRule: BaseRule{RuleName: "GifUsage", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:  "GifUsage", Brief: "GIF file in resources",
-		Category: ALCIcons, ALSeverity: ALSWarning, Priority: 5,
-		Origin: "AOSP Android Lint",
-	}}))
+	{
+		r := &IconDensitiesRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "IconDensities", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:  "IconDensities", Brief: "Missing density variants for icon",
+			Category: ALCIcons, ALSeverity: ALSWarning, Priority: 4,
+			Origin: "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			AndroidDeps: uint32(AndroidDepIcons), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {},
+		})
+	}
+	{
+		r := &IconDipSizeRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "IconDipSize", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:  "IconDipSize", Brief: "Icon dimensions don't match expected DPI ratios",
+			Category: ALCIcons, ALSeverity: ALSWarning, Priority: 4,
+			Origin: "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			AndroidDeps: uint32(AndroidDepIcons), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {},
+		})
+	}
+	{
+		r := &IconDuplicatesRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "IconDuplicates", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:  "IconDuplicates", Brief: "Same image across densities without scaling",
+			Category: ALCIcons, ALSeverity: ALSWarning, Priority: 3,
+			Origin: "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			AndroidDeps: uint32(AndroidDepIcons), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {},
+		})
+	}
+	{
+		r := &GifUsageRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "GifUsage", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:  "GifUsage", Brief: "GIF file in resources",
+			Category: ALCIcons, ALSeverity: ALSWarning, Priority: 5,
+			Origin: "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			AndroidDeps: uint32(AndroidDepIcons), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {},
+		})
+	}
 	v2.Register(WrapAsV2(&ConvertToWebpRule{AndroidRule: AndroidRule{
 		BaseRule: BaseRule{RuleName: "ConvertToWebp", RuleSetName: androidRuleSet, Sev: "informational"},
 		IssueID:  "ConvertToWebp", Brief: "Large PNG could be smaller as WebP",
@@ -3134,12 +3371,23 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&GetSignaturesRule{AndroidRule: AndroidRule{
-		BaseRule: BaseRule{RuleName: "GetSignatures", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:  "PackageManagerGetSignatures", Brief: "Using deprecated GET_SIGNATURES",
-		Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 8,
-		Origin: "AOSP Android Lint",
-	}}))
+	{
+		r := &GetSignaturesRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "GetSignatures", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:  "PackageManagerGetSignatures", Brief: "Using deprecated GET_SIGNATURES",
+			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 8,
+			Origin: "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &SparseArrayRule{AndroidRule: AndroidRule{
 			BaseRule: BaseRule{RuleName: "UseSparseArrays", RuleSetName: androidRuleSet, Sev: "warning"},
@@ -3288,12 +3536,23 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&NonInternationalizedSmsRule{AndroidRule: AndroidRule{
-		BaseRule: BaseRule{RuleName: "NonInternationalizedSms", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:  "UnlocalizedSms", Brief: "SMS with non-i18n considerations",
-		Category: ALCI18N, ALSeverity: ALSWarning, Priority: 5,
-		Origin: "AOSP Android Lint",
-	}}))
+	{
+		r := &NonInternationalizedSmsRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "NonInternationalizedSms", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:  "UnlocalizedSms", Brief: "SMS with non-i18n considerations",
+			Category: ALCI18N, ALSeverity: ALSWarning, Priority: 5,
+			Origin: "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from android_source_extra.go ---
 	{
@@ -3559,7 +3818,7 @@ func registerAllRules() {
 		r := &UseAlpha2Rule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "UseAlpha2", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "UseAlpha2", Brief: "3-letter ISO code in locale folder", Category: ALCI18N, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Needs: v2.NeedsLinePass, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				for _, f := range r.CheckLines(ctx.File) {
 					ctx.Emit(f)
@@ -3571,7 +3830,7 @@ func registerAllRules() {
 		r := &MangledCRLFRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "MangledCRLF", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "MangledCRLF", Brief: "Mixed line endings in file", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 3, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Needs: v2.NeedsLinePass, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				for _, f := range r.CheckLines(ctx.File) {
 					ctx.Emit(f)
@@ -3763,7 +4022,18 @@ func registerAllRules() {
 	}
 
 	// --- from comments.go ---
-	v2.Register(WrapAsV2(&AbsentOrWrongFileLicenseRule{BaseRule: BaseRule{RuleName: "AbsentOrWrongFileLicense", RuleSetName: "comments", Sev: "warning", Desc: "Detects files that are missing a valid license header comment."}, LicenseTemplate: "Copyright"}))
+	{
+		r := &AbsentOrWrongFileLicenseRule{BaseRule: BaseRule{RuleName: "AbsentOrWrongFileLicense", RuleSetName: "comments", Sev: "warning", Desc: "Detects files that are missing a valid license header comment."}, LicenseTemplate: "Copyright"}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &DeprecatedBlockTagRule{BaseRule: BaseRule{RuleName: "DeprecatedBlockTag", RuleSetName: "comments", Sev: "warning", Desc: "Detects @deprecated KDoc tags that should use the @Deprecated annotation instead."}}
 		v2.Register(&v2.Rule{
@@ -6799,7 +7069,18 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&EmptyKotlinFileRule{BaseRule: BaseRule{RuleName: "EmptyKotlinFile", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects Kotlin files with no meaningful code beyond package and import declarations."}}))
+	{
+		r := &EmptyKotlinFileRule{BaseRule: BaseRule{RuleName: "EmptyKotlinFile", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects Kotlin files with no meaningful code beyond package and import declarations."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &EmptySecondaryConstructorRule{BaseRule: BaseRule{RuleName: "EmptySecondaryConstructor", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects secondary constructors with an empty body."}}
 		v2.Register(&v2.Rule{
@@ -8711,7 +8992,18 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&TooGenericExceptionThrownRule{BaseRule: BaseRule{RuleName: "TooGenericExceptionThrown", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects throwing overly generic exception types like Exception or Throwable."}}))
+	{
+		r := &TooGenericExceptionThrownRule{BaseRule: BaseRule{RuleName: "TooGenericExceptionThrown", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects throwing overly generic exception types like Exception or Throwable."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &UnreachableCatchBlockRule{BaseRule: BaseRule{RuleName: "UnreachableCatchBlock", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects catch blocks that are unreachable because a more general exception type is caught above."}}
 		v2.Register(&v2.Rule{
@@ -8917,7 +9209,18 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&MissingPackageDeclarationRule{BaseRule: BaseRule{RuleName: "MissingPackageDeclaration", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Kotlin files that are missing a package declaration."}}))
+	{
+		r := &MissingPackageDeclarationRule{BaseRule: BaseRule{RuleName: "MissingPackageDeclaration", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Kotlin files that are missing a package declaration."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &MissingSuperCallRule{
 			BaseRule: BaseRule{RuleName: "MissingSuperCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects override functions that do not call the corresponding super method."},
@@ -9487,7 +9790,18 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&NullCheckOnMutablePropertyRule{BaseRule: BaseRule{RuleName: "NullCheckOnMutableProperty", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects null checks on mutable var properties that may be changed by another thread between the check and use."}}))
+	{
+		r := &NullCheckOnMutablePropertyRule{BaseRule: BaseRule{RuleName: "NullCheckOnMutableProperty", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects null checks on mutable var properties that may be changed by another thread between the check and use."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &NullableToStringCallRule{BaseRule: BaseRule{RuleName: "NullableToStringCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects .toString() calls on nullable receivers that may produce the string \"null\"."}}
 		v2.Register(&v2.Rule{
@@ -10922,12 +11236,78 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&CommentedOutCodeBlockRule{BaseRule: BaseRule{RuleName: "CommentedOutCodeBlock", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects consecutive lines of commented-out Kotlin code that should be deleted or restored."}, MinLines: 3}))
-	v2.Register(WrapAsV2(&GradleBuildContainsTodoRule{BaseRule: BaseRule{RuleName: "GradleBuildContainsTodo", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects TODO comments in build.gradle(.kts) files that may block release readiness."}}))
-	v2.Register(WrapAsV2(&CommentedOutImportRule{BaseRule: BaseRule{RuleName: "CommentedOutImport", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects commented-out import statements that are either dead code or incomplete refactors."}}))
-	v2.Register(WrapAsV2(&MergeConflictMarkerLeftoverRule{BaseRule: BaseRule{RuleName: "MergeConflictMarkerLeftover", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects unresolved merge conflict markers (<<<, ===, >>>) left in source files."}}))
-	v2.Register(WrapAsV2(&HardcodedLocalhostUrlRule{BaseRule: BaseRule{RuleName: "HardcodedLocalhostUrl", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects hardcoded localhost or 10.0.2.2 URLs in non-test production source files."}}))
-	v2.Register(WrapAsV2(&TestOnlyImportInProductionRule{BaseRule: BaseRule{RuleName: "TestOnlyImportInProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects test framework imports (JUnit, Mockito, MockK, etc.) in non-test source files."}}))
+	{
+		r := &CommentedOutCodeBlockRule{BaseRule: BaseRule{RuleName: "CommentedOutCodeBlock", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects consecutive lines of commented-out Kotlin code that should be deleted or restored."}, MinLines: 3}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &GradleBuildContainsTodoRule{BaseRule: BaseRule{RuleName: "GradleBuildContainsTodo", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects TODO comments in build.gradle(.kts) files that may block release readiness."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &CommentedOutImportRule{BaseRule: BaseRule{RuleName: "CommentedOutImport", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects commented-out import statements that are either dead code or incomplete refactors."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MergeConflictMarkerLeftoverRule{BaseRule: BaseRule{RuleName: "MergeConflictMarkerLeftover", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects unresolved merge conflict markers (<<<, ===, >>>) left in source files."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &HardcodedLocalhostUrlRule{BaseRule: BaseRule{RuleName: "HardcodedLocalhostUrl", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects hardcoded localhost or 10.0.2.2 URLs in non-test production source files."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &TestOnlyImportInProductionRule{BaseRule: BaseRule{RuleName: "TestOnlyImportInProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects test framework imports (JUnit, Mockito, MockK, etc.) in non-test source files."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&ConventionPluginDeadCodeRule{BaseRule: BaseRule{RuleName: "ConventionPluginDeadCode", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects convention plugins under build-logic or buildSrc that are never applied by any module."}}))
 	v2.Register(WrapAsV2(&VisibleForTestingCallerInNonTestRule{BaseRule: BaseRule{RuleName: "VisibleForTestingCallerInNonTest", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects calls to @VisibleForTesting-annotated functions from non-test source files."}}))
 	v2.Register(WrapAsV2(&OpenForTestingCallerInNonTestRule{BaseRule: BaseRule{RuleName: "OpenForTestingCallerInNonTest", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects subclassing of @OpenForTesting types outside test source sets."}}))
@@ -13103,8 +13483,30 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&MultilineRawStringIndentationRule{BaseRule: BaseRule{RuleName: "MultilineRawStringIndentation", RuleSetName: "style", Sev: "warning", Desc: "Detects multiline raw strings that are missing trimIndent() or trimMargin() calls."}}))
-	v2.Register(WrapAsV2(&TrimMultilineRawStringRule{BaseRule: BaseRule{RuleName: "TrimMultilineRawString", RuleSetName: "style", Sev: "warning", Desc: "Detects multiline raw strings that should use trimIndent() or trimMargin() for proper indentation."}}))
+	{
+		r := &MultilineRawStringIndentationRule{BaseRule: BaseRule{RuleName: "MultilineRawStringIndentation", RuleSetName: "style", Sev: "warning", Desc: "Detects multiline raw strings that are missing trimIndent() or trimMargin() calls."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &TrimMultilineRawStringRule{BaseRule: BaseRule{RuleName: "TrimMultilineRawString", RuleSetName: "style", Sev: "warning", Desc: "Detects multiline raw strings that should use trimIndent() or trimMargin() for proper indentation."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &StringShouldBeRawStringRule{BaseRule: BaseRule{RuleName: "StringShouldBeRawString", RuleSetName: "style", Sev: "warning", Desc: "Detects string literals with many escape characters that would be more readable as raw strings."}, MaxEscapes: 2}
 		v2.Register(&v2.Rule{
@@ -14028,13 +14430,90 @@ func registerAllRules() {
 	}
 
 	// --- from style_format.go ---
-	v2.Register(WrapAsV2(&TrailingWhitespaceRule{BaseRule: BaseRule{RuleName: "TrailingWhitespace", RuleSetName: "style", Sev: "warning", Desc: "Detects lines that end with trailing whitespace characters."}}))
-	v2.Register(WrapAsV2(&NoTabsRule{BaseRule: BaseRule{RuleName: "NoTabs", RuleSetName: "style", Sev: "warning", Desc: "Detects tab characters used for indentation instead of spaces."}}))
-	v2.Register(WrapAsV2(&MaxLineLengthRule{BaseRule: BaseRule{RuleName: "MaxLineLength", RuleSetName: "style", Sev: "warning", Desc: "Detects lines that exceed the configured maximum character length."}, Max: 120}))
-	v2.Register(WrapAsV2(&NewLineAtEndOfFileRule{BaseRule: BaseRule{RuleName: "NewLineAtEndOfFile", RuleSetName: "style", Sev: "warning", Desc: "Detects files that do not end with a newline character."}}))
-	v2.Register(WrapAsV2(&SpacingAfterPackageAndImportsRule{BaseRule: BaseRule{RuleName: "SpacingAfterPackageAndImports", RuleSetName: "style", Sev: "warning", Desc: "Detects missing blank lines after package and import declarations."}}))
-	v2.Register(WrapAsV2(&MaxChainedCallsOnSameLineRule{BaseRule: BaseRule{RuleName: "MaxChainedCallsOnSameLine", RuleSetName: "style", Sev: "warning", Desc: "Detects lines with more chained method calls than the configured maximum."}, MaxCalls: 5}))
-	v2.Register(WrapAsV2(&CascadingCallWrappingRule{BaseRule: BaseRule{RuleName: "CascadingCallWrapping", RuleSetName: "style", Sev: "warning", Desc: "Detects chained calls that are not properly indented from the previous line."}}))
+	{
+		r := &TrailingWhitespaceRule{BaseRule: BaseRule{RuleName: "TrailingWhitespace", RuleSetName: "style", Sev: "warning", Desc: "Detects lines that end with trailing whitespace characters."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &NoTabsRule{BaseRule: BaseRule{RuleName: "NoTabs", RuleSetName: "style", Sev: "warning", Desc: "Detects tab characters used for indentation instead of spaces."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MaxLineLengthRule{BaseRule: BaseRule{RuleName: "MaxLineLength", RuleSetName: "style", Sev: "warning", Desc: "Detects lines that exceed the configured maximum character length."}, Max: 120}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &NewLineAtEndOfFileRule{BaseRule: BaseRule{RuleName: "NewLineAtEndOfFile", RuleSetName: "style", Sev: "warning", Desc: "Detects files that do not end with a newline character."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &SpacingAfterPackageAndImportsRule{BaseRule: BaseRule{RuleName: "SpacingAfterPackageAndImports", RuleSetName: "style", Sev: "warning", Desc: "Detects missing blank lines after package and import declarations."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MaxChainedCallsOnSameLineRule{BaseRule: BaseRule{RuleName: "MaxChainedCallsOnSameLine", RuleSetName: "style", Sev: "warning", Desc: "Detects lines with more chained method calls than the configured maximum."}, MaxCalls: 5}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &CascadingCallWrappingRule{BaseRule: BaseRule{RuleName: "CascadingCallWrapping", RuleSetName: "style", Sev: "warning", Desc: "Detects chained calls that are not properly indented from the previous line."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &UnderscoresInNumericLiteralsRule{BaseRule: BaseRule{RuleName: "UnderscoresInNumericLiterals", RuleSetName: "style", Sev: "warning", Desc: "Detects large numeric literals that should use underscore separators for readability."}, Threshold: 10000, AcceptableLength: 5}
 		v2.Register(&v2.Rule{
@@ -14089,7 +14568,18 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&EqualsOnSignatureLineRule{BaseRule: BaseRule{RuleName: "EqualsOnSignatureLine", RuleSetName: "style", Sev: "warning", Desc: "Detects expression body equals signs placed on a separate line from the function signature."}}))
+	{
+		r := &EqualsOnSignatureLineRule{BaseRule: BaseRule{RuleName: "EqualsOnSignatureLine", RuleSetName: "style", Sev: "warning", Desc: "Detects expression body equals signs placed on a separate line from the function signature."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckLines(ctx.File) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from style_idiomatic.go ---
 	{

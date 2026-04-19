@@ -19,59 +19,6 @@ type UnusedImportRule struct {
 // false-positives on substring collisions. Classified per roadmap/17.
 func (r *UnusedImportRule) Confidence() float64 { return 0.75 }
 
-func (r *UnusedImportRule) NodeTypes() []string { return []string{"import_header"} }
-
-func (r *UnusedImportRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	trimmed := strings.TrimSpace(text)
-	if !strings.HasPrefix(trimmed, "import ") {
-		return nil
-	}
-	imp := strings.TrimPrefix(trimmed, "import ")
-	imp = strings.TrimSpace(imp)
-	parts := strings.Split(imp, ".")
-	shortName := parts[len(parts)-1]
-	if shortName == "*" {
-		return nil
-	}
-	if idx := strings.Index(imp, " as "); idx >= 0 {
-		shortName = strings.TrimSpace(imp[idx+4:])
-	}
-	importLine := file.FlatRow(idx) + 1
-	// Search file content for usage of the imported name outside import/package lines
-	used := false
-	for i, line := range file.Lines {
-		if i+1 == importLine {
-			continue
-		}
-		lt := strings.TrimSpace(line)
-		if strings.HasPrefix(lt, "import ") || strings.HasPrefix(lt, "package ") {
-			continue
-		}
-		if strings.Contains(line, shortName) {
-			used = true
-			break
-		}
-	}
-	if used {
-		return nil
-	}
-	f := r.Finding(file, importLine, 1,
-		fmt.Sprintf("Unused import '%s'.", shortName))
-	// Auto-fix: remove the entire import line
-	startByte := int(file.FlatStartByte(idx))
-	endByte := int(file.FlatEndByte(idx))
-	if endByte < len(file.Content) && file.Content[endByte] == '\n' {
-		endByte++
-	}
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   startByte,
-		EndByte:     endByte,
-		Replacement: "",
-	}
-	return []scanner.Finding{f}
-}
 
 // UnusedParameterRule detects function parameters that are never used in the body.
 type UnusedParameterRule struct {
@@ -79,8 +26,6 @@ type UnusedParameterRule struct {
 	BaseRule
 	AllowedNames *regexp.Regexp
 }
-
-func (r *UnusedParameterRule) NodeTypes() []string { return []string{"function_declaration"} }
 
 // Confidence reports a tier-2 (medium) base confidence. The rule
 // uses strings.Count on the function body to detect parameter usage,

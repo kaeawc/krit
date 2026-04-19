@@ -39,30 +39,326 @@ func init() {
 func registerAllRules() {
 
 	// --- from accessibility.go ---
-	v2.Register(WrapAsV2(&AnimatorDurationIgnoresScaleRule{
-		BaseRule: BaseRule{RuleName: "AnimatorDurationIgnoresScale", RuleSetName: "a11y", Sev: "info", Desc: "Detects animator durations that ignore the system ANIMATOR_DURATION_SCALE accessibility setting."},
-	}))
-	v2.Register(WrapAsV2(&ComposeClickableWithoutMinTouchTargetRule{
-		BaseRule: BaseRule{RuleName: "ComposeClickableWithoutMinTouchTarget", RuleSetName: "a11y", Sev: "warning", Desc: "Detects clickable Compose modifiers with explicit touch target dimensions below the 48dp minimum."},
-	}))
-	v2.Register(WrapAsV2(&ComposeDecorativeImageContentDescriptionRule{
-		BaseRule: BaseRule{RuleName: "ComposeDecorativeImageContentDescription", RuleSetName: "a11y", Sev: "warning", Desc: "Detects decorative images with null contentDescription that are not hidden from TalkBack."},
-	}))
-	v2.Register(WrapAsV2(&ComposeIconButtonMissingContentDescriptionRule{
-		BaseRule: BaseRule{RuleName: "ComposeIconButtonMissingContentDescription", RuleSetName: "a11y", Sev: "warning", Desc: "Detects Icon or IconButton composables missing a contentDescription for screen readers."},
-	}))
-	v2.Register(WrapAsV2(&ComposeRawTextLiteralRule{
-		BaseRule: BaseRule{RuleName: "ComposeRawTextLiteral", RuleSetName: "a11y", Sev: "warning", Desc: "Detects Compose Text() calls using hardcoded string literals instead of stringResource() for i18n."},
-	}))
-	v2.Register(WrapAsV2(&ComposeSemanticsMissingRoleRule{
-		BaseRule: BaseRule{RuleName: "ComposeSemanticsMissingRole", RuleSetName: "a11y", Sev: "warning", Desc: "Detects interactive Compose modifiers (clickable, toggleable, selectable) without an explicit accessibility role."},
-	}))
-	v2.Register(WrapAsV2(&ComposeTextFieldMissingLabelRule{
-		BaseRule: BaseRule{RuleName: "ComposeTextFieldMissingLabel", RuleSetName: "a11y", Sev: "warning", Desc: "Detects TextField or OutlinedTextField composables missing a label parameter for accessibility."},
-	}))
-	v2.Register(WrapAsV2(&ToastForAccessibilityAnnouncementRule{
-		BaseRule: BaseRule{RuleName: "ToastForAccessibilityAnnouncement", RuleSetName: "a11y", Sev: "warning", Desc: "Detects Toast.makeText used in accessibility-related functions instead of announceForAccessibility."},
-	}))
+	{
+		r := &AnimatorDurationIgnoresScaleRule{
+			BaseRule: BaseRule{RuleName: "AnimatorDurationIgnoresScale", RuleSetName: "a11y", Sev: "info", Desc: "Detects animator durations that ignore the system ANIMATOR_DURATION_SCALE accessibility setting."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression", "assignment"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if animatorDurationScaleReferenced(file) {
+					return
+				}
+				switch file.FlatType(idx) {
+				case "call_expression":
+					navExpr, _ := flatCallExpressionParts(file, idx)
+					if navExpr == 0 || flatNavigationExpressionLastIdentifier(file, navExpr) != "setDuration" {
+						return
+					}
+					if !animatorReceiverLooksLikeAnimatorFlat(file, navExpr) {
+						return
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						"Animator duration ignores the system animation scale. Read Settings.Global.ANIMATOR_DURATION_SCALE and scale the duration before starting the animation.")
+				case "assignment":
+					if file.FlatNamedChildCount(idx) == 0 {
+						return
+					}
+					lhs := file.FlatNamedChild(idx, 0)
+					target := strings.TrimSpace(file.FlatNodeText(lhs))
+					if i := strings.LastIndex(target, "."); i >= 0 {
+						target = target[i+1:]
+					}
+					if target != "duration" {
+						return
+					}
+					if !assignmentInsideAnimatorContextFlat(file, idx) {
+						return
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						"Animator duration ignores the system animation scale. Read Settings.Global.ANIMATOR_DURATION_SCALE and scale the duration before starting the animation.")
+				}
+			},
+		})
+	}
+	{
+		r := &ComposeClickableWithoutMinTouchTargetRule{
+			BaseRule: BaseRule{RuleName: "ComposeClickableWithoutMinTouchTarget", RuleSetName: "a11y", Sev: "warning", Desc: "Detects clickable Compose modifiers with explicit touch target dimensions below the 48dp minimum."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				navExpr, _ := flatCallExpressionParts(file, idx)
+				if navExpr == 0 || flatNavigationExpressionLastIdentifier(file, navExpr) != "clickable" {
+					return
+				}
+				chain, rootedAtModifier := composeModifierCallChainFlat(file, composeModifierChainReceiverFlat(file, navExpr))
+				if !rootedAtModifier || composeModifierChainContainsCall(chain, "minimumInteractiveComponentSize") {
+					return
+				}
+				minDp, hasExplicitSize := composeModifierChainSmallestDpFlat(file, chain)
+				if !hasExplicitSize || minDp >= 48 {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"clickable Compose modifier has a touch target below 48.dp; use at least 48.dp or add minimumInteractiveComponentSize().")
+			},
+		})
+	}
+	{
+		r := &ComposeDecorativeImageContentDescriptionRule{
+			BaseRule: BaseRule{RuleName: "ComposeDecorativeImageContentDescription", RuleSetName: "a11y", Sev: "warning", Desc: "Detects decorative images with null contentDescription that are not hidden from TalkBack."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallName(file, idx)
+				if !composeImageCallNames[name] {
+					return
+				}
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					return
+				}
+				cdArg := flatNamedValueArgument(file, args, "contentDescription")
+				if cdArg == 0 {
+					return
+				}
+				argText := strings.TrimSpace(file.FlatNodeText(cdArg))
+				if !strings.Contains(argText, "null") {
+					return
+				}
+				callText := file.FlatNodeText(idx)
+				if strings.Contains(callText, "clearAndSetSemantics") ||
+					strings.Contains(callText, "invisibleToUser") {
+					return
+				}
+				modArg := flatNamedValueArgument(file, args, "modifier")
+				if modArg != 0 {
+					modText := file.FlatNodeText(modArg)
+					if strings.Contains(modText, "clearAndSetSemantics") ||
+						strings.Contains(modText, "invisibleToUser") {
+						return
+					}
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Decorative image with `contentDescription = null` should use `Modifier.clearAndSetSemantics {}` or `semantics { invisibleToUser() }` to hide from TalkBack.")
+			},
+		})
+	}
+	{
+		r := &ComposeIconButtonMissingContentDescriptionRule{
+			BaseRule: BaseRule{RuleName: "ComposeIconButtonMissingContentDescription", RuleSetName: "a11y", Sev: "warning", Desc: "Detects Icon or IconButton composables missing a contentDescription for screen readers."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallName(file, idx)
+				if !composeContentDescriptionCalls[name] {
+					return
+				}
+				_, args := flatCallExpressionParts(file, idx)
+				if name == "IconButton" {
+					if args != 0 && flatNamedValueArgument(file, args, "contentDescription") != 0 {
+						return
+					}
+					text := file.FlatNodeText(idx)
+					if strings.Contains(text, "contentDescription") {
+						return
+					}
+					if parent, ok := file.FlatParent(idx); ok && file.FlatType(parent) == "call_expression" {
+						parentText := file.FlatNodeText(parent)
+						if strings.Contains(parentText, "contentDescription") {
+							return
+						}
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						"IconButton's Icon is missing `contentDescription`. Set a description for accessibility.")
+					return
+				}
+				if args == 0 {
+					return
+				}
+				cdArg := flatNamedValueArgument(file, args, "contentDescription")
+				if cdArg != 0 {
+					argText := strings.TrimSpace(file.FlatNodeText(cdArg))
+					if !strings.Contains(argText, "= null") {
+						return
+					}
+					modArg := flatNamedValueArgument(file, args, "modifier")
+					if modArg != 0 {
+						modText := file.FlatNodeText(modArg)
+						if strings.Contains(modText, "invisibleToUser") || strings.Contains(modText, "clearAndSetSemantics") {
+							return
+						}
+					}
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					name+" is missing `contentDescription`. Set a description for accessibility or mark as decorative.")
+			},
+		})
+	}
+	{
+		r := &ComposeRawTextLiteralRule{
+			BaseRule: BaseRule{RuleName: "ComposeRawTextLiteral", RuleSetName: "a11y", Sev: "warning", Desc: "Detects Compose Text() calls using hardcoded string literals instead of stringResource() for i18n."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallName(file, idx)
+				if name != "Text" {
+					return
+				}
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					return
+				}
+				firstArg := flatPositionalValueArgument(file, args, 0)
+				if firstArg == 0 {
+					return
+				}
+				argText := strings.TrimSpace(file.FlatNodeText(firstArg))
+				if !strings.HasPrefix(argText, "\"") {
+					return
+				}
+				fn, ok := flatEnclosingFunction(file, idx)
+				if !ok {
+					return
+				}
+				if flatHasAnnotationNamed(file, fn, "Preview") {
+					return
+				}
+				fnName := flatFunctionName(file, fn)
+				if strings.Contains(fnName, "Preview") || strings.Contains(fnName, "Sample") {
+					return
+				}
+				if strings.HasSuffix(file.Path, "Preview.kt") || strings.HasSuffix(file.Path, "Sample.kt") {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Text() uses a hardcoded string literal. Use `stringResource()` for internationalization and accessibility.")
+			},
+		})
+	}
+	{
+		r := &ComposeSemanticsMissingRoleRule{
+			BaseRule: BaseRule{RuleName: "ComposeSemanticsMissingRole", RuleSetName: "a11y", Sev: "warning", Desc: "Detects interactive Compose modifiers (clickable, toggleable, selectable) without an explicit accessibility role."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				navExpr, args := flatCallExpressionParts(file, idx)
+				if navExpr == 0 {
+					return
+				}
+				name := flatNavigationExpressionLastIdentifier(file, navExpr)
+				if !composeInteractionModifiers[name] {
+					return
+				}
+				_, rootedAtModifier := composeModifierCallChainFlat(file, composeModifierChainReceiverFlat(file, navExpr))
+				if !rootedAtModifier {
+					return
+				}
+				if args != 0 && flatNamedValueArgument(file, args, "role") != 0 {
+					return
+				}
+				outerCall := findOutermostModifierChainCall(file, idx)
+				if outerCall != 0 {
+					fullText := file.FlatNodeText(outerCall)
+					if strings.Contains(fullText, "semantics") && strings.Contains(fullText, "role") {
+						return
+					}
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Modifier."+name+" without an explicit `role`. Add `role = Role.X` or a `Modifier.semantics { role = ... }` for screen readers.")
+			},
+		})
+	}
+	{
+		r := &ComposeTextFieldMissingLabelRule{
+			BaseRule: BaseRule{RuleName: "ComposeTextFieldMissingLabel", RuleSetName: "a11y", Sev: "warning", Desc: "Detects TextField or OutlinedTextField composables missing a label parameter for accessibility."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallName(file, idx)
+				if !composeTextFieldCalls[name] {
+					return
+				}
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					return
+				}
+				if flatNamedValueArgument(file, args, "label") != 0 {
+					return
+				}
+				if flatNamedValueArgument(file, args, "placeholder") != 0 {
+					return
+				}
+				parent, ok := file.FlatParent(idx)
+				if ok && hasSiblingTextCall(file, parent, idx) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					name+" is missing a `label` parameter. Add a label for accessibility.")
+			},
+		})
+	}
+	{
+		r := &ToastForAccessibilityAnnouncementRule{
+			BaseRule: BaseRule{RuleName: "ToastForAccessibilityAnnouncement", RuleSetName: "a11y", Sev: "warning", Desc: "Detects Toast.makeText used in accessibility-related functions instead of announceForAccessibility."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				navExpr, _ := flatCallExpressionParts(file, idx)
+				if navExpr == 0 {
+					return
+				}
+				callName := flatNavigationExpressionLastIdentifier(file, navExpr)
+				if callName != "makeText" {
+					return
+				}
+				receiver := file.FlatNamedChild(navExpr, 0)
+				if receiver == 0 || !file.FlatNodeTextEquals(receiver, "Toast") {
+					return
+				}
+				fn, ok := flatEnclosingFunction(file, idx)
+				if !ok {
+					return
+				}
+				fnName := strings.ToLower(flatFunctionName(file, fn))
+				isA11yContext := false
+				for _, pattern := range a11yFunctionPatterns {
+					if strings.Contains(fnName, pattern) {
+						isA11yContext = true
+						break
+					}
+				}
+				if !isA11yContext {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Toast used in an accessibility context. Use `View.announceForAccessibility()` or `AccessibilityManager` instead.")
+			},
+		})
+	}
 
 	// --- from android.go ---
 	{
@@ -1919,7 +2215,77 @@ func registerAllRules() {
 			Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if file.FlatHasModifier(idx, "abstract") ||
+					file.FlatHasModifier(idx, "sealed") {
+					return
+				}
+				isFragment := false
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					child := file.FlatChild(idx, i)
+					if file.FlatType(child) != "delegation_specifier" {
+						continue
+					}
+					typeName := viewConstructorSupertypeNameFlat(file, child)
+					if typeName == "" {
+						continue
+					}
+					for _, base := range fragmentSuperclasses {
+						if typeName == base {
+							isFragment = true
+							break
+						}
+					}
+					if isFragment {
+						break
+					}
+				}
+				if !isFragment {
+					return
+				}
+				hasNoArgCtor := true
+				hasParamCtor := false
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					child := file.FlatChild(idx, i)
+					if file.FlatType(child) == "primary_constructor" {
+						ctorText := file.FlatNodeText(child)
+						paramStart := strings.Index(ctorText, "(")
+						if paramStart >= 0 {
+							paramBody := ctorText[paramStart+1:]
+							paramEnd := strings.LastIndex(paramBody, ")")
+							if paramEnd > 0 {
+								params := strings.TrimSpace(paramBody[:paramEnd])
+								if len(params) > 0 {
+									hasParamCtor = true
+									if allParamsHaveDefaults(params) {
+										hasNoArgCtor = true
+									} else {
+										hasNoArgCtor = false
+									}
+								}
+							}
+						}
+					}
+					if file.FlatType(child) == "class_body" {
+						bodyText := file.FlatNodeText(child)
+						if strings.Contains(bodyText, "constructor()") || strings.Contains(bodyText, "constructor ()") {
+							hasNoArgCtor = true
+						}
+						if secondaryCtorRe.MatchString(bodyText) {
+							hasParamCtor = true
+						}
+					}
+				}
+				if hasParamCtor && !hasNoArgCtor {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Fragment subclass must have a default (no-arg) constructor for framework re-instantiation.")
+				}
+			},
+		})
 	}
 	{
 		r := &ServiceCastRule{AndroidRule: AndroidRule{
@@ -1928,7 +2294,28 @@ func registerAllRules() {
 			Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"as_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				matches := serviceCastRe.FindStringSubmatch(text)
+				if matches == nil {
+					return
+				}
+				svcConst := matches[1]
+				castType := matches[2]
+				expectedType, ok := serviceCastMap[svcConst]
+				if !ok {
+					return
+				}
+				if castType != expectedType {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Service cast mismatch: "+svcConst+" should be cast to "+expectedType+", not "+castType+".")
+				}
+			},
+		})
 	}
 	{
 		r := &ToastRule{AndroidRule: AndroidRule{
@@ -1937,7 +2324,44 @@ func registerAllRules() {
 			Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if !toastMakeRe.MatchString(text) {
+					return
+				}
+				if strings.Contains(text, ".show()") {
+					return
+				}
+				for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+					pt := file.FlatType(parent)
+					if pt == "call_expression" || pt == "navigation_expression" {
+						parentText := file.FlatNodeText(parent)
+						if strings.Contains(parentText, ".show()") {
+							return
+						}
+					}
+					if pt == "function_declaration" || pt == "source_file" {
+						break
+					}
+				}
+				line := file.FlatRow(idx)
+				for j := line + 1; j < len(file.Lines) && j < line+10; j++ {
+					if strings.Contains(file.Lines[j], ".show()") {
+						return
+					}
+					trimmed := strings.TrimSpace(file.Lines[j])
+					if strings.HasPrefix(trimmed, "fun ") || strings.HasPrefix(trimmed, "override fun ") {
+						break
+					}
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"Toast.makeText() called without .show(). The toast will not be displayed.")
+			},
+		})
 	}
 	v2.Register(WrapAsV2(&GetSignaturesRule{AndroidRule: AndroidRule{
 		BaseRule: BaseRule{RuleName: "GetSignatures", RuleSetName: androidRuleSet, Sev: "warning"},
@@ -1952,7 +2376,25 @@ func registerAllRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 4,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				matches := sparseArrayRe.FindStringSubmatch(text)
+				if matches == nil {
+					return
+				}
+				keyType := matches[1]
+				suggestion := "SparseArray"
+				if keyType == "Long" {
+					suggestion = "LongSparseArray"
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"Use "+suggestion+" instead of HashMap<"+keyType+", ...> for better performance on Android.")
+			},
+		})
 	}
 	{
 		r := &UseValueOfRule{AndroidRule: AndroidRule{
@@ -1961,7 +2403,56 @@ func registerAllRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 4,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				first := file.FlatChild(idx, 0)
+				if first != 0 && file.FlatType(first) == "simple_identifier" {
+					typeName := file.FlatNodeText(first)
+					if !boxedPrimitiveConstructors[typeName] {
+						return
+					}
+					suffix := file.FlatFindChild(idx, "call_suffix")
+					if suffix != 0 {
+						args := file.FlatFindChild(suffix, "value_arguments")
+						if args != 0 {
+							argCount := 0
+							for i := 0; i < file.FlatChildCount(args); i++ {
+								if file.FlatType(file.FlatChild(args, i)) == "value_argument" {
+									argCount++
+								}
+							}
+							if argCount > 1 {
+								return
+							}
+						}
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Use "+typeName+".valueOf() instead of new "+typeName+"() constructor for better performance.")
+					return
+				}
+				text := file.FlatNodeText(idx)
+				matches := valueOfRe.FindStringSubmatch(text)
+				if matches == nil {
+					return
+				}
+				typeName := matches[1]
+				if strings.Contains(text, "class "+typeName) || strings.Contains(text, "fun "+typeName) {
+					return
+				}
+				callPos := strings.Index(text, typeName+"(")
+				if callPos > 0 {
+					prev := text[callPos-1]
+					if prev == ':' || prev == '<' {
+						return
+					}
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"Use "+typeName+".valueOf() instead of new "+typeName+"() constructor for better performance.")
+			},
+		})
 	}
 	{
 		r := &LogTagLengthRule{AndroidRule: AndroidRule{
@@ -1970,7 +2461,23 @@ func registerAllRules() {
 			Category: ALCCorrectness, ALSeverity: ALSError, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				matches := logTagLiteralRe.FindStringSubmatch(text)
+				if matches == nil {
+					return
+				}
+				tag := matches[1]
+				if len(tag) > 23 {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Log tag \""+tag+"\" exceeds the 23 character limit.")
+				}
+			},
+		})
 	}
 	{
 		r := &LogTagMismatchRule{AndroidRule: AndroidRule{
@@ -1979,7 +2486,36 @@ func registerAllRules() {
 			Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) {
+					return
+				}
+				className := extractIdentifierFlat(file, idx)
+				if className == "" {
+					return
+				}
+				tagValue := findDirectCompanionTagFlat(file, idx)
+				if tagValue == "" {
+					return
+				}
+				if tagValue == className {
+					return
+				}
+				if len(className) > 23 && strings.HasPrefix(className, tagValue) {
+					return
+				}
+				text := file.FlatNodeText(idx)
+				if !logTagRefRe.MatchString(text) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"Log TAG value \""+tagValue+"\" doesn't match class name \""+className+"\".")
+			},
+		})
 	}
 	v2.Register(WrapAsV2(&NonInternationalizedSmsRule{AndroidRule: AndroidRule{
 		BaseRule: BaseRule{RuleName: "NonInternationalizedSms", RuleSetName: androidRuleSet, Sev: "warning"},
@@ -8045,24 +8581,192 @@ func registerAllRules() {
 	}))
 
 	// --- from privacy_permissions.go ---
-	v2.Register(WrapAsV2(&AdMobInitializedBeforeConsentRule{
-		BaseRule: BaseRule{RuleName: "AdMobInitializedBeforeConsent", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects MobileAds.initialize() in Application.onCreate before any consent info update call."},
-	}))
-	v2.Register(WrapAsV2(&BiometricAuthNotFallingBackToDeviceCredentialRule{
-		BaseRule: BaseRule{RuleName: "BiometricAuthNotFallingBackToDeviceCredential", RuleSetName: privacyRuleSet, Sev: "info", Desc: "Detects BiometricPrompt.authenticate() calls whose PromptInfo lacks device credential fallback."},
-	}))
-	v2.Register(WrapAsV2(&ContactsAccessWithoutPermissionUiRule{
-		BaseRule: BaseRule{RuleName: "ContactsAccessWithoutPermissionUi", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects contacts queries not gated behind a RequestPermission activity-result callback."},
-	}))
-	v2.Register(WrapAsV2(&LocationBackgroundWithoutRationaleRule{
-		BaseRule: BaseRule{RuleName: "LocationBackgroundWithoutRationale", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects ACCESS_BACKGROUND_LOCATION requests without a shouldShowRequestPermissionRationale call."},
-	}))
-	v2.Register(WrapAsV2(&ScreenshotNotBlockedOnLoginScreenRule{
-		BaseRule: BaseRule{RuleName: "ScreenshotNotBlockedOnLoginScreen", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects sensitive screens (login, payment, PIN) that do not set FLAG_SECURE to block screenshots."},
-	}))
-	v2.Register(WrapAsV2(&ClipboardOnSensitiveInputTypeRule{
-		BaseRule: BaseRule{RuleName: "ClipboardOnSensitiveInputType", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects clipboard writes from variables whose names suggest passwords or credentials."},
-	}))
+	{
+		r := &AdMobInitializedBeforeConsentRule{BaseRule: BaseRule{RuleName: "AdMobInitializedBeforeConsent", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects MobileAds.initialize() in Application.onCreate before any consent info update call."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				navExpr, _ := flatCallExpressionParts(file, idx)
+				if navExpr == 0 || flatNavigationExpressionLastIdentifier(file, navExpr) != "initialize" {
+					return
+				}
+				if flatReceiverNameFromCall(file, idx) != "MobileAds" {
+					return
+				}
+				fn, ok := flatEnclosingFunction(file, idx)
+				if !ok || extractIdentifierFlat(file, fn) != "onCreate" {
+					return
+				}
+				classNode, ok := flatEnclosingAncestor(file, idx, "class_declaration")
+				if !ok || !privacyClassDirectlyExtendsFlat(file, classNode, "Application") {
+					return
+				}
+				if privacyHasPrecedingConsentUpdateCallFlat(file, fn, idx) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"MobileAds.initialize(...) runs in Application.onCreate before any consentInformation.requestConsentInfoUpdate(...) call. Request consent info before initializing AdMob.")
+			},
+		})
+	}
+	{
+		r := &BiometricAuthNotFallingBackToDeviceCredentialRule{BaseRule: BaseRule{RuleName: "BiometricAuthNotFallingBackToDeviceCredential", RuleSetName: privacyRuleSet, Sev: "info", Desc: "Detects BiometricPrompt.authenticate() calls whose PromptInfo lacks device credential fallback."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				navExpr, args := flatCallExpressionParts(file, idx)
+				if navExpr == 0 || args == 0 || flatNavigationExpressionLastIdentifier(file, navExpr) != "authenticate" {
+					return
+				}
+				navText := file.FlatNodeText(navExpr)
+				if !strings.Contains(navText, "BiometricPrompt") {
+					return
+				}
+				promptInfoArg := flatPositionalValueArgument(file, args, 0)
+				if promptInfoArg == 0 {
+					promptInfoArg = flatNamedValueArgument(file, args, "promptInfo")
+				}
+				promptInfoExpr := flatValueArgumentExpression(file, promptInfoArg)
+				if promptInfoExpr == 0 || file.FlatType(promptInfoExpr) != "call_expression" {
+					return
+				}
+				promptInfoText := file.FlatNodeText(promptInfoExpr)
+				if !strings.Contains(promptInfoText, "PromptInfo.Builder()") || !strings.Contains(promptInfoText, ".build()") {
+					return
+				}
+				if biometricPromptAllowsDeviceCredentialFlat(file, promptInfoExpr) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(promptInfoExpr)+1, file.FlatCol(promptInfoExpr)+1,
+					"BiometricPrompt.authenticate(...) builds PromptInfo without device credential fallback. Add setDeviceCredentialAllowed(true) or include DEVICE_CREDENTIAL in setAllowedAuthenticators(...).")
+			},
+		})
+	}
+	{
+		r := &ContactsAccessWithoutPermissionUiRule{BaseRule: BaseRule{RuleName: "ContactsAccessWithoutPermissionUi", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects contacts queries not gated behind a RequestPermission activity-result callback."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if flatCallExpressionName(file, idx) != "query" {
+					return
+				}
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					return
+				}
+				uriArg := flatNamedValueArgument(file, args, "uri")
+				if uriArg == 0 {
+					uriArg = flatPositionalValueArgument(file, args, 0)
+				}
+				uriExpr := flatValueArgumentExpression(file, uriArg)
+				if uriExpr == 0 {
+					return
+				}
+				if !isContactsPhoneContentURIFlat(file, uriExpr) {
+					return
+				}
+				if contactsQueryHasPermissionUiPathFlat(file, idx) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(uriExpr)+1, file.FlatCol(uriExpr)+1,
+					"Contacts phone query without an obvious RequestPermission callback path. Request READ_CONTACTS before querying ContactsContract.CommonDataKinds.Phone.CONTENT_URI.")
+			},
+		})
+	}
+	{
+		r := &LocationBackgroundWithoutRationaleRule{BaseRule: BaseRule{RuleName: "LocationBackgroundWithoutRationale", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects ACCESS_BACKGROUND_LOCATION requests without a shouldShowRequestPermissionRationale call."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				if name != "requestPermissions" && name != "launch" {
+					return
+				}
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					return
+				}
+				argsText := compactKotlinExpr(file.FlatNodeText(args))
+				if !strings.Contains(argsText, "ACCESS_BACKGROUND_LOCATION") {
+					return
+				}
+				content := string(file.Content)
+				if strings.Contains(content, "shouldShowRequestPermissionRationale") {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"ACCESS_BACKGROUND_LOCATION requested without shouldShowRequestPermissionRationale. Show a rationale dialog before requesting background location access.")
+			},
+		})
+	}
+	{
+		r := &ScreenshotNotBlockedOnLoginScreenRule{BaseRule: BaseRule{RuleName: "ScreenshotNotBlockedOnLoginScreen", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects sensitive screens (login, payment, PIN) that do not set FLAG_SECURE to block screenshots."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration", "function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				nodeType := file.FlatType(idx)
+				name := extractIdentifierFlat(file, idx)
+				if name == "" || !loginScreenNamePattern.MatchString(name) {
+					return
+				}
+				bodyText := compactKotlinExpr(file.FlatNodeText(idx))
+				if nodeType == "class_declaration" {
+					if !privacyClassExtendsActivity(file, idx) {
+						return
+					}
+					if strings.Contains(bodyText, "FLAG_SECURE") {
+						return
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						"Sensitive screen \""+name+"\" does not set FLAG_SECURE. Add window.setFlags(FLAG_SECURE, FLAG_SECURE) to prevent screenshots and screen recording.")
+					return
+				}
+				if nodeType == "function_declaration" {
+					if !privacyHasComposableAnnotation(file, idx) {
+						return
+					}
+					if strings.Contains(bodyText, "FLAG_SECURE") || strings.Contains(bodyText, "ScreenshotBlocker") {
+						return
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						"Sensitive composable \""+name+"\" does not block screenshots. Apply FLAG_SECURE or a ScreenshotBlocker modifier.")
+				}
+			},
+		})
+	}
+	{
+		r := &ClipboardOnSensitiveInputTypeRule{BaseRule: BaseRule{RuleName: "ClipboardOnSensitiveInputType", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects clipboard writes from variables whose names suggest passwords or credentials."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if flatCallExpressionName(file, idx) != "setPrimaryClip" {
+					return
+				}
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					return
+				}
+				argsText := file.FlatNodeText(args)
+				if !passwordVarNamePattern.MatchString(argsText) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Clipboard write from a variable that looks like a password or credential. Avoid copying sensitive data to the clipboard.")
+			},
+		})
+	}
 
 	// --- from privacy_storage.go ---
 	v2.Register(WrapAsV2(&SharedPreferencesForSensitiveKeyRule{
@@ -13274,13 +13978,364 @@ func registerAllRules() {
 	}
 
 	// --- from style_unused.go ---
-	v2.Register(WrapAsV2(&UnusedImportRule{BaseRule: BaseRule{RuleName: "UnusedImport", RuleSetName: "style", Sev: "warning", Desc: "Detects import statements where the imported name is not referenced in the file."}}))
-	v2.Register(WrapAsV2(&UnusedParameterRule{BaseRule: BaseRule{RuleName: "UnusedParameter", RuleSetName: "style", Sev: "warning", Desc: "Detects function parameters that are never used in the function body."}, AllowedNames: regexp.MustCompile(`^(ignored|expected|_)$`)}))
-	v2.Register(WrapAsV2(&UnusedVariableRule{BaseRule: BaseRule{RuleName: "UnusedVariable", RuleSetName: "style", Sev: "warning", Desc: "Detects local variables that are declared but never used."}, AllowedNames: regexp.MustCompile(`^(ignored|_)$`)}))
-	v2.Register(WrapAsV2(&UnusedPrivateClassRule{BaseRule: BaseRule{RuleName: "UnusedPrivateClass", RuleSetName: "style", Sev: "warning", Desc: "Detects private classes that are never referenced in the file."}}))
-	v2.Register(WrapAsV2(&UnusedPrivateFunctionRule{BaseRule: BaseRule{RuleName: "UnusedPrivateFunction", RuleSetName: "style", Sev: "warning", Desc: "Detects private functions that are never called in the file."}}))
-	v2.Register(WrapAsV2(&UnusedPrivatePropertyRule{BaseRule: BaseRule{RuleName: "UnusedPrivateProperty", RuleSetName: "style", Sev: "warning", Desc: "Detects private properties that are never referenced in the file."}}))
-	v2.Register(WrapAsV2(&UnusedPrivateMemberRule{BaseRule: BaseRule{RuleName: "UnusedPrivateMember", RuleSetName: "style", Sev: "warning", Desc: "Detects private members (classes, functions, properties) that are never used."}, IgnoreAnnotated: DefaultUnusedMemberIgnoreAnnotated}))
+	{
+		r := &UnusedImportRule{BaseRule: BaseRule{RuleName: "UnusedImport", RuleSetName: "style", Sev: "warning", Desc: "Detects import statements where the imported name is not referenced in the file."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"import_header"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				trimmed := strings.TrimSpace(text)
+				if !strings.HasPrefix(trimmed, "import ") {
+					return
+				}
+				imp := strings.TrimPrefix(trimmed, "import ")
+				imp = strings.TrimSpace(imp)
+				parts := strings.Split(imp, ".")
+				shortName := parts[len(parts)-1]
+				if shortName == "*" {
+					return
+				}
+				if i := strings.Index(imp, " as "); i >= 0 {
+					shortName = strings.TrimSpace(imp[i+4:])
+				}
+				importLine := file.FlatRow(idx) + 1
+				used := false
+				for i, line := range file.Lines {
+					if i+1 == importLine {
+						continue
+					}
+					lt := strings.TrimSpace(line)
+					if strings.HasPrefix(lt, "import ") || strings.HasPrefix(lt, "package ") {
+						continue
+					}
+					if strings.Contains(line, shortName) {
+						used = true
+						break
+					}
+				}
+				if used {
+					return
+				}
+				f := r.Finding(file, importLine, 1,
+					fmt.Sprintf("Unused import '%s'.", shortName))
+				startByte := int(file.FlatStartByte(idx))
+				endByte := int(file.FlatEndByte(idx))
+				if endByte < len(file.Content) && file.Content[endByte] == '\n' {
+					endByte++
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   startByte,
+					EndByte:     endByte,
+					Replacement: "",
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &UnusedParameterRule{BaseRule: BaseRule{RuleName: "UnusedParameter", RuleSetName: "style", Sev: "warning", Desc: "Detects function parameters that are never used in the function body."}, AllowedNames: regexp.MustCompile(`^(ignored|expected|_)$`)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) {
+					return
+				}
+				summary := getFunctionDeclSummaryFlat(file, idx)
+				if summary.hasOverride || summary.hasOpen || summary.hasAbstract || summary.hasOperator {
+					return
+				}
+				if file.FlatHasModifier(idx, "actual") ||
+					file.FlatHasModifier(idx, "expect") {
+					return
+				}
+				if summary.hasEntryPoint {
+					return
+				}
+				if summary.hasComposable {
+					return
+				}
+				if summary.hasSubscribeLike {
+					return
+				}
+				for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+					if file.FlatType(p) == "class_declaration" {
+						for i := 0; i < file.FlatChildCount(p); i++ {
+							c := file.FlatChild(p, i)
+							if file.FlatType(c) == "interface" || (file.FlatType(c) == "class" && file.FlatNodeTextEquals(c, "interface")) {
+								return
+							}
+						}
+						break
+					}
+				}
+				if summary.body == 0 {
+					return
+				}
+				bodyText := file.FlatNodeText(summary.body)
+				trimmedBody := strings.TrimSpace(bodyText)
+				if trimmedBody == "= Unit" || trimmedBody == "{}" || trimmedBody == "{ }" {
+					return
+				}
+				if strings.Contains(trimmedBody, "throw ") &&
+					(strings.HasPrefix(trimmedBody, "{") && strings.Count(trimmedBody, "\n") <= 3) {
+					return
+				}
+				if strings.HasPrefix(trimmedBody, "= throw ") ||
+					strings.HasPrefix(trimmedBody, "= TODO(") ||
+					strings.HasPrefix(trimmedBody, "= error(") {
+					return
+				}
+				if summary.paramsNode == 0 {
+					return
+				}
+				if hasSiblingOverloadFlat(file, idx, summary.name) {
+					return
+				}
+				paramsText := file.FlatNodeText(summary.paramsNode)
+				searchText := bodyText + "\n" + paramsText
+				for _, param := range summary.params {
+					paramName := param.name
+					if paramName == "" {
+						continue
+					}
+					if r.AllowedNames != nil && r.AllowedNames.MatchString(paramName) {
+						continue
+					}
+					paramText := file.FlatNodeText(param.idx)
+					if strings.Contains(paramText, "@Suppress") &&
+						(strings.Contains(paramText, "\"unused\"") ||
+							strings.Contains(paramText, "\"UNUSED_PARAMETER\"")) {
+						continue
+					}
+					count := strings.Count(searchText, paramName)
+					if count <= 1 {
+						ctx.EmitAt(file.FlatRow(param.idx)+1, 1,
+							fmt.Sprintf("Parameter '%s' is unused.", paramName))
+					}
+				}
+			},
+		})
+	}
+	{
+		r := &UnusedVariableRule{BaseRule: BaseRule{RuleName: "UnusedVariable", RuleSetName: "style", Sev: "warning", Desc: "Detects local variables that are declared but never used."}, AllowedNames: regexp.MustCompile(`^(ignored|_)$`)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) {
+					return
+				}
+				parent, ok := file.FlatParent(idx)
+				if !ok {
+					return
+				}
+				parentType := file.FlatType(parent)
+				if parentType == "source_file" ||
+					parentType == "class_body" || parentType == "enum_class_body" ||
+					parentType == "companion_object" || parentType == "object_declaration" ||
+					parentType == "class_member_declarations" {
+					return
+				}
+				propLine := file.FlatRow(idx)
+				depth := 0
+				for i := propLine - 1; i >= 0 && i >= propLine-200; i-- {
+					line := file.Lines[i]
+					depth += strings.Count(line, "}") - strings.Count(line, "{")
+					if depth < 0 {
+						trimmed := strings.TrimSpace(line)
+						if strings.Contains(trimmed, "companion object") ||
+							strings.HasPrefix(trimmed, "object ") ||
+							strings.Contains(trimmed, " object ") {
+							return
+						}
+						break
+					}
+				}
+				for a, ok := file.FlatParent(idx); ok; a, ok = file.FlatParent(a) {
+					t := file.FlatType(a)
+					if t == "delegation_specifier" || t == "explicit_delegation" {
+						return
+					}
+					if t == "class_body" || t == "enum_class_body" ||
+						t == "companion_object" || t == "object_declaration" ||
+						t == "class_member_declarations" {
+						return
+					}
+					if t == "function_body" || t == "function_declaration" ||
+						t == "anonymous_function" || t == "source_file" {
+						break
+					}
+				}
+				text := file.FlatNodeText(idx)
+				trimmed := strings.TrimSpace(text)
+				if !strings.HasPrefix(trimmed, "val ") && !strings.HasPrefix(trimmed, "var ") {
+					return
+				}
+				varName := propertyDeclarationNameFlat(file, idx)
+				if varName == "" {
+					return
+				}
+				if r.AllowedNames != nil && r.AllowedNames.MatchString(varName) {
+					return
+				}
+				scope := parent
+				for {
+					t := file.FlatType(scope)
+					if t == "statements" || t == "function_body" || t == "lambda_literal" ||
+						t == "control_structure_body" || t == "source_file" {
+						break
+					}
+					next, ok := file.FlatParent(scope)
+					if !ok {
+						scope = parent
+						break
+					}
+					scope = next
+				}
+				scopeText := file.FlatNodeText(scope)
+				count := countIdentifierOccurrences(scopeText, varName)
+				if count <= 1 {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						fmt.Sprintf("Local variable '%s' is never used.", varName))
+				}
+			},
+		})
+	}
+	{
+		r := &UnusedPrivateClassRule{BaseRule: BaseRule{RuleName: "UnusedPrivateClass", RuleSetName: "style", Sev: "warning", Desc: "Detects private classes that are never referenced in the file."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !file.FlatHasModifier(idx, "private") {
+					return
+				}
+				name := extractIdentifierFlat(file, idx)
+				if name == "" {
+					return
+				}
+				content := string(file.Content)
+				count := strings.Count(content, name)
+				if count <= 1 {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						fmt.Sprintf("Private class '%s' is never used.", name))
+				}
+			},
+		})
+	}
+	{
+		r := &UnusedPrivateFunctionRule{BaseRule: BaseRule{RuleName: "UnusedPrivateFunction", RuleSetName: "style", Sev: "warning", Desc: "Detects private functions that are never called in the file."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) {
+					return
+				}
+				if !file.FlatHasModifier(idx, "private") {
+					return
+				}
+				name := extractIdentifierFlat(file, idx)
+				if name == "" {
+					return
+				}
+				if r.AllowedNames != nil && r.AllowedNames.MatchString(name) {
+					return
+				}
+				if flatHasEntryPointAnnotation(file, idx) {
+					return
+				}
+				content := string(file.Content)
+				count := strings.Count(content, name)
+				if count <= 1 {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						fmt.Sprintf("Private function '%s' is never called.", name))
+				}
+			},
+		})
+	}
+	{
+		r := &UnusedPrivatePropertyRule{BaseRule: BaseRule{RuleName: "UnusedPrivateProperty", RuleSetName: "style", Sev: "warning", Desc: "Detects private properties that are never referenced in the file."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !file.FlatHasModifier(idx, "private") {
+					return
+				}
+				if flatHasFrameworkAnnotation(file, idx) {
+					return
+				}
+				name := propertyDeclarationNameFlat(file, idx)
+				if name == "" {
+					return
+				}
+				if r.AllowedNames != nil && r.AllowedNames.MatchString(name) {
+					return
+				}
+				if name == "TAG" {
+					nodeText := file.FlatNodeText(idx)
+					if strings.Contains(nodeText, "Log.tag(") {
+						return
+					}
+				}
+				content := string(file.Content)
+				count := strings.Count(content, name)
+				if count <= 1 {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						fmt.Sprintf("Private property '%s' is never used.", name))
+				}
+			},
+		})
+	}
+	{
+		r := &UnusedPrivateMemberRule{BaseRule: BaseRule{RuleName: "UnusedPrivateMember", RuleSetName: "style", Sev: "warning", Desc: "Detects private members (classes, functions, properties) that are never used."}, IgnoreAnnotated: DefaultUnusedMemberIgnoreAnnotated}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration", "function_declaration", "property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !file.FlatHasModifier(idx, "private") {
+					return
+				}
+				mods := file.FlatFindChild(idx, "modifiers")
+				modsText := ""
+				if mods != 0 {
+					modsText = file.FlatNodeText(mods)
+				}
+				for _, ann := range r.IgnoreAnnotated {
+					if strings.Contains(modsText, ann) {
+						return
+					}
+				}
+				name := extractIdentifierFlat(file, idx)
+				if name == "" && file.FlatType(idx) == "property_declaration" {
+					name = propertyDeclarationNameFlat(file, idx)
+				}
+				if name == "" {
+					return
+				}
+				if r.AllowedNames != nil && r.AllowedNames.MatchString(name) {
+					return
+				}
+				content := string(file.Content)
+				count := strings.Count(content, name)
+				if count <= 1 {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						fmt.Sprintf("Private member '%s' is never used.", name))
+				}
+			},
+		})
+	}
 
 	// --- from supply_chain.go ---
 	v2.Register(WrapAsV2(&CompileSdkMismatchAcrossModulesRule{BaseRule: BaseRule{RuleName: "CompileSdkMismatchAcrossModules", RuleSetName: supplyChainRuleSet, Sev: "warning", Desc: "Detects Android modules whose compileSdk is lower than the maximum compileSdk in the project."}}))

@@ -135,7 +135,10 @@ type Rule struct {
 	Oracle *OracleFilter
 
 	// Check is the rule's analysis function. It receives a Context
-	// populated according to the rule's Needs bitfield.
+	// populated according to the rule's Needs bitfield. Rules must report
+	// findings by calling ctx.Emit or ctx.EmitAt — never by returning
+	// []scanner.Finding. Returning a slice is a v1 pattern handled only
+	// by the v2shim bridge and will be removed once all rules are migrated.
 	Check func(*Context)
 
 	// SetResolverHook is an optional callback that forwards the v1

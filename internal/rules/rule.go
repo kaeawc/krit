@@ -11,7 +11,14 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// Rule is the interface all rules implement.
+// Rule is the v1 rule interface.
+//
+// Deprecated: implement rules as native *v2.Rule values registered via
+// v2.Register. New rules must use the v2.Context.Emit / v2.Context.EmitAt
+// API and never return []scanner.Finding. This interface and all v1 family
+// methods (CheckFlatNode, CheckLines, CheckCrossFile, CheckManifest,
+// CheckResources, CheckGradle, CheckModuleAware, Finalize) will be deleted
+// once all rules are migrated.
 type Rule interface {
 	Name() string
 	Description() string

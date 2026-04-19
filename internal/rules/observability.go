@@ -18,46 +18,6 @@ type LogLevelGuardMissingRule struct {
 // shapes without confirming the receiver type. Classified per roadmap/17.
 func (r *LogLevelGuardMissingRule) Confidence() float64 { return 0.75 }
 
-func (r *LogLevelGuardMissingRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *LogLevelGuardMissingRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	level := flatCallExpressionName(file, idx)
-	if level != "debug" && level != "trace" {
-		return nil
-	}
-
-	receiver := flatReceiverNameFromCall(file, idx)
-	if receiver == "" || receiver == "Timber" {
-		return nil
-	}
-	if !isLikelyLogReceiver(receiver) &&
-		!fileImportsKnownLoggerAPI(file) &&
-		!receiverHasKnownLoggerTypeFlat(file, idx, receiver) {
-		return nil
-	}
-
-	messageNode := logLevelGuardMessageNodeFlat(file, idx)
-	if messageNode == 0 || !flatContainsStringInterpolation(file, messageNode) || !containsInterpolatedCallFlat(file, messageNode) {
-		return nil
-	}
-
-	if isInsideMatchingLogLevelGuardFlat(file, idx, receiver, level) {
-		return nil
-	}
-	if isAfterMatchingLogLevelEarlyExitFlatObs(file, idx, receiver, level) {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(messageNode)+1,
-		file.FlatCol(messageNode)+1,
-		"Interpolated call in "+level+" log message can do work even when the level is disabled. Guard it with the matching "+logLevelGuardProperty(level)+" check or use parameterized logging.",
-	)}
-}
-
 func logLevelGuardMessageNodeFlat(file *scanner.File, call uint32) uint32 {
 	if file == nil || call == 0 {
 		return 0
@@ -995,32 +955,6 @@ type LogWithoutCorrelationIdRule struct {
 // shapes without confirming the receiver type. Classified per roadmap/17.
 func (r *LogWithoutCorrelationIdRule) Confidence() float64 { return 0.75 }
 
-func (r *LogWithoutCorrelationIdRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *LogWithoutCorrelationIdRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	builderName, args, lambda := coroutineBuilderPartsFlat(file, idx)
-	if builderName != "launch" && builderName != "async" && builderName != "withContext" {
-		return nil
-	}
-	if lambda == 0 || coroutineContextHasMDCFlat(file, args) {
-		return nil
-	}
-
-	logCall := firstCorrelationSensitiveLogCallFlat(file, lambda)
-	if logCall == 0 {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(logCall)+1,
-		file.FlatCol(logCall)+1,
-		"Logger call inside coroutine without MDCContext(). Add MDCContext to preserve correlation IDs.",
-	)}
-}
-
 func coroutineBuilderPartsFlat(file *scanner.File, idx uint32) (name string, args uint32, lambda uint32) {
 	if file == nil || file.FlatType(idx) != "call_expression" {
 		return "", 0, 0
@@ -1108,26 +1042,3 @@ type LoggerWithoutLoggerFieldRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Observability rule. Detection pattern-matches logging/metrics API call
 // shapes without confirming the receiver type. Classified per roadmap/17.
 func (r *LoggerWithoutLoggerFieldRule) Confidence() float64 { return 0.75 }
-
-func (r *LoggerWithoutLoggerFieldRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *LoggerWithoutLoggerFieldRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if flatCallExpressionName(file, idx) != "getLogger" {
-		return nil
-	}
-	if flatReceiverNameFromCall(file, idx) != "LoggerFactory" {
-		return nil
-	}
-	if _, ok := flatEnclosingFunction(file, idx); !ok {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"Move LoggerFactory.getLogger(...) to a class-level logger field instead of creating a logger inside the function body.",
-	)}
-}

@@ -144,46 +144,6 @@ type AnvilContributesBindingWithoutScopeRule struct {
 // Classified per roadmap/17.
 func (r *AnvilContributesBindingWithoutScopeRule) Confidence() float64 { return 0.75 }
 
-func (r *AnvilContributesBindingWithoutScopeRule) NodeTypes() []string {
-	return []string{"class_declaration", "object_declaration"}
-}
-
-func (r *AnvilContributesBindingWithoutScopeRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	bindingScope := anvilAnnotationScopeFlat(file, idx, "ContributesBinding")
-	if bindingScope == "" {
-		return nil
-	}
-
-	interfaceScopes := anvilContributedInterfaceScopesFlat(file)
-	if len(interfaceScopes) == 0 {
-		return nil
-	}
-
-	for _, iface := range anvilImplementedTypesFlat(file, idx) {
-		if iface == "" {
-			continue
-		}
-		ifaceScope, ok := interfaceScopes[iface]
-		if !ok || ifaceScope == "" || ifaceScope == bindingScope {
-			continue
-		}
-
-		name := extractIdentifierFlat(file, idx)
-		if name == "" {
-			name = "binding"
-		}
-
-		return []scanner.Finding{r.Finding(
-			file,
-			file.FlatRow(idx)+1,
-			1,
-			fmt.Sprintf("@ContributesBinding(%s::class) on '%s' binds '%s', which is only contributed to %s::class.", bindingScope, name, iface, ifaceScope),
-		)}
-	}
-
-	return nil
-}
-
 // BindsMismatchedArityRule detects @Binds functions that do not declare exactly
 // one parameter, which Dagger rejects during code generation.
 type BindsMismatchedArityRule struct {
@@ -196,32 +156,6 @@ type BindsMismatchedArityRule struct {
 // Classified per roadmap/17.
 func (r *BindsMismatchedArityRule) Confidence() float64 { return 0.75 }
 
-func (r *BindsMismatchedArityRule) NodeTypes() []string { return []string{"function_declaration"} }
-
-func (r *BindsMismatchedArityRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !hasAnnotationFlat(file, idx, "Binds") {
-		return nil
-	}
-
-	paramCount := 0
-	if params := file.FlatFindChild(idx, "function_value_parameters"); params != 0 {
-		walkFunctionParametersFlat(file, params, func(_ uint32) {
-			paramCount++
-		})
-	}
-	if paramCount == 1 {
-		return nil
-	}
-
-	name := extractIdentifierFlat(file, idx)
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		1,
-		fmt.Sprintf("@Binds function '%s' must declare exactly one parameter; found %d.", name, paramCount),
-	)}
-}
-
 // HiltEntryPointOnNonInterfaceRule detects Hilt entry points declared as a
 // class or object instead of an interface.
 type HiltEntryPointOnNonInterfaceRule struct {
@@ -233,27 +167,6 @@ type HiltEntryPointOnNonInterfaceRule struct {
 // Dagger/Hilt/Anvil; project-specific DI aliases are not followed.
 // Classified per roadmap/17.
 func (r *HiltEntryPointOnNonInterfaceRule) Confidence() float64 { return 0.75 }
-
-func (r *HiltEntryPointOnNonInterfaceRule) NodeTypes() []string {
-	return []string{"class_declaration", "object_declaration", "prefix_expression"}
-}
-
-func (r *HiltEntryPointOnNonInterfaceRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	kind, name, line, ok := hiltEntryPointDeclarationFlat(file, idx)
-	if !ok || kind == "interface" {
-		return nil
-	}
-	if name == "" {
-		name = "entry point"
-	}
-
-	return []scanner.Finding{r.Finding(
-		file,
-		line,
-		1,
-		fmt.Sprintf("@EntryPoint '%s' must be declared as an interface, not a %s.", name, kind),
-	)}
-}
 
 func hiltEntryPointDeclarationFlat(file *scanner.File, idx uint32) (kind, name string, line int, ok bool) {
 	if file == nil || !hasAnnotationFlat(file, idx, "EntryPoint") {

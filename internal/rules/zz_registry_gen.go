@@ -2098,16 +2098,250 @@ func registerAllRules() {
 
 	// --- from comments.go ---
 	v2.Register(WrapAsV2(&AbsentOrWrongFileLicenseRule{BaseRule: BaseRule{RuleName: "AbsentOrWrongFileLicense", RuleSetName: "comments", Sev: "warning", Desc: "Detects files that are missing a valid license header comment."}, LicenseTemplate: "Copyright"}))
-	v2.Register(WrapAsV2(&DeprecatedBlockTagRule{BaseRule: BaseRule{RuleName: "DeprecatedBlockTag", RuleSetName: "comments", Sev: "warning", Desc: "Detects @deprecated KDoc tags that should use the @Deprecated annotation instead."}}))
-	v2.Register(WrapAsV2(&DocumentationOverPrivateFunctionRule{BaseRule: BaseRule{RuleName: "DocumentationOverPrivateFunction", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc documentation on private functions where it is unnecessary."}}))
-	v2.Register(WrapAsV2(&DocumentationOverPrivatePropertyRule{BaseRule: BaseRule{RuleName: "DocumentationOverPrivateProperty", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc documentation on private properties where it is unnecessary."}}))
-	v2.Register(WrapAsV2(&EndOfSentenceFormatRule{BaseRule: BaseRule{RuleName: "EndOfSentenceFormat", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc first sentences that do not end with proper punctuation."}, Pattern: regexp.MustCompile(`([.?!][ \t\n\r])|([.?!]$)`)}))
-	v2.Register(WrapAsV2(&KDocReferencesNonPublicPropertyRule{BaseRule: BaseRule{RuleName: "KDocReferencesNonPublicProperty", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc bracket references that point to non-public properties."}}))
-	v2.Register(WrapAsV2(&OutdatedDocumentationRule{BaseRule: BaseRule{RuleName: "OutdatedDocumentation", RuleSetName: "comments", Sev: "warning", Desc: "Detects @param tags in KDoc that do not match the actual function parameters."}}))
-	v2.Register(WrapAsV2(&UndocumentedPublicClassRule{BaseRule: BaseRule{RuleName: "UndocumentedPublicClass", RuleSetName: "comments", Sev: "warning", Desc: "Detects public classes that are missing KDoc documentation."}}))
-	v2.Register(WrapAsV2(&UndocumentedPublicFunctionRule{BaseRule: BaseRule{RuleName: "UndocumentedPublicFunction", RuleSetName: "comments", Sev: "warning", Desc: "Detects public functions that are missing KDoc documentation."}}))
-	v2.Register(WrapAsV2(&UndocumentedPublicPropertyRule{BaseRule: BaseRule{RuleName: "UndocumentedPublicProperty", RuleSetName: "comments", Sev: "warning", Desc: "Detects public properties that are missing KDoc documentation."}}))
-
+	{
+		r := &DeprecatedBlockTagRule{BaseRule: BaseRule{RuleName: "DeprecatedBlockTag", RuleSetName: "comments", Sev: "warning", Desc: "Detects @deprecated KDoc tags that should use the @Deprecated annotation instead."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"multiline_comment"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !flatIsKDoc(file, idx) {
+					return
+				}
+				text := file.FlatNodeText(idx)
+				if strings.Contains(text, "@deprecated") {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Use @Deprecated annotation instead of @deprecated KDoc tag.")
+				}
+			},
+		})
+	}
+	{
+		r := &DocumentationOverPrivateFunctionRule{BaseRule: BaseRule{RuleName: "DocumentationOverPrivateFunction", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc documentation on private functions where it is unnecessary."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Fix: v2.FixIdiomatic, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !isPrivateDeclarationFlat(file, idx) {
+					return
+				}
+				if kdocIdx, ok := flatPrecedingKDoc(file, idx); ok {
+					f := r.Finding(file, file.FlatRow(idx)+1, 1,
+						"Private function should not have KDoc documentation.")
+					endByte := int(file.FlatEndByte(kdocIdx))
+					if endByte < len(file.Content) && file.Content[endByte] == '\n' {
+						endByte++
+					}
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   int(file.FlatStartByte(kdocIdx)),
+						EndByte:     endByte,
+						Replacement: "",
+					}
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &DocumentationOverPrivatePropertyRule{BaseRule: BaseRule{RuleName: "DocumentationOverPrivateProperty", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc documentation on private properties where it is unnecessary."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, Fix: v2.FixIdiomatic, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !isPrivateDeclarationFlat(file, idx) {
+					return
+				}
+				if kdocIdx, ok := flatPrecedingKDoc(file, idx); ok {
+					f := r.Finding(file, file.FlatRow(idx)+1, 1,
+						"Private property should not have KDoc documentation.")
+					endByte := int(file.FlatEndByte(kdocIdx))
+					if endByte < len(file.Content) && file.Content[endByte] == '\n' {
+						endByte++
+					}
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   int(file.FlatStartByte(kdocIdx)),
+						EndByte:     endByte,
+						Replacement: "",
+					}
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &EndOfSentenceFormatRule{BaseRule: BaseRule{RuleName: "EndOfSentenceFormat", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc first sentences that do not end with proper punctuation."}, Pattern: regexp.MustCompile(`([.?!][ \t\n\r])|([.?!]$)`)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"multiline_comment"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !flatIsKDoc(file, idx) {
+					return
+				}
+				text := flatKdocText(file, idx)
+				if text == "" {
+					return
+				}
+				firstLine := strings.SplitN(text, "\n", 2)[0]
+				if strings.HasPrefix(firstLine, "@") {
+					return
+				}
+				if !r.Pattern.MatchString(firstLine) {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"KDoc first sentence should end with proper punctuation.")
+				}
+			},
+		})
+	}
+	{
+		r := &KDocReferencesNonPublicPropertyRule{BaseRule: BaseRule{RuleName: "KDocReferencesNonPublicProperty", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc bracket references that point to non-public properties."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"multiline_comment"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !flatIsKDoc(file, idx) {
+					return
+				}
+				text := file.FlatNodeText(idx)
+				matches := kdocRefRe.FindAllStringSubmatch(text, -1)
+				if len(matches) == 0 {
+					return
+				}
+				nonPublic := make(map[string]bool)
+				file.FlatWalkNodes(0, "property_declaration", func(pidx uint32) {
+					if isPublicDeclarationFlat(file, pidx) {
+						return
+					}
+					if name := extractIdentifierFlat(file, pidx); name != "" {
+						nonPublic[name] = true
+					}
+				})
+				if len(nonPublic) == 0 {
+					return
+				}
+				for _, m := range matches {
+					name := m[1]
+					if nonPublic[name] {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1,
+							"KDoc references non-public property \""+name+"\".")
+					}
+				}
+			},
+		})
+	}
+	{
+		r := &OutdatedDocumentationRule{BaseRule: BaseRule{RuleName: "OutdatedDocumentation", RuleSetName: "comments", Sev: "warning", Desc: "Detects @param tags in KDoc that do not match the actual function parameters."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				prev, ok := flatPrecedingKDoc(file, idx)
+				if !ok {
+					return
+				}
+				kdoc := file.FlatNodeText(prev)
+				docParams := paramTagRe.FindAllStringSubmatch(kdoc, -1)
+				if len(docParams) == 0 {
+					return
+				}
+				actualParams := make(map[string]bool)
+				summary := getFunctionDeclSummaryFlat(file, idx)
+				for _, param := range summary.params {
+					if param.name != "" {
+						actualParams[param.name] = true
+					}
+				}
+				for _, dp := range docParams {
+					name := dp[1]
+					if !actualParams[name] {
+						ctx.EmitAt(file.FlatRow(prev)+1, 1,
+							"KDoc @param \""+name+"\" does not match any actual parameter.")
+					}
+				}
+			},
+		})
+	}
+	{
+		r := &UndocumentedPublicClassRule{BaseRule: BaseRule{RuleName: "UndocumentedPublicClass", RuleSetName: "comments", Sev: "warning", Desc: "Detects public classes that are missing KDoc documentation."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !isPublicDeclarationFlat(file, idx) {
+					return
+				}
+				if file.FlatHasModifier(idx, "override") {
+					return
+				}
+				if _, ok := flatPrecedingKDoc(file, idx); ok {
+					return
+				}
+				name := extractIdentifierFlat(file, idx)
+				msg := "Public class is not documented with KDoc."
+				if name != "" {
+					msg = "Public class '" + name + "' is not documented with KDoc."
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, msg)
+			},
+		})
+	}
+	{
+		r := &UndocumentedPublicFunctionRule{BaseRule: BaseRule{RuleName: "UndocumentedPublicFunction", RuleSetName: "comments", Sev: "warning", Desc: "Detects public functions that are missing KDoc documentation."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !isPublicDeclarationFlat(file, idx) {
+					return
+				}
+				if file.FlatHasModifier(idx, "override") {
+					return
+				}
+				if _, ok := flatPrecedingKDoc(file, idx); ok {
+					return
+				}
+				name := extractIdentifierFlat(file, idx)
+				msg := "Public function is not documented with KDoc."
+				if name != "" {
+					msg = "Public function '" + name + "' is not documented with KDoc."
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, msg)
+			},
+		})
+	}
+	{
+		r := &UndocumentedPublicPropertyRule{BaseRule: BaseRule{RuleName: "UndocumentedPublicProperty", RuleSetName: "comments", Sev: "warning", Desc: "Detects public properties that are missing KDoc documentation."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !isPublicDeclarationFlat(file, idx) {
+					return
+				}
+				if file.FlatHasModifier(idx, "override") {
+					return
+				}
+				if _, ok := flatPrecedingKDoc(file, idx); ok {
+					return
+				}
+				name := extractIdentifierFlat(file, idx)
+				msg := "Public property is not documented with KDoc."
+				if name != "" {
+					msg = "Public property '" + name + "' is not documented with KDoc."
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, msg)
+			},
+		})
+	}
 	// --- from complexity.go ---
 	{
 		r := &LongMethodRule{BaseRule: BaseRule{RuleName: "LongMethod", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions that exceed a configurable line count threshold."}, AllowedLines: 60}
@@ -6322,18 +6556,435 @@ func registerAllRules() {
 	}
 
 	// --- from performance.go ---
-	v2.Register(WrapAsV2(&ArrayPrimitiveRule{BaseRule: BaseRule{RuleName: "ArrayPrimitive", RuleSetName: "performance", Sev: "warning", Desc: "Detects Array<Int> and similar boxed primitive arrays that should use IntArray, LongArray, etc."}}))
-	v2.Register(WrapAsV2(&BitmapDecodeWithoutOptionsRule{BaseRule: BaseRule{RuleName: "BitmapDecodeWithoutOptions", RuleSetName: "performance", Sev: "warning", Desc: "Detects BitmapFactory.decode* calls without BitmapFactory.Options, which may decode full-size bitmaps."}}))
-	v2.Register(WrapAsV2(&CouldBeSequenceRule{BaseRule: BaseRule{RuleName: "CouldBeSequence", RuleSetName: "performance", Sev: "warning", Desc: "Detects collection operation chains that could use sequences to avoid intermediate allocations."}, AllowedOperations: 2}))
-	v2.Register(WrapAsV2(&ForEachOnRangeRule{BaseRule: BaseRule{RuleName: "ForEachOnRange", RuleSetName: "performance", Sev: "warning", Desc: "Detects (range).forEach patterns that should use a simple for loop to avoid lambda overhead."}}))
-	v2.Register(WrapAsV2(&SpreadOperatorRule{BaseRule: BaseRule{RuleName: "SpreadOperator", RuleSetName: "performance", Sev: "warning", Desc: "Detects the spread operator (*array) in function calls which creates an array copy."}}))
+	{
+		r := &ArrayPrimitiveRule{BaseRule: BaseRule{RuleName: "ArrayPrimitive", RuleSetName: "performance", Sev: "warning", Desc: "Detects Array<Int> and similar boxed primitive arrays that should use IntArray, LongArray, etc."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"user_type"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				ident := file.FlatFindChild(idx, "type_identifier")
+				typeArgs := file.FlatFindChild(idx, "type_arguments")
+				if ident == 0 || typeArgs == 0 {
+					return
+				}
+				if !file.FlatNodeTextEquals(ident, "Array") {
+					return
+				}
+				text := file.FlatNodeText(typeArgs)
+				if r.resolver != nil {
+					argName := simpleTypeReferenceName(text)
+					fqn := r.resolver.ResolveImport(argName, file)
+					if fqn != "" {
+						if replacement, ok := primitiveFQNToReplacement[fqn]; ok {
+							f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+								fmt.Sprintf("Use '%s' instead of 'Array<%s>' for better performance.", replacement, argName))
+							f.Fix = &scanner.Fix{
+								ByteMode:    true,
+								StartByte:   int(file.FlatStartByte(idx)),
+								EndByte:     int(file.FlatEndByte(idx)),
+								Replacement: replacement,
+							}
+							ctx.Emit(f)
+						}
+						return
+					}
+				}
+				primitive, replacement, ok := primitiveArrayReplacementForTypeRef(text)
+				if !ok {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("Use '%s' instead of 'Array<%s>' for better performance.", replacement, primitive))
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: replacement,
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &BitmapDecodeWithoutOptionsRule{BaseRule: BaseRule{RuleName: "BitmapDecodeWithoutOptions", RuleSetName: "performance", Sev: "warning", Desc: "Detects BitmapFactory.decode* calls without BitmapFactory.Options, which may decode full-size bitmaps."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				navExpr, args := flatCallExpressionParts(file, idx)
+				if navExpr == 0 || args == 0 {
+					return
+				}
+				methodName := flatNavigationExpressionLastIdentifier(file, navExpr)
+				if !bitmapDecodeMethods[methodName] {
+					return
+				}
+				if file.FlatNamedChildCount(navExpr) == 0 {
+					return
+				}
+				receiver := file.FlatNamedChild(navExpr, 0)
+				receiverText := strings.TrimSpace(file.FlatNodeText(receiver))
+				if i := strings.LastIndex(receiverText, "."); i >= 0 {
+					receiverText = receiverText[i+1:]
+				}
+				if receiverText != "BitmapFactory" {
+					return
+				}
+				argCount := 0
+				for i := 0; i < file.FlatChildCount(args); i++ {
+					if file.FlatType(file.FlatChild(args, i)) == "value_argument" {
+						argCount++
+					}
+				}
+				if argCount != 1 {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("BitmapFactory.%s without BitmapFactory.Options may decode a full-size bitmap. Pass BitmapFactory.Options to control memory usage.", methodName))
+			},
+		})
+	}
+	{
+		r := &CouldBeSequenceRule{BaseRule: BaseRule{RuleName: "CouldBeSequence", RuleSetName: "performance", Sev: "warning", Desc: "Detects collection operation chains that could use sequences to avoid intermediate allocations."}, AllowedOperations: 2}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				count := 0
+				current := idx
+				for current != 0 {
+					name := flatCallExpressionName(file, current)
+					if collectionOps[name] {
+						count++
+					} else {
+						break
+					}
+					if parent, ok := file.FlatParent(current); ok && file.FlatType(parent) == "navigation_expression" {
+						if gp, ok := file.FlatParent(parent); ok && file.FlatType(gp) == "call_expression" {
+							current = gp
+							continue
+						}
+					}
+					break
+				}
+				if count <= r.AllowedOperations {
+					return
+				}
+				rootReceiver := collectionChainRootFlat(file, idx)
+				if rootReceiver == 0 {
+					return
+				}
+				if r.resolver != nil {
+					resolved := flatResolveByName(file, r.resolver, rootReceiver)
+					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
+						if resolvedTypeMatches(resolved, sequenceExcludedTypes) {
+							return
+						}
+						if resolvedTypeMatches(resolved, sequenceCandidateTypes) {
+							ctx.EmitAt(file.FlatRow(idx)+1, 1,
+								fmt.Sprintf("Chain of %d collection operations. Consider using 'asSequence()' for better performance.", count))
+						}
+						return
+					}
+				}
+				name := flatCallExpressionName(file, rootReceiver)
+				if obviousSequenceSourceCalls[name] {
+					return
+				}
+				if !obviousCollectionSourceCalls[name] {
+					if file.FlatType(rootReceiver) == "simple_identifier" {
+						if fn := enclosingFunctionDeclarationFlat(file, idx); fn != 0 {
+							if hasCollectionTypeAnnotation(file.FlatNodeText(fn), file.FlatNodeText(rootReceiver)) {
+								ctx.EmitAt(file.FlatRow(idx)+1, 1,
+									fmt.Sprintf("Chain of %d collection operations. Consider using 'asSequence()' for better performance.", count))
+							}
+						}
+					}
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					fmt.Sprintf("Chain of %d collection operations. Consider using 'asSequence()' for better performance.", count))
+			},
+		})
+	}
+	{
+		r := &ForEachOnRangeRule{BaseRule: BaseRule{RuleName: "ForEachOnRange", RuleSetName: "performance", Sev: "warning", Desc: "Detects (range).forEach patterns that should use a simple for loop to avoid lambda overhead."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				if name != "forEach" {
+					return
+				}
+				navExpr, _ := flatCallExpressionParts(file, idx)
+				if navExpr == 0 {
+					return
+				}
+				if file.FlatNamedChildCount(navExpr) == 0 {
+					return
+				}
+				receiver := file.FlatNamedChild(navExpr, 0)
+				if !containsRangeExpressionFlat(file, receiver) {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Use a regular 'for' loop instead of '(range).forEach' for better performance.")
+				f.Fix = forEachOnRangeFixFlat(file, idx, receiver)
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &SpreadOperatorRule{BaseRule: BaseRule{RuleName: "SpreadOperator", RuleSetName: "performance", Sev: "warning", Desc: "Detects the spread operator (*array) in function calls which creates an array copy."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"spread_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if strings.HasSuffix(file.Path, ".gradle.kts") {
+					return
+				}
+				if file.FlatChildCount(idx) > 0 {
+					child := file.FlatChild(idx, file.FlatChildCount(idx)-1)
+					if file.FlatType(child) == "call_expression" {
+						fnName := flatCallExpressionName(file, child)
+						if arrayConstructors[fnName] {
+							return
+						}
+						return
+					}
+					if file.FlatType(child) == "simple_identifier" {
+						name := file.FlatNodeText(child)
+						if isEnclosingVarargParamFlat(file, idx, name) {
+							return
+						}
+					}
+					if isSpreadIntoSqlBuilderFlat(file, idx) {
+						return
+					}
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Spread operator used. This creates a copy of the array.")
+			},
+		})
+	}
 	{
 		r := &UnnecessaryInitOnArrayRule{BaseRule: BaseRule{RuleName: "UnnecessaryInitOnArray", RuleSetName: "performance", Sev: "warning", Desc: "Detects IntArray(n) { 0 } and similar array initializations where the init value is already the default."}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if !defaultZeroArrayRe.MatchString(text) && !defaultFalseArrayRe.MatchString(text) && !defaultCharArrayRe.MatchString(text) {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Unnecessary initialization. The default value is already the array's default.")
+				startByte := int(file.FlatStartByte(idx))
+				var m []int
+				if m = defaultInitRemoveRe.FindStringSubmatchIndex(text); m != nil {
+					keep := text[m[2]:m[3]]
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   startByte + m[0],
+						EndByte:     startByte + m[1],
+						Replacement: keep,
+					}
+				} else if m = defaultFalseRemoveRe.FindStringSubmatchIndex(text); m != nil {
+					keep := text[m[2]:m[3]]
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   startByte + m[0],
+						EndByte:     startByte + m[1],
+						Replacement: keep,
+					}
+				} else if m = defaultCharRemoveRe.FindStringSubmatchIndex(text); m != nil {
+					keep := text[m[2]:m[3]]
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   startByte + m[0],
+						EndByte:     startByte + m[1],
+						Replacement: keep,
+					}
+				}
+				ctx.Emit(f)
+			},
+		})
 	}
-	v2.Register(WrapAsV2(&UnnecessaryPartOfBinaryExpressionRule{BaseRule: BaseRule{RuleName: "UnnecessaryPartOfBinaryExpression", RuleSetName: "performance", Sev: "warning", Desc: "Detects redundant parts of binary expressions like x && true or x || false."}}))
-	v2.Register(WrapAsV2(&UnnecessaryTemporaryInstantiationRule{BaseRule: BaseRule{RuleName: "UnnecessaryTemporaryInstantiation", RuleSetName: "performance", Sev: "warning", Desc: "Detects temporary wrapper instantiations like Integer.valueOf(x).toString() that can be simplified."}}))
-	v2.Register(WrapAsV2(&UnnecessaryTypeCastingRule{BaseRule: BaseRule{RuleName: "UnnecessaryTypeCasting", RuleSetName: "performance", Sev: "warning", Desc: "Detects redundant type casts where a value is cast to its own type."}}))
+	{
+		r := &UnnecessaryPartOfBinaryExpressionRule{BaseRule: BaseRule{RuleName: "UnnecessaryPartOfBinaryExpression", RuleSetName: "performance", Sev: "warning", Desc: "Detects redundant parts of binary expressions like x && true or x || false."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"conjunction_expression", "disjunction_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if file.FlatNamedChildCount(idx) < 2 {
+					return
+				}
+				left := file.FlatNamedChild(idx, 0)
+				right := file.FlatNamedChild(idx, file.FlatNamedChildCount(idx)-1)
+				leftText := file.FlatNodeText(left)
+				rightText := file.FlatNodeText(right)
+				isConjunction := file.FlatType(idx) == "conjunction_expression"
+				var redundant bool
+				var keepNode uint32
+				if isConjunction {
+					if rightText == "true" {
+						redundant = true
+						keepNode = left
+					} else if leftText == "true" {
+						redundant = true
+						keepNode = right
+					}
+				} else {
+					if rightText == "false" {
+						redundant = true
+						keepNode = left
+					} else if leftText == "false" {
+						redundant = true
+						keepNode = right
+					}
+				}
+				if !redundant {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Unnecessary part of binary expression. 'true' or 'false' literal in logical expression is redundant.")
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: file.FlatNodeText(keepNode),
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &UnnecessaryTemporaryInstantiationRule{BaseRule: BaseRule{RuleName: "UnnecessaryTemporaryInstantiation", RuleSetName: "performance", Sev: "warning", Desc: "Detects temporary wrapper instantiations like Integer.valueOf(x).toString() that can be simplified."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				src := file.FlatNodeBytes(idx)
+				if !looksLikeTempInstantiation(src) {
+					return
+				}
+				if flatCallExpressionName(file, idx) != "toString" {
+					return
+				}
+				nav := file.FlatFindChild(idx, "navigation_expression")
+				if nav == 0 {
+					return
+				}
+				innerCall := tempInstantiationReceiverFlat(file, nav)
+				if innerCall == 0 || file.FlatType(innerCall) != "call_expression" {
+					return
+				}
+				method := flatCallExpressionName(file, innerCall)
+				if !tempInstantiationMethods[method] {
+					return
+				}
+				innerNav := file.FlatFindChild(innerCall, "navigation_expression")
+				if innerNav == 0 {
+					return
+				}
+				typeName := tempInstantiationTypeNameFlat(file, innerNav)
+				if !tempInstantiationTypeNames[typeName] {
+					return
+				}
+				arg := tempInstantiationFirstArgumentFlat(file, innerCall)
+				if arg == "" {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Unnecessary temporary instantiation. Use the type's toString() or conversion method directly.")
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: arg + ".toString()",
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &UnnecessaryTypeCastingRule{BaseRule: BaseRule{RuleName: "UnnecessaryTypeCasting", RuleSetName: "performance", Sev: "warning", Desc: "Detects redundant type casts where a value is cast to its own type."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"as_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				parts := strings.Split(text, " as ")
+				if len(parts) != 2 {
+					return
+				}
+				target := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(parts[1]), "?"))
+				expr := strings.TrimSpace(parts[0])
+				if r.resolver != nil && file.FlatChildCount(idx) >= 2 {
+					exprType := flatResolveByName(file, r.resolver, file.FlatChild(idx, 0))
+					targetType := flatResolveByName(file, r.resolver, file.FlatChild(idx, file.FlatChildCount(idx)-1))
+					if exprType != nil && targetType != nil &&
+						exprType.Kind != typeinfer.TypeUnknown && targetType.Kind != typeinfer.TypeUnknown {
+						if exprType.FQN == targetType.FQN {
+							f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+								fmt.Sprintf("Unnecessary cast to '%s'. The expression is already of this type.", target))
+							f.Fix = &scanner.Fix{
+								ByteMode:    true,
+								StartByte:   int(file.FlatStartByte(idx)),
+								EndByte:     int(file.FlatEndByte(idx)),
+								Replacement: expr,
+							}
+							ctx.Emit(f)
+						}
+						return
+					}
+				}
+				matched := false
+				if strings.HasSuffix(expr, ": "+target) || strings.HasSuffix(expr, ":"+target) {
+					matched = true
+				}
+				if !matched {
+					for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+						if file.FlatType(parent) == "property_declaration" || file.FlatType(parent) == "function_declaration" {
+							parentText := file.FlatNodeText(parent)
+							declType := ""
+							if i := strings.Index(parentText, ":"); i >= 0 {
+								rest := parentText[i+1:]
+								if eqIdx := strings.Index(rest, "="); eqIdx >= 0 {
+									declType = strings.TrimSpace(rest[:eqIdx])
+								}
+							}
+							if declType == target {
+								matched = true
+							}
+							break
+						}
+					}
+				}
+				if matched {
+					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						fmt.Sprintf("Unnecessary cast to '%s'. The expression is already of this type.", target))
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   int(file.FlatStartByte(idx)),
+						EndByte:     int(file.FlatEndByte(idx)),
+						Replacement: expr,
+					}
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from potentialbugs_exceptions.go ---
 	v2.Register(WrapAsV2(&PrintStackTraceRule{BaseRule: BaseRule{RuleName: "PrintStackTrace", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects printStackTrace() calls that should use a logger instead."}}))
@@ -9339,19 +9990,227 @@ func registerAllRules() {
 	}
 
 	// --- from style_expressions_extra.go ---
-	v2.Register(WrapAsV2(&MultilineLambdaItParameterRule{BaseRule: BaseRule{RuleName: "MultilineLambdaItParameter", RuleSetName: "style", Sev: "warning", Desc: "Detects multiline lambdas that use the implicit it parameter instead of naming it explicitly."}}))
+	{
+		r := &MultilineLambdaItParameterRule{BaseRule: BaseRule{RuleName: "MultilineLambdaItParameter", RuleSetName: "style", Sev: "warning", Desc: "Detects multiline lambdas that use the implicit it parameter instead of naming it explicitly."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"lambda_literal"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				startLine := file.FlatRow(idx)
+				bodyText := file.FlatNodeText(idx)
+				endLine := startLine + strings.Count(bodyText, "\n")
+				if startLine == endLine {
+					return // single-line lambda, ok
+				}
+				if strings.Contains(bodyText, "->") {
+					return
+				}
+				if strings.Contains(bodyText, " it.") || strings.Contains(bodyText, " it ") ||
+					strings.Contains(bodyText, "(it)") || strings.Contains(bodyText, "\tit.") ||
+					strings.Contains(bodyText, "\nit.") || strings.Contains(bodyText, "{it") {
+					ctx.EmitAt(int(startLine)+1, 1,
+						"Multiline lambda should have an explicit parameter instead of 'it'.")
+				}
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&MultilineRawStringIndentationRule{BaseRule: BaseRule{RuleName: "MultilineRawStringIndentation", RuleSetName: "style", Sev: "warning", Desc: "Detects multiline raw strings that are missing trimIndent() or trimMargin() calls."}}))
 	v2.Register(WrapAsV2(&TrimMultilineRawStringRule{BaseRule: BaseRule{RuleName: "TrimMultilineRawString", RuleSetName: "style", Sev: "warning", Desc: "Detects multiline raw strings that should use trimIndent() or trimMargin() for proper indentation."}}))
-	v2.Register(WrapAsV2(&StringShouldBeRawStringRule{BaseRule: BaseRule{RuleName: "StringShouldBeRawString", RuleSetName: "style", Sev: "warning", Desc: "Detects string literals with many escape characters that would be more readable as raw strings."}, MaxEscapes: 2}))
-	v2.Register(WrapAsV2(&CanBeNonNullableRule{BaseRule: BaseRule{RuleName: "CanBeNonNullable", RuleSetName: "style", Sev: "warning", Desc: "Detects nullable types that are initialized with non-null values and never assigned null."}}))
-	v2.Register(WrapAsV2(&DoubleNegativeExpressionRule{BaseRule: BaseRule{RuleName: "DoubleNegativeExpression", RuleSetName: "style", Sev: "warning", Desc: "Detects double negative expressions like !isNotEmpty() that should use the positive variant."}}))
+	{
+		r := &StringShouldBeRawStringRule{BaseRule: BaseRule{RuleName: "StringShouldBeRawString", RuleSetName: "style", Sev: "warning", Desc: "Detects string literals with many escape characters that would be more readable as raw strings."}, MaxEscapes: 2}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if strings.HasPrefix(text, "\"\"\"") {
+					return // already raw
+				}
+				count := len(escapeCountRe.FindAllString(text, -1))
+				if count > r.MaxEscapes {
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						fmt.Sprintf("String contains %d escape characters. Consider using a raw string.", count))
+				}
+			},
+		})
+	}
+	{
+		r := &CanBeNonNullableRule{BaseRule: BaseRule{RuleName: "CanBeNonNullable", RuleSetName: "style", Sev: "warning", Desc: "Detects nullable types that are initialized with non-null values and never assigned null."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes:       []string{"property_declaration", "function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Needs:           v2.NeedsResolver,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				switch file.FlatType(idx) {
+				case "property_declaration":
+					for _, f := range r.checkPropertyFlat(idx, file) {
+						ctx.Emit(f)
+					}
+				case "function_declaration":
+					for _, f := range r.checkFunctionParamsFlat(idx, file) {
+						ctx.Emit(f)
+					}
+				}
+			},
+		})
+	}
+	{
+		r := &DoubleNegativeExpressionRule{BaseRule: BaseRule{RuleName: "DoubleNegativeExpression", RuleSetName: "style", Sev: "warning", Desc: "Detects double negative expressions like !isNotEmpty() that should use the positive variant."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"prefix_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				sub := doubleNegFixRe.FindStringSubmatch(text)
+				if sub == nil {
+					return
+				}
+				var positive string
+				switch sub[3] {
+				case "Empty":
+					positive = sub[1] + "isEmpty()"
+				case "Blank":
+					positive = sub[1] + "isBlank()"
+				case "Null":
+					positive = sub[1] + "isNull()"
+				default:
+					positive = sub[1] + "is" + sub[3] + "()"
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Double negative expression. Simplify by using the positive variant.")
+				loc := doubleNegFixRe.FindStringIndex(text)
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)) + loc[0],
+					EndByte:     int(file.FlatStartByte(idx)) + loc[1],
+					Replacement: positive,
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
 	{
 		r := &DoubleNegativeLambdaRule{BaseRule: BaseRule{RuleName: "DoubleNegativeLambda", RuleSetName: "style", Sev: "warning", Desc: "Detects double negative lambda patterns like filterNot { !predicate } that should use filter."}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75), v2.AdaptWithOriginalV1(r)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if filterNotNegRe.MatchString(text) {
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						"Double negative in '.filterNot { !... }'. Use '.filter { ... }' instead.")
+					return
+				}
+				if noneNegRe.MatchString(text) {
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						"Double negative in '.none { !... }'. Use '.all { ... }' instead.")
+				}
+			},
+		})
 	}
-	v2.Register(WrapAsV2(&NullableBooleanCheckRule{BaseRule: BaseRule{RuleName: "NullableBooleanCheck", RuleSetName: "style", Sev: "warning", Desc: "Detects equality comparisons against Boolean literals like x == true on nullable Booleans."}}))
-	v2.Register(WrapAsV2(&RangeUntilInsteadOfRangeToRule{BaseRule: BaseRule{RuleName: "RangeUntilInsteadOfRangeTo", RuleSetName: "style", Sev: "warning", Desc: "Detects usage of the until infix function that can be replaced with the ..< range operator."}}))
-	v2.Register(WrapAsV2(&DestructuringDeclarationWithTooManyEntriesRule{BaseRule: BaseRule{RuleName: "DestructuringDeclarationWithTooManyEntries", RuleSetName: "style", Sev: "warning", Desc: "Detects destructuring declarations with more entries than the configured maximum."}, MaxEntries: 3}))
+	{
+		r := &NullableBooleanCheckRule{BaseRule: BaseRule{RuleName: "NullableBooleanCheck", RuleSetName: "style", Sev: "warning", Desc: "Detects equality comparisons against Boolean literals like x == true on nullable Booleans."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if file.FlatChildCount(idx) < 3 {
+					return
+				}
+				left := file.FlatChild(idx, 0)
+				op := file.FlatChild(idx, 1)
+				right := file.FlatChild(idx, file.FlatChildCount(idx)-1)
+				if left == 0 || op == 0 || right == 0 {
+					return
+				}
+				opText := file.FlatNodeText(op)
+				var boolLit, otherNode uint32
+				if file.FlatType(right) == "boolean_literal" {
+					boolLit = right
+					otherNode = left
+				} else if file.FlatType(left) == "boolean_literal" {
+					boolLit = left
+					otherNode = right
+				} else {
+					return
+				}
+				boolVal := file.FlatNodeText(boolLit)
+				otherText := file.FlatNodeText(otherNode)
+				msg := fmt.Sprintf("Nullable boolean check '%s %s %s'. Consider using '%s ?: false' or safe call.",
+					otherText, opText, boolVal, otherText)
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+				if (opText == "==" && boolVal == "true") || (opText == "!=" && boolVal == "false") {
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   int(file.FlatStartByte(idx)),
+						EndByte:     int(file.FlatEndByte(idx)),
+						Replacement: otherText + " ?: false",
+					}
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &RangeUntilInsteadOfRangeToRule{BaseRule: BaseRule{RuleName: "RangeUntilInsteadOfRangeTo", RuleSetName: "style", Sev: "warning", Desc: "Detects usage of the until infix function that can be replaced with the ..< range operator."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"infix_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if file.FlatChildCount(idx) < 3 {
+					return
+				}
+				op := file.FlatChild(idx, 1)
+				if op == 0 || !file.FlatNodeTextEquals(op, "until") {
+					return
+				}
+				left := file.FlatChild(idx, 0)
+				right := file.FlatChild(idx, 2)
+				if left == 0 || right == 0 {
+					return
+				}
+				leftText := file.FlatNodeText(left)
+				rightText := file.FlatNodeText(right)
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Use '..<' range operator instead of 'until'.")
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: leftText + "..<" + rightText,
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &DestructuringDeclarationWithTooManyEntriesRule{BaseRule: BaseRule{RuleName: "DestructuringDeclarationWithTooManyEntries", RuleSetName: "style", Sev: "warning", Desc: "Detects destructuring declarations with more entries than the configured maximum."}, MaxEntries: 3}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"multi_variable_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				count := 0
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					if file.FlatType(file.FlatChild(idx, i)) == "variable_declaration" {
+						count++
+					}
+				}
+				if count > r.MaxEntries {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						fmt.Sprintf("Destructuring declaration has %d entries, max allowed is %d.", count, r.MaxEntries))
+				}
+			},
+		})
+	}
 
 	// --- from style_forbidden.go ---
 	{
@@ -10092,17 +10951,364 @@ func registerAllRules() {
 	v2.Register(WrapAsV2(&EqualsOnSignatureLineRule{BaseRule: BaseRule{RuleName: "EqualsOnSignatureLine", RuleSetName: "style", Sev: "warning", Desc: "Detects expression body equals signs placed on a separate line from the function signature."}}))
 
 	// --- from style_idiomatic.go ---
-	v2.Register(WrapAsV2(&UseCheckNotNullRule{BaseRule: BaseRule{RuleName: "UseCheckNotNull", RuleSetName: "style", Sev: "warning", Desc: "Detects check(x != null) calls that should use checkNotNull(x) instead."}}))
-	v2.Register(WrapAsV2(&UseRequireNotNullRule{BaseRule: BaseRule{RuleName: "UseRequireNotNull", RuleSetName: "style", Sev: "warning", Desc: "Detects require(x != null) calls that should use requireNotNull(x) instead."}}))
-	v2.Register(WrapAsV2(&UseCheckOrErrorRule{BaseRule: BaseRule{RuleName: "UseCheckOrError", RuleSetName: "style", Sev: "warning", Desc: "Detects if (!cond) throw IllegalStateException patterns that should use check()."}}))
-	v2.Register(WrapAsV2(&UseRequireRule{BaseRule: BaseRule{RuleName: "UseRequire", RuleSetName: "style", Sev: "warning", Desc: "Detects if (!cond) throw IllegalArgumentException patterns that should use require()."}}))
-	v2.Register(WrapAsV2(&UseIsNullOrEmptyRule{BaseRule: BaseRule{RuleName: "UseIsNullOrEmpty", RuleSetName: "style", Sev: "warning", Desc: "Detects x == null || x.isEmpty() patterns that should use isNullOrEmpty()."}}))
-	v2.Register(WrapAsV2(&UseOrEmptyRule{BaseRule: BaseRule{RuleName: "UseOrEmpty", RuleSetName: "style", Sev: "warning", Desc: "Detects x ?: emptyList() patterns that should use .orEmpty() instead."}}))
+	{
+		r := &UseCheckNotNullRule{BaseRule: BaseRule{RuleName: "UseCheckNotNull", RuleSetName: "style", Sev: "warning", Desc: "Detects check(x != null) calls that should use checkNotNull(x) instead."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
+			Needs: v2.NeedsResolver, OriginalV1: r,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				argText, suffixText, ok := flatNonNullCheckText(file, idx, "check")
+				if !ok {
+					return
+				}
+				if r.resolver != nil {
+					resolved := r.resolver.ResolveByNameFlat(argText, idx, file)
+					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
+						return
+					}
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Use 'checkNotNull(x)' instead of 'check(x != null)'.")
+				replacement := "checkNotNull(" + argText + ")"
+				if suffixText != "" {
+					replacement += " " + suffixText
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: replacement,
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &UseRequireNotNullRule{BaseRule: BaseRule{RuleName: "UseRequireNotNull", RuleSetName: "style", Sev: "warning", Desc: "Detects require(x != null) calls that should use requireNotNull(x) instead."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
+			Needs: v2.NeedsResolver, OriginalV1: r,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				argText, suffixText, ok := flatNonNullCheckText(file, idx, "require")
+				if !ok {
+					return
+				}
+				if r.resolver != nil {
+					resolved := r.resolver.ResolveByNameFlat(argText, idx, file)
+					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
+						return
+					}
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Use 'requireNotNull(x)' instead of 'require(x != null)'.")
+				replacement := "requireNotNull(" + argText + ")"
+				if suffixText != "" {
+					replacement += " " + suffixText
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: replacement,
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &UseCheckOrErrorRule{BaseRule: BaseRule{RuleName: "UseCheckOrError", RuleSetName: "style", Sev: "warning", Desc: "Detects if (!cond) throw IllegalStateException patterns that should use check()."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
+			OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				findings := flatThrowPattern(file.FlatType(idx), file.FlatNodeText(idx), file, idx, "IllegalStateException", "check", r.BaseRule)
+				for _, f := range findings {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UseRequireRule{BaseRule: BaseRule{RuleName: "UseRequire", RuleSetName: "style", Sev: "warning", Desc: "Detects if (!cond) throw IllegalArgumentException patterns that should use require()."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
+			OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				findings := flatThrowPattern(file.FlatType(idx), file.FlatNodeText(idx), file, idx, "IllegalArgumentException", "require", r.BaseRule)
+				for _, f := range findings {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UseIsNullOrEmptyRule{BaseRule: BaseRule{RuleName: "UseIsNullOrEmpty", RuleSetName: "style", Sev: "warning", Desc: "Detects x == null || x.isEmpty() patterns that should use isNullOrEmpty()."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"disjunction_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
+			Needs: v2.NeedsResolver, OriginalV1: r,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				compact := strings.ReplaceAll(file.FlatNodeText(idx), " ", "")
+				compact = strings.ReplaceAll(compact, "\n", "")
+				compact = strings.ReplaceAll(compact, "\t", "")
+				if m := useIsNullOrEmptyTextRe.FindStringSubmatch(compact); len(m) == 4 {
+					nullVar := m[1]
+					if nullVar == "" {
+						nullVar = m[2]
+					}
+					if nullVar != "" && nullVar == m[3] {
+						f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+							"Use 'isNullOrEmpty()' instead of 'x == null || x.isEmpty()'.")
+						f.Fix = &scanner.Fix{
+							ByteMode:    true,
+							StartByte:   int(file.FlatStartByte(idx)),
+							EndByte:     int(file.FlatEndByte(idx)),
+							Replacement: nullVar + ".isNullOrEmpty()",
+						}
+						ctx.Emit(f)
+						return
+					}
+				}
+				if file.FlatChildCount(idx) < 3 {
+					return
+				}
+				left := file.FlatChild(idx, 0)
+				right := file.FlatChild(idx, file.FlatChildCount(idx)-1)
+				nullVar := flatNullOrEmptyNullCheckedVar(file, left)
+				if nullVar == "" {
+					return
+				}
+				emptyVar := flatNullOrEmptyEmptyCheckedVar(file, right)
+				if emptyVar == "" {
+					text := strings.ReplaceAll(file.FlatNodeText(idx), " ", "")
+					text = strings.ReplaceAll(text, "\n", "")
+					text = strings.ReplaceAll(text, "\t", "")
+					patterns := []string{
+						nullVar + "==null||" + nullVar + ".isEmpty()",
+						"null==" + nullVar + "||" + nullVar + ".isEmpty()",
+					}
+					for _, pattern := range patterns {
+						if text == pattern {
+							emptyVar = nullVar
+							break
+						}
+					}
+				}
+				if emptyVar == "" || emptyVar != nullVar {
+					return
+				}
+				for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+					if file.FlatType(p) == "function_declaration" {
+						fnName := extractIdentifierFlat(file, p)
+						if fnName == "isNullOrEmpty" || fnName == "isEmpty" ||
+							fnName == "isNullOrBlank" || fnName == "isBlank" {
+							return
+						}
+						break
+					}
+				}
+				if r.resolver != nil {
+					resolved := r.resolver.ResolveByNameFlat(nullVar, idx, file)
+					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
+						return
+					}
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Use 'isNullOrEmpty()' instead of 'x == null || x.isEmpty()'.")
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: nullVar + ".isNullOrEmpty()",
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &UseOrEmptyRule{BaseRule: BaseRule{RuleName: "UseOrEmpty", RuleSetName: "style", Sev: "warning", Desc: "Detects x ?: emptyList() patterns that should use .orEmpty() instead."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"elvis_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
+			OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if file.FlatChildCount(idx) < 3 {
+					return
+				}
+				left := file.FlatChild(idx, 0)
+				right := file.FlatChild(idx, 2)
+				if left == 0 || right == 0 {
+					return
+				}
+				if !flatIsEmptyRHS(file, right) {
+					return
+				}
+				leftText := file.FlatNodeText(left)
+				if strings.Contains(leftText, "?.") {
+					return
+				}
+				if strings.Contains(leftText, "?.let") {
+					return
+				}
+				rightText := strings.TrimSpace(file.FlatNodeText(right))
+				if strings.HasPrefix(rightText, "emptyArray(") {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("Use '.orEmpty()' instead of '?: %s'.", rightText))
+				var replacement string
+				if lhsNeedsParensFlat(file, left) {
+					replacement = "(" + leftText + ").orEmpty()"
+				} else {
+					replacement = leftText + ".orEmpty()"
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: replacement,
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
 	{
 		r := &UseAnyOrNoneInsteadOfFindRule{BaseRule: BaseRule{RuleName: "UseAnyOrNoneInsteadOfFind", RuleSetName: "style", Sev: "warning", Desc: "Detects .find {} != null patterns that should use .any {} or .none {} instead."}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
+			OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if file.FlatChildCount(idx) < 3 {
+					return
+				}
+				left := file.FlatChild(idx, 0)
+				op := file.FlatChild(idx, 1)
+				right := file.FlatChild(idx, file.FlatChildCount(idx)-1)
+				if left == 0 || op == 0 || right == 0 {
+					return
+				}
+				opText := file.FlatNodeText(op)
+				leftText := strings.TrimSpace(file.FlatNodeText(left))
+				rightText := strings.TrimSpace(file.FlatNodeText(right))
+				isNullLeft := leftText == "null"
+				isNullRight := rightText == "null"
+				if !isNullLeft && !isNullRight {
+					return
+				}
+				var replacement string
+				switch opText {
+				case "!=":
+					replacement = "any"
+				case "==":
+					replacement = "none"
+				default:
+					return
+				}
+				callSideIdx := left
+				if isNullLeft {
+					callSideIdx = right
+				}
+				if file.FlatType(callSideIdx) != "call_expression" {
+					return
+				}
+				nav := file.FlatFindChild(callSideIdx, "navigation_expression")
+				if nav == 0 {
+					return
+				}
+				if flatLastChildOfType(file, nav, "navigation_suffix") == 0 {
+					return
+				}
+				funcName := flatNavigationExpressionLastIdentifier(file, nav)
+				if !anyOrNoneFindFuncs[funcName] {
+					return
+				}
+				callSuffix := file.FlatFindChild(callSideIdx, "call_suffix")
+				if callSuffix == 0 {
+					return
+				}
+				lambda := flatCallSuffixLambdaNode(file, callSuffix)
+				if lambda == 0 {
+					return
+				}
+				receiver := file.FlatNamedChild(nav, 0)
+				if receiver == 0 {
+					return
+				}
+				receiverText := file.FlatNodeText(receiver)
+				lambdaText := file.FlatNodeText(lambda)
+				msg := fmt.Sprintf("Use '.%s {}' instead of '.%s {} %s null'.", replacement, funcName, opText)
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: receiverText + "." + replacement + " " + lambdaText,
+				}
+				ctx.Emit(f)
+			},
+		})
 	}
-	v2.Register(WrapAsV2(&UseEmptyCounterpartRule{BaseRule: BaseRule{RuleName: "UseEmptyCounterpart", RuleSetName: "style", Sev: "warning", Desc: "Detects listOf(), setOf(), and similar calls with no arguments that should use emptyList(), emptySet(), etc."}}))
+	{
+		r := &UseEmptyCounterpartRule{BaseRule: BaseRule{RuleName: "UseEmptyCounterpart", RuleSetName: "style", Sev: "warning", Desc: "Detects listOf(), setOf(), and similar calls with no arguments that should use emptyList(), emptySet(), etc."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
+			OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if file.FlatChildCount(idx) == 0 {
+					return
+				}
+				callee := file.FlatChild(idx, 0)
+				if callee == 0 || file.FlatType(callee) != "simple_identifier" {
+					return
+				}
+				calleeName := file.FlatNodeText(callee)
+				replacement, ok := emptyCounterparts[calleeName]
+				if !ok {
+					return
+				}
+				suffix := file.FlatFindChild(idx, "call_suffix")
+				if suffix == 0 {
+					return
+				}
+				args := flatCallSuffixValueArgs(file, suffix)
+				if args == 0 {
+					return
+				}
+				for i := 0; i < file.FlatChildCount(args); i++ {
+					child := file.FlatChild(args, i)
+					if file.FlatType(child) == "value_argument" {
+						return
+					}
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("Use '%s()' instead of '%s()'.", replacement, calleeName))
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: replacement + "()",
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
 
 	// --- from style_idiomatic_data.go ---
 	{
@@ -10563,6 +11769,565 @@ func registerAllRules() {
 						}
 					}
 					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &RedundantConstructorKeywordRule{BaseRule: BaseRule{RuleName: "RedundantConstructorKeyword", RuleSetName: "style", Sev: "warning", Desc: "Detects unnecessary constructor keyword on primary constructors without annotations or visibility modifiers."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				ctor := file.FlatFindChild(idx, "primary_constructor")
+				if ctor == 0 {
+					return
+				}
+				if file.FlatFindChild(ctor, "modifiers") != 0 {
+					return
+				}
+				// Check whether the constructor text contains the explicit "constructor" keyword.
+				ctorText := file.FlatNodeText(ctor)
+				if !strings.Contains(ctorText, "constructor") {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(ctor)+1, 1,
+					"Redundant 'constructor' keyword. Remove it when there are no annotations or visibility modifiers.")
+				// Auto-fix: remove " constructor" keeping only the parameter list.
+				// Walk back from constructor start to consume preceding whitespace.
+				startByte := int(file.FlatStartByte(ctor))
+				for startByte > 0 && (file.Content[startByte-1] == ' ' || file.Content[startByte-1] == '	') {
+					startByte--
+				}
+				// Find the parameter list (class_parameters) inside the constructor node.
+				paramList := file.FlatFindChild(ctor, "class_parameters")
+				if paramList != 0 {
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   startByte,
+						EndByte:     int(file.FlatStartByte(paramList)),
+						Replacement: "",
+					}
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &RedundantExplicitTypeRule{BaseRule: BaseRule{RuleName: "RedundantExplicitType", RuleSetName: "style", Sev: "warning", Desc: "Detects explicit type annotations that can be inferred from the initializer."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Needs: v2.NeedsResolver, OriginalV1: r,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				r.resolver = ctx.Resolver
+				// Must have both an explicit type annotation and an initializer
+				var typeNode uint32
+				var initExpr uint32
+				hasEquals := false
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					child := file.FlatChild(idx, i)
+					switch file.FlatType(child) {
+					case "user_type", "nullable_type":
+						typeNode = child
+					case "=":
+						hasEquals = true
+					default:
+						if hasEquals && initExpr == 0 && file.FlatType(child) != "property_delegate" {
+							initExpr = child
+						}
+					}
+					// Also check inside variable_declaration
+					if file.FlatType(child) == "variable_declaration" {
+						for j := 0; j < file.FlatChildCount(child); j++ {
+							gc := file.FlatChild(child, j)
+							if t := file.FlatType(gc); t == "user_type" || t == "nullable_type" {
+								typeNode = gc
+							}
+						}
+					}
+				}
+				if typeNode == 0 || initExpr == 0 {
+					return
+				}
+				// --- Resolver-based matching (preferred) ---
+				if r.resolver != nil {
+					declaredType := r.resolver.ResolveFlatNode(typeNode, file)
+					inferredType := r.resolver.ResolveFlatNode(initExpr, file)
+					if declaredType.Kind != typeinfer.TypeUnknown && inferredType.Kind != typeinfer.TypeUnknown {
+						match := false
+						if declaredType.FQN != "" && inferredType.FQN != "" {
+							match = declaredType.FQN == inferredType.FQN && declaredType.Nullable == inferredType.Nullable
+						} else if declaredType.Name != "" && inferredType.Name != "" {
+							match = declaredType.Name == inferredType.Name && declaredType.Nullable == inferredType.Nullable
+						}
+						if match {
+							f := r.Finding(file, file.FlatRow(idx)+1, 1,
+								"Redundant explicit type. Type can be inferred from the initializer.")
+							f.Fix = r.buildFixFlat(typeNode, file)
+							ctx.Emit(f)
+						}
+						return
+					}
+					// Fall through to literal matching if resolver returned unknown
+				}
+				// --- Fallback: literal pattern matching via AST nodes ---
+				typeText := file.FlatNodeText(typeNode)
+				initType := file.FlatType(initExpr)
+				initText := file.FlatNodeText(initExpr)
+				matched := false
+				switch initType {
+				case "string_literal":
+					matched = typeText == "String"
+				case "boolean_literal":
+					matched = typeText == "Boolean"
+				case "character_literal":
+					matched = typeText == "Char"
+				case "integer_literal":
+					if strings.HasSuffix(initText, "L") || strings.HasSuffix(initText, "l") {
+						matched = typeText == "Long"
+					} else {
+						matched = typeText == "Int"
+					}
+				case "real_literal":
+					if strings.HasSuffix(initText, "f") || strings.HasSuffix(initText, "F") {
+						matched = typeText == "Float"
+					} else {
+						matched = typeText == "Double"
+					}
+				case "call_expression":
+					// val x: Foo = Foo(...) — constructor call matches type name
+					callee := file.FlatFindChild(initExpr, "simple_identifier")
+					if callee != 0 && file.FlatNodeTextEquals(callee, typeText) {
+						matched = true
+					}
+				case "simple_identifier":
+					// val x: Foo = SomeRef — only match if name reference equals type text
+					if initText == typeText {
+						matched = true
+					}
+				}
+				if matched {
+					f := r.Finding(file, file.FlatRow(idx)+1, 1,
+						"Redundant explicit type. Type can be inferred from the initializer.")
+					f.Fix = r.buildFixFlat(typeNode, file)
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UnnecessaryParenthesesRule{BaseRule: BaseRule{RuleName: "UnnecessaryParentheses", RuleSetName: "style", Sev: "warning", Desc: "Detects unnecessary parentheses around expressions that add no value."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"parenthesized_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				parent, ok := file.FlatParent(idx)
+				if !ok {
+					return
+				}
+				// Find the inner expression (skip "(" and ")" tokens).
+				var inner uint32
+				for i := 0; i < file.FlatNamedChildCount(idx); i++ {
+					child := file.FlatNamedChild(idx, i)
+					if child != 0 {
+						inner = child
+						break
+					}
+				}
+				if inner == 0 {
+					return
+				}
+				parentType := file.FlatType(parent)
+				// Never flag parens inside delegated_super_type (matches detekt).
+				if parentType == "delegation_specifier" || parentType == "delegated_super_type" {
+					return
+				}
+				redundant := false
+				switch parentType {
+				case "jump_expression":
+					// return (x), throw (x) — parens always unnecessary.
+					redundant = true
+				case "parenthesized_expression":
+					// Double parens: ((x)) — inner parens always unnecessary.
+					redundant = true
+				case "property_declaration", "variable_declaration":
+					// val x = (expr) — parens unnecessary around entire RHS.
+					redundant = true
+				case "assignment":
+					// x = (expr) — parens unnecessary around entire RHS.
+					redundant = true
+				case "value_argument", "value_arguments":
+					// foo((expr)) — parens unnecessary around a single argument
+					// unless it's a lambda (parenthesized lambda prevents trailing lambda syntax).
+					if t := file.FlatType(inner); t == "lambda_literal" || t == "annotated_lambda" {
+						redundant = false
+					} else {
+						redundant = true
+					}
+				case "if_expression":
+					// The condition of an `if` is already wrapped in parens by syntax.
+					// if ((x > 0)) — the inner parenthesized_expression is redundant.
+					redundant = unnParensIsIfConditionFlat(file, idx, parent)
+				case "when_expression":
+					// when ((x)) — parens around the subject are unnecessary.
+					redundant = unnParensIsWhenSubjectFlat(file, idx, parent)
+				case "when_condition":
+					// Parens inside a when condition: when (x) { (0) -> ... }
+					redundant = true
+				case "indexing_expression":
+					// a[(expr)] — parens around index are unnecessary.
+					redundant = true
+				case "statements":
+					// Top-level expression statement: (expr) on its own line.
+					redundant = true
+				default:
+					// For other contexts, parens are redundant only if the inner
+					// expression is a simple identifier, literal, string, or already
+					// grouped (call_expression, navigation_expression, etc.) — i.e.,
+					// removing the parens won't change precedence.
+					redundant = unnParensInnerIsSafeFlat(file, inner)
+				}
+				if !redundant {
+					return
+				}
+				// If AllowForUnclearPrecedence is set, keep parens that clarify
+				// operator precedence (inner is binary op with a binary-op parent).
+				if r.AllowForUnclearPrecedence && unnParensClarifyPrecedenceFlat(file, idx, inner) {
+					return
+				}
+				innerText := file.FlatNodeText(inner)
+				nodeText := file.FlatNodeText(idx)
+				msg := fmt.Sprintf("Unnecessary parentheses in %s. Can be replaced with: %s", nodeText, innerText)
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+				// Auto-fix: replace the parenthesized_expression bytes with the inner expression text.
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: innerText,
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &UnnecessaryInheritanceRule{BaseRule: BaseRule{RuleName: "UnnecessaryInheritance", RuleSetName: "style", Sev: "warning", Desc: "Detects unnecessary explicit inheritance from Any which is implicit in Kotlin."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				// Look for delegation_specifier children that are `: Any()`
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					child := file.FlatChild(idx, i)
+					if file.FlatType(child) != "delegation_specifier" {
+						continue
+					}
+					text := file.FlatNodeText(child)
+					if text != "Any()" {
+						continue
+					}
+					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						"Unnecessary inheritance from 'Any'. All classes extend Any implicitly.")
+					// Remove the `: Any()` portion — find the colon before the delegation_specifier
+					startByte := int(file.FlatStartByte(child))
+					endByte := int(file.FlatEndByte(child))
+					// Walk backwards from the delegation_specifier to remove the `: ` prefix
+					for sb := startByte - 1; sb >= 0; sb-- {
+						ch := file.Content[sb]
+						if ch == ':' {
+							startByte = sb
+							break
+						}
+						if ch != ' ' && ch != '	' {
+							break
+						}
+					}
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   startByte,
+						EndByte:     endByte,
+						Replacement: "",
+					}
+					ctx.Emit(f)
+					return
+				}
+			},
+		})
+	}
+	{
+		r := &UnnecessaryInnerClassRule{BaseRule: BaseRule{RuleName: "UnnecessaryInnerClass", RuleSetName: "style", Sev: "warning", Desc: "Detects inner classes that do not reference the outer class and could remove the inner modifier."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				mods := file.FlatFindChild(idx, "modifiers")
+				body := file.FlatFindChild(idx, "class_body")
+				if mods == 0 || body == 0 {
+					return
+				}
+				// Verify the "inner" modifier is present.
+				if !strings.Contains(file.FlatNodeText(mods), "inner") {
+					return
+				}
+				bodyText := file.FlatNodeText(body)
+				// Check if the body references this@OuterClass or the outer class's members
+				if !strings.Contains(bodyText, "this@") && !strings.Contains(bodyText, "@") {
+					name := extractIdentifierFlat(file, idx)
+					f := r.Finding(file, file.FlatRow(idx)+1, 1,
+						fmt.Sprintf("Inner class '%s' does not use the outer class reference. Remove 'inner' modifier.", name))
+					modsText := file.FlatNodeText(mods)
+					newMods := strings.Replace(modsText, "inner ", "", 1)
+					if newMods == modsText {
+						newMods = strings.Replace(modsText, "inner", "", 1)
+					}
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   int(file.FlatStartByte(mods)),
+						EndByte:     int(file.FlatEndByte(mods)),
+						Replacement: newMods,
+					}
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &OptionalUnitRule{BaseRule: BaseRule{RuleName: "OptionalUnit", RuleSetName: "style", Sev: "warning", Desc: "Detects explicit Unit return types and return Unit statements that are redundant."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				// 1. Check for explicit `: Unit` return type annotation.
+				// In the tree-sitter AST, function_declaration children include a ":"
+				// token followed by a user_type node when a return type is specified.
+				colonIdx := -1
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					child := file.FlatChild(idx, i)
+					if file.FlatType(child) == ":" {
+						colonIdx = i
+					}
+					if colonIdx >= 0 && file.FlatType(child) == "user_type" {
+						typeText := file.FlatNodeText(child)
+						if typeText == "Unit" {
+							f := r.Finding(file, file.FlatRow(child)+1,
+								file.FlatCol(child)+1,
+								"Unit return type is optional and can be omitted.")
+							// Remove ": Unit" including the colon and any surrounding whitespace
+							colonNode := file.FlatChild(idx, colonIdx)
+							f.Fix = &scanner.Fix{
+								ByteMode:    true,
+								StartByte:   int(file.FlatStartByte(colonNode)),
+								EndByte:     int(file.FlatEndByte(child)),
+								Replacement: "",
+							}
+							ctx.Emit(f)
+						}
+						break
+					}
+				}
+				// 2. Check for `return Unit` statements inside the function body using compiled query.
+				body := file.FlatFindChild(idx, "function_body")
+				if body != 0 {
+					file.FlatWalkNodes(body, "jump_expression", func(jump uint32) {
+						if file.FlatChildCount(jump) < 2 {
+							return
+						}
+						first := file.FlatChild(jump, 0)
+						if file.FlatType(first) != "return" {
+							return
+						}
+						second := file.FlatChild(jump, 1)
+						if file.FlatType(second) == "simple_identifier" && file.FlatNodeTextEquals(second, "Unit") {
+							f := r.Finding(file, file.FlatRow(jump)+1,
+								file.FlatCol(jump)+1,
+								"return Unit is redundant and can be replaced with return.")
+							f.Fix = &scanner.Fix{
+								ByteMode:    true,
+								StartByte:   int(file.FlatEndByte(first)),
+								EndByte:     int(file.FlatEndByte(second)),
+								Replacement: "",
+							}
+							ctx.Emit(f)
+						}
+					})
+				}
+			},
+		})
+	}
+	{
+		r := &UnnecessaryBackticksRule{BaseRule: BaseRule{RuleName: "UnnecessaryBackticks", RuleSetName: "style", Sev: "warning", Desc: "Detects backtick-quoted identifiers that do not require backticks."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"simple_identifier"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if len(text) < 3 || text[0] != '`' || text[len(text)-1] != '`' {
+					return
+				}
+				inner := text[1 : len(text)-1]
+				// Backticks are needed for keywords and all-underscore identifiers.
+				if isKotlinKeyword(inner) || isAllUnderscores(inner) {
+					return
+				}
+				// Must be a valid Kotlin identifier without backticks.
+				if !isValidKotlinIdentifier(inner) {
+					return
+				}
+				// Inside a string template, removing backticks may merge with adjacent text.
+				// e.g. "$`foo`bar" — removing backticks yields "$foobar" (different meaning).
+				endByte := int(file.FlatEndByte(idx))
+				if endByte < len(file.Content) && isInsideStringTemplateFlat(file, idx) {
+					nextCh := file.Content[endByte]
+					if isIdentChar(nextCh) {
+						return
+					}
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("Unnecessary backticks around '%s'.", inner))
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     endByte,
+					Replacement: inner,
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &UselessCallOnNotNullRule{BaseRule: BaseRule{RuleName: "UselessCallOnNotNull", RuleSetName: "style", Sev: "warning", Desc: "Detects calls like .orEmpty() or .isNullOrEmpty() on receivers that are already non-null."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Needs: v2.NeedsResolver, OriginalV1: r,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				r.resolver = ctx.Resolver
+				if file.FlatType(idx) != "call_expression" {
+					return
+				}
+				navExpr, args := flatCallExpressionParts(file, idx)
+				if navExpr != 0 {
+					methodName := flatNavigationExpressionLastIdentifier(file, navExpr)
+					replacement, isUseless := uselessNullCalls[methodName]
+					if isUseless {
+						receiverNode := file.FlatNamedChild(navExpr, 0)
+						if receiverNode != 0 {
+							nonNull := false
+							recType := file.FlatType(receiverNode)
+							if recType == "string_literal" || recType == "line_string_literal" || recType == "multi_line_string_literal" {
+								nonNull = true
+							} else if recType == "call_expression" {
+								callText := file.FlatNodeText(receiverNode)
+								for _, prefix := range nonNullFactoryCalls {
+									if strings.HasPrefix(callText, prefix) {
+										nonNull = true
+										break
+									}
+								}
+							}
+							if recType == "navigation_expression" {
+								return
+							}
+							recText := file.FlatNodeText(receiverNode)
+							if strings.Contains(recText, "?.") {
+								return
+							}
+							if !nonNull && r.resolver != nil {
+								resolved := r.resolver.ResolveFlatNode(receiverNode, file)
+								if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
+									validTypes := orEmptyValidTypes
+									if methodName == "isNullOrEmpty" || methodName == "isNullOrBlank" {
+										validTypes = isNullOrValidTypes
+									}
+									if !validTypes[resolved.Name] {
+										return
+									}
+									if !resolved.IsNullable() {
+										nonNull = true
+									}
+								}
+							}
+							if nonNull {
+								var msg string
+								if replacement == "" {
+									msg = fmt.Sprintf("Useless call to %s on non-null type. The value is already non-null.", methodName)
+								} else {
+									msg = fmt.Sprintf("Replace %s with %s — the receiver is non-null.", methodName, replacement)
+								}
+								f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+								if replacement == "" {
+									if start, _, ok := flatCallExpressionMethodSpan(file, idx, methodName); ok {
+										f.Fix = &scanner.Fix{
+											ByteMode:    true,
+											StartByte:   start - 1,
+											EndByte:     int(file.FlatEndByte(idx)),
+											Replacement: "",
+										}
+									}
+								} else if start, end, ok := flatCallExpressionMethodSpan(file, idx, methodName); ok {
+									f.Fix = &scanner.Fix{
+										ByteMode:    true,
+										StartByte:   start,
+										EndByte:     end,
+										Replacement: replacement,
+									}
+								}
+								ctx.Emit(f)
+								return
+							}
+						}
+					}
+				}
+				if args != 0 && r.resolver != nil {
+					calleeName := flatCallExpressionName(file, idx)
+					replacementName, ok := ofNotNullReplacements[calleeName]
+					if !ok {
+						return
+					}
+					allNonNull := true
+					argCount := 0
+					for i := 0; i < file.FlatChildCount(args); i++ {
+						va := file.FlatChild(args, i)
+						if file.FlatType(va) != "value_argument" {
+							continue
+						}
+						argCount++
+						expr := flatValueArgumentExpression(file, va)
+						if expr == 0 {
+							allNonNull = false
+							break
+						}
+						exprText := file.FlatNodeText(expr)
+						if file.FlatType(expr) == "spread_expression" || strings.Contains(exprText, "?.") || file.FlatType(expr) == "navigation_expression" || containsNullableStdlibCall(exprText) {
+							allNonNull = false
+							break
+						}
+						resolved := r.resolver.ResolveFlatNode(expr, file)
+						if resolved == nil || resolved.Kind == typeinfer.TypeUnknown || resolved.IsNullable() {
+							allNonNull = false
+							break
+						}
+					}
+					if allNonNull && argCount > 0 {
+						f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+							fmt.Sprintf("Replace %s with %s — all arguments are non-null.", calleeName, replacementName))
+						f.Fix = &scanner.Fix{
+							ByteMode:    true,
+							StartByte:   int(file.FlatStartByte(idx)),
+							EndByte:     int(file.FlatEndByte(idx)),
+							Replacement: replacementName,
+						}
+						ctx.Emit(f)
+					}
 				}
 			},
 		})

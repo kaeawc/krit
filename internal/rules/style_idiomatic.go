@@ -309,36 +309,6 @@ func (r *UseCheckNotNullRule) SetResolver(res typeinfer.TypeResolver) { r.resolv
 // checkNotNull over `if (x == null) throw`; pattern-based with resolver
 // used to confirm nullability when available. Classified per roadmap/17.
 func (r *UseCheckNotNullRule) Confidence() float64 { return 0.75 }
-func (r *UseCheckNotNullRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *UseCheckNotNullRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	argText, suffixText, ok := flatNonNullCheckText(file, idx, "check")
-	if !ok {
-		return nil
-	}
-	// If resolver is available, skip if the argument is known non-nullable
-	if r.resolver != nil {
-		resolved := r.resolver.ResolveByNameFlat(argText, idx, file)
-		if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
-			return nil
-		}
-	}
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Use 'checkNotNull(x)' instead of 'check(x != null)'.")
-	// Build replacement: checkNotNull(argText) plus any trailing lambda
-	replacement := "checkNotNull(" + argText + ")"
-	// Preserve trailing lambda (message): check(x != null) { "msg" } -> checkNotNull(x) { "msg" }
-	if suffixText != "" {
-		replacement += " " + suffixText
-	}
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(idx)),
-		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: replacement,
-	}
-	return []scanner.Finding{f}
-}
 
 // UseRequireNotNullRule detects require(x != null) and suggests requireNotNull(x).
 // Uses AST dispatch on call_expression for precise detection, handling both
@@ -356,36 +326,6 @@ func (r *UseRequireNotNullRule) SetResolver(res typeinfer.TypeResolver) { r.reso
 // requireNotNull over `if (x == null) throw IAE`; pattern-based with
 // resolver confirmation when available. Classified per roadmap/17.
 func (r *UseRequireNotNullRule) Confidence() float64 { return 0.75 }
-func (r *UseRequireNotNullRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *UseRequireNotNullRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	argText, suffixText, ok := flatNonNullCheckText(file, idx, "require")
-	if !ok {
-		return nil
-	}
-	// If resolver is available, skip if the argument is known non-nullable
-	if r.resolver != nil {
-		resolved := r.resolver.ResolveByNameFlat(argText, idx, file)
-		if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
-			return nil
-		}
-	}
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Use 'requireNotNull(x)' instead of 'require(x != null)'.")
-	// Build replacement: requireNotNull(argText) plus any trailing lambda
-	replacement := "requireNotNull(" + argText + ")"
-	// Preserve trailing lambda (message): require(x != null) { "msg" } -> requireNotNull(x) { "msg" }
-	if suffixText != "" {
-		replacement += " " + suffixText
-	}
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(idx)),
-		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: replacement,
-	}
-	return []scanner.Finding{f}
-}
 
 // UseCheckOrErrorRule detects `if (!x) throw IllegalStateException`.
 type UseCheckOrErrorRule struct {
@@ -399,14 +339,6 @@ type UseCheckOrErrorRule struct {
 // roadmap/17.
 func (r *UseCheckOrErrorRule) Confidence() float64 { return 0.75 }
 
-func (r *UseCheckOrErrorRule) NodeTypes() []string { return []string{"if_expression"} }
-
-func (r *UseCheckOrErrorRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	return flatThrowPattern(file.FlatType(idx), file.FlatNodeText(idx), file, idx, "IllegalStateException", "check", r.BaseRule)
-}
-
-func (r *UseCheckOrErrorRule) CheckLines(_ *scanner.File) []scanner.Finding { return nil }
-
 // UseRequireRule detects `if (!x) throw IllegalArgumentException`.
 type UseRequireRule struct {
 	FlatDispatchBase
@@ -418,14 +350,6 @@ type UseRequireRule struct {
 // replacement is actually clearer is context-dependent. Classified per
 // roadmap/17.
 func (r *UseRequireRule) Confidence() float64 { return 0.75 }
-
-func (r *UseRequireRule) NodeTypes() []string { return []string{"if_expression"} }
-
-func (r *UseRequireRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	return flatThrowPattern(file.FlatType(idx), file.FlatNodeText(idx), file, idx, "IllegalArgumentException", "require", r.BaseRule)
-}
-
-func (r *UseRequireRule) CheckLines(_ *scanner.File) []scanner.Finding { return nil }
 
 // UseIsNullOrEmptyRule detects `x == null || x.isEmpty()` and related patterns
 // such as `x == null || x.count() == 0`, `x == null || x.size == 0`,

@@ -2,7 +2,6 @@ package rules
 
 import (
 	"bytes"
-	"fmt"
 	"regexp"
 	"strings"
 
@@ -28,44 +27,6 @@ var bitmapDecodeMethods = map[string]bool{
 // support; fallback is heuristic. Classified per roadmap/17.
 func (r *BitmapDecodeWithoutOptionsRule) Confidence() float64 { return 0.75 }
 
-func (r *BitmapDecodeWithoutOptionsRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *BitmapDecodeWithoutOptionsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	navExpr, args := flatCallExpressionParts(file, idx)
-	if navExpr == 0 || args == 0 {
-		return nil
-	}
-
-	methodName := flatNavigationExpressionLastIdentifier(file, navExpr)
-	if !bitmapDecodeMethods[methodName] {
-		return nil
-	}
-
-	if file.FlatNamedChildCount(navExpr) == 0 {
-		return nil
-	}
-	receiver := file.FlatNamedChild(navExpr, 0)
-	receiverText := strings.TrimSpace(file.FlatNodeText(receiver))
-	if idx := strings.LastIndex(receiverText, "."); idx >= 0 {
-		receiverText = receiverText[idx+1:]
-	}
-	if receiverText != "BitmapFactory" {
-		return nil
-	}
-
-	argCount := 0
-	for i := 0; i < file.FlatChildCount(args); i++ {
-		if file.FlatType(file.FlatChild(args, i)) == "value_argument" {
-			argCount++
-		}
-	}
-	if argCount != 1 {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		fmt.Sprintf("BitmapFactory.%s without BitmapFactory.Options may decode a full-size bitmap. Pass BitmapFactory.Options to control memory usage.", methodName))}
-}
 
 // ArrayPrimitiveRule detects Array<Int> etc. instead of IntArray.
 // With type inference: verifies the type argument resolves to a primitive type
@@ -146,54 +107,6 @@ func primitiveArrayReplacementForTypeRef(typeRef string) (primitive string, repl
 	return "", "", false
 }
 
-func (r *ArrayPrimitiveRule) NodeTypes() []string { return []string{"user_type"} }
-
-func (r *ArrayPrimitiveRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	ident := file.FlatFindChild(idx, "type_identifier")
-	typeArgs := file.FlatFindChild(idx, "type_arguments")
-	if ident == 0 || typeArgs == 0 {
-		return nil
-	}
-	if !file.FlatNodeTextEquals(ident, "Array") {
-		return nil
-	}
-	text := file.FlatNodeText(typeArgs)
-
-	// With type inference: resolve the type argument to verify it is a primitive
-	if r.resolver != nil {
-		argName := simpleTypeReferenceName(text)
-		fqn := r.resolver.ResolveImport(argName, file)
-		if fqn != "" {
-			if replacement, ok := primitiveFQNToReplacement[fqn]; ok {
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					fmt.Sprintf("Use '%s' instead of 'Array<%s>' for better performance.", replacement, argName))
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   int(file.FlatStartByte(idx)),
-					EndByte:     int(file.FlatEndByte(idx)),
-					Replacement: replacement,
-				}
-				return []scanner.Finding{f}
-			}
-			// Resolved to a non-primitive FQN — not a match
-			return nil
-		}
-	}
-
-	primitive, replacement, ok := primitiveArrayReplacementForTypeRef(text)
-	if !ok {
-		return nil
-	}
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		fmt.Sprintf("Use '%s' instead of 'Array<%s>' for better performance.", replacement, primitive))
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(idx)),
-		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: replacement,
-	}
-	return []scanner.Finding{f}
-}
 
 // CouldBeSequenceRule detects collection operation chains that could be sequences.
 type CouldBeSequenceRule struct {
@@ -261,7 +174,6 @@ var collectionOps = map[string]bool{
 	"take": true, "takeWhile": true, "zip": true,
 }
 
-func (r *CouldBeSequenceRule) NodeTypes() []string { return []string{"call_expression"} }
 
 func collectionChainRootFlat(file *scanner.File, idx uint32) uint32 {
 	current := idx
@@ -350,70 +262,6 @@ func enclosingFunctionDeclarationFlat(file *scanner.File, idx uint32) uint32 {
 	return 0
 }
 
-func (r *CouldBeSequenceRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Count chained collection operations starting from this node
-	count := 0
-	current := idx
-	for current != 0 {
-		name := flatCallExpressionName(file, current)
-		if collectionOps[name] {
-			count++
-		} else {
-			break
-		}
-		// Walk up through navigation_expression -> call_expression chain
-		if parent, ok := file.FlatParent(current); ok && file.FlatType(parent) == "navigation_expression" {
-			if gp, ok := file.FlatParent(parent); ok && file.FlatType(gp) == "call_expression" {
-				current = gp
-				continue
-			}
-		}
-		break
-	}
-	if count <= r.AllowedOperations {
-		return nil
-	}
-
-	rootReceiver := collectionChainRootFlat(file, idx)
-	if rootReceiver == 0 {
-		return nil
-	}
-
-	// With resolver: verify the chain starts on a collection, not a Sequence/Flow.
-	if r.resolver != nil {
-		resolved := flatResolveByName(file, r.resolver, rootReceiver)
-		if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
-			if resolvedTypeMatches(resolved, sequenceExcludedTypes) {
-				return nil // Already a Sequence or Flow.
-			}
-			if resolvedTypeMatches(resolved, sequenceCandidateTypes) {
-				return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Chain of %d collection operations. Consider using 'asSequence()' for better performance.", count))}
-			}
-			return nil
-		}
-	}
-
-	name := flatCallExpressionName(file, rootReceiver)
-	if obviousSequenceSourceCalls[name] {
-		return nil
-	}
-	if !obviousCollectionSourceCalls[name] {
-		if file.FlatType(rootReceiver) == "simple_identifier" {
-			if fn := enclosingFunctionDeclarationFlat(file, idx); fn != 0 {
-				if hasCollectionTypeAnnotation(file.FlatNodeText(fn), file.FlatNodeText(rootReceiver)) {
-					return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Chain of %d collection operations. Consider using 'asSequence()' for better performance.", count))}
-				}
-			}
-		}
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-		fmt.Sprintf("Chain of %d collection operations. Consider using 'asSequence()' for better performance.", count))}
-}
-
 // ForEachOnRangeRule detects (range).forEach pattern using AST dispatch.
 // Matches detekt's ForEachOnRange: catches .., rangeTo, until, downTo, ..<
 // on any literal type (int, long, char, unsigned) and through chained calls
@@ -428,42 +276,10 @@ type ForEachOnRangeRule struct {
 // support; fallback is heuristic. Classified per roadmap/17.
 func (r *ForEachOnRangeRule) Confidence() float64 { return 0.75 }
 
-func (r *ForEachOnRangeRule) NodeTypes() []string { return []string{"call_expression"} }
 
 // rangeInfixOps are the infix operators that create ranges in Kotlin.
 var rangeInfixOps = map[string]bool{
 	"rangeTo": true, "downTo": true, "until": true,
-}
-
-func (r *ForEachOnRangeRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// We want call_expression nodes where the called function is "forEach".
-	name := flatCallExpressionName(file, idx)
-	if name != "forEach" {
-		return nil
-	}
-
-	// Get the receiver: the navigation_expression's first child is the receiver.
-	navExpr, _ := flatCallExpressionParts(file, idx)
-	if navExpr == 0 {
-		return nil
-	}
-	if file.FlatNamedChildCount(navExpr) == 0 {
-		return nil
-	}
-	receiver := file.FlatNamedChild(navExpr, 0)
-
-	// Walk through the receiver chain to see if a range expression is at its root.
-	if !containsRangeExpressionFlat(file, receiver) {
-		return nil
-	}
-
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Use a regular 'for' loop instead of '(range).forEach' for better performance.")
-
-	// Auto-fix: for simple cases like (rangeExpr).forEach { body }, rewrite to for loop.
-	f.Fix = forEachOnRangeFixFlat(file, idx, receiver)
-
-	return []scanner.Finding{f}
 }
 
 func containsRangeExpressionFlat(file *scanner.File, idx uint32) bool {
@@ -597,7 +413,6 @@ type SpreadOperatorRule struct {
 // support; fallback is heuristic. Classified per roadmap/17.
 func (r *SpreadOperatorRule) Confidence() float64 { return 0.75 }
 
-func (r *SpreadOperatorRule) NodeTypes() []string { return []string{"spread_expression"} }
 
 // arrayConstructors lists functions where the Kotlin compiler skips the array copy.
 var arrayConstructors = map[string]bool{
@@ -621,49 +436,6 @@ var arrayConstructors = map[string]bool{
 	"DoubleArray":    true,
 	"CharArray":      true,
 	"BooleanArray":   true,
-}
-
-func (r *SpreadOperatorRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Skip .gradle.kts files — vararg forwarding is the only way to pass
-	// collections to many Gradle DSL APIs.
-	if strings.HasSuffix(file.Path, ".gradle.kts") {
-		return nil
-	}
-	// The child of spread_expression is the expression being spread.
-	if file.FlatChildCount(idx) > 0 {
-		child := file.FlatChild(idx, file.FlatChildCount(idx)-1)
-		// *arrayOf(...) — child is a call_expression whose first child is the function name.
-		if file.FlatType(child) == "call_expression" {
-			fnName := flatCallExpressionName(file, child)
-			if arrayConstructors[fnName] {
-				return nil
-			}
-			// Any other call_expression result is a computed array being
-			// forwarded to a vararg API site. The author cannot avoid the
-			// spread without rewriting the callee.
-			//   .request(*PermissionCompat.forImagesAndVideos())
-			//   ByteString.of(*metadata.sourceServiceId.toByteArray())
-			return nil
-		}
-		// If spreading a simple identifier that matches a vararg parameter
-		// of the enclosing function, Kotlin REQUIRES the spread operator —
-		// this isn't an optional style choice.
-		if file.FlatType(child) == "simple_identifier" {
-			name := file.FlatNodeText(child)
-			if isEnclosingVarargParamFlat(file, idx, name) {
-				return nil
-			}
-		}
-		// If spreading into a database fluent builder call like `.select(...)`
-		// or `.where(...)`, the vararg is the API shape — forwarding a
-		// `Array<String>` constant projection is idiomatic and has no
-		// wrapper-free alternative.
-		if isSpreadIntoSqlBuilderFlat(file, idx) {
-			return nil
-		}
-	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Spread operator used. This creates a copy of the array.")}
 }
 
 func isSpreadIntoSqlBuilderFlat(file *scanner.File, idx uint32) bool {
@@ -727,7 +499,6 @@ type UnnecessaryInitOnArrayRule struct {
 // support; fallback is heuristic. Classified per roadmap/17.
 func (r *UnnecessaryInitOnArrayRule) Confidence() float64 { return 0.75 }
 
-func (r *UnnecessaryInitOnArrayRule) NodeTypes() []string { return []string{"call_expression"} }
 
 var defaultZeroArrayRe = regexp.MustCompile(`(IntArray|LongArray|ShortArray|ByteArray|FloatArray|DoubleArray)\s*\([^)]+\)\s*\{\s*0+\.?0*\s*\}`)
 var defaultFalseArrayRe = regexp.MustCompile(`BooleanArray\s*\([^)]+\)\s*\{\s*false\s*\}`)
@@ -736,44 +507,6 @@ var defaultCharArrayRe = regexp.MustCompile(`CharArray\s*\([^)]+\)\s*\{\s*'\\u00
 var defaultInitRemoveRe = regexp.MustCompile(`((IntArray|LongArray|ShortArray|ByteArray|FloatArray|DoubleArray)\s*\([^)]+\))\s*\{\s*0+\.?0*\s*\}`)
 var defaultFalseRemoveRe = regexp.MustCompile(`(BooleanArray\s*\([^)]+\))\s*\{\s*false\s*\}`)
 var defaultCharRemoveRe = regexp.MustCompile(`(CharArray\s*\([^)]+\))\s*\{\s*'\\u0000'\s*\}`)
-
-func (r *UnnecessaryInitOnArrayRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if !defaultZeroArrayRe.MatchString(text) && !defaultFalseArrayRe.MatchString(text) && !defaultCharArrayRe.MatchString(text) {
-		return nil
-	}
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Unnecessary initialization. The default value is already the array's default.")
-	startByte := int(file.FlatStartByte(idx))
-	// Remove the { ... } initializer
-	var m []int
-	if m = defaultInitRemoveRe.FindStringSubmatchIndex(text); m != nil {
-		keep := text[m[2]:m[3]]
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   startByte + m[0],
-			EndByte:     startByte + m[1],
-			Replacement: keep,
-		}
-	} else if m = defaultFalseRemoveRe.FindStringSubmatchIndex(text); m != nil {
-		keep := text[m[2]:m[3]]
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   startByte + m[0],
-			EndByte:     startByte + m[1],
-			Replacement: keep,
-		}
-	} else if m = defaultCharRemoveRe.FindStringSubmatchIndex(text); m != nil {
-		keep := text[m[2]:m[3]]
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   startByte + m[0],
-			EndByte:     startByte + m[1],
-			Replacement: keep,
-		}
-	}
-	return []scanner.Finding{f}
-}
 
 // UnnecessaryPartOfBinaryExpressionRule detects x && true, x || false, etc.
 type UnnecessaryPartOfBinaryExpressionRule struct {
@@ -786,57 +519,6 @@ type UnnecessaryPartOfBinaryExpressionRule struct {
 // support; fallback is heuristic. Classified per roadmap/17.
 func (r *UnnecessaryPartOfBinaryExpressionRule) Confidence() float64 { return 0.75 }
 
-func (r *UnnecessaryPartOfBinaryExpressionRule) NodeTypes() []string {
-	return []string{"conjunction_expression", "disjunction_expression"}
-}
-
-func (r *UnnecessaryPartOfBinaryExpressionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// conjunction_expression: left && right
-	// disjunction_expression: left || right
-	if file.FlatNamedChildCount(idx) < 2 {
-		return nil
-	}
-	left := file.FlatNamedChild(idx, 0)
-	right := file.FlatNamedChild(idx, file.FlatNamedChildCount(idx)-1)
-	leftText := file.FlatNodeText(left)
-	rightText := file.FlatNodeText(right)
-	isConjunction := file.FlatType(idx) == "conjunction_expression"
-
-	// Check for redundant literals:
-	// x && true -> x, true && x -> x
-	// x || false -> x, false || x -> x
-	var redundant bool
-	var keepNode uint32
-	if isConjunction {
-		if rightText == "true" {
-			redundant = true
-			keepNode = left
-		} else if leftText == "true" {
-			redundant = true
-			keepNode = right
-		}
-	} else {
-		if rightText == "false" {
-			redundant = true
-			keepNode = left
-		} else if leftText == "false" {
-			redundant = true
-			keepNode = right
-		}
-	}
-	if !redundant {
-		return nil
-	}
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Unnecessary part of binary expression. 'true' or 'false' literal in logical expression is redundant.")
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(idx)),
-		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: file.FlatNodeText(keepNode),
-	}
-	return []scanner.Finding{f}
-}
 
 // UnnecessaryTemporaryInstantiationRule detects Integer.valueOf(x).toString() etc.
 type UnnecessaryTemporaryInstantiationRule struct {
@@ -849,9 +531,6 @@ type UnnecessaryTemporaryInstantiationRule struct {
 // support; fallback is heuristic. Classified per roadmap/17.
 func (r *UnnecessaryTemporaryInstantiationRule) Confidence() float64 { return 0.75 }
 
-func (r *UnnecessaryTemporaryInstantiationRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
 
 var tempInstantiationPrefixNeedles = [][]byte{
 	[]byte("Integer"), []byte("Long"), []byte("Short"), []byte("Byte"),
@@ -875,49 +554,6 @@ var tempInstantiationTypeNames = map[string]bool{
 	"Double":    true,
 	"Boolean":   true,
 	"Character": true,
-}
-
-func (r *UnnecessaryTemporaryInstantiationRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	src := file.FlatNodeBytes(idx)
-	if !looksLikeTempInstantiation(src) {
-		return nil
-	}
-	if flatCallExpressionName(file, idx) != "toString" {
-		return nil
-	}
-	nav := file.FlatFindChild(idx, "navigation_expression")
-	if nav == 0 {
-		return nil
-	}
-	innerCall := tempInstantiationReceiverFlat(file, nav)
-	if innerCall == 0 || file.FlatType(innerCall) != "call_expression" {
-		return nil
-	}
-	method := flatCallExpressionName(file, innerCall)
-	if !tempInstantiationMethods[method] {
-		return nil
-	}
-	innerNav := file.FlatFindChild(innerCall, "navigation_expression")
-	if innerNav == 0 {
-		return nil
-	}
-	typeName := tempInstantiationTypeNameFlat(file, innerNav)
-	if !tempInstantiationTypeNames[typeName] {
-		return nil
-	}
-	arg := tempInstantiationFirstArgumentFlat(file, innerCall)
-	if arg == "" {
-		return nil
-	}
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Unnecessary temporary instantiation. Use the type's toString() or conversion method directly.")
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(idx)),
-		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: arg + ".toString()",
-	}
-	return []scanner.Finding{f}
 }
 
 func looksLikeTempInstantiation(src []byte) bool {
@@ -993,77 +629,3 @@ func (r *UnnecessaryTypeCastingRule) SetResolver(res typeinfer.TypeResolver) { r
 // the target, falls back to textual comparison. Classified per roadmap/17.
 func (r *UnnecessaryTypeCastingRule) Confidence() float64 { return 0.75 }
 
-func (r *UnnecessaryTypeCastingRule) NodeTypes() []string { return []string{"as_expression"} }
-
-func (r *UnnecessaryTypeCastingRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// as_expression has the expression and the target type
-	text := file.FlatNodeText(idx)
-	parts := strings.Split(text, " as ")
-	if len(parts) != 2 {
-		return nil
-	}
-	target := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(parts[1]), "?"))
-	expr := strings.TrimSpace(parts[0])
-
-	// Type-aware check: resolve source and target FQNs
-	if r.resolver != nil && file.FlatChildCount(idx) >= 2 {
-		exprType := flatResolveByName(file, r.resolver, file.FlatChild(idx, 0))
-		targetType := flatResolveByName(file, r.resolver, file.FlatChild(idx, file.FlatChildCount(idx)-1))
-		if exprType != nil && targetType != nil &&
-			exprType.Kind != typeinfer.TypeUnknown && targetType.Kind != typeinfer.TypeUnknown {
-			if exprType.FQN == targetType.FQN {
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					fmt.Sprintf("Unnecessary cast to '%s'. The expression is already of this type.", target))
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   int(file.FlatStartByte(idx)),
-					EndByte:     int(file.FlatEndByte(idx)),
-					Replacement: expr,
-				}
-				return []scanner.Finding{f}
-			}
-			// Types differ — cast is needed
-			return nil
-		}
-	}
-
-	// Fallback: text-based heuristics
-	matched := false
-	// Simple heuristic 1: check if the expression ends with : Type matching the cast
-	if strings.HasSuffix(expr, ": "+target) || strings.HasSuffix(expr, ":"+target) {
-		matched = true
-	}
-	// Heuristic 2: check if the parent is a property_declaration with a matching type annotation
-	if !matched {
-		for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
-			if file.FlatType(parent) == "property_declaration" || file.FlatType(parent) == "function_declaration" {
-				parentText := file.FlatNodeText(parent)
-				// Look for `: Type =` pattern before the as expression
-				declType := ""
-				if idx := strings.Index(parentText, ":"); idx >= 0 {
-					rest := parentText[idx+1:]
-					if eqIdx := strings.Index(rest, "="); eqIdx >= 0 {
-						declType = strings.TrimSpace(rest[:eqIdx])
-					}
-				}
-				if declType == target {
-					matched = true
-				}
-				break
-			}
-		}
-	}
-
-	if matched {
-		f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-			fmt.Sprintf("Unnecessary cast to '%s'. The expression is already of this type.", target))
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   int(file.FlatStartByte(idx)),
-			EndByte:     int(file.FlatEndByte(idx)),
-			Replacement: expr,
-		}
-		return []scanner.Finding{f}
-	}
-	return nil
-}

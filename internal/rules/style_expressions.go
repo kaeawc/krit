@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -22,35 +21,6 @@ type ExpressionBodySyntaxRule struct {
 // is a style preference. Classified per roadmap/17.
 func (r *ExpressionBodySyntaxRule) Confidence() float64 { return 0.75 }
 
-func (r *ExpressionBodySyntaxRule) NodeTypes() []string { return []string{"function_declaration"} }
-
-func (r *ExpressionBodySyntaxRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	body := file.FlatFindChild(idx, "function_body")
-	if body == 0 {
-		return nil
-	}
-	bodyText := strings.TrimSpace(file.FlatNodeText(body))
-	// Check for { return expr } pattern
-	if !strings.HasPrefix(bodyText, "{") {
-		return nil
-	}
-	inner := strings.TrimPrefix(bodyText, "{")
-	inner = strings.TrimSuffix(inner, "}")
-	inner = strings.TrimSpace(inner)
-	if strings.HasPrefix(inner, "return ") && !strings.Contains(inner, "\n") {
-		f := r.Finding(file, file.FlatRow(idx)+1, 1,
-			"Function body can be written as expression body syntax.")
-		expr := strings.TrimPrefix(inner, "return ")
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   int(file.FlatStartByte(body)),
-			EndByte:     int(file.FlatEndByte(body)),
-			Replacement: "= " + expr,
-		}
-		return []scanner.Finding{f}
-	}
-	return nil
-}
 
 // ReturnCountRule limits the number of return statements in a function.
 type ReturnCountRule struct {
@@ -62,8 +32,6 @@ type ReturnCountRule struct {
 	ExcludeReturnFromLambda bool
 	ExcludeGuardClauses     bool
 }
-
-func (r *ReturnCountRule) NodeTypes() []string { return []string{"function_declaration"} }
 
 // Confidence reports a tier-2 (medium) base confidence. The rule's
 // counting is deterministic, but the threshold is a style preference
@@ -133,83 +101,6 @@ func getJumpMetricsFlat(idx uint32, file *scanner.File) jumpMetrics {
 	return metrics
 }
 
-func (r *ReturnCountRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	name := extractIdentifierFlat(file, idx)
-	// Check excluded functions
-	for _, excl := range r.ExcludedFunctions {
-		if name == excl {
-			return nil
-		}
-	}
-	// Dedup: if the function is also going to trigger LongMethod (>60
-	// significant lines by default), suppress the return-count finding —
-	// LongMethod already tells the author to refactor.
-	if lines := countSignificantLines(file, file.FlatRow(idx), flatEndRow(file, idx)); lines > 60 {
-		return nil
-	}
-	rawReturns := getJumpMetricsFlat(idx, file).returns
-	if rawReturns <= r.Max {
-		return nil
-	}
-	count := 0
-	if !r.ExcludeLabeled && !r.ExcludeReturnFromLambda && !r.ExcludeGuardClauses {
-		count = rawReturns
-	} else {
-		var guardSet map[int]bool
-		if r.ExcludeGuardClauses {
-			guardSet = collectGuardClauseJumpsFlat(idx, file)
-		}
-		// Detect "when dispatch" pattern: a top-level when-expression whose
-		// branches each return a value, optionally followed by a terminal
-		// return. This is idiomatic enum/sealed-class mapping code that is
-		// semantically one return statement.
-		var whenDispatchSet map[int]bool
-		if r.ExcludeGuardClauses {
-			whenDispatchSet = collectWhenDispatchJumpsFlat(idx, file)
-		}
-		sawWhenDispatch := false
-		count = countJumpExpressionsFlat(idx, file, "return", r.Max, func(child uint32, text string) bool {
-			if r.ExcludeLabeled && strings.Contains(text, "@") {
-				return false
-			}
-			if r.ExcludeReturnFromLambda && isInsideLambdaUnderFlat(child, idx, file) {
-				return false
-			}
-			if guardSet != nil && guardSet[int(file.FlatStartByte(child))] {
-				return false
-			}
-			// Also treat Elvis-return and try-catch-return inside a val
-			// initializer as guard clauses — they bail before the val is
-			// usable, semantically identical to `if (x == null) return`.
-			if r.ExcludeGuardClauses && isInsideInitializerGuardFlat(child, idx, file) {
-				return false
-			}
-			// Opt-in: treat returns inside a when-expression that's the
-			// initializer of a val/var binding as guards too. `val x = when
-			// (...) { CaseA -> value; CaseB -> return }` is the assignment
-			// dispatch form of a guard clause — CaseB bails before the val
-			// is usable.
-			if experiment.Enabled("return-count-skip-when-initializer-guards") &&
-				isInsideWhenInitializerGuardFlat(child, idx, file) {
-				return false
-			}
-			if whenDispatchSet != nil && whenDispatchSet[int(file.FlatStartByte(child))] {
-				// Collapse all when-dispatch returns into a single virtual
-				// return. Count only the first one we see.
-				if sawWhenDispatch {
-					return false
-				}
-				sawWhenDispatch = true
-			}
-			return true
-		})
-	}
-	if count > r.Max {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Function '%s' has %d return statements, max allowed is %d.", name, count, r.Max))}
-	}
-	return nil
-}
 
 func collectGuardClauseJumpsFlat(fn uint32, file *scanner.File) map[int]bool {
 	result := make(map[int]bool)
@@ -522,39 +413,6 @@ type ThrowsCountRule struct {
 // is a style preference. Classified per roadmap/17.
 func (r *ThrowsCountRule) Confidence() float64 { return 0.75 }
 
-func (r *ThrowsCountRule) NodeTypes() []string { return []string{"function_declaration"} }
-
-func (r *ThrowsCountRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Skip functions annotated @Throws — the declared exceptions are part
-	// of the API contract and the rule shouldn't enforce count limits.
-	if hasAnnotationFlat(file, idx, "Throws") {
-		return nil
-	}
-	// Early-out via raw jump metric.
-	rawThrows := getJumpMetricsFlat(idx, file).throws
-	if rawThrows <= r.Max {
-		return nil
-	}
-	count := rawThrows
-	// Opt-in or config-enabled guard-clause exclusion: a "leading" throw
-	// that appears as an `if (...)` early check at the top of a function
-	// doesn't count toward the throws total — these are preconditions,
-	// not branching complexity. Same semantic as ReturnCount's
-	// ExcludeGuardClauses default.
-	excludeGuards := r.ExcludeGuardClauses || experiment.Enabled("throws-count-exclude-guard-clauses")
-	if excludeGuards {
-		guardSet := collectGuardClauseJumpsFlat(idx, file)
-		count = countJumpExpressionsFlat(idx, file, "throw", r.Max, func(child uint32, _ string) bool {
-			return !guardSet[int(file.FlatStartByte(child))]
-		})
-	}
-	if count > r.Max {
-		name := extractIdentifierFlat(file, idx)
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Function '%s' has %d throw statements, max allowed is %d.", name, count, r.Max))}
-	}
-	return nil
-}
 
 func countJumpExpressionsFlat(root uint32, file *scanner.File, prefix string, limit int, accept func(uint32, string) bool) int {
 	count := 0
@@ -610,89 +468,6 @@ type CollapsibleIfStatementsRule struct {
 // is a style preference. Classified per roadmap/17.
 func (r *CollapsibleIfStatementsRule) Confidence() float64 { return 0.75 }
 
-func (r *CollapsibleIfStatementsRule) NodeTypes() []string { return []string{"if_expression"} }
-
-func (r *CollapsibleIfStatementsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Check if the if has no else
-	text := file.FlatNodeText(idx)
-	if strings.Contains(text, "else") {
-		return nil
-	}
-	// Check if the body contains exactly one if statement
-	body := file.FlatFindChild(idx, "control_structure_body")
-	if body == 0 {
-		return nil
-	}
-	ifCount := 0
-	otherCount := 0
-	for i := 0; i < file.FlatChildCount(body); i++ {
-		child := file.FlatChild(body, i)
-		if file.FlatType(child) == "if_expression" {
-			ifCount++
-		} else if t := file.FlatType(child); t == "{" || t == "}" || t == "statements" {
-			// Check inside statements block
-			if file.FlatType(child) == "statements" {
-				for j := 0; j < file.FlatChildCount(child); j++ {
-					sc := file.FlatChild(child, j)
-					if file.FlatType(sc) == "if_expression" {
-						ifCount++
-					} else {
-						otherCount++
-					}
-				}
-			}
-		} else {
-			otherCount++
-		}
-	}
-	if ifCount != 1 || otherCount != 0 {
-		return nil
-	}
-	f := r.Finding(file, file.FlatRow(idx)+1, 1,
-		"Collapsible if statements: these nested ifs can be merged with '&&'.")
-	// Try to build a fix: merge outer and inner conditions
-	outerCond := file.FlatFindChild(idx, "parenthesized_expression")
-	if outerCond == 0 {
-		for ci := 0; ci < file.FlatChildCount(idx); ci++ {
-			ch := file.FlatChild(idx, ci)
-			if t := file.FlatType(ch); t != "if" && t != "control_structure_body" && t != "{" && t != "}" {
-				if t == "parenthesized_expression" || t == "boolean_literal" || t == "call_expression" || t == "simple_identifier" || t == "comparison_expression" || t == "conjunction_expression" || t == "disjunction_expression" || t == "prefix_expression" {
-					outerCond = ch
-					break
-				}
-			}
-		}
-	}
-	var innerIf uint32
-	file.FlatWalkNodes(body, "if_expression", func(n uint32) {
-		if innerIf == 0 {
-			innerIf = n
-		}
-	})
-	if outerCond != 0 && innerIf != 0 {
-		outerCondText := file.FlatNodeText(outerCond)
-		if strings.HasPrefix(outerCondText, "(") && strings.HasSuffix(outerCondText, ")") {
-			outerCondText = outerCondText[1 : len(outerCondText)-1]
-		}
-		innerCondNode := file.FlatFindChild(innerIf, "parenthesized_expression")
-		innerBody := file.FlatFindChild(innerIf, "control_structure_body")
-		if innerCondNode != 0 && innerBody != 0 {
-			innerCondText := file.FlatNodeText(innerCondNode)
-			if strings.HasPrefix(innerCondText, "(") && strings.HasSuffix(innerCondText, ")") {
-				innerCondText = innerCondText[1 : len(innerCondText)-1]
-			}
-			innerBodyText := file.FlatNodeText(innerBody)
-			merged := "if (" + outerCondText + " && " + innerCondText + ") " + innerBodyText
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   int(file.FlatStartByte(idx)),
-				EndByte:     int(file.FlatEndByte(idx)),
-				Replacement: merged,
-			}
-		}
-	}
-	return []scanner.Finding{f}
-}
 
 // SafeCastRule detects `if (x is Type) { x as Type }` patterns that should use `x as? Type`.
 // This is distinct from UnsafeCast which flags ALL bare `as` casts.
@@ -703,8 +478,6 @@ type SafeCastRule struct {
 	BaseRule
 }
 
-func (r *SafeCastRule) NodeTypes() []string { return []string{"if_expression"} }
-
 // Confidence reports a tier-2 (medium) base confidence. The rule
 // matches the `if (x is T) { x as T }` pattern on text, which is
 // narrow enough to avoid most false positives but can stumble on
@@ -714,94 +487,6 @@ func (r *SafeCastRule) NodeTypes() []string { return []string{"if_expression"} }
 // pair.
 func (r *SafeCastRule) Confidence() float64 { return 0.75 }
 
-func (r *SafeCastRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Find the condition and then-body from the if_expression children.
-	// In tree-sitter Kotlin, the condition may be a parenthesized_expression or
-	// a direct check_expression/conjunction_expression child between "(" and ")".
-	var condNode uint32
-	var thenBody uint32
-	foundElse := false
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		child := file.FlatChild(idx, i)
-		switch file.FlatType(child) {
-		case "parenthesized_expression":
-			if condNode == 0 {
-				condNode = child
-			}
-		case "check_expression", "conjunction_expression", "disjunction_expression":
-			if condNode == 0 {
-				condNode = child
-			}
-		case "control_structure_body":
-			if !foundElse && thenBody == 0 {
-				thenBody = child
-			}
-		case "else":
-			foundElse = true
-		}
-	}
-	if condNode == 0 || thenBody == 0 {
-		return nil
-	}
-
-	// Find check_expression (is-check) in the condition to extract variable name and type
-	var isVar, isType string
-	file.FlatWalkAllNodes(condNode, func(n uint32) {
-		if file.FlatType(n) == "check_expression" && isVar == "" {
-			t := file.FlatNodeText(n)
-			parts := strings.SplitN(t, " is ", 2)
-			if len(parts) == 2 {
-				isVar = strings.TrimSpace(parts[0])
-				isType = strings.TrimSpace(parts[1])
-			}
-		}
-	})
-	if isVar == "" || isType == "" {
-		return nil
-	}
-	// If isVar contains a call expression, indexed access, or dotted
-	// property path, the suggestion "use as?" is misleading — the caller
-	// would need to extract a local first, which may change semantics.
-	// Only safe to suggest when the is-check is on a plain identifier.
-	if strings.ContainsAny(isVar, "()[].") {
-		return nil
-	}
-	// Skip compound conditions (`x is Y && other != null`) — rewriting
-	// to `(x as? Y)?.let { ... }` would drop the sibling check.
-	if condNode != 0 && (file.FlatType(condNode) == "conjunction_expression" ||
-		file.FlatType(condNode) == "disjunction_expression") {
-		return nil
-	}
-
-	// Look for as_expression nodes in the THEN branch only (not else)
-	found := false
-	file.FlatWalkAllNodes(thenBody, func(n uint32) {
-		if found {
-			return
-		}
-		if file.FlatType(n) == "as_expression" {
-			t := file.FlatNodeText(n)
-			// Skip safe casts
-			if strings.Contains(t, "as?") {
-				return
-			}
-			parts := strings.SplitN(t, " as ", 2)
-			if len(parts) == 2 {
-				asVar := strings.TrimSpace(parts[0])
-				asType := strings.TrimSpace(parts[1])
-				if asVar == isVar && asType == isType {
-					found = true
-				}
-			}
-		}
-	})
-	if !found {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-		"Consider using safe cast 'as?' instead of is-check followed by unsafe cast.")}
-}
 
 // frameworkAnnotationNames identifies annotations indicating external
 // initialization by a framework — these vars can't be analyzed for mutability.
@@ -871,8 +556,6 @@ type VarCouldBeValRule struct {
 	IgnoreLateinitVar  bool // if true, skip lateinit var declarations
 	scopeReassignments sync.Map
 }
-
-func (r *VarCouldBeValRule) NodeTypes() []string { return []string{"property_declaration"} }
 
 // Confidence reports a tier-2 (medium) base confidence because this
 // rule uses per-file scope-reassignment tracking instead of full

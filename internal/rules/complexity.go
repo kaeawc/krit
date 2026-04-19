@@ -245,68 +245,7 @@ func (*LongMethodRule) Description() string {
 // roadmap/17.
 func (r *LongMethodRule) Confidence() float64 { return 0.75 }
 
-func (r *LongMethodRule) NodeTypes() []string { return []string{"function_declaration"} }
-
 var longMethodDeclKeywordRe = regexp.MustCompile(`(^|\s)fun\b`)
-
-func (r *LongMethodRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Skip test files — test helpers/fixtures often have long setup bodies.
-	if isTestFile(file.Path) {
-		return nil
-	}
-	// Skip database table/DAO files — per-column SQL mapping is inherently
-	// long and splitting into helpers fragments transactions.
-	if strings.HasSuffix(file.Path, "Table.kt") || strings.HasSuffix(file.Path, "Tables.kt") ||
-		strings.HasSuffix(file.Path, "Dao.kt") || strings.HasSuffix(file.Path, "DAO.kt") {
-		return nil
-	}
-	// Skip @Composable functions — Jetpack Compose DSL is deeply nested and
-	// line count is not a meaningful complexity metric for UI functions.
-	if flatHasAnnotationNamed(file, idx, "Composable") {
-		return nil
-	}
-	// Skip test functions — test bodies legitimately have long
-	// Arrange/Act/Assert blocks.
-	if flatHasAnnotationNamed(file, idx, "Test") ||
-		flatHasAnnotationNamed(file, idx, "ParameterizedTest") {
-		return nil
-	}
-	// Skip database migration files — schema migrations are inherently long.
-	if strings.Contains(file.Path, "/migration/") ||
-		strings.Contains(file.Path, "\\migration\\") ||
-		strings.Contains(file.Path, "/migrations/") ||
-		strings.Contains(file.Path, "\\migrations\\") {
-		return nil
-	}
-	// Skip functions whose body is a single top-level call with a trailing
-	// lambda — DSL builders like `configure { ... }`, `setContent { ... }`,
-	// `buildList { ... }`, etc. Line count of a DSL body is not a meaningful
-	// complexity metric.
-	if isDSLBuilderBodyFlat(idx, file) {
-		return nil
-	}
-	// Skip Android lifecycle wiring methods and common view-binding
-	// helpers — these are cohesive init sequences where splitting into
-	// helpers typically harms readability.
-	name := extractIdentifierFlat(file, idx)
-	if androidLifecycleMethods[name] {
-		return nil
-	}
-	// Skip Signal Job.run()/onRun()/doRun() entry points — the Job
-	// framework requires atomic execution, so splitting into helpers
-	// typically fragments the transaction boundary without benefit.
-	if strings.HasSuffix(file.Path, "Job.kt") &&
-		(name == "run" || name == "onRun" || name == "doRun" || name == "onHandle") {
-		return nil
-	}
-	lines := countSignificantLines(file, file.FlatRow(idx), flatEndRow(file, idx))
-	if lines > r.AllowedLines {
-		line := longMethodDeclarationLineFlat(file, idx)
-		return []scanner.Finding{r.Finding(file, line, 1,
-			fmt.Sprintf("Function '%s' has %d lines (allowed: %d).", name, lines, r.AllowedLines))}
-	}
-	return nil
-}
 
 func longMethodDeclarationLineFlat(file *scanner.File, idx uint32) int {
 	if file == nil {
@@ -404,24 +343,6 @@ type LargeClassRule struct {
 // roadmap/17.
 func (r *LargeClassRule) Confidence() float64 { return 0.75 }
 
-func (r *LargeClassRule) NodeTypes() []string { return []string{"class_declaration"} }
-
-func (r *LargeClassRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if isTestFile(file.Path) {
-		return nil
-	}
-	if strings.HasSuffix(file.Path, "Table.kt") || strings.HasSuffix(file.Path, "Tables.kt") ||
-		strings.HasSuffix(file.Path, "Dao.kt") || strings.HasSuffix(file.Path, "DAO.kt") {
-		return nil
-	}
-	lines := countSignificantLines(file, file.FlatRow(idx), flatEndRow(file, idx))
-	if lines > r.AllowedLines {
-		name := extractIdentifierFlat(file, idx)
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Class '%s' has %d lines (allowed: %d).", name, lines, r.AllowedLines))}
-	}
-	return nil
-}
 
 // NestedBlockDepthRule detects excessive nesting.
 type NestedBlockDepthRule struct {
@@ -439,17 +360,6 @@ type NestedBlockDepthRule struct {
 // roadmap/17.
 func (r *NestedBlockDepthRule) Confidence() float64 { return 0.75 }
 
-func (r *NestedBlockDepthRule) NodeTypes() []string { return []string{"function_declaration"} }
-
-func (r *NestedBlockDepthRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	depth, line, exceeded := nestedBlockDepthExceedsFlat(file, idx, r.AllowedDepth)
-	if exceeded {
-		name := extractIdentifierFlat(file, idx)
-		return []scanner.Finding{r.Finding(file, line, 1,
-			fmt.Sprintf("Function '%s' has a nested block depth of %d (allowed: %d).", name, depth, r.AllowedDepth))}
-	}
-	return nil
-}
 
 // nestedBlockDepthExceedsFlat returns the function's max nesting depth
 // (read from the shared complexityMetricsCache populated once per
@@ -516,40 +426,6 @@ func isCyclomaticDecisionType(nodeType string) bool {
 // roadmap/17.
 func (r *CyclomaticComplexMethodRule) Confidence() float64 { return 0.75 }
 
-func (r *CyclomaticComplexMethodRule) NodeTypes() []string { return []string{"function_declaration"} }
-
-func (r *CyclomaticComplexMethodRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Skip override `equals(other: Any?)` and `hashCode()` methods —
-	// these are mechanical boilerplate whose complexity scales with the
-	// number of fields, not with author-created control flow.
-	if file.FlatHasModifier(idx, "override") {
-		name := extractIdentifierFlat(file, idx)
-		if name == "equals" || name == "hashCode" {
-			return nil
-		}
-	}
-	// Skip pure-boolean predicate functions whose body is a single `return`
-	// of a conjunction/disjunction chain (`return isX() || isY() || isZ()`).
-	// These are flat classifier tables — semantically a single predicate,
-	// not control flow.
-	if isPureBooleanPredicateFlat(file, idx) {
-		return nil
-	}
-	// Dedup: if the function is also going to trigger LongMethod
-	// (>60 significant lines by default), suppress the complexity finding —
-	// LongMethod already tells the author to refactor, and big methods
-	// almost always carry elevated complexity. Reporting both is noise.
-	if lines := countSignificantLines(file, file.FlatRow(idx), flatEndRow(file, idx)); lines > 60 {
-		return nil
-	}
-	complexity, line, exceeded := cyclomaticComplexityExceedsFlat(file, idx, r.AllowedComplexity, r.IgnoreSimpleWhenEntries)
-	if exceeded {
-		name := extractIdentifierFlat(file, idx)
-		return []scanner.Finding{r.Finding(file, line, 1,
-			fmt.Sprintf("Function '%s' has a cyclomatic complexity of %d (allowed: %d).", name, complexity, r.AllowedComplexity))}
-	}
-	return nil
-}
 
 func isPureBooleanPredicateFlat(file *scanner.File, fn uint32) bool {
 	body := file.FlatFindChild(fn, "function_body")
@@ -665,17 +541,6 @@ var cognitiveTypes = map[string]bool{
 // roadmap/17.
 func (r *CognitiveComplexMethodRule) Confidence() float64 { return 0.75 }
 
-func (r *CognitiveComplexMethodRule) NodeTypes() []string { return []string{"function_declaration"} }
-
-func (r *CognitiveComplexMethodRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	metrics := getComplexityMetricsFlat(idx, file)
-	if metrics.cognitive > r.AllowedComplexity {
-		name := extractIdentifierFlat(file, idx)
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Function '%s' has a cognitive complexity of %d (allowed: %d).", name, metrics.cognitive, r.AllowedComplexity))}
-	}
-	return nil
-}
 
 // ComplexConditionRule detects conditions with too many logical operators.
 type ComplexConditionRule struct {
@@ -713,10 +578,6 @@ func countLogicalOperatorsOutsideBodiesFlat(file *scanner.File, root uint32) int
 // roadmap/17.
 func (r *ComplexConditionRule) Confidence() float64 { return 0.75 }
 
-func (r *ComplexConditionRule) NodeTypes() []string {
-	return []string{"if_expression", "while_statement"}
-}
-
 func isPureDisjunctionOrConjunctionFlat(file *scanner.File, root uint32) bool {
 	hasConj := false
 	hasDisj := false
@@ -742,20 +603,6 @@ func isPureDisjunctionOrConjunctionFlat(file *scanner.File, root uint32) bool {
 	return !(hasConj && hasDisj)
 }
 
-func (r *ComplexConditionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	condOps := countLogicalOperatorsOutsideBodiesFlat(file, idx)
-	if condOps > r.AllowedConditions {
-		// Exempt pure-disjunction or pure-conjunction chains — these are
-		// much easier to reason about than mixed && / || combinations.
-		if isPureDisjunctionOrConjunctionFlat(file, idx) {
-			return nil
-		}
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Complex condition with %d logical operators (allowed: %d).", condOps, r.AllowedConditions))}
-	}
-	return nil
-}
-
 // ComplexInterfaceRule detects interfaces with too many members.
 type ComplexInterfaceRule struct {
 	FlatDispatchBase
@@ -774,26 +621,6 @@ type ComplexInterfaceRule struct {
 // roadmap/17.
 func (r *ComplexInterfaceRule) Confidence() float64 { return 0.75 }
 
-func (r *ComplexInterfaceRule) NodeTypes() []string { return []string{"class_declaration"} }
-
-func (r *ComplexInterfaceRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Check if this is an interface by looking for an "interface" keyword child
-	if !file.FlatHasChildOfType(idx, "interface") {
-		return nil
-	}
-	body := file.FlatFindChild(idx, "class_body")
-	if body == 0 {
-		return nil
-	}
-	// Count only direct interface members; do not walk nested subtrees.
-	members := countDirectClassMembersFlat(file, body)
-	if members > r.AllowedDefinitions {
-		name := extractIdentifierFlat(file, idx)
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Interface '%s' has %d members (allowed: %d).", name, members, r.AllowedDefinitions))}
-	}
-	return nil
-}
 
 // LabeledExpressionRule detects return@label, break@label, continue@label.
 type LabeledExpressionRule struct {
@@ -811,12 +638,6 @@ type LabeledExpressionRule struct {
 // roadmap/17.
 func (r *LabeledExpressionRule) Confidence() float64 { return 0.75 }
 
-func (r *LabeledExpressionRule) NodeTypes() []string { return []string{"label"} }
-
-func (r *LabeledExpressionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		fmt.Sprintf("Labeled expression '%s' detected. Consider refactoring to avoid labels.", strings.TrimSpace(file.FlatNodeText(idx))))}
-}
 
 // LongParameterListRule detects functions/constructors with too many parameters.
 type LongParameterListRule struct {
@@ -838,100 +659,6 @@ type LongParameterListRule struct {
 // roadmap/17.
 func (r *LongParameterListRule) Confidence() float64 { return 0.75 }
 
-func (r *LongParameterListRule) NodeTypes() []string {
-	return []string{"function_declaration", "class_declaration"}
-}
-
-func (r *LongParameterListRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Skip test sources — test helpers legitimately take many parameters
-	// to configure fixtures.
-	if isTestFile(file.Path) {
-		return nil
-	}
-	if file.FlatType(idx) == "function_declaration" {
-		summary := getFunctionDeclSummaryFlat(file, idx)
-		// Skip @Composable functions — Compose convention is many params
-		// (state, multiple callbacks, modifier).
-		if summary.hasComposable {
-			return nil
-		}
-		// Skip override functions — the parameter shape is dictated by the
-		// supertype, not the author. Override overrides.
-		if summary.hasOverride {
-			return nil
-		}
-		// Dedup: if the function is also going to trigger LongMethod
-		// (>60 significant lines by default), suppress the parameter
-		// list finding — LongMethod already tells the author to refactor.
-		if lines := countSignificantLines(file, file.FlatRow(idx), flatEndRow(file, idx)); lines > 60 {
-			return nil
-		}
-		if summary.paramsNode == 0 {
-			return nil
-		}
-		params := 0
-		limit := r.AllowedFunctionParameters
-		for _, p := range summary.params {
-			if r.IgnoreDefaultParameters && p.hasDefault {
-				continue
-			}
-			if strings.Contains(file.FlatNodeText(p.idx), "->") {
-				continue
-			}
-			params++
-			if params > limit {
-				name := summary.name
-				return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Function '%s' has %d parameters (allowed: %d).", name, params, limit))}
-			}
-		}
-	} else if file.FlatType(idx) == "class_declaration" {
-		summary := getClassDeclSummaryFlat(file, idx)
-		// Skip data classes if configured
-		if r.IgnoreDataClasses && summary.hasData {
-			return nil
-		}
-		if summary.hasParcelizeLike {
-			return nil
-		}
-		// Skip pure value-holder classes — ones where every constructor
-		// parameter is a `val`/`var` property. These are morally data
-		// classes written as plain `class` for Java interop reasons
-		// (@JvmField, abstract bases, custom equals, etc.).
-		if len(summary.classParams) > 0 && r.IgnoreDataClasses {
-			allProps := true
-			for _, p := range summary.classParams {
-				if !p.isProperty {
-					allProps = false
-					break
-				}
-			}
-			if allProps {
-				return nil
-			}
-		}
-		clsName := summary.name
-		if strings.HasSuffix(clsName, "ViewModel") || strings.HasSuffix(clsName, "Presenter") {
-			return nil
-		}
-		params := 0
-		limit := r.AllowedConstructorParameters
-		for _, p := range summary.classParams {
-			if r.IgnoreDefaultParameters && p.hasDefault {
-				continue
-			}
-			if p.isFunctionType {
-				continue
-			}
-			params++
-			if params > limit {
-				return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Constructor of '%s' has %d parameters (allowed: %d).", clsName, params, limit))}
-			}
-		}
-	}
-	return nil
-}
 
 // MethodOverloadingRule detects too many overloads of the same method name.
 type MethodOverloadingRule struct {
@@ -948,14 +675,6 @@ type MethodOverloadingRule struct {
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
 func (r *MethodOverloadingRule) Confidence() float64 { return 0.75 }
-
-func (r *MethodOverloadingRule) NodeTypes() []string { return []string{"source_file"} }
-
-func (r *MethodOverloadingRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
-	r.checkScopeFlat(idx, file, &findings)
-	return findings
-}
 
 func (r *MethodOverloadingRule) checkScopeFlat(node uint32, file *scanner.File, findings *[]scanner.Finding) {
 	counts := make(map[string]int)
@@ -1022,49 +741,6 @@ type NamedArgumentsRule struct {
 // roadmap/17.
 func (r *NamedArgumentsRule) Confidence() float64 { return 0.75 }
 
-func (r *NamedArgumentsRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *NamedArgumentsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Try direct child first (simple O(1) lookup)
-	args := file.FlatFindChild(idx, "value_arguments")
-	if args == 0 {
-		// Use pre-compiled query to find value_arguments inside call_suffix
-		callSuffix := file.FlatFindChild(idx, "call_suffix")
-		if callSuffix != 0 {
-			args = file.FlatFindChild(callSuffix, "value_arguments")
-		}
-	}
-	if args == 0 {
-		return nil
-	}
-	unnamed := 0
-	for i := 0; i < file.FlatChildCount(args); i++ {
-		child := file.FlatChild(args, i)
-		if file.FlatType(child) == "value_argument" {
-			// A named argument has a "value_argument_label" or "=" child
-			isNamed := false
-			for j := 0; j < file.FlatChildCount(child); j++ {
-				childPart := file.FlatChild(child, j)
-				ct := file.FlatType(childPart)
-				if ct == "value_argument_label" || ct == "simple_identifier" {
-					// Check if there's an = sign after the identifier
-					if j+1 < file.FlatChildCount(child) && file.FlatNodeText(file.FlatChild(child, j+1)) == "=" {
-						isNamed = true
-						break
-					}
-				}
-			}
-			if !isNamed {
-				unnamed++
-			}
-		}
-	}
-	if unnamed > r.AllowedArguments {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Function call has %d unnamed arguments (allowed: %d). Use named arguments.", unnamed, r.AllowedArguments))}
-	}
-	return nil
-}
 
 // NestedScopeFunctionsRule detects nested scope functions (apply, also, let, run, with).
 type NestedScopeFunctionsRule struct {
@@ -1086,8 +762,6 @@ var scopeFunctions = map[string]bool{
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
 func (r *NestedScopeFunctionsRule) Confidence() float64 { return 0.75 }
-
-func (r *NestedScopeFunctionsRule) NodeTypes() []string { return []string{"call_expression"} }
 
 func extractCallNameFlat(file *scanner.File, idx uint32) string {
 	for i := 0; i < file.FlatChildCount(idx); i++ {
@@ -1116,29 +790,6 @@ func extractCallNameFlat(file *scanner.File, idx uint32) string {
 	return ""
 }
 
-func (r *NestedScopeFunctionsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Check if this call_expression is a scope function
-	name := extractCallNameFlat(file, idx)
-	if !scopeFunctions[name] {
-		return nil
-	}
-	// Count how many ancestor call_expressions are also scope functions
-	depth := 0
-	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
-		if file.FlatType(parent) == "call_expression" {
-			pName := extractCallNameFlat(file, parent)
-			if scopeFunctions[pName] {
-				depth++
-			}
-		}
-	}
-	if depth > r.AllowedDepth {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Nested scope function '%s' at depth %d (allowed: %d).", name, depth, r.AllowedDepth))}
-	}
-	return nil
-}
-
 // ReplaceSafeCallChainWithRunRule detects 3+ chained safe calls (?.).
 type ReplaceSafeCallChainWithRunRule struct {
 	FlatDispatchBase
@@ -1153,34 +804,6 @@ type ReplaceSafeCallChainWithRunRule struct {
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
 func (r *ReplaceSafeCallChainWithRunRule) Confidence() float64 { return 0.75 }
-
-func (r *ReplaceSafeCallChainWithRunRule) NodeTypes() []string {
-	return []string{"navigation_expression"}
-}
-
-func (r *ReplaceSafeCallChainWithRunRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Only process the outermost navigation_expression in a chain.
-	// Skip if the parent is a navigation_expression (nested chain).
-	if parent, ok := file.FlatParent(idx); ok {
-		if file.FlatType(parent) == "navigation_expression" {
-			return nil
-		}
-		// Also skip if parent is a call_expression whose parent is a navigation_expression,
-		// e.g. a?.b()?.c() — the call_expression wraps the inner navigation_expression.
-		if file.FlatType(parent) == "call_expression" {
-			if grandparent, ok := file.FlatParent(parent); ok && file.FlatType(grandparent) == "navigation_expression" {
-				return nil
-			}
-		}
-	}
-
-	count := countSafeCallsInChainFlat(file, idx)
-	if count >= 3 {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-			fmt.Sprintf("Chain of %d safe calls. Consider using '?.run { }' to simplify.", count))}
-	}
-	return nil
-}
 
 func countSafeCallsInChainFlat(file *scanner.File, idx uint32) int {
 	if file.FlatType(idx) != "navigation_expression" {
@@ -1230,32 +853,6 @@ type StringLiteralDuplicationRule struct {
 // roadmap/17.
 func (r *StringLiteralDuplicationRule) Confidence() float64 { return 0.75 }
 
-func (r *StringLiteralDuplicationRule) NodeTypes() []string { return []string{"source_file"} }
-
-func (r *StringLiteralDuplicationRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	counts := make(map[string]int)
-	firstLine := make(map[string]int)
-
-	file.FlatWalkNodes(idx, "string_literal", func(strNode uint32) {
-		text := file.FlatNodeText(strNode)
-		if len(text) <= 3 {
-			return
-		}
-		counts[text]++
-		if _, ok := firstLine[text]; !ok {
-			firstLine[text] = file.FlatRow(strNode) + 1
-		}
-	})
-
-	var findings []scanner.Finding
-	for text, count := range counts {
-		if count > r.AllowedDuplications {
-			findings = append(findings, r.Finding(file, firstLine[text], 1,
-				fmt.Sprintf("String literal %s appears %d times (allowed: %d). Consider extracting to a constant.", text, count, r.AllowedDuplications)))
-		}
-	}
-	return findings
-}
 
 // TooManyFunctionsRule detects files or classes with too many functions.
 type TooManyFunctionsRule struct {
@@ -1281,8 +878,6 @@ type TooManyFunctionsRule struct {
 // roadmap/17.
 func (r *TooManyFunctionsRule) Confidence() float64 { return 0.75 }
 
-func (r *TooManyFunctionsRule) NodeTypes() []string { return []string{"source_file"} }
-
 func (r *TooManyFunctionsRule) shouldCountFunctionFlat(fnNode uint32, file *scanner.File) bool {
 	if r.IgnorePrivate && file.FlatHasModifier(fnNode, "private") {
 		return false
@@ -1301,89 +896,6 @@ func (r *TooManyFunctionsRule) shouldCountFunctionFlat(fnNode uint32, file *scan
 	return true
 }
 
-func (r *TooManyFunctionsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
-	topLevelCount := 0
-	var classDecls []uint32
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		child := file.FlatChild(idx, i)
-		switch file.FlatType(child) {
-		case "function_declaration":
-			if r.shouldCountFunctionFlat(child, file) {
-				topLevelCount++
-			}
-		case "class_declaration":
-			classDecls = append(classDecls, child)
-		}
-	}
-
-	if topLevelCount > r.AllowedFunctionsPerFile {
-		findings = append(findings, r.Finding(file, 1, 1,
-			fmt.Sprintf("File has %d top-level functions (allowed: %d).", topLevelCount, r.AllowedFunctionsPerFile)))
-	}
-
-	for _, cls := range classDecls {
-		// Skip sealed classes — they act as closed algebraic type hierarchies
-		// where the function count is set by the contract, not the author.
-		if file.FlatHasModifier(cls, "sealed") {
-			continue
-		}
-		// Skip abstract classes — many functions are contract stubs.
-		if file.FlatHasModifier(cls, "abstract") {
-			continue
-		}
-		// Skip interface declarations — the method count is a contract
-		// design decision, not an author complexity issue.
-		if file.FlatHasChildOfType(cls, "interface") {
-			continue
-		}
-		// Skip Dagger @Component / @Subcomponent / @Module types — their
-		// function count is determined by the DI graph, not complexity.
-		if flatHasAnnotationNamed(file, cls, "Component") ||
-			flatHasAnnotationNamed(file, cls, "Subcomponent") ||
-			flatHasAnnotationNamed(file, cls, "Module") ||
-			flatHasAnnotationNamed(file, cls, "DependencyGraph") ||
-			flatHasAnnotationNamed(file, cls, "GraphExtension") ||
-			flatHasAnnotationNamed(file, cls, "ContributesTo") ||
-			flatHasAnnotationNamed(file, cls, "BindingContainer") {
-			continue
-		}
-		// Skip data access layer classes — Tables, Daos, and Repositories
-		// often expose one function per query and their shape is driven by
-		// schema/domain, not author discretion. Likewise MVVM shells
-		// (Fragment/ViewModel/Activity/Screen) where function count is
-		// driven by UI event handlers.
-		clsName := extractIdentifierFlat(file, cls)
-		if strings.HasSuffix(clsName, "Table") || strings.HasSuffix(clsName, "Tables") ||
-			strings.HasSuffix(clsName, "Dao") || strings.HasSuffix(clsName, "DAO") ||
-			strings.HasSuffix(clsName, "Repository") || strings.HasSuffix(clsName, "Store") ||
-			strings.HasSuffix(clsName, "Fragment") || strings.HasSuffix(clsName, "ViewModel") ||
-			strings.HasSuffix(clsName, "Activity") || strings.HasSuffix(clsName, "Screen") ||
-			strings.HasSuffix(clsName, "View") || strings.HasSuffix(clsName, "Adapter") ||
-			strings.HasSuffix(clsName, "Presenter") || strings.HasSuffix(clsName, "Manager") {
-			continue
-		}
-		count := r.countFunctionsInClassFlat(cls, file)
-		// Determine scope-specific limit
-		limit := r.AllowedFunctionsPerFile
-		if r.AllowedFunctionsPerClass > 0 {
-			limit = r.AllowedFunctionsPerClass
-		}
-		if r.AllowedFunctionsPerInterface > 0 && file.FlatHasChildOfType(cls, "interface") {
-			limit = r.AllowedFunctionsPerInterface
-		} else if r.AllowedFunctionsPerObject > 0 && file.FlatHasChildOfType(cls, "object") {
-			limit = r.AllowedFunctionsPerObject
-		} else if r.AllowedFunctionsPerEnum > 0 && file.FlatHasChildOfType(cls, "enum") {
-			limit = r.AllowedFunctionsPerEnum
-		}
-		if count > limit {
-			name := extractIdentifierFlat(file, cls)
-			findings = append(findings, r.Finding(file, file.FlatRow(cls)+1, 1,
-				fmt.Sprintf("Class '%s' has %d functions (allowed: %d).", name, count, limit)))
-		}
-	}
-	return findings
-}
 
 func (r *TooManyFunctionsRule) countFunctionsInClassFlat(cls uint32, file *scanner.File) int {
 	body := file.FlatFindChild(cls, "class_body")

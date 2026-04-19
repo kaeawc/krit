@@ -164,10 +164,24 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 	if in.ModuleGraph != nil && len(in.ModuleGraph.Modules) > 0 && hasModuleAwareRule {
 		runModuleRules := func() error {
 			for _, r := range moduleAwareRules {
-				rctx := &v2.Context{ModuleIndex: in.ModuleIndex}
+				collector := scanner.NewFindingCollector(0)
+				rctx := &v2.Context{ModuleIndex: in.ModuleIndex, Collector: collector}
 				r.Check(rctx)
-				rules.ApplyV2Confidence(rctx.Findings, r, 0.95)
-				crossFindings = append(crossFindings, rctx.Findings...)
+				if len(rctx.Findings) > 0 {
+					rules.ApplyV2Confidence(rctx.Findings, r, 0.95)
+					crossFindings = append(crossFindings, rctx.Findings...)
+				}
+				cols := *collector.Columns()
+				for i := 0; i < cols.Len(); i++ {
+					f := cols.Finding(i)
+					if f.Confidence == 0 {
+						f.Confidence = r.Confidence
+						if f.Confidence == 0 {
+							f.Confidence = 0.95
+						}
+					}
+					crossFindings = append(crossFindings, f)
+				}
 			}
 			return nil
 		}
@@ -213,10 +227,24 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 			if err := ctx.Err(); err != nil {
 				return CrossFileResult{}, err
 			}
-			rctx := &v2.Context{ModuleIndex: pmi}
+			collector := scanner.NewFindingCollector(0)
+			rctx := &v2.Context{ModuleIndex: pmi, Collector: collector}
 			r.Check(rctx)
-			rules.ApplyV2Confidence(rctx.Findings, r, 0.95)
-			crossFindings = append(crossFindings, rctx.Findings...)
+			if len(rctx.Findings) > 0 {
+				rules.ApplyV2Confidence(rctx.Findings, r, 0.95)
+				crossFindings = append(crossFindings, rctx.Findings...)
+			}
+			cols := *collector.Columns()
+			for i := 0; i < cols.Len(); i++ {
+				f := cols.Finding(i)
+				if f.Confidence == 0 {
+					f.Confidence = r.Confidence
+					if f.Confidence == 0 {
+						f.Confidence = 0.95
+					}
+				}
+				crossFindings = append(crossFindings, f)
+			}
 		}
 	}
 

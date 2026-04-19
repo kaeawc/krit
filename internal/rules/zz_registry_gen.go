@@ -72,7 +72,23 @@ func registerAllRules() {
 			Category: ALCAccessibility, ALSeverity: ALSWarning, Priority: 3,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				if name != "Image" && name != "Icon" {
+					return
+				}
+				_, args := flatCallExpressionParts(file, idx)
+				if flatNamedValueArgument(file, args, "contentDescription") != 0 {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"Image/Icon without contentDescription. Provide a description for accessibility.")
+			},
+		})
 	}
 	{
 		r := &ObsoleteLayoutParamsRule{AndroidRule: AndroidRule{
@@ -81,7 +97,28 @@ func registerAllRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				replacements := map[string]string{
+					"preferredWidth":  "width",
+					"preferredHeight": "height",
+					"preferredSize":   "size",
+				}
+				matches := obsoleteLayoutParamRe.FindAllString(text, -1)
+				if len(matches) == 0 {
+					return
+				}
+				for _, m := range matches {
+					replacement := replacements[m]
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Obsolete Compose layout modifier '"+m+"' was renamed to '"+replacement+"' in Compose 1.0.")
+				}
+			},
+		})
 	}
 	{
 		r := &ViewHolderRule{AndroidRule: AndroidRule{
@@ -90,7 +127,48 @@ func registerAllRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				headerEnd := strings.Index(text, "{")
+				header := text
+				if headerEnd > 0 {
+					header = text[:headerEnd]
+				}
+				if !adapterClassRe.MatchString(header) {
+					return
+				}
+				hasViewHolder := false
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					child := file.FlatChild(idx, i)
+					if file.FlatType(child) == "class_body" {
+						bodyText := file.FlatNodeText(child)
+						for _, line := range strings.Split(bodyText, "\n") {
+							if strings.Contains(line, "onCreateViewHolder") {
+								hasViewHolder = true
+								break
+							}
+							if strings.Contains(line, "class") && strings.Contains(line, "ViewHolder") {
+								hasViewHolder = true
+								break
+							}
+							if strings.Contains(line, ": RecyclerView.ViewHolder") {
+								hasViewHolder = true
+								break
+							}
+						}
+					}
+				}
+				if hasViewHolder {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"RecyclerView.Adapter subclass should implement the ViewHolder pattern.")
+			},
+		})
 	}
 	{
 		r := &HardcodedTextRule{AndroidRule: AndroidRule{
@@ -99,7 +177,42 @@ func registerAllRules() {
 			Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					return
+				}
+				for i := 0; i < file.FlatChildCount(args); i++ {
+					child := file.FlatChild(args, i)
+					if file.FlatType(child) != "value_argument" {
+						continue
+					}
+					argText := strings.TrimSpace(file.FlatNodeText(child))
+					eqIdx := strings.Index(argText, "=")
+					if eqIdx < 0 {
+						continue
+					}
+					label := strings.TrimSpace(argText[:eqIdx])
+					if !hardcodedTextLabels[label] {
+						continue
+					}
+					valueText := strings.TrimSpace(argText[eqIdx+1:])
+					if valueText == "" || valueText[0] != '"' {
+						continue
+					}
+					if strings.Contains(valueText, "stringResource(") || strings.Contains(valueText, "getString(") {
+						continue
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Hardcoded text. Use string resources for localization.")
+					return
+				}
+			},
+		})
 	}
 	{
 		r := &LogDetectorRule{AndroidRule: AndroidRule{
@@ -108,7 +221,34 @@ func registerAllRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				navExpr, _ := flatCallExpressionParts(file, idx)
+				if navExpr == 0 {
+					return
+				}
+				if receiver := flatReceiverNameFromCall(file, idx); receiver != "Log" {
+					return
+				}
+				if !logLevelNames[flatCallExpressionName(file, idx)] {
+					return
+				}
+				for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+					if file.FlatType(p) == "if_expression" && strings.Contains(file.FlatNodeText(p), "isLoggable") {
+						return
+					}
+					if file.FlatType(p) == "function_declaration" || file.FlatType(p) == "class_declaration" ||
+						file.FlatType(p) == "lambda_literal" || file.FlatType(p) == "source_file" {
+						break
+					}
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"Unconditional logging call. Wrap in Log.isLoggable() for performance.")
+			},
+		})
 	}
 	{
 		r := &SdCardPathRule{AndroidRule: AndroidRule{
@@ -117,7 +257,18 @@ func registerAllRules() {
 			Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if strings.Contains(text, "/sdcard") || strings.Contains(text, "/mnt/sdcard") {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Hardcoded /sdcard path. Use Environment.getExternalStorageDirectory() instead.")
+				}
+			},
+		})
 	}
 	{
 		r := &WakelockRule{AndroidRule: AndroidRule{
@@ -126,7 +277,44 @@ func registerAllRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 9,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if flatCallExpressionName(file, idx) != "acquire" {
+					return
+				}
+				receiver := flatReceiverNameFromCall(file, idx)
+				if receiver == "" {
+					return
+				}
+				fn, ok := flatEnclosingFunction(file, idx)
+				if !ok {
+					return
+				}
+				foundRelease := false
+				file.FlatWalkNodes(fn, "call_expression", func(call uint32) {
+					if foundRelease {
+						return
+					}
+					if call == idx {
+						return
+					}
+					if flatCallExpressionName(file, call) != "release" {
+						return
+					}
+					if flatReceiverNameFromCall(file, call) == receiver {
+						foundRelease = true
+					}
+				})
+				if foundRelease {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"WakeLock acquired without release. Ensure WakeLock.release() is called.")
+			},
+		})
 	}
 	{
 		r := &SetJavaScriptEnabledRule{AndroidRule: AndroidRule{
@@ -135,7 +323,18 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if strings.Contains(text, "setJavaScriptEnabled(true)") || strings.Contains(text, "javaScriptEnabled = true") {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Using setJavaScriptEnabled(true). Review for XSS vulnerabilities.")
+				}
+			},
+		})
 	}
 	{
 		r := &ExportedServiceRule{AndroidRule: AndroidRule{

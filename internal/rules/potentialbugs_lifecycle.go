@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -267,46 +266,6 @@ var closeableTypes = map[string]bool{
 	"GZIPOutputStream":      true,
 	"ZipInputStream":        true,
 	"ZipOutputStream":       true,
-}
-
-func (r *MissingUseCallRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Extract the callee name from the call_expression.
-	callee := missingUseCalleeIdentFlat(file, idx)
-	if callee == "" || !closeableTypes[callee] {
-		return nil
-	}
-
-	// Check if this call is already wrapped in a .use {} chain.
-	// Pattern: navigation_expression(call_expression, navigation_suffix("use"))
-	//   -> outer call_expression with lambda_literal in call_suffix
-	if missingUseHasUseChainFlat(file, idx) {
-		return nil
-	}
-
-	// If assigned to a val/var, check if the variable is used with .use {} in the same scope.
-	if missingUseAssignedWithUseFlat(file, idx) {
-		return nil
-	}
-
-	// If this is a class-level property, skip it (fields may be closed elsewhere).
-	if missingUseIsClassPropertyFlat(file, idx) {
-		return nil
-	}
-
-	// If passed as an argument to another call, skip (the caller may manage the resource).
-	if missingUseIsArgumentFlat(file, idx) {
-		return nil
-	}
-
-	// If this call is the return expression of a function, skip (caller manages it).
-	if missingUseIsReturnExpressionFlat(file, idx) {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		fmt.Sprintf("%s opened without .use {}. This may lead to resource leaks.", callee))}
 }
 
 func missingUseCalleeIdentFlat(file *scanner.File, idx uint32) string {

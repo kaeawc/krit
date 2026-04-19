@@ -11,6 +11,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/rules/registry"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // Phase 3B of the CodegenRegistry migration: prove that the generated
@@ -102,15 +103,15 @@ func TestConfigParity_AliasRegistrations(t *testing.T) {
 	}
 
 	foundAliases := map[string]string{}
-	for _, r := range Registry {
-		concrete := Unwrap(r)
+	for _, r := range v2.Registry {
+		concrete := r.OriginalV1
 		mp, ok := concrete.(registry.MetaProvider)
 		if !ok {
 			continue
 		}
 		meta := mp.Meta()
-		if meta.ID != r.Name() {
-			foundAliases[r.Name()] = meta.ID
+		if meta.ID != r.ID {
+			foundAliases[r.ID] = meta.ID
 		}
 	}
 
@@ -160,9 +161,9 @@ func collectMigratedRules(t *testing.T) []migratedRule {
 	t.Helper()
 	seen := make(map[string]bool)
 	var out []migratedRule
-	for _, r := range Registry {
-		name := r.Name()
-		concrete := Unwrap(r)
+	for _, r := range v2.Registry {
+		name := r.ID
+		concrete := r.OriginalV1
 		mp, ok := concrete.(registry.MetaProvider)
 		if !ok {
 			continue

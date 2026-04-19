@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -131,12 +132,16 @@ func TestFixupPhase_RespectsMaxFixLevel(t *testing.T) {
 	// piggyback on, so this test stays honest if they ever change.
 	cosmeticLevel := rules.FixLevel(0)
 	semanticLevel := rules.FixLevel(0)
-	for _, r := range rules.Registry {
-		switch r.Name() {
+	for _, r := range v2rules.Registry {
+		switch r.ID {
 		case "TrailingWhitespace":
-			cosmeticLevel = rules.GetFixLevel(r)
+			if lvl, ok := rules.GetV2FixLevel(r); ok {
+				cosmeticLevel = lvl
+			}
 		case "BooleanPropertyNaming":
-			semanticLevel = rules.GetFixLevel(r)
+			if lvl, ok := rules.GetV2FixLevel(r); ok {
+				semanticLevel = lvl
+			}
 		}
 	}
 	if cosmeticLevel != rules.FixCosmetic {

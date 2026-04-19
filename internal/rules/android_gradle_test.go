@@ -8,21 +8,34 @@ import (
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------
 
-func findGradleRule(t *testing.T, name string) rules.GradleFamily {
+func findGradleRule(t *testing.T, name string) *v2rules.Rule {
 	t.Helper()
-	for _, r := range rules.GradleRules {
-		if r.Name() == name {
+	for _, r := range v2rules.Registry {
+		if r.Needs.Has(v2rules.NeedsGradle) && r.ID == name {
 			return r
 		}
 	}
-	t.Fatalf("gradle rule %q not found in GradleRules registry", name)
+	t.Fatalf("gradle rule %q not found in v2 Registry (NeedsGradle)", name)
 	return nil
+}
+
+func runGradleRule(r *v2rules.Rule, path, content string, cfg *android.BuildConfig) []scanner.Finding {
+	ctx := &v2rules.Context{
+		GradlePath:    path,
+		GradleContent: content,
+		GradleConfig:  cfg,
+		Rule:          r,
+	}
+	r.Check(ctx)
+	return ctx.Findings
 }
 
 func loadTempConfig(t *testing.T, content string) *config.Config {
@@ -52,7 +65,7 @@ func TestGradlePluginCompatibility(t *testing.T) {
 // Gradle 8.0
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -65,7 +78,7 @@ func TestGradlePluginCompatibility(t *testing.T) {
 // Gradle 8.7
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -77,7 +90,7 @@ func TestGradlePluginCompatibility(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -99,7 +112,7 @@ func TestStringInteger(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -116,7 +129,7 @@ func TestStringInteger(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -130,7 +143,7 @@ func TestStringInteger(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -150,7 +163,7 @@ func TestRemoteVersion(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -162,7 +175,7 @@ func TestRemoteVersion(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -174,7 +187,7 @@ func TestRemoteVersion(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -194,7 +207,7 @@ func TestDynamicVersion(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -206,7 +219,7 @@ func TestDynamicVersion(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -218,7 +231,7 @@ func TestDynamicVersion(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings (bare + handled by RemoteVersion), got %d", len(findings))
 		}
@@ -230,7 +243,7 @@ func TestDynamicVersion(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -252,7 +265,7 @@ func TestOldTargetApi(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -266,7 +279,7 @@ func TestOldTargetApi(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -280,16 +293,16 @@ func TestOldTargetApi(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("threshold is configurable", func(t *testing.T) {
-		rule, ok := rules.Unwrap(r).(*rules.GradleOldTargetApiRule)
+		rule, ok := r.OriginalV1.(*rules.GradleOldTargetApiRule)
 		if !ok {
-			t.Fatalf("expected *GradleOldTargetApiRule, got %T", r)
+			t.Fatalf("expected *GradleOldTargetApiRule, got %T", r.OriginalV1)
 		}
 		original := rule.Threshold
 		defer func() { rule.Threshold = original }()
@@ -307,7 +320,7 @@ android-lint:
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings with configured threshold, got %d", len(findings))
 		}
@@ -327,7 +340,7 @@ func TestDeprecatedDependency(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -339,7 +352,7 @@ func TestDeprecatedDependency(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -360,7 +373,7 @@ func TestMavenLocal(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -376,7 +389,7 @@ func TestMavenLocal(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -398,7 +411,7 @@ func TestMinSdkTooLow(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -412,7 +425,7 @@ func TestMinSdkTooLow(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -426,16 +439,16 @@ func TestMinSdkTooLow(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("threshold is configurable", func(t *testing.T) {
-		rule, ok := rules.Unwrap(r).(*rules.MinSdkTooLowRule)
+		rule, ok := r.OriginalV1.(*rules.MinSdkTooLowRule)
 		if !ok {
-			t.Fatalf("expected *MinSdkTooLowRule, got %T", r)
+			t.Fatalf("expected *MinSdkTooLowRule, got %T", r.OriginalV1)
 		}
 		original := rule.Threshold
 		defer func() { rule.Threshold = original }()
@@ -453,7 +466,7 @@ android-lint:
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings with configured threshold, got %d", len(findings))
 		}
@@ -473,7 +486,7 @@ func TestGradleDeprecated(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle", content, cfg)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -488,7 +501,7 @@ func TestGradleDeprecated(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle", content, cfg)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -500,7 +513,7 @@ func TestGradleDeprecated(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle", content, cfg)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -512,7 +525,7 @@ func TestGradleDeprecated(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle", content, cfg)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -526,7 +539,7 @@ func TestGradleDeprecated(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle", content, cfg)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -539,7 +552,7 @@ func TestGradleDeprecated(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle", content, cfg)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
 		if len(findings) != 2 {
 			t.Fatalf("expected 2 findings, got %d", len(findings))
 		}
@@ -559,7 +572,7 @@ func TestGradleGetter(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -576,7 +589,7 @@ func TestGradleGetter(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -592,7 +605,7 @@ func TestGradleGetter(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -604,7 +617,7 @@ func TestGradleGetter(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle", content, cfg)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings for .gradle file, got %d", len(findings))
 		}
@@ -624,7 +637,7 @@ func TestGradlePath(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -639,7 +652,7 @@ func TestGradlePath(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -651,7 +664,7 @@ func TestGradlePath(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -664,7 +677,7 @@ func TestGradlePath(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -687,7 +700,7 @@ func TestGradleOverrides(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -704,7 +717,7 @@ func TestGradleOverrides(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -718,7 +731,7 @@ func TestGradleOverrides(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -732,7 +745,7 @@ func TestGradleOverrides(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -754,7 +767,7 @@ android {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -771,7 +784,7 @@ android {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -787,7 +800,7 @@ android {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -801,7 +814,7 @@ android {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle", content, cfg)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings for .gradle file, got %d", len(findings))
 		}
@@ -821,7 +834,7 @@ func TestAndroidGradlePluginVersion(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle", content, cfg)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -836,7 +849,7 @@ func TestAndroidGradlePluginVersion(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle", content, cfg)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -848,7 +861,7 @@ func TestAndroidGradlePluginVersion(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle", content, cfg)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -860,7 +873,7 @@ func TestAndroidGradlePluginVersion(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle", content, cfg)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -872,7 +885,7 @@ func TestAndroidGradlePluginVersion(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle", content, cfg)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -892,7 +905,7 @@ func TestNewerVersionAvailable(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -904,7 +917,7 @@ func TestNewerVersionAvailable(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -916,7 +929,7 @@ func TestNewerVersionAvailable(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -928,7 +941,7 @@ func TestNewerVersionAvailable(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -940,7 +953,7 @@ func TestNewerVersionAvailable(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -952,16 +965,16 @@ func TestNewerVersionAvailable(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings for dynamic version, got %d", len(findings))
 		}
 	})
 
 	t.Run("recommended versions are configurable", func(t *testing.T) {
-		rule, ok := rules.Unwrap(r).(*rules.NewerVersionAvailableRule)
+		rule, ok := r.OriginalV1.(*rules.NewerVersionAvailableRule)
 		if !ok {
-			t.Fatalf("expected *NewerVersionAvailableRule, got %T", r)
+			t.Fatalf("expected *NewerVersionAvailableRule, got %T", r.OriginalV1)
 		}
 		defer func() { rule.RecommendedVersions = nil }()
 
@@ -979,7 +992,7 @@ android-lint:
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding with configured recommendations, got %d", len(findings))
 		}
@@ -1002,7 +1015,7 @@ func TestStringShouldBeInt(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1014,7 +1027,7 @@ func TestStringShouldBeInt(t *testing.T) {
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := r.CheckGradle("build.gradle.kts", content, cfg)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1047,14 +1060,14 @@ func TestGradleRulesRegistered(t *testing.T) {
 	}
 	for _, name := range expected {
 		found := false
-		for _, r := range rules.GradleRules {
-			if r.Name() == name {
+		for _, r := range v2rules.Registry {
+			if r.Needs.Has(v2rules.NeedsGradle) && r.ID == name {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("expected Gradle rule %q to be registered", name)
+			t.Errorf("expected Gradle rule %q to be registered in v2 Registry (NeedsGradle)", name)
 		}
 	}
 }

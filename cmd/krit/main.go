@@ -55,9 +55,6 @@ func resolvedStore(storeDirFlag *string) *store.FileStore {
 }
 
 func main() {
-	// Bridge any v2 rules into the v1 Registry before anything reads it.
-	rules.RegisterV2Rules()
-
 	baselineAuditVerb := len(os.Args) > 1 && os.Args[1] == "baseline-audit"
 	harvestVerb := len(os.Args) > 1 && os.Args[1] == "harvest"
 	renameVerb := len(os.Args) > 1 && os.Args[1] == "rename"
@@ -325,7 +322,7 @@ potential-bugs:
 		// Version
 		fmt.Printf("  krit version: %s\n", version)
 		// Rules
-		fmt.Printf("  rules: %d registered (%d active by default)\n", len(rules.Registry), countActive(rules.Registry))
+		fmt.Printf("  rules: %d registered (%d active by default)\n", len(v2rules.Registry), countActiveV2(v2rules.Registry))
 		// Config
 		configFound := false
 		for _, name := range []string{"krit.yml", ".krit.yml"} {
@@ -434,15 +431,15 @@ potential-bugs:
 		fixable := 0
 		active := 0
 		stubs := 0
-		for _, r := range rules.Registry {
+		for _, r := range v2rules.Registry {
 			markers := ""
-			if rules.IsDefaultActive(r.Name()) {
+			if rules.IsDefaultActive(r.ID) {
 				markers += "A"
 				active++
 			} else {
 				markers += " "
 			}
-			implemented := rules.IsImplemented(r)
+			implemented := rules.IsImplementedV2(r)
 			if !implemented {
 				stubs++
 			}
@@ -450,36 +447,35 @@ potential-bugs:
 			if !implemented {
 				stubMarker = " (stub)"
 			}
-			if fr, ok := r.(rules.FixableRule); ok && fr.IsFixable() {
+			if fixLvl, isFixable := rules.GetV2FixLevel(r); isFixable {
 				markers += "F"
 				fixable++
 				if *verboseFlag {
-					level := rules.GetFixLevel(fr)
-					fmt.Printf("  %s %-40s [%-15s] %s (fix: %s, precision: %s)%s\n", markers, r.Name(), r.RuleSet(), r.Severity(), level, rules.RulePrecision(r), stubMarker)
-					if desc := r.Description(); desc != "" {
-						fmt.Printf("    %s\n", desc)
+					fmt.Printf("  %s %-40s [%-15s] %s (fix: %s, precision: %s)%s\n", markers, r.ID, r.Category, string(r.Sev), fixLvl, rules.V2RulePrecision(r), stubMarker)
+					if r.Description != "" {
+						fmt.Printf("    %s\n", r.Description)
 					}
 				} else {
-					fmt.Printf("  %s %-40s [%-15s] %s%s\n", markers, r.Name(), r.RuleSet(), r.Severity(), stubMarker)
+					fmt.Printf("  %s %-40s [%-15s] %s%s\n", markers, r.ID, r.Category, string(r.Sev), stubMarker)
 				}
 			} else {
 				markers += " "
 				if *verboseFlag {
-					fmt.Printf("  %s %-40s [%-15s] %s (precision: %s)%s\n", markers, r.Name(), r.RuleSet(), r.Severity(), rules.RulePrecision(r), stubMarker)
-					if desc := r.Description(); desc != "" {
-						fmt.Printf("    %s\n", desc)
+					fmt.Printf("  %s %-40s [%-15s] %s (precision: %s)%s\n", markers, r.ID, r.Category, string(r.Sev), rules.V2RulePrecision(r), stubMarker)
+					if r.Description != "" {
+						fmt.Printf("    %s\n", r.Description)
 					}
 				} else {
-					fmt.Printf("  %s %-40s [%-15s] %s%s\n", markers, r.Name(), r.RuleSet(), r.Severity(), stubMarker)
+					fmt.Printf("  %s %-40s [%-15s] %s%s\n", markers, r.ID, r.Category, string(r.Sev), stubMarker)
 				}
 			}
 		}
-		implemented := len(rules.Registry) - stubs
+		implemented := len(v2rules.Registry) - stubs
 		if stubs > 0 {
-			fmt.Printf("\nTotal: %d rules (%d implemented, %d stubs, %d active by default, %d fixable)\n", len(rules.Registry), implemented, stubs, active, fixable)
+			fmt.Printf("\nTotal: %d rules (%d implemented, %d stubs, %d active by default, %d fixable)\n", len(v2rules.Registry), implemented, stubs, active, fixable)
 			fmt.Println("A=active by default, F=fixable, (stub)=placeholder without implementation. Use -v for fix levels, --all-rules to enable all.")
 		} else {
-			fmt.Printf("\nTotal: %d rules (%d active by default, %d fixable)\n", len(rules.Registry), active, fixable)
+			fmt.Printf("\nTotal: %d rules (%d active by default, %d fixable)\n", len(v2rules.Registry), active, fixable)
 			fmt.Println("A=active by default, F=fixable. Use -v for fix levels, --all-rules to enable all.")
 		}
 		os.Exit(0)
@@ -1512,6 +1508,16 @@ func countActive(registry []rules.Rule) int {
 	count := 0
 	for _, r := range registry {
 		if !inactive[r.Name()] {
+			count++
+		}
+	}
+	return count
+}
+
+func countActiveV2(registry []*v2rules.Rule) int {
+	count := 0
+	for _, r := range registry {
+		if rules.IsDefaultActive(r.ID) {
 			count++
 		}
 	}

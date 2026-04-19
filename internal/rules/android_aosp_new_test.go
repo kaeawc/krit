@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -797,8 +797,8 @@ func TestNewAospRulesRegistered(t *testing.T) {
 	}
 	for _, name := range expected {
 		found := false
-		for _, r := range rules.Registry {
-			if r.Name() == name {
+		for _, r := range v2rules.Registry {
+			if r.ID == name {
 				found = true
 				break
 			}

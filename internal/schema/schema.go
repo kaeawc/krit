@@ -6,6 +6,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/rules/registry"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // RuleMeta describes a rule's configurable options for schema generation.
@@ -27,33 +28,30 @@ type OptionMeta struct {
 	Description string
 }
 
-// CollectRuleMeta walks the rules.Registry and builds metadata for every rule,
+// CollectRuleMeta walks v2.Registry and builds metadata for every rule,
 // reading configurable options from each rule's Meta() descriptor via
-// rules.MetaForRule (which falls back to the generated metaByName index
+// rules.MetaForV2Rule (which falls back to the generated metaByName index
 // for adapter-wrapped rules that drop the concrete struct pointer).
 func CollectRuleMeta() []RuleMeta {
-	rules.RegisterV2Rules()
+	metas := make([]RuleMeta, 0, len(v2.Registry))
+	for _, r := range v2.Registry {
+		active := rules.IsDefaultActive(r.ID)
 
-	metas := make([]RuleMeta, 0, len(rules.Registry))
-	for _, r := range rules.Registry {
-		active := rules.IsDefaultActive(r.Name())
-
-		fixable := false
+		fixLvl, fixable := rules.GetV2FixLevel(r)
 		fixLevel := ""
-		if _, ok := r.(rules.FixableRule); ok {
-			fixable = true
-			fixLevel = rules.GetFixLevel(r).String()
+		if fixable {
+			fixLevel = fixLvl.String()
 		}
 
 		var opts []OptionMeta
-		if desc, ok := rules.MetaForRule(r); ok {
+		if desc, ok := rules.MetaForV2Rule(r); ok {
 			opts = descriptorOptions(desc)
 		}
 
 		metas = append(metas, RuleMeta{
-			Name:        r.Name(),
-			Description: r.Description(),
-			RuleSet:     r.RuleSet(),
+			Name:        r.ID,
+			Description: r.Description,
+			RuleSet:     r.Category,
 			Active:      active,
 			Fixable:     fixable,
 			FixLevel:    fixLevel,
@@ -250,40 +248,37 @@ func sortedKeys(m map[string][]RuleMeta) []string {
 
 // KnownRuleSets returns the set of known ruleset names from the registry.
 func KnownRuleSets() map[string]bool {
-	rules.RegisterV2Rules()
 	sets := map[string]bool{"config": true}
-	for _, r := range rules.Registry {
-		sets[r.RuleSet()] = true
+	for _, r := range v2.Registry {
+		sets[r.Category] = true
 	}
 	return sets
 }
 
 // KnownRulesBySet returns a map of ruleset -> set of rule names.
 func KnownRulesBySet() map[string]map[string]bool {
-	rules.RegisterV2Rules()
 	bySet := map[string]map[string]bool{}
-	for _, r := range rules.Registry {
-		rs := r.RuleSet()
+	for _, r := range v2.Registry {
+		rs := r.Category
 		if bySet[rs] == nil {
 			bySet[rs] = map[string]bool{}
 		}
-		bySet[rs][r.Name()] = true
+		bySet[rs][r.ID] = true
 	}
 	return bySet
 }
 
 // KnownOptionsByRule returns a map of rule name -> set of allowed config keys.
 // Always includes "active" and "excludes" as standard keys. Option keys are
-// read from each rule's Meta() descriptor via rules.MetaForRule.
+// read from each rule's Meta() descriptor via rules.MetaForV2Rule.
 func KnownOptionsByRule() map[string]map[string]OptionType {
-	rules.RegisterV2Rules()
 	result := map[string]map[string]OptionType{}
-	for _, r := range rules.Registry {
+	for _, r := range v2.Registry {
 		keys := map[string]OptionType{
 			"active":   OptionTypeBool,
 			"excludes": OptionTypeStringSlice,
 		}
-		if desc, ok := rules.MetaForRule(r); ok {
+		if desc, ok := rules.MetaForV2Rule(r); ok {
 			for _, opt := range desc.Options {
 				t := parseOptionType(optionTypeString(opt.Type))
 				keys[opt.Name] = t
@@ -292,7 +287,7 @@ func KnownOptionsByRule() map[string]map[string]OptionType {
 				}
 			}
 		}
-		result[r.Name()] = keys
+		result[r.ID] = keys
 	}
 	return result
 }

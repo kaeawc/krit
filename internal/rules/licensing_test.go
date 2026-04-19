@@ -70,9 +70,9 @@ fun currentFeature() = 42
 
 func TestDependencyLicenseUnknown(t *testing.T) {
 	r := findGradleRule(t, "DependencyLicenseUnknown")
-	rule, ok := rules.Unwrap(r).(*rules.DependencyLicenseUnknownRule)
+	rule, ok := r.OriginalV1.(*rules.DependencyLicenseUnknownRule)
 	if !ok {
-		t.Fatalf("expected *rules.DependencyLicenseUnknownRule, got %T", r)
+		t.Fatalf("expected *rules.DependencyLicenseUnknownRule, got %T", r.OriginalV1)
 	}
 
 	originalRequireVerification := rule.RequireVerification

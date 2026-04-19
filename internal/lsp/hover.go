@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -45,15 +46,15 @@ func formatHoverFinding(f scanner.Finding) string {
 }
 
 func lookupHoverRuleMeta(ruleName string) (hoverRuleMeta, bool) {
-	for _, r := range rules.Registry {
-		if r.Name() != ruleName {
+	for _, r := range v2.Registry {
+		if r.ID != ruleName {
 			continue
 		}
 		meta := hoverRuleMeta{
-			defaultActive: rules.IsDefaultActive(r.Name()),
+			defaultActive: rules.IsDefaultActive(r.ID),
 		}
-		if fr, ok := r.(rules.FixableRule); ok && fr.IsFixable() {
-			meta.fixLevel = rules.GetFixLevel(r).String()
+		if lvl, ok := rules.GetV2FixLevel(r); ok {
+			meta.fixLevel = lvl.String()
 		}
 		return meta, true
 	}

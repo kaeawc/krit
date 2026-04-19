@@ -14,13 +14,7 @@ import (
 // build. The LSP server, MCP server, and CLI all derive their active
 // rule list from this function so a rule that ships disabled-by-default
 // stays disabled in every entry point without special-case filtering.
-//
-// It also ensures v2 rules have been bridged into the v1 Registry via
-// rules.RegisterV2Rules (idempotent) so callers that still read the v1
-// Registry (e.g. rule-audit, JSON output fix-level lookup) see the same
-// set.
 func DefaultActiveRules() []*v2.Rule {
-	rules.RegisterV2Rules()
 	active := make([]*v2.Rule, 0, len(v2.Registry))
 	for _, r := range v2.Registry {
 		if rules.IsDefaultActive(r.ID) {
@@ -39,11 +33,7 @@ func DefaultActiveRules() []*v2.Rule {
 // Pass resolver=nil when no type-aware analysis is available; the
 // dispatcher degrades gracefully.
 func BuildDispatcher(activeRules []*v2.Rule, resolver typeinfer.TypeResolver) *rules.Dispatcher {
-	v1 := v2RulesToV1(activeRules)
-	if resolver == nil {
-		return rules.NewDispatcher(v1)
-	}
-	return rules.NewDispatcher(v1, resolver)
+	return rules.NewDispatcherV2(activeRules, resolver)
 }
 
 // ParseSingle parses a single in-memory Kotlin buffer into a *scanner.File

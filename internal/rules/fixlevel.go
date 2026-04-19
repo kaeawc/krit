@@ -1,5 +1,7 @@
 package rules
 
+import v2 "github.com/kaeawc/krit/internal/rules/v2"
+
 // FixLevel indicates how safe an auto-fix is.
 type FixLevel int
 
@@ -63,6 +65,29 @@ func GetFixLevel(r Rule) FixLevel {
 		}
 	}
 	return FixSemantic
+}
+
+// GetV2FixLevel returns the fix level for a v2 rule. It reads r.Fix when set
+// (non-zero), otherwise falls back to the v1 OriginalV1 FixLevel() method.
+// Returns (0, false) when the rule is not fixable.
+func GetV2FixLevel(r *v2.Rule) (FixLevel, bool) {
+	if r == nil {
+		return 0, false
+	}
+	// Fast path: fix level already encoded in v2.Rule.Fix.
+	if r.Fix != v2.FixNone {
+		return FixLevel(r.Fix), true
+	}
+	// Fall back to v1 OriginalV1 FixLevel method.
+	if r.OriginalV1 != nil {
+		if fl, ok := r.OriginalV1.(interface{ FixLevel() FixLevel }); ok {
+			lvl := fl.FixLevel()
+			if lvl != 0 {
+				return lvl, true
+			}
+		}
+	}
+	return 0, false
 }
 
 // --- cosmetic: whitespace, formatting, comments only ---

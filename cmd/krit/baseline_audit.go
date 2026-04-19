@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -41,9 +41,9 @@ func runBaselineAuditColumns(columns *scanner.FindingColumns, baseline *scanner.
 		}
 	}
 
-	knownRules := make(map[string]bool, len(rules.Registry))
-	for _, rule := range rules.Registry {
-		knownRules[rule.Name()] = true
+	knownRules := make(map[string]bool, len(v2rules.Registry))
+	for _, rule := range v2rules.Registry {
+		knownRules[rule.ID] = true
 	}
 
 	knownFiles := collectBaselineAuditFiles(scanPaths)

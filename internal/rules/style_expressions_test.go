@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -230,9 +231,9 @@ func BenchmarkVarCouldBeValSharedScope(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	var target rules.Rule
-	for _, r := range rules.Registry {
-		if r.Name() == "VarCouldBeVal" {
+	var target *v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if r.ID == "VarCouldBeVal" {
 			target = r
 			break
 		}
@@ -241,7 +242,7 @@ func BenchmarkVarCouldBeValSharedScope(b *testing.B) {
 		b.Fatal("VarCouldBeVal rule not found")
 	}
 
-	dispatcher := rules.NewDispatcher([]rules.Rule{target})
+	dispatcher := rules.NewDispatcherV2([]*v2rules.Rule{target})
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = dispatcher.Run(file)

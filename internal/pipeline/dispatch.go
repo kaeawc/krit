@@ -9,7 +9,6 @@ import (
 
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
-	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -242,27 +241,6 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	}, nil
 }
 
-// v2RulesToV1 converts the IndexResult's []*v2.Rule active set into the
-// []rules.Rule slice the legacy dispatcher expects. Each v2.Rule is
-// routed through v2.ToV1, whose return type is interface{} — we type-
-// assert to rules.Rule and drop entries that don't satisfy it. In
-// practice this drops cross-file, module-aware, manifest, resource, and
-// gradle wrappers (V1CrossFile, V1ModuleAware, V1Manifest, V1Resource,
-// V1Gradle) which do not implement the v1 Rule interface — those rules
-// are handled by later phases (CrossFile) rather than per-file dispatch.
-// This mirrors the conversion done in internal/rules/zzz_v2bridge.go.
-func v2RulesToV1(rs []*v2.Rule) []rules.Rule {
-	out := make([]rules.Rule, 0, len(rs))
-	for _, r := range rs {
-		if r == nil {
-			continue
-		}
-		if v1, ok := v2.ToV1(r).(rules.Rule); ok {
-			out = append(out, v1)
-		}
-	}
-	return out
-}
 
 // mergeStats folds src's counters into dst. Counter fields add, the
 // per-rule map merges by summing matching keys, and the error slice

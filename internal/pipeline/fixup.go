@@ -7,6 +7,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/fixer"
 	"github.com/kaeawc/krit/internal/rules"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -64,12 +65,19 @@ func (FixupPhase) Run(_ context.Context, in FixupInput) (FixupResult, error) {
 	// downstream Output still reports them.
 	var strippedByLevel int
 	if in.MaxFixLevel > 0 {
-		ruleLevels := make(map[string]rules.FixLevel, len(rules.Registry))
-		for _, r := range rules.Registry {
-			ruleLevels[r.Name()] = rules.GetFixLevel(r)
+		ruleLevels := make(map[string]rules.FixLevel, len(v2.Registry))
+		for _, r := range v2.Registry {
+			if lvl, ok := rules.GetV2FixLevel(r); ok {
+				ruleLevels[r.ID] = lvl
+			}
 		}
 		strippedByLevel = columns.StripTextFixes(func(row int) bool {
-			return ruleLevels[columns.RuleAt(row)] > in.MaxFixLevel
+			lvl, ok := ruleLevels[columns.RuleAt(row)]
+			if !ok {
+				// Unknown or unfixable rule: default to FixSemantic (most conservative).
+				lvl = rules.FixSemantic
+			}
+			return lvl > in.MaxFixLevel
 		})
 	}
 	fixableCount := columns.CountTextFixes()

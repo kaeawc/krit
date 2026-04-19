@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -27,19 +28,19 @@ func fixtureRoot(t *testing.T) string {
 }
 
 // buildRuleIndex creates a map from rule name to Rule for lookup.
-func buildRuleIndex() map[string]rules.Rule {
-	idx := make(map[string]rules.Rule, len(rules.Registry))
-	for _, r := range rules.Registry {
-		idx[r.Name()] = r
+func buildRuleIndex() map[string]*v2rules.Rule {
+	idx := make(map[string]*v2rules.Rule, len(v2rules.Registry))
+	for _, r := range v2rules.Registry {
+		idx[r.ID] = r
 	}
 	return idx
 }
 
 // runRule runs a single rule against a parsed file using the dispatcher
 // for correct single-pass behavior.
-func runRule(t *testing.T, rule rules.Rule, file *scanner.File) []scanner.Finding {
+func runRule(t *testing.T, rule *v2rules.Rule, file *scanner.File) []scanner.Finding {
 	t.Helper()
-	dispatcher := rules.NewDispatcher([]rules.Rule{rule})
+	dispatcher := rules.NewDispatcherV2([]*v2rules.Rule{rule})
 	return dispatcher.Run(file)
 }
 
@@ -64,15 +65,13 @@ func TestPositiveFixtures(t *testing.T) {
 		}
 
 		// Skip project-scope rules that need more than one parsed file.
-		if _, ok := rule.(interface{ CheckParsedFiles(files []*scanner.File) []scanner.Finding }); ok {
+		if rule.Needs.Has(v2rules.NeedsParsedFiles) {
 			return nil
 		}
-		if _, ok := rule.(interface{ CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding }); ok {
+		if rule.Needs.Has(v2rules.NeedsCrossFile) {
 			return nil
 		}
-		if _, ok := rule.(interface {
-			CheckModuleAware() []scanner.Finding
-		}); ok {
+		if rule.Needs.Has(v2rules.NeedsModuleIndex) {
 			return nil
 		}
 
@@ -120,10 +119,10 @@ func TestNegativeFixtures(t *testing.T) {
 			return nil
 		}
 
-		if _, ok := rule.(interface{ CheckParsedFiles(files []*scanner.File) []scanner.Finding }); ok {
+		if rule.Needs.Has(v2rules.NeedsParsedFiles) {
 			return nil
 		}
-		if _, ok := rule.(interface{ CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding }); ok {
+		if rule.Needs.Has(v2rules.NeedsCrossFile) {
 			return nil
 		}
 
@@ -157,11 +156,10 @@ func TestNegativeFixtures(t *testing.T) {
 
 func TestDescriptionOfReturnsDescription(t *testing.T) {
 	// Every rule in the registry should have a non-empty Description
-	// since Description() is part of the Rule interface.
-	for _, r := range rules.Registry {
-		desc := rules.DescriptionOf(r)
-		if desc == "" {
-			t.Errorf("DescriptionOf(%q) is empty", r.Name())
+	// since Description is a field on v2.Rule.
+	for _, r := range v2rules.Registry {
+		if r.Description == "" {
+			t.Errorf("rule %q has empty Description", r.ID)
 		}
 	}
 }
@@ -174,9 +172,8 @@ func TestDescriptionOfReturnsNonEmptyForProviders(t *testing.T) {
 			t.Errorf("rule %q not in registry", name)
 			continue
 		}
-		desc := rules.DescriptionOf(r)
-		if desc == "" {
-			t.Errorf("DescriptionOf(%q) is empty, expected non-empty description", name)
+		if r.Description == "" {
+			t.Errorf("rule %q has empty Description", name)
 		}
 	}
 }

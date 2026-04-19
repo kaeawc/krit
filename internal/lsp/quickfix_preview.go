@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -43,14 +44,15 @@ func buildQuickFixPreview(uri, content string, finding scanner.Finding) *CodeAct
 }
 
 func lookupCodeActionFixLevel(ruleName string) (rules.FixLevel, bool) {
-	for _, r := range rules.Registry {
-		if r.Name() != ruleName {
+	for _, r := range v2.Registry {
+		if r.ID != ruleName {
 			continue
 		}
-		if _, ok := r.(rules.FixableRule); !ok {
+		lvl, ok := rules.GetV2FixLevel(r)
+		if !ok {
 			return 0, false
 		}
-		return rules.GetFixLevel(r), true
+		return lvl, true
 	}
 	return 0, false
 }

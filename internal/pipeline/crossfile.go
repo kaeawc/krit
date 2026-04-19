@@ -38,23 +38,15 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 
 	result := CrossFileResult{DispatchResult: in}
 
-	// Build v1 adapter slice for interface assertions (CheckParsedFiles,
-	// CheckCrossFile). The v2→v1 conversion wraps each rule in the
-	// appropriate V1* adapter so the interface type-assertions below work.
-	v1Rules := v2RulesToV1(in.ActiveRules)
-
 	// Detect which cross-file paths any active rule needs.
 	var hasIndexBackedCrossFileRule, hasParsedFilesRule bool
-	for _, r := range v1Rules {
-		if _, ok := r.(interface {
-			CheckParsedFiles(files []*scanner.File) []scanner.Finding
-		}); ok {
-			hasParsedFilesRule = true
+	for _, r := range in.ActiveRules {
+		if r == nil {
 			continue
 		}
-		if _, ok := r.(interface {
-			CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding
-		}); ok {
+		if r.Needs.Has(v2.NeedsParsedFiles) {
+			hasParsedFilesRule = true
+		} else if r.Needs.Has(v2.NeedsCrossFile) {
 			hasIndexBackedCrossFileRule = true
 		}
 	}
@@ -87,39 +79,52 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 			if ruleTracker != nil {
 				ruleTracker = ruleTracker.Serial("crossRules")
 			}
-			for _, r := range v1Rules {
+			for _, r := range in.ActiveRules {
+				if r == nil {
+					continue
+				}
 				if err := ctx.Err(); err != nil {
 					return err
 				}
-				if pfr, ok := r.(interface {
-					CheckParsedFiles(files []*scanner.File) []scanner.Finding
-				}); ok {
-					ruleName := r.Name()
+				if r.Needs.Has(v2.NeedsParsedFiles) {
+					ruleID := r.ID
 					call := func() error {
-						found := pfr.CheckParsedFiles(in.KotlinFiles)
-						rules.ApplyRuleConfidence(found, r, 0.95)
+						collector := scanner.NewFindingCollector(0)
+						rctx := &v2.Context{ParsedFiles: in.KotlinFiles, Collector: collector}
+						r.Check(rctx)
+						found := rctx.Findings
+						cols := *collector.Columns()
+						for i := 0; i < cols.Len(); i++ {
+							found = append(found, cols.Finding(i))
+						}
+						rules.ApplyV2Confidence(found, r, 0.95)
 						crossFindings = append(crossFindings, found...)
 						return nil
 					}
 					if ruleTracker != nil {
-						_ = ruleTracker.Track(ruleName, call)
+						_ = ruleTracker.Track(ruleID, call)
 					} else {
 						_ = call()
 					}
 					continue
 				}
-				if cfr, ok := r.(interface {
-					CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding
-				}); ok {
-					ruleName := r.Name()
+				if r.Needs.Has(v2.NeedsCrossFile) {
+					ruleID := r.ID
 					call := func() error {
-						found := cfr.CheckCrossFile(codeIndex)
-						rules.ApplyRuleConfidence(found, r, 0.95)
+						collector := scanner.NewFindingCollector(0)
+						rctx := &v2.Context{CodeIndex: codeIndex, Collector: collector}
+						r.Check(rctx)
+						found := rctx.Findings
+						cols := *collector.Columns()
+						for i := 0; i < cols.Len(); i++ {
+							found = append(found, cols.Finding(i))
+						}
+						rules.ApplyV2Confidence(found, r, 0.95)
 						crossFindings = append(crossFindings, found...)
 						return nil
 					}
 					if ruleTracker != nil {
-						_ = ruleTracker.Track(ruleName, call)
+						_ = ruleTracker.Track(ruleID, call)
 					} else {
 						_ = call()
 					}
@@ -154,7 +159,7 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 	// v1 rule slice. We reproduce that shape here so the phase produces the
 	// same rule set regardless of whether the caller supplied v1 or v2.
 	moduleStart := time.Now()
-	moduleAwareRules := pickModuleAwareV2Rules(in.ActiveRules, v1Rules)
+	moduleAwareRules := pickModuleAwareV2Rules(in.ActiveRules)
 	hasModuleAwareRule := len(moduleAwareRules) > 0
 	if in.ModuleGraph != nil && len(in.ModuleGraph.Modules) > 0 && hasModuleAwareRule {
 		runModuleRules := func() error {
@@ -256,21 +261,11 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 	return result, nil
 }
 
-// pickModuleAwareV2Rules returns the v2 rules that should receive
-// module-aware dispatch. Main.go's legacy path derives this from
-// BuildV2Index(v1Rules).ModuleAware, but when the caller only supplied
-// v2 rules (LSP / tests) we fall back to Needs-based filtering.
-func pickModuleAwareV2Rules(v2Rules []*v2.Rule, v1Rules []rules.Rule) []*v2.Rule {
-	if len(v1Rules) > 0 {
-		idx := rules.BuildV2Index(v1Rules)
-		return idx.ModuleAware
-	}
+// pickModuleAwareV2Rules returns the v2 rules that need module-aware dispatch.
+func pickModuleAwareV2Rules(v2Rules []*v2.Rule) []*v2.Rule {
 	out := make([]*v2.Rule, 0, len(v2Rules))
 	for _, r := range v2Rules {
-		if r == nil {
-			continue
-		}
-		if r.Needs.Has(v2.NeedsModuleIndex) {
+		if r != nil && r.Needs.Has(v2.NeedsModuleIndex) {
 			out = append(out, r)
 		}
 	}

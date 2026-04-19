@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // resourceDefinitions returns the list of available MCP resources.
@@ -51,26 +52,23 @@ type ruleInfo struct {
 
 // rulesResource returns a JSON list of all registered rules.
 func rulesResource() (string, string, error) {
-	items := make([]ruleInfo, 0, len(rules.Registry))
-	for _, r := range rules.Registry {
-		fixable := false
-		if fr, ok := r.(rules.FixableRule); ok {
-			fixable = fr.IsFixable()
-		}
+	items := make([]ruleInfo, 0, len(v2.Registry))
+	for _, r := range v2.Registry {
+		fixLvl, fixable := rules.GetV2FixLevel(r)
 		fixLevel := ""
 		if fixable {
-			fixLevel = rules.GetFixLevel(r).String()
+			fixLevel = fixLvl.String()
 		}
 
 		items = append(items, ruleInfo{
-			Name:        r.Name(),
-			Description: r.Description(),
-			RuleSet:     r.RuleSet(),
-			Severity:    r.Severity(),
-			Precision: string(rules.RulePrecision(r)),
-			Active:    rules.IsDefaultActive(r.Name()),
-			Fixable:   fixable,
-			FixLevel:  fixLevel,
+			Name:        r.ID,
+			Description: r.Description,
+			RuleSet:     r.Category,
+			Severity:    string(r.Sev),
+			Precision:   string(rules.V2RulePrecision(r)),
+			Active:      rules.IsDefaultActive(r.ID),
+			Fixable:     fixable,
+			FixLevel:    fixLevel,
 		})
 	}
 

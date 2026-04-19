@@ -69,22 +69,16 @@ func CollectModuleAwareNeedsV2(activeRules []*v2.Rule) ModuleAwareNeeds {
 		if r == nil || !r.Needs.Has(v2.NeedsModuleIndex) {
 			continue
 		}
-		// Wrap as a v1-compat value to reuse ModuleAwareRuleTuning detection.
-		v1r, ok := v2.ToV1(r).(Rule)
-		if !ok {
-			// Not a v1 Rule — default to most conservative (needs everything).
-			needs.NeedsFiles = true
-			needs.NeedsDependencies = true
-			needs.NeedsIndex = true
-			continue
-		}
 		current := ModuleAwareNeeds{
 			NeedsFiles:        true,
 			NeedsDependencies: true,
 			NeedsIndex:        true,
 		}
-		if tuned, ok := v1r.(ModuleAwareRuleTuning); ok {
-			current = tuned.ModuleAwareNeeds()
+		// Check if the underlying v1 rule declares tuning preferences.
+		if r.OriginalV1 != nil {
+			if tuned, ok := r.OriginalV1.(ModuleAwareRuleTuning); ok {
+				current = tuned.ModuleAwareNeeds()
+			}
 		}
 		if current.NeedsIndex {
 			current.NeedsFiles = true

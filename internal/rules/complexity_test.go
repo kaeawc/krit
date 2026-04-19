@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -685,14 +686,14 @@ func parseBenchmarkFile(b *testing.B, code string) *scanner.File {
 }
 
 func complexityBenchmarkDispatcher() *rules.Dispatcher {
-	var selected []rules.Rule
-	for _, r := range rules.Registry {
-		switch r.Name() {
+	var selected []*v2rules.Rule
+	for _, r := range v2rules.Registry {
+		switch r.ID {
 		case "LongParameterList", "NestedBlockDepth", "CyclomaticComplexMethod", "CognitiveComplexMethod", "ComplexCondition":
 			selected = append(selected, r)
 		}
 	}
-	return rules.NewDispatcher(selected)
+	return rules.NewDispatcherV2(selected)
 }
 
 func BenchmarkComplexityRules_HeavyClassAndFunction(b *testing.B) {
@@ -747,9 +748,9 @@ func BenchmarkCyclomaticComplexMethod_EarlyExit(b *testing.B) {
 	src.WriteString("    return r\n}\n")
 
 	file := parseBenchmarkFile(b, src.String())
-	var rule rules.Rule
-	for _, r := range rules.Registry {
-		if r.Name() == "CyclomaticComplexMethod" {
+	var rule *v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if r.ID == "CyclomaticComplexMethod" {
 			rule = r
 			break
 		}
@@ -757,7 +758,7 @@ func BenchmarkCyclomaticComplexMethod_EarlyExit(b *testing.B) {
 	if rule == nil {
 		b.Fatal("CyclomaticComplexMethod rule not found")
 	}
-	d := rules.NewDispatcher([]rules.Rule{rule})
+	d := rules.NewDispatcherV2([]*v2rules.Rule{rule})
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -783,9 +784,9 @@ func BenchmarkNestedBlockDepth_EarlyExit(b *testing.B) {
 	src.WriteString("}\n")
 
 	file := parseBenchmarkFile(b, src.String())
-	var rule rules.Rule
-	for _, r := range rules.Registry {
-		if r.Name() == "NestedBlockDepth" {
+	var rule *v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if r.ID == "NestedBlockDepth" {
 			rule = r
 			break
 		}
@@ -793,7 +794,7 @@ func BenchmarkNestedBlockDepth_EarlyExit(b *testing.B) {
 	if rule == nil {
 		b.Fatal("NestedBlockDepth rule not found")
 	}
-	d := rules.NewDispatcher([]rules.Rule{rule})
+	d := rules.NewDispatcherV2([]*v2rules.Rule{rule})
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -817,9 +818,9 @@ func BenchmarkNestedBlockDepth_ElseIfChain(b *testing.B) {
 	src.WriteString("}\n")
 
 	file := parseBenchmarkFile(b, src.String())
-	var rule rules.Rule
-	for _, r := range rules.Registry {
-		if r.Name() == "NestedBlockDepth" {
+	var rule *v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if r.ID == "NestedBlockDepth" {
 			rule = r
 			break
 		}
@@ -827,7 +828,7 @@ func BenchmarkNestedBlockDepth_ElseIfChain(b *testing.B) {
 	if rule == nil {
 		b.Fatal("NestedBlockDepth rule not found")
 	}
-	d := rules.NewDispatcher([]rules.Rule{rule})
+	d := rules.NewDispatcherV2([]*v2rules.Rule{rule})
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -858,9 +859,9 @@ func BenchmarkTooManyFunctions_HeavyFile(b *testing.B) {
 	src.WriteString("    }\n}\n")
 
 	file := parseBenchmarkFile(b, src.String())
-	var rule rules.Rule
-	for _, r := range rules.Registry {
-		if r.Name() == "TooManyFunctions" {
+	var rule *v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if r.ID == "TooManyFunctions" {
 			rule = r
 			break
 		}
@@ -868,7 +869,7 @@ func BenchmarkTooManyFunctions_HeavyFile(b *testing.B) {
 	if rule == nil {
 		b.Fatal("TooManyFunctions rule not found")
 	}
-	d := rules.NewDispatcher([]rules.Rule{rule})
+	d := rules.NewDispatcherV2([]*v2rules.Rule{rule})
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

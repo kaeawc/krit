@@ -7,18 +7,28 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
-	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
-func findResourceRule(t *testing.T, name string) rules.ResourceFamily {
+func findResourceRule(t *testing.T, name string) *v2rules.Rule {
 	t.Helper()
-	for _, r := range rules.ResourceRules {
-		if r.Name() == name {
+	for _, r := range v2rules.Registry {
+		if r.Needs.Has(v2rules.NeedsResources) && r.ID == name {
 			return r
 		}
 	}
-	t.Fatalf("resource rule %q not found in ResourceRules registry", name)
+	t.Fatalf("resource rule %q not found in v2 Registry (NeedsResources)", name)
 	return nil
+}
+
+func runResourceRule(r *v2rules.Rule, idx *android.ResourceIndex) []scanner.Finding {
+	ctx := &v2rules.Context{
+		ResourceIndex: idx,
+		Rule:          r,
+	}
+	r.Check(ctx)
+	return ctx.Findings
 }
 
 // helper: build a ResourceIndex with a single layout containing the given root view.
@@ -76,7 +86,7 @@ func TestHardcodedValuesResource(t *testing.T) {
 				"android:text": "Hello World",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -91,7 +101,7 @@ func TestHardcodedValuesResource(t *testing.T) {
 				"android:text": "@string/hello",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -105,7 +115,7 @@ func TestHardcodedValuesResource(t *testing.T) {
 				"android:hint": "Type here",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -113,7 +123,7 @@ func TestHardcodedValuesResource(t *testing.T) {
 
 	t.Run("empty layout is clean", func(t *testing.T) {
 		idx := emptyIndex()
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -133,7 +143,7 @@ func TestMissingContentDescriptionResource(t *testing.T) {
 			Line:       10,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -148,7 +158,7 @@ func TestMissingContentDescriptionResource(t *testing.T) {
 				"android:contentDescription": "@string/logo_desc",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -162,7 +172,7 @@ func TestMissingContentDescriptionResource(t *testing.T) {
 				"tools:ignore": "ContentDescription",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -174,7 +184,7 @@ func TestMissingContentDescriptionResource(t *testing.T) {
 			Line:       10,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -196,7 +206,7 @@ func TestPxUsageResource(t *testing.T) {
 				"android:layout_width": "100px",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -210,7 +220,7 @@ func TestPxUsageResource(t *testing.T) {
 				"android:layout_width": "100dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -219,7 +229,7 @@ func TestPxUsageResource(t *testing.T) {
 	t.Run("px in dimens values triggers", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Dimensions["margin_large"] = "24px"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -246,7 +256,7 @@ func TestNestedScrollingResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -265,7 +275,7 @@ func TestNestedScrollingResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -288,7 +298,7 @@ func TestTooManyViewsResource(t *testing.T) {
 				{Type: "TextView", Line: 2, Attributes: map[string]string{}},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -309,7 +319,7 @@ func TestTooManyViewsResource(t *testing.T) {
 			})
 		}
 		idx := indexWithLayout("huge", "res/layout/huge.xml", root)
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -332,7 +342,7 @@ func TestTooDeepLayoutResource(t *testing.T) {
 				{Type: "TextView", Line: 2, Attributes: map[string]string{}},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -351,7 +361,7 @@ func TestTooDeepLayoutResource(t *testing.T) {
 			}
 		}
 		idx := indexWithLayout("deep", "res/layout/deep.xml", current)
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -382,7 +392,7 @@ func TestUselessParentResource(t *testing.T) {
 			},
 		}
 		idx := indexWithLayout("main", "res/layout/main.xml", child)
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -406,7 +416,7 @@ func TestUselessParentResource(t *testing.T) {
 			},
 		}
 		idx := indexWithLayout("main", "res/layout/main.xml", child)
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -422,7 +432,7 @@ func TestUselessParentResource(t *testing.T) {
 			},
 		}
 		idx := indexWithLayout("main", "res/layout/main.xml", root)
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -451,7 +461,7 @@ func TestObsoleteLayoutParamsResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -473,7 +483,7 @@ func TestObsoleteLayoutParamsResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -496,7 +506,7 @@ func TestMergeRootFrameResource(t *testing.T) {
 				{Type: "TextView", Line: 3, Attributes: map[string]string{}},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -512,7 +522,7 @@ func TestMergeRootFrameResource(t *testing.T) {
 				{Type: "TextView", Line: 3, Attributes: map[string]string{}},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -524,7 +534,7 @@ func TestMergeRootFrameResource(t *testing.T) {
 			Line:       1,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -554,7 +564,7 @@ func TestDuplicateIdsResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -576,7 +586,7 @@ func TestDuplicateIdsResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -603,7 +613,7 @@ func TestWebViewInScrollViewResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -622,7 +632,7 @@ func TestWebViewInScrollViewResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -651,7 +661,7 @@ func TestInefficientWeightResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -674,7 +684,7 @@ func TestInefficientWeightResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -703,7 +713,7 @@ func TestDisableBaselineAlignmentResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -726,7 +736,7 @@ func TestDisableBaselineAlignmentResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -745,7 +755,7 @@ func TestDisableBaselineAlignmentResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -783,7 +793,7 @@ func TestNestedWeightsResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -804,7 +814,7 @@ func TestNestedWeightsResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -831,7 +841,7 @@ func TestUselessLeafResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -851,7 +861,7 @@ func TestUselessLeafResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -871,7 +881,7 @@ func TestUselessLeafResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -890,7 +900,7 @@ func TestUselessLeafResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -914,7 +924,7 @@ func TestScrollViewCountResource(t *testing.T) {
 				{Type: "TextView", Line: 5, Attributes: map[string]string{}},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -929,7 +939,7 @@ func TestScrollViewCountResource(t *testing.T) {
 				{Type: "LinearLayout", Line: 3, Attributes: map[string]string{}},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -946,7 +956,7 @@ func TestScrollViewCountResource(t *testing.T) {
 				{Type: "TextView", Line: 7, Attributes: map[string]string{}},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -966,7 +976,7 @@ func TestRequiredSizeResource(t *testing.T) {
 			Line:       5,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -980,7 +990,7 @@ func TestRequiredSizeResource(t *testing.T) {
 				"android:layout_height": "wrap_content",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -995,7 +1005,7 @@ func TestRequiredSizeResource(t *testing.T) {
 				"android:layout_height": "wrap_content",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1017,7 +1027,7 @@ func TestSpUsageResource(t *testing.T) {
 				"android:textSize": "14dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1031,7 +1041,7 @@ func TestSpUsageResource(t *testing.T) {
 				"android:textSize": "14sp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1045,7 +1055,7 @@ func TestSpUsageResource(t *testing.T) {
 				"android:textSize": "14dip",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1065,7 +1075,7 @@ func TestTextFieldsResource(t *testing.T) {
 			Line:       5,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1079,7 +1089,7 @@ func TestTextFieldsResource(t *testing.T) {
 				"android:inputType": "text",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1093,7 +1103,7 @@ func TestTextFieldsResource(t *testing.T) {
 				"android:hint": "@string/hint",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1115,7 +1125,7 @@ func TestNegativeMarginResource(t *testing.T) {
 				"android:layout_marginTop": "-8dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1129,7 +1139,7 @@ func TestNegativeMarginResource(t *testing.T) {
 				"android:layout_marginTop": "8dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1144,7 +1154,7 @@ func TestNegativeMarginResource(t *testing.T) {
 				"android:layout_marginLeft": "-4dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 combined finding, got %d", len(findings))
 		}
@@ -1170,7 +1180,7 @@ func TestRtlHardcodedResource(t *testing.T) {
 				"android:layout_marginLeft": "8dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1184,7 +1194,7 @@ func TestRtlHardcodedResource(t *testing.T) {
 				"android:paddingRight": "8dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1198,7 +1208,7 @@ func TestRtlHardcodedResource(t *testing.T) {
 				"android:layout_marginStart": "8dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1228,7 +1238,7 @@ func TestLabelForResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1257,7 +1267,7 @@ func TestLabelForResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1276,7 +1286,7 @@ func TestLabelForResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1298,7 +1308,7 @@ func TestOnClickResource(t *testing.T) {
 				"android:onClick": "handleClick",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1310,7 +1320,7 @@ func TestOnClickResource(t *testing.T) {
 			Line:       5,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1324,7 +1334,7 @@ func TestOnClickResource(t *testing.T) {
 				"android:onClick": "onTextClick",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1332,7 +1342,7 @@ func TestOnClickResource(t *testing.T) {
 
 	t.Run("empty layout is clean", func(t *testing.T) {
 		idx := emptyIndex()
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1355,7 +1365,7 @@ func TestBackButtonResource(t *testing.T) {
 				"android:text": "Back",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1370,7 +1380,7 @@ func TestBackButtonResource(t *testing.T) {
 				"android:text": "back",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1385,7 +1395,7 @@ func TestBackButtonResource(t *testing.T) {
 				"android:text": "@string/back",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1400,7 +1410,7 @@ func TestBackButtonResource(t *testing.T) {
 				"android:text": "Submit",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1415,7 +1425,7 @@ func TestBackButtonResource(t *testing.T) {
 				"android:text": "Back",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1453,7 +1463,7 @@ func TestButtonOrderResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1483,7 +1493,7 @@ func TestButtonOrderResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1513,7 +1523,7 @@ func TestButtonOrderResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1535,7 +1545,7 @@ func TestButtonOrderResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1564,7 +1574,7 @@ func TestOverdrawResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1584,7 +1594,7 @@ func TestOverdrawResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1604,7 +1614,7 @@ func TestOverdrawResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1625,7 +1635,7 @@ func TestOverdrawResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1647,7 +1657,7 @@ func TestRtlSymmetryResource(t *testing.T) {
 				"android:paddingLeft": "8dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1661,7 +1671,7 @@ func TestRtlSymmetryResource(t *testing.T) {
 				"android:paddingRight": "8dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1676,7 +1686,7 @@ func TestRtlSymmetryResource(t *testing.T) {
 				"android:paddingRight": "8dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1690,7 +1700,7 @@ func TestRtlSymmetryResource(t *testing.T) {
 				"android:layout_marginLeft": "16dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1705,7 +1715,7 @@ func TestRtlSymmetryResource(t *testing.T) {
 				"android:layout_marginRight": "16dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1717,7 +1727,7 @@ func TestRtlSymmetryResource(t *testing.T) {
 			Line:       5,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1739,7 +1749,7 @@ func TestAlwaysShowActionResource(t *testing.T) {
 				"app:showAsAction": "always",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1753,7 +1763,7 @@ func TestAlwaysShowActionResource(t *testing.T) {
 				"android:showAsAction": "always",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1767,7 +1777,7 @@ func TestAlwaysShowActionResource(t *testing.T) {
 				"app:showAsAction": "ifRoom",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1779,7 +1789,7 @@ func TestAlwaysShowActionResource(t *testing.T) {
 			Line:       3,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1801,7 +1811,7 @@ func TestClickableViewAccessibilityResource(t *testing.T) {
 				"android:clickable": "true",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1817,7 +1827,7 @@ func TestClickableViewAccessibilityResource(t *testing.T) {
 				"android:contentDescription": "@string/desc",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1831,7 +1841,7 @@ func TestClickableViewAccessibilityResource(t *testing.T) {
 				"android:clickable": "false",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1846,7 +1856,7 @@ func TestClickableViewAccessibilityResource(t *testing.T) {
 				"tools:ignore":      "ContentDescription",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1882,7 +1892,7 @@ func TestRelativeOverlapResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1912,7 +1922,7 @@ func TestRelativeOverlapResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1940,7 +1950,7 @@ func TestRelativeOverlapResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1968,7 +1978,7 @@ func TestRelativeOverlapResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2020,13 +2030,15 @@ func TestResourceRulesRegistered(t *testing.T) {
 	}
 
 	registered := make(map[string]bool)
-	for _, r := range rules.ResourceRules {
-		registered[r.Name()] = true
+	for _, r := range v2rules.Registry {
+		if r.Needs.Has(v2rules.NeedsResources) {
+			registered[r.ID] = true
+		}
 	}
 
 	for _, name := range expected {
 		if !registered[name] {
-			t.Errorf("resource rule %q not registered", name)
+			t.Errorf("resource rule %q not registered in v2 Registry (NeedsResources)", name)
 		}
 	}
 }
@@ -2043,7 +2055,7 @@ func TestMissingQuantityResource(t *testing.T) {
 		idx.Plurals["apples"] = map[string]string{
 			"one": "%d apple",
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2058,7 +2070,7 @@ func TestMissingQuantityResource(t *testing.T) {
 			"one":   "%d apple",
 			"other": "%d apples",
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2066,7 +2078,7 @@ func TestMissingQuantityResource(t *testing.T) {
 
 	t.Run("empty plurals is clean", func(t *testing.T) {
 		idx := emptyIndex()
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2087,7 +2099,7 @@ func TestUnusedQuantityResource(t *testing.T) {
 			"one":   "%d apple",
 			"other": "%d apples",
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2102,7 +2114,7 @@ func TestUnusedQuantityResource(t *testing.T) {
 			"many":  "%d items",
 			"other": "%d items",
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 3 {
 			t.Fatalf("expected 3 findings, got %d", len(findings))
 		}
@@ -2114,7 +2126,7 @@ func TestUnusedQuantityResource(t *testing.T) {
 			"one":   "%d apple",
 			"other": "%d apples",
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2134,7 +2146,7 @@ func TestImpliedQuantityResource(t *testing.T) {
 			"one":   "One apple",
 			"other": "%d apples",
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2146,7 +2158,7 @@ func TestImpliedQuantityResource(t *testing.T) {
 			"one":   "%d apple",
 			"other": "%d apples",
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2157,7 +2169,7 @@ func TestImpliedQuantityResource(t *testing.T) {
 		idx.Plurals["apples"] = map[string]string{
 			"other": "%d apples",
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2174,7 +2186,7 @@ func TestStringFormatTrivialResource(t *testing.T) {
 	t.Run("single %s triggers", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["greeting"] = "Hello, %s!"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2183,7 +2195,7 @@ func TestStringFormatTrivialResource(t *testing.T) {
 	t.Run("multiple specifiers is clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["greeting"] = "Hello, %s! You have %d messages."
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2192,7 +2204,7 @@ func TestStringFormatTrivialResource(t *testing.T) {
 	t.Run("single %d is clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["count"] = "You have %d items"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2201,7 +2213,7 @@ func TestStringFormatTrivialResource(t *testing.T) {
 	t.Run("no specifiers is clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["hello"] = "Hello World"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2210,7 +2222,7 @@ func TestStringFormatTrivialResource(t *testing.T) {
 	t.Run("escaped %% is clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["percent"] = "100%% complete"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2227,7 +2239,7 @@ func TestStringNotLocalizableResource(t *testing.T) {
 	t.Run("URL triggers", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["website"] = "https://example.com"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2236,7 +2248,7 @@ func TestStringNotLocalizableResource(t *testing.T) {
 	t.Run("http URL triggers", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["api"] = "http://api.example.com/v1"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2245,7 +2257,7 @@ func TestStringNotLocalizableResource(t *testing.T) {
 	t.Run("email triggers", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["support_email"] = "support@example.com"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2254,7 +2266,7 @@ func TestStringNotLocalizableResource(t *testing.T) {
 	t.Run("all uppercase triggers", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["api_key_label"] = "API_KEY"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2263,7 +2275,7 @@ func TestStringNotLocalizableResource(t *testing.T) {
 	t.Run("normal string is clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["greeting"] = "Hello World"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2272,7 +2284,7 @@ func TestStringNotLocalizableResource(t *testing.T) {
 	t.Run("empty string is clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["empty"] = ""
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2281,7 +2293,7 @@ func TestStringNotLocalizableResource(t *testing.T) {
 	t.Run("mixed case is clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["title"] = "My Application"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2290,7 +2302,7 @@ func TestStringNotLocalizableResource(t *testing.T) {
 	t.Run("single char uppercase is clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["single"] = "A"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2312,7 +2324,7 @@ func TestGoogleApiKeyInResources(t *testing.T) {
 			Line:     7,
 		}
 
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2332,7 +2344,7 @@ func TestGoogleApiKeyInResources(t *testing.T) {
 			Line:     4,
 		}
 
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2346,7 +2358,7 @@ func TestGoogleApiKeyInResources(t *testing.T) {
 			Line:     9,
 		}
 
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2360,7 +2372,7 @@ func TestGoogleApiKeyInResources(t *testing.T) {
 			Line:     3,
 		}
 
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2382,7 +2394,7 @@ func TestButtonCaseResource(t *testing.T) {
 				"android:text": "ok",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2399,7 +2411,7 @@ func TestButtonCaseResource(t *testing.T) {
 				"android:text": "Ok",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2413,7 +2425,7 @@ func TestButtonCaseResource(t *testing.T) {
 				"android:text": "OK",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2427,7 +2439,7 @@ func TestButtonCaseResource(t *testing.T) {
 				"android:text": "cancel",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2444,7 +2456,7 @@ func TestButtonCaseResource(t *testing.T) {
 				"android:text": "CANCEL",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2458,7 +2470,7 @@ func TestButtonCaseResource(t *testing.T) {
 				"android:text": "@string/ok_button",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2472,14 +2484,14 @@ func TestButtonCaseResource(t *testing.T) {
 				"android:text": "ok",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2499,7 +2511,7 @@ func TestButtonStyleResource(t *testing.T) {
 			Line:       10,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2514,7 +2526,7 @@ func TestButtonStyleResource(t *testing.T) {
 			Line:       10,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2528,7 +2540,7 @@ func TestButtonStyleResource(t *testing.T) {
 				"style": "?android:attr/borderlessButtonStyle",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2542,7 +2554,7 @@ func TestButtonStyleResource(t *testing.T) {
 				"style": "@style/Widget.AppCompat.Button.Borderless",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2554,14 +2566,14 @@ func TestButtonStyleResource(t *testing.T) {
 			Line:       10,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2583,7 +2595,7 @@ func TestAppCompatResource(t *testing.T) {
 				"android:showAsAction": "ifRoom",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2600,7 +2612,7 @@ func TestAppCompatResource(t *testing.T) {
 				"app:showAsAction": "ifRoom",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2612,14 +2624,14 @@ func TestAppCompatResource(t *testing.T) {
 			Line:       5,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2641,7 +2653,7 @@ func TestRtlSuperscriptResource(t *testing.T) {
 				"android:textStyle": "superscript",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2658,7 +2670,7 @@ func TestRtlSuperscriptResource(t *testing.T) {
 				"android:textStyle": "subscript",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2672,7 +2684,7 @@ func TestRtlSuperscriptResource(t *testing.T) {
 				"android:textStyle": "bold",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2684,14 +2696,14 @@ func TestRtlSuperscriptResource(t *testing.T) {
 			Line:       5,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2717,7 +2729,7 @@ func TestAdapterViewChildrenResource(t *testing.T) {
 				{Type: "TextView", Line: 5, Attributes: map[string]string{}},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2735,7 +2747,7 @@ func TestAdapterViewChildrenResource(t *testing.T) {
 				{Type: "ImageView", Line: 5, Attributes: map[string]string{}},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2747,7 +2759,7 @@ func TestAdapterViewChildrenResource(t *testing.T) {
 			Line:       3,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2762,14 +2774,14 @@ func TestAdapterViewChildrenResource(t *testing.T) {
 				{Type: "TextView", Line: 3, Attributes: map[string]string{}},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2801,7 +2813,7 @@ func TestIncludeLayoutParamResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2822,14 +2834,14 @@ func TestIncludeLayoutParamResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2851,7 +2863,7 @@ func TestInvalidIdResource(t *testing.T) {
 				"android:id": "@+id/my view",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2865,7 +2877,7 @@ func TestInvalidIdResource(t *testing.T) {
 				"android:id": "my_view",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2880,7 +2892,7 @@ func TestInvalidIdResource(t *testing.T) {
 				"android:id": "@+id/my_view",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2895,7 +2907,7 @@ func TestInvalidIdResource(t *testing.T) {
 				"android:id": "@id/my_view",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2909,14 +2921,14 @@ func TestInvalidIdResource(t *testing.T) {
 				"android:id": "@android:id/empty",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2938,7 +2950,7 @@ func TestMissingPrefixResource(t *testing.T) {
 				"text": "Hello",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2955,7 +2967,7 @@ func TestMissingPrefixResource(t *testing.T) {
 				"id": "@+id/foo",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2969,7 +2981,7 @@ func TestMissingPrefixResource(t *testing.T) {
 				"android:text": "@string/hello",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2983,14 +2995,14 @@ func TestMissingPrefixResource(t *testing.T) {
 				"style": "@style/MyStyle",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3012,7 +3024,7 @@ func TestNamespaceTypoResource(t *testing.T) {
 				"xmlns:android": "http://schemas.android.com/apk/res/androd",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3029,7 +3041,7 @@ func TestNamespaceTypoResource(t *testing.T) {
 				"xmlns:android": "http://schemas.android.com/apk/res/android",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3043,14 +3055,14 @@ func TestNamespaceTypoResource(t *testing.T) {
 				"xmlns:app": "http://schemas.android.com/apk/res-auto",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3073,7 +3085,7 @@ func TestOrientationResource(t *testing.T) {
 				"android:layout_height": "match_parent",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3089,7 +3101,7 @@ func TestOrientationResource(t *testing.T) {
 				"android:orientation":   "vertical",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3104,14 +3116,14 @@ func TestOrientationResource(t *testing.T) {
 				"android:layout_height": "match_parent",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3133,7 +3145,7 @@ func TestSmallSpResource(t *testing.T) {
 				"android:textSize": "8sp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3150,7 +3162,7 @@ func TestSmallSpResource(t *testing.T) {
 				"android:textSize": "11sp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3164,7 +3176,7 @@ func TestSmallSpResource(t *testing.T) {
 				"android:textSize": "12sp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3178,7 +3190,7 @@ func TestSmallSpResource(t *testing.T) {
 				"android:textSize": "16sp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3192,14 +3204,14 @@ func TestSmallSpResource(t *testing.T) {
 				"android:textSize": "8dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3233,7 +3245,7 @@ func TestSuspicious0dpResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3262,7 +3274,7 @@ func TestSuspicious0dpResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3292,7 +3304,7 @@ func TestSuspicious0dpResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3319,14 +3331,14 @@ func TestSuspicious0dpResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3348,7 +3360,7 @@ func TestInOrMmUsageResource(t *testing.T) {
 				"android:layout_width": "10mm",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3365,7 +3377,7 @@ func TestInOrMmUsageResource(t *testing.T) {
 				"android:layout_height": "0.5in",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3382,7 +3394,7 @@ func TestInOrMmUsageResource(t *testing.T) {
 				"android:layout_width": "16dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3391,14 +3403,14 @@ func TestInOrMmUsageResource(t *testing.T) {
 	t.Run("mm in dimens triggers", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Dimensions["button_height"] = "5mm"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3413,7 +3425,7 @@ func TestStateListReachableResource(t *testing.T) {
 	r := findResourceRule(t, "StateListReachableResource")
 
 	t.Run("empty index returns no findings (placeholder)", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3443,7 +3455,7 @@ func TestScrollViewSizeResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3468,7 +3480,7 @@ func TestScrollViewSizeResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3490,7 +3502,7 @@ func TestScrollViewSizeResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3512,7 +3524,7 @@ func TestScrollViewSizeResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3534,14 +3546,14 @@ func TestScrollViewSizeResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3561,7 +3573,7 @@ func TestWrongCaseResource(t *testing.T) {
 			Line:       5,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3576,7 +3588,7 @@ func TestWrongCaseResource(t *testing.T) {
 			Line:       1,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3591,7 +3603,7 @@ func TestWrongCaseResource(t *testing.T) {
 			Line:       5,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3603,14 +3615,14 @@ func TestWrongCaseResource(t *testing.T) {
 			Line:       5,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3629,7 +3641,7 @@ func TestExtraTextResource(t *testing.T) {
 		idx.ExtraTexts = []android.ExtraTextEntry{
 			{FilePath: "res/values/strings.xml", Line: 3, Text: "some stray text"},
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3639,7 +3651,7 @@ func TestExtraTextResource(t *testing.T) {
 	})
 
 	t.Run("no extra text is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3661,7 +3673,7 @@ func TestIllegalResourceRefResource(t *testing.T) {
 				"android:background": "@/missing_type",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3678,7 +3690,7 @@ func TestIllegalResourceRefResource(t *testing.T) {
 				"android:background": "@badref",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3695,7 +3707,7 @@ func TestIllegalResourceRefResource(t *testing.T) {
 				"android:src": "@drawable/",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3714,7 +3726,7 @@ func TestIllegalResourceRefResource(t *testing.T) {
 				"android:id":         "@+id/title",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3728,7 +3740,7 @@ func TestIllegalResourceRefResource(t *testing.T) {
 				"android:background": "@null",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3742,14 +3754,14 @@ func TestIllegalResourceRefResource(t *testing.T) {
 				"android:text": "@android:string/ok",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3772,7 +3784,7 @@ func TestWrongFolderResource(t *testing.T) {
 			},
 		})
 		idx.Drawables = []string{"existing_icon"}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3790,7 +3802,7 @@ func TestWrongFolderResource(t *testing.T) {
 			},
 		})
 		idx.Drawables = []string{"existing_icon"}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3804,14 +3816,14 @@ func TestWrongFolderResource(t *testing.T) {
 				"android:src": "@drawable/anything",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3833,7 +3845,7 @@ func TestResAutoResource(t *testing.T) {
 				"xmlns:app": "http://schemas.android.com/apk/res/com.example.app",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3850,7 +3862,7 @@ func TestResAutoResource(t *testing.T) {
 				"xmlns:app": "http://schemas.android.com/apk/res-auto",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3864,14 +3876,14 @@ func TestResAutoResource(t *testing.T) {
 				"xmlns:android": "http://schemas.android.com/apk/res/android",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3903,7 +3915,7 @@ func TestUseCompoundDrawablesResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -3932,7 +3944,7 @@ func TestUseCompoundDrawablesResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3949,7 +3961,7 @@ func TestUseCompoundDrawablesResource(t *testing.T) {
 				{Type: "Button", Line: 7, Attributes: map[string]string{}},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -3965,14 +3977,14 @@ func TestUseCompoundDrawablesResource(t *testing.T) {
 				{Type: "TextView", Line: 5, Attributes: map[string]string{}},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4006,7 +4018,7 @@ func TestUnusedNamespaceResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4036,7 +4048,7 @@ func TestUnusedNamespaceResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4054,7 +4066,7 @@ func TestUnusedNamespaceResource(t *testing.T) {
 				"android:layout_height": "match_parent",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 2 {
 			t.Fatalf("expected 2 findings (app and tools), got %d", len(findings))
 		}
@@ -4069,14 +4081,14 @@ func TestUnusedNamespaceResource(t *testing.T) {
 				"android:layout_height": "match_parent",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4096,7 +4108,7 @@ func TestInvalidResourceFolderResource(t *testing.T) {
 			Line:       1,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4111,7 +4123,7 @@ func TestInvalidResourceFolderResource(t *testing.T) {
 			Line:       1,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4123,7 +4135,7 @@ func TestInvalidResourceFolderResource(t *testing.T) {
 			Line:       1,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4135,14 +4147,14 @@ func TestInvalidResourceFolderResource(t *testing.T) {
 			Line:       1,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4169,7 +4181,7 @@ func TestMissingIdResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4191,7 +4203,7 @@ func TestMissingIdResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4211,7 +4223,7 @@ func TestMissingIdResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4230,14 +4242,14 @@ func TestMissingIdResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4254,7 +4266,7 @@ func TestInconsistentArraysResource(t *testing.T) {
 	t.Run("empty array triggers", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.StringArrays["empty_array"] = []string{}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4266,14 +4278,14 @@ func TestInconsistentArraysResource(t *testing.T) {
 	t.Run("non-empty array is clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.StringArrays["colors"] = []string{"Red", "Green", "Blue"}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4293,7 +4305,7 @@ func TestWrongRegionResource(t *testing.T) {
 			Line:       1,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4308,7 +4320,7 @@ func TestWrongRegionResource(t *testing.T) {
 			Line:       1,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4320,14 +4332,14 @@ func TestWrongRegionResource(t *testing.T) {
 			Line:       1,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4349,7 +4361,7 @@ func TestUnusedAttributeResource(t *testing.T) {
 				"android:elevation": "4dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4366,7 +4378,7 @@ func TestUnusedAttributeResource(t *testing.T) {
 				"android:translationZ": "2dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4380,7 +4392,7 @@ func TestUnusedAttributeResource(t *testing.T) {
 				"android:stateListAnimator": "@null",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4394,14 +4406,14 @@ func TestUnusedAttributeResource(t *testing.T) {
 				"android:text": "@string/hello",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4418,7 +4430,7 @@ func TestStringFormatInvalidResource(t *testing.T) {
 	t.Run("bare percent at end triggers", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["greeting"] = "Hello %"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4430,7 +4442,7 @@ func TestStringFormatInvalidResource(t *testing.T) {
 	t.Run("invalid conversion char triggers", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["bad"] = "Value is %z"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4446,7 +4458,7 @@ func TestStringFormatInvalidResource(t *testing.T) {
 		idx.Strings["ok3"] = "100%% complete"
 		idx.Strings["ok4"] = "line%n"
 		idx.Strings["ok5"] = "hex: %x"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4455,14 +4467,14 @@ func TestStringFormatInvalidResource(t *testing.T) {
 	t.Run("no format specifiers is clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["plain"] = "Hello world"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean for StringFormatInvalid", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4479,7 +4491,7 @@ func TestStringFormatCountResource(t *testing.T) {
 	t.Run("gap in positional args triggers", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["msg"] = "%1$s and %3$s"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4494,7 +4506,7 @@ func TestStringFormatCountResource(t *testing.T) {
 	t.Run("consecutive positional args are clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["ok"] = "%1$s and %2$s"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4503,7 +4515,7 @@ func TestStringFormatCountResource(t *testing.T) {
 	t.Run("non-positional args are clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["ok"] = "%s and %d"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4512,14 +4524,14 @@ func TestStringFormatCountResource(t *testing.T) {
 	t.Run("single positional arg is clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["ok"] = "%1$s"
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean for StringFormatCount", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4539,7 +4551,7 @@ func TestStringFormatMatchesResource(t *testing.T) {
 			"one":   "%d item",
 			"other": "%s items",
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4554,7 +4566,7 @@ func TestStringFormatMatchesResource(t *testing.T) {
 			"one":   "%d item",
 			"other": "%d of %d items",
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4569,7 +4581,7 @@ func TestStringFormatMatchesResource(t *testing.T) {
 			"one":   "%d item",
 			"other": "%d items",
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4580,7 +4592,7 @@ func TestStringFormatMatchesResource(t *testing.T) {
 		idx.Plurals["items"] = map[string]string{
 			"other": "%d items",
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4592,14 +4604,14 @@ func TestStringFormatMatchesResource(t *testing.T) {
 			"one":   "item",
 			"other": "items",
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean for StringFormatMatches", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4638,7 +4650,7 @@ func TestNotSiblingResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4672,7 +4684,7 @@ func TestNotSiblingResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4693,7 +4705,7 @@ func TestNotSiblingResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4725,14 +4737,14 @@ func TestNotSiblingResource(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 2 {
 			t.Fatalf("expected 2 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean for NotSibling", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4755,7 +4767,7 @@ func TestCutPasteIdResource(t *testing.T) {
 				"android:id": "@+id/tv_submit",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4773,7 +4785,7 @@ func TestCutPasteIdResource(t *testing.T) {
 				"android:id": "@+id/btn_icon",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4788,7 +4800,7 @@ func TestCutPasteIdResource(t *testing.T) {
 				"android:id": "@+id/btn_submit",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4803,7 +4815,7 @@ func TestCutPasteIdResource(t *testing.T) {
 				"android:id": "@+id/submit",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4815,14 +4827,14 @@ func TestCutPasteIdResource(t *testing.T) {
 			Line:       5,
 			Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean for CutPasteId", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4857,7 +4869,7 @@ func TestDuplicateIncludedIdsResource(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -4886,7 +4898,7 @@ func TestDuplicateIncludedIdsResource(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4912,14 +4924,14 @@ func TestDuplicateIncludedIdsResource(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean for DuplicateIncludedIds", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -4962,7 +4974,7 @@ func TestInconsistentLayoutResource(t *testing.T) {
 			Booleans:     make(map[string]string),
 			IDs:          make(map[string]bool),
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding for different root types, got %d", len(findings))
 		}
@@ -5001,7 +5013,7 @@ func TestInconsistentLayoutResource(t *testing.T) {
 			Booleans:     make(map[string]string),
 			IDs:          make(map[string]bool),
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings for same structure, got %d", len(findings))
 		}
@@ -5011,7 +5023,7 @@ func TestInconsistentLayoutResource(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type: "LinearLayout", Line: 1, Attributes: map[string]string{},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings for single config, got %d", len(findings))
 		}
@@ -5048,7 +5060,7 @@ func TestInconsistentLayoutResource(t *testing.T) {
 			Booleans:     make(map[string]string),
 			IDs:          make(map[string]bool),
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding for different child counts, got %d", len(findings))
 		}
@@ -5102,7 +5114,7 @@ func TestInconsistentLayoutResource(t *testing.T) {
 			Booleans:     make(map[string]string),
 			IDs:          make(map[string]bool),
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding for different view counts, got %d", len(findings))
 		}
@@ -5112,7 +5124,7 @@ func TestInconsistentLayoutResource(t *testing.T) {
 	})
 
 	t.Run("empty index is clean for InconsistentLayout", func(t *testing.T) {
-		findings := r.CheckResources(emptyIndex())
+		findings := runResourceRule(r, emptyIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -5155,7 +5167,7 @@ func TestLocaleConfigStale(t *testing.T) {
 </locale-config>
 `)
 
-		findings := r.CheckResources(scan(t, resDir))
+		findings := runResourceRule(r, scan(t, resDir))
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -5177,7 +5189,7 @@ func TestLocaleConfigStale(t *testing.T) {
 </locale-config>
 `)
 
-		findings := r.CheckResources(scan(t, resDir))
+		findings := runResourceRule(r, scan(t, resDir))
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -5187,7 +5199,7 @@ func TestLocaleConfigStale(t *testing.T) {
 		resDir := filepath.Join(t.TempDir(), "res")
 		write(t, filepath.Join(resDir, "values", "strings.xml"), "<resources><string name=\"app_name\">App</string></resources>\n")
 
-		findings := r.CheckResources(scan(t, resDir))
+		findings := runResourceRule(r, scan(t, resDir))
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -5213,7 +5225,7 @@ func TestLayoutClickableWithoutMinSize(t *testing.T) {
 				"android:layout_height": "32dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -5231,7 +5243,7 @@ func TestLayoutClickableWithoutMinSize(t *testing.T) {
 				"android:layout_height": "48dp",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -5249,7 +5261,7 @@ func TestLayoutClickableWithoutMinSize(t *testing.T) {
 				"android:layout_height": "wrap_content",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -5271,7 +5283,7 @@ func TestLayoutEditTextMissingImportance(t *testing.T) {
 				"android:inputType": "textEmailAddress",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -5285,7 +5297,7 @@ func TestLayoutEditTextMissingImportance(t *testing.T) {
 				"android:importantForAutofill": "yes",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -5308,7 +5320,7 @@ func TestLayoutImportantForAccessibilityNo(t *testing.T) {
 				"android:clickable":                 "true",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -5322,7 +5334,7 @@ func TestLayoutImportantForAccessibilityNo(t *testing.T) {
 				"android:importantForAccessibility": "no",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -5344,7 +5356,7 @@ func TestLayoutAutofillHintMismatch(t *testing.T) {
 				"android:inputType": "textEmailAddress",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -5359,7 +5371,7 @@ func TestLayoutAutofillHintMismatch(t *testing.T) {
 				"android:autofillHints": "emailAddress",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -5373,7 +5385,7 @@ func TestLayoutAutofillHintMismatch(t *testing.T) {
 				"android:inputType": "text",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -5403,7 +5415,7 @@ func TestLayoutMinTouchTargetInButtonRow(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -5426,7 +5438,7 @@ func TestLayoutMinTouchTargetInButtonRow(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -5449,7 +5461,7 @@ func TestStringNotSelectable(t *testing.T) {
 				"android:text":            "Visit https://example.com for info",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -5464,7 +5476,7 @@ func TestStringNotSelectable(t *testing.T) {
 				"android:text":            "Hello World",
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -5498,7 +5510,7 @@ func TestStringRepeatedInContentDescription(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -5524,7 +5536,7 @@ func TestStringRepeatedInContentDescription(t *testing.T) {
 				},
 			},
 		})
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -5569,7 +5581,7 @@ func TestStringSpanInContentDescription(t *testing.T) {
 			Booleans:     make(map[string]string),
 			IDs:          make(map[string]bool),
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -5606,7 +5618,7 @@ func TestStringSpanInContentDescription(t *testing.T) {
 			Booleans:     make(map[string]string),
 			IDs:          make(map[string]bool),
 		}
-		findings := r.CheckResources(idx)
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}

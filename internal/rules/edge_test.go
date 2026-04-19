@@ -8,6 +8,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 	sitter "github.com/smacker/go-tree-sitter"
@@ -31,9 +32,9 @@ func parseInline(t *testing.T, code string) *scanner.File {
 func runRuleByName(t *testing.T, ruleName string, code string) []scanner.Finding {
 	t.Helper()
 	file := parseInline(t, code)
-	for _, r := range rules.Registry {
-		if r.Name() == ruleName {
-			d := rules.NewDispatcher([]rules.Rule{r})
+	for _, r := range v2rules.Registry {
+		if r.ID == ruleName {
+			d := rules.NewDispatcherV2([]*v2rules.Rule{r})
 			return d.Run(file)
 		}
 	}
@@ -421,13 +422,13 @@ class Foo {
         val y: String? = null
     }
 }`)
-	var allRules []rules.Rule
-	for _, r := range rules.Registry {
-		if rules.IsDefaultActive(r.Name()) {
+	var allRules []*v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if rules.IsDefaultActive(r.ID) {
 			allRules = append(allRules, r)
 		}
 	}
-	d := rules.NewDispatcher(allRules)
+	d := rules.NewDispatcherV2(allRules)
 	findings := d.Run(file)
 
 	for _, f := range findings {
@@ -603,9 +604,9 @@ func parseInlineWithName(t *testing.T, filename string, code string) *scanner.Fi
 func runMatchingDeclarationName(t *testing.T, filename string, code string) []scanner.Finding {
 	t.Helper()
 	file := parseInlineWithName(t, filename, code)
-	for _, r := range rules.Registry {
-		if r.Name() == "MatchingDeclarationName" {
-			d := rules.NewDispatcher([]rules.Rule{r})
+	for _, r := range v2rules.Registry {
+		if r.ID == "MatchingDeclarationName" {
+			d := rules.NewDispatcherV2([]*v2rules.Rule{r})
 			return d.Run(file)
 		}
 	}
@@ -880,9 +881,9 @@ func runRuleWithOracle(t *testing.T, code string, filePath string, diags []oracl
 	}
 	composite := oracle.NewCompositeResolver(fake, &stubResolver{})
 
-	var rule rules.Rule
-	for _, r := range rules.Registry {
-		if r.Name() == "UnreachableCode" {
+	var rule *v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if r.ID == "UnreachableCode" {
 			rule = r
 			break
 		}
@@ -891,7 +892,7 @@ func runRuleWithOracle(t *testing.T, code string, filePath string, diags []oracl
 		t.Fatal("UnreachableCode rule not found")
 	}
 
-	d := rules.NewDispatcher([]rules.Rule{rule}, composite)
+	d := rules.NewDispatcherV2([]*v2rules.Rule{rule}, composite)
 	return d.Run(f)
 }
 

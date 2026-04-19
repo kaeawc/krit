@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -20,9 +21,9 @@ func benchmarkRuleByName(b *testing.B, ruleName string, code string) {
 	if err != nil {
 		b.Fatalf("ParseFile(%s): %v", path, err)
 	}
-	var rule rules.Rule
-	for _, r := range rules.Registry {
-		if r.Name() == ruleName {
+	var rule *v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if r.ID == ruleName {
 			rule = r
 			break
 		}
@@ -30,7 +31,7 @@ func benchmarkRuleByName(b *testing.B, ruleName string, code string) {
 	if rule == nil {
 		b.Fatalf("rule %q not found", ruleName)
 	}
-	d := rules.NewDispatcher([]rules.Rule{rule})
+	d := rules.NewDispatcherV2([]*v2rules.Rule{rule})
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = d.Run(file)

@@ -11,7 +11,6 @@ import (
 	"github.com/muesli/reflow/wordwrap"
 
 	"github.com/kaeawc/krit/internal/onboarding"
-	"github.com/kaeawc/krit/internal/rules"
 )
 
 // ---------- styles ----------
@@ -134,9 +133,9 @@ func (m initModel) viewExplorer() string {
 		right.WriteString(dimStyle.Render("ruleset: " + item.ruleset + "   state: " + state))
 		right.WriteString("\n\n")
 
-		// Description (optional — only for rules implementing DescriptionProvider).
+		// Description (optional — only for rules with a non-empty description).
 		if item.ruleRef != nil {
-			if desc := rules.DescriptionOf(item.ruleRef); desc != "" {
+			if desc := item.ruleRef.Description; desc != "" {
 				right.WriteString(wordwrap.String(desc, rightWidth-6) + "\n\n")
 			}
 		}

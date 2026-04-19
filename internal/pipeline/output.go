@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/output"
-	"github.com/kaeawc/krit/internal/rules"
-	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -77,19 +75,6 @@ func (OutputPhase) Run(ctx context.Context, in OutputInput) (OutputResult, error
 	fileCount := len(in.FixupResult.KotlinFiles)
 	ruleCount := len(in.FixupResult.ActiveRules)
 
-	// Build a v1 rule slice for FormatJSONColumns (which uses it only to
-	// derive fix-level metadata). Convert once here rather than requiring
-	// callers to maintain a v1 copy.
-	var activeRulesV1 []rules.Rule
-	for _, r := range in.FixupResult.ActiveRules {
-		if r == nil {
-			continue
-		}
-		if v1r, ok := v2.ToV1(r).(rules.Rule); ok {
-			activeRulesV1 = append(activeRulesV1, v1r)
-		}
-	}
-
 	switch in.Format {
 	case "json":
 		if err := output.FormatJSONColumns(
@@ -100,7 +85,7 @@ func (OutputPhase) Run(ctx context.Context, in OutputInput) (OutputResult, error
 			ruleCount,
 			in.StartTime,
 			in.PerfTimings,
-			activeRulesV1,
+			in.FixupResult.ActiveRules,
 			in.ExperimentNames,
 			in.CacheStats,
 		); err != nil {

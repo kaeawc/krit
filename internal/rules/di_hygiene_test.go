@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -81,9 +82,12 @@ func TestAnvilMergeComponentEmptyScope(t *testing.T) {
 		t.Fatal("AnvilMergeComponentEmptyScope rule not registered")
 	}
 
-	crossFileRule, ok := rule.(interface{ CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding })
+	if !rule.Needs.Has(v2rules.NeedsCrossFile) {
+		t.Fatal("AnvilMergeComponentEmptyScope does not declare NeedsCrossFile")
+	}
+	crossFileRule, ok := rule.OriginalV1.(interface{ CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding })
 	if !ok {
-		t.Fatal("AnvilMergeComponentEmptyScope does not implement CheckCrossFile")
+		t.Fatal("AnvilMergeComponentEmptyScope OriginalV1 does not implement CheckCrossFile")
 	}
 
 	root := fixtureRoot(t)

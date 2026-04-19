@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/rules"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -157,10 +157,10 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 
 	// Build description map from rule registry.
 	descMap := make(map[string]string)
-	for _, r := range rules.Registry {
-		key := r.RuleSet() + "/" + r.Name()
-		if d := r.Description(); d != "" {
-			descMap[key] = d
+	for _, r := range v2.Registry {
+		key := r.Category + "/" + r.ID
+		if r.Description != "" {
+			descMap[key] = r.Description
 		}
 	}
 

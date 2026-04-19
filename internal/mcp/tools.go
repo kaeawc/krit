@@ -11,6 +11,7 @@ import (
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/rules"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -283,7 +284,8 @@ func (s *Server) toolSuggestFixes(arguments json.RawMessage) ToolResult {
 			if r == nil {
 				return false
 			}
-			return rules.GetFixLevel(r) <= maxLevel
+			lvl, _ := rules.GetV2FixLevel(r)
+				return lvl <= maxLevel
 		})
 	}
 
@@ -310,23 +312,19 @@ func (s *Server) toolExplainRule(arguments json.RawMessage) ToolResult {
 		return errorResult("unknown rule: " + args.Rule)
 	}
 
-	fixable := false
-	if fr, ok := r.(rules.FixableRule); ok {
-		fixable = fr.IsFixable()
-	}
-
+	fixLvl, fixable := rules.GetV2FixLevel(r)
 	fixLevel := ""
 	if fixable {
-		fixLevel = rules.GetFixLevel(r).String()
+		fixLevel = fixLvl.String()
 	}
 
-	active := rules.IsDefaultActive(r.Name())
+	active := rules.IsDefaultActive(r.ID)
 
 	info := map[string]interface{}{
-		"name":        r.Name(),
-		"description": r.Description(),
-		"ruleSet":     r.RuleSet(),
-		"severity":    r.Severity(),
+		"name":        r.ID,
+		"description": r.Description,
+		"ruleSet":     r.Category,
+		"severity":    string(r.Sev),
 		"active":      active,
 		"fixable":     fixable,
 	}
@@ -340,10 +338,10 @@ func (s *Server) toolExplainRule(arguments json.RawMessage) ToolResult {
 	}
 }
 
-// findRule looks up a rule by name in the registry.
-func findRule(name string) rules.Rule {
-	for _, r := range rules.Registry {
-		if r.Name() == name {
+// findRule looks up a rule by name in the v2 registry.
+func findRule(name string) *v2.Rule {
+	for _, r := range v2.Registry {
+		if r.ID == name {
 			return r
 		}
 	}
@@ -448,7 +446,9 @@ func fixableToResultColumns(columns *scanner.FindingColumns) ToolResult {
 		level := "semantic"
 		ruleName := columns.RuleAt(row)
 		if r := findRule(ruleName); r != nil {
-			level = rules.GetFixLevel(r).String()
+			if lvl, ok := rules.GetV2FixLevel(r); ok {
+				level = lvl.String()
+			}
 		}
 		fix := columns.FixAt(row)
 		items = append(items, fixJSON{
@@ -906,7 +906,7 @@ func (s *Server) toolAnalyzeAndroid(arguments json.RawMessage) ToolResult {
 
 	collector := scanner.NewFindingCollector(len(proj.ManifestPaths)*4 + len(proj.ResDirs)*8 + len(proj.GradlePaths)*4)
 
-	dispatcher := rules.NewDispatcher(rules.Registry)
+	dispatcher := rules.NewDispatcherV2(v2.Registry)
 
 	// Manifest analysis
 	if scope == "manifest" || scope == "all" {

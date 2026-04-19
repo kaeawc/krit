@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"unicode"
 
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -30,21 +29,6 @@ type BuildConfigDebugInLibraryRule struct {
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *BuildConfigDebugInLibraryRule) Confidence() float64 { return 0.75 }
 
-func (r *BuildConfigDebugInLibraryRule) NodeTypes() []string {
-	return []string{"navigation_expression"}
-}
-
-func (r *BuildConfigDebugInLibraryRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !isBuildConfigDebugReferenceFlat(file, idx) {
-		return nil
-	}
-	if !isAndroidLibrarySourceFile(file.Path) {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-		"BuildConfig.DEBUG in an Android library module is false in consumer release builds; this guard may silently drop its body.")}
-}
-
 // BuildConfigDebugInvertedRule flags `if (!BuildConfig.DEBUG) { ...logging... }`
 // patterns where debug-only logging appears to be guarded in the opposite
 // direction.
@@ -57,23 +41,6 @@ type BuildConfigDebugInvertedRule struct {
 // files for configuration drift and plugin hygiene; matches are
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *BuildConfigDebugInvertedRule) Confidence() float64 { return 0.75 }
-
-func (r *BuildConfigDebugInvertedRule) NodeTypes() []string {
-	return []string{"if_expression"}
-}
-
-func (r *BuildConfigDebugInvertedRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	condition, body := ifConditionAndThenBodyFlat(file, idx)
-	if !isNegatedBuildConfigDebugConditionFlat(file, condition) {
-		return nil
-	}
-	if !containsLoggingCallFlat(file, body) {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Negated BuildConfig.DEBUG guard wraps logging; this likely inverts a debug-only log check.")}
-}
 
 // AllProjectsBlockRule flags deprecated allprojects { } usage in Gradle build
 // scripts. Convention plugins or settings-level repositories are the
@@ -96,57 +63,10 @@ type HardcodedEnvironmentNameRule struct {
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *AllProjectsBlockRule) Confidence() float64 { return 0.75 }
 
-func (r *AllProjectsBlockRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *AllProjectsBlockRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !isGradleBuildScript(file.Path) {
-		return nil
-	}
-	if flatCallExpressionName(file, idx) != "allprojects" {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-		"`allprojects {}` is deprecated in Gradle 8.x; move shared configuration to settings-level repositories or convention plugins.")}
-}
-
 // Confidence reports a tier-2 (medium) base confidence. Release-engineering rule. Detection scans module metadata and Gradle
 // files for configuration drift and plugin hygiene; matches are
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *HardcodedEnvironmentNameRule) Confidence() float64 { return 0.75 }
-
-func (r *HardcodedEnvironmentNameRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *HardcodedEnvironmentNameRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	funcName := flatCallExpressionName(file, idx)
-	if !isEnvironmentConfigCallName(funcName) {
-		return nil
-	}
-
-	_, args := flatCallExpressionParts(file, idx)
-	if args == 0 {
-		return nil
-	}
-
-	for i := 0; i < file.FlatChildCount(args); i++ {
-		arg := file.FlatChild(args, i)
-		if arg == 0 || file.FlatType(arg) != "value_argument" {
-			continue
-		}
-		literal := hardcodedEnvironmentLiteralFlat(file, arg)
-		if literal == "" {
-			continue
-		}
-
-		return []scanner.Finding{r.Finding(file, file.FlatRow(arg)+1, file.FlatCol(arg)+1,
-			fmt.Sprintf("Hardcoded environment name %q passed to %s(); prefer a build- or runtime-provided environment value.", literal, funcName))}
-	}
-
-	return nil
-}
 
 // ConventionPluginDeadCodeRule flags precompiled convention plugins declared
 // under build-logic/ or buildSrc/ that are not applied by any module.
@@ -681,47 +601,7 @@ type DebugToastInProductionRule struct {
 
 func (r *DebugToastInProductionRule) Confidence() float64 { return 0.85 }
 
-func (r *DebugToastInProductionRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
 var debugToastPrefixRe = regexp.MustCompile(`(?i)^["'](debug|test|wip)`)
-
-func (r *DebugToastInProductionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if isTestFile(file.Path) {
-		return nil
-	}
-	name := flatCallExpressionName(file, idx)
-	if name != "makeText" {
-		return nil
-	}
-	receiver := flatReceiverNameFromCall(file, idx)
-	if receiver != "Toast" {
-		return nil
-	}
-	_, args := flatCallExpressionParts(file, idx)
-	if args == 0 {
-		return nil
-	}
-	// Second argument is the message (first is context)
-	argCount := 0
-	for i := 0; i < file.FlatChildCount(args); i++ {
-		arg := file.FlatChild(args, i)
-		if arg == 0 || file.FlatType(arg) != "value_argument" {
-			continue
-		}
-		argCount++
-		if argCount == 2 {
-			text := strings.TrimSpace(file.FlatNodeText(arg))
-			if debugToastPrefixRe.MatchString(text) {
-				return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Toast message starts with a debug prefix; remove or guard behind BuildConfig.DEBUG.")}
-			}
-			break
-		}
-	}
-	return nil
-}
 
 // MergeConflictMarkerLeftoverRule flags unresolved merge conflict markers.
 type MergeConflictMarkerLeftoverRule struct {
@@ -758,47 +638,9 @@ type PrintlnInProductionRule struct {
 
 func (r *PrintlnInProductionRule) Confidence() float64 { return 0.85 }
 
-func (r *PrintlnInProductionRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
 var printlnNames = map[string]bool{
 	"println": true,
 	"print":   true,
-}
-
-func (r *PrintlnInProductionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if isTestFile(file.Path) {
-		return nil
-	}
-	name := flatCallExpressionName(file, idx)
-	receiver := flatReceiverNameFromCall(file, idx)
-
-	isPrint := false
-	if printlnNames[name] && receiver == "" {
-		isPrint = true
-	}
-	if (name == "println" || name == "print") && (receiver == "System.out" || receiver == "System.err") {
-		isPrint = true
-	}
-	if !isPrint {
-		return nil
-	}
-
-	// Exclude if inside a top-level fun main()
-	if enclosing, ok := flatEnclosingFunction(file, idx); ok && enclosing != 0 {
-		funcText := flatFunctionName(file, enclosing)
-		if funcText == "main" {
-			if parent, ok := file.FlatParent(enclosing); ok {
-				if file.FlatType(parent) == "source_file" {
-					return nil
-				}
-			}
-		}
-	}
-
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"println/print in production code; use a logging framework instead.")}
 }
 
 // PrintStackTraceInProductionRule flags e.printStackTrace() calls in non-test
@@ -810,10 +652,6 @@ type PrintStackTraceInProductionRule struct {
 
 func (r *PrintStackTraceInProductionRule) Confidence() float64 { return 0.85 }
 
-func (r *PrintStackTraceInProductionRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
 var loggingImports = []string{
 	"timber.log.Timber",
 	"android.util.Log",
@@ -823,21 +661,6 @@ var loggingImports = []string{
 	"mu.KotlinLogging",
 	"ch.qos.logback.",
 	"org.apache.logging.",
-}
-
-func (r *PrintStackTraceInProductionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if isTestFile(file.Path) {
-		return nil
-	}
-	name := flatCallExpressionName(file, idx)
-	if name != "printStackTrace" {
-		return nil
-	}
-	if !hasLoggingImport(file) {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"printStackTrace() in code with a logging framework; use the logger to record the exception.")}
 }
 
 func hasLoggingImport(file *scanner.File) bool {
@@ -957,34 +780,6 @@ type NonAsciiIdentifierRule struct {
 
 func (r *NonAsciiIdentifierRule) Confidence() float64 { return 0.95 }
 
-func (r *NonAsciiIdentifierRule) NodeTypes() []string {
-	return []string{"class_declaration", "function_declaration", "property_declaration"}
-}
-
-func (r *NonAsciiIdentifierRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if isTestFile(file.Path) {
-		return nil
-	}
-	var name string
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		child := file.FlatChild(idx, i)
-		if file.FlatType(child) == "simple_identifier" || file.FlatType(child) == "type_identifier" {
-			name = file.FlatNodeText(child)
-			break
-		}
-	}
-	if name == "" {
-		return nil
-	}
-	for _, ch := range name {
-		if ch > 127 && !unicode.IsControl(ch) {
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				fmt.Sprintf("Non-ASCII character in identifier %q; this may cause issues in non-UTF-8 build environments.", name))}
-		}
-	}
-	return nil
-}
-
 // HardcodedLogTagRule flags Log.d("ClassName", ...) where the tag matches
 // the enclosing class name instead of using a companion TAG constant.
 type HardcodedLogTagRule struct {
@@ -994,47 +789,8 @@ type HardcodedLogTagRule struct {
 
 func (r *HardcodedLogTagRule) Confidence() float64 { return 0.80 }
 
-func (r *HardcodedLogTagRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
 var logLevelMethods = map[string]bool{
 	"v": true, "d": true, "i": true, "w": true, "e": true, "wtf": true,
-}
-
-func (r *HardcodedLogTagRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	name := flatCallExpressionName(file, idx)
-	if !logLevelMethods[name] {
-		return nil
-	}
-	receiver := flatReceiverNameFromCall(file, idx)
-	if receiver != "Log" {
-		return nil
-	}
-	_, args := flatCallExpressionParts(file, idx)
-	if args == 0 {
-		return nil
-	}
-	// First argument is the tag
-	for i := 0; i < file.FlatChildCount(args); i++ {
-		arg := file.FlatChild(args, i)
-		if arg == 0 || file.FlatType(arg) != "value_argument" {
-			continue
-		}
-		text := strings.TrimSpace(file.FlatNodeText(arg))
-		unquoted, err := strconv.Unquote(text)
-		if err != nil {
-			return nil
-		}
-
-		className := flatEnclosingClassName(file, idx)
-		if className != "" && unquoted == className {
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				fmt.Sprintf("Log tag %q matches enclosing class name; hoist to a companion `TAG` constant.", unquoted))}
-		}
-		return nil
-	}
-	return nil
 }
 
 func flatEnclosingClassName(file *scanner.File, idx uint32) string {

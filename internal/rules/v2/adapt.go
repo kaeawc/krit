@@ -32,8 +32,9 @@ func AdaptFlatDispatch(id, category, desc string, sev Severity, nodeTypes []stri
 		SetResolverHook: o.setResolverHook,
 		OriginalV1:      o.originalV1,
 		Check: func(ctx *Context) {
-			findings := check(ctx.Idx, ctx.File)
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range check(ctx.Idx, ctx.File) {
+				ctx.Emit(f)
+			}
 		},
 	}
 }
@@ -56,8 +57,9 @@ func AdaptLine(id, category, desc string, sev Severity,
 		Oracle:          o.oracle,
 		SetResolverHook: o.setResolverHook,
 		Check: func(ctx *Context) {
-			findings := check(ctx.File)
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range check(ctx.File) {
+				ctx.Emit(f)
+			}
 		},
 	}
 }
@@ -79,8 +81,9 @@ func AdaptCrossFile(id, category, desc string, sev Severity,
 		Confidence:  o.confidence,
 		Oracle:      o.oracle,
 		Check: func(ctx *Context) {
-			findings := check(ctx.CodeIndex)
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range check(ctx.CodeIndex) {
+				ctx.Emit(f)
+			}
 		},
 	}
 }
@@ -102,8 +105,9 @@ func AdaptParsedFiles(id, category, desc string, sev Severity,
 		Confidence:  o.confidence,
 		Oracle:      o.oracle,
 		Check: func(ctx *Context) {
-			findings := check(ctx.ParsedFiles)
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range check(ctx.ParsedFiles) {
+				ctx.Emit(f)
+			}
 		},
 	}
 }
@@ -185,8 +189,9 @@ func AdaptModuleAware(id, category, desc string, sev Severity,
 		Confidence:  o.confidence,
 		Oracle:      o.oracle,
 		Check: func(ctx *Context) {
-			findings := check(ctx.ModuleIndex)
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range check(ctx.ModuleIndex) {
+				ctx.Emit(f)
+			}
 		},
 	}
 }
@@ -213,8 +218,9 @@ func AdaptManifest(id, category, desc string, sev Severity,
 		Confidence:  o.confidence,
 		Oracle:      o.oracle,
 		Check: func(ctx *Context) {
-			findings := check(ctx.Manifest)
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range check(ctx.Manifest) {
+				ctx.Emit(f)
+			}
 		},
 	}
 }
@@ -239,8 +245,9 @@ func AdaptResource(id, category, desc string, sev Severity,
 		Confidence:  o.confidence,
 		Oracle:      o.oracle,
 		Check: func(ctx *Context) {
-			findings := check(ctx.ResourceIndex)
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range check(ctx.ResourceIndex) {
+				ctx.Emit(f)
+			}
 		},
 	}
 }
@@ -265,8 +272,9 @@ func AdaptGradle(id, category, desc string, sev Severity,
 		Confidence:  o.confidence,
 		Oracle:      o.oracle,
 		Check: func(ctx *Context) {
-			findings := check(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig)
-			ctx.Findings = append(ctx.Findings, findings...)
+			for _, f := range check(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+				ctx.Emit(f)
+			}
 		},
 	}
 }
@@ -306,8 +314,9 @@ func AdaptAggregate(id, category, desc string, sev Severity, nodeTypes []string,
 			},
 			Finalize: func(ctx *Context) {
 				if finalize != nil {
-					findings := finalize(ctx.File)
-					ctx.Findings = append(ctx.Findings, findings...)
+					for _, f := range finalize(ctx.File) {
+						ctx.Emit(f)
+					}
 				}
 			},
 			Reset: func() {

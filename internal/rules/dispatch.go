@@ -99,8 +99,7 @@ func (d *Dispatcher) RunWithStats(file *scanner.File) ([]scanner.Finding, RunSta
 // RunColumnsWithStats executes all rules on a file using single-pass dispatch
 // and returns filtered findings in columnar form plus execution stats.
 func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingColumns, RunStats) {
-	findings, stats := d.v2.RunWithStats(file)
-	return scanner.CollectFindings(findings), stats
+	return d.v2.RunColumnsWithStats(file)
 }
 
 // Stats returns counts for logging.

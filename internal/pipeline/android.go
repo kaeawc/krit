@@ -381,19 +381,7 @@ func (p *AndroidProjectProviders) icon(resDir string) *android.IconScanFuture {
 	return p.iconFutures[resDir]
 }
 
-// CollectAndroidDependencies returns the union of every active rule's
-// Android data dependency mask. Used to decide which resource/icon
-// futures to spin up.
-func CollectAndroidDependencies(activeRules []rules.Rule) rules.AndroidDataDependency {
-	var deps rules.AndroidDataDependency
-	for _, rule := range activeRules {
-		deps |= rules.AndroidDependenciesOf(rule)
-	}
-	return deps
-}
-
-// CollectAndroidDependenciesV2 is the v2-native equivalent of
-// CollectAndroidDependencies. It reads AndroidDeps directly from
+// CollectAndroidDependenciesV2 reads AndroidDeps directly from
 // v2.Rule.AndroidDeps, falling back to the v1 wrapper for rules that
 // set the field at registration time.
 func CollectAndroidDependenciesV2(activeRules []*v2.Rule) rules.AndroidDataDependency {

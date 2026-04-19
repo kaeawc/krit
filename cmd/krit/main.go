@@ -1302,14 +1302,19 @@ potential-bugs:
 	}
 }
 
-func filterFixesByLevelColumns(columns *scanner.FindingColumns, registry []rules.Rule, maxLevel rules.FixLevel) (fixableCount, strippedByLevel int) {
+func filterFixesByLevelColumns(columns *scanner.FindingColumns, registry []*v2rules.Rule, maxLevel rules.FixLevel) (fixableCount, strippedByLevel int) {
 	if columns == nil {
 		return 0, 0
 	}
 
 	ruleLevels := make(map[string]rules.FixLevel, len(registry))
 	for _, r := range registry {
-		ruleLevels[r.Name()] = rules.GetFixLevel(r)
+		if r == nil {
+			continue
+		}
+		if lvl, ok := rules.GetV2FixLevel(r); ok {
+			ruleLevels[r.ID] = lvl
+		}
 	}
 
 	strippedByLevel = columns.StripTextFixes(func(row int) bool {
@@ -1502,17 +1507,6 @@ func phaseWorkerCount(phase string, maxWorkers, workItems int) int {
 
 
 
-
-func countActive(registry []rules.Rule) int {
-	inactive := rules.DefaultInactive
-	count := 0
-	for _, r := range registry {
-		if !inactive[r.Name()] {
-			count++
-		}
-	}
-	return count
-}
 
 func countActiveV2(registry []*v2rules.Rule) int {
 	count := 0

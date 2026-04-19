@@ -122,28 +122,3 @@ func setDefaultConfidence(findings []scanner.Finding, confidence float64) {
 	}
 }
 
-// setRuleConfidence applies a rule's declared base confidence to any
-// findings that have not set their own, falling back to the rule-type
-// default when the rule does not declare a Confidence() float64 method.
-func setRuleConfidence(findings []scanner.Finding, r Rule, fallback float64) {
-	ApplyRuleConfidence(findings, r, fallback)
-}
-
-// ApplyRuleConfidence is the exported version of setRuleConfidence
-// used by call sites outside the dispatcher (cmd/krit for cross-file
-// and module-aware rule execution). Per-finding overrides still win
-// — the rule's base confidence is only applied to findings whose
-// Confidence field is zero.
-//
-// fallback should be the same per-family default the dispatcher
-// uses: 0.95 for cross-file/module-aware rules (AST-level accuracy
-// when the index is correct), or the appropriate default for the
-// rule family. Rules that want to advertise a lower confidence
-// declare a Confidence() float64 method.
-func ApplyRuleConfidence(findings []scanner.Finding, r Rule, fallback float64) {
-	confidence := ConfidenceOf(r)
-	if confidence == 0 {
-		confidence = fallback
-	}
-	setDefaultConfidence(findings, confidence)
-}

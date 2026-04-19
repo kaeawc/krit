@@ -351,32 +351,31 @@ func TestDispatcher_ExplicitFindingConfidenceBeatsRuleDefault(t *testing.T) {
 	}
 }
 
-func TestIsImplemented_DetectsFlatDispatchRule(t *testing.T) {
-	rule := &testFlatDispatchRule{BaseRule: BaseRule{RuleName: "Flat", RuleSetName: "test", Sev: "warning"}}
-	if !IsImplemented(rule) {
+func TestIsImplementedV2_DetectsFlatDispatchRule(t *testing.T) {
+	rule := v2.FakeRule("Flat",
+		v2.WithNodeTypes("call_expression"),
+		v2.WithCheck(func(ctx *v2.Context) {}),
+	)
+	if !IsImplementedV2(rule) {
 		t.Fatal("expected a flat-dispatch rule to be classified as implemented")
 	}
 }
 
-func TestIsImplemented_DetectsStub(t *testing.T) {
-	rule := &stubOnlyRule{BaseRule: BaseRule{RuleName: "Stub", RuleSetName: "test", Sev: "warning"}}
-	if IsImplemented(rule) {
-		t.Fatal("expected a rule implementing only the base Rule interface to be classified as stub")
+func TestIsImplementedV2_DetectsStub(t *testing.T) {
+	rule := &v2.Rule{ID: "Stub", Category: "test"}
+	if IsImplementedV2(rule) {
+		t.Fatal("expected a rule with no NodeTypes/Needs to be classified as stub")
 	}
 }
 
-func TestIsImplemented_RegistryHasFewStubs(t *testing.T) {
+func TestIsImplementedV2_RegistryHasFewStubs(t *testing.T) {
 	stubs := 0
-	for _, r := range Registry {
-		if !IsImplemented(r) {
+	for _, r := range v2.Registry {
+		if !IsImplementedV2(r) {
 			stubs++
 		}
 	}
-	// Guard against accidental regressions of the stub classifier. The
-	// exact number is free to change as rules are implemented, but a
-	// large jump would indicate either a new stub got in or the
-	// classifier broke.
 	if stubs > 25 {
-		t.Fatalf("stub count grew unexpectedly: %d stubs in registry of %d rules; if this is intentional, raise the threshold", stubs, len(Registry))
+		t.Fatalf("stub count grew unexpectedly: %d stubs in v2 registry of %d rules; if intentional, raise threshold", stubs, len(v2.Registry))
 	}
 }

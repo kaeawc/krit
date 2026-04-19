@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -115,110 +114,8 @@ func (f *OracleFilter) NeverNeedsOracle() bool {
 // a specific edge-case branch). The base is applied only to findings
 // that leave Confidence unset (zero).
 
-// ConfidenceOf returns the base confidence for a rule. Rules that do
-// not provide a Confidence() method return 0, which tells the dispatcher
-// to fall back to the rule-type default.
-func ConfidenceOf(r Rule) float64 {
-	if cp, ok := r.(interface{ Confidence() float64 }); ok {
-		return cp.Confidence()
-	}
-	return 0
-}
-
-// DescriptionOf returns the description for a rule.
-func DescriptionOf(r Rule) string {
-	return r.Description()
-}
-
-// allFilesFilter is the conservative default returned for rules that
-// do not expose an OracleFilter() method. Shared so GetOracleFilter does
-// not allocate on the hot path.
-var allFilesFilter = &OracleFilter{AllFiles: true}
-
-// GetOracleFilter returns the effective OracleFilter for a rule. Rules
-// that do not expose an OracleFilter() method default to AllFiles: true
-// (conservative — the rule has not been audited so the oracle is always
-// run for its files). A provider that returns nil is also treated as the
-// conservative default.
-func GetOracleFilter(r Rule) *OracleFilter {
-	if p, ok := r.(interface{ OracleFilter() *OracleFilter }); ok {
-		if f := p.OracleFilter(); f != nil {
-			return f
-		}
-	}
-	return allFilesFilter
-}
-
-// IsImplemented reports whether a rule has a real implementation path
-// behind it — i.e. it satisfies at least one of the concrete
-// rule-family method sets (flat dispatch, line, aggregate, cross-file,
-// parsed-files, module-aware, manifest, resource, gradle) or declares
-// a non-zero Android data dependency (which routes it through the
-// Android resource/icon/etc. pipelines rather than the AST dispatcher).
-//
-// Rules that return false are pure placeholders: their Check() method
-// returns nil, they don't implement any of the above, and they don't
-// carry any Android data metadata. They inflate the advertised rule
-// count without producing findings.
-//
-// This is the roadmap/17 Phase 6 stub detector — used by --list-rules
-// to split the headline count into implemented vs stub.
-func IsImplemented(r Rule) bool {
-	if _, ok := r.(interface {
-		CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding
-	}); ok {
-		return true
-	}
-	if _, ok := r.(interface {
-		CheckLines(file *scanner.File) []scanner.Finding
-	}); ok {
-		return true
-	}
-	if _, ok := r.(interface {
-		AggregateNodeTypes() []string
-		CollectFlatNode(idx uint32, file *scanner.File)
-		Finalize(file *scanner.File) []scanner.Finding
-		Reset()
-	}); ok {
-		return true
-	}
-	if _, ok := r.(interface {
-		CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding
-	}); ok {
-		return true
-	}
-	if _, ok := r.(interface {
-		CheckParsedFiles(files []*scanner.File) []scanner.Finding
-	}); ok {
-		return true
-	}
-	if _, ok := r.(interface {
-		CheckModuleAware() []scanner.Finding
-	}); ok {
-		return true
-	}
-	if _, ok := r.(interface {
-		CheckManifest(m *Manifest) []scanner.Finding
-	}); ok {
-		return true
-	}
-	if _, ok := r.(interface {
-		CheckResources(idx *android.ResourceIndex) []scanner.Finding
-	}); ok {
-		return true
-	}
-	if _, ok := r.(interface {
-		CheckGradle(path string, content string, cfg *android.BuildConfig) []scanner.Finding
-	}); ok {
-		return true
-	}
-	if AndroidDependenciesOf(r) != AndroidDepNone {
-		return true
-	}
-	return false
-}
-
-// Registry holds all registered rules.
+// Registry holds all registered rules. No longer populated in production;
+// retained only for compatibility with tests that have not yet been migrated.
 var Registry []Rule
 
 // Register adds a rule to the global registry.

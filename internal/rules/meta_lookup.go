@@ -3,6 +3,7 @@ package rules
 import (
 	"github.com/kaeawc/krit/internal/rules/registry"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // MetaForV2Rule returns the RuleDescriptor for a v2 rule.
@@ -64,8 +65,15 @@ func V2RulePrecision(r *v2.Rule) Precision {
 	if r.Needs.Has(v2.NeedsModuleIndex) {
 		return PrecisionProjectStructure
 	}
-	if r.Needs.Has(v2.NeedsResolver) {
+	if r.Needs.Has(v2.NeedsResolver) || r.SetResolverHook != nil {
 		return PrecisionTypeAware
+	}
+	if r.OriginalV1 != nil {
+		if _, ok := r.OriginalV1.(interface {
+			SetResolver(typeinfer.TypeResolver)
+		}); ok {
+			return PrecisionTypeAware
+		}
 	}
 	if len(r.NodeTypes) > 0 {
 		return PrecisionASTBacked

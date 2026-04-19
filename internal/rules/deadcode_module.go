@@ -30,37 +30,6 @@ type ModuleAwareRuleTuning interface {
 	ModuleAwareNeeds() ModuleAwareNeeds
 }
 
-// CollectModuleAwareNeeds collapses the requirements for the currently-active
-// module-aware rules so callers can avoid paying for unused analysis stages.
-func CollectModuleAwareNeeds(activeRules []Rule) ModuleAwareNeeds {
-	var needs ModuleAwareNeeds
-	for _, rule := range activeRules {
-		if _, ok := rule.(interface {
-			SetModuleIndex(pmi *module.PerModuleIndex)
-			CheckModuleAware() []scanner.Finding
-		}); !ok {
-			continue
-		}
-		current := ModuleAwareNeeds{
-			NeedsFiles:        true,
-			NeedsDependencies: true,
-			NeedsIndex:        true,
-		}
-		if tuned, ok := rule.(interface {
-			ModuleAwareNeeds() ModuleAwareNeeds
-		}); ok {
-			current = tuned.ModuleAwareNeeds()
-		}
-		if current.NeedsIndex {
-			current.NeedsFiles = true
-		}
-		needs.NeedsFiles = needs.NeedsFiles || current.NeedsFiles
-		needs.NeedsDependencies = needs.NeedsDependencies || current.NeedsDependencies
-		needs.NeedsIndex = needs.NeedsIndex || current.NeedsIndex
-	}
-	return needs
-}
-
 // CollectModuleAwareNeedsV2 collapses the requirements for v2 module-aware
 // rules so callers can avoid paying for unused analysis stages.
 func CollectModuleAwareNeedsV2(activeRules []*v2.Rule) ModuleAwareNeeds {

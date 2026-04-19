@@ -42,31 +42,6 @@ func ParseFixLevel(s string) (FixLevel, bool) {
 	}
 }
 
-// Fixable rules declare their safety level structurally by exposing a
-// `FixLevel() FixLevel` method. GetFixLevel type-asserts to an anonymous
-// interface at the call site; rules without the method default to FixSemantic.
-
-// v2FixLevelCarrier is the interface implemented by v2 compat wrappers that
-// carry a fix level from the underlying v2.Rule. It returns the level as an
-// int to avoid an import cycle between rules and rules/v2. A zero value means
-// the wrapped rule declared no fix level.
-type v2FixLevelCarrier interface {
-	V1FixLevel() int
-}
-
-// GetFixLevel returns the fix level of a rule (defaults to FixSemantic).
-func GetFixLevel(r Rule) FixLevel {
-	if fl, ok := r.(interface{ FixLevel() FixLevel }); ok {
-		return fl.FixLevel()
-	}
-	if v, ok := r.(v2FixLevelCarrier); ok {
-		if lvl := v.V1FixLevel(); lvl != 0 {
-			return FixLevel(lvl)
-		}
-	}
-	return FixSemantic
-}
-
 // GetV2FixLevel returns the fix level for a v2 rule. It reads r.Fix when set
 // (non-zero), otherwise falls back to the v1 OriginalV1 FixLevel() method.
 // Returns (0, false) when the rule is not fixable.

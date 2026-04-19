@@ -543,59 +543,7 @@ type UnderscoresInNumericLiteralsRule struct {
 // Classified per roadmap/17.
 func (r *UnderscoresInNumericLiteralsRule) Confidence() float64 { return 0.75 }
 
-func (r *UnderscoresInNumericLiteralsRule) NodeTypes() []string {
-	return []string{"integer_literal", "long_literal"}
-}
 
-func (r *UnderscoresInNumericLiteralsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	clean := strings.TrimRight(text, "lLfFdD")
-	if strings.HasPrefix(clean, "0x") || strings.HasPrefix(clean, "0b") || strings.HasPrefix(clean, "0o") {
-		return nil
-	}
-	if strings.Contains(clean, "_") {
-		return nil
-	}
-	// Count actual digits (excluding decimal point for float literals)
-	digitCount := 0
-	for _, c := range clean {
-		if c >= '0' && c <= '9' {
-			digitCount++
-		}
-	}
-	// Skip numbers with fewer digits than acceptableLength
-	acceptLen := r.AcceptableLength
-	if acceptLen <= 0 {
-		acceptLen = 5
-	}
-	if digitCount < acceptLen {
-		return nil
-	}
-	val := 0
-	for _, c := range clean {
-		if c >= '0' && c <= '9' {
-			val = val*10 + int(c-'0')
-		}
-	}
-	if val >= r.Threshold {
-		f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-			fmt.Sprintf("Numeric literal '%s' should use underscores for readability.", text))
-		suffix := ""
-		digits := clean
-		if strings.HasSuffix(text, "L") || strings.HasSuffix(text, "l") {
-			suffix = text[len(text)-1:]
-		}
-		formatted := formatWithUnderscores(digits) + suffix
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   int(file.FlatStartByte(idx)),
-			EndByte:     int(file.FlatEndByte(idx)),
-			Replacement: formatted,
-		}
-		return []scanner.Finding{f}
-	}
-	return nil
-}
 
 // formatWithUnderscores inserts underscores every 3 digits from the right for readability.
 func formatWithUnderscores(digits string) string {

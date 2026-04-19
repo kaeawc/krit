@@ -21,35 +21,9 @@ type OverrideAbstractRule struct {
 // Classified per roadmap/17.
 func (r *OverrideAbstractRule) Confidence() float64 { return 0.75 }
 
-func (r *OverrideAbstractRule) NodeTypes() []string { return []string{"class_declaration"} }
 
 var abstractClassRequirements = map[string][]string{"Service": {"onBind"}, "BroadcastReceiver": {"onReceive"}, "ContentProvider": {"onCreate", "query", "insert", "update", "delete", "getType"}}
 
-func (r *OverrideAbstractRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	var baseClass string
-	var required []string
-	for cls, reqs := range abstractClassRequirements {
-		if strings.Contains(text, ": "+cls+"(") || strings.Contains(text, ": "+cls+" ") || strings.Contains(text, ": "+cls+",") || strings.Contains(text, ": "+cls+"{") || strings.Contains(text, ": "+cls+"()") {
-			baseClass = cls
-			required = reqs
-			break
-		}
-	}
-	if baseClass == "" || strings.Contains(text, "abstract class") {
-		return nil
-	}
-	var missing []string
-	for _, method := range required {
-		if !strings.Contains(text, "override fun "+method+"(") && !strings.Contains(text, "override fun "+method+" (") {
-			missing = append(missing, method)
-		}
-	}
-	if len(missing) > 0 {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1, baseClass+" subclass must override: "+strings.Join(missing, ", ")+".")}
-	}
-	return nil
-}
 
 
 type ParcelCreatorRule struct {
@@ -65,15 +39,7 @@ type ParcelCreatorRule struct {
 // Classified per roadmap/17.
 func (r *ParcelCreatorRule) Confidence() float64 { return 0.75 }
 
-func (r *ParcelCreatorRule) NodeTypes() []string { return []string{"class_declaration"} }
 
-func (r *ParcelCreatorRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if !strings.Contains(text, "Parcelable") || strings.Contains(text, "@Parcelize") || strings.Contains(text, "Parcelize") || strings.Contains(text, "CREATOR") {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1, "Parcelable class missing CREATOR field. Use @Parcelize or add a CREATOR companion.")}
-}
 
 
 type SwitchIntDefRule struct {
@@ -494,33 +460,9 @@ type CustomViewStyleableRule struct {
 // Classified per roadmap/17.
 func (r *CustomViewStyleableRule) Confidence() float64 { return 0.75 }
 
-func (r *CustomViewStyleableRule) NodeTypes() []string { return []string{"call_expression"} }
 
 var obtainStyledAttrsRe = regexp.MustCompile(`obtainStyledAttributes\s*\(\s*\w+\s*,\s*R\.styleable\.(\w+)`)
 
-func (r *CustomViewStyleableRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	m := obtainStyledAttrsRe.FindStringSubmatch(text)
-	if m == nil {
-		return nil
-	}
-	// Walk up to find enclosing class name
-	var className string
-	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
-		if file.FlatType(parent) == "class_declaration" {
-			classText := file.FlatNodeText(parent)
-			if cm := classNameRe.FindStringSubmatch(classText); cm != nil {
-				className = cm[1]
-			}
-			break
-		}
-	}
-	if className == "" || m[1] == className {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-		fmt.Sprintf("Custom view '%s' uses R.styleable.%s \u2014 expected R.styleable.%s to match the class name.", className, m[1], className))}
-}
 
 type DalvikOverrideRule struct {
 	FlatDispatchBase

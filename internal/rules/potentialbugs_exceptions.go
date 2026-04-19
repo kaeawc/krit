@@ -23,48 +23,7 @@ type PrintStackTraceRule struct {
 // sharing the same simple name. Classified per roadmap/17.
 func (r *PrintStackTraceRule) Confidence() float64 { return 0.75 }
 
-func (r *PrintStackTraceRule) NodeTypes() []string { return []string{"call_expression"} }
 
-func (r *PrintStackTraceRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Skip Gradle build scripts — they legitimately use printStackTrace
-	// for build diagnostics, not production logging.
-	if strings.HasSuffix(file.Path, ".gradle.kts") {
-		return nil
-	}
-	text := file.FlatNodeText(idx)
-	if !strings.HasSuffix(text, ".printStackTrace()") {
-		return nil
-	}
-	// Verify it's a navigation_expression calling printStackTrace
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		child := file.FlatChild(idx, i)
-		if file.FlatType(child) == "navigation_expression" {
-			navText := file.FlatNodeText(child)
-			if strings.HasSuffix(navText, ".printStackTrace") {
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Use a logger instead of printStackTrace().")
-				// Remove the call statement using AST node byte offsets
-				startByte := int(file.FlatStartByte(idx))
-				endByte := int(file.FlatEndByte(idx))
-				// Expand to cover the full line (leading whitespace + trailing newline)
-				for startByte > 0 && file.Content[startByte-1] != '\n' {
-					startByte--
-				}
-				if endByte < len(file.Content) && file.Content[endByte] == '\n' {
-					endByte++
-				}
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   startByte,
-					EndByte:     endByte,
-					Replacement: "",
-				}
-				return []scanner.Finding{f}
-			}
-		}
-	}
-	return nil
-}
 
 // ---------------------------------------------------------------------------
 // asyncBoundaryBaseClasses are base classes where catching generic exceptions
@@ -114,7 +73,6 @@ var genericExceptionSet = func() map[string]bool {
 	return m
 }()
 
-func (r *TooGenericExceptionCaughtRule) NodeTypes() []string { return []string{"catch_block"} }
 
 func (r *TooGenericExceptionCaughtRule) exceptionNameSet() map[string]bool {
 	names := r.ExceptionNames
@@ -128,7 +86,7 @@ func (r *TooGenericExceptionCaughtRule) exceptionNameSet() map[string]bool {
 	return m
 }
 
-func (r *TooGenericExceptionCaughtRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *TooGenericExceptionCaughtRule) checkNode(idx uint32, file *scanner.File) []scanner.Finding {
 	// Dedup with EmptyCatchBlock: if the catch body is literally empty,
 	// EmptyCatchBlock already flags it and offers a fix.
 	catchText := file.FlatNodeText(idx)
@@ -453,13 +411,8 @@ func (r *UnreachableCatchBlockRule) Confidence() float64 { return 0.75 }
 
 var catchTypeRe = regexp.MustCompile(`catch\s*\(\s*\w+\s*:\s*(\w+)`)
 
-func (r *UnreachableCatchBlockRule) NodeTypes() []string { return []string{"try_expression"} }
-
-func (r *UnreachableCatchBlockRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *UnreachableCatchBlockRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	var findings []scanner.Finding
-	// Collect only the direct catch_block children of THIS try_expression.
-	// Using direct AST children avoids matching catches from nested try
-	// statements inside the try body.
 	type catchEntry struct {
 		typeName string
 		line     int
@@ -570,7 +523,6 @@ func (r *UnreachableCodeRule) SetResolver(res typeinfer.TypeResolver) {
 // reflects the fallback's accuracy.
 func (r *UnreachableCodeRule) Confidence() float64 { return 0.75 }
 
-func (r *UnreachableCodeRule) NodeTypes() []string { return []string{"statements"} }
 
 // nothingReturningFuncs lists bare function names that are known to return Nothing.
 var nothingReturningFuncs = map[string]bool{
@@ -578,7 +530,7 @@ var nothingReturningFuncs = map[string]bool{
 	"error": true,
 }
 
-func (r *UnreachableCodeRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *UnreachableCodeRule) checkNode(idx uint32, file *scanner.File) []scanner.Finding {
 	// If oracle has compiler diagnostics for this file, use those (authoritative, no false positives).
 	if r.oracleLookup != nil {
 		diags := r.oracleLookup.LookupDiagnostics(file.Path)

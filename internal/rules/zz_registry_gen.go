@@ -815,8 +815,53 @@ func registerAllRules() {
 	v2.Register(WrapAsV2(&WrongCallRule{AndroidRule: alcRule("WrongCall", "Using wrong draw/layout method", ALSError, 6)}))
 
 	// --- from android_correctness_checks.go ---
-	v2.Register(WrapAsV2(&OverrideAbstractRule{AndroidRule: alcRule("OverrideAbstract", "Missing abstract method overrides", ALSError, 6)}))
-	v2.Register(WrapAsV2(&ParcelCreatorRule{AndroidRule: alcRule("ParcelCreator", "Missing Parcelable CREATOR field", ALSError, 3)}))
+	{
+		r := &OverrideAbstractRule{AndroidRule: alcRule("OverrideAbstract", "Missing abstract method overrides", ALSError, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				var baseClass string
+				var required []string
+				for cls, reqs := range abstractClassRequirements {
+					if strings.Contains(text, ": "+cls+"(") || strings.Contains(text, ": "+cls+" ") || strings.Contains(text, ": "+cls+",") || strings.Contains(text, ": "+cls+"{") || strings.Contains(text, ": "+cls+"()") {
+						baseClass = cls
+						required = reqs
+						break
+					}
+				}
+				if baseClass == "" || strings.Contains(text, "abstract class") {
+					return
+				}
+				var missing []string
+				for _, method := range required {
+					if !strings.Contains(text, "override fun "+method+"(") && !strings.Contains(text, "override fun "+method+" (") {
+						missing = append(missing, method)
+					}
+				}
+				if len(missing) > 0 {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, baseClass+" subclass must override: "+strings.Join(missing, ", ")+".")
+				}
+			},
+		})
+	}
+	{
+		r := &ParcelCreatorRule{AndroidRule: alcRule("ParcelCreator", "Missing Parcelable CREATOR field", ALSError, 3)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if !strings.Contains(text, "Parcelable") || strings.Contains(text, "@Parcelize") || strings.Contains(text, "Parcelize") || strings.Contains(text, "CREATOR") {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, "Parcelable class missing CREATOR field. Use @Parcelize or add a CREATOR companion.")
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&SwitchIntDefRule{AndroidRule: alcRule("SwitchIntDef", "Missing @IntDef constants in switch", ALSWarning, 6)}))
 	v2.Register(WrapAsV2(&TextViewEditsRule{AndroidRule: alcRule("TextViewEdits", "Calling setText on an EditText", ALSWarning, 5)}))
 	v2.Register(WrapAsV2(&WrongViewCastRule{AndroidRule: alcRule("WrongViewCast", "Mismatched view type", ALSError, 9)}))
@@ -827,7 +872,36 @@ func registerAllRules() {
 	v2.Register(WrapAsV2(&SupportAnnotationUsageRule{AndroidRule: alcRule("SupportAnnotationUsage", "Incorrect support annotation usage", ALSError, 6)}))
 	v2.Register(WrapAsV2(&AccidentalOctalRule{AndroidRule: alcRule("AccidentalOctal", "Accidental octal interpretation", ALSWarning, 5)}))
 	v2.Register(WrapAsV2(&AppCompatMethodRule{AndroidRule: alcRule("AppCompatMethod", "Using Wrong AppCompat Method", ALSWarning, 6)}))
-	v2.Register(WrapAsV2(&CustomViewStyleableRule{AndroidRule: alcRule("CustomViewStyleable", "Mismatched Styleable/Custom View Name", ALSWarning, 6)}))
+	{
+		r := &CustomViewStyleableRule{AndroidRule: alcRule("CustomViewStyleable", "Mismatched Styleable/Custom View Name", ALSWarning, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				m := obtainStyledAttrsRe.FindStringSubmatch(text)
+				if m == nil {
+					return
+				}
+				var className string
+				for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+					if file.FlatType(parent) == "class_declaration" {
+						classText := file.FlatNodeText(parent)
+						if cm := classNameRe.FindStringSubmatch(classText); cm != nil {
+							className = cm[1]
+						}
+						break
+					}
+				}
+				if className == "" || m[1] == className {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					fmt.Sprintf("Custom view '%s' uses R.styleable.%s \u2014 expected R.styleable.%s to match the class name.", className, m[1], className))
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&DalvikOverrideRule{AndroidRule: alcRule("DalvikOverride", "Method considered overridden by Dalvik", ALSError, 6)}))
 	v2.Register(WrapAsV2(&InnerclassSeparatorRule{AndroidRule: alcRule("InnerclassSeparator", "Inner classes should use '$' not '/'", ALSWarning, 3)}))
 	v2.Register(WrapAsV2(&ObjectAnimatorBindingRule{AndroidRule: alcRule("ObjectAnimatorBinding", "Incorrect ObjectAnimator Property", ALSError, 4)}))
@@ -2946,7 +3020,32 @@ func registerAllRules() {
 			Category: ALCUnknown, ALSeverity: ALSError, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression", "simple_identifier", "user_type"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				line := file.FlatRow(idx)
+				if line < len(file.Lines) {
+					trimmed := strings.TrimSpace(file.Lines[line])
+					if scanner.IsCommentLine(file.Lines[line]) || strings.HasPrefix(trimmed, "import ") {
+						return
+					}
+					if strings.Contains(file.Lines[line], "@RequiresApi") || strings.Contains(file.Lines[line], "@TargetApi") ||
+						strings.Contains(file.Lines[line], "Build.VERSION.SDK_INT") {
+						return
+					}
+				}
+				for api, level := range newApiTable {
+					if strings.Contains(text, api) {
+						ctx.EmitAt(line+1, 1,
+							api+" requires API "+strconv.Itoa(level)+"; verify that the call is guarded or the project minSdk is at least "+strconv.Itoa(level)+".")
+						return
+					}
+				}
+			},
+		})
 	}
 	{
 		r := &InlinedApiRule{AndroidRule: AndroidRule{
@@ -2955,7 +3054,32 @@ func registerAllRules() {
 			Category: ALCUnknown, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"simple_identifier", "navigation_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				line := file.FlatRow(idx)
+				if line < len(file.Lines) {
+					trimmed := strings.TrimSpace(file.Lines[line])
+					if scanner.IsCommentLine(file.Lines[line]) || strings.HasPrefix(trimmed, "import ") {
+						return
+					}
+					if strings.Contains(file.Lines[line], "@RequiresApi") || strings.Contains(file.Lines[line], "@TargetApi") ||
+						strings.Contains(file.Lines[line], "Build.VERSION.SDK_INT") {
+						return
+					}
+				}
+				for _, entry := range inlinedApiTable {
+					if strings.Contains(text, entry.Pattern) {
+						ctx.EmitAt(line+1, 1,
+							"Constant "+entry.Pattern+" is inlined from API "+strconv.Itoa(entry.Level)+"; the value may be available at runtime but the constant was introduced in API "+strconv.Itoa(entry.Level)+".")
+						return
+					}
+				}
+			},
+		})
 	}
 	{
 		r := &OverrideRule{AndroidRule: AndroidRule{
@@ -7867,11 +7991,95 @@ func registerAllRules() {
 	}
 
 	// --- from potentialbugs_exceptions.go ---
-	v2.Register(WrapAsV2(&PrintStackTraceRule{BaseRule: BaseRule{RuleName: "PrintStackTrace", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects printStackTrace() calls that should use a logger instead."}}))
-	v2.Register(WrapAsV2(&TooGenericExceptionCaughtRule{BaseRule: BaseRule{RuleName: "TooGenericExceptionCaught", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects catching overly generic exception types like Exception or Throwable."}}))
+	{
+		r := &PrintStackTraceRule{BaseRule: BaseRule{RuleName: "PrintStackTrace", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects printStackTrace() calls that should use a logger instead."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if strings.HasSuffix(file.Path, ".gradle.kts") {
+					return
+				}
+				text := file.FlatNodeText(idx)
+				if !strings.HasSuffix(text, ".printStackTrace()") {
+					return
+				}
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					child := file.FlatChild(idx, i)
+					if file.FlatType(child) == "navigation_expression" {
+						navText := file.FlatNodeText(child)
+						if strings.HasSuffix(navText, ".printStackTrace") {
+							f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+								"Use a logger instead of printStackTrace().")
+							startByte := int(file.FlatStartByte(idx))
+							endByte := int(file.FlatEndByte(idx))
+							for startByte > 0 && file.Content[startByte-1] != '\n' {
+								startByte--
+							}
+							if endByte < len(file.Content) && file.Content[endByte] == '\n' {
+								endByte++
+							}
+							f.Fix = &scanner.Fix{
+								ByteMode:    true,
+								StartByte:   startByte,
+								EndByte:     endByte,
+								Replacement: "",
+							}
+							ctx.Emit(f)
+							return
+						}
+					}
+				}
+			},
+		})
+	}
+	{
+		r := &TooGenericExceptionCaughtRule{BaseRule: BaseRule{RuleName: "TooGenericExceptionCaught", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects catching overly generic exception types like Exception or Throwable."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"catch_block"}, Confidence: 0.75, OriginalV1: r,
+			Needs:           v2.NeedsResolver,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.checkNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&TooGenericExceptionThrownRule{BaseRule: BaseRule{RuleName: "TooGenericExceptionThrown", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects throwing overly generic exception types like Exception or Throwable."}}))
-	v2.Register(WrapAsV2(&UnreachableCatchBlockRule{BaseRule: BaseRule{RuleName: "UnreachableCatchBlock", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects catch blocks that are unreachable because a more general exception type is caught above."}}))
-	v2.Register(WrapAsV2(&UnreachableCodeRule{BaseRule: BaseRule{RuleName: "UnreachableCode", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects code after return, throw, break, or continue statements that can never execute."}}))
+	{
+		r := &UnreachableCatchBlockRule{BaseRule: BaseRule{RuleName: "UnreachableCatchBlock", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects catch blocks that are unreachable because a more general exception type is caught above."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"try_expression"}, Confidence: 0.75, OriginalV1: r,
+			Needs:           v2.NeedsResolver,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.checkFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UnreachableCodeRule{BaseRule: BaseRule{RuleName: "UnreachableCode", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects code after return, throw, break, or continue statements that can never execute."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"statements"}, Confidence: 0.75, OriginalV1: r,
+			Needs:           v2.NeedsResolver,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.checkNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from potentialbugs_lifecycle.go ---
 	{
@@ -8506,7 +8714,7 @@ func registerAllRules() {
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.CheckFlatNode(idx, file) {
+				for _, f := range r.checkFlatNode(idx, file) {
 					ctx.Emit(f)
 				}
 			},
@@ -8521,7 +8729,7 @@ func registerAllRules() {
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.CheckFlatNode(idx, file) {
+				for _, f := range r.checkFlatNode(idx, file) {
 					ctx.Emit(f)
 				}
 			},
@@ -8534,7 +8742,7 @@ func registerAllRules() {
 			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.CheckFlatNode(idx, file) {
+				for _, f := range r.checkFlatNode(idx, file) {
 					ctx.Emit(f)
 				}
 			},
@@ -8551,7 +8759,7 @@ func registerAllRules() {
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.CheckFlatNode(idx, file) {
+				for _, f := range r.checkFlatNode(idx, file) {
 					ctx.Emit(f)
 				}
 			},
@@ -8566,7 +8774,7 @@ func registerAllRules() {
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.CheckFlatNode(idx, file) {
+				for _, f := range r.checkFlatNode(idx, file) {
 					ctx.Emit(f)
 				}
 			},
@@ -8581,7 +8789,7 @@ func registerAllRules() {
 			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.CheckFlatNode(idx, file) {
+				for _, f := range r.checkFlatNode(idx, file) {
 					ctx.Emit(f)
 				}
 			},
@@ -8596,7 +8804,7 @@ func registerAllRules() {
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.CheckFlatNode(idx, file) {
+				for _, f := range r.checkFlatNode(idx, file) {
 					ctx.Emit(f)
 				}
 			},
@@ -8611,7 +8819,7 @@ func registerAllRules() {
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.CheckFlatNode(idx, file) {
+				for _, f := range r.checkFlatNode(idx, file) {
 					ctx.Emit(f)
 				}
 			},
@@ -8627,7 +8835,7 @@ func registerAllRules() {
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.CheckFlatNode(idx, file) {
+				for _, f := range r.checkFlatNode(idx, file) {
 					ctx.Emit(f)
 				}
 			},
@@ -9752,15 +9960,45 @@ func registerAllRules() {
 	}
 
 	// --- from privacy_storage.go ---
-	v2.Register(WrapAsV2(&SharedPreferencesForSensitiveKeyRule{
-		BaseRule: BaseRule{RuleName: "SharedPreferencesForSensitiveKey", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects SharedPreferences put calls with key names matching sensitive patterns like token, password, or secret."},
-	}))
-	v2.Register(WrapAsV2(&PlainFileWriteOfSensitiveRule{
-		BaseRule: BaseRule{RuleName: "PlainFileWriteOfSensitive", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects plain-file writes to paths containing sensitive terms without using EncryptedFile."},
-	}))
-	v2.Register(WrapAsV2(&LogOfSharedPreferenceReadRule{
-		BaseRule: BaseRule{RuleName: "LogOfSharedPreferenceRead", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects logger calls that directly pass SharedPreferences values with sensitive keys."},
-	}))
+	{
+		r := &SharedPreferencesForSensitiveKeyRule{BaseRule: BaseRule{RuleName: "SharedPreferencesForSensitiveKey", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects SharedPreferences put calls with key names matching sensitive patterns like token, password, or secret."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.checkFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &PlainFileWriteOfSensitiveRule{BaseRule: BaseRule{RuleName: "PlainFileWriteOfSensitive", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects plain-file writes to paths containing sensitive terms without using EncryptedFile."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.checkFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &LogOfSharedPreferenceReadRule{BaseRule: BaseRule{RuleName: "LogOfSharedPreferenceRead", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects logger calls that directly pass SharedPreferences values with sensitive keys."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.checkFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from public_to_internal_leaky_abstraction.go ---
 	v2.Register(WrapAsV2(&PublicToInternalLeakyAbstractionRule{
@@ -10756,9 +10994,45 @@ func registerAllRules() {
 	}
 
 	// --- from style_braces.go ---
-	v2.Register(WrapAsV2(&BracesOnIfStatementsRule{BaseRule: BaseRule{RuleName: "BracesOnIfStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects if/else statements that are missing braces around their bodies."}}))
-	v2.Register(WrapAsV2(&BracesOnWhenStatementsRule{BaseRule: BaseRule{RuleName: "BracesOnWhenStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects when branches that are missing braces around their bodies."}}))
-	v2.Register(WrapAsV2(&MandatoryBracesLoopsRule{BaseRule: BaseRule{RuleName: "MandatoryBracesLoops", RuleSetName: "style", Sev: "warning", Desc: "Detects for, while, and do-while loops that are missing braces around their bodies."}}))
+	{
+		r := &BracesOnIfStatementsRule{BaseRule: BaseRule{RuleName: "BracesOnIfStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects if/else statements that are missing braces around their bodies."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Fix: v2.FixCosmetic, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.checkFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &BracesOnWhenStatementsRule{BaseRule: BaseRule{RuleName: "BracesOnWhenStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects when branches that are missing braces around their bodies."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"when_entry"}, Confidence: 0.75, Fix: v2.FixCosmetic, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.checkFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MandatoryBracesLoopsRule{BaseRule: BaseRule{RuleName: "MandatoryBracesLoops", RuleSetName: "style", Sev: "warning", Desc: "Detects for, while, and do-while loops that are missing braces around their bodies."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"for_statement", "while_statement", "do_while_statement"}, Confidence: 0.75, Fix: v2.FixCosmetic, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.checkFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from style_classes.go ---
 	{
@@ -13099,7 +13373,60 @@ func registerAllRules() {
 	v2.Register(WrapAsV2(&SpacingAfterPackageAndImportsRule{BaseRule: BaseRule{RuleName: "SpacingAfterPackageAndImports", RuleSetName: "style", Sev: "warning", Desc: "Detects missing blank lines after package and import declarations."}}))
 	v2.Register(WrapAsV2(&MaxChainedCallsOnSameLineRule{BaseRule: BaseRule{RuleName: "MaxChainedCallsOnSameLine", RuleSetName: "style", Sev: "warning", Desc: "Detects lines with more chained method calls than the configured maximum."}, MaxCalls: 5}))
 	v2.Register(WrapAsV2(&CascadingCallWrappingRule{BaseRule: BaseRule{RuleName: "CascadingCallWrapping", RuleSetName: "style", Sev: "warning", Desc: "Detects chained calls that are not properly indented from the previous line."}}))
-	v2.Register(WrapAsV2(&UnderscoresInNumericLiteralsRule{BaseRule: BaseRule{RuleName: "UnderscoresInNumericLiterals", RuleSetName: "style", Sev: "warning", Desc: "Detects large numeric literals that should use underscore separators for readability."}, Threshold: 10000, AcceptableLength: 5}))
+	{
+		r := &UnderscoresInNumericLiteralsRule{BaseRule: BaseRule{RuleName: "UnderscoresInNumericLiterals", RuleSetName: "style", Sev: "warning", Desc: "Detects large numeric literals that should use underscore separators for readability."}, Threshold: 10000, AcceptableLength: 5}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"integer_literal", "long_literal"}, Confidence: 0.75, Fix: v2.FixCosmetic, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				clean := strings.TrimRight(text, "lLfFdD")
+				if strings.HasPrefix(clean, "0x") || strings.HasPrefix(clean, "0b") || strings.HasPrefix(clean, "0o") {
+					return
+				}
+				if strings.Contains(clean, "_") {
+					return
+				}
+				digitCount := 0
+				for _, c := range clean {
+					if c >= '0' && c <= '9' {
+						digitCount++
+					}
+				}
+				acceptLen := r.AcceptableLength
+				if acceptLen <= 0 {
+					acceptLen = 5
+				}
+				if digitCount < acceptLen {
+					return
+				}
+				val := 0
+				for _, c := range clean {
+					if c >= '0' && c <= '9' {
+						val = val*10 + int(c-'0')
+					}
+				}
+				if val >= r.Threshold {
+					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						fmt.Sprintf("Numeric literal '%s' should use underscores for readability.", text))
+					suffix := ""
+					digits := clean
+					if strings.HasSuffix(text, "L") || strings.HasSuffix(text, "l") {
+						suffix = text[len(text)-1:]
+					}
+					formatted := formatWithUnderscores(digits) + suffix
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   int(file.FlatStartByte(idx)),
+						EndByte:     int(file.FlatEndByte(idx)),
+						Replacement: formatted,
+					}
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&EqualsOnSignatureLineRule{BaseRule: BaseRule{RuleName: "EqualsOnSignatureLine", RuleSetName: "style", Sev: "warning", Desc: "Detects expression body equals signs placed on a separate line from the function signature."}}))
 
 	// --- from style_idiomatic.go ---

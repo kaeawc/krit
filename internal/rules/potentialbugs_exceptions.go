@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/oracle"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -86,28 +87,29 @@ func (r *TooGenericExceptionCaughtRule) exceptionNameSet() map[string]bool {
 	return m
 }
 
-func (r *TooGenericExceptionCaughtRule) checkNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *TooGenericExceptionCaughtRule) checkNode(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	// Dedup with EmptyCatchBlock: if the catch body is literally empty,
 	// EmptyCatchBlock already flags it and offers a fix.
 	catchText := file.FlatNodeText(idx)
-	if idx := strings.Index(catchText, "{"); idx >= 0 {
-		inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(catchText[idx+1:]), "}"))
+	if braceIdx := strings.Index(catchText, "{"); braceIdx >= 0 {
+		inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(catchText[braceIdx+1:]), "}"))
 		if inner == "" {
-			return nil
+			return
 		}
 	}
 	// Check allowed exception variable name regex
 	caughtVar := extractCaughtVarNameFlat(file, idx)
 	if r.AllowedExceptionNameRegex != nil {
 		if caughtVar != "" && r.AllowedExceptionNameRegex.MatchString(caughtVar) {
-			return nil
+			return
 		}
 	}
 	// Skip catches inside Job/Worker/Runnable classes — these are async
 	// execution boundaries where catching generic Exception is a best practice
 	// to prevent uncaught exception crashes.
 	if isInsideAsyncBoundaryFlat(file, idx) {
-		return nil
+		return
 	}
 	// Skip when the caught variable is passed as an argument to any function
 	// call in the catch body. This covers:
@@ -117,20 +119,20 @@ func (r *TooGenericExceptionCaughtRule) checkNode(idx uint32, file *scanner.File
 	// The exception is NOT being swallowed; information is preserved.
 	if caughtVar != "" {
 		text := file.FlatNodeText(idx)
-		idx := strings.Index(text, "{")
-		if idx >= 0 {
-			body := text[idx+1:]
+		braceIdx := strings.Index(text, "{")
+		if braceIdx >= 0 {
+			body := text[braceIdx+1:]
 			// Look for the variable being passed as an argument: `(...e...)`
 			// or `, e,` or `, e)` patterns.
 			argPattern := regexp.MustCompile(`[,(]\s*` + regexp.QuoteMeta(caughtVar) + `\s*[,)]`)
 			if argPattern.MatchString(body) {
-				return nil
+				return
 			}
 		}
 	}
 	// Skip catches inside try expressions (return value is semantic fallback).
 	if isCatchPartOfTryExpressionFlat(file, idx) {
-		return nil
+		return
 	}
 	caughtType := extractCaughtTypeNameFlat(file, idx)
 	exNames := r.ExceptionNames
@@ -142,18 +144,20 @@ func (r *TooGenericExceptionCaughtRule) checkNode(idx uint32, file *scanner.File
 		text := file.FlatNodeText(idx)
 		for _, t := range exNames {
 			if strings.Contains(text, ": "+t) || strings.Contains(text, ":"+t) {
-				return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Caught too-generic exception type '%s'.", t))}
+				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
+					fmt.Sprintf("Caught too-generic exception type '%s'.", t)))
+				return
 			}
 		}
-		return nil
+		return
 	}
 
 	// Direct match against the configured list
 	exSet := r.exceptionNameSet()
 	if exSet[caughtType] {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Caught too-generic exception type '%s'.", caughtType))}
+		ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
+			fmt.Sprintf("Caught too-generic exception type '%s'.", caughtType)))
+		return
 	}
 
 	// With resolver, check if the caught type is a known subtype of a generic exception
@@ -161,20 +165,21 @@ func (r *TooGenericExceptionCaughtRule) checkNode(idx uint32, file *scanner.File
 		for _, generic := range exNames {
 			if r.resolver.IsExceptionSubtype(generic, caughtType) {
 				// generic IS-A caughtType means caughtType is more general
-				return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Caught too-generic exception type '%s' (catches subtypes like '%s').", caughtType, generic))}
+				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
+					fmt.Sprintf("Caught too-generic exception type '%s' (catches subtypes like '%s').", caughtType, generic)))
+				return
 			}
 		}
 	} else {
 		// Fallback without resolver: use global table
 		for _, generic := range exNames {
 			if typeinfer.IsSubtypeOfException(generic, caughtType) {
-				return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Caught too-generic exception type '%s' (catches subtypes like '%s').", caughtType, generic))}
+				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
+					fmt.Sprintf("Caught too-generic exception type '%s' (catches subtypes like '%s').", caughtType, generic)))
+				return
 			}
 		}
 	}
-	return nil
 }
 
 func extractCaughtVarNameFlat(file *scanner.File, catchNode uint32) string {
@@ -349,11 +354,12 @@ func isLikelyCaughtException(args string) bool {
 	return true
 }
 
-func (r *TooGenericExceptionThrownRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *TooGenericExceptionThrownRule) check(ctx *v2.Context) {
+	file := ctx.File
 	// Skip Gradle build scripts — they legitimately throw RuntimeException
 	// for build errors where the user's primary observability is stderr.
 	if strings.HasSuffix(file.Path, ".gradle.kts") {
-		return nil
+		return
 	}
 	names := r.ExceptionNames
 	if len(names) == 0 {
@@ -363,7 +369,6 @@ func (r *TooGenericExceptionThrownRule) CheckLines(file *scanner.File) []scanner
 	for _, n := range names {
 		nameSet[n] = true
 	}
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		if m := genericThrownRe.FindStringSubmatch(line); m != nil {
 			thrownType := m[1]
@@ -375,7 +380,7 @@ func (r *TooGenericExceptionThrownRule) CheckLines(file *scanner.File) []scanner
 			}
 			// Direct match against known generic types
 			if nameSet[thrownType] {
-				findings = append(findings, r.Finding(file, i+1, 1,
+				ctx.Emit(r.Finding(file, i+1, 1,
 					fmt.Sprintf("Too-generic exception type '%s' thrown.", thrownType)))
 				continue
 			}
@@ -384,13 +389,12 @@ func (r *TooGenericExceptionThrownRule) CheckLines(file *scanner.File) []scanner
 			if r.resolver != nil {
 				info := r.resolver.ClassHierarchy(thrownType)
 				if info != nil && nameSet[info.Name] {
-					findings = append(findings, r.Finding(file, i+1, 1,
+					ctx.Emit(r.Finding(file, i+1, 1,
 						fmt.Sprintf("Too-generic exception type '%s' thrown.", info.Name)))
 				}
 			}
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -411,8 +415,8 @@ func (r *UnreachableCatchBlockRule) Confidence() float64 { return 0.75 }
 
 var catchTypeRe = regexp.MustCompile(`catch\s*\(\s*\w+\s*:\s*(\w+)`)
 
-func (r *UnreachableCatchBlockRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *UnreachableCatchBlockRule) checkFlatNode(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	type catchEntry struct {
 		typeName string
 		line     int
@@ -438,24 +442,23 @@ func (r *UnreachableCatchBlockRule) checkFlatNode(idx uint32, file *scanner.File
 			childType := catches[j].typeName
 			childLine := catches[j].line
 			if parentType == childType {
-				findings = append(findings, r.Finding(file, childLine, 1,
+				ctx.Emit(r.Finding(file, childLine, 1,
 					fmt.Sprintf("Duplicate catch block for '%s'.", childType)))
 				continue
 			}
 			if r.resolver != nil {
 				if r.resolver.IsExceptionSubtype(childType, parentType) {
-					findings = append(findings, r.Finding(file, childLine, 1,
+					ctx.Emit(r.Finding(file, childLine, 1,
 						fmt.Sprintf("Catch block for '%s' is unreachable because '%s' is caught above.", childType, parentType)))
 				}
 			} else {
 				if typeinfer.IsSubtypeOfException(childType, parentType) {
-					findings = append(findings, r.Finding(file, childLine, 1,
+					ctx.Emit(r.Finding(file, childLine, 1,
 						fmt.Sprintf("Catch block for '%s' is unreachable because '%s' is caught above.", childType, parentType)))
 				}
 			}
 		}
 	}
-	return findings
 }
 
 func extractCatchTypeFlat(file *scanner.File, catchNode uint32) string {
@@ -530,12 +533,14 @@ var nothingReturningFuncs = map[string]bool{
 	"error": true,
 }
 
-func (r *UnreachableCodeRule) checkNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *UnreachableCodeRule) checkNode(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	// If oracle has compiler diagnostics for this file, use those (authoritative, no false positives).
 	if r.oracleLookup != nil {
 		diags := r.oracleLookup.LookupDiagnostics(file.Path)
 		if len(diags) > 0 {
-			return r.checkWithDiagnosticsFlat(idx, file, diags)
+			r.checkWithDiagnosticsFlat(ctx, diags)
+			return
 		}
 	}
 
@@ -592,7 +597,8 @@ func (r *UnreachableCodeRule) checkNode(idx uint32, file *scanner.File) []scanne
 				EndByte:     endByte,
 				Replacement: "",
 			}
-			return []scanner.Finding{f}
+			ctx.Emit(f)
+			return
 		}
 		// Detect jump_expression: return, throw, break, continue
 		if file.FlatType(child) == "jump_expression" {
@@ -644,17 +650,16 @@ func (r *UnreachableCodeRule) checkNode(idx uint32, file *scanner.File) []scanne
 			jumpLine = file.FlatRow(child) + 1
 		}
 	}
-	return nil
 }
 
-// checkWithDiagnostics uses compiler diagnostics from the oracle to find unreachable code
+// checkWithDiagnosticsFlat uses compiler diagnostics from the oracle to find unreachable code
 // within the given statements node. Only diagnostics whose line falls within the node's
 // range and whose factoryName matches a known diagnostic are reported.
-func (r *UnreachableCodeRule) checkWithDiagnosticsFlat(idx uint32, file *scanner.File, diags []oracle.OracleDiagnostic) []scanner.Finding {
+func (r *UnreachableCodeRule) checkWithDiagnosticsFlat(ctx *v2.Context, diags []oracle.OracleDiagnostic) {
+	idx, file := ctx.Idx, ctx.File
 	startLine := file.FlatRow(idx) + 1
 	endLine := flatEndLine(file, idx)
 
-	var findings []scanner.Finding
 	for _, d := range diags {
 		if !oracleDiagnosticFactories[d.FactoryName] {
 			continue
@@ -666,9 +671,8 @@ func (r *UnreachableCodeRule) checkWithDiagnosticsFlat(idx uint32, file *scanner
 		if d.Message != "" {
 			msg = fmt.Sprintf("Unreachable code: %s", d.Message)
 		}
-		findings = append(findings, r.Finding(file, d.Line, d.Col, msg))
+		ctx.Emit(r.Finding(file, d.Line, d.Col, msg))
 	}
-	return findings
 }
 
 func flatEndLine(file *scanner.File, idx uint32) int {

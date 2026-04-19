@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/module"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -18,8 +19,6 @@ type ModuleDependencyCycleRule struct {
 	pmi *module.PerModuleIndex
 }
 
-func (r *ModuleDependencyCycleRule) Check(_ *scanner.File) []scanner.Finding { return nil }
-
 // Confidence is 0.95 — Tarjan SCC on the parsed module graph is
 // deterministic and precise. A reported cycle is a real cycle.
 func (r *ModuleDependencyCycleRule) Confidence() float64 { return 0.95 }
@@ -28,21 +27,13 @@ func (r *ModuleDependencyCycleRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{NeedsDependencies: true}
 }
 
-func (r *ModuleDependencyCycleRule) SetModuleIndex(pmi *module.PerModuleIndex) {
-	r.pmi = pmi
-}
-
-func (r *ModuleDependencyCycleRule) CheckModuleAware() []scanner.Finding {
+func (r *ModuleDependencyCycleRule) check(ctx *v2.Context) {
+	r.pmi = ctx.ModuleIndex
 	if r.pmi == nil || r.pmi.Graph == nil {
-		return nil
+		return
 	}
 
 	cycles := r.pmi.Graph.FindCycles()
-	if len(cycles) == 0 {
-		return nil
-	}
-
-	var findings []scanner.Finding
 	for _, cycle := range cycles {
 		sort.Strings(cycle)
 		anchorPath := cycle[0]
@@ -51,7 +42,7 @@ func (r *ModuleDependencyCycleRule) CheckModuleAware() []scanner.Finding {
 			continue
 		}
 		anchorFile := mod.Dir + "/build.gradle.kts"
-		findings = append(findings, scanner.Finding{
+		ctx.Emit(scanner.Finding{
 			File:     anchorFile,
 			Line:     1,
 			Col:      1,
@@ -62,5 +53,4 @@ func (r *ModuleDependencyCycleRule) CheckModuleAware() []scanner.Finding {
 				strings.Join(cycle, " → ")),
 		})
 	}
-	return findings
 }

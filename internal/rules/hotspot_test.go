@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -33,7 +34,9 @@ class AppCoordinator
 		BaseRule:                BaseRule{RuleName: "GodClassOrModule", RuleSetName: "architecture", Sev: "warning"},
 		AllowedDistinctPackages: 3,
 	}
-	findings := rule.CheckLines(file)
+	ctx := v2.FakeContext(file)
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -66,7 +69,9 @@ class FeatureModule
 		BaseRule:                BaseRule{RuleName: "GodClassOrModule", RuleSetName: "architecture", Sev: "warning"},
 		AllowedDistinctPackages: 2,
 	}
-	findings := rule.CheckLines(file)
+	ctx := v2.FakeContext(file)
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
 	if len(findings) != 0 {
 		t.Fatalf("expected repeated packages to stay below threshold, got %d findings", len(findings))
 	}
@@ -78,7 +83,7 @@ func TestFanInFanOutHotspotRule_FlagsHighFanInClass(t *testing.T) {
 		AllowedFanIn:            2,
 		IgnoreCommentReferences: true,
 	}
-	idx := scanner.BuildIndexFromData(
+	codeIdx := scanner.BuildIndexFromData(
 		[]scanner.Symbol{
 			{Name: "SharedFormatter", Kind: "class", Visibility: "public", File: "SharedFormatter.kt", Line: 4},
 		},
@@ -89,7 +94,9 @@ func TestFanInFanOutHotspotRule_FlagsHighFanInClass(t *testing.T) {
 		},
 	)
 
-	findings := rule.CheckCrossFile(idx)
+	ctx := &v2.Context{CodeIndex: codeIdx, Collector: scanner.NewFindingCollector(0)}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -107,7 +114,7 @@ func TestFanInFanOutHotspotRule_SkipsFrameworkEntryTypes(t *testing.T) {
 		AllowedFanIn:            2,
 		IgnoreCommentReferences: true,
 	}
-	idx := scanner.BuildIndexFromData(
+	codeIdx := scanner.BuildIndexFromData(
 		[]scanner.Symbol{
 			{Name: "MainActivity", Kind: "class", Visibility: "public", File: "MainActivity.kt", Line: 2},
 		},
@@ -118,7 +125,9 @@ func TestFanInFanOutHotspotRule_SkipsFrameworkEntryTypes(t *testing.T) {
 		},
 	)
 
-	findings := rule.CheckCrossFile(idx)
+	ctx := &v2.Context{CodeIndex: codeIdx, Collector: scanner.NewFindingCollector(0)}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
 	if len(findings) != 0 {
 		t.Fatalf("expected framework entry type to be skipped, got %d findings", len(findings))
 	}
@@ -130,7 +139,7 @@ func TestFanInFanOutHotspotRule_IgnoresCommentOnlyUsageByDefault(t *testing.T) {
 		AllowedFanIn:            1,
 		IgnoreCommentReferences: true,
 	}
-	idx := scanner.BuildIndexFromData(
+	codeIdx := scanner.BuildIndexFromData(
 		[]scanner.Symbol{
 			{Name: "UtilityObject", Kind: "object", Visibility: "public", File: "UtilityObject.kt", Line: 1},
 		},
@@ -140,7 +149,9 @@ func TestFanInFanOutHotspotRule_IgnoresCommentOnlyUsageByDefault(t *testing.T) {
 		},
 	)
 
-	findings := rule.CheckCrossFile(idx)
+	ctx := &v2.Context{CodeIndex: codeIdx, Collector: scanner.NewFindingCollector(0)}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
 	if len(findings) != 0 {
 		t.Fatalf("expected comment-only usage to be ignored, got %d findings", len(findings))
 	}

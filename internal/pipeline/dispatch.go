@@ -63,7 +63,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	var (
 		wg          sync.WaitGroup
 		mu          sync.Mutex
-		allFindings []scanner.Finding
+		allColumns  scanner.FindingColumns
 		fileTimings []FileTiming
 		acc         = rules.RunStats{
 			DispatchRuleNsByRule: make(map[string]int64),
@@ -95,7 +95,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 				startedAt = time.Now()
 			}
 
-			fileFindings, fileStats := dispatcher.RunWithStats(file)
+			fileColumns, fileStats := dispatcher.RunWithStats(file)
 
 			if in.ProfileDispatch {
 				finishedRunAt = time.Now()
@@ -105,11 +105,14 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 			if in.ProfileDispatch {
 				lockedAt = time.Now()
 			}
-			if len(fileFindings) > 0 {
-				allFindings = append(allFindings, fileFindings...)
+			if fileColumns.Len() > 0 {
+				collector := scanner.NewFindingCollector(allColumns.Len() + fileColumns.Len())
+				collector.AppendColumns(&allColumns)
+				collector.AppendColumns(&fileColumns)
+				allColumns = *collector.Columns()
 			}
 			if useCache {
-				findingsByFile[file.Path] = scanner.CollectFindings(fileFindings)
+				findingsByFile[file.Path] = fileColumns
 			}
 			mergeStats(&acc, fileStats)
 			if in.ProfileDispatch {
@@ -122,7 +125,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 					LockMs:   lockedAt.Sub(finishedRunAt).Milliseconds(),
 					AggMs:    endAt.Sub(lockedAt).Milliseconds(),
 					TotalMs:  endAt.Sub(dispatched).Milliseconds(),
-					Findings: len(fileFindings),
+					Findings: fileColumns.Len(),
 				})
 			}
 			mu.Unlock()
@@ -193,7 +196,11 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 
 	// Merge cached findings back in, mirroring main.go.
 	if in.CacheResult != nil && in.CacheResult.CachedColumns.Len() > 0 {
-		allFindings = append(allFindings, in.CacheResult.CachedColumns.Findings()...)
+		cachedCols := in.CacheResult.CachedColumns
+		collector := scanner.NewFindingCollector(allColumns.Len() + cachedCols.Len())
+		collector.AppendColumns(&allColumns)
+		collector.AppendColumns(&cachedCols)
+		allColumns = *collector.Columns()
 	}
 
 	// Cache write-back: update per-file entries, set header metadata,
@@ -234,7 +241,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 
 	return DispatchResult{
 		IndexResult:    in,
-		Findings:       scanner.CollectFindings(allFindings),
+		Findings:       allColumns,
 		Stats:          acc,
 		FileTimings:    fileTimings,
 		FindingsByFile: findingsByFile,

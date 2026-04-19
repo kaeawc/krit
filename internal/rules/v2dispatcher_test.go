@@ -85,7 +85,7 @@ func TestV2Dispatcher_RoutesFamiliesIndependently(t *testing.T) {
 	}
 
 	d := NewV2Dispatcher([]*v2.Rule{nodeRule, lineRule, legacyRule})
-	findings := d.Run(file)
+	columns := d.Run(file)
 
 	if nodeCalls == 0 {
 		t.Error("node rule was never invoked on call_expression")
@@ -98,21 +98,21 @@ func TestV2Dispatcher_RoutesFamiliesIndependently(t *testing.T) {
 	}
 
 	// Verify findings carry rule metadata populated by stampV2Findings.
-	if len(findings) == 0 {
+	if columns.Len() == 0 {
 		t.Fatal("expected findings, got none")
 	}
 	sawNode, sawLine, sawLegacy := false, false, false
-	for _, f := range findings {
-		switch f.Rule {
+	for i := 0; i < columns.Len(); i++ {
+		switch columns.RuleAt(i) {
 		case "V2TestNode":
 			sawNode = true
-			if f.RuleSet != "style" || f.Severity != "warning" {
-				t.Errorf("node finding metadata wrong: %+v", f)
+			if columns.RuleSetAt(i) != "style" || columns.SeverityAt(i) != "warning" {
+				t.Errorf("node finding metadata wrong: ruleset=%q severity=%q", columns.RuleSetAt(i), columns.SeverityAt(i))
 			}
 		case "V2TestLine":
 			sawLine = true
-			if f.RuleSet != "naming" {
-				t.Errorf("line finding ruleset %q, want naming", f.RuleSet)
+			if columns.RuleSetAt(i) != "naming" {
+				t.Errorf("line finding ruleset %q, want naming", columns.RuleSetAt(i))
 			}
 		case "V2TestLegacy":
 			sawLegacy = true
@@ -144,12 +144,12 @@ func TestV2Dispatcher_PanicRecovery(t *testing.T) {
 	)
 
 	d := NewV2Dispatcher([]*v2.Rule{goodRule, badRule})
-	findings, stats := d.RunWithStats(file)
+	columns, stats := d.RunWithStats(file)
 
 	if goodCalls == 0 {
 		t.Error("good rule was never invoked — dispatcher may have aborted on panic")
 	}
-	if len(findings) == 0 {
+	if columns.Len() == 0 {
 		t.Error("expected findings from good rule even with bad rule panicking")
 	}
 	if len(stats.Errors) == 0 {

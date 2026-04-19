@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -55,12 +56,13 @@ func flatNonNullCheckText(file *scanner.File, idx uint32, funcName string) (argT
 	return argText, lambdaText, true
 }
 
-func flatThrowPattern(nodeType, nodeText string, file *scanner.File, idx uint32, exceptionType, replacement string, base BaseRule) []scanner.Finding {
+func flatThrowPattern(ctx *v2.Context, nodeType, nodeText string, exceptionType, replacement string, base BaseRule) {
+	idx, file := ctx.Idx, ctx.File
 	if file == nil || nodeType != "if_expression" {
-		return nil
+		return
 	}
 	if strings.Contains(nodeText, "else") && file.FlatFindChild(idx, "else") != 0 {
-		return nil
+		return
 	}
 	var condNode, bodyNode uint32
 	for i := 0; i < file.FlatChildCount(idx); i++ {
@@ -77,7 +79,7 @@ func flatThrowPattern(nodeType, nodeText string, file *scanner.File, idx uint32,
 		}
 	}
 	if condNode == 0 || bodyNode == 0 {
-		return nil
+		return
 	}
 	condText := strings.TrimSpace(file.FlatNodeText(condNode))
 	isNegated := false
@@ -98,18 +100,18 @@ func flatThrowPattern(nodeType, nodeText string, file *scanner.File, idx uint32,
 		}
 	}
 	if !isNegated {
-		return nil
+		return
 	}
 	bodyText := strings.TrimSpace(file.FlatNodeText(bodyNode))
 	if strings.HasPrefix(bodyText, "{") && strings.HasSuffix(bodyText, "}") {
 		bodyText = strings.TrimSpace(bodyText[1 : len(bodyText)-1])
 	}
 	if !strings.HasPrefix(bodyText, "throw ") {
-		return nil
+		return
 	}
 	throwTarget := strings.TrimSpace(bodyText[6:])
 	if !strings.HasPrefix(throwTarget, exceptionType) {
-		return nil
+		return
 	}
 	f := base.Finding(file, file.FlatRow(idx)+1, 1, fmt.Sprintf("Use '%s()' instead of 'if (...) throw %s'.", replacement, exceptionType))
 	if argStart := strings.Index(throwTarget, "("); argStart >= 0 {
@@ -120,7 +122,7 @@ func flatThrowPattern(nodeType, nodeText string, file *scanner.File, idx uint32,
 			}
 		}
 	}
-	return []scanner.Finding{f}
+	ctx.Emit(f)
 }
 
 func flatNullOrEmptyNullCheckedVar(file *scanner.File, node uint32) string {

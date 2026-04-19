@@ -3,6 +3,7 @@ package rules
 import (
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -56,7 +57,8 @@ type MixedAssertionLibrariesRule struct {
 // collisions can produce false positives. Classified per roadmap/17.
 func (r *MixedAssertionLibrariesRule) Confidence() float64 { return 0.75 }
 
-func (r *MixedAssertionLibrariesRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *MixedAssertionLibrariesRule) check(ctx *v2.Context) {
+	file := ctx.File
 	var hasJUnitAssertImport bool
 	var hasTruthImport bool
 
@@ -74,24 +76,24 @@ func (r *MixedAssertionLibrariesRule) CheckLines(file *scanner.File) []scanner.F
 			if strings.HasPrefix(trimmed, "import org.junit.Assert.") {
 				hasJUnitAssertImport = true
 				if hasTruthImport {
-					return []scanner.Finding{r.Finding(file, i+1, 1,
-						"Avoid mixing JUnit Assert and Truth imports in the same file; pick one assertion library.")}
+					ctx.Emit(r.Finding(file, i+1, 1,
+						"Avoid mixing JUnit Assert and Truth imports in the same file; pick one assertion library."))
+					return
 				}
 			}
 			if strings.HasPrefix(trimmed, "import com.google.common.truth.Truth.") {
 				hasTruthImport = true
 				if hasJUnitAssertImport {
-					return []scanner.Finding{r.Finding(file, i+1, 1,
-						"Avoid mixing JUnit Assert and Truth imports in the same file; pick one assertion library.")}
+					ctx.Emit(r.Finding(file, i+1, 1,
+						"Avoid mixing JUnit Assert and Truth imports in the same file; pick one assertion library."))
+					return
 				}
 			}
 			continue
 		default:
-			return nil
+			return
 		}
 	}
-
-	return nil
 }
 
 // ---------------------------------------------------------------------------

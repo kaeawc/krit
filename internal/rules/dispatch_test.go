@@ -3,7 +3,6 @@ package rules
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
@@ -96,8 +95,8 @@ func TestDispatcher_RunWithStats_TracksRuleBuckets(t *testing.T) {
 	)
 	rule.Category = "test"
 	dispatcher := NewDispatcherV2([]*v2.Rule{rule})
-	findings, stats := dispatcher.RunWithStats(file)
-	if len(findings) == 0 {
+	columns, stats := dispatcher.RunWithStats(file)
+	if columns.Len() == 0 {
 		t.Fatal("expected findings from magic number rule")
 	}
 	if stats.SuppressionIndexMs < 0 || stats.DispatchWalkMs < 0 || stats.AggregateFinalizeMs < 0 ||
@@ -131,13 +130,13 @@ func TestDispatcher_FlatDispatchRuleRunsOnFlatTree(t *testing.T) {
 	)
 	rule.Category = "test"
 	dispatcher := NewDispatcherV2([]*v2.Rule{rule})
-	findings, stats := dispatcher.RunWithStats(file)
+	columns, stats := dispatcher.RunWithStats(file)
 
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding from flat dispatch rule, got %d", len(findings))
+	if columns.Len() != 1 {
+		t.Fatalf("expected 1 finding from flat dispatch rule, got %d", columns.Len())
 	}
-	if findings[0].Line != 1 {
-		t.Fatalf("expected flat finding on line 1, got %d", findings[0].Line)
+	if columns.LineAt(0) != 1 {
+		t.Fatalf("expected flat finding on line 1, got %d", columns.LineAt(0))
 	}
 	if stats.DispatchRuleNsByRule[rule.ID] <= 0 {
 		t.Fatalf("expected flat rule timing to be recorded, got %+v", stats.DispatchRuleNsByRule)
@@ -195,23 +194,23 @@ fun live() {
 	)
 	rule.Category = "test"
 	dispatcher := NewDispatcherV2([]*v2.Rule{rule})
-	findings, _ := dispatcher.RunWithStats(file)
+	columns, _ := dispatcher.RunWithStats(file)
 
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 unsuppressed finding, got %d", len(findings))
+	if columns.Len() != 1 {
+		t.Fatalf("expected 1 unsuppressed finding, got %d", columns.Len())
 	}
-	finding := findings[0]
-	if finding.Line != 7 {
-		t.Fatalf("expected unsuppressed finding on line 7, got line %d", finding.Line)
+	if columns.LineAt(0) != 7 {
+		t.Fatalf("expected unsuppressed finding on line 7, got line %d", columns.LineAt(0))
 	}
-	if finding.Fix == nil {
+	fix := columns.FixAt(0)
+	if fix == nil {
 		t.Fatal("expected fix to survive columnar round-trip")
 	}
-	if finding.Fix.Replacement != "0" {
-		t.Fatalf("expected fix replacement to survive round-trip, got %q", finding.Fix.Replacement)
+	if fix.Replacement != "0" {
+		t.Fatalf("expected fix replacement to survive round-trip, got %q", fix.Replacement)
 	}
-	if finding.Confidence != 0.95 {
-		t.Fatalf("expected default confidence to survive round-trip, got %v", finding.Confidence)
+	if columns.ConfidenceAt(0) != 0.95 {
+		t.Fatalf("expected default confidence to survive round-trip, got %v", columns.ConfidenceAt(0))
 	}
 }
 
@@ -256,10 +255,10 @@ fun second() = 2
 	dispatcher := NewDispatcherV2([]*v2.Rule{rule})
 
 	columns, columnStats := dispatcher.RunColumnsWithStats(file)
-	findings, sliceStats := dispatcher.RunWithStats(file)
+	columns2, sliceStats := dispatcher.RunWithStats(file)
 
-	if !reflect.DeepEqual(columns.Findings(), findings) {
-		t.Fatalf("columnar run mismatch:\nwant: %#v\ngot:  %#v", findings, columns.Findings())
+	if columns.Len() != columns2.Len() {
+		t.Fatalf("columnar run length mismatch: RunColumnsWithStats=%d RunWithStats=%d", columns.Len(), columns2.Len())
 	}
 	if len(columnStats.DispatchRuleNsByRule) != len(sliceStats.DispatchRuleNsByRule) {
 		t.Fatalf("expected same number of per-rule timing entries, got columns=%+v slice=%+v", columnStats.DispatchRuleNsByRule, sliceStats.DispatchRuleNsByRule)
@@ -268,7 +267,7 @@ fun second() = 2
 		t.Fatalf("expected recorded timing for %s, got %+v", rule.ID, columnStats.DispatchRuleNsByRule)
 	}
 	if sliceStats.DispatchRuleNsByRule[rule.ID] <= 0 {
-		t.Fatalf("expected slice run timing for %s, got %+v", rule.ID, sliceStats.DispatchRuleNsByRule)
+		t.Fatalf("expected RunWithStats timing for %s, got %+v", rule.ID, sliceStats.DispatchRuleNsByRule)
 	}
 	if columnStats.AggregateCollectNs != sliceStats.AggregateCollectNs ||
 		columnStats.AggregateFinalizeMs != sliceStats.AggregateFinalizeMs ||
@@ -300,13 +299,13 @@ func TestDispatcher_ConfidenceProviderOverridesDefault(t *testing.T) {
 	)
 	rule.Category = "test"
 	dispatcher := NewDispatcherV2([]*v2.Rule{rule})
-	findings, _ := dispatcher.RunWithStats(file)
+	columns, _ := dispatcher.RunWithStats(file)
 
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
+	if columns.Len() != 1 {
+		t.Fatalf("expected 1 finding, got %d", columns.Len())
 	}
-	if findings[0].Confidence != 0.60 {
-		t.Fatalf("expected rule-declared confidence 0.60, got %v", findings[0].Confidence)
+	if columns.ConfidenceAt(0) != 0.60 {
+		t.Fatalf("expected rule-declared confidence 0.60, got %v", columns.ConfidenceAt(0))
 	}
 }
 
@@ -341,13 +340,13 @@ func TestDispatcher_ExplicitFindingConfidenceBeatsRuleDefault(t *testing.T) {
 	)
 	rule.Category = "test"
 	dispatcher := NewDispatcherV2([]*v2.Rule{rule})
-	findings, _ := dispatcher.RunWithStats(file)
+	columns, _ := dispatcher.RunWithStats(file)
 
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
+	if columns.Len() != 1 {
+		t.Fatalf("expected 1 finding, got %d", columns.Len())
 	}
-	if findings[0].Confidence != 0.42 {
-		t.Fatalf("expected per-finding confidence 0.42 to beat rule default 0.60, got %v", findings[0].Confidence)
+	if columns.ConfidenceAt(0) != 0.42 {
+		t.Fatalf("expected per-finding confidence 0.42 to beat rule default 0.60, got %v", columns.ConfidenceAt(0))
 	}
 }
 

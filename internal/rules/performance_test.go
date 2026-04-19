@@ -18,7 +18,8 @@ func runPerformanceRuleWithResolver(t *testing.T, ruleName string, code string, 
 	for _, r := range v2rules.Registry {
 		if r.ID == ruleName {
 			dispatcher := rules.NewDispatcherV2([]*v2rules.Rule{r}, resolver)
-			return dispatcher.Run(file)
+			cols := dispatcher.Run(file)
+			return cols.Findings()
 		}
 	}
 	t.Fatalf("rule %q not found in registry", ruleName)

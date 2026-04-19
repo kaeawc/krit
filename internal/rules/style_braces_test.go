@@ -55,7 +55,7 @@ func makeBracesWhenV2Rule(rule *BracesOnWhenStatementsRule) *v2.Rule {
 }
 
 // runBracesIfRule runs BracesOnIfStatements with given config on inline code.
-func runBracesIfRule(t *testing.T, singleLine, multiLine, code string) []scanner.Finding {
+func runBracesIfRule(t *testing.T, singleLine, multiLine, code string) scanner.FindingColumns {
 	t.Helper()
 	rule := &BracesOnIfStatementsRule{
 		BaseRule:   BaseRule{RuleName: "BracesOnIfStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects if/else statements that are missing braces around their bodies."},
@@ -69,7 +69,7 @@ func runBracesIfRule(t *testing.T, singleLine, multiLine, code string) []scanner
 }
 
 // runBracesWhenRule runs BracesOnWhenStatements with given config on inline code.
-func runBracesWhenRule(t *testing.T, singleLine, multiLine, code string) []scanner.Finding {
+func runBracesWhenRule(t *testing.T, singleLine, multiLine, code string) scanner.FindingColumns {
 	t.Helper()
 	rule := &BracesOnWhenStatementsRule{
 		BaseRule:   BaseRule{RuleName: "BracesOnWhenStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects when branches that are missing braces around their bodies."},
@@ -91,12 +91,12 @@ package test
 fun example(x: Boolean) {
     if (x) foo() else { bar() }
 }`)
-	if len(findings) == 0 {
+	if findings.Len() == 0 {
 		t.Error("expected findings for mixed braces in if/else chain, got 0")
 	}
-	for _, f := range findings {
-		if !strings.Contains(f.Message, "consistent") {
-			t.Errorf("expected consistent message, got: %s", f.Message)
+	for i := 0; i < findings.Len(); i++ {
+		if !strings.Contains(findings.MessageAt(i), "consistent") {
+			t.Errorf("expected consistent message, got: %s", findings.MessageAt(i))
 		}
 	}
 }
@@ -108,8 +108,8 @@ package test
 fun example(x: Boolean) {
     if (x) foo() else bar()
 }`)
-	if len(findings) != 0 {
-		t.Errorf("expected no findings when all branches lack braces, got %d", len(findings))
+	if findings.Len() != 0 {
+		t.Errorf("expected no findings when all branches lack braces, got %d", findings.Len())
 	}
 }
 
@@ -120,8 +120,8 @@ package test
 fun example(x: Boolean) {
     if (x) { foo() } else { bar() }
 }`)
-	if len(findings) != 0 {
-		t.Errorf("expected no findings when all branches have braces, got %d", len(findings))
+	if findings.Len() != 0 {
+		t.Errorf("expected no findings when all branches have braces, got %d", findings.Len())
 	}
 }
 
@@ -132,7 +132,7 @@ package test
 fun example(x: Int) {
     if (x > 0) { foo() } else if (x < 0) bar() else { baz() }
 }`)
-	if len(findings) == 0 {
+	if findings.Len() == 0 {
 		t.Error("expected findings for mixed braces in else-if chain, got 0")
 	}
 }
@@ -147,7 +147,7 @@ fun example(x: Boolean) {
     } else
         bar()
 }`)
-	if len(findings) == 0 {
+	if findings.Len() == 0 {
 		t.Error("expected findings for mixed multi-line braces, got 0")
 	}
 }
@@ -162,8 +162,8 @@ fun example(x: Boolean) {
     else
         bar()
 }`)
-	if len(findings) != 0 {
-		t.Errorf("expected no findings when all multi-line branches lack braces, got %d", len(findings))
+	if findings.Len() != 0 {
+		t.Errorf("expected no findings when all multi-line branches lack braces, got %d", findings.Len())
 	}
 }
 
@@ -180,12 +180,12 @@ fun example(x: Int): String {
         else -> { "other" }
     }
 }`)
-	if len(findings) == 0 {
+	if findings.Len() == 0 {
 		t.Error("expected findings for mixed braces in when, got 0")
 	}
-	for _, f := range findings {
-		if !strings.Contains(f.Message, "consistent") {
-			t.Errorf("expected consistent message, got: %s", f.Message)
+	for i := 0; i < findings.Len(); i++ {
+		if !strings.Contains(findings.MessageAt(i), "consistent") {
+			t.Errorf("expected consistent message, got: %s", findings.MessageAt(i))
 		}
 	}
 }
@@ -201,8 +201,8 @@ fun example(x: Int): String {
         else -> "other"
     }
 }`)
-	if len(findings) != 0 {
-		t.Errorf("expected no findings when all when entries lack braces, got %d", len(findings))
+	if findings.Len() != 0 {
+		t.Errorf("expected no findings when all when entries lack braces, got %d", findings.Len())
 	}
 }
 
@@ -217,7 +217,7 @@ fun example(x: Int): String {
         else -> { "other" }
     }
 }`)
-	if len(findings) != 0 {
-		t.Errorf("expected no findings when all when entries have braces, got %d", len(findings))
+	if findings.Len() != 0 {
+		t.Errorf("expected no findings when all when entries have braces, got %d", findings.Len())
 	}
 }

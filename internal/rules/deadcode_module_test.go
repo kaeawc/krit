@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/module"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -50,8 +51,12 @@ func TestModuleDeadCode_TrulyDead(t *testing.T) {
 	rule := &ModuleDeadCodeRule{
 		BaseRule: BaseRule{RuleName: "ModuleDeadCode", RuleSetName: "dead-code", Sev: "warning"},
 	}
-	rule.SetModuleIndex(pmi)
-	findings := rule.CheckModuleAware()
+	ctx := &v2.Context{
+		ModuleIndex: pmi,
+		Collector:   scanner.NewFindingCollector(0),
+	}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
 
 	found := false
 	for _, f := range findings {
@@ -84,8 +89,12 @@ func TestModuleDeadCode_CouldBeInternal(t *testing.T) {
 	rule := &ModuleDeadCodeRule{
 		BaseRule: BaseRule{RuleName: "ModuleDeadCode", RuleSetName: "dead-code", Sev: "warning"},
 	}
-	rule.SetModuleIndex(pmi)
-	findings := rule.CheckModuleAware()
+	ctx := &v2.Context{
+		ModuleIndex: pmi,
+		Collector:   scanner.NewFindingCollector(0),
+	}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
 
 	found := false
 	for _, f := range findings {
@@ -118,8 +127,12 @@ func TestModuleDeadCode_UsedByConsumer(t *testing.T) {
 	rule := &ModuleDeadCodeRule{
 		BaseRule: BaseRule{RuleName: "ModuleDeadCode", RuleSetName: "dead-code", Sev: "warning"},
 	}
-	rule.SetModuleIndex(pmi)
-	findings := rule.CheckModuleAware()
+	ctx := &v2.Context{
+		ModuleIndex: pmi,
+		Collector:   scanner.NewFindingCollector(0),
+	}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
 
 	for _, f := range findings {
 		if contains(f.Message, "greet") {
@@ -144,8 +157,12 @@ func TestModuleDeadCode_PublishedModuleSkip(t *testing.T) {
 	rule := &ModuleDeadCodeRule{
 		BaseRule: BaseRule{RuleName: "ModuleDeadCode", RuleSetName: "dead-code", Sev: "warning"},
 	}
-	rule.SetModuleIndex(pmi)
-	findings := rule.CheckModuleAware()
+	ctx := &v2.Context{
+		ModuleIndex: pmi,
+		Collector:   scanner.NewFindingCollector(0),
+	}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
 
 	for _, f := range findings {
 		if contains(f.Message, "publicApi") {

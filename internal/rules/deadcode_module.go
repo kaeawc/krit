@@ -63,7 +63,6 @@ func CollectModuleAwareNeedsV2(activeRules []*v2.Rule) ModuleAwareNeeds {
 // It categorises symbols as truly-dead, could-be-internal, or dead-internal.
 type ModuleDeadCodeRule struct {
 	BaseRule
-	pmi *module.PerModuleIndex
 }
 
 func (r *ModuleDeadCodeRule) IsFixable() bool { return false }
@@ -83,32 +82,21 @@ func (r *ModuleDeadCodeRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	}
 }
 
-// Check is a no-op; analysis happens in CheckModuleAware.
-func (r *ModuleDeadCodeRule) Check(_ *scanner.File) []scanner.Finding {
-	return nil
-}
-
-// SetModuleIndex injects the per-module index for later analysis.
-func (r *ModuleDeadCodeRule) SetModuleIndex(pmi *module.PerModuleIndex) {
-	r.pmi = pmi
-}
-
-// CheckModuleAware runs module-aware dead code detection and returns findings.
-func (r *ModuleDeadCodeRule) CheckModuleAware() []scanner.Finding {
-	if r.pmi == nil || r.pmi.Graph == nil {
-		return nil
+// check is the v2 dispatch entry point.
+func (r *ModuleDeadCodeRule) check(ctx *v2.Context) {
+	pmi := ctx.ModuleIndex
+	if pmi == nil || pmi.Graph == nil {
+		return
 	}
 
-	var findings []scanner.Finding
-
-	for modPath, idx := range r.pmi.ModuleIndex {
-		mod := r.pmi.Graph.Modules[modPath]
+	for modPath, idx := range pmi.ModuleIndex {
+		mod := pmi.Graph.Modules[modPath]
 		// Skip published modules: their public API is intended for external consumers
 		if mod != nil && mod.IsPublished {
 			continue
 		}
 
-		consumers := r.pmi.Graph.Consumers[modPath]
+		consumers := pmi.Graph.Consumers[modPath]
 
 		for _, sym := range idx.Symbols {
 			if shouldSkipSymbol(sym) {
@@ -118,13 +106,13 @@ func (r *ModuleDeadCodeRule) CheckModuleAware() []scanner.Finding {
 				continue // handled by single-file rules
 			}
 
-			category := classifySymbol(sym, modPath, idx, consumers, r.pmi)
+			category := classifySymbol(sym, modPath, idx, consumers, pmi)
 			if category == "" {
 				continue // symbol is used, not dead
 			}
 
 			msg := formatModuleDeadCodeMsg(sym, modPath, category)
-			findings = append(findings, scanner.Finding{
+			ctx.Emit(scanner.Finding{
 				File:     sym.File,
 				Line:     sym.Line,
 				Col:      1,
@@ -135,8 +123,6 @@ func (r *ModuleDeadCodeRule) CheckModuleAware() []scanner.Finding {
 			})
 		}
 	}
-
-	return findings
 }
 
 // classifySymbol determines the dead-code category for a symbol.

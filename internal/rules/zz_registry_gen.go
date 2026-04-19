@@ -639,7 +639,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &PrivateKeyRule{AndroidRule: AndroidRule{
@@ -648,7 +648,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSFatal, Priority: 8,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 
 	// --- from android_correctness.go ---
@@ -657,11 +657,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -719,11 +715,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -757,11 +749,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -824,11 +812,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -856,11 +840,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -876,11 +856,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -888,11 +864,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -900,11 +872,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -912,11 +880,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -973,11 +937,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -985,11 +945,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -997,11 +953,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1009,11 +961,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1021,11 +969,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1033,11 +977,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1045,11 +985,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1057,11 +993,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1069,11 +1001,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1081,11 +1009,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1131,11 +1055,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1143,11 +1063,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1163,11 +1079,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1175,11 +1087,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1187,11 +1095,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1199,11 +1103,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -3655,7 +3555,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 9,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &GetInstanceRule{AndroidRule: AndroidRule{
@@ -3664,7 +3564,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 9,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &EasterEggRule{AndroidRule: AndroidRule{
@@ -3673,7 +3573,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &ExportedContentProviderRule{AndroidRule: AndroidRule{
@@ -3682,7 +3582,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &ExportedReceiverRule{AndroidRule: AndroidRule{
@@ -3691,7 +3591,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &GrantAllUrisRule{AndroidRule: AndroidRule{
@@ -3700,7 +3600,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 7,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &SecureRandomRule{AndroidRule: AndroidRule{
@@ -3709,7 +3609,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 9,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &TrustedServerRule{AndroidRule: AndroidRule{
@@ -3718,7 +3618,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &WorldReadableFilesRule{AndroidRule: AndroidRule{
@@ -3727,7 +3627,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &WorldWriteableFilesRule{AndroidRule: AndroidRule{
@@ -3736,7 +3636,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &DrawAllocationRule{AndroidRule: AndroidRule{
@@ -3745,7 +3645,7 @@ func registerAllRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 9,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &FieldGetterRule{AndroidRule: AndroidRule{
@@ -3754,7 +3654,7 @@ func registerAllRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 4,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &FloatMathRule{AndroidRule: AndroidRule{
@@ -3763,7 +3663,7 @@ func registerAllRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 3,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &HandlerLeakRule{AndroidRule: AndroidRule{
@@ -3772,7 +3672,7 @@ func registerAllRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 7,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &RecycleRule{AndroidRule: AndroidRule{
@@ -3781,7 +3681,7 @@ func registerAllRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 7,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &ByteOrderMarkRule{AndroidRule: AndroidRule{
@@ -3790,7 +3690,7 @@ func registerAllRules() {
 			Category: ALCI18N, ALSeverity: ALSWarning, Priority: 8,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.95)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 
 	// --- from android_source.go ---
@@ -3959,11 +3859,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4124,11 +4020,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -4210,11 +4102,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4222,11 +4110,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4234,11 +4118,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4246,11 +4126,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4258,11 +4134,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4270,11 +4142,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4385,11 +4253,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4397,11 +4261,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4409,11 +4269,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4452,11 +4308,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4594,7 +4446,7 @@ func registerAllRules() {
 			Category: ALCUnknown, ALSeverity: ALSError, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &UnusedResourcesRule{AndroidRule: AndroidRule{
@@ -4603,7 +4455,7 @@ func registerAllRules() {
 			Category: ALCUnknown, ALSeverity: ALSWarning, Priority: 3,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(v2.AdaptLine(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.CheckLines, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 
 	// --- from comments.go ---
@@ -4612,11 +4464,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4863,6 +4711,7 @@ func registerAllRules() {
 			},
 		})
 	}
+
 	// --- from complexity.go ---
 	{
 		r := &LongMethodRule{BaseRule: BaseRule{RuleName: "LongMethod", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions that exceed a configurable line count threshold."}, AllowedLines: 60}
@@ -5138,12 +4987,7 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"source_file"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				var findings []scanner.Finding
-				r.checkScopeFlat(idx, file, &findings)
-				for _, f := range findings {
-					ctx.Emit(f)
-				}
+				r.checkScopeFlat(ctx, ctx.Idx)
 			},
 		})
 	}
@@ -7079,12 +6923,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				r.SetModuleIndex(ctx.ModuleIndex)
-				for _, f := range r.CheckModuleAware() {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -7203,11 +7042,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckCrossFile(ctx.CodeIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -7219,12 +7054,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				r.SetModuleIndex(ctx.ModuleIndex)
-				for _, f := range r.CheckModuleAware() {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -7234,11 +7064,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckCrossFile(ctx.CodeIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -7705,11 +7531,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -7850,7 +7672,6 @@ func registerAllRules() {
 			},
 		})
 	}
-
 
 	// --- from exceptions.go ---
 	{
@@ -8063,9 +7884,7 @@ func registerAllRules() {
 					if swallowedExceptionHandlerCallRe.MatchString(body) {
 						return
 					}
-					for _, f := range r.makeUnusedFindingFlat(idx, file, caughtVar) {
-						ctx.Emit(f)
-					}
+					r.makeUnusedFindingFlat(ctx, caughtVar)
 					return
 				}
 				if isExceptionSwallowedInThrows(body, caughtVar) {
@@ -8308,11 +8127,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -8324,11 +8139,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckCrossFile(ctx.CodeIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -8340,12 +8151,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				r.SetModuleIndex(ctx.ModuleIndex)
-				for _, f := range r.CheckModuleAware() {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -8424,11 +8230,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -8439,11 +8241,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -8465,12 +8263,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				r.SetModuleIndex(ctx.ModuleIndex)
-				for _, f := range r.CheckModuleAware() {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -9103,6 +8896,7 @@ func registerAllRules() {
 			},
 		})
 	}
+
 	// --- from observability.go ---
 	{
 		r := &LogLevelGuardMissingRule{BaseRule: BaseRule{RuleName: "LogLevelGuardMissing", RuleSetName: "observability", Sev: "info", Desc: "Detects debug/trace log messages with interpolated calls not guarded by a log-level check."}}
@@ -9187,12 +8981,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				r.SetModuleIndex(ctx.ModuleIndex)
-				for _, f := range r.CheckModuleAware() {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -9702,12 +9491,7 @@ func registerAllRules() {
 			NodeTypes: []string{"catch_block"}, Confidence: 0.75, OriginalV1: r,
 			Needs:           v2.NeedsResolver,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check:           r.checkNode,
 		})
 	}
 	{
@@ -9715,11 +9499,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -9729,12 +9509,7 @@ func registerAllRules() {
 			NodeTypes: []string{"try_expression"}, Confidence: 0.75, OriginalV1: r,
 			Needs:           v2.NeedsResolver,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check:           r.checkFlatNode,
 		})
 	}
 	{
@@ -9744,12 +9519,7 @@ func registerAllRules() {
 			NodeTypes: []string{"statements"}, Confidence: 0.75, OriginalV1: r,
 			Needs:           v2.NeedsResolver,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check:           r.checkNode,
 		})
 	}
 
@@ -9932,11 +9702,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -10387,36 +10153,6 @@ func registerAllRules() {
 		})
 	}
 
-	// --- from potentialbugs_nullsafety_casts.go ---
-	{
-		r := &UnsafeCastRule{BaseRule: BaseRule{RuleName: "UnsafeCast", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects non-safe casts using 'as Type' that may throw ClassCastException at runtime."}}
-		v2.Register(&v2.Rule{
-			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
-			Needs: v2.NeedsResolver, OriginalV1: r,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: r.check,
-		})
-	}
-	{
-		r := &CastNullableToNonNullableTypeRule{BaseRule: BaseRule{RuleName: "CastNullableToNonNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects casting a nullable expression to a non-nullable type using 'as Type'."}}
-		v2.Register(&v2.Rule{
-			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
-			Needs: v2.NeedsResolver, OriginalV1: r,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: r.check,
-		})
-	}
-	{
-		r := &CastToNullableTypeRule{BaseRule: BaseRule{RuleName: "CastToNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects casts to nullable types like 'as Type?' which always succeed and may hide bugs."}}
-		v2.Register(&v2.Rule{
-			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
-			Check: r.check,
-		})
-	}
-
 	// --- from potentialbugs_nullsafety_bangbang.go ---
 	{
 		r := &UnsafeCallOnNullableTypeRule{BaseRule: BaseRule{RuleName: "UnsafeCallOnNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects usage of the !! not-null assertion operator which may throw NullPointerException."}}
@@ -10425,12 +10161,7 @@ func registerAllRules() {
 			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75,
 			Needs: v2.NeedsResolver, OriginalV1: r,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check:           r.check,
 		})
 	}
 	{
@@ -10440,12 +10171,37 @@ func registerAllRules() {
 			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check:           r.check,
+		})
+	}
+
+	// --- from potentialbugs_nullsafety_casts.go ---
+	{
+		r := &UnsafeCastRule{BaseRule: BaseRule{RuleName: "UnsafeCast", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects non-safe casts using 'as Type' that may throw ClassCastException at runtime."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
+			Needs: v2.NeedsResolver, OriginalV1: r,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check:           r.check,
+		})
+	}
+	{
+		r := &CastNullableToNonNullableTypeRule{BaseRule: BaseRule{RuleName: "CastNullableToNonNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects casting a nullable expression to a non-nullable type using 'as Type'."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
+			Needs: v2.NeedsResolver, OriginalV1: r,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check:           r.check,
+		})
+	}
+	{
+		r := &CastToNullableTypeRule{BaseRule: BaseRule{RuleName: "CastToNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects casts to nullable types like 'as Type?' which always succeed and may hide bugs."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			Check: r.check,
 		})
 	}
 
@@ -10465,7 +10221,7 @@ func registerAllRules() {
 			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: r.check,
+			Check:           r.check,
 		})
 	}
 	{
@@ -10475,7 +10231,7 @@ func registerAllRules() {
 			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: r.check,
+			Check:           r.check,
 		})
 	}
 	{
@@ -10493,7 +10249,7 @@ func registerAllRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75,
 			Needs: v2.NeedsResolver, OriginalV1: r,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: r.check,
+			Check:           r.check,
 		})
 	}
 
@@ -11046,9 +10802,7 @@ func registerAllRules() {
 							resolved := r.resolver.ResolveByNameFlat(simpleName, idx, file)
 							if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
 								if resolved.Name == "CharArray" || resolved.FQN == "kotlin.CharArray" {
-									for _, finding := range r.reportCharArrayFlat(idx, text, file) {
-										ctx.Emit(finding)
-									}
+									r.reportCharArrayFlat(ctx, text)
 									return
 								}
 								return
@@ -11057,9 +10811,7 @@ func registerAllRules() {
 					}
 				}
 				if charArrayToStringRe.MatchString(text) {
-					for _, finding := range r.reportCharArrayFlat(idx, text, file) {
-						ctx.Emit(finding)
-					}
+					r.reportCharArrayFlat(ctx, text)
 				}
 			},
 		})
@@ -11620,12 +11372,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -11633,12 +11380,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -11646,12 +11388,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -11664,11 +11401,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -11931,11 +11664,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -11943,11 +11672,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -11955,11 +11680,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -11967,11 +11688,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -11979,11 +11696,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -11991,11 +11704,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -12003,12 +11712,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				r.SetModuleIndex(ctx.ModuleIndex)
-				for _, f := range r.CheckModuleAware() {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -12016,11 +11720,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckCrossFile(ctx.CodeIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -12028,11 +11728,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckCrossFile(ctx.CodeIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -12040,11 +11736,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckCrossFile(ctx.CodeIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -12052,11 +11744,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckCrossFile(ctx.CodeIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -14219,11 +13907,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -14231,11 +13915,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -14261,20 +13941,15 @@ func registerAllRules() {
 		r := &CanBeNonNullableRule{BaseRule: BaseRule{RuleName: "CanBeNonNullable", RuleSetName: "style", Sev: "warning", Desc: "Detects nullable types that are initialized with non-null values and never assigned null."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes:       []string{"property_declaration", "function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"property_declaration", "function_declaration"}, Confidence: 0.75, OriginalV1: r,
 			Needs:           v2.NeedsResolver,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
 			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				switch file.FlatType(idx) {
+				switch ctx.File.FlatType(ctx.Idx) {
 				case "property_declaration":
-					for _, f := range r.checkPropertyFlat(idx, file) {
-						ctx.Emit(f)
-					}
+					r.checkPropertyFlat(ctx)
 				case "function_declaration":
-					for _, f := range r.checkFunctionParamsFlat(idx, file) {
-						ctx.Emit(f)
-					}
+					r.checkFunctionParamsFlat(ctx)
 				}
 			},
 		})
@@ -15166,11 +14841,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -15178,11 +14849,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -15190,11 +14857,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -15202,11 +14865,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -15214,11 +14873,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -15226,11 +14881,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -15238,11 +14889,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -15304,11 +14951,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -15390,11 +15033,8 @@ func registerAllRules() {
 			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
 			OriginalV1: r,
 			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				findings := flatThrowPattern(file.FlatType(idx), file.FlatNodeText(idx), file, idx, "IllegalStateException", "check", r.BaseRule)
-				for _, f := range findings {
-					ctx.Emit(f)
-				}
+				file := ctx.File
+				flatThrowPattern(ctx, file.FlatType(ctx.Idx), file.FlatNodeText(ctx.Idx), "IllegalStateException", "check", r.BaseRule)
 			},
 		})
 	}
@@ -15405,11 +15045,8 @@ func registerAllRules() {
 			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
 			OriginalV1: r,
 			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				findings := flatThrowPattern(file.FlatType(idx), file.FlatNodeText(idx), file, idx, "IllegalArgumentException", "require", r.BaseRule)
-				for _, f := range findings {
-					ctx.Emit(f)
-				}
+				file := ctx.File
+				flatThrowPattern(ctx, file.FlatType(ctx.Idx), file.FlatNodeText(ctx.Idx), "IllegalArgumentException", "require", r.BaseRule)
 			},
 		})
 	}
@@ -16867,7 +16504,7 @@ func registerAllRules() {
 		r := &UnnecessaryFilterRule{BaseRule: BaseRule{RuleName: "UnnecessaryFilter", RuleSetName: "style", Sev: "warning", Desc: "Detects .filter {}.first() chains that can be simplified to .first {} with the predicate."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes:       []string{"call_expression"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.95, OriginalV1: r,
 			Needs:           v2.NeedsResolver,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
 			Check: func(ctx *v2.Context) {
@@ -17536,12 +17173,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				r.SetModuleIndex(ctx.ModuleIndex)
-				for _, f := range r.CheckModuleAware() {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -17614,11 +17246,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{

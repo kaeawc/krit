@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -77,10 +78,11 @@ type AbsentOrWrongFileLicenseRule struct {
 // heuristic path. Classified per roadmap/17.
 func (r *AbsentOrWrongFileLicenseRule) Confidence() float64 { return 0.95 }
 
-func (r *AbsentOrWrongFileLicenseRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *AbsentOrWrongFileLicenseRule) check(ctx *v2.Context) {
+	file := ctx.File
 	// Only active if a license template is configured; skip by default
 	if r.LicenseTemplate == "" {
-		return nil
+		return
 	}
 	// Find the first comment node
 	var firstComment uint32
@@ -108,7 +110,8 @@ func (r *AbsentOrWrongFileLicenseRule) CheckLines(file *scanner.File) []scanner.
 			EndByte:     0,
 			Replacement: licenseComment,
 		}
-		return []scanner.Finding{f}
+		ctx.Emit(f)
+		return
 	}
 	text := file.FlatNodeText(firstComment)
 	if r.IsRegex {
@@ -116,15 +119,15 @@ func (r *AbsentOrWrongFileLicenseRule) CheckLines(file *scanner.File) []scanner.
 			var err error
 			r.compiledRegex, err = regexp.Compile(r.LicenseTemplate)
 			if err != nil {
-				return nil // invalid regex pattern, skip
+				return // invalid regex pattern, skip
 			}
 		}
 		if r.compiledRegex.MatchString(text) {
-			return nil
+			return
 		}
 	} else {
 		if strings.Contains(text, r.LicenseTemplate) {
-			return nil
+			return
 		}
 	}
 	f := r.Finding(file, 1, 1, "File does not have a valid license header.")
@@ -135,7 +138,7 @@ func (r *AbsentOrWrongFileLicenseRule) CheckLines(file *scanner.File) []scanner.
 		EndByte:     int(file.FlatEndByte(firstComment)),
 		Replacement: "/* " + r.LicenseTemplate + " */",
 	}
-	return []scanner.Finding{f}
+	ctx.Emit(f)
 }
 
 // DeprecatedBlockTagRule detects @deprecated in KDoc comments.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -22,16 +23,14 @@ type AnvilMergeComponentEmptyScopeRule struct {
 // Classified per roadmap/17.
 func (r *AnvilMergeComponentEmptyScopeRule) Confidence() float64 { return 0.75 }
 
-func (r *AnvilMergeComponentEmptyScopeRule) CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding {
+func (r *AnvilMergeComponentEmptyScopeRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
 	if index == nil {
-		return nil
+		return
 	}
-	return r.CheckParsedFiles(index.Files)
-}
-
-func (r *AnvilMergeComponentEmptyScopeRule) CheckParsedFiles(files []*scanner.File) []scanner.Finding {
+	files := index.Files
 	if len(files) == 0 {
-		return nil
+		return
 	}
 
 	contributedScopes := make(map[string]struct{})
@@ -67,7 +66,6 @@ func (r *AnvilMergeComponentEmptyScopeRule) CheckParsedFiles(files []*scanner.Fi
 		}
 	}
 
-	findings := make([]scanner.Finding, 0, len(mergeComponents))
 	for _, candidate := range mergeComponents {
 		if _, ok := contributedScopes[candidate.scope]; ok {
 			continue
@@ -78,15 +76,13 @@ func (r *AnvilMergeComponentEmptyScopeRule) CheckParsedFiles(files []*scanner.Fi
 			name = "merged component"
 		}
 
-		findings = append(findings, r.Finding(
+		ctx.Emit(r.Finding(
 			candidate.file,
 			candidate.file.FlatRow(candidate.idx)+1,
 			1,
 			fmt.Sprintf("@MergeComponent(%s::class) on '%s' has no matching @ContributesTo or @ContributesBinding scope in the project, so the merged component will be empty.", candidate.scope, name),
 		))
 	}
-
-	return findings
 }
 
 var (

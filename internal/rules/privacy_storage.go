@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 var sensitiveStorageKeyPattern = regexp.MustCompile(`(?i)(token|secret|password|pin|auth|credential|private.?key)`)
@@ -21,48 +21,49 @@ type SharedPreferencesForSensitiveKeyRule struct {
 
 func (r *SharedPreferencesForSensitiveKeyRule) Confidence() float64 { return 0.75 }
 
-func (r *SharedPreferencesForSensitiveKeyRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *SharedPreferencesForSensitiveKeyRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	name := flatCallExpressionName(file, idx)
 	if !isSharedPrefsPutMethod(name) {
-		return nil
+		return
 	}
 
 	navExpr, args := flatCallExpressionParts(file, idx)
 	if args == 0 {
-		return nil
+		return
 	}
 
 	if navExpr != 0 {
 		chainText := compactKotlinExpr(file.FlatNodeText(navExpr))
 		if strings.Contains(chainText, "EncryptedSharedPreferences") {
-			return nil
+			return
 		}
 	}
 
 	arg := flatPositionalValueArgument(file, args, 0)
 	if arg == 0 {
-		return nil
+		return
 	}
 	argExpr := flatValueArgumentExpression(file, arg)
 	if argExpr == 0 {
-		return nil
+		return
 	}
 
 	body, ok := kotlinStringLiteralBody(file.FlatNodeText(argExpr))
 	if !ok {
-		return nil
+		return
 	}
 
 	if !sensitiveStorageKeyPattern.MatchString(body) {
-		return nil
+		return
 	}
 
-	return []scanner.Finding{r.Finding(
+	ctx.Emit(r.Finding(
 		file,
 		file.FlatRow(argExpr)+1,
 		file.FlatCol(argExpr)+1,
 		"SharedPreferences key \""+body+"\" looks sensitive. Use EncryptedSharedPreferences or the Android Keystore for sensitive data.",
-	)}
+	))
 }
 
 // PlainFileWriteOfSensitiveRule flags writeText/writeBytes calls on File
@@ -74,36 +75,37 @@ type PlainFileWriteOfSensitiveRule struct {
 
 func (r *PlainFileWriteOfSensitiveRule) Confidence() float64 { return 0.75 }
 
-func (r *PlainFileWriteOfSensitiveRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *PlainFileWriteOfSensitiveRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	name := flatCallExpressionName(file, idx)
 	if name != "writeText" && name != "writeBytes" {
-		return nil
+		return
 	}
 
 	navExpr, _ := flatCallExpressionParts(file, idx)
 	if navExpr == 0 {
-		return nil
+		return
 	}
 
 	receiverText := compactKotlinExpr(file.FlatNodeText(navExpr))
 	if !strings.Contains(receiverText, "File(") {
-		return nil
+		return
 	}
 
 	if strings.Contains(receiverText, "EncryptedFile") {
-		return nil
+		return
 	}
 
 	if !sensitiveFileNamePattern.MatchString(receiverText) {
-		return nil
+		return
 	}
 
-	return []scanner.Finding{r.Finding(
+	ctx.Emit(r.Finding(
 		file,
 		file.FlatRow(idx)+1,
 		file.FlatCol(idx)+1,
 		"Plain-file write to a path containing sensitive terms. Use EncryptedFile or the Android Keystore for sensitive data.",
-	)}
+	))
 }
 
 // LogOfSharedPreferenceReadRule flags logger calls whose argument directly
@@ -115,23 +117,23 @@ type LogOfSharedPreferenceReadRule struct {
 
 func (r *LogOfSharedPreferenceReadRule) Confidence() float64 { return 0.75 }
 
-func (r *LogOfSharedPreferenceReadRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *LogOfSharedPreferenceReadRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	name := flatCallExpressionName(file, idx)
 	if !isLogMethod(name) {
-		return nil
+		return
 	}
 
 	receiver := flatReceiverNameFromCall(file, idx)
 	if !isLogReceiver(receiver) {
-		return nil
+		return
 	}
 
 	_, args := flatCallExpressionParts(file, idx)
 	if args == 0 {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	file.FlatWalkNodes(args, "call_expression", func(innerCall uint32) {
 		innerName := flatCallExpressionName(file, innerCall)
 		if !isSharedPrefsGetMethod(innerName) {
@@ -155,7 +157,7 @@ func (r *LogOfSharedPreferenceReadRule) checkFlatNode(idx uint32, file *scanner.
 			return
 		}
 		if sensitiveStorageKeyPattern.MatchString(body) {
-			findings = append(findings, r.Finding(
+			ctx.Emit(r.Finding(
 				file,
 				file.FlatRow(innerCall)+1,
 				file.FlatCol(innerCall)+1,
@@ -163,7 +165,6 @@ func (r *LogOfSharedPreferenceReadRule) checkFlatNode(idx uint32, file *scanner.
 			))
 		}
 	})
-	return findings
 }
 
 func isSharedPrefsPutMethod(name string) bool {

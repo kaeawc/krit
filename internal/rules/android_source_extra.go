@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 type permissionAPI struct {
@@ -161,8 +162,8 @@ var setTagSingleArgRe = regexp.MustCompile(`\.setTag\s*\(\s*([A-Za-z_][A-Za-z0-9
 // Classified per roadmap/17.
 func (r *ViewTagRule) Confidence() float64 { return 0.75 }
 
-func (r *ViewTagRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *ViewTagRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if scanner.IsCommentLine(line) || !setTagRe.MatchString(line) {
 			continue
@@ -178,10 +179,9 @@ func (r *ViewTagRule) CheckLines(file *scanner.File) []scanner.Finding {
 		if matches == nil || !leakyTagArgRe.MatchString(matches[1]) {
 			continue
 		}
-		findings = append(findings, r.Finding(file, i+1, 1,
+		ctx.Emit(r.Finding(file, i+1, 1,
 			"View.setTag() with a framework object may cause memory leaks across configuration changes."))
 	}
-	return findings
 }
 
 type WrongImportRule struct {
@@ -199,15 +199,14 @@ var wrongImportRe = regexp.MustCompile(`^import\s+android\.R\b`)
 // Classified per roadmap/17.
 func (r *WrongImportRule) Confidence() float64 { return 0.75 }
 
-func (r *WrongImportRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *WrongImportRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if wrongImportRe.MatchString(strings.TrimSpace(line)) {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"Importing android.R instead of the application's R class. This may cause resource resolution errors."))
 		}
 	}
-	return findings
 }
 
 type LayoutInflationRule struct {
@@ -242,8 +241,8 @@ var layoutInflationDialogContexts = []string{
 // Classified per roadmap/17.
 func (r *LayoutInflationRule) Confidence() float64 { return 0.75 }
 
-func (r *LayoutInflationRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *LayoutInflationRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if scanner.IsCommentLine(line) || !layoutInflateNullRe.MatchString(line) {
 			continue
@@ -275,10 +274,9 @@ func (r *LayoutInflationRule) CheckLines(file *scanner.File) []scanner.Finding {
 				continue
 			}
 		}
-		findings = append(findings, r.Finding(file, i+1, 1,
+		ctx.Emit(r.Finding(file, i+1, 1,
 			"Avoid passing null as the parent ViewGroup. Inflate with the parent to get correct LayoutParams."))
 	}
-	return findings
 }
 
 type TrulyRandomRule struct {
@@ -296,15 +294,14 @@ var secureRandomSeedRe = regexp.MustCompile(`SecureRandom\s*\(\s*(byteArrayOf|"[
 // Classified per roadmap/17.
 func (r *TrulyRandomRule) Confidence() float64 { return 0.75 }
 
-func (r *TrulyRandomRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *TrulyRandomRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if !scanner.IsCommentLine(line) && secureRandomSeedRe.MatchString(line) {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"SecureRandom with a hardcoded seed is not secure. Use the default constructor for cryptographic randomness."))
 		}
 	}
-	return findings
 }
 
 type MissingPermissionRule struct {
@@ -320,8 +317,8 @@ type MissingPermissionRule struct {
 // Classified per roadmap/17.
 func (r *MissingPermissionRule) Confidence() float64 { return 0.75 }
 
-func (r *MissingPermissionRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *MissingPermissionRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
 		if scanner.IsCommentLine(line) || strings.HasPrefix(trimmed, "import ") {
@@ -353,16 +350,16 @@ func (r *MissingPermissionRule) CheckLines(file *scanner.File) []scanner.Finding
 		if containsAny(prefix, permissionGuardTokens) {
 			continue
 		}
-		findings = append(findings, r.Finding(file, i+1, 1,
+		ctx.Emit(r.Finding(file, i+1, 1,
 			match.api+" requires "+match.perm+" permission. Ensure checkSelfPermission() is called before this API."))
 	}
-	return findings
 }
 
 type WrongConstantRule struct {
 	LineBase
 	AndroidRule
 }
+
 type wrongConstantEntry struct {
 	Pattern     *regexp.Regexp
 	Description string
@@ -384,20 +381,19 @@ var wrongConstantEntries = []wrongConstantEntry{
 // Classified per roadmap/17.
 func (r *WrongConstantRule) Confidence() float64 { return 0.75 }
 
-func (r *WrongConstantRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *WrongConstantRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if scanner.IsCommentLine(line) {
 			continue
 		}
 		for _, entry := range wrongConstantEntries {
 			if entry.Pattern.MatchString(line) {
-				findings = append(findings, r.Finding(file, i+1, 1, entry.Description))
+				ctx.Emit(r.Finding(file, i+1, 1, entry.Description))
 				break
 			}
 		}
 	}
-	return findings
 }
 
 type InstantiatableRule struct {
@@ -475,18 +471,17 @@ var localeFolderBadRe = regexp.MustCompile(`values-[a-z]{2}_[A-Z]{2}`)
 // Classified per roadmap/17.
 func (r *LocaleFolderRule) Confidence() float64 { return 0.75 }
 
-func (r *LocaleFolderRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *LocaleFolderRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if scanner.IsCommentLine(line) {
 			continue
 		}
 		if localeFolderBadRe.MatchString(line) {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"Wrong locale folder naming `"+localeFolderBadRe.FindString(line)+"`. Use `values-<lang>-r<REGION>` format (e.g., `values-en-rUS`)."))
 		}
 	}
-	return findings
 }
 
 type UseAlpha2Rule struct {
@@ -497,20 +492,19 @@ type UseAlpha2Rule struct {
 var alpha3to2 = map[string]string{"eng": "en", "fra": "fr", "deu": "de", "spa": "es", "ita": "it", "por": "pt", "rus": "ru", "jpn": "ja", "kor": "ko", "zho": "zh", "ara": "ar", "hin": "hi", "tur": "tr", "pol": "pl", "nld": "nl", "swe": "sv", "nor": "no", "dan": "da", "fin": "fi", "tha": "th"}
 var alpha3FolderRe = regexp.MustCompile(`values-([a-z]{3})\b`)
 
-func (r *UseAlpha2Rule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *UseAlpha2Rule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if scanner.IsCommentLine(line) {
 			continue
 		}
 		if m := alpha3FolderRe.FindStringSubmatch(line); m != nil {
 			if repl, ok := alpha3to2[m[1]]; ok {
-				findings = append(findings, r.Finding(file, i+1, 1,
+				ctx.Emit(r.Finding(file, i+1, 1,
 					"Use 2-letter ISO 639-1 code `"+repl+"` instead of 3-letter code `"+m[1]+"` in locale folder."))
 			}
 		}
 	}
-	return findings
 }
 
 type MangledCRLFRule struct {
@@ -523,13 +517,14 @@ type MangledCRLFRule struct {
 // file bytes. Deterministic with no heuristic path.
 func (r *MangledCRLFRule) Confidence() float64 { return 0.95 }
 
-func (r *MangledCRLFRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *MangledCRLFRule) check(ctx *v2.Context) {
+	file := ctx.File
 	content := string(file.Content)
 	if strings.Contains(content, "\r\n") && strings.Contains(strings.ReplaceAll(content, "\r\n", ""), "\n") {
-		return []scanner.Finding{r.Finding(file, 1, 1,
-			"File has mixed line endings (both CRLF and LF). Use consistent line endings.")}
+		ctx.Emit(r.Finding(file, 1, 1,
+			"File has mixed line endings (both CRLF and LF). Use consistent line endings."))
+		return
 	}
-	return nil
 }
 
 type ResourceNameRule struct {
@@ -579,15 +574,16 @@ var (
 // Classified per roadmap/17.
 func (r *ProguardSplitRule) Confidence() float64 { return 0.75 }
 
-func (r *ProguardSplitRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *ProguardSplitRule) check(ctx *v2.Context) {
+	file := ctx.File
 	content := strings.Join(file.Lines, "\n")
 	if !strings.Contains(content, "-keep") && !strings.Contains(content, "-dontwarn") {
-		return nil
+		return
 	}
 	if proguardGenericRe.MatchString(content) && proguardSpecificRe.MatchString(content) {
-		return []scanner.Finding{r.Finding(file, 1, 1, "Proguard configuration contains both generic Android rules and project-specific rules. Consider splitting into separate files for maintainability.")}
+		ctx.Emit(r.Finding(file, 1, 1, "Proguard configuration contains both generic Android rules and project-specific rules. Consider splitting into separate files for maintainability."))
+		return
 	}
-	return nil
 }
 
 type NfcTechWhitespaceRule struct {

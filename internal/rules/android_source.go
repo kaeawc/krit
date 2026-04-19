@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -96,16 +97,15 @@ type GetSignaturesRule struct {
 // Classified per roadmap/17.
 func (r *GetSignaturesRule) Confidence() float64 { return 0.75 }
 
-func (r *GetSignaturesRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *GetSignaturesRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if strings.Contains(line, "GET_SIGNATURES") &&
 			!strings.Contains(line, "GET_SIGNING_CERTIFICATES") {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"GET_SIGNATURES is deprecated and can be spoofed. Use GET_SIGNING_CERTIFICATES (API 28+) instead."))
 		}
 	}
-	return findings
 }
 
 // =====================================================================
@@ -253,17 +253,16 @@ type NonInternationalizedSmsRule struct {
 // Classified per roadmap/17.
 func (r *NonInternationalizedSmsRule) Confidence() float64 { return 0.75 }
 
-func (r *NonInternationalizedSmsRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *NonInternationalizedSmsRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if strings.Contains(line, "sendTextMessage") || strings.Contains(line, "sendMultipartTextMessage") {
 			if strings.Contains(line, "SmsManager") || strings.Contains(line, "smsManager") {
-				findings = append(findings, r.Finding(file, i+1, 1,
+				ctx.Emit(r.Finding(file, i+1, 1,
 					"SMS sending may not handle internationalization of phone numbers properly."))
 			}
 		}
 	}
-	return findings
 }
 
 // =====================================================================

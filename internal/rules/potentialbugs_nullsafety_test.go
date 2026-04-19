@@ -33,7 +33,8 @@ func runRuleByNameWithResolver(t *testing.T, ruleName string, code string) []sca
 	for _, r := range v2rules.Registry {
 		if r.ID == ruleName {
 			d := rules.NewDispatcherV2([]*v2rules.Rule{r}, resolver)
-			return d.Run(file)
+			cols := d.Run(file)
+			return cols.Findings()
 		}
 	}
 	t.Fatalf("rule %q not found in registry", ruleName)
@@ -77,9 +78,9 @@ fun process(record: Any) {
 				if r.ID != "UnsafeCast" {
 					continue
 				}
-				findings := rules.NewDispatcherV2([]*v2rules.Rule{r}).Run(file)
-				if len(findings) != 0 {
-					t.Fatalf("expected no findings for %s source set, got %d", root, len(findings))
+				findingCols := rules.NewDispatcherV2([]*v2rules.Rule{r}).Run(file)
+				if findingCols.Len() != 0 {
+					t.Fatalf("expected no findings for %s source set, got %d", root, findingCols.Len())
 				}
 				return
 			}

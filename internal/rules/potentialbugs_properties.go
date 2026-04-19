@@ -32,9 +32,6 @@ type UnconditionalJumpStatementInLoopRule struct {
 // fallbacks for flow-dependent cases. Classified per roadmap/17.
 func (r *UnconditionalJumpStatementInLoopRule) Confidence() float64 { return 0.75 }
 
-func (r *UnconditionalJumpStatementInLoopRule) Check(file *scanner.File) []scanner.Finding {
-	return nil
-}
 
 // ---------------------------------------------------------------------------
 // UnnamedParameterUseRule detects function calls with many unnamed params.

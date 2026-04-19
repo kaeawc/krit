@@ -35,7 +35,6 @@ type GradleFamily = interface {
 // gradle rule implementations satisfy the Rule interface without stubs.
 type GradleBase struct{}
 
-func (GradleBase) Check(file *scanner.File) []scanner.Finding { return nil }
 func (GradleBase) AndroidDependencies() AndroidDataDependency {
 	return AndroidDepGradle
 }

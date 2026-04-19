@@ -225,21 +225,20 @@ func (d *V2Dispatcher) ensureFlatTypeIndex(rules []*v2.Rule) [][]*v2.Rule {
 	return d.flatTypeRules
 }
 
-// Run executes all per-file rules and returns findings.
+// Run executes all per-file rules and returns findings in columnar form.
 // Rule panics are logged to stderr, matching v1 Dispatcher.Run behavior.
-func (d *V2Dispatcher) Run(file *scanner.File) []scanner.Finding {
-	findings, stats := d.RunWithStats(file)
+func (d *V2Dispatcher) Run(file *scanner.File) scanner.FindingColumns {
+	columns, stats := d.RunColumnsWithStats(file)
 	for _, e := range stats.Errors {
 		fmt.Fprintln(os.Stderr, e.Error())
 	}
-	return findings
+	return columns
 }
 
 // RunWithStats executes all per-file rules on a file and returns both
-// findings and coarse timing for each execution bucket.
-func (d *V2Dispatcher) RunWithStats(file *scanner.File) ([]scanner.Finding, RunStats) {
-	columns, stats := d.RunColumnsWithStats(file)
-	return columns.Findings(), stats
+// findings in columnar form and coarse timing for each execution bucket.
+func (d *V2Dispatcher) RunWithStats(file *scanner.File) (scanner.FindingColumns, RunStats) {
+	return d.RunColumnsWithStats(file)
 }
 
 
@@ -502,7 +501,7 @@ func (d *V2Dispatcher) ResourceRules() []*v2.Rule { return d.resourceRules }
 // Language == LangGradle; cfg is the parsed BuildConfig. Findings are
 // filtered by the per-rule YAML excludes and the Languages filter.
 // Panics are recovered and surfaced via stderr to match Run().
-func (d *V2Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) []scanner.Finding {
+func (d *V2Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) scanner.FindingColumns {
 	return d.runProjectRuleSet(file, d.gradleRules, func(ctx *v2.Context) {
 		ctx.GradlePath = file.Path
 		ctx.GradleContent = string(file.Content)
@@ -514,7 +513,7 @@ func (d *V2Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) [
 // AndroidManifest.xml. manifest is typed as interface{} to avoid an
 // import cycle — callers in the rules package pass *rules.Manifest; the
 // underlying rule Check functions type-assert through ctx.Manifest.
-func (d *V2Dispatcher) RunManifest(file *scanner.File, manifest interface{}) []scanner.Finding {
+func (d *V2Dispatcher) RunManifest(file *scanner.File, manifest interface{}) scanner.FindingColumns {
 	return d.runProjectRuleSet(file, d.manifestRules, func(ctx *v2.Context) {
 		ctx.Manifest = manifest
 	})
@@ -522,7 +521,7 @@ func (d *V2Dispatcher) RunManifest(file *scanner.File, manifest interface{}) []s
 
 // RunResource runs every registered resource rule against a merged
 // ResourceIndex for a single res/ directory.
-func (d *V2Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) []scanner.Finding {
+func (d *V2Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) scanner.FindingColumns {
 	return d.runProjectRuleSet(file, d.resourceRules, func(ctx *v2.Context) {
 		ctx.ResourceIndex = idx
 	})
@@ -531,32 +530,34 @@ func (d *V2Dispatcher) RunResource(file *scanner.File, idx *android.ResourceInde
 // runProjectRuleSet is the shared driver for RunGradle/RunManifest/RunResource.
 // It applies config excludes + language filtering, invokes each rule's
 // Check with a fresh Context populated by the supplied closure, stamps
-// the base confidence, and returns aggregated findings.
-func (d *V2Dispatcher) runProjectRuleSet(file *scanner.File, ruleSet []*v2.Rule, populate func(*v2.Context)) []scanner.Finding {
+// the base confidence, and returns aggregated findings in columnar form.
+func (d *V2Dispatcher) runProjectRuleSet(file *scanner.File, ruleSet []*v2.Rule, populate func(*v2.Context)) scanner.FindingColumns {
 	if file == nil {
-		return nil
+		return scanner.FindingColumns{}
 	}
 	excluded := d.buildExcludedSet(file.Path)
 	langExcluded := d.excludedForLanguage(file.Language)
-	var findings []scanner.Finding
+	collector := scanner.NewFindingCollector(0)
 	for _, r := range ruleSet {
 		if excluded[r.ID] || langExcluded[r.ID] {
 			continue
 		}
-		results := d.runProjectRule(r, file, populate)
-		ApplyV2Confidence(results, r, 0.75)
-		findings = append(findings, results...)
+		cols := d.runProjectRule(r, file, populate)
+		// Apply base confidence to findings that haven't set their own.
+		applyV2ConfidenceColumns(&cols, r, 0.75)
+		collector.AppendColumns(&cols)
 	}
-	return findings
+	return *collector.Columns()
 }
 
 // runProjectRule invokes a project-level rule's Check function with a
-// freshly constructed Context, recovering from panics.
-func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate func(*v2.Context)) (results []scanner.Finding) {
+// freshly constructed Context, recovering from panics. Returns findings
+// in columnar form.
+func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate func(*v2.Context)) (cols scanner.FindingColumns) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			fmt.Fprintf(os.Stderr, "krit: panic in rule %s on %s: %v\n", r.ID, file.Path, rec)
-			results = nil
+			cols = scanner.FindingColumns{}
 		}
 	}()
 	collector := scanner.NewFindingCollector(0)
@@ -565,12 +566,41 @@ func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate f
 		populate(ctx)
 	}
 	r.Check(ctx)
-	cols := *collector.Columns()
-	out := make([]scanner.Finding, cols.Len())
-	for i := range out {
-		out[i] = cols.Finding(i)
+	return *collector.Columns()
+}
+
+// applyV2ConfidenceColumns applies a rule's base confidence to columnar
+// findings that haven't set their own. This is the columnar equivalent of
+// ApplyV2Confidence for use inside runProjectRuleSet.
+func applyV2ConfidenceColumns(cols *scanner.FindingColumns, r *v2.Rule, fallback float64) {
+	if cols == nil || cols.Len() == 0 {
+		return
 	}
-	return out
+	confidence := r.Confidence
+	if confidence == 0 {
+		confidence = fallback
+	}
+	// Re-use the Finding round-trip to apply confidence to zero-valued rows.
+	// FindingColumns does not expose a direct per-column confidence setter, so
+	// we rebuild via collector only when there are zero-confidence findings.
+	needsUpdate := false
+	for i := 0; i < cols.Len(); i++ {
+		if cols.ConfidenceAt(i) == 0 {
+			needsUpdate = true
+			break
+		}
+	}
+	if !needsUpdate {
+		return
+	}
+	findings := cols.Findings()
+	for i := range findings {
+		if findings[i].Confidence == 0 {
+			findings[i].Confidence = confidence
+		}
+	}
+	updated := scanner.CollectFindings(findings)
+	*cols = updated
 }
 
 // excludedForLanguage returns the set of rule IDs that do NOT apply to

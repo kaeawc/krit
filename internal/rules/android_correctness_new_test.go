@@ -11,6 +11,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/rules"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // =====================================================================
@@ -444,7 +445,9 @@ func TestCheckIconColors_FlagsColoredActionBarIcon(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := rules.CheckIconColors(idx)
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconColors(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected finding for colored action bar icon")
 	}
@@ -467,7 +470,9 @@ func TestCheckIconColors_AcceptsWhiteActionBarIcon(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := rules.CheckIconColors(idx)
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconColors(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for white action bar icon, got %d", len(findings))
 	}
@@ -486,7 +491,9 @@ func TestCheckIconColors_AcceptsGrayActionBarIcon(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := rules.CheckIconColors(idx)
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconColors(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for gray action bar icon, got %d", len(findings))
 	}
@@ -505,14 +512,18 @@ func TestCheckIconColors_IgnoresNonActionBarIcon(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := rules.CheckIconColors(idx)
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconColors(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for non-action-bar icon, got %d", len(findings))
 	}
 }
 
 func TestCheckIconColors_NilIndex(t *testing.T) {
-	findings := rules.CheckIconColors(nil)
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconColors(nil, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for nil index, got %d", len(findings))
 	}
@@ -535,7 +546,9 @@ func TestCheckIconLauncherShape_FlagsTransparentCorners(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := rules.CheckIconLauncherShape(idx)
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconLauncherShape(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected finding for launcher icon with transparent corners")
 	}
@@ -558,7 +571,9 @@ func TestCheckIconLauncherShape_AcceptsFilledLauncherIcon(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := rules.CheckIconLauncherShape(idx)
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconLauncherShape(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for filled launcher icon, got %d", len(findings))
 	}
@@ -577,14 +592,18 @@ func TestCheckIconLauncherShape_IgnoresNonLauncherIcon(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := rules.CheckIconLauncherShape(idx)
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconLauncherShape(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for non-launcher icon, got %d", len(findings))
 	}
 }
 
 func TestCheckIconLauncherShape_NilIndex(t *testing.T) {
-	findings := rules.CheckIconLauncherShape(nil)
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconLauncherShape(nil, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for nil index, got %d", len(findings))
 	}
@@ -611,7 +630,9 @@ func TestRunAllIconChecks_IncludesNewChecks(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := rules.RunAllIconChecks(idx)
+	c := scanner.NewFindingCollector(0)
+	rules.RunAllIconChecks(idx, c)
+	findings := c.Columns().Findings()
 	hasIconColors := false
 	hasLauncherShape := false
 	for _, f := range findings {

@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -183,15 +184,16 @@ type EmptyKotlinFileRule struct {
 // comment child, which is a precise structural determination.
 func (r *EmptyKotlinFileRule) Confidence() float64 { return 0.95 }
 
-func (r *EmptyKotlinFileRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *EmptyKotlinFileRule) check(ctx *v2.Context) {
+	file := ctx.File
 	// Skip Spotless / format-tool template files (e.g. spotless/copyright.kt
 	// spotless/copyright.kts). These are copyright-header templates with a
 	// .kt/.kts extension for syntax highlighting, not real Kotlin source.
 	if isSpotlessTemplateFile(file.Path) {
-		return nil
+		return
 	}
 	if file == nil || file.FlatTree == nil {
-		return nil
+		return
 	}
 	for i := 0; i < file.FlatChildCount(0); i++ {
 		child := file.FlatChild(0, i)
@@ -202,9 +204,9 @@ func (r *EmptyKotlinFileRule) CheckLines(file *scanner.File) []scanner.Finding {
 			continue
 		}
 		// Any other node means the file has content
-		return nil
+		return
 	}
-	return []scanner.Finding{r.Finding(file, 1, 1, "Empty Kotlin file detected.")}
+	ctx.Emit(r.Finding(file, 1, 1, "Empty Kotlin file detected."))
 }
 
 // isSpotlessTemplateFile reports whether the path looks like a Spotless

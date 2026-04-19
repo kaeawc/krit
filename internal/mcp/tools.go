@@ -921,7 +921,8 @@ func (s *Server) toolAnalyzeAndroid(arguments json.RawMessage) ToolResult {
 				Language: scanner.LangXML,
 				Metadata: rManifest,
 			}
-			collector.AppendAll(dispatcher.RunManifest(file, rManifest))
+			cols := dispatcher.RunManifest(file, rManifest)
+			collector.AppendColumns(&cols)
 		}
 	}
 
@@ -937,7 +938,8 @@ func (s *Server) toolAnalyzeAndroid(arguments json.RawMessage) ToolResult {
 				Language: scanner.LangXML,
 				Metadata: idx,
 			}
-			collector.AppendAll(dispatcher.RunResource(file, idx))
+			cols := dispatcher.RunResource(file, idx)
+			collector.AppendColumns(&cols)
 		}
 	}
 
@@ -958,7 +960,8 @@ func (s *Server) toolAnalyzeAndroid(arguments json.RawMessage) ToolResult {
 				Content:  content,
 				Metadata: cfg,
 			}
-			collector.AppendAll(dispatcher.RunGradle(file, cfg))
+			cols := dispatcher.RunGradle(file, cfg)
+			collector.AppendColumns(&cols)
 		}
 	}
 
@@ -969,7 +972,7 @@ func (s *Server) toolAnalyzeAndroid(arguments json.RawMessage) ToolResult {
 			if err != nil {
 				continue
 			}
-			collector.AppendAll(rules.RunAllIconChecks(idx))
+			rules.RunAllIconChecks(idx, collector)
 		}
 	}
 

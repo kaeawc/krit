@@ -44,9 +44,7 @@ func (r *BracesOnIfStatementsRule) check(ctx *v2.Context) {
 		}
 	}
 	if mode == "consistent" {
-		for _, f := range r.checkConsistentIfFlat(idx, file) {
-			ctx.Emit(f)
-		}
+		r.checkConsistentIfFlat(ctx)
 		return
 	}
 	if mode == "necessary" {
@@ -74,10 +72,11 @@ func (r *BracesOnIfStatementsRule) check(ctx *v2.Context) {
 }
 
 // checkConsistentIf checks if all branches in an if/else chain have consistent braces.
-func (r *BracesOnIfStatementsRule) checkConsistentIfFlat(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *BracesOnIfStatementsRule) checkConsistentIfFlat(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	// Skip if this is an else-if (let the root if handle the chain)
 	if p, ok := file.FlatParent(idx); ok && file.FlatType(p) == "control_structure_body" {
-		return nil
+		return
 	}
 
 	// Collect all branches
@@ -102,7 +101,7 @@ func (r *BracesOnIfStatementsRule) checkConsistentIfFlat(idx uint32, file *scann
 	}
 
 	if len(branches) < 2 {
-		return nil
+		return
 	}
 
 	hasBraces := 0
@@ -112,19 +111,16 @@ func (r *BracesOnIfStatementsRule) checkConsistentIfFlat(idx uint32, file *scann
 		}
 	}
 	if hasBraces == 0 || hasBraces == len(branches) {
-		return nil // all consistent
+		return // all consistent
 	}
 
 	// Mixed — flag those without braces
-	var findings []scanner.Finding
 	for _, b := range branches {
 		if !b.hasBrace {
-			f := r.Finding(file, file.FlatRow(b.body)+1, 1,
-				"Inconsistent braces: some branches have braces and some don't.")
-			findings = append(findings, f)
+			ctx.Emit(r.Finding(file, file.FlatRow(b.body)+1, 1,
+				"Inconsistent braces: some branches have braces and some don't."))
 		}
 	}
-	return findings
 }
 
 // BracesOnWhenStatementsRule enforces braces on when branches.
@@ -163,9 +159,7 @@ func (r *BracesOnWhenStatementsRule) check(ctx *v2.Context) {
 		}
 	}
 	if mode == "consistent" {
-		for _, f := range r.checkConsistentWhenFlat(idx, file) {
-			ctx.Emit(f)
-		}
+		r.checkConsistentWhenFlat(ctx)
 		return
 	}
 	if mode == "necessary" {
@@ -193,17 +187,18 @@ func (r *BracesOnWhenStatementsRule) check(ctx *v2.Context) {
 }
 
 // checkConsistentWhen checks if all when entries have consistent braces.
-func (r *BracesOnWhenStatementsRule) checkConsistentWhenFlat(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *BracesOnWhenStatementsRule) checkConsistentWhenFlat(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	// node is a when_entry. Find the parent when_expression.
 	parent, ok := file.FlatParent(idx)
 	if !ok || file.FlatType(parent) != "when_expression" {
-		return nil
+		return
 	}
 	// Only process from the first when_entry to avoid duplicates
 	for child := file.FlatFirstChild(parent); child != 0; child = file.FlatNextSib(child) {
 		if file.FlatType(child) == "when_entry" {
 			if child != idx {
-				return nil // not the first entry
+				return // not the first entry
 			}
 			break
 		}
@@ -225,7 +220,7 @@ func (r *BracesOnWhenStatementsRule) checkConsistentWhenFlat(idx uint32, file *s
 	}
 
 	if len(entries) < 2 {
-		return nil
+		return
 	}
 	hasBraces := 0
 	for _, e := range entries {
@@ -234,17 +229,15 @@ func (r *BracesOnWhenStatementsRule) checkConsistentWhenFlat(idx uint32, file *s
 		}
 	}
 	if hasBraces == 0 || hasBraces == len(entries) {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for _, e := range entries {
 		if !e.hasBrace {
-			findings = append(findings, r.Finding(file, file.FlatRow(e.body)+1, 1,
+			ctx.Emit(r.Finding(file, file.FlatRow(e.body)+1, 1,
 				"Inconsistent braces: some when entries have braces and some don't."))
 		}
 	}
-	return findings
 }
 
 // MandatoryBracesLoopsRule requires braces in for/while/do-while loops.

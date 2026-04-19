@@ -8,6 +8,7 @@ import (
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -342,8 +343,6 @@ var suspendKeywordRe = regexp.MustCompile(`\bsuspend\s+`)
 func (r *SuspendFunWithFlowReturnTypeRule) Confidence() float64 { return 0.75 }
 
 
-func (r *SuspendFunWithFlowReturnTypeRule) CheckLines(_ *scanner.File) []scanner.Finding { return nil }
-
 // CoroutineLaunchedInTestWithoutRunTestRule detects launch/async in @Test without runTest.
 type CoroutineLaunchedInTestWithoutRunTestRule struct {
 	FlatDispatchBase
@@ -355,10 +354,6 @@ type CoroutineLaunchedInTestWithoutRunTestRule struct {
 // collide. Classified per roadmap/17.
 func (r *CoroutineLaunchedInTestWithoutRunTestRule) Confidence() float64 { return 0.75 }
 
-
-func (r *CoroutineLaunchedInTestWithoutRunTestRule) Check(file *scanner.File) []scanner.Finding {
-	return nil
-}
 
 // SuspendFunInFinallySectionRule detects suspend calls in finally blocks.
 type SuspendFunInFinallySectionRule struct {
@@ -401,14 +396,6 @@ type SuspendFunWithCoroutineScopeReceiverRule struct {
 // collide. Classified per roadmap/17.
 func (r *SuspendFunWithCoroutineScopeReceiverRule) Confidence() float64 { return 0.75 }
 
-
-func (r *SuspendFunWithCoroutineScopeReceiverRule) CheckLines(_ *scanner.File) []scanner.Finding {
-	return nil
-}
-
-func (r *SuspendFunWithCoroutineScopeReceiverRule) Check(file *scanner.File) []scanner.Finding {
-	return nil
-}
 
 func hasSuspendModifierFlat(file *scanner.File, idx uint32) bool {
 	return file.FlatHasModifier(idx, "suspend")
@@ -688,39 +675,25 @@ type MainDispatcherInLibraryCodeRule struct {
 func (r *MainDispatcherInLibraryCodeRule) IsFixable() bool     { return false }
 func (r *MainDispatcherInLibraryCodeRule) Confidence() float64 { return 0.75 }
 
-func (r *MainDispatcherInLibraryCodeRule) Check(_ *scanner.File) []scanner.Finding { return nil }
-
-func (r *MainDispatcherInLibraryCodeRule) SetModuleIndex(pmi *module.PerModuleIndex) {
-	r.pmi = pmi
-}
-
-func (r *MainDispatcherInLibraryCodeRule) ModuleAwareNeeds() ModuleAwareNeeds {
-	return ModuleAwareNeeds{
-		NeedsFiles:        true,
-		NeedsDependencies: true,
-		NeedsIndex:        false,
-	}
-}
-
-func (r *MainDispatcherInLibraryCodeRule) CheckModuleAware() []scanner.Finding {
-	if r.pmi == nil || r.pmi.Graph == nil {
-		return nil
+func (r *MainDispatcherInLibraryCodeRule) check(ctx *v2.Context) {
+	pmi := ctx.ModuleIndex
+	if pmi == nil || pmi.Graph == nil {
+		return
 	}
 
-	var findings []scanner.Finding
-	for modPath, mod := range r.pmi.Graph.Modules {
+	for modPath, mod := range pmi.Graph.Modules {
 		if !isAndroidLibraryModule(mod) {
 			continue
 		}
 		if hasCoroutinesAndroidDep(mod) {
 			continue
 		}
-		files := r.pmi.ModuleFiles[modPath]
+		files := pmi.ModuleFiles[modPath]
 		for _, file := range files {
 			for i, line := range file.Lines {
 				if strings.Contains(line, "Dispatchers.Main") {
 					col := strings.Index(line, "Dispatchers.Main") + 1
-					findings = append(findings, scanner.Finding{
+					ctx.Emit(scanner.Finding{
 						File:     file.Path,
 						Line:     i + 1,
 						Col:      col,
@@ -733,7 +706,18 @@ func (r *MainDispatcherInLibraryCodeRule) CheckModuleAware() []scanner.Finding {
 			}
 		}
 	}
-	return findings
+}
+
+func (r *MainDispatcherInLibraryCodeRule) SetModuleIndex(pmi *module.PerModuleIndex) {
+	r.pmi = pmi
+}
+
+func (r *MainDispatcherInLibraryCodeRule) ModuleAwareNeeds() ModuleAwareNeeds {
+	return ModuleAwareNeeds{
+		NeedsFiles:        true,
+		NeedsDependencies: true,
+		NeedsIndex:        false,
+	}
 }
 
 func isAndroidLibraryModule(mod *module.Module) bool {

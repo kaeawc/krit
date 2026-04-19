@@ -108,7 +108,6 @@ type ManifestFamily = interface {
 // don't apply to manifest rules (Check, CheckNode, CheckLines).
 type ManifestBase struct{}
 
-func (ManifestBase) Check(file *scanner.File) []scanner.Finding { return nil }
 func (ManifestBase) AndroidDependencies() AndroidDataDependency {
 	return AndroidDepManifest
 }

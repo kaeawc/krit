@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -676,7 +677,8 @@ type MethodOverloadingRule struct {
 // roadmap/17.
 func (r *MethodOverloadingRule) Confidence() float64 { return 0.75 }
 
-func (r *MethodOverloadingRule) checkScopeFlat(node uint32, file *scanner.File, findings *[]scanner.Finding) {
+func (r *MethodOverloadingRule) checkScopeFlat(ctx *v2.Context, node uint32) {
+	file := ctx.File
 	counts := make(map[string]int)
 	firstLine := make(map[string]int)
 	addFunction := func(fn uint32) {
@@ -698,7 +700,7 @@ func (r *MethodOverloadingRule) checkScopeFlat(node uint32, file *scanner.File, 
 			case "function_declaration":
 				addFunction(child)
 			case "class_declaration":
-				r.checkScopeFlat(child, file, findings)
+				r.checkScopeFlat(ctx, child)
 			}
 		}
 	case "class_declaration":
@@ -711,7 +713,7 @@ func (r *MethodOverloadingRule) checkScopeFlat(node uint32, file *scanner.File, 
 			case "function_declaration":
 				addFunction(child)
 			case "class_declaration":
-				r.checkScopeFlat(child, file, findings)
+				r.checkScopeFlat(ctx, child)
 			}
 		})
 	default:
@@ -719,7 +721,7 @@ func (r *MethodOverloadingRule) checkScopeFlat(node uint32, file *scanner.File, 
 	}
 	for name, count := range counts {
 		if count > r.AllowedOverloads {
-			*findings = append(*findings, r.Finding(file, firstLine[name], 1,
+			ctx.Emit(r.Finding(file, firstLine[name], 1,
 				fmt.Sprintf("Method '%s' has %d overloads (allowed: %d).", name, count, r.AllowedOverloads)))
 		}
 	}

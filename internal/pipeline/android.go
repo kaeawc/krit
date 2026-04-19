@@ -112,7 +112,8 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 				Language: scanner.LangXML,
 				Metadata: manifest,
 			}
-			collector.AppendAll(in.Dispatcher.RunManifest(file, manifest))
+			cols := in.Dispatcher.RunManifest(file, manifest)
+			collector.AppendColumns(&cols)
 		}
 		manifestRuleDur += time.Since(start)
 	}
@@ -212,7 +213,8 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 					Language: scanner.LangXML,
 					Metadata: mergedIdx,
 				}
-				collector.AppendAll(in.Dispatcher.RunResource(file, mergedIdx))
+				cols := in.Dispatcher.RunResource(file, mergedIdx)
+				collector.AppendColumns(&cols)
 			}
 			resourceRulesDur += time.Since(start)
 		}
@@ -281,7 +283,8 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 				Content:  content,
 				Metadata: cfg,
 			}
-			collector.AppendAll(in.Dispatcher.RunGradle(file, cfg))
+			cols := in.Dispatcher.RunGradle(file, cfg)
+			collector.AppendColumns(&cols)
 		}
 		gradleRulesDur += time.Since(start)
 	}
@@ -560,25 +563,25 @@ func RunActiveIconChecks(idx *android.IconIndex, activeNames map[string]bool) []
 func runActiveIconChecksColumns(idx *android.IconIndex, activeNames map[string]bool) scanner.FindingColumns {
 	collector := scanner.NewFindingCollector(8)
 	if activeNames["IconDensities"] {
-		collector.AppendAll(rules.CheckIconDensities(idx))
+		rules.CheckIconDensities(idx, collector)
 	}
 	if activeNames["IconDipSize"] {
-		collector.AppendAll(rules.CheckIconDipSize(idx))
+		rules.CheckIconDipSize(idx, collector)
 	}
 	if activeNames["IconDuplicates"] {
-		collector.AppendAll(rules.CheckIconDuplicates(idx))
+		rules.CheckIconDuplicates(idx, collector)
 	}
 	if activeNames["GifUsage"] {
-		collector.AppendAll(rules.CheckGifUsage(idx))
+		rules.CheckGifUsage(idx, collector)
 	}
 	if activeNames["ConvertToWebp"] {
-		collector.AppendAll(rules.CheckConvertToWebp(idx))
+		rules.CheckConvertToWebp(idx, collector)
 	}
 	if activeNames["IconMissingDensityFolder"] {
-		collector.AppendAll(rules.CheckIconMissingDensityFolder(idx))
+		rules.CheckIconMissingDensityFolder(idx, collector)
 	}
 	if activeNames["IconExpectedSize"] {
-		collector.AppendAll(rules.CheckIconExpectedSize(idx))
+		rules.CheckIconExpectedSize(idx, collector)
 	}
 	return *collector.Columns()
 }

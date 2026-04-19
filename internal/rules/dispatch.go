@@ -73,13 +73,13 @@ func NewDispatcherV2(activeRules []*v2.Rule, resolver ...typeinfer.TypeResolver)
 
 // Run executes all rules on a file using single-pass dispatch.
 // Delegates to the v2 engine.
-func (d *Dispatcher) Run(file *scanner.File) []scanner.Finding {
+func (d *Dispatcher) Run(file *scanner.File) scanner.FindingColumns {
 	return d.v2.Run(file)
 }
 
 // RunWithStats executes all rules on a file and returns findings plus timing.
 // Delegates to the v2 engine.
-func (d *Dispatcher) RunWithStats(file *scanner.File) ([]scanner.Finding, RunStats) {
+func (d *Dispatcher) RunWithStats(file *scanner.File) (scanner.FindingColumns, RunStats) {
 	return d.v2.RunWithStats(file)
 }
 
@@ -96,29 +96,21 @@ func (d *Dispatcher) Stats() (dispatched, aggregate, lineRules, crossFile, modul
 
 // RunGradle runs all registered Gradle rules against a single parsed
 // Gradle build script. See V2Dispatcher.RunGradle.
-func (d *Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) []scanner.Finding {
+func (d *Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) scanner.FindingColumns {
 	return d.v2.RunGradle(file, cfg)
 }
 
 // RunManifest runs all registered manifest rules against a parsed
 // AndroidManifest.xml. manifest must be a *Manifest; typed as interface{}
 // to avoid import cycles in the v2 dispatcher.
-func (d *Dispatcher) RunManifest(file *scanner.File, manifest *Manifest) []scanner.Finding {
+func (d *Dispatcher) RunManifest(file *scanner.File, manifest *Manifest) scanner.FindingColumns {
 	return d.v2.RunManifest(file, manifest)
 }
 
 // RunResource runs all registered resource rules against a merged
 // ResourceIndex for a res/ directory.
-func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) []scanner.Finding {
+func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) scanner.FindingColumns {
 	return d.v2.RunResource(file, idx)
 }
 
-// setDefaultConfidence sets the Confidence field on findings that don't already have one.
-func setDefaultConfidence(findings []scanner.Finding, confidence float64) {
-	for i := range findings {
-		if findings[i].Confidence == 0 {
-			findings[i].Confidence = confidence
-		}
-	}
-}
 

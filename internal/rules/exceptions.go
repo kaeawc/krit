@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/kaeawc/krit/internal/experiment"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -179,7 +180,8 @@ type SwallowedExceptionRule struct {
 func (r *SwallowedExceptionRule) Confidence() float64 { return 0.75 }
 
 
-func (r *SwallowedExceptionRule) makeUnusedFindingFlat(idx uint32, file *scanner.File, caughtVar string) []scanner.Finding {
+func (r *SwallowedExceptionRule) makeUnusedFindingFlat(ctx *v2.Context, caughtVar string) {
+	idx, file := ctx.Idx, ctx.File
 	f := r.Finding(file, file.FlatRow(idx)+1, 1,
 		fmt.Sprintf("Exception '%s' is caught but never used. Either log/handle it or rethrow.", caughtVar))
 	endByte := int(file.FlatEndByte(idx))
@@ -201,7 +203,7 @@ func (r *SwallowedExceptionRule) makeUnusedFindingFlat(idx uint32, file *scanner
 			Replacement: insertion + "}",
 		}
 	}
-	return []scanner.Finding{f}
+	ctx.Emit(f)
 }
 
 // isExceptionSwallowedInThrows checks whether there is at least one throw

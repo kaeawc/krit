@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/module"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -39,24 +40,19 @@ var (
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *CompileSdkMismatchAcrossModulesRule) Confidence() float64 { return 0.75 }
 
-func (r *CompileSdkMismatchAcrossModulesRule) Check(_ *scanner.File) []scanner.Finding { return nil }
-
 func (r *CompileSdkMismatchAcrossModulesRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{}
 }
 
-func (r *CompileSdkMismatchAcrossModulesRule) SetModuleIndex(pmi *module.PerModuleIndex) {
-	r.pmi = pmi
-}
-
-func (r *CompileSdkMismatchAcrossModulesRule) CheckModuleAware() []scanner.Finding {
+func (r *CompileSdkMismatchAcrossModulesRule) check(ctx *v2.Context) {
+	r.pmi = ctx.ModuleIndex
 	if r.pmi == nil || r.pmi.Graph == nil {
-		return nil
+		return
 	}
 
 	modules := collectAndroidModuleCompileSDKs(r.pmi.Graph)
 	if len(modules) < 2 {
-		return nil
+		return
 	}
 
 	maxCompileSDK := 0
@@ -68,16 +64,15 @@ func (r *CompileSdkMismatchAcrossModulesRule) CheckModuleAware() []scanner.Findi
 		}
 	}
 	if len(distinct) < 2 {
-		return nil
+		return
 	}
 
 	summary := formatCompileSDKSummary(modules)
-	findings := make([]scanner.Finding, 0, len(modules))
 	for _, mod := range modules {
 		if mod.compileSDK >= maxCompileSDK {
 			continue
 		}
-		findings = append(findings, scanner.Finding{
+		ctx.Emit(scanner.Finding{
 			File:       mod.buildFile,
 			Line:       mod.line,
 			Col:        1,
@@ -88,8 +83,6 @@ func (r *CompileSdkMismatchAcrossModulesRule) CheckModuleAware() []scanner.Findi
 			Confidence: 0.95,
 		})
 	}
-
-	return findings
 }
 
 func collectAndroidModuleCompileSDKs(graph *module.ModuleGraph) []moduleCompileSDK {

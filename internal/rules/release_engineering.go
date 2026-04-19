@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/kaeawc/krit/internal/module"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -72,7 +73,6 @@ func (r *HardcodedEnvironmentNameRule) Confidence() float64 { return 0.75 }
 // under build-logic/ or buildSrc/ that are not applied by any module.
 type ConventionPluginDeadCodeRule struct {
 	BaseRule
-	pmi *module.PerModuleIndex
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Release-engineering rule. Detection scans module metadata and Gradle
@@ -80,33 +80,27 @@ type ConventionPluginDeadCodeRule struct {
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *ConventionPluginDeadCodeRule) Confidence() float64 { return 0.75 }
 
-func (r *ConventionPluginDeadCodeRule) Check(_ *scanner.File) []scanner.Finding { return nil }
-
 func (r *ConventionPluginDeadCodeRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{}
 }
 
-func (r *ConventionPluginDeadCodeRule) SetModuleIndex(pmi *module.PerModuleIndex) {
-	r.pmi = pmi
-}
-
-func (r *ConventionPluginDeadCodeRule) CheckModuleAware() []scanner.Finding {
-	if r.pmi == nil || r.pmi.Graph == nil || r.pmi.Graph.RootDir == "" {
-		return nil
+func (r *ConventionPluginDeadCodeRule) check(ctx *v2.Context) {
+	pmi := ctx.ModuleIndex
+	if pmi == nil || pmi.Graph == nil || pmi.Graph.RootDir == "" {
+		return
 	}
 
-	plugins := discoverConventionPlugins(r.pmi.Graph.RootDir)
+	plugins := discoverConventionPlugins(pmi.Graph.RootDir)
 	if len(plugins) == 0 {
-		return nil
+		return
 	}
 
-	applied := scanAppliedConventionPluginIDs(r.pmi.Graph)
-	findings := make([]scanner.Finding, 0, len(plugins))
+	applied := scanAppliedConventionPluginIDs(pmi.Graph)
 	for _, plugin := range plugins {
 		if applied[plugin.id] {
 			continue
 		}
-		findings = append(findings, scanner.Finding{
+		ctx.Emit(scanner.Finding{
 			File:       plugin.path,
 			Line:       1,
 			Col:        1,
@@ -117,8 +111,6 @@ func (r *ConventionPluginDeadCodeRule) CheckModuleAware() []scanner.Finding {
 			Confidence: 0.9,
 		})
 	}
-
-	return findings
 }
 
 type conventionPlugin struct {
@@ -149,12 +141,12 @@ type GradleBuildContainsTodoRule struct {
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *GradleBuildContainsTodoRule) Confidence() float64 { return 0.75 }
 
-func (r *GradleBuildContainsTodoRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *GradleBuildContainsTodoRule) check(ctx *v2.Context) {
+	file := ctx.File
 	if !isGradleBuildScript(file.Path) {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		commentIdx := strings.Index(line, "//")
 		if commentIdx < 0 {
@@ -166,10 +158,9 @@ func (r *GradleBuildContainsTodoRule) CheckLines(file *scanner.File) []scanner.F
 			continue
 		}
 
-		findings = append(findings, r.Finding(file, i+1, commentIdx+1,
+		ctx.Emit(r.Finding(file, i+1, commentIdx+1,
 			"TODO comment found in build.gradle(.kts); track build work in an issue or finish it before release."))
 	}
-	return findings
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Release-engineering rule. Detection scans module metadata and Gradle
@@ -177,14 +168,14 @@ func (r *GradleBuildContainsTodoRule) CheckLines(file *scanner.File) []scanner.F
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *CommentedOutCodeBlockRule) Confidence() float64 { return 0.75 }
 
-func (r *CommentedOutCodeBlockRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *CommentedOutCodeBlockRule) check(ctx *v2.Context) {
+	file := ctx.File
 	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") {
-		return nil
+		return
 	}
 
 	startLine := -1
 	count := 0
-	var findings []scanner.Finding
 	flush := func(endLine int) {
 		if count < r.MinLines || startLine < 0 {
 			startLine = -1
@@ -199,7 +190,7 @@ func (r *CommentedOutCodeBlockRule) CheckLines(file *scanner.File) []scanner.Fin
 		}
 
 		msg := fmt.Sprintf("Commented-out code block detected across %d consecutive lines; delete it or restore it as live code.", endLine-startLine)
-		findings = append(findings, r.Finding(file, startLine+1, col+1, msg))
+		ctx.Emit(r.Finding(file, startLine+1, col+1, msg))
 		startLine = -1
 		count = 0
 	}
@@ -215,7 +206,6 @@ func (r *CommentedOutCodeBlockRule) CheckLines(file *scanner.File) []scanner.Fin
 		flush(i)
 	}
 	flush(len(file.Lines))
-	return findings
 }
 
 func isPlausibleCommentedKotlin(line string) bool {
@@ -570,12 +560,12 @@ type CommentedOutImportRule struct {
 
 func (r *CommentedOutImportRule) Confidence() float64 { return 0.90 }
 
-func (r *CommentedOutImportRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *CommentedOutImportRule) check(ctx *v2.Context) {
+	file := ctx.File
 	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "//") {
@@ -586,10 +576,9 @@ func (r *CommentedOutImportRule) CheckLines(file *scanner.File) []scanner.Findin
 			continue
 		}
 		col := strings.Index(line, "//")
-		findings = append(findings, r.Finding(file, i+1, col+1,
+		ctx.Emit(r.Finding(file, i+1, col+1,
 			"Commented-out import; remove it or restore it as a live import."))
 	}
-	return findings
 }
 
 // DebugToastInProductionRule flags Toast.makeText calls whose message literal
@@ -611,22 +600,21 @@ type MergeConflictMarkerLeftoverRule struct {
 
 func (r *MergeConflictMarkerLeftoverRule) Confidence() float64 { return 0.99 }
 
-func (r *MergeConflictMarkerLeftoverRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *MergeConflictMarkerLeftoverRule) check(ctx *v2.Context) {
+	file := ctx.File
 	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") &&
 		!strings.HasSuffix(file.Path, ".java") {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "<<<<<<<") || trimmed == "=======" || strings.HasPrefix(trimmed, ">>>>>>>") {
 			col := strings.IndexAny(line, "<=>")
-			findings = append(findings, r.Finding(file, i+1, col+1,
+			ctx.Emit(r.Finding(file, i+1, col+1,
 				"Unresolved merge conflict marker; resolve the conflict before committing."))
 		}
 	}
-	return findings
 }
 
 // PrintlnInProductionRule flags println/print/System.out.println/System.err.println
@@ -693,27 +681,26 @@ func (r *HardcodedLocalhostUrlRule) Confidence() float64 { return 0.85 }
 
 var localhostUrlRe = regexp.MustCompile(`"https?://(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?(/[^"]*)?"|'https?://(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?(/[^']*)?'`)
 
-func (r *HardcodedLocalhostUrlRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *HardcodedLocalhostUrlRule) check(ctx *v2.Context) {
+	file := ctx.File
 	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") {
-		return nil
+		return
 	}
 	if isTestFile(file.Path) {
-		return nil
+		return
 	}
 	if isDebugSourceFile(file.Path) {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		loc := localhostUrlRe.FindStringIndex(line)
 		if loc == nil {
 			continue
 		}
-		findings = append(findings, r.Finding(file, i+1, loc[0]+1,
+		ctx.Emit(r.Finding(file, i+1, loc[0]+1,
 			"Hardcoded localhost URL in production source; use a build config or environment variable."))
 	}
-	return findings
 }
 
 func isDebugSourceFile(path string) bool {
@@ -744,15 +731,15 @@ var testOnlyImportPrefixes = []string{
 	"org.mockito_kotlin.",
 }
 
-func (r *TestOnlyImportInProductionRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *TestOnlyImportInProductionRule) check(ctx *v2.Context) {
+	file := ctx.File
 	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") {
-		return nil
+		return
 	}
 	if isTestFile(file.Path) {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "import ") {
@@ -762,13 +749,12 @@ func (r *TestOnlyImportInProductionRule) CheckLines(file *scanner.File) []scanne
 		for _, prefix := range testOnlyImportPrefixes {
 			if strings.HasPrefix(pkg, prefix) {
 				col := strings.Index(line, "import")
-				findings = append(findings, r.Finding(file, i+1, col+1,
+				ctx.Emit(r.Finding(file, i+1, col+1,
 					fmt.Sprintf("Test-only import %q in non-test file; move this code to a test source set.", pkg)))
 				break
 			}
 		}
 	}
-	return findings
 }
 
 // NonAsciiIdentifierRule flags class/function/property names containing
@@ -817,19 +803,15 @@ func flatEnclosingClassName(file *scanner.File, idx uint32) string {
 // functions from non-test files.
 type VisibleForTestingCallerInNonTestRule struct {
 	BaseRule
-	index *scanner.CodeIndex
 }
 
 func (r *VisibleForTestingCallerInNonTestRule) Confidence() float64 { return 0.80 }
-func (r *VisibleForTestingCallerInNonTestRule) Check(_ *scanner.File) []scanner.Finding {
-	return nil
-}
-func (r *VisibleForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding {
+func (r *VisibleForTestingCallerInNonTestRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
 	if index == nil {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for _, file := range index.Files {
 		if isTestFile(file.Path) {
 			continue
@@ -865,7 +847,7 @@ func (r *VisibleForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.Cod
 	}
 
 	if len(vftDecls) == 0 {
-		return nil
+		return
 	}
 
 	for _, file := range index.Files {
@@ -883,7 +865,7 @@ func (r *VisibleForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.Cod
 						continue
 					}
 					col := strings.Index(line, name)
-					findings = append(findings, scanner.Finding{
+					ctx.Emit(scanner.Finding{
 						File:       file.Path,
 						Line:       i + 1,
 						Col:        col + 1,
@@ -897,7 +879,6 @@ func (r *VisibleForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.Cod
 			}
 		}
 	}
-	return findings
 }
 
 func extractDeclName(line string) string {
@@ -917,16 +898,13 @@ func extractDeclName(line string) string {
 // types outside test source sets.
 type OpenForTestingCallerInNonTestRule struct {
 	BaseRule
-	index *scanner.CodeIndex
 }
 
 func (r *OpenForTestingCallerInNonTestRule) Confidence() float64 { return 0.75 }
-func (r *OpenForTestingCallerInNonTestRule) Check(_ *scanner.File) []scanner.Finding {
-	return nil
-}
-func (r *OpenForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding {
+func (r *OpenForTestingCallerInNonTestRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
 	if index == nil {
-		return nil
+		return
 	}
 
 	openForTestTypes := make(map[string]bool)
@@ -952,10 +930,9 @@ func (r *OpenForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.CodeIn
 	}
 
 	if len(openForTestTypes) == 0 {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for _, file := range index.Files {
 		if isTestFile(file.Path) {
 			continue
@@ -967,7 +944,7 @@ func (r *OpenForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.CodeIn
 					trimmed := strings.TrimSpace(line)
 					if strings.Contains(trimmed, "class ") && (strings.Contains(trimmed, ": "+typeName) || strings.Contains(trimmed, ":"+typeName)) {
 						col := strings.Index(line, typeName)
-						findings = append(findings, scanner.Finding{
+						ctx.Emit(scanner.Finding{
 							File:       file.Path,
 							Line:       i + 1,
 							Col:        col + 1,
@@ -982,23 +959,19 @@ func (r *OpenForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.CodeIn
 			}
 		}
 	}
-	return findings
 }
 
 // TestFixtureAccessedFromProductionRule flags usage of types declared under
 // src/testFixtures/ from non-test files.
 type TestFixtureAccessedFromProductionRule struct {
 	BaseRule
-	index *scanner.CodeIndex
 }
 
 func (r *TestFixtureAccessedFromProductionRule) Confidence() float64 { return 0.80 }
-func (r *TestFixtureAccessedFromProductionRule) Check(_ *scanner.File) []scanner.Finding {
-	return nil
-}
-func (r *TestFixtureAccessedFromProductionRule) CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding {
+func (r *TestFixtureAccessedFromProductionRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
 	if index == nil {
-		return nil
+		return
 	}
 
 	fixtureTypes := make(map[string]string)
@@ -1024,10 +997,9 @@ func (r *TestFixtureAccessedFromProductionRule) CheckCrossFile(index *scanner.Co
 	}
 
 	if len(fixtureTypes) == 0 {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for _, file := range index.Files {
 		if isTestFile(file.Path) || strings.Contains(file.Path, "/testFixtures/") {
 			continue
@@ -1036,7 +1008,7 @@ func (r *TestFixtureAccessedFromProductionRule) CheckCrossFile(index *scanner.Co
 			for typeName := range fixtureTypes {
 				if strings.Contains(line, typeName) {
 					col := strings.Index(line, typeName)
-					findings = append(findings, scanner.Finding{
+					ctx.Emit(scanner.Finding{
 						File:       file.Path,
 						Line:       i + 1,
 						Col:        col + 1,
@@ -1050,21 +1022,19 @@ func (r *TestFixtureAccessedFromProductionRule) CheckCrossFile(index *scanner.Co
 			}
 		}
 	}
-	return findings
 }
 
 // TimberTreeNotPlantedRule flags projects that use Timber.d/i/w/e but have
 // no Timber.plant() call reachable from Application.onCreate.
 type TimberTreeNotPlantedRule struct {
 	BaseRule
-	index *scanner.CodeIndex
 }
 
-func (r *TimberTreeNotPlantedRule) Confidence() float64                     { return 0.75 }
-func (r *TimberTreeNotPlantedRule) Check(_ *scanner.File) []scanner.Finding { return nil }
-func (r *TimberTreeNotPlantedRule) CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding {
+func (r *TimberTreeNotPlantedRule) Confidence() float64 { return 0.75 }
+func (r *TimberTreeNotPlantedRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
 	if index == nil {
-		return nil
+		return
 	}
 
 	var hasTimberUsage bool
@@ -1085,15 +1055,15 @@ func (r *TimberTreeNotPlantedRule) CheckCrossFile(index *scanner.CodeIndex) []sc
 			}
 		}
 		if hasTimberPlant {
-			return nil
+			return
 		}
 	}
 
 	if !hasTimberUsage || hasTimberPlant {
-		return nil
+		return
 	}
 
-	return []scanner.Finding{{
+	ctx.Emit(scanner.Finding{
 		File:       firstTimberUsage.Path,
 		Line:       firstTimberLine + 1,
 		Col:        1,
@@ -1102,7 +1072,7 @@ func (r *TimberTreeNotPlantedRule) CheckCrossFile(index *scanner.CodeIndex) []sc
 		Severity:   r.Sev,
 		Message:    "Timber is used but Timber.plant() was never called; logs will be silently dropped.",
 		Confidence: 0.7,
-	}}
+	})
 }
 
 var timberUsageRe = regexp.MustCompile(`Timber\.(v|d|i|w|e|wtf)\s*\(`)

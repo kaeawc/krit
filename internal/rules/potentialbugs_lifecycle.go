@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -134,9 +135,10 @@ type MissingPackageDeclarationRule struct {
 // heuristic path.
 func (r *MissingPackageDeclarationRule) Confidence() float64 { return 0.95 }
 
-func (r *MissingPackageDeclarationRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *MissingPackageDeclarationRule) check(ctx *v2.Context) {
+	file := ctx.File
 	if !strings.HasSuffix(file.Path, ".kt") {
-		return nil
+		return
 	}
 	for _, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
@@ -144,18 +146,19 @@ func (r *MissingPackageDeclarationRule) CheckLines(file *scanner.File) []scanner
 			continue
 		}
 		if strings.HasPrefix(trimmed, "package ") {
-			return nil
+			return
 		}
 		// First non-comment, non-blank line is not a package declaration
 		f := r.Finding(file, 1, 1,
 			"Missing package declaration in Kotlin file.")
 		f.Fix = derivePackageFix(file)
-		return []scanner.Finding{f}
+		ctx.Emit(f)
+		return
 	}
 	f := r.Finding(file, 1, 1,
 		"Missing package declaration in Kotlin file.")
 	f.Fix = derivePackageFix(file)
-	return []scanner.Finding{f}
+	ctx.Emit(f)
 }
 
 // derivePackageFix derives a package statement from the file path by looking for

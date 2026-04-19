@@ -41,7 +41,8 @@ func buildRuleIndex() map[string]*v2rules.Rule {
 func runRule(t *testing.T, rule *v2rules.Rule, file *scanner.File) []scanner.Finding {
 	t.Helper()
 	dispatcher := rules.NewDispatcherV2([]*v2rules.Rule{rule})
-	return dispatcher.Run(file)
+	cols := dispatcher.Run(file)
+	return cols.Findings()
 }
 
 func TestPositiveFixtures(t *testing.T) {

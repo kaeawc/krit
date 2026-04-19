@@ -213,6 +213,14 @@ func run(args []string, stdout, stderr io.Writer) error {
 	// need imports beyond v2.
 	needsRegexp := false
 	needsStrings := false
+	needsFmt := false
+	needsStrconv := false
+	needsBytes := false
+	needsFilepath := false
+	needsUnicode := false
+	needsScanner := false
+	needsTypeinfer := false
+	needsExperiment := false
 	for _, e := range all {
 		s := string(e.stmt)
 		if strings.Contains(s, "regexp.") {
@@ -220,6 +228,30 @@ func run(args []string, stdout, stderr io.Writer) error {
 		}
 		if strings.Contains(s, "strings.") {
 			needsStrings = true
+		}
+		if strings.Contains(s, "fmt.") {
+			needsFmt = true
+		}
+		if strings.Contains(s, "strconv.") {
+			needsStrconv = true
+		}
+		if strings.Contains(s, "bytes.") {
+			needsBytes = true
+		}
+		if strings.Contains(s, "filepath.") {
+			needsFilepath = true
+		}
+		if strings.Contains(s, "unicode.") {
+			needsUnicode = true
+		}
+		if strings.Contains(s, "scanner.") {
+			needsScanner = true
+		}
+		if strings.Contains(s, "typeinfer.") {
+			needsTypeinfer = true
+		}
+		if strings.Contains(s, "experiment.") {
+			needsExperiment = true
 		}
 	}
 
@@ -236,16 +268,40 @@ func run(args []string, stdout, stderr io.Writer) error {
 	b.WriteString("// Ordering: by (source filename, byte offset) — stable.\n\n")
 	fmt.Fprintf(&b, "package %s\n\n", *pkgName)
 	b.WriteString("import (\n")
+	if needsBytes {
+		b.WriteString("\t\"bytes\"\n")
+	}
+	if needsFmt {
+		b.WriteString("\t\"fmt\"\n")
+	}
+	if needsFilepath {
+		b.WriteString("\t\"path/filepath\"\n")
+	}
 	if needsRegexp {
 		b.WriteString("\t\"regexp\"\n")
+	}
+	if needsStrconv {
+		b.WriteString("\t\"strconv\"\n")
 	}
 	if needsStrings {
 		b.WriteString("\t\"strings\"\n")
 	}
-	if needsRegexp || needsStrings {
+	if needsUnicode {
+		b.WriteString("\t\"unicode\"\n")
+	}
+	if needsBytes || needsFmt || needsFilepath || needsRegexp || needsStrconv || needsStrings || needsUnicode {
 		b.WriteString("\n")
 	}
+	if needsExperiment {
+		b.WriteString("\t\"github.com/kaeawc/krit/internal/experiment\"\n")
+	}
 	b.WriteString("\tv2 \"github.com/kaeawc/krit/internal/rules/v2\"\n")
+	if needsScanner {
+		b.WriteString("\t\"github.com/kaeawc/krit/internal/scanner\"\n")
+	}
+	if needsTypeinfer {
+		b.WriteString("\t\"github.com/kaeawc/krit/internal/typeinfer\"\n")
+	}
 	b.WriteString(")\n\n")
 	b.WriteString("// _ pacifies goimports if v2 is only referenced inside the init body.\n")
 	b.WriteString("var _ = v2.Register\n\n")

@@ -76,6 +76,21 @@ func TestAnvilContributesBindingWithoutScope(t *testing.T) {
 	})
 }
 
+func runCrossFileRule(rule *v2rules.Rule, files []*scanner.File) []scanner.Finding {
+	idx := scanner.BuildIndex(files, 1)
+	ctx := &v2rules.Context{
+		CodeIndex: idx,
+		Collector: scanner.NewFindingCollector(0),
+	}
+	rule.Check(ctx)
+	cols := *ctx.Collector.Columns()
+	out := make([]scanner.Finding, cols.Len())
+	for i := range out {
+		out[i] = cols.Finding(i)
+	}
+	return out
+}
+
 func TestAnvilMergeComponentEmptyScope(t *testing.T) {
 	rule := buildRuleIndex()["AnvilMergeComponentEmptyScope"]
 	if rule == nil {
@@ -84,10 +99,6 @@ func TestAnvilMergeComponentEmptyScope(t *testing.T) {
 
 	if !rule.Needs.Has(v2rules.NeedsCrossFile) {
 		t.Fatal("AnvilMergeComponentEmptyScope does not declare NeedsCrossFile")
-	}
-	crossFileRule, ok := rule.OriginalV1.(interface{ CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding })
-	if !ok {
-		t.Fatal("AnvilMergeComponentEmptyScope OriginalV1 does not implement CheckCrossFile")
 	}
 
 	root := fixtureRoot(t)
@@ -100,7 +111,7 @@ func TestAnvilMergeComponentEmptyScope(t *testing.T) {
 			t.Fatalf("ParseFile(%s): %v", positivePath, err)
 		}
 
-		findings := crossFileRule.CheckCrossFile(scanner.BuildIndex([]*scanner.File{file}, 1))
+		findings := runCrossFileRule(rule, []*scanner.File{file})
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -115,7 +126,7 @@ func TestAnvilMergeComponentEmptyScope(t *testing.T) {
 			t.Fatalf("ParseFile(%s): %v", negativePath, err)
 		}
 
-		findings := crossFileRule.CheckCrossFile(scanner.BuildIndex([]*scanner.File{file}, 1))
+		findings := runCrossFileRule(rule, []*scanner.File{file})
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -147,7 +158,7 @@ interface AppApi
 `,
 		)
 
-		findings := crossFileRule.CheckCrossFile(scanner.BuildIndex(files, 1))
+		findings := runCrossFileRule(rule, files)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -180,7 +191,7 @@ class AppApiImpl : AppApi
 `,
 		)
 
-		findings := crossFileRule.CheckCrossFile(scanner.BuildIndex(files, 1))
+		findings := runCrossFileRule(rule, files)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}

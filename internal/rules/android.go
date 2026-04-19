@@ -22,7 +22,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // AndroidLintCategory represents the AOSP lint category.
@@ -187,9 +187,8 @@ type ExportedServiceRule struct {
 // Classified per roadmap/17.
 func (r *ExportedServiceRule) Confidence() float64 { return 0.75 }
 
-func (r *ExportedServiceRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *ExportedServiceRule) check(ctx *v2.Context) {
 	// This is primarily an XML check, but we can detect registration in Kotlin
-	return nil
 }
 
 // PrivateKeyRule detects private key content in source.
@@ -206,16 +205,15 @@ type PrivateKeyRule struct {
 // Classified per roadmap/17.
 func (r *PrivateKeyRule) Confidence() float64 { return 0.75 }
 
-func (r *PrivateKeyRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *PrivateKeyRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if strings.Contains(line, "BEGIN RSA PRIVATE KEY") || strings.Contains(line, "BEGIN PRIVATE KEY") ||
 			strings.Contains(line, "BEGIN EC PRIVATE KEY") {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"Private key detected in source code. Remove and use secure key storage."))
 		}
 	}
-	return findings
 }
 
 // ObsoleteLayoutParamsRule detects deprecated Compose layout modifier APIs

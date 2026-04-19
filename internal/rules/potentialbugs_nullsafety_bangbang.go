@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/experiment"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -389,17 +390,18 @@ func (r *UnsafeCallOnNullableTypeRule) Confidence() float64 { return 0.75 }
 
 func (r *UnsafeCallOnNullableTypeRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
-func (r *UnsafeCallOnNullableTypeRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	text := file.FlatNodeText(idx)
 	if !strings.HasSuffix(text, "!!") {
-		return nil
+		return
 	}
 
 	// Skip test sources — tests use `!!` freely on setup fixtures;
 	// a NullPointerException there is just a failed test, not a runtime
 	// bug affecting production.
 	if isTestFile(file.Path) {
-		return nil
+		return
 	}
 	// Skip Gradle / Kotlin script files — script blocks commonly use
 	// `listFiles()!!`, `project.findProperty(...)!!`, and similar
@@ -407,13 +409,13 @@ func (r *UnsafeCallOnNullableTypeRule) checkFlatNode(idx uint32, file *scanner.F
 	if strings.HasSuffix(file.Path, ".gradle.kts") ||
 		strings.HasSuffix(file.Path, ".main.kts") ||
 		strings.HasSuffix(file.Path, ".kts") {
-		return nil
+		return
 	}
 	// Skip @Preview / sample / fixture functions — these are UI tooling
 	// scaffolding with hand-crafted test data, and `!!` is used liberally
 	// to build fixtures without null-handling noise.
 	if isInsidePreviewOrSampleFunctionFlat(file, idx) {
-		return nil
+		return
 	}
 	// Skip proto-processor files: any Kotlin file importing Wire /
 	// com.google.protobuf / Signal's generated proto packages is treated
@@ -423,7 +425,7 @@ func (r *UnsafeCallOnNullableTypeRule) checkFlatNode(idx uint32, file *scanner.F
 	// parentheses), preserving checks on single-identifier locals and
 	// method-call chains.
 	if fileImportsProto(file) && isDottedFieldChain(strings.TrimSuffix(text, "!!")) {
-		return nil
+		return
 	}
 	// Skip idiomatic Android patterns where !! is the canonical way to
 	// consume platform-typed APIs:
@@ -434,10 +436,10 @@ func (r *UnsafeCallOnNullableTypeRule) checkFlatNode(idx uint32, file *scanner.F
 	// De-dup with MapGetWithNotNullAssertionOperator: map[key]!! / foo.get(k)!!
 	// is the sibling rule's concern.
 	if strings.HasSuffix(receiverText, "]") {
-		return nil
+		return
 	}
 	if isIdiomaticNullAssertionReceiver(receiverText, file) {
-		return nil
+		return
 	}
 	// Normalize the receiver: strip inner `!!` and `this.` so that
 	// `dialog!!.window` and `this.window` match the plain `window` in
@@ -445,7 +447,7 @@ func (r *UnsafeCallOnNullableTypeRule) checkFlatNode(idx uint32, file *scanner.F
 	normalized := strings.ReplaceAll(receiverText, "!!", "")
 	normalized = strings.TrimPrefix(normalized, "this.")
 	if normalized != receiverText && isIdiomaticNullAssertionReceiver(normalized, file) {
-		return nil
+		return
 	}
 
 	// Flow-sensitive guard: if the receiver expression (or its leading
@@ -453,26 +455,26 @@ func (r *UnsafeCallOnNullableTypeRule) checkFlatNode(idx uint32, file *scanner.F
 	// or `if (x?.y != null)` branch, the `!!` is a smart-cast workaround
 	// rather than an unsafe assertion.
 	if isGuardedNonNullFlat(file, idx, receiverText) {
-		return nil
+		return
 	}
 	// Early-return guard: `if (x == null) return` earlier in the same block
 	// proves non-null for any subsequent `x!!` in the same statements scope.
 	if isEarlyReturnGuardedFlat(file, idx, receiverText) {
-		return nil
+		return
 	}
 	// Post-filter smart cast: `.filter { it.x != null }.map { it.x!! }` —
 	// if an enclosing lambda is inside a `.map` / `.forEach` / `.let` call
 	// whose chain has a preceding `.filter { it.<field> != null }`, the
 	// subsequent `!!` on that field is safe.
 	if isPostFilterSmartCastFlat(file, idx, receiverText) {
-		return nil
+		return
 	}
 	// `fun requireXxx(): T = field!!` — the function name explicitly
 	// documents the precondition ("the caller must have verified this").
 	// The `!!` is the idiomatic implementation. Detekt skips these too.
 	if experiment.Enabled("unsafe-call-skip-require-function-body") &&
 		isRequireFunctionBangBodyFlat(file, idx) {
-		return nil
+		return
 	}
 
 	// If resolver is available, check if the receiver is known non-null.
@@ -480,12 +482,12 @@ func (r *UnsafeCallOnNullableTypeRule) checkFlatNode(idx uint32, file *scanner.F
 	if r.resolver != nil && file.FlatChildCount(idx) >= 1 {
 		isNull := r.resolver.IsNullableFlat(file.FlatChild(idx, 0), file)
 		if isNull != nil && !*isNull {
-			return nil // receiver is known non-null, !! is safe
+			return // receiver is known non-null, !! is safe
 		}
 	}
 
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Not-null assertion operator (!!) used. Consider using safe calls (?.) instead.")}
+	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"Not-null assertion operator (!!) used. Consider using safe calls (?.) instead."))
 }
 
 // fileImportsProto returns true if the Kotlin file imports any Wire or
@@ -873,34 +875,35 @@ var mapBangRe = regexp.MustCompile(`\[[^\]]+\]\s*!!|\.get\([^)]+\)\s*!!`)
 var mapBracketBangRe = regexp.MustCompile(`(\w+(?:\.\w+)*)\[([^\]]+)\]\s*!!`)
 var mapGetBangRe = regexp.MustCompile(`(\w+(?:\.\w+)*)\.get\(([^)]+)\)\s*!!`)
 
-func (r *MapGetWithNotNullAssertionRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *MapGetWithNotNullAssertionRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	// Skip test files — fail-fast `map[key]!!` is idiomatic in tests.
 	if isTestFile(file.Path) {
-		return nil
+		return
 	}
 	text := file.FlatNodeText(idx)
 	if !mapBangRe.MatchString(text) {
-		return nil
+		return
 	}
 	// Skip when the access is guarded by `map.containsKey(key)` in an
 	// enclosing if or earlier statement, or by a preceding filter.
 	if m := mapBracketBangRe.FindStringSubmatch(text); m != nil {
 		receiver, key := m[1], m[2]
 		if isMapContainsKeyGuardedFlat(file, idx, receiver, key) {
-			return nil
+			return
 		}
 		if experiment.Enabled("map-get-bang-skip-contains-key-filter") &&
 			isInsideContainsKeyFilterChainFlat(file, idx, receiver) {
-			return nil
+			return
 		}
 	} else if m := mapGetBangRe.FindStringSubmatch(text); m != nil {
 		receiver, key := m[1], m[2]
 		if isMapContainsKeyGuardedFlat(file, idx, receiver, key) {
-			return nil
+			return
 		}
 		if experiment.Enabled("map-get-bang-skip-contains-key-filter") &&
 			isInsideContainsKeyFilterChainFlat(file, idx, receiver) {
-			return nil
+			return
 		}
 	}
 	// If resolver is available, verify the receiver is actually a Map type
@@ -925,7 +928,7 @@ func (r *MapGetWithNotNullAssertionRule) checkFlatNode(idx uint32, file *scanner
 					strings.HasSuffix(resolved.FQN, ".HashMap") ||
 					strings.HasSuffix(resolved.FQN, ".LinkedHashMap")
 				if !isMap {
-					return nil // receiver is not a Map, skip
+					return // receiver is not a Map, skip
 				}
 			}
 		}
@@ -954,6 +957,6 @@ func (r *MapGetWithNotNullAssertionRule) checkFlatNode(idx uint32, file *scanner
 			Replacement: receiver + ".getValue(" + key + ")",
 		}
 	}
-	return []scanner.Finding{f}
+	ctx.Emit(f)
 }
 

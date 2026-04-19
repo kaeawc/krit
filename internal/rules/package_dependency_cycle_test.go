@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/module"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -34,8 +35,12 @@ class B(private val dependency: A)
 	rule := &PackageDependencyCycleRule{
 		BaseRule: BaseRule{RuleName: "PackageDependencyCycle", RuleSetName: "architecture", Sev: "info"},
 	}
-	rule.SetModuleIndex(pmi)
-	findings := rule.CheckModuleAware()
+	ctx := &v2.Context{
+		ModuleIndex: pmi,
+		Collector:   scanner.NewFindingCollector(0),
+	}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
 
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
@@ -77,8 +82,12 @@ class C
 	rule := &PackageDependencyCycleRule{
 		BaseRule: BaseRule{RuleName: "PackageDependencyCycle", RuleSetName: "architecture", Sev: "info"},
 	}
-	rule.SetModuleIndex(pmi)
-	findings := rule.CheckModuleAware()
+	ctx := &v2.Context{
+		ModuleIndex: pmi,
+		Collector:   scanner.NewFindingCollector(0),
+	}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
 
 	if len(findings) != 0 {
 		t.Fatalf("expected 0 findings, got %d", len(findings))

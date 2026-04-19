@@ -99,5 +99,6 @@ func (a *SingleFileAnalyzer) AnalyzeBufferColumns(ctx context.Context, path stri
 // and returns the compatibility Finding slice. Used by LSP when the
 // cached *scanner.File is reused across requests.
 func (a *SingleFileAnalyzer) AnalyzeFile(file *scanner.File) []scanner.Finding {
-	return a.Dispatcher.Run(file)
+	columns := a.Dispatcher.Run(file)
+	return columns.Findings()
 }

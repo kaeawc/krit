@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -42,14 +43,9 @@ func (r *DeadCodeRule) FixLevel() FixLevel { return FixSemantic }
 // rule honest until DI awareness lands.
 func (r *DeadCodeRule) Confidence() float64 { return 0.75 }
 
-// Check is a no-op for cross-file rules (single-file check finds nothing).
-func (r *DeadCodeRule) Check(file *scanner.File) []scanner.Finding {
-	return nil
-}
-
-// CheckCrossFile runs against the full code index.
-func (r *DeadCodeRule) CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding {
-	var findings []scanner.Finding
+// check runs against the full code index.
+func (r *DeadCodeRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
 
 	unused := index.UnusedSymbols(r.IgnoreCommentReferences)
 	for _, sym := range unused {
@@ -94,10 +90,8 @@ func (r *DeadCodeRule) CheckCrossFile(index *scanner.CodeIndex) []scanner.Findin
 			Replacement: "",
 		}
 
-		findings = append(findings, f)
+		ctx.Emit(f)
 	}
-
-	return findings
 }
 
 func shouldSkipSymbol(sym scanner.Symbol) bool {

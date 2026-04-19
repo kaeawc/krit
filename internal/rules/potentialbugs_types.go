@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -248,7 +249,8 @@ func (r *CharArrayToStringCallRule) Confidence() float64 { return 0.75 }
 var charArrayToStringRe = regexp.MustCompile(`[Cc]har[Aa]rray[^.]*\.toString\(\)`)
 var charArrayToStringFixRe = regexp.MustCompile(`(\w+(?:\.\w+)*)\.toString\(\)`)
 
-func (r *CharArrayToStringCallRule) reportCharArrayFlat(idx uint32, text string, file *scanner.File) []scanner.Finding {
+func (r *CharArrayToStringCallRule) reportCharArrayFlat(ctx *v2.Context, text string) {
+	idx, file := ctx.Idx, ctx.File
 	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 		"Calling toString() on a CharArray does not return the string representation. Use String(charArray) instead.")
 	startByte := int(file.FlatStartByte(idx))
@@ -261,7 +263,7 @@ func (r *CharArrayToStringCallRule) reportCharArrayFlat(idx uint32, text string,
 			Replacement: "String(" + receiver + ")",
 		}
 	}
-	return []scanner.Finding{f}
+	ctx.Emit(f)
 }
 
 // ---------------------------------------------------------------------------

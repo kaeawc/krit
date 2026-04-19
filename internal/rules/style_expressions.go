@@ -845,9 +845,6 @@ type ExplicitItLambdaMultipleParametersRule struct {
 func (r *ExplicitItLambdaMultipleParametersRule) Confidence() float64 { return 0.75 }
 
 
-func (r *ExplicitItLambdaMultipleParametersRule) Check(file *scanner.File) []scanner.Finding {
-	return nil
-}
 
 func isInsideLambdaUnderFlat(child, stopAt uint32, file *scanner.File) bool {
 	for p, ok := file.FlatParent(child); ok && p != stopAt; p, ok = file.FlatParent(p) {

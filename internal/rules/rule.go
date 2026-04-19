@@ -13,17 +13,12 @@ import (
 // Rule is the v1 rule interface.
 //
 // Deprecated: implement rules as native *v2.Rule values registered via
-// v2.Register. New rules must use the v2.Context.Emit / v2.Context.EmitAt
-// API and never return []scanner.Finding. This interface and all v1 family
-// methods (CheckFlatNode, CheckLines, CheckCrossFile, CheckManifest,
-// CheckResources, CheckGradle, CheckModuleAware, Finalize) will be deleted
-// once all rules are migrated.
+// v2.Register.
 type Rule interface {
 	Name() string
 	Description() string
 	RuleSet() string
 	Severity() string
-	Check(file *scanner.File) []scanner.Finding
 }
 
 // FixableRule is optionally implemented by rules that can auto-fix findings.
@@ -196,17 +191,11 @@ func matchExcludePattern(filePath, pattern string) bool {
 	return matched
 }
 
-// FlatDispatchBase provides a default nil implementation for Check.
-// Embed in flat-dispatch rule implementations to avoid boilerplate stubs.
+// FlatDispatchBase is embedded by flat-dispatch rule implementations.
 type FlatDispatchBase struct{}
 
-func (FlatDispatchBase) Check(file *scanner.File) []scanner.Finding { return nil }
-
-// LineBase provides a default nil implementation for Check.
-// Embed in line-rule implementations to avoid boilerplate stubs.
+// LineBase is embedded by line-rule implementations.
 type LineBase struct{}
-
-func (LineBase) Check(file *scanner.File) []scanner.Finding { return nil }
 
 func (b BaseRule) Finding(file *scanner.File, line, col int, msg string) scanner.Finding {
 	return scanner.Finding{

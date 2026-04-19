@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // parseInt parses an integer string, returning 0 on error.
@@ -78,23 +78,22 @@ var (
 // Classified per roadmap/17.
 func (r *DefaultLocaleRule) Confidence() float64 { return 0.75 }
 
-func (r *DefaultLocaleRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *DefaultLocaleRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if defaultLocaleFmtRe.MatchString(line) && !strings.Contains(line, "Locale") {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"Implicitly using the default locale. Use String.format(Locale, ...) instead."))
 		}
 		if defaultLocaleToLower.MatchString(line) {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"Implicitly using the default locale. Use lowercase(Locale) instead."))
 		}
 		if defaultLocaleToUpper.MatchString(line) {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"Implicitly using the default locale. Use uppercase(Locale) instead."))
 		}
 	}
-	return findings
 }
 
 
@@ -146,16 +145,15 @@ var assertRe = regexp.MustCompile(`\bassert\s*[\({]`)
 // Classified per roadmap/17.
 func (r *AssertRule) Confidence() float64 { return 0.75 }
 
-func (r *AssertRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *AssertRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
 		if assertRe.MatchString(trimmed) && !strings.HasPrefix(trimmed, "//") && !strings.HasPrefix(trimmed, "*") {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"assert is not reliable on Android. Use a proper assertion library or throw explicitly."))
 		}
 	}
-	return findings
 }
 
 
@@ -191,15 +189,14 @@ var shiftFlagRe = regexp.MustCompile(`const\s+val\s+\w+FLAG\w*\s*=\s*\d+`)
 // Classified per roadmap/17.
 func (r *ShiftFlagsRule) Confidence() float64 { return 0.75 }
 
-func (r *ShiftFlagsRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *ShiftFlagsRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if shiftFlagRe.MatchString(line) && !strings.Contains(line, "shl") && !strings.Contains(line, "<<") {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"Consider using shift operators (1 shl N) for flag constants for clarity."))
 		}
 	}
-	return findings
 }
 
 
@@ -253,15 +250,14 @@ var sqliteStringRe = regexp.MustCompile(`(?i)\bSTRING\b.*\bCREATE\s+TABLE\b|\bCR
 // Classified per roadmap/17.
 func (r *SQLiteStringRule) Confidence() float64 { return 0.75 }
 
-func (r *SQLiteStringRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *SQLiteStringRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if sqliteStringRe.MatchString(line) {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"SQLite does not support STRING type. Use TEXT instead."))
 		}
 	}
-	return findings
 }
 
 
@@ -337,8 +333,8 @@ type NestedScrollingRule struct {
 // Classified per roadmap/17.
 func (r *NestedScrollingRule) Confidence() float64 { return 0.75 }
 
-func (r *NestedScrollingRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *NestedScrollingRule) check(ctx *v2.Context) {
+	file := ctx.File
 	// Detect nested scroll containers in Compose or layout inflation patterns
 	scrollPatterns := []string{"ScrollView", "LazyColumn", "LazyRow", "HorizontalPager", "VerticalPager"}
 	nesting := 0
@@ -347,7 +343,7 @@ func (r *NestedScrollingRule) CheckLines(file *scanner.File) []scanner.Finding {
 		for _, p := range scrollPatterns {
 			if strings.Contains(line, p+"(") || strings.Contains(line, p+" {") || strings.Contains(line, p+"{") {
 				if inScroll {
-					findings = append(findings, r.Finding(file, i+1, 1,
+					ctx.Emit(r.Finding(file, i+1, 1,
 						"Nested scrolling detected ("+p+" inside another scroll container). This can cause performance issues."))
 				}
 				nesting++
@@ -362,7 +358,6 @@ func (r *NestedScrollingRule) CheckLines(file *scanner.File) []scanner.Finding {
 			nesting = 0
 		}
 	}
-	return findings
 }
 
 
@@ -399,15 +394,14 @@ var sdfLocaleRe = regexp.MustCompile(`SimpleDateFormat\s*\([^,)]+,\s*Locale`)
 // Classified per roadmap/17.
 func (r *SimpleDateFormatRule) Confidence() float64 { return 0.75 }
 
-func (r *SimpleDateFormatRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *SimpleDateFormatRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if sdfRe.MatchString(line) && !sdfLocaleRe.MatchString(line) {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs."))
 		}
 	}
-	return findings
 }
 
 
@@ -419,15 +413,14 @@ type SetTextI18nRule struct {
 
 var setTextI18nRe = regexp.MustCompile(`\.setText\s*\(\s*"[^"]+"\s*\)`)
 
-func (r *SetTextI18nRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *SetTextI18nRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if setTextI18nRe.MatchString(line) {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"Do not concatenate text displayed with setText. Use resource strings with placeholders."))
 		}
 	}
-	return findings
 }
 
 
@@ -445,15 +438,14 @@ type StopShipRule struct {
 // Classified per roadmap/17.
 func (r *StopShipRule) Confidence() float64 { return 0.75 }
 
-func (r *StopShipRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *StopShipRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if strings.Contains(line, "STOPSHIP") {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"STOPSHIP comment found. This must be resolved before shipping."))
 		}
 	}
-	return findings
 }
 
 
@@ -473,8 +465,8 @@ var wrongCallRe = regexp.MustCompile(`\b(onDraw|onMeasure|onLayout)\s*\(`)
 // Classified per roadmap/17.
 func (r *WrongCallRule) Confidence() float64 { return 0.75 }
 
-func (r *WrongCallRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *WrongCallRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
 		// Only flag direct calls that aren't in super. or override fun
@@ -482,12 +474,11 @@ func (r *WrongCallRule) CheckLines(file *scanner.File) []scanner.Finding {
 			!strings.Contains(trimmed, "super.") && !strings.HasPrefix(trimmed, "//") &&
 			!strings.HasPrefix(trimmed, "*") && !strings.HasPrefix(trimmed, "fun ") {
 			if strings.Contains(trimmed, ".onDraw(") || strings.Contains(trimmed, ".onMeasure(") || strings.Contains(trimmed, ".onLayout(") {
-				findings = append(findings, r.Finding(file, i+1, 1,
+				ctx.Emit(r.Finding(file, i+1, 1,
 					"Suspicious method call; should probably call draw/measure/layout instead of onDraw/onMeasure/onLayout."))
 			}
 		}
 	}
-	return findings
 }
 
 

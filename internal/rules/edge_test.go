@@ -35,7 +35,8 @@ func runRuleByName(t *testing.T, ruleName string, code string) []scanner.Finding
 	for _, r := range v2rules.Registry {
 		if r.ID == ruleName {
 			d := rules.NewDispatcherV2([]*v2rules.Rule{r})
-			return d.Run(file)
+			cols := d.Run(file)
+			return cols.Findings()
 		}
 	}
 	t.Fatalf("rule %q not found in registry", ruleName)
@@ -429,7 +430,8 @@ class Foo {
 		}
 	}
 	d := rules.NewDispatcherV2(allRules)
-	findings := d.Run(file)
+	findingCols := d.Run(file)
+	findings := findingCols.Findings()
 
 	for _, f := range findings {
 		if f.Line >= 3 { // inside the @Suppress("all") class
@@ -607,7 +609,8 @@ func runMatchingDeclarationName(t *testing.T, filename string, code string) []sc
 	for _, r := range v2rules.Registry {
 		if r.ID == "MatchingDeclarationName" {
 			d := rules.NewDispatcherV2([]*v2rules.Rule{r})
-			return d.Run(file)
+			cols := d.Run(file)
+			return cols.Findings()
 		}
 	}
 	t.Fatal("MatchingDeclarationName rule not found in registry")
@@ -893,7 +896,8 @@ func runRuleWithOracle(t *testing.T, code string, filePath string, diags []oracl
 	}
 
 	d := rules.NewDispatcherV2([]*v2rules.Rule{rule}, composite)
-	return d.Run(f)
+	cols := d.Run(f)
+	return cols.Findings()
 }
 
 func TestUnreachableCode_OracleDiagnostic_UNREACHABLE_CODE(t *testing.T) {

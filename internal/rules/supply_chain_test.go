@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/module"
-	"github.com/kaeawc/krit/internal/rules"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -55,13 +55,15 @@ func runCompileSdkMismatchAcrossModulesRule(t *testing.T, projectDir string) []s
 		t.Fatalf("expected modules to be discovered in %s", projectDir)
 	}
 
-	rule := &rules.CompileSdkMismatchAcrossModulesRule{
-		BaseRule: rules.BaseRule{
-			RuleName:    "CompileSdkMismatchAcrossModules",
-			RuleSetName: "supply-chain",
-			Sev:         "warning",
-		},
+	rule := buildRuleIndex()["CompileSdkMismatchAcrossModules"]
+	if rule == nil {
+		t.Fatal("CompileSdkMismatchAcrossModules not registered")
 	}
-	rule.SetModuleIndex(&module.PerModuleIndex{Graph: graph})
-	return rule.CheckModuleAware()
+
+	ctx := &v2.Context{
+		ModuleIndex: &module.PerModuleIndex{Graph: graph},
+		Collector:   scanner.NewFindingCollector(0),
+	}
+	rule.Check(ctx)
+	return v2.ContextFindings(ctx)
 }

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // =====================================================================
@@ -129,7 +130,8 @@ var overrideMethods = []string{
 // Classified per roadmap/17.
 func (r *OverrideRule) Confidence() float64 { return 0.75 }
 
-func (r *OverrideRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *OverrideRule) check(ctx *v2.Context) {
+	file := ctx.File
 	// Quick scan: does this file contain an Activity or Fragment subclass?
 	content := strings.Join(file.Lines, "\n")
 	isActivityOrFragment := false
@@ -141,10 +143,9 @@ func (r *OverrideRule) CheckLines(file *scanner.File) []scanner.Finding {
 		}
 	}
 	if !isActivityOrFragment {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
 		if scanner.IsCommentLine(line) {
@@ -152,13 +153,12 @@ func (r *OverrideRule) CheckLines(file *scanner.File) []scanner.Finding {
 		}
 		for _, method := range overrideMethods {
 			if strings.Contains(trimmed, method) && !strings.Contains(trimmed, "override") {
-				findings = append(findings, r.Finding(file, i+1, 1,
+				ctx.Emit(r.Finding(file, i+1, 1,
 					method+") should be declared with `override` in Activity/Fragment subclasses."))
 				break
 			}
 		}
 	}
-	return findings
 }
 
 // AssertRule is defined in android_correctness.go with CheckLines implementation.
@@ -183,19 +183,18 @@ var unusedResPatternRe = regexp.MustCompile(`R\.(string|drawable|layout|color|di
 // Classified per roadmap/17.
 func (r *UnusedResourcesRule) Confidence() float64 { return 0.75 }
 
-func (r *UnusedResourcesRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *UnusedResourcesRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if scanner.IsCommentLine(line) {
 			continue
 		}
 		matches := unusedResPatternRe.FindStringSubmatch(line)
 		if matches != nil {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				fmt.Sprintf("Resource 'R.%s.%s' uses a test/temp naming pattern and may be unused.", matches[1], matches[2])))
 		}
 	}
-	return findings
 }
 
 // InconsistentArraysRule → InconsistentArraysResourceRule (android_resource.go)

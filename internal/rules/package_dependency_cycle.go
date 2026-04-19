@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/graph"
-	"github.com/kaeawc/krit/internal/module"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -15,10 +15,21 @@ import (
 // within a single Gradle module.
 type PackageDependencyCycleRule struct {
 	BaseRule
-	pmi *module.PerModuleIndex
 }
 
-func (r *PackageDependencyCycleRule) Check(_ *scanner.File) []scanner.Finding { return nil }
+func (r *PackageDependencyCycleRule) check(ctx *v2.Context) {
+	pmi := ctx.ModuleIndex
+	if pmi == nil || pmi.Graph == nil {
+		return
+	}
+
+	for modPath, files := range pmi.ModuleFiles {
+		if modPath == "root" {
+			continue
+		}
+		r.checkModule(ctx, modPath, files)
+	}
+}
 
 // Confidence holds the 0.95 dispatch default — cycle detection on
 // the package-level import graph is a precise Tarjan/DFS result; a
@@ -29,28 +40,6 @@ func (r *PackageDependencyCycleRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{NeedsFiles: true}
 }
 
-func (r *PackageDependencyCycleRule) SetModuleIndex(pmi *module.PerModuleIndex) {
-	r.pmi = pmi
-}
-
-func (r *PackageDependencyCycleRule) CheckModuleAware() []scanner.Finding {
-	if r.pmi == nil || r.pmi.Graph == nil {
-		return nil
-	}
-
-	var findings []scanner.Finding
-	for modPath, files := range r.pmi.ModuleFiles {
-		if modPath == "root" {
-			continue
-		}
-
-		moduleFindings := r.checkModule(modPath, files)
-		findings = append(findings, moduleFindings...)
-	}
-
-	return findings
-}
-
 type packageCycleFile struct {
 	pkg     string
 	file    string
@@ -58,7 +47,7 @@ type packageCycleFile struct {
 	imports []string
 }
 
-func (r *PackageDependencyCycleRule) checkModule(modPath string, files []*scanner.File) []scanner.Finding {
+func (r *PackageDependencyCycleRule) checkModule(ctx *v2.Context, modPath string, files []*scanner.File) {
 	entries := make([]packageCycleFile, 0, len(files))
 	packages := make(map[string]packageCycleFile)
 
@@ -85,7 +74,7 @@ func (r *PackageDependencyCycleRule) checkModule(modPath string, files []*scanne
 	}
 
 	if len(packages) < 2 {
-		return nil
+		return
 	}
 
 	g := graph.NewGraph()
@@ -104,11 +93,10 @@ func (r *PackageDependencyCycleRule) checkModule(modPath string, files []*scanne
 		}
 	}
 
-	var findings []scanner.Finding
 	for _, cycle := range graph.FindSCCs(g) {
 		sort.Strings(cycle)
 		anchor := packages[cycle[0]]
-		findings = append(findings, scanner.Finding{
+		ctx.Emit(scanner.Finding{
 			File:     anchor.file,
 			Line:     anchor.line,
 			Col:      1,
@@ -119,8 +107,6 @@ func (r *PackageDependencyCycleRule) checkModule(modPath string, files []*scanne
 				strings.Join(cycle, ", "), modPath),
 		})
 	}
-
-	return findings
 }
 
 func shouldSkipPackageDependencyCycleFile(path string) bool {

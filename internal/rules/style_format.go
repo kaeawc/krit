@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -21,8 +22,8 @@ func (r *TrailingWhitespaceRule) Confidence() float64 { return 0.95 }
 
 var trailingWhitespaceRe = regexp.MustCompile(`[ \t]+$`)
 
-func (r *TrailingWhitespaceRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *TrailingWhitespaceRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if trailingWhitespaceRe.MatchString(line) {
 			trimmed := strings.TrimRight(line, " \t")
@@ -34,10 +35,9 @@ func (r *TrailingWhitespaceRule) CheckLines(file *scanner.File) []scanner.Findin
 				EndByte:     lineStart + len(line),
 				Replacement: trimmed,
 			}
-			findings = append(findings, f)
+			ctx.Emit(f)
 		}
 	}
-	return findings
 }
 
 // NoTabsRule detects tab characters.
@@ -51,8 +51,8 @@ type NoTabsRule struct {
 // room for interpretation.
 func (r *NoTabsRule) Confidence() float64 { return 0.95 }
 
-func (r *NoTabsRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *NoTabsRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if strings.Contains(line, "\t") {
 			f := r.Finding(file, i+1, strings.Index(line, "\t")+1,
@@ -65,10 +65,9 @@ func (r *NoTabsRule) CheckLines(file *scanner.File) []scanner.Finding {
 				EndByte:     lineStart + len(line),
 				Replacement: replaced,
 			}
-			findings = append(findings, f)
+			ctx.Emit(f)
 		}
 	}
-	return findings
 }
 
 // MaxLineLengthRule detects lines exceeding the configured max.
@@ -88,23 +87,23 @@ type MaxLineLengthRule struct {
 // conventional.
 func (r *MaxLineLengthRule) Confidence() float64 { return 0.95 }
 
-func (r *MaxLineLengthRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *MaxLineLengthRule) check(ctx *v2.Context) {
+	file := ctx.File
 	// Skip test files — test code commonly uses long descriptive strings
 	// and chained builder calls where wrapping hurts readability.
 	if isTestFile(file.Path) {
-		return nil
+		return
 	}
 	// Skip gradle build scripts — DSL chains with long type/config names
 	// are the norm.
 	if strings.HasSuffix(file.Path, ".gradle.kts") {
-		return nil
+		return
 	}
 	// Compute set of lines that are inside a triple-quoted raw string literal.
 	// Raw strings cannot be wrapped without changing the string contents.
 	insideRawString := computeRawStringLines(file.Lines)
 	// Compute set of lines that are inside a KDoc / block comment.
 	insideBlockComment := computeBlockCommentLines(file.Lines)
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
 		if r.ExcludePackageStatements && strings.HasPrefix(trimmed, "package ") {
@@ -174,11 +173,10 @@ func (r *MaxLineLengthRule) CheckLines(file *scanner.File) []scanner.Finding {
 			if isDottedCallChainLine(trimmed) {
 				continue
 			}
-			findings = append(findings, r.Finding(file, i+1, r.Max+1,
+			ctx.Emit(r.Finding(file, i+1, r.Max+1,
 				fmt.Sprintf("Line exceeds maximum length of %d characters.", r.Max)))
 		}
 	}
-	return findings
 }
 
 // rResourceKindPrefixes enumerates the `R.<kind>.` Android resource
@@ -403,7 +401,8 @@ type NewLineAtEndOfFileRule struct {
 // with no room for interpretation.
 func (r *NewLineAtEndOfFileRule) Confidence() float64 { return 0.95 }
 
-func (r *NewLineAtEndOfFileRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *NewLineAtEndOfFileRule) check(ctx *v2.Context) {
+	file := ctx.File
 	if len(file.Content) > 0 && file.Content[len(file.Content)-1] != '\n' {
 		f := r.Finding(file, len(file.Lines), 1, "File does not end with a newline.")
 		f.Fix = &scanner.Fix{
@@ -412,9 +411,8 @@ func (r *NewLineAtEndOfFileRule) CheckLines(file *scanner.File) []scanner.Findin
 			EndByte:     len(file.Content),
 			Replacement: "\n",
 		}
-		return []scanner.Finding{f}
+		ctx.Emit(f)
 	}
-	return nil
 }
 
 // SpacingAfterPackageAndImportsRule checks for blank line after package/imports.
@@ -429,8 +427,8 @@ type SpacingAfterPackageAndImportsRule struct {
 // heuristic path.
 func (r *SpacingAfterPackageAndImportsRule) Confidence() float64 { return 0.95 }
 
-func (r *SpacingAfterPackageAndImportsRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *SpacingAfterPackageAndImportsRule) check(ctx *v2.Context) {
+	file := ctx.File
 	lastImportLine := -1
 	packageLine := -1
 
@@ -462,10 +460,9 @@ func (r *SpacingAfterPackageAndImportsRule) CheckLines(file *scanner.File) []sca
 				EndByte:     lineStart,
 				Replacement: "\n",
 			}
-			findings = append(findings, f)
+			ctx.Emit(f)
 		}
 	}
-	return findings
 }
 
 // MaxChainedCallsOnSameLineRule limits chained method calls on a single line.
@@ -480,19 +477,18 @@ type MaxChainedCallsOnSameLineRule struct {
 // Classified per roadmap/17.
 func (r *MaxChainedCallsOnSameLineRule) Confidence() float64 { return 0.75 }
 
-func (r *MaxChainedCallsOnSameLineRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *MaxChainedCallsOnSameLineRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if scanner.IsCommentLine(line) {
 			continue
 		}
 		dotCount := strings.Count(line, ".")
 		if dotCount > r.MaxCalls {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				fmt.Sprintf("Line has %d chained calls, max allowed is %d.", dotCount, r.MaxCalls)))
 		}
 	}
-	return findings
 }
 
 // CascadingCallWrappingRule checks that chained calls are wrapped consistently.
@@ -507,8 +503,8 @@ type CascadingCallWrappingRule struct {
 // Classified per roadmap/17.
 func (r *CascadingCallWrappingRule) Confidence() float64 { return 0.75 }
 
-func (r *CascadingCallWrappingRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *CascadingCallWrappingRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, ".") && i > 0 {
@@ -520,14 +516,12 @@ func (r *CascadingCallWrappingRule) CheckLines(file *scanner.File) []scanner.Fin
 				indent := len(line) - len(strings.TrimLeft(line, " \t"))
 				prevIndent := len(file.Lines[i-1]) - len(strings.TrimLeft(file.Lines[i-1], " \t"))
 				if indent <= prevIndent {
-					f := r.Finding(file, i+1, 1,
-						"Chained call should be indented from the previous line.")
-					findings = append(findings, f)
+					ctx.Emit(r.Finding(file, i+1, 1,
+						"Chained call should be indented from the previous line."))
 				}
 			}
 		}
 	}
-	return findings
 }
 
 // UnderscoresInNumericLiteralsRule detects large numbers without underscores.
@@ -572,8 +566,8 @@ type EqualsOnSignatureLineRule struct {
 // Classified per roadmap/17.
 func (r *EqualsOnSignatureLineRule) Confidence() float64 { return 0.75 }
 
-func (r *EqualsOnSignatureLineRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *EqualsOnSignatureLineRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i := 1; i < len(file.Lines); i++ {
 		trimmed := strings.TrimSpace(file.Lines[i])
 		if trimmed == "=" || strings.HasPrefix(trimmed, "= ") {
@@ -601,9 +595,8 @@ func (r *EqualsOnSignatureLineRule) CheckLines(file *scanner.File) []scanner.Fin
 					EndByte:     byteEnd,
 					Replacement: merged,
 				}
-				findings = append(findings, f)
+				ctx.Emit(f)
 			}
 		}
 	}
-	return findings
 }

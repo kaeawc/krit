@@ -138,9 +138,6 @@ type UtilityClassWithPublicConstructorRule struct {
 // fallback path is heuristic. Classified per roadmap/17.
 func (r *UtilityClassWithPublicConstructorRule) Confidence() float64 { return 0.75 }
 
-func (r *UtilityClassWithPublicConstructorRule) Check(file *scanner.File) []scanner.Finding {
-	return nil
-}
 
 // OptionalAbstractKeywordRule detects abstract keyword on interface members.
 type OptionalAbstractKeywordRule struct {
@@ -372,7 +369,4 @@ func (r *SerialVersionUIDInSerializableClassRule) checksSerializableRec(info *ty
 	return false
 }
 
-func (r *SerialVersionUIDInSerializableClassRule) Check(file *scanner.File) []scanner.Finding {
-	return nil
-}
 

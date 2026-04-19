@@ -26,7 +26,8 @@ func runRuleByNameOnPath(t *testing.T, ruleName, filename, code string) []scanne
 	for _, r := range v2rules.Registry {
 		if r.ID == ruleName {
 			d := rules.NewDispatcherV2([]*v2rules.Rule{r})
-			return d.Run(file)
+			cols := d.Run(file)
+			return cols.Findings()
 		}
 	}
 

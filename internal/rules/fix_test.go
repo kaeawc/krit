@@ -81,7 +81,8 @@ func runBundledFixableFixtures(t *testing.T, dir string, dispatcher *rules.Dispa
 				t.Fatalf("failed to parse %s: %v", ktPath, err)
 			}
 
-			findings := dispatcher.Run(file)
+			findingCols := dispatcher.Run(file)
+			findings := findingCols.Findings()
 			var fixableFindings []scanner.Finding
 			for _, f := range findings {
 				if f.Fix != nil {
@@ -158,7 +159,8 @@ func runPerRuleFixableFixtures(t *testing.T, dir string) (int, error) {
 			// dispatcher handles all of those when given a singleton
 			// registry.
 			soloDispatcher := rules.NewDispatcherV2([]*v2rules.Rule{rule})
-			findings := soloDispatcher.Run(file)
+			findingCols := soloDispatcher.Run(file)
+			findings := findingCols.Findings()
 
 			var fixableFindings []scanner.Finding
 			for _, f := range findings {

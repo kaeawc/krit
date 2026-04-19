@@ -2,7 +2,6 @@ package rules
 
 import (
 	"bytes"
-	"fmt"
 	"regexp"
 	"strings"
 	"sync"
@@ -572,119 +571,6 @@ type scopeReassignmentsKey struct {
 	end      int
 }
 
-func (r *VarCouldBeValRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if isTestFile(file.Path) {
-		return nil
-	}
-	// Find the "var" keyword child node directly in the AST.
-	var varKeyword uint32
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		child := file.FlatChild(idx, i)
-		if file.FlatType(child) == "var" || file.FlatNodeTextEquals(child, "var") {
-			varKeyword = child
-			break
-		}
-	}
-	if varKeyword == 0 {
-		return nil
-	}
-
-	// Skip override var — can't change to val without changing the interface/superclass.
-	if file.FlatHasModifier(idx, "override") {
-		return nil
-	}
-
-	// Skip lateinit var — these are framework-initialized (DI, test mocks,
-	// view bindings, etc.) via reflection, and the rule can't see the
-	// reassignments.
-	if file.FlatHasModifier(idx, "lateinit") {
-		return nil
-	}
-
-	// Skip delegated properties (var x by ...) — the delegate controls mutability.
-	if file.FlatFindChild(idx, "property_delegate") != 0 {
-		return nil
-	}
-
-	// Skip vars with framework annotations that indicate external initialization.
-	// These include DI annotations, mocking, view binding, etc.
-	if hasFrameworkAnnotationFlat(file, idx) {
-		return nil
-	}
-
-	// Skip properties with custom setters — they need var even if the backing
-	// field is never directly assigned from outside.
-	// In tree-sitter Kotlin, the setter is a sibling after the property_declaration
-	// inside the class_body, not a child of the property_declaration itself.
-	if nextSib, ok := file.FlatNextSibling(idx); ok && file.FlatType(nextSib) == "setter" {
-		return nil
-	}
-	// Also handle getter followed by setter: property_declaration -> getter -> setter
-	if nextSib, ok := file.FlatNextSibling(idx); ok && file.FlatType(nextSib) == "getter" {
-		if nextNext, ok := file.FlatNextSibling(nextSib); ok && file.FlatType(nextNext) == "setter" {
-			return nil
-		}
-	}
-
-	// Only flag local variables (inside function bodies) and private class/object
-	// properties. Non-private class properties could be reassigned from other files.
-	parent, ok := file.FlatParent(idx)
-	if !ok {
-		return nil
-	}
-	isLocal := file.FlatType(parent) == "statements"
-	isClassLevel := file.FlatType(parent) == "class_body"
-	if isClassLevel {
-		// Only flag private properties at class level.
-		if !file.FlatHasModifier(idx, "private") {
-			return nil
-		}
-	} else if !isLocal {
-		// Top-level property — only flag if private.
-		if file.FlatType(parent) == "source_file" && !file.FlatHasModifier(idx, "private") {
-			return nil
-		}
-	}
-
-	varName := ""
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		child := file.FlatChild(idx, i)
-		if file.FlatType(child) == "variable_declaration" {
-			varName = extractIdentifierFlat(file, child)
-			break
-		}
-	}
-	if varName == "" {
-		return nil
-	}
-
-	// Check reassignments in the immediate parent scope first, then fall
-	// back to a file-wide scan if not found. File-wide scan catches
-	// reassignments that the parent-scope walk misses due to nested object
-	// expressions, lambdas, parse errors, or deeply-nested callbacks.
-	reassigned := r.reassignedNamesFlat(parent, file)[varName]
-	if !reassigned {
-		// Fallback: look for bare `varName =` / `varName +=` / `varName++` etc.
-		// anywhere in the file. This is conservative (may miss shadowing
-		// cases) but dramatically reduces false positives.
-		if varCouldBeValFileWideReassigned(file, varName) {
-			reassigned = true
-		}
-	}
-
-	if !reassigned {
-		f := r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("'var %s' is never reassigned. Use 'val' instead.", varName))
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   int(file.FlatStartByte(varKeyword)),
-			EndByte:     int(file.FlatEndByte(varKeyword)),
-			Replacement: "val",
-		}
-		return []scanner.Finding{f}
-	}
-	return nil
-}
 
 // varCouldBeValFileWideReassigned returns true if the file contains a
 // textual reassignment of the given name — `name =`, `name +=`, `name++`,
@@ -766,62 +652,6 @@ type MayBeConstantRule struct {
 // is a style preference. Classified per roadmap/17.
 func (r *MayBeConstantRule) Confidence() float64 { return 0.75 }
 
-func (r *MayBeConstantRule) NodeTypes() []string { return []string{"property_declaration"} }
-
-func (r *MayBeConstantRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Skip .kts script files — top-level vals compile as script-class members,
-	// which don't allow const modifier.
-	if strings.HasSuffix(file.Path, ".kts") {
-		return nil
-	}
-	// Only top-level val with primitive/string type and constant initializer
-	if parent, ok := file.FlatParent(idx); !ok || (file.FlatType(parent) != "source_file" && file.FlatType(parent) != "companion_object") {
-		return nil
-	}
-	text := file.FlatNodeText(idx)
-	trimmed := strings.TrimSpace(text)
-	if !strings.HasPrefix(trimmed, "val ") {
-		return nil
-	}
-	// Check modifiers - skip if already const
-	if file.FlatHasModifier(idx, "const") {
-		return nil
-	}
-	// Must have an initializer
-	if !strings.Contains(text, "=") {
-		return nil
-	}
-	// Check if the initializer is a constant expression
-	parts := strings.SplitN(text, "=", 2)
-	if len(parts) != 2 {
-		return nil
-	}
-	init := strings.TrimSpace(parts[1])
-	if isConstant(init) {
-		f := r.Finding(file, file.FlatRow(idx)+1, 1,
-			"Property may be declared as 'const val'.")
-		// Add const modifier
-		mods := file.FlatFindChild(idx, "modifiers")
-		if mods != 0 {
-			modsText := file.FlatNodeText(mods)
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   int(file.FlatStartByte(mods)),
-				EndByte:     int(file.FlatEndByte(mods)),
-				Replacement: modsText + " const",
-			}
-		} else {
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   int(file.FlatStartByte(idx)),
-				EndByte:     int(file.FlatStartByte(idx)) + 3,
-				Replacement: "const val",
-			}
-		}
-		return []scanner.Finding{f}
-	}
-	return nil
-}
 
 // ModifierOrderRule detects modifiers not in the recommended order.
 type ModifierOrderRule struct {
@@ -854,48 +684,6 @@ var modifierOrder = []string{
 // is a style preference. Classified per roadmap/17.
 func (r *ModifierOrderRule) Confidence() float64 { return 0.75 }
 
-func (r *ModifierOrderRule) NodeTypes() []string { return []string{"modifiers"} }
-
-func (r *ModifierOrderRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	var mods []string
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		child := file.FlatChild(idx, i)
-		switch file.FlatType(child) {
-		case "annotation", "line_comment", "multiline_comment":
-			continue
-		}
-		text := strings.TrimSpace(file.FlatNodeText(child))
-		if text != "" {
-			mods = append(mods, text)
-		}
-	}
-	if len(mods) <= 1 {
-		return nil
-	}
-	// Check if mods are in the expected order
-	lastIdx := -1
-	for _, m := range mods {
-		orderIdx := modifierIndex(m)
-		if orderIdx < 0 {
-			continue
-		}
-		if orderIdx < lastIdx {
-			f := r.Finding(file, file.FlatRow(idx)+1, 1,
-				"Modifiers are not in the recommended order.")
-			// Build sorted modifier string
-			sorted := sortModifiers(mods)
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   int(file.FlatStartByte(idx)),
-				EndByte:     int(file.FlatEndByte(idx)),
-				Replacement: strings.Join(sorted, " "),
-			}
-			return []scanner.Finding{f}
-		}
-		lastIdx = orderIdx
-	}
-	return nil
-}
 
 func modifierIndex(mod string) int {
 	for i, m := range modifierOrder {
@@ -940,91 +728,6 @@ type FunctionOnlyReturningConstantRule struct {
 // is a style preference. Classified per roadmap/17.
 func (r *FunctionOnlyReturningConstantRule) Confidence() float64 { return 0.75 }
 
-func (r *FunctionOnlyReturningConstantRule) NodeTypes() []string {
-	return []string{"function_declaration"}
-}
-
-func (r *FunctionOnlyReturningConstantRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Skip override/open/abstract functions — they exist per contract
-	if file.FlatHasModifier(idx, "override") ||
-		file.FlatHasModifier(idx, "open") ||
-		file.FlatHasModifier(idx, "abstract") {
-		return nil
-	}
-	// Skip Kotlin Multiplatform `actual` implementations — they fulfill
-	// an `expect fun` contract and cannot be replaced with a `const val`
-	// without breaking the multiplatform declaration.
-	if file.FlatHasModifier(idx, "actual") {
-		return nil
-	}
-	// Skip dependency-injection provider functions. `@Provides`,
-	// `@Binds`, `@BindsInstance`, `@IntoSet`, `@IntoMap` functions
-	// form the binding graph of Dagger/Hilt/Metro/etc. — they look
-	// like "returns a constant" but they are DI bindings and cannot
-	// be rewritten as `const val`.
-	if HasIgnoredAnnotation(file.FlatNodeText(idx),
-		[]string{"Provides", "Binds", "BindsInstance", "BindsOptionalOf",
-			"IntoSet", "IntoMap", "ElementsIntoSet", "Multibinds",
-			"ContributesBinding", "ContributesMultibinding",
-			"ContributesTo", "ContributesSubcomponent"}) {
-		return nil
-	}
-	// Skip functions with parameters — they can't be replaced with a const val
-	params := file.FlatFindChild(idx, "function_value_parameters")
-	if params != 0 {
-		paramText := file.FlatNodeText(params)
-		if len(strings.TrimSpace(strings.Trim(paramText, "()"))) > 0 {
-			return nil
-		}
-	}
-	// Skip extension functions — they take a receiver
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		if file.FlatType(file.FlatChild(idx, i)) == "receiver_type" {
-			return nil
-		}
-	}
-	// Skip functions defined inside an interface — they serve as default
-	// implementations for subclasses/implementations to override.
-	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-		if t := file.FlatType(p); t == "class_declaration" || t == "object_declaration" {
-			// Check if it's an interface
-			for i := 0; i < file.FlatChildCount(p); i++ {
-				c := file.FlatChild(p, i)
-				if ct := file.FlatType(c); ct == "interface" || (ct == "class" && file.FlatNodeTextEquals(c, "interface")) {
-					return nil
-				}
-			}
-			break
-		}
-	}
-	body := file.FlatFindChild(idx, "function_body")
-	if body == 0 {
-		return nil
-	}
-	bodyText := strings.TrimSpace(file.FlatNodeText(body))
-	// Expression body: = "constant"
-	if strings.HasPrefix(bodyText, "=") {
-		expr := strings.TrimSpace(strings.TrimPrefix(bodyText, "="))
-		if isConstant(expr) {
-			name := extractIdentifierFlat(file, idx)
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-				fmt.Sprintf("Function '%s' only returns a constant. Consider replacing with a const val.", name))}
-		}
-	}
-	// Block body with single return
-	inner := strings.TrimPrefix(bodyText, "{")
-	inner = strings.TrimSuffix(inner, "}")
-	inner = strings.TrimSpace(inner)
-	if strings.HasPrefix(inner, "return ") && !strings.Contains(inner, "\n") {
-		expr := strings.TrimPrefix(inner, "return ")
-		if isConstant(expr) {
-			name := extractIdentifierFlat(file, idx)
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-				fmt.Sprintf("Function '%s' only returns a constant. Consider replacing with a const val.", name))}
-		}
-	}
-	return nil
-}
 
 func isConstant(s string) bool {
 	s = strings.TrimSpace(s)
@@ -1103,46 +806,6 @@ type LoopWithTooManyJumpStatementsRule struct {
 // is a style preference. Classified per roadmap/17.
 func (r *LoopWithTooManyJumpStatementsRule) Confidence() float64 { return 0.75 }
 
-func (r *LoopWithTooManyJumpStatementsRule) NodeTypes() []string {
-	return []string{"for_statement", "while_statement", "do_while_statement"}
-}
-
-func (r *LoopWithTooManyJumpStatementsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	jumpCount := 0
-	// Count break/continue only for THIS loop: stop descending when we
-	// enter a nested loop (jumps there target the inner loop) or a lambda
-	// / nested function (those control flow constructs don't target this
-	// loop). Without this, the rule sums jumps across nested loops and
-	// reports them all on the outermost one.
-	var walk func(n uint32, depth int)
-	walk = func(n uint32, depth int) {
-		if n == 0 {
-			return
-		}
-		if depth > 0 {
-			switch file.FlatType(n) {
-			case "for_statement", "while_statement", "do_while_statement",
-				"lambda_literal", "function_declaration", "anonymous_function":
-				return
-			}
-		}
-		if file.FlatType(n) == "jump_expression" {
-			text := file.FlatNodeText(n)
-			if strings.HasPrefix(text, "break") || strings.HasPrefix(text, "continue") {
-				jumpCount++
-			}
-		}
-		for i := 0; i < file.FlatChildCount(n); i++ {
-			walk(file.FlatChild(n, i), depth+1)
-		}
-	}
-	walk(idx, 0)
-	if jumpCount > r.MaxJumps {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Loop has %d jump statements, max allowed is %d.", jumpCount, r.MaxJumps))}
-	}
-	return nil
-}
 
 // ExplicitItLambdaParameterRule detects `{ it -> ... }` using AST-based analysis.
 // It finds lambda_literal nodes with exactly one parameter named "it" and flags them.
@@ -1157,83 +820,6 @@ type ExplicitItLambdaParameterRule struct {
 // is a style preference. Classified per roadmap/17.
 func (r *ExplicitItLambdaParameterRule) Confidence() float64 { return 0.75 }
 
-func (r *ExplicitItLambdaParameterRule) NodeTypes() []string {
-	return []string{"lambda_literal"}
-}
-
-func (r *ExplicitItLambdaParameterRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	paramsNode := file.FlatFindChild(idx, "lambda_parameters")
-	if paramsNode == 0 {
-		return nil
-	}
-
-	// Collect parameter declarations (skip commas and whitespace tokens).
-	var paramNodes []uint32
-	for i := 0; i < file.FlatChildCount(paramsNode); i++ {
-		child := file.FlatChild(paramsNode, i)
-		if t := file.FlatType(child); t == "variable_declaration" || t == "simple_identifier" {
-			paramNodes = append(paramNodes, child)
-		}
-	}
-
-	// Only applies to single-parameter lambdas.
-	if len(paramNodes) != 1 {
-		return nil
-	}
-
-	param := paramNodes[0]
-	var name string
-	hasType := false
-	if file.FlatType(param) == "simple_identifier" {
-		name = file.FlatNodeText(param)
-	} else {
-		// variable_declaration: may have simple_identifier + type children
-		id := file.FlatFindChild(param, "simple_identifier")
-		if id != 0 {
-			name = file.FlatNodeText(id)
-		}
-		// Check for type annotation
-		if file.FlatFindChild(param, "user_type") != 0 || file.FlatFindChild(param, "nullable_type") != 0 ||
-			file.FlatFindChild(param, "function_type") != 0 {
-			hasType = true
-		}
-	}
-
-	if name != "it" {
-		return nil
-	}
-
-	var msg string
-	if hasType {
-		msg = "`it` should not be used as name for a lambda parameter."
-	} else {
-		msg = "Explicit 'it' lambda parameter is redundant. Use implicit 'it'."
-	}
-
-	f := r.Finding(file, file.FlatRow(idx)+1, 1, msg)
-
-	// Only auto-fix when there is no type annotation (safe to just remove the parameter).
-	if !hasType {
-		// Find the arrow token "->"; the fix removes from "{" through the arrow.
-		arrowNode := findArrowInLambdaFlat(file, idx)
-		if arrowNode != 0 {
-			// Replace from the opening "{" through the end of "->" (plus trailing space) with "{ ".
-			arrowEnd := int(file.FlatEndByte(arrowNode))
-			// Skip a single trailing space after -> if present
-			if arrowEnd < len(file.Content) && file.Content[arrowEnd] == ' ' {
-				arrowEnd++
-			}
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   int(file.FlatStartByte(idx)),
-				EndByte:     arrowEnd,
-				Replacement: "{ ",
-			}
-		}
-	}
-
-	return []scanner.Finding{f}
-}
 
 func findArrowInLambdaFlat(file *scanner.File, lambda uint32) uint32 {
 	for i := 0; i < file.FlatChildCount(lambda); i++ {
@@ -1258,49 +844,6 @@ type ExplicitItLambdaMultipleParametersRule struct {
 // is a style preference. Classified per roadmap/17.
 func (r *ExplicitItLambdaMultipleParametersRule) Confidence() float64 { return 0.75 }
 
-func (r *ExplicitItLambdaMultipleParametersRule) NodeTypes() []string {
-	return []string{"lambda_literal"}
-}
-
-func (r *ExplicitItLambdaMultipleParametersRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	paramsNode := file.FlatFindChild(idx, "lambda_parameters")
-	if paramsNode == 0 {
-		return nil
-	}
-
-	// Collect parameter names.
-	var names []string
-	for i := 0; i < file.FlatChildCount(paramsNode); i++ {
-		child := file.FlatChild(paramsNode, i)
-		var name string
-		switch file.FlatType(child) {
-		case "simple_identifier":
-			name = file.FlatNodeText(child)
-		case "variable_declaration":
-			id := file.FlatFindChild(child, "simple_identifier")
-			if id != 0 {
-				name = file.FlatNodeText(id)
-			}
-		default:
-			continue
-		}
-		if name != "" {
-			names = append(names, name)
-		}
-	}
-
-	if len(names) <= 1 {
-		return nil
-	}
-
-	for _, name := range names {
-		if name == "it" {
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-				"`it` should not be used as name for a lambda parameter.")}
-		}
-	}
-	return nil
-}
 
 func (r *ExplicitItLambdaMultipleParametersRule) Check(file *scanner.File) []scanner.Finding {
 	return nil

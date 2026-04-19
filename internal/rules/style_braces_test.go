@@ -35,9 +35,7 @@ func makeBracesIfV2Rule(rule *BracesOnIfStatementsRule) *v2.Rule {
 		NodeTypes:  []string{"if_expression"},
 		Confidence: rule.Confidence(),
 		Check: func(ctx *v2.Context) {
-			for _, f := range rule.checkFlatNode(ctx.Idx, ctx.File) {
-				ctx.Emit(f)
-			}
+			rule.check(ctx)
 		},
 	}
 }
@@ -51,9 +49,7 @@ func makeBracesWhenV2Rule(rule *BracesOnWhenStatementsRule) *v2.Rule {
 		NodeTypes:  []string{"when_entry"},
 		Confidence: rule.Confidence(),
 		Check: func(ctx *v2.Context) {
-			for _, f := range rule.checkFlatNode(ctx.Idx, ctx.File) {
-				ctx.Emit(f)
-			}
+			rule.check(ctx)
 		},
 	}
 }

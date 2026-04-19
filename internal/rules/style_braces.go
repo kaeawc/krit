@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // BracesOnIfStatementsRule enforces braces on if statements.
@@ -19,12 +20,12 @@ type BracesOnIfStatementsRule struct {
 // roadmap/17.
 func (r *BracesOnIfStatementsRule) Confidence() float64 { return 0.75 }
 
-func (r *BracesOnIfStatementsRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *BracesOnIfStatementsRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 
 	body := file.FlatFindChild(idx, "control_structure_body")
 	if body == 0 {
-		return nil
+		return
 	}
 
 	// Check consistent mode first — it needs to see the whole chain
@@ -43,16 +44,19 @@ func (r *BracesOnIfStatementsRule) checkFlatNode(idx uint32, file *scanner.File)
 		}
 	}
 	if mode == "consistent" {
-		return r.checkConsistentIfFlat(idx, file)
+		for _, f := range r.checkConsistentIfFlat(idx, file) {
+			ctx.Emit(f)
+		}
+		return
 	}
 	if mode == "necessary" {
-		return nil
+		return
 	}
 
 	bodyText := file.FlatNodeText(body)
 	trimmed := strings.TrimSpace(bodyText)
 	if strings.HasPrefix(trimmed, "{") {
-		return nil // already has braces
+		return // already has braces
 	}
 
 	msg := "Multi-line if statement should use braces."
@@ -66,8 +70,7 @@ func (r *BracesOnIfStatementsRule) checkFlatNode(idx uint32, file *scanner.File)
 		EndByte:     int(file.FlatEndByte(body)),
 		Replacement: "{\n" + strings.TrimSpace(file.FlatNodeText(body)) + "\n}",
 	}
-	findings = append(findings, f)
-	return findings
+	ctx.Emit(f)
 }
 
 // checkConsistentIf checks if all branches in an if/else chain have consistent braces.
@@ -137,10 +140,12 @@ type BracesOnWhenStatementsRule struct {
 // roadmap/17.
 func (r *BracesOnWhenStatementsRule) Confidence() float64 { return 0.75 }
 
-func (r *BracesOnWhenStatementsRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *BracesOnWhenStatementsRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
+
 	body := file.FlatFindChild(idx, "control_structure_body")
 	if body == 0 {
-		return nil
+		return
 	}
 
 	startLine := file.FlatRow(idx)
@@ -158,15 +163,18 @@ func (r *BracesOnWhenStatementsRule) checkFlatNode(idx uint32, file *scanner.Fil
 		}
 	}
 	if mode == "consistent" {
-		return r.checkConsistentWhenFlat(idx, file)
+		for _, f := range r.checkConsistentWhenFlat(idx, file) {
+			ctx.Emit(f)
+		}
+		return
 	}
 	if mode == "necessary" {
-		return nil
+		return
 	}
 
 	bodyText := strings.TrimSpace(file.FlatNodeText(body))
 	if strings.HasPrefix(bodyText, "{") {
-		return nil // already has braces
+		return // already has braces
 	}
 
 	msg := "Multi-line when branch should use braces."
@@ -181,7 +189,7 @@ func (r *BracesOnWhenStatementsRule) checkFlatNode(idx uint32, file *scanner.Fil
 		EndByte:     int(file.FlatEndByte(body)),
 		Replacement: "{\n" + strings.TrimSpace(raw) + "\n}",
 	}
-	return []scanner.Finding{f}
+	ctx.Emit(f)
 }
 
 // checkConsistentWhen checks if all when entries have consistent braces.
@@ -250,10 +258,12 @@ type MandatoryBracesLoopsRule struct {
 // roadmap/17.
 func (r *MandatoryBracesLoopsRule) Confidence() float64 { return 0.75 }
 
-func (r *MandatoryBracesLoopsRule) checkFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *MandatoryBracesLoopsRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
+
 	body := file.FlatFindChild(idx, "control_structure_body")
 	if body == 0 {
-		return nil
+		return
 	}
 	bodyText := strings.TrimSpace(file.FlatNodeText(body))
 	if !strings.HasPrefix(bodyText, "{") {
@@ -266,7 +276,7 @@ func (r *MandatoryBracesLoopsRule) checkFlatNode(idx uint32, file *scanner.File)
 			EndByte:     int(file.FlatEndByte(body)),
 			Replacement: "{\n" + strings.TrimSpace(raw) + "\n}",
 		}
-		return []scanner.Finding{f}
+		ctx.Emit(f)
+		return
 	}
-	return nil
 }

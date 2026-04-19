@@ -11025,12 +11025,7 @@ func registerAllRules() {
 			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -11040,12 +11035,7 @@ func registerAllRules() {
 			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -11053,12 +11043,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -11100,12 +11085,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -11115,12 +11095,7 @@ func registerAllRules() {
 			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -11130,12 +11105,7 @@ func registerAllRules() {
 			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -11143,11 +11113,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckLines(ctx.File) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -11157,12 +11123,7 @@ func registerAllRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75,
 			Needs: v2.NeedsResolver, OriginalV1: r,
 			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -13456,12 +13417,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Fix: v2.FixCosmetic, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -13469,12 +13425,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"when_entry"}, Confidence: 0.75, Fix: v2.FixCosmetic, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -13482,12 +13433,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"for_statement", "while_statement", "do_while_statement"}, Confidence: 0.75, Fix: v2.FixCosmetic, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				for _, f := range r.checkFlatNode(idx, file) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 

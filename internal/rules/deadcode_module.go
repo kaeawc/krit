@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/module"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -48,6 +49,41 @@ func CollectModuleAwareNeeds(activeRules []Rule) ModuleAwareNeeds {
 		if tuned, ok := rule.(interface {
 			ModuleAwareNeeds() ModuleAwareNeeds
 		}); ok {
+			current = tuned.ModuleAwareNeeds()
+		}
+		if current.NeedsIndex {
+			current.NeedsFiles = true
+		}
+		needs.NeedsFiles = needs.NeedsFiles || current.NeedsFiles
+		needs.NeedsDependencies = needs.NeedsDependencies || current.NeedsDependencies
+		needs.NeedsIndex = needs.NeedsIndex || current.NeedsIndex
+	}
+	return needs
+}
+
+// CollectModuleAwareNeedsV2 collapses the requirements for v2 module-aware
+// rules so callers can avoid paying for unused analysis stages.
+func CollectModuleAwareNeedsV2(activeRules []*v2.Rule) ModuleAwareNeeds {
+	var needs ModuleAwareNeeds
+	for _, r := range activeRules {
+		if r == nil || !r.Needs.Has(v2.NeedsModuleIndex) {
+			continue
+		}
+		// Wrap as a v1-compat value to reuse ModuleAwareRuleTuning detection.
+		v1r, ok := v2.ToV1(r).(Rule)
+		if !ok {
+			// Not a v1 Rule — default to most conservative (needs everything).
+			needs.NeedsFiles = true
+			needs.NeedsDependencies = true
+			needs.NeedsIndex = true
+			continue
+		}
+		current := ModuleAwareNeeds{
+			NeedsFiles:        true,
+			NeedsDependencies: true,
+			NeedsIndex:        true,
+		}
+		if tuned, ok := v1r.(ModuleAwareRuleTuning); ok {
 			current = tuned.ModuleAwareNeeds()
 		}
 		if current.NeedsIndex {

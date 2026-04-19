@@ -162,11 +162,6 @@ type IndexResult struct {
 	// IndexPhase's cache load block. Nil when caching is disabled.
 	CacheStats *cache.CacheStats
 
-	// ActiveRulesV1 overrides the v2→v1 conversion DispatchPhase and
-	// CrossFilePhase would otherwise derive from ActiveRules. Main.go
-	// carries a v1 rule slice and plugs it here so the phases dispatch
-	// against the exact same set of rules the legacy loop used.
-	ActiveRulesV1 []rules.Rule
 	// Logger, when non-nil, receives verbose progress messages from the
 	// Dispatch and CrossFile phases. Matches fmt.Printf. Nil means no-op.
 	Logger func(format string, args ...any)
@@ -322,10 +317,6 @@ type OutputInput struct {
 	// MinConfidence, when >0, drops findings whose confidence is below
 	// the threshold before format dispatch.
 	MinConfidence float64
-	// ActiveRulesV1, when non-nil, overrides the v2→v1 conversion that
-	// Output would otherwise derive from FixupResult.ActiveRules. Main
-	// already has the v1 rule slice handy, so it can skip the conversion.
-	ActiveRulesV1 []rules.Rule
 }
 
 // OutputResult captures post-Output metadata.

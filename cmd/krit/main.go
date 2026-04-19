@@ -21,11 +21,11 @@ import (
 	"github.com/kaeawc/krit/internal/store"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/experiment"
-	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
-	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/perf"
+	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/schema"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -643,17 +643,8 @@ potential-bugs:
 		}
 	}
 
-	// Filter rules by active status + CLI overrides
-	var activeRules []rules.Rule
-	for _, r := range rules.Registry {
-		name := r.Name()
-		if disabledSet[name] {
-			continue // explicitly disabled via --disable-rules
-		}
-		if enabledSet[name] || *allRulesFlag || rules.IsDefaultActive(name) {
-			activeRules = append(activeRules, r)
-		}
-	}
+	// Filter rules by active status + CLI overrides (native v2 path).
+	activeRules := rules.ActiveRulesV2(disabledSet, enabledSet, *allRulesFlag)
 
 	// Create type resolver unless disabled
 	var resolver typeinfer.TypeResolver
@@ -705,18 +696,18 @@ potential-bugs:
 	useCache := !*noCacheFlag
 	{
 		oracleIdxInput := pipeline.IndexInput{
-			// ParseResult is intentionally zero here: IndexPhase runs
+			// ParseResult carries only ActiveRules here: IndexPhase runs
 			// in oracle-only mode below (SkipModules + SkipAndroid +
 			// SkipResolverIndex) so it doesn't need KotlinFiles. Paths
 			// and ActiveRules are threaded via the OracleScanPaths and
-			// ActiveRulesV1 knobs instead.
+			// ParseResult.ActiveRules knobs instead.
+			ParseResult:     pipeline.ParseResult{ActiveRules: activeRules},
 			Logger:          nil, // oracle logs directly to stderr, matching pre-refactor
 			Tracker:         tracker,
 			OracleEnabled:   resolver != nil && !*noTypeOracleFlag,
 			BaseResolver:    resolver,
 			OracleScanPaths: flag.Args(),
 			KotlinFilePaths: files,
-			ActiveRulesV1:   activeRules,
 			InputTypesPath:  *inputTypesFlag,
 			NoCacheOracle:   *noCacheOracleFlag,
 			NoOracleFilter:  *noOracleFilterFlag,
@@ -759,7 +750,7 @@ potential-bugs:
 	// Stats come from a throwaway dispatcher so the verbose banner can
 	// report per-family rule counts before the phase runs. Construction
 	// is side-effect free (beyond classifying rules by capability).
-	dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, legacyCount := rules.NewDispatcher(activeRules, resolver).Stats()
+	dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, legacyCount := rules.NewDispatcherV2(activeRules, resolver).Stats()
 
 	if *verboseFlag {
 		fmt.Fprintf(os.Stderr, "verbose: Found %d Kotlin files\n", len(files))
@@ -772,7 +763,7 @@ potential-bugs:
 			len(activeRules), *jobsFlag, dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, legacyCount)
 	}
 
-	androidDeps := pipeline.CollectAndroidDependencies(activeRules)
+	androidDeps := pipeline.CollectAndroidDependenciesV2(activeRules)
 	androidProviders := pipeline.NewAndroidProjectProviders(androidProject, androidDeps, *jobsFlag)
 
 	// Cache load + per-file lookup moved into the IndexPhase call above.
@@ -805,12 +796,11 @@ potential-bugs:
 	}
 	parsedFiles := parseResult.KotlinFiles
 	_ = parseResult.ParseErrors
+	parseResult.ActiveRules = activeRules
 
 	hasTypeAwareRule := false
-	for _, rule := range activeRules {
-		if _, ok := rule.(interface {
-			SetResolver(resolver typeinfer.TypeResolver)
-		}); ok {
+	for _, r := range activeRules {
+		if r != nil && r.Needs.Has(v2rules.NeedsResolver) {
 			hasTypeAwareRule = true
 			break
 		}
@@ -857,7 +847,6 @@ potential-bugs:
 		RuleHash:               ruleHash,
 		CacheFilePath:          cacheFilePath,
 		CacheStats:             cacheStats,
-		ActiveRulesV1:          activeRules,
 		Logger:                 verboseLogger,
 		Tracker:                tracker,
 		Jobs:                   *jobsFlag,
@@ -888,25 +877,21 @@ potential-bugs:
 	var codeIndex *scanner.CodeIndex
 	hasIndexBackedCrossFileRule := false
 	hasParsedFilesRule := false
-	for _, rule := range activeRules {
-		if _, ok := rule.(interface {
-			CheckParsedFiles(files []*scanner.File) []scanner.Finding
-		}); ok {
+	for _, r := range activeRules {
+		if r == nil {
+			continue
+		}
+		if r.Needs.Has(v2rules.NeedsParsedFiles) {
 			hasParsedFilesRule = true
 			continue
 		}
-		if _, ok := rule.(interface {
-			CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding
-		}); ok {
+		if r.Needs.Has(v2rules.NeedsCrossFile) {
 			hasIndexBackedCrossFileRule = true
 		}
 	}
 	hasModuleAwareRule := false
-	for _, rule := range activeRules {
-		if _, ok := rule.(interface {
-			SetModuleIndex(pmi *module.PerModuleIndex)
-			CheckModuleAware() []scanner.Finding
-		}); ok {
+	for _, r := range activeRules {
+		if r != nil && r.Needs.Has(v2rules.NeedsModuleIndex) {
 			hasModuleAwareRule = true
 			break
 		}
@@ -934,7 +919,6 @@ potential-bugs:
 		SkipOracle:             true,
 		SkipCache:              true,
 		Verbose:                *verboseFlag,
-		ActiveRulesV1:          activeRules,
 		BuildCodeIndex:         hasIndexBackedCrossFileRule,
 		CrossFileParentTracker: crossTracker,
 		CrossFileJobsFlag:      *jobsFlag,
@@ -962,7 +946,7 @@ potential-bugs:
 	// same way it covers per-file ones (phase-pipeline acceptance #3).
 	dispatchForCross := dispatchResult
 	dispatchForCross.IndexResult = indexResult2
-	dispatchForCross.IndexResult.ActiveRulesV1 = activeRules
+	dispatchForCross.IndexResult.ActiveRules = activeRules
 	dispatchForCross.IndexResult.Logger = verboseLogger
 	dispatchForCross.IndexResult.Tracker = tracker
 	dispatchForCross.IndexResult.CrossFileParentTracker = crossTracker
@@ -990,7 +974,7 @@ potential-bugs:
 	// Project-level Android analysis: manifest/resource/Gradle/icon files.
 	androidStart := time.Now()
 	androidTracker := tracker.Serial("androidProjectAnalysis")
-	androidDispatcher := rules.NewDispatcher(activeRules, resolver)
+	androidDispatcher := rules.NewDispatcherV2(activeRules, resolver)
 	androidRes, err := (pipeline.AndroidPhase{}).Run(context.Background(), pipeline.AndroidInput{
 		Project:     androidProject,
 		ActiveRules: activeRules,
@@ -1286,6 +1270,7 @@ potential-bugs:
 						ParseResult: pipeline.ParseResult{
 							KotlinFiles: parsedFiles,
 							Paths:       paths,
+							ActiveRules: activeRules,
 						},
 					},
 					Findings: *allColumns,
@@ -1302,7 +1287,6 @@ potential-bugs:
 		CacheStats:       cacheStats,
 		WarningsAsErrors: warningsAsErrors,
 		MinConfidence:    *minConfidenceFlag,
-		ActiveRulesV1:    activeRules,
 	})
 	if outErr != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", outErr)

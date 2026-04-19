@@ -6,6 +6,7 @@ import (
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // RunStats captures where per-file rule execution time is spent.
@@ -48,6 +49,30 @@ type Dispatcher struct {
 	// activeRules is retained so V2Rules() (in v2dispatch.go) can rebuild
 	// its cached V2Index from the original rule list.
 	activeRules []Rule
+}
+
+// NewDispatcherV2 creates a dispatcher directly from v2 rules, skipping
+// the WrapAllAsV2 roundtrip. This is the preferred constructor now that
+// all rules are native v2.
+func NewDispatcherV2(activeRules []*v2.Rule, resolver ...typeinfer.TypeResolver) *Dispatcher {
+	var res typeinfer.TypeResolver
+	if len(resolver) > 0 && resolver[0] != nil {
+		res = resolver[0]
+	}
+	if res != nil {
+		for _, r := range activeRules {
+			if r != nil && r.Needs.Has(v2.NeedsResolver) && r.SetResolverHook != nil {
+				r.SetResolverHook(res)
+			}
+		}
+	}
+	var d *V2Dispatcher
+	if res != nil {
+		d = NewV2Dispatcher(activeRules, res)
+	} else {
+		d = NewV2Dispatcher(activeRules)
+	}
+	return &Dispatcher{v2: d, typeResolver: res}
 }
 
 // NewDispatcher creates a dispatcher from the given rules.

@@ -87,10 +87,6 @@ type IndexInput struct {
 	// ParseResult.KotlinFiles because the filter runs before the parse
 	// and so fully-parsed *scanner.File values are not available.
 	KotlinFilePaths []string
-	// ActiveRulesV1 is the v1 rule slice fed to
-	// rules.BuildOracleFilterRules. Pipeline already tracks v2 rules, but
-	// the oracle filter bridge works in v1 terms.
-	ActiveRulesV1 []rules.Rule
 	// InputTypesPath mirrors --input-types: explicit oracle JSON path
 	// that short-circuits auto-detect.
 	InputTypesPath string
@@ -333,9 +329,11 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 func (p IndexPhase) runCacheLoad(in IndexInput, result *IndexResult) {
 	ruleNames := in.CacheRuleNames
 	if ruleNames == nil {
-		ruleNames = make([]string, len(in.ActiveRulesV1))
-		for i, r := range in.ActiveRulesV1 {
-			ruleNames[i] = r.Name()
+		ruleNames = make([]string, 0, len(in.ActiveRules))
+		for _, r := range in.ActiveRules {
+			if r != nil {
+				ruleNames = append(ruleNames, r.ID)
+			}
 		}
 	}
 	ruleHash := cache.ComputeConfigHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled)
@@ -503,7 +501,7 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 				// reproduction.
 				var filterListPath string
 				if !in.NoOracleFilter {
-					filterRules := rules.BuildOracleFilterRules(in.ActiveRulesV1)
+					filterRules := rules.BuildOracleFilterRulesV2(in.ActiveRules)
 					lightFiles := loadFilesForOracleFilter(in.KotlinFilePaths)
 					summary := oracle.CollectOracleFiles(filterRules, lightFiles)
 					if in.Verbose {
@@ -699,7 +697,7 @@ func (p IndexPhase) runModuleIndexBuild(in IndexInput, result *IndexResult) {
 	result.ModuleGraph = graph
 
 	if graph != nil && len(graph.Modules) > 0 && in.ModuleHasAwareRule {
-		moduleNeeds := rules.CollectModuleAwareNeeds(in.ActiveRulesV1)
+		moduleNeeds := rules.CollectModuleAwareNeedsV2(in.ActiveRules)
 		moduleWorkers := phaseWorkerCount("moduleAwareAnalysis", in.ModuleJobsFlag, len(graph.Modules))
 
 		var pmi *module.PerModuleIndex

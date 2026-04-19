@@ -74,24 +74,21 @@ func (OutputPhase) Run(ctx context.Context, in OutputInput) (OutputResult, error
 		columns = &filtered
 	}
 
-	// Use the caller-supplied v1 rule slice when present; otherwise
-	// derive it from the v2 ActiveRules via ToV1. Any rule whose v2→v1
-	// conversion does not yield a rules.Rule is dropped (defensive —
-	// all 481 current rules satisfy rules.Rule via their V1* wrappers).
-	activeRulesV1 := in.ActiveRulesV1
-	if activeRulesV1 == nil {
-		for _, r := range in.FixupResult.ActiveRules {
-			if r == nil {
-				continue
-			}
-			if v1, ok := v2.ToV1(r).(rules.Rule); ok {
-				activeRulesV1 = append(activeRulesV1, v1)
-			}
+	fileCount := len(in.FixupResult.KotlinFiles)
+	ruleCount := len(in.FixupResult.ActiveRules)
+
+	// Build a v1 rule slice for FormatJSONColumns (which uses it only to
+	// derive fix-level metadata). Convert once here rather than requiring
+	// callers to maintain a v1 copy.
+	var activeRulesV1 []rules.Rule
+	for _, r := range in.FixupResult.ActiveRules {
+		if r == nil {
+			continue
+		}
+		if v1r, ok := v2.ToV1(r).(rules.Rule); ok {
+			activeRulesV1 = append(activeRulesV1, v1r)
 		}
 	}
-
-	fileCount := len(in.FixupResult.KotlinFiles)
-	ruleCount := len(activeRulesV1)
 
 	switch in.Format {
 	case "json":

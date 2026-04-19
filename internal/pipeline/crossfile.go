@@ -38,15 +38,10 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 
 	result := CrossFileResult{DispatchResult: in}
 
-	// Build v1 adapter slice once for interface assertions. Prefer the
-	// explicitly-supplied v1 rule slice so main.go's rule set is dispatched
-	// unchanged (the v2→v1 conversion drops V1CrossFile etc. wrappers that
-	// aren't in main.go's registry anyway, but defending against a nil slice
-	// here makes the phase drop-in-compatible with both callers).
-	v1Rules := in.ActiveRulesV1
-	if v1Rules == nil {
-		v1Rules = v2RulesToV1(in.ActiveRules)
-	}
+	// Build v1 adapter slice for interface assertions (CheckParsedFiles,
+	// CheckCrossFile). The v2→v1 conversion wraps each rule in the
+	// appropriate V1* adapter so the interface type-assertions below work.
+	v1Rules := v2RulesToV1(in.ActiveRules)
 
 	// Detect which cross-file paths any active rule needs.
 	var hasIndexBackedCrossFileRule, hasParsedFilesRule bool
@@ -201,7 +196,7 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 	// main.go path.
 	caps := unionNeeds(in.ActiveRules)
 	if caps.Has(v2.NeedsModuleIndex) && in.ModuleGraph != nil && len(in.ModuleGraph.Modules) > 0 && in.ModuleIndex == nil {
-		moduleNeeds := rules.CollectModuleAwareNeeds(v1Rules)
+		moduleNeeds := rules.CollectModuleAwareNeedsV2(in.ActiveRules)
 		workers := p.Workers
 		if workers <= 0 {
 			workers = len(in.ModuleGraph.Modules)

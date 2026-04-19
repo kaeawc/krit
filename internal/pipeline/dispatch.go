@@ -31,27 +31,21 @@ func (DispatchPhase) Name() string { return "dispatch" }
 // in.KotlinFiles in parallel, dispatching per-file rules through the
 // shared dispatcher, and accumulates the findings and run statistics.
 //
-// When in.ActiveRulesV1 is non-nil the phase uses it directly. Otherwise
-// it derives a v1 rule slice from in.ActiveRules via v2.ToV1. When
-// in.Tracker is non-nil it wraps the dispatch loop in a "ruleExecution"
-// serial child and emits per-family timing entries + a topDispatchRules
-// breakdown matching the pre-refactor CLI. When in.UseCache / Cache /
-// Version are set, the phase updates and saves the cache under a
-// "cacheSave" tracker entry.
+// It creates the dispatcher from in.ActiveRules ([]*v2.Rule) via
+// NewDispatcherV2, skipping the v2→v1 roundtrip. When in.Tracker is
+// non-nil it wraps the dispatch loop in a "ruleExecution" serial child
+// and emits per-family timing entries + a topDispatchRules breakdown
+// matching the pre-refactor CLI. When in.UseCache / Cache / Version are
+// set, the phase updates and saves the cache under a "cacheSave" tracker
+// entry.
 func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult, error) {
 	if err := ctx.Err(); err != nil {
 		return DispatchResult{}, err
 	}
 
-	v1Rules := in.ActiveRulesV1
-	if v1Rules == nil {
-		v1Rules = v2RulesToV1(in.ActiveRules)
-	}
-
-	// Pass the resolver through unconditionally — NewDispatcher handles a
-	// nil resolver gracefully (internal/rules/dispatch.go:54-84 checks
-	// res != nil before wiring SetResolver / the v2 dispatcher).
-	dispatcher := rules.NewDispatcher(v1Rules, in.Resolver)
+	// Pass the resolver through unconditionally — NewDispatcherV2 handles a
+	// nil resolver gracefully.
+	dispatcher := rules.NewDispatcherV2(in.ActiveRules, in.Resolver)
 
 	workers := d.Workers
 	if workers <= 0 {

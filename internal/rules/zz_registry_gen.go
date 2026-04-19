@@ -863,7 +863,14 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&ScrollViewCountRule{AndroidRule: alcRule("ScrollViewCount", "ScrollViews can have only one child", ALSWarning, 7)}))
+	{
+		r := &ScrollViewCountRule{AndroidRule: alcRule("ScrollViewCount", "ScrollViews can have only one child", ALSWarning, 7)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {},
+		})
+	}
 	{
 		r := &SimpleDateFormatRule{AndroidRule: alcRule("SimpleDateFormat", "Using SimpleDateFormat directly without Locale", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
@@ -1111,7 +1118,14 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&DalvikOverrideRule{AndroidRule: alcRule("DalvikOverride", "Method considered overridden by Dalvik", ALSError, 6)}))
+	{
+		r := &DalvikOverrideRule{AndroidRule: alcRule("DalvikOverride", "Method considered overridden by Dalvik", ALSError, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {},
+		})
+	}
 	{
 		r := &InnerclassSeparatorRule{AndroidRule: alcRule("InnerclassSeparator", "Inner classes should use '$' not '/'", ALSWarning, 3)}
 		v2.Register(&v2.Rule{
@@ -1136,7 +1150,14 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&OnClickRule{AndroidRule: alcRule("OnClick", "onClick handler issue", ALSError, 6)}))
+	{
+		r := &OnClickRule{AndroidRule: alcRule("OnClick", "onClick handler issue", ALSError, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {},
+		})
+	}
 	{
 		r := &PropertyEscapeRule{AndroidRule: alcRule("PropertyEscape", "Invalid property file escapes", ALSError, 5)}
 		v2.Register(&v2.Rule{
@@ -1621,36 +1642,71 @@ func registerAllRules() {
 			Check: func(ctx *v2.Context) {},
 		})
 	}
-	v2.Register(WrapAsV2(&ConvertToWebpRule{AndroidRule: AndroidRule{
-		BaseRule: BaseRule{RuleName: "ConvertToWebp", RuleSetName: androidRuleSet, Sev: "informational"},
-		IssueID:  "ConvertToWebp", Brief: "Large PNG could be smaller as WebP",
-		Category: ALCIcons, ALSeverity: ALSInformational, Priority: 3,
-		Origin: "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&IconMissingDensityFolderRule{AndroidRule: AndroidRule{
-		BaseRule: BaseRule{RuleName: "IconMissingDensityFolder", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:  "IconMissingDensityFolder", Brief: "Missing density folder",
-		Category: ALCIcons, ALSeverity: ALSWarning, Priority: 3,
-		Origin: "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&IconExpectedSizeRule{AndroidRule: AndroidRule{
-		BaseRule: BaseRule{RuleName: "IconExpectedSize", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:  "IconExpectedSize", Brief: "Launcher icon not at expected size",
-		Category: ALCIcons, ALSeverity: ALSWarning, Priority: 5,
-		Origin: "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&IconNoDpiRule{AndroidRule: AndroidRule{
-		BaseRule: BaseRule{RuleName: "IconNoDpi", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:  "IconNoDpi", Brief: "Icon in both nodpi and density-specific folder",
-		Category: ALCIcons, ALSeverity: ALSWarning, Priority: 4,
-		Origin: "AOSP Android Lint",
-	}}))
-	v2.Register(WrapAsV2(&IconDuplicatesConfigRule{AndroidRule: AndroidRule{
-		BaseRule: BaseRule{RuleName: "IconDuplicatesConfig", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:  "IconDuplicatesConfig", Brief: "Identical icons across configuration folders",
-		Category: ALCIcons, ALSeverity: ALSWarning, Priority: 3,
-		Origin: "AOSP Android Lint",
-	}}))
+	{
+		r := &ConvertToWebpRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "ConvertToWebp", RuleSetName: androidRuleSet, Sev: "informational"},
+			IssueID:  "ConvertToWebp", Brief: "Large PNG could be smaller as WebP",
+			Category: ALCIcons, ALSeverity: ALSInformational, Priority: 3,
+			Origin: "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			AndroidDeps: uint32(AndroidDepIcons), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {},
+		})
+	}
+	{
+		r := &IconMissingDensityFolderRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "IconMissingDensityFolder", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:  "IconMissingDensityFolder", Brief: "Missing density folder",
+			Category: ALCIcons, ALSeverity: ALSWarning, Priority: 3,
+			Origin: "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			AndroidDeps: uint32(AndroidDepIcons), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {},
+		})
+	}
+	{
+		r := &IconExpectedSizeRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "IconExpectedSize", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:  "IconExpectedSize", Brief: "Launcher icon not at expected size",
+			Category: ALCIcons, ALSeverity: ALSWarning, Priority: 5,
+			Origin: "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			AndroidDeps: uint32(AndroidDepIcons), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {},
+		})
+	}
+	{
+		r := &IconNoDpiRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "IconNoDpi", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:  "IconNoDpi", Brief: "Icon in both nodpi and density-specific folder",
+			Category: ALCIcons, ALSeverity: ALSWarning, Priority: 4,
+			Origin: "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			AndroidDeps: uint32(AndroidDepIcons), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {},
+		})
+	}
+	{
+		r := &IconDuplicatesConfigRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "IconDuplicatesConfig", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:  "IconDuplicatesConfig", Brief: "Identical icons across configuration folders",
+			Category: ALCIcons, ALSeverity: ALSWarning, Priority: 3,
+			Origin: "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			AndroidDeps: uint32(AndroidDepIcons), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {},
+		})
+	}
 
 	// --- from android_manifest_features.go ---
 	{
@@ -5072,12 +5128,23 @@ func registerAllRules() {
 	}
 
 	// --- from android_usability.go ---
-	v2.Register(WrapAsV2(&AppCompatResourceRule{AndroidRule: AndroidRule{
-		BaseRule: BaseRule{RuleName: "AppCompatResource", RuleSetName: androidRuleSet, Sev: "warning"},
-		IssueID:  "AppCompatResource", Brief: "Menu namespace collision with AppCompat",
-		Category: ALCUsability, ALSeverity: ALSWarning, Priority: 4,
-		Origin: "AOSP Android Lint",
-	}}))
+	{
+		r := &AppCompatResourceRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "AppCompatResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:  "AppCompatResource", Brief: "Menu namespace collision with AppCompat",
+			Category: ALCUsability, ALSeverity: ALSWarning, Priority: 4,
+			Origin: "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckResources(ctx.ResourceIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &NewApiRule{AndroidRule: AndroidRule{
 			BaseRule: BaseRule{RuleName: "NewApi", RuleSetName: androidRuleSet, Sev: "error"},
@@ -7633,7 +7700,19 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&MainDispatcherInLibraryCodeRule{BaseRule: BaseRule{RuleName: "MainDispatcherInLibraryCode", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Dispatchers.Main usage in library modules that lack the kotlinx-coroutines-android dependency."}}))
+	{
+		r := &MainDispatcherInLibraryCodeRule{BaseRule: BaseRule{RuleName: "MainDispatcherInLibraryCode", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Dispatchers.Main usage in library modules that lack the kotlinx-coroutines-android dependency."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				r.SetModuleIndex(ctx.ModuleIndex)
+				for _, f := range r.CheckModuleAware() {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from database.go ---
 	{
@@ -7742,18 +7821,52 @@ func registerAllRules() {
 	}
 
 	// --- from deadcode.go ---
-	v2.Register(WrapAsV2(&DeadCodeRule{
-		BaseRule:                BaseRule{RuleName: "DeadCode", RuleSetName: "dead-code", Sev: "warning", Desc: "Detects public or internal symbols that are never referenced from any other file."},
-		IgnoreCommentReferences: true, // default: comment-only refs are NOT real usage
-	}))
+	{
+		r := &DeadCodeRule{
+			BaseRule:                BaseRule{RuleName: "DeadCode", RuleSetName: "dead-code", Sev: "warning", Desc: "Detects public or internal symbols that are never referenced from any other file."},
+			IgnoreCommentReferences: true,
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckCrossFile(ctx.CodeIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from deadcode_module.go ---
-	v2.Register(WrapAsV2(&ModuleDeadCodeRule{
-		BaseRule: BaseRule{RuleName: "ModuleDeadCode", RuleSetName: "dead-code", Sev: "warning", Desc: "Detects dead code with module-boundary awareness, categorizing symbols as truly dead or could-be-internal."},
-	}))
+	{
+		r := &ModuleDeadCodeRule{
+			BaseRule: BaseRule{RuleName: "ModuleDeadCode", RuleSetName: "dead-code", Sev: "warning", Desc: "Detects dead code with module-boundary awareness, categorizing symbols as truly dead or could-be-internal."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				r.SetModuleIndex(ctx.ModuleIndex)
+				for _, f := range r.CheckModuleAware() {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from di_hygiene.go ---
-	v2.Register(WrapAsV2(&AnvilMergeComponentEmptyScopeRule{BaseRule: BaseRule{RuleName: "AnvilMergeComponentEmptyScope", RuleSetName: diHygieneRuleSet, Sev: "warning", Desc: "Detects @MergeComponent scopes with no matching @ContributesTo or @ContributesBinding declarations."}}))
+	{
+		r := &AnvilMergeComponentEmptyScopeRule{BaseRule: BaseRule{RuleName: "AnvilMergeComponentEmptyScope", RuleSetName: diHygieneRuleSet, Sev: "warning", Desc: "Detects @MergeComponent scopes with no matching @ContributesTo or @ContributesBinding declarations."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckCrossFile(ctx.CodeIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	{
 		r := &AnvilContributesBindingWithoutScopeRule{BaseRule: BaseRule{RuleName: "AnvilContributesBindingWithoutScope", RuleSetName: diHygieneRuleSet, Sev: "warning", Desc: "Detects @ContributesBinding scope mismatches with the @ContributesTo scope on the bound interface."}}
 		v2.Register(&v2.Rule{
@@ -8828,16 +8941,39 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&FanInFanOutHotspotRule{
-		BaseRule:                BaseRule{RuleName: "FanInFanOutHotspot", RuleSetName: "architecture", Sev: "info", Desc: "Detects class-like declarations with unusually high fan-in across the project."},
-		AllowedFanIn:            20,
-		IgnoreCommentReferences: true,
-	}))
+	{
+		r := &FanInFanOutHotspotRule{
+			BaseRule:                BaseRule{RuleName: "FanInFanOutHotspot", RuleSetName: "architecture", Sev: "info", Desc: "Detects class-like declarations with unusually high fan-in across the project."},
+			AllowedFanIn:            20,
+			IgnoreCommentReferences: true,
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckCrossFile(ctx.CodeIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from layer_dependency_violation.go ---
-	v2.Register(WrapAsV2(&LayerDependencyViolationRule{
-		BaseRule: BaseRule{RuleName: "LayerDependencyViolation", RuleSetName: "architecture", Sev: "warning", Desc: "Flags Gradle module dependencies that cross architectural layer boundaries not permitted by the configured layer matrix."},
-	}))
+	{
+		r := &LayerDependencyViolationRule{
+			BaseRule: BaseRule{RuleName: "LayerDependencyViolation", RuleSetName: "architecture", Sev: "warning", Desc: "Flags Gradle module dependencies that cross architectural layer boundaries not permitted by the configured layer matrix."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				r.SetModuleIndex(ctx.ModuleIndex)
+				for _, f := range r.CheckModuleAware() {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from library.go ---
 	{
@@ -8936,14 +9072,37 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&DependencyLicenseUnknownRule{
-		BaseRule: BaseRule{RuleName: "DependencyLicenseUnknown", RuleSetName: licensingRuleSet, Sev: "info", Desc: "Detects external dependencies not present in the embedded license registry."},
-	}))
+	{
+		r := &DependencyLicenseUnknownRule{
+			BaseRule: BaseRule{RuleName: "DependencyLicenseUnknown", RuleSetName: licensingRuleSet, Sev: "info", Desc: "Detects external dependencies not present in the embedded license registry."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from module_dependency_cycle.go ---
-	v2.Register(WrapAsV2(&ModuleDependencyCycleRule{
-		BaseRule: BaseRule{RuleName: "ModuleDependencyCycle", RuleSetName: "architecture", Sev: "warning", Desc: "Detects cycles in the Gradle module dependency graph (e.g. :a → :b → :c → :a)."},
-	}))
+	{
+		r := &ModuleDependencyCycleRule{
+			BaseRule: BaseRule{RuleName: "ModuleDependencyCycle", RuleSetName: "architecture", Sev: "warning", Desc: "Detects cycles in the Gradle module dependency graph (e.g. :a → :b → :c → :a)."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				r.SetModuleIndex(ctx.ModuleIndex)
+				for _, f := range r.CheckModuleAware() {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from naming.go ---
 	{
@@ -9651,9 +9810,21 @@ func registerAllRules() {
 	}
 
 	// --- from package_dependency_cycle.go ---
-	v2.Register(WrapAsV2(&PackageDependencyCycleRule{
-		BaseRule: BaseRule{RuleName: "PackageDependencyCycle", RuleSetName: "architecture", Sev: "info", Desc: "Detects cycles in the package-level import graph within a single Gradle module."},
-	}))
+	{
+		r := &PackageDependencyCycleRule{
+			BaseRule: BaseRule{RuleName: "PackageDependencyCycle", RuleSetName: "architecture", Sev: "info", Desc: "Detects cycles in the package-level import graph within a single Gradle module."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				r.SetModuleIndex(ctx.ModuleIndex)
+				for _, f := range r.CheckModuleAware() {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from package_naming_convention_drift.go ---
 	{
@@ -12496,11 +12667,67 @@ func registerAllRules() {
 			},
 		})
 	}
-	v2.Register(WrapAsV2(&ConventionPluginDeadCodeRule{BaseRule: BaseRule{RuleName: "ConventionPluginDeadCode", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects convention plugins under build-logic or buildSrc that are never applied by any module."}}))
-	v2.Register(WrapAsV2(&VisibleForTestingCallerInNonTestRule{BaseRule: BaseRule{RuleName: "VisibleForTestingCallerInNonTest", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects calls to @VisibleForTesting-annotated functions from non-test source files."}}))
-	v2.Register(WrapAsV2(&OpenForTestingCallerInNonTestRule{BaseRule: BaseRule{RuleName: "OpenForTestingCallerInNonTest", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects subclassing of @OpenForTesting types outside test source sets."}}))
-	v2.Register(WrapAsV2(&TestFixtureAccessedFromProductionRule{BaseRule: BaseRule{RuleName: "TestFixtureAccessedFromProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects usage of types declared under src/testFixtures/ from production source files."}}))
-	v2.Register(WrapAsV2(&TimberTreeNotPlantedRule{BaseRule: BaseRule{RuleName: "TimberTreeNotPlanted", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects Timber logging usage without any Timber.plant() call in the project."}}))
+	{
+		r := &ConventionPluginDeadCodeRule{BaseRule: BaseRule{RuleName: "ConventionPluginDeadCode", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects convention plugins under build-logic or buildSrc that are never applied by any module."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				r.SetModuleIndex(ctx.ModuleIndex)
+				for _, f := range r.CheckModuleAware() {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &VisibleForTestingCallerInNonTestRule{BaseRule: BaseRule{RuleName: "VisibleForTestingCallerInNonTest", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects calls to @VisibleForTesting-annotated functions from non-test source files."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckCrossFile(ctx.CodeIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &OpenForTestingCallerInNonTestRule{BaseRule: BaseRule{RuleName: "OpenForTestingCallerInNonTest", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects subclassing of @OpenForTesting types outside test source sets."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckCrossFile(ctx.CodeIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &TestFixtureAccessedFromProductionRule{BaseRule: BaseRule{RuleName: "TestFixtureAccessedFromProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects usage of types declared under src/testFixtures/ from production source files."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckCrossFile(ctx.CodeIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &TimberTreeNotPlantedRule{BaseRule: BaseRule{RuleName: "TimberTreeNotPlanted", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects Timber logging usage without any Timber.plant() call in the project."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				for _, f := range r.CheckCrossFile(ctx.CodeIndex) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from resource_cost.go ---
 	{
@@ -17988,7 +18215,19 @@ func registerAllRules() {
 	}
 
 	// --- from supply_chain.go ---
-	v2.Register(WrapAsV2(&CompileSdkMismatchAcrossModulesRule{BaseRule: BaseRule{RuleName: "CompileSdkMismatchAcrossModules", RuleSetName: supplyChainRuleSet, Sev: "warning", Desc: "Detects Android modules whose compileSdk is lower than the maximum compileSdk in the project."}}))
+	{
+		r := &CompileSdkMismatchAcrossModulesRule{BaseRule: BaseRule{RuleName: "CompileSdkMismatchAcrossModules", RuleSetName: supplyChainRuleSet, Sev: "warning", Desc: "Detects Android modules whose compileSdk is lower than the maximum compileSdk in the project."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				r.SetModuleIndex(ctx.ModuleIndex)
+				for _, f := range r.CheckModuleAware() {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from testing_quality.go ---
 	{

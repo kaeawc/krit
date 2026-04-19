@@ -1791,7 +1791,75 @@ func registerAllRules() {
 	// --- from android_source_extra.go ---
 	{
 		r := &ViewConstructorRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ViewConstructor", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ViewConstructor", Brief: "Missing View constructors", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if file.FlatHasModifier(idx, "abstract") {
+					return
+				}
+				isView := false
+				for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+					if file.FlatType(child) != "delegation_specifier" {
+						continue
+					}
+					typeName := viewConstructorSupertypeNameFlat(file, child)
+					if typeName == "" {
+						continue
+					}
+					for _, base := range viewSuperclasses {
+						if typeName == base {
+							isView = true
+							break
+						}
+					}
+					if isView {
+						break
+					}
+				}
+				if !isView {
+					return
+				}
+				hasContextCtor, hasAttrSetCtor := false, false
+				for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+					if file.FlatType(child) == "primary_constructor" {
+						ctorText := file.FlatNodeText(child)
+						if strings.Contains(ctorText, "Context") {
+							if strings.Contains(ctorText, "AttributeSet") {
+								hasAttrSetCtor = true
+							} else {
+								hasContextCtor = true
+							}
+						}
+					}
+					if file.FlatType(child) == "class_body" {
+						bodyText := file.FlatNodeText(child)
+						if strings.Contains(bodyText, "constructor") {
+							if strings.Contains(bodyText, "Context") && strings.Contains(bodyText, "AttributeSet") {
+								hasAttrSetCtor = true
+							}
+							if strings.Contains(bodyText, "Context") {
+								hasContextCtor = true
+							}
+						}
+						if strings.Contains(file.FlatNodeText(idx), "@JvmOverloads") {
+							hasContextCtor = true
+							hasAttrSetCtor = true
+						}
+					}
+				}
+				if !hasContextCtor && !hasAttrSetCtor {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Custom View subclass is missing (Context) and (Context, AttributeSet) constructors.")
+					return
+				}
+				if !hasAttrSetCtor {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Custom View subclass is missing (Context, AttributeSet) constructor needed for XML inflation.")
+				}
+			},
+		})
 	}
 	v2.Register(WrapAsV2(&WrongImportRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "WrongImport", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "WrongImport", Brief: "Importing android.R instead of app R", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}))
 	v2.Register(WrapAsV2(&LayoutInflationRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "LayoutInflation", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "InflateParams", Brief: "Layout inflation without parent", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}))
@@ -1801,43 +1869,186 @@ func registerAllRules() {
 	v2.Register(WrapAsV2(&WrongConstantRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "WrongConstant", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "WrongConstant", Brief: "Wrong constant passed to API", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}))
 	{
 		r := &InstantiatableRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "Instantiatable", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "Instantiatable", Brief: "Registered class not instantiatable", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				isComponent := false
+				for _, base := range componentSuperclasses {
+					if strings.Contains(text, ": "+base+"(") || strings.Contains(text, ": "+base+" ") ||
+						strings.Contains(text, ": "+base+",") || strings.Contains(text, ": "+base+"{") {
+						isComponent = true
+						break
+					}
+				}
+				if !isComponent {
+					return
+				}
+				hasPrivateCtor := false
+				for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+					if file.FlatType(child) == "primary_constructor" {
+						ctorText := file.FlatNodeText(child)
+						if strings.Contains(ctorText, "private constructor") || strings.Contains(ctorText, "private ") {
+							hasPrivateCtor = true
+						}
+					}
+				}
+				if strings.Contains(text, "private class ") {
+					hasPrivateCtor = true
+				}
+				if hasPrivateCtor {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"This class is registered as an Android component but cannot be instantiated. Remove the private constructor or add a public no-arg constructor.")
+				}
+			},
+		})
 	}
 	{
 		r := &RtlAwareRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "RtlAware", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "RtlAware", Brief: "Using non-RTL-aware View methods", Category: ALCRTL, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				for old, repl := range rtlAwareMethods {
+					if strings.Contains(text, old) {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1,
+							"Use RTL-aware "+repl+" instead of "+old+" for bidirectional layout support.")
+						return
+					}
+				}
+			},
+		})
 	}
 	{
 		r := &RtlFieldAccessRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "RtlFieldAccess", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "RtlFieldAccess", Brief: "Direct field access of non-RTL-aware View fields", Category: ALCRTL, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				for _, field := range rtlFieldNames {
+					if text == "\""+field+"\"" {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1,
+							"Direct access to View."+field+" via reflection is not RTL-aware. Use the corresponding getter method instead.")
+						return
+					}
+				}
+			},
+		})
 	}
 	{
 		r := &GridLayoutRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "GridLayout", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "GridLayout", Brief: "GridLayout without columnCount", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 4, Origin: "AOSP Android Lint"}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if !gridLayoutCreateRe.MatchString(text) {
+					return
+				}
+				startByte := int(file.FlatStartByte(idx))
+				endByte := int(file.FlatEndByte(idx))
+				contextStart := startByte - 200
+				if contextStart < 0 {
+					contextStart = 0
+				}
+				contextEnd := endByte + 200
+				if contextEnd > len(file.Content) {
+					contextEnd = len(file.Content)
+				}
+				context := string(file.Content[contextStart:contextEnd])
+				if strings.Contains(context, "columnCount") {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, "GridLayout should specify a columnCount. Without it, all children will be in a single row.")
+			},
+		})
 	}
 	v2.Register(WrapAsV2(&LocaleFolderRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "LocaleFolder", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "LocaleFolder", Brief: "Wrong locale folder naming", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}))
 	v2.Register(WrapAsV2(&UseAlpha2Rule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "UseAlpha2", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "UseAlpha2", Brief: "3-letter ISO code in locale folder", Category: ALCI18N, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}))
 	v2.Register(WrapAsV2(&MangledCRLFRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "MangledCRLF", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "MangledCRLF", Brief: "Mixed line endings in file", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 3, Origin: "AOSP Android Lint"}}))
 	{
 		r := &ResourceNameRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ResourceName", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ResourceName", Brief: "Resource name not in snake_case", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 4, Origin: "AOSP Android Lint"}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				for _, m := range resourceRefRe.FindAllStringSubmatch(text, -1) {
+					if !snakeCaseRe.MatchString(m[2]) {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Resource name `R."+m[1]+"."+m[2]+"` should use snake_case.")
+						return
+					}
+				}
+			},
+		})
 	}
 	{
 		r := &ProguardRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "Proguard", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "Proguard", Brief: "Obsolete proguard.cfg reference", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 4, Origin: "AOSP Android Lint"}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if strings.Contains(text, "proguard.cfg") {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Reference to obsolete `proguard.cfg`. Use `proguard-rules.pro` instead.")
+				}
+			},
+		})
 	}
 	v2.Register(WrapAsV2(&ProguardSplitRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ProguardSplit", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ProguardSplit", Brief: "Proguard config should be split", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 3, Origin: "AOSP Android Lint"}}))
 	{
 		r := &NfcTechWhitespaceRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "NfcTechWhitespace", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "NfcTechWhitespace", Brief: "Whitespace in NFC tech-list", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if strings.Contains(text, "<tech>") && nfcTechRe.MatchString(text) {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Whitespace in <tech> element value. NFC tech names must not have leading/trailing whitespace.")
+				}
+			},
+		})
 	}
 	{
 		r := &LibraryCustomViewRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "LibraryCustomView", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "LibraryCustomView", Brief: "Custom view using hardcoded namespace", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if hardcodedNsRe.MatchString(text) && !strings.Contains(text, "apk/res-auto") && !strings.Contains(text, "apk/res/android") {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Use `http://schemas.android.com/apk/res-auto` instead of a hardcoded package namespace. Hardcoded namespaces don't work in library projects.")
+				}
+			},
+		})
 	}
 	{
 		r := &UnknownIdInLayoutRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "UnknownIdInLayout", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "UnknownIdInLayout", Brief: "Reference to unknown @id in layout", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				for _, m := range idRefRe.FindAllStringSubmatch(text, -1) {
+					if strings.Contains(m[1], "__") || strings.HasPrefix(m[1], "_") {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Suspicious ID reference `R.id."+m[1]+"`. Verify this ID exists in your layout resources.")
+						return
+					}
+				}
+			},
+		})
 	}
 
 	// --- from android_usability.go ---
@@ -6177,15 +6388,527 @@ func registerAllRules() {
 	v2.Register(WrapAsV2(&UselessPostfixExpressionRule{BaseRule: BaseRule{RuleName: "UselessPostfixExpression", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects postfix increment or decrement in return statements where the operation has no effect."}}))
 
 	// --- from potentialbugs_types.go ---
-	v2.Register(WrapAsV2(&AvoidReferentialEqualityRule{BaseRule: BaseRule{RuleName: "AvoidReferentialEquality", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects usage of referential equality operators === or !== which compare object identity instead of value."}}))
-	v2.Register(WrapAsV2(&DoubleMutabilityForCollectionRule{BaseRule: BaseRule{RuleName: "DoubleMutabilityForCollection", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects var declarations with mutable collection types, creating double mutability."}}))
-	v2.Register(WrapAsV2(&EqualsAlwaysReturnsTrueOrFalseRule{BaseRule: BaseRule{RuleName: "EqualsAlwaysReturnsTrueOrFalse", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects equals() implementations that always return true or always return false."}}))
-	v2.Register(WrapAsV2(&EqualsWithHashCodeExistRule{BaseRule: BaseRule{RuleName: "EqualsWithHashCodeExist", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects classes that override equals() without hashCode() or vice versa."}}))
-	v2.Register(WrapAsV2(&WrongEqualsTypeParameterRule{BaseRule: BaseRule{RuleName: "WrongEqualsTypeParameter", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects equals() with a parameter type other than Any?, which does not properly override the contract."}}))
-	v2.Register(WrapAsV2(&CharArrayToStringCallRule{BaseRule: BaseRule{RuleName: "CharArrayToStringCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects charArray.toString() calls that return the array's address instead of its content."}}))
-	v2.Register(WrapAsV2(&DontDowncastCollectionTypesRule{BaseRule: BaseRule{RuleName: "DontDowncastCollectionTypes", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects downcasting read-only collection types to mutable variants like 'as MutableList'."}}))
-	v2.Register(WrapAsV2(&ImplicitUnitReturnTypeRule{BaseRule: BaseRule{RuleName: "ImplicitUnitReturnType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects functions with expression bodies that implicitly return Unit without an explicit return type."}}))
-	v2.Register(WrapAsV2(&ElseCaseInsteadOfExhaustiveWhenRule{BaseRule: BaseRule{RuleName: "ElseCaseInsteadOfExhaustiveWhen", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects when expressions on sealed classes or enums that use an else branch instead of exhaustive matching."}}))
+	{
+		r := &AvoidReferentialEqualityRule{BaseRule: BaseRule{RuleName: "AvoidReferentialEquality", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects usage of referential equality operators === or !== which compare object identity instead of value."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if !strings.Contains(text, "===") && !strings.Contains(text, "!==") {
+					return
+				}
+				if file.FlatChildCount(idx) >= 3 {
+					left := strings.TrimSpace(file.FlatNodeText(file.FlatChild(idx, 0)))
+					right := strings.TrimSpace(file.FlatNodeText(file.FlatChild(idx, file.FlatChildCount(idx)-1)))
+					if left == "null" || right == "null" {
+						return
+					}
+				}
+				trimmed := strings.TrimSpace(text)
+				if (strings.HasPrefix(trimmed, "this === ") || strings.HasPrefix(trimmed, "this !== ")) &&
+					isInsideEqualsMethodFlatType(file, idx) {
+					return
+				}
+				if parent, ok := file.FlatParent(idx); ok {
+					if pt := file.FlatType(parent); pt == "disjunction_expression" || pt == "conjunction_expression" {
+						parentText := file.FlatNodeText(parent)
+						if strings.Contains(parentText, ".equals(") ||
+							strings.Contains(parentText, ".hasSameContent(") ||
+							strings.Contains(parentText, ".contentEquals(") ||
+							strings.Contains(parentText, ".contentDeepEquals(") ||
+							strings.Contains(parentText, ".sameContentAs(") {
+							return
+						}
+					}
+				}
+				if file.FlatChildCount(idx) >= 3 {
+					leftText := strings.TrimSpace(file.FlatNodeText(file.FlatChild(idx, 0)))
+					rightText := strings.TrimSpace(file.FlatNodeText(file.FlatChild(idx, file.FlatChildCount(idx)-1)))
+					if looksLikeEnumConstantRef(leftText) || looksLikeEnumConstantRef(rightText) {
+						return
+					}
+				}
+				if r.resolver != nil && file.FlatChildCount(idx) >= 3 {
+					leftIdx := file.FlatChild(idx, 0)
+					rightIdx := file.FlatChild(idx, file.FlatChildCount(idx)-1)
+					if leftIdx != 0 && rightIdx != 0 {
+						leftType := r.resolver.ResolveFlatNode(leftIdx, file)
+						rightType := r.resolver.ResolveFlatNode(rightIdx, file)
+						leftKnown := leftType != nil && leftType.Kind != typeinfer.TypeUnknown
+						rightKnown := rightType != nil && rightType.Kind != typeinfer.TypeUnknown
+						if leftKnown || rightKnown {
+							isValueType := typeinfer.IsKnownValueType(leftType) || typeinfer.IsKnownValueType(rightType)
+							if !isValueType {
+								return
+							}
+						}
+					}
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Referential equality (===, !==) should be avoided. Use structural equality (==, !=) instead.")
+				if file.FlatChildCount(idx) >= 3 {
+					op := file.FlatChild(idx, 1)
+					if op != 0 {
+						opText := file.FlatNodeText(op)
+						var repl string
+						switch opText {
+						case "===":
+							repl = "=="
+						case "!==":
+							repl = "!="
+						}
+						if repl != "" {
+							f.Fix = &scanner.Fix{
+								ByteMode:    true,
+								StartByte:   int(file.FlatStartByte(op)),
+								EndByte:     int(file.FlatEndByte(op)),
+								Replacement: repl,
+							}
+						}
+					}
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &DoubleMutabilityForCollectionRule{BaseRule: BaseRule{RuleName: "DoubleMutabilityForCollection", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects var declarations with mutable collection types, creating double mutability."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) {
+					return
+				}
+				text := file.FlatNodeText(idx)
+				if !strings.Contains(text, "var ") {
+					return
+				}
+				mutableTypes := r.configuredMutableTypes()
+				varDecl := file.FlatFindChild(idx, "variable_declaration")
+				if varDecl == 0 {
+					return
+				}
+				if r.resolver != nil {
+					for j := 0; j < file.FlatChildCount(varDecl); j++ {
+						gc := file.FlatChild(varDecl, j)
+						if gc == 0 {
+							continue
+						}
+						if file.FlatType(gc) == "user_type" || file.FlatType(gc) == "nullable_type" {
+							resolved := r.resolver.ResolveFlatNode(gc, file)
+							if resolved.Kind != typeinfer.TypeUnknown && resolved.IsMutable() {
+								f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+									"Variable with mutable collection type creates double mutability. Use val with a mutable collection or var with an immutable collection.")
+								var varKeyword uint32
+								file.FlatForEachChild(idx, func(ch uint32) {
+									if file.FlatNodeTextEquals(ch, "var") {
+										varKeyword = ch
+									}
+								})
+								if varKeyword != 0 {
+									f.Fix = &scanner.Fix{
+										ByteMode:    true,
+										StartByte:   int(file.FlatStartByte(varKeyword)),
+										EndByte:     int(file.FlatEndByte(varKeyword)),
+										Replacement: "val",
+									}
+								}
+								ctx.Emit(f)
+								return
+							}
+						}
+					}
+				}
+				if firstExplicitMutableTypeText(text, mutableTypes) == "" {
+					if !initializerLooksLikeMutableFactory(text) {
+						return
+					}
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Variable with mutable collection type creates double mutability. Use val with a mutable collection or var with an immutable collection.")
+				var varKeyword uint32
+				file.FlatForEachChild(idx, func(ch uint32) {
+					if file.FlatNodeTextEquals(ch, "var") {
+						varKeyword = ch
+					}
+				})
+				if varKeyword != 0 {
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   int(file.FlatStartByte(varKeyword)),
+						EndByte:     int(file.FlatEndByte(varKeyword)),
+						Replacement: "val",
+					}
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &EqualsAlwaysReturnsTrueOrFalseRule{BaseRule: BaseRule{RuleName: "EqualsAlwaysReturnsTrueOrFalse", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects equals() implementations that always return true or always return false."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := extractIdentifierFlat(file, idx)
+				if name != "equals" {
+					return
+				}
+				if !file.FlatHasModifier(idx, "override") {
+					return
+				}
+				body := file.FlatFindChild(idx, "function_body")
+				if body == 0 {
+					return
+				}
+				bodyText := file.FlatNodeText(body)
+				trimmed := strings.TrimSpace(bodyText)
+				if trimmed == "= true" || trimmed == "= false" {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"equals() always returns the same value. This is likely a bug.")
+					return
+				}
+				allTrue := true
+				allFalse := true
+				returnCount := 0
+				file.FlatWalkNodes(body, "jump_expression", func(jmp uint32) {
+					jmpText := strings.TrimSpace(file.FlatNodeText(jmp))
+					if !strings.HasPrefix(jmpText, "return") {
+						return
+					}
+					returnCount++
+					val := strings.TrimSpace(strings.TrimPrefix(jmpText, "return"))
+					if val != "true" {
+						allTrue = false
+					}
+					if val != "false" {
+						allFalse = false
+					}
+				})
+				if returnCount > 0 && (allTrue || allFalse) {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"equals() always returns the same value. This is likely a bug.")
+				}
+			},
+		})
+	}
+	{
+		r := &EqualsWithHashCodeExistRule{BaseRule: BaseRule{RuleName: "EqualsWithHashCodeExist", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects classes that override equals() without hashCode() or vice versa."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				body := file.FlatFindChild(idx, "class_body")
+				if body == 0 {
+					return
+				}
+				hasEquals := false
+				hasHashCode := false
+				walkFlatClassMembers(file, body, func(child uint32) {
+					if hasEquals && hasHashCode {
+						return
+					}
+					if file.FlatType(child) != "function_declaration" {
+						return
+					}
+					if !file.FlatHasModifier(child, "override") {
+						return
+					}
+					name := extractIdentifierFlat(file, child)
+					if name == "" {
+						return
+					}
+					switch name {
+					case "equals":
+						hasEquals = true
+					case "hashCode":
+						hasHashCode = true
+					}
+				})
+				if hasEquals && !hasHashCode {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Class overrides equals() but not hashCode().")
+				} else if !hasEquals && hasHashCode {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Class overrides hashCode() but not equals().")
+				}
+			},
+		})
+	}
+	{
+		r := &WrongEqualsTypeParameterRule{BaseRule: BaseRule{RuleName: "WrongEqualsTypeParameter", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects equals() with a parameter type other than Any?, which does not properly override the contract."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !file.FlatHasModifier(idx, "override") {
+					return
+				}
+				if extractIdentifierFlat(file, idx) != "equals" {
+					return
+				}
+				text := file.FlatNodeText(idx)
+				m := wrongEqualsRe.FindStringSubmatch(text)
+				if m == nil || m[1] == "Any?" {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("equals() parameter type is '%s' instead of 'Any?'. This does not properly override Any.equals().", m[1]))
+				startByte := int(file.FlatStartByte(idx))
+				if loc := wrongEqualsFixRe.FindStringSubmatchIndex(text); loc != nil {
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   startByte + loc[0],
+						EndByte:     startByte + loc[1],
+						Replacement: text[loc[2]:loc[3]] + "Any?",
+					}
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &CharArrayToStringCallRule{BaseRule: BaseRule{RuleName: "CharArrayToStringCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects charArray.toString() calls that return the array's address instead of its content."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if !strings.HasSuffix(text, ".toString()") && !strings.Contains(text, ".toString()") {
+					return
+				}
+				if r.resolver != nil {
+					navExpr := file.FlatFindChild(idx, "navigation_expression")
+					if navExpr != 0 && file.FlatChildCount(navExpr) >= 1 {
+						receiver := file.FlatChild(navExpr, 0)
+						if receiver != 0 {
+							receiverText := file.FlatNodeText(receiver)
+							simpleName := receiverText
+							if dotIdx := strings.LastIndex(simpleName, "."); dotIdx >= 0 {
+								simpleName = simpleName[dotIdx+1:]
+							}
+							resolved := r.resolver.ResolveByNameFlat(simpleName, idx, file)
+							if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
+								if resolved.Name == "CharArray" || resolved.FQN == "kotlin.CharArray" {
+									for _, finding := range r.reportCharArrayFlat(idx, text, file) {
+										ctx.Emit(finding)
+									}
+									return
+								}
+								return
+							}
+						}
+					}
+				}
+				if charArrayToStringRe.MatchString(text) {
+					for _, finding := range r.reportCharArrayFlat(idx, text, file) {
+						ctx.Emit(finding)
+					}
+				}
+			},
+		})
+	}
+	{
+		r := &DontDowncastCollectionTypesRule{BaseRule: BaseRule{RuleName: "DontDowncastCollectionTypes", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects downcasting read-only collection types to mutable variants like 'as MutableList'."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"as_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				m := mutableCollectionCastRe.FindStringSubmatch(text)
+				if m == nil {
+					return
+				}
+				targetType := m[1]
+				if r.resolver != nil {
+					sourceIdx := file.FlatChild(idx, 0)
+					if sourceIdx != 0 {
+						sourceType := r.resolver.ResolveFlatNode(sourceIdx, file)
+						if sourceType.Kind != typeinfer.TypeUnknown {
+							expectedImmutable := ""
+							for immutable, mutable := range immutableToMutableMap {
+								if mutable == targetType {
+									expectedImmutable = immutable
+									break
+								}
+							}
+							if expectedImmutable != "" && sourceType.Name != expectedImmutable {
+								info := r.resolver.ClassHierarchy(sourceType.Name)
+								if info != nil {
+									isCollectionSupertype := false
+									for _, st := range info.Supertypes {
+										parts := strings.Split(st, ".")
+										stName := parts[len(parts)-1]
+										if stName == expectedImmutable {
+											isCollectionSupertype = true
+											break
+										}
+									}
+									if !isCollectionSupertype {
+										return
+									}
+								}
+							}
+						}
+					}
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("Don't downcast collection type to '%s'. This can lead to unexpected mutations.", targetType))
+				parts := strings.SplitN(text, " as ", 2)
+				if len(parts) == 2 {
+					expr := strings.TrimSpace(parts[0])
+					if method, ok := mutableCollectionToMethodMap[targetType]; ok {
+						f.Fix = &scanner.Fix{
+							ByteMode:    true,
+							StartByte:   int(file.FlatStartByte(idx)),
+							EndByte:     int(file.FlatEndByte(idx)),
+							Replacement: expr + "." + method,
+						}
+					}
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &ImplicitUnitReturnTypeRule{BaseRule: BaseRule{RuleName: "ImplicitUnitReturnType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects functions with expression bodies that implicitly return Unit without an explicit return type."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				body := file.FlatFindChild(idx, "function_body")
+				if body == 0 {
+					return
+				}
+				if file.FlatChildCount(body) == 0 || file.FlatType(file.FlatChild(body, 0)) != "statements" {
+					bodyText := file.FlatNodeText(body)
+					if !strings.HasPrefix(strings.TrimSpace(bodyText), "{") {
+						return
+					}
+				}
+				hasReturnType := false
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					child := file.FlatChild(idx, i)
+					ct := file.FlatType(child)
+					if ct == "user_type" || ct == "nullable_type" || ct == "type_identifier" {
+						hasReturnType = true
+						break
+					}
+					if file.FlatNodeTextEquals(child, ":") {
+						hasReturnType = true
+						break
+					}
+				}
+				if hasReturnType {
+					return
+				}
+				funcName := extractIdentifierFlat(file, idx)
+				if funcName == "" {
+					return
+				}
+				if r.resolver != nil {
+					resolved := r.resolver.ResolveByNameFlat(funcName, idx, file)
+					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown &&
+						(resolved.Kind == typeinfer.TypeUnit || resolved.Name == "Unit" || resolved.FQN == "kotlin.Unit") {
+						return
+					}
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Function without explicit return type. Consider adding ': Unit' or the appropriate return type.")
+				if body != 0 {
+					insertAt := int(file.FlatStartByte(body))
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   insertAt,
+						EndByte:     insertAt,
+						Replacement: ": Unit ",
+					}
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &ElseCaseInsteadOfExhaustiveWhenRule{BaseRule: BaseRule{RuleName: "ElseCaseInsteadOfExhaustiveWhen", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects when expressions on sealed classes or enums that use an else branch instead of exhaustive matching."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"when_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if !whenElseRe.MatchString(text) {
+					return
+				}
+				if r.resolver != nil {
+					coveredTypes := make(map[string]bool)
+					var subjectTypeName string
+					file.FlatForEachChild(idx, func(entry uint32) {
+						if file.FlatType(entry) != "when_entry" {
+							return
+						}
+						file.FlatForEachChild(entry, func(cond uint32) {
+							condText := strings.TrimSpace(file.FlatNodeText(cond))
+							if strings.HasPrefix(strings.TrimSpace(condText), "is ") {
+								typeName := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(condText), "is "))
+								coveredTypes[typeName] = true
+							}
+						})
+					})
+					if len(coveredTypes) > 0 {
+						for typeName := range coveredTypes {
+							info := r.resolver.ClassHierarchy(typeName)
+							if info != nil && len(info.Supertypes) > 0 {
+								for _, st := range info.Supertypes {
+									parts := strings.Split(st, ".")
+									simpleName := parts[len(parts)-1]
+									variants := r.resolver.SealedVariants(simpleName)
+									if len(variants) == 0 {
+										variants = r.resolver.SealedVariants(st)
+									}
+									if len(variants) > 0 {
+										subjectTypeName = simpleName
+										allCovered := true
+										for _, v := range variants {
+											vParts := strings.Split(v, ".")
+											vSimple := vParts[len(vParts)-1]
+											if !coveredTypes[vSimple] && !coveredTypes[v] {
+												allCovered = false
+												break
+											}
+										}
+										if !allCovered {
+											return
+										}
+										break
+									}
+								}
+								if subjectTypeName != "" {
+									break
+								}
+							}
+						}
+						if subjectTypeName != "" {
+							ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+								fmt.Sprintf("When expression on sealed type '%s' uses 'else' but all variants are covered. Remove the else branch.", subjectTypeName))
+						}
+					}
+					return
+				}
+				// Without type resolution we cannot determine whether the when subject is
+				// an enum or sealed class, so skip to avoid false positives.
+			},
+		})
+	}
 
 	// --- from privacy_analytics.go ---
 	v2.Register(WrapAsV2(&AnalyticsEventWithPiiParamNameRule{
@@ -6246,7 +6969,20 @@ func registerAllRules() {
 	v2.Register(WrapAsV2(&BuildConfigDebugInvertedRule{BaseRule: BaseRule{RuleName: "BuildConfigDebugInverted", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects negated BuildConfig.DEBUG guards wrapping logging calls that likely invert a debug-only check."}}))
 	{
 		r := &AllProjectsBlockRule{BaseRule: BaseRule{RuleName: "AllProjectsBlock", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects deprecated allprojects {} blocks in Gradle build scripts."}}
-		v2.Register(v2.AdaptFlatDispatch(r.RuleName, r.RuleSetName, r.Description(), v2.Severity(r.Sev), r.NodeTypes(), r.CheckFlatNode, v2.AdaptWithConfidence(0.75)))
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !isGradleBuildScript(file.Path) {
+					return
+				}
+				if flatCallExpressionName(file, idx) != "allprojects" {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, "`allprojects {}` is deprecated in Gradle 8.x; move shared configuration to settings-level repositories or convention plugins.")
+			},
+		})
 	}
 	v2.Register(WrapAsV2(&HardcodedEnvironmentNameRule{BaseRule: BaseRule{RuleName: "HardcodedEnvironmentName", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects hardcoded environment names like 'dev', 'staging', or 'prod' passed to config APIs."}}))
 	v2.Register(WrapAsV2(&DebugToastInProductionRule{BaseRule: BaseRule{RuleName: "DebugToastInProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects Toast.makeText calls whose message starts with debug-related prefixes in production code."}}))

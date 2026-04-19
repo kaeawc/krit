@@ -112,27 +112,6 @@ type CommitPrefEditsRule struct {
 // Classified per roadmap/17.
 func (r *CommitPrefEditsRule) Confidence() float64 { return 0.75 }
 
-func (r *CommitPrefEditsRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *CommitPrefEditsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if !strings.Contains(text, ".edit()") {
-		return nil
-	}
-	// Walk up to the enclosing function/block
-	parent, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
-	if !ok {
-		return nil
-	}
-	funcText := file.FlatNodeText(parent)
-	if strings.Contains(funcText, ".edit()") &&
-		!strings.Contains(funcText, ".commit()") &&
-		!strings.Contains(funcText, ".apply()") {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			"SharedPreferences.edit() without commit() or apply().")}
-	}
-	return nil
-}
 
 
 // CommitTransactionRule detects FragmentTransaction without .commit().
@@ -149,28 +128,6 @@ type CommitTransactionRule struct {
 // Classified per roadmap/17.
 func (r *CommitTransactionRule) Confidence() float64 { return 0.75 }
 
-func (r *CommitTransactionRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *CommitTransactionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if !strings.Contains(text, "beginTransaction") && !strings.Contains(text, "FragmentTransaction") {
-		return nil
-	}
-	parent, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
-	if !ok {
-		return nil
-	}
-	funcText := file.FlatNodeText(parent)
-	if strings.Contains(funcText, "beginTransaction") &&
-		!strings.Contains(funcText, ".commit()") &&
-		!strings.Contains(funcText, ".commitNow()") &&
-		!strings.Contains(funcText, ".commitAllowingStateLoss()") &&
-		!strings.Contains(funcText, ".commitNowAllowingStateLoss()") {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			"FragmentTransaction without commit(). Call commit() or commitAllowingStateLoss().")}
-	}
-	return nil
-}
 
 
 // AssertRule detects assert statements (disabled on Android).
@@ -216,29 +173,6 @@ type CheckResultRule struct {
 // Classified per roadmap/17.
 func (r *CheckResultRule) Confidence() float64 { return 0.75 }
 
-func (r *CheckResultRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *CheckResultRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Check if this call expression is an expression_statement (return value discarded)
-	parent, ok := file.FlatParent(idx)
-	if !ok || file.FlatType(parent) != "expression_statement" {
-		return nil
-	}
-	text := file.FlatNodeText(idx)
-	// Common Android methods whose return must not be ignored
-	checkResultMethods := []string{
-		".animate(", ".buildUpon(", ".edit(",
-		"String.format(", ".format(",
-		".trim(", ".replace(",
-	}
-	for _, m := range checkResultMethods {
-		if strings.Contains(text, m) {
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-				"The result of this call is not used. Check if the return value should be consumed.")}
-		}
-	}
-	return nil
-}
 
 
 // ShiftFlagsRule detects flag constants not using shift operators.
@@ -283,32 +217,6 @@ type UniqueConstantsRule struct {
 // Classified per roadmap/17.
 func (r *UniqueConstantsRule) Confidence() float64 { return 0.75 }
 
-func (r *UniqueConstantsRule) NodeTypes() []string { return []string{"annotation"} }
-
-func (r *UniqueConstantsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if !strings.Contains(text, "IntDef") && !strings.Contains(text, "StringDef") {
-		return nil
-	}
-	// Simple duplicate value check: extract numeric or string constants
-	parts := strings.Split(text, ",")
-	seen := make(map[string]bool)
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		// Find numeric constants
-		for _, tok := range strings.Fields(p) {
-			tok = strings.Trim(tok, "()[]{}\"")
-			if len(tok) > 0 && tok[0] >= '0' && tok[0] <= '9' {
-				if seen[tok] {
-					return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-						"Duplicate constant value "+tok+" in annotation definition.")}
-				}
-				seen[tok] = true
-			}
-		}
-	}
-	return nil
-}
 
 
 // WrongThreadRule detects UI operations on wrong thread.
@@ -327,30 +235,6 @@ var wrongThreadRe = regexp.MustCompile(`\b(setText|setImageResource|setVisibilit
 // Classified per roadmap/17.
 func (r *WrongThreadRule) Confidence() float64 { return 0.75 }
 
-func (r *WrongThreadRule) NodeTypes() []string { return []string{"function_declaration"} }
-
-func (r *WrongThreadRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	// Check if the function is annotated with @WorkerThread
-	prev, ok := file.FlatPrevSibling(idx)
-	if !ok {
-		return nil
-	}
-	prevText := file.FlatNodeText(prev)
-	if !strings.Contains(prevText, "WorkerThread") {
-		return nil
-	}
-	var findings []scanner.Finding
-	lines := strings.Split(text, "\n")
-	startLine := file.FlatRow(idx)
-	for j, line := range lines {
-		if wrongThreadRe.MatchString(line) && !strings.Contains(line, "runOnUiThread") && !strings.Contains(line, "post(") {
-			findings = append(findings, r.Finding(file, startLine+j+1, 1,
-				"UI operation in @WorkerThread context. Use runOnUiThread or Handler.post()."))
-		}
-	}
-	return findings
-}
 
 
 // SQLiteStringRule detects SQL string issues (using string instead of TEXT).
@@ -397,7 +281,6 @@ type RegisteredRule struct {
 // Classified per roadmap/17.
 func (r *RegisteredRule) Confidence() float64 { return 0.75 }
 
-func (r *RegisteredRule) NodeTypes() []string { return []string{"class_declaration"} }
 
 var androidComponentBases = []string{
 	"Activity", "AppCompatActivity", "FragmentActivity", "ComponentActivity",
@@ -406,50 +289,38 @@ var androidComponentBases = []string{
 	"ContentProvider",
 }
 
-func (r *RegisteredRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
 
-	// Skip if annotated with @AndroidEntryPoint (Hilt auto-registers)
+
+// androidComponentType returns the Android component type for a class_declaration node, or "".
+func androidComponentType(text string) string {
 	if strings.Contains(text, "@AndroidEntryPoint") {
-		return nil
+		return ""
 	}
-
-	// Skip abstract classes
 	if strings.Contains(text, "abstract class") {
-		return nil
+		return ""
 	}
-
-	// Check if class extends an Android component
-	var componentType string
 	for _, base := range androidComponentBases {
 		if strings.Contains(text, ": "+base+"(") || strings.Contains(text, ": "+base+" ") ||
 			strings.Contains(text, ": "+base+",") || strings.Contains(text, ": "+base+"{") ||
 			strings.Contains(text, ": "+base+"\n") || strings.Contains(text, ": "+base+"\r") {
 			switch {
 			case strings.Contains(base, "Activity"):
-				componentType = "Activity"
+				return "Activity"
 			case strings.Contains(base, "Service") || base == "IntentService" || base == "LifecycleService" || base == "JobIntentService":
-				componentType = "Service"
+				return "Service"
 			case base == "BroadcastReceiver":
-				componentType = "BroadcastReceiver"
+				return "BroadcastReceiver"
 			case base == "ContentProvider":
-				componentType = "ContentProvider"
+				return "ContentProvider"
 			}
-			break
 		}
 	}
-	if componentType == "" {
-		return nil
-	}
+	return ""
+}
 
-	// Extract class name for the message
-	className := extractIdentifierFlat(file, idx)
-	if className == "" {
-		className = "This class"
-	}
-
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-		fmt.Sprintf("%s extends %s and should be registered in AndroidManifest.xml.", className, componentType))}
+// formatRegisteredMsg builds the manifest registration message.
+func formatRegisteredMsg(className, componentType string) string {
+	return fmt.Sprintf("%s extends %s and should be registered in AndroidManifest.xml.", className, componentType)
 }
 
 // NestedScrollingRule detects nested scrolling views.

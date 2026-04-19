@@ -653,15 +653,160 @@ func registerAllRules() {
 
 	// --- from android_correctness.go ---
 	v2.Register(WrapAsV2(&DefaultLocaleRule{AndroidRule: alcRule("DefaultLocale", "Implied default locale in case conversion", ALSWarning, 6)}))
-	v2.Register(WrapAsV2(&CommitPrefEditsRule{AndroidRule: alcRule("CommitPrefEdits", "Missing commit() on SharedPreferences editor", ALSWarning, 6)}))
-	v2.Register(WrapAsV2(&CommitTransactionRule{AndroidRule: alcRule("CommitTransaction", "Missing commit() on FragmentTransaction", ALSWarning, 6)}))
+	{
+		r := &CommitPrefEditsRule{AndroidRule: alcRule("CommitPrefEdits", "Missing commit() on SharedPreferences editor", ALSWarning, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if !strings.Contains(text, ".edit()") {
+					return
+				}
+				parent, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
+				if !ok {
+					return
+				}
+				funcText := file.FlatNodeText(parent)
+				if strings.Contains(funcText, ".edit()") &&
+					!strings.Contains(funcText, ".commit()") &&
+					!strings.Contains(funcText, ".apply()") {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "SharedPreferences.edit() without commit() or apply().")
+				}
+			},
+		})
+	}
+	{
+		r := &CommitTransactionRule{AndroidRule: alcRule("CommitTransaction", "Missing commit() on FragmentTransaction", ALSWarning, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if !strings.Contains(text, "beginTransaction") && !strings.Contains(text, "FragmentTransaction") {
+					return
+				}
+				parent, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
+				if !ok {
+					return
+				}
+				funcText := file.FlatNodeText(parent)
+				if strings.Contains(funcText, "beginTransaction") &&
+					!strings.Contains(funcText, ".commit()") &&
+					!strings.Contains(funcText, ".commitNow()") &&
+					!strings.Contains(funcText, ".commitAllowingStateLoss()") &&
+					!strings.Contains(funcText, ".commitNowAllowingStateLoss()") {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "FragmentTransaction without commit(). Call commit() or commitAllowingStateLoss().")
+				}
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&AssertRule{AndroidRule: alcRule("Assert", "Assertions are unreliable on Android", ALSWarning, 6)}))
-	v2.Register(WrapAsV2(&CheckResultRule{AndroidRule: alcRule("CheckResult", "Ignoring results", ALSWarning, 6)}))
+	{
+		r := &CheckResultRule{AndroidRule: alcRule("CheckResult", "Ignoring results", ALSWarning, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				parent, ok := file.FlatParent(idx)
+				if !ok || file.FlatType(parent) != "expression_statement" {
+					return
+				}
+				text := file.FlatNodeText(idx)
+				checkResultMethods := []string{
+					".animate(", ".buildUpon(", ".edit(",
+					"String.format(", ".format(",
+					".trim(", ".replace(",
+				}
+				for _, m := range checkResultMethods {
+					if strings.Contains(text, m) {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1, "The result of this call is not used. Check if the return value should be consumed.")
+						return
+					}
+				}
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&ShiftFlagsRule{AndroidRule: alcRule("ShiftFlags", "Suspicious flag constant declarations", ALSWarning, 6)}))
-	v2.Register(WrapAsV2(&UniqueConstantsRule{AndroidRule: alcRule("UniqueConstants", "Overlapping enumeration constants", ALSError, 6)}))
-	v2.Register(WrapAsV2(&WrongThreadRule{AndroidRule: alcRule("WrongThread", "Wrong thread", ALSError, 6)}))
+	{
+		r := &UniqueConstantsRule{AndroidRule: alcRule("UniqueConstants", "Overlapping enumeration constants", ALSError, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"annotation"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if !strings.Contains(text, "IntDef") && !strings.Contains(text, "StringDef") {
+					return
+				}
+				parts := strings.Split(text, ",")
+				seen := make(map[string]bool)
+				for _, p := range parts {
+					p = strings.TrimSpace(p)
+					for _, tok := range strings.Fields(p) {
+						tok = strings.Trim(tok, "()[]{}\"")
+						if len(tok) > 0 && tok[0] >= '0' && tok[0] <= '9' {
+							if seen[tok] {
+								ctx.EmitAt(file.FlatRow(idx)+1, 1, "Duplicate constant value "+tok+" in annotation definition.")
+								return
+							}
+							seen[tok] = true
+						}
+					}
+				}
+			},
+		})
+	}
+	{
+		r := &WrongThreadRule{AndroidRule: alcRule("WrongThread", "Wrong thread", ALSError, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				prev, ok := file.FlatPrevSibling(idx)
+				if !ok {
+					return
+				}
+				prevText := file.FlatNodeText(prev)
+				if !strings.Contains(prevText, "WorkerThread") {
+					return
+				}
+				lines := strings.Split(text, "\n")
+				startLine := file.FlatRow(idx)
+				for j, line := range lines {
+					if wrongThreadRe.MatchString(line) && !strings.Contains(line, "runOnUiThread") && !strings.Contains(line, "post(") {
+						ctx.EmitAt(startLine+j+1, 1, "UI operation in @WorkerThread context. Use runOnUiThread or Handler.post().")
+					}
+				}
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&SQLiteStringRule{AndroidRule: alcRule("SQLiteString", "Using STRING instead of TEXT in SQLite", ALSWarning, 5)}))
-	v2.Register(WrapAsV2(&RegisteredRule{AndroidRule: alcRule("Registered", "Class is not registered in the manifest", ALSWarning, 6)}))
+	{
+		r := &RegisteredRule{AndroidRule: alcRule("Registered", "Class is not registered in the manifest", ALSWarning, 6)}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				componentType := androidComponentType(text)
+				if componentType == "" {
+					return
+				}
+				className := extractIdentifierFlat(file, idx)
+				if className == "" {
+					className = "This class"
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, formatRegisteredMsg(className, componentType))
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&NestedScrollingRule{AndroidRule: alcRule("NestedScrolling", "Nested scrolling widgets", ALSWarning, 7)}))
 	v2.Register(WrapAsV2(&ScrollViewCountRule{AndroidRule: alcRule("ScrollViewCount", "ScrollViews can have only one child", ALSWarning, 7)}))
 	v2.Register(WrapAsV2(&SimpleDateFormatRule{AndroidRule: alcRule("SimpleDateFormat", "Using SimpleDateFormat directly without Locale", ALSWarning, 6)}))
@@ -8015,11 +8160,341 @@ func registerAllRules() {
 	}
 
 	// --- from potentialbugs_misc.go ---
-	v2.Register(WrapAsV2(&DeprecationRule{BaseRule: BaseRule{RuleName: "Deprecation", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects usage of deprecated functions, classes, or properties."}}))
-	v2.Register(WrapAsV2(&HasPlatformTypeRule{BaseRule: BaseRule{RuleName: "HasPlatformType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects public functions with expression bodies that lack an explicit return type, risking platform type exposure from Java interop."}}))
-	v2.Register(WrapAsV2(&IgnoredReturnValueRule{BaseRule: BaseRule{RuleName: "IgnoredReturnValue", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects discarded return values from functional operations or @CheckReturnValue-annotated functions."}}))
-	v2.Register(WrapAsV2(&ImplicitDefaultLocaleRule{BaseRule: BaseRule{RuleName: "ImplicitDefaultLocale", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects locale-sensitive string methods called without an explicit Locale argument."}}))
-	v2.Register(WrapAsV2(&LocaleDefaultForCurrencyRule{BaseRule: BaseRule{RuleName: "LocaleDefaultForCurrency", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Currency.getInstance(Locale.getDefault()) in money-related classes where currency should come from business data."}}))
+	{
+		r := &DeprecationRule{BaseRule: BaseRule{RuleName: "Deprecation", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects usage of deprecated functions, classes, or properties."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression", "navigation_expression", "user_type"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				line := file.FlatRow(idx) + 1
+				col := file.FlatCol(idx) + 1
+				nodeType := file.FlatType(idx)
+
+				// Skip nodes inside import statements if configured
+				if r.ExcludeImportStatements && file.FlatHasAncestorOfType(idx, "import_header") {
+					return
+				}
+
+				// Avoid double-reporting: if this navigation_expression is the direct
+				// child of a call_expression, let the call_expression visit handle it.
+				if nodeType == "navigation_expression" {
+					if parent, ok := file.FlatParent(idx); ok && file.FlatType(parent) == "call_expression" {
+						return
+					}
+				}
+
+				// For user_type nodes, skip if inside an annotation (the @Deprecated itself)
+				if nodeType == "user_type" && file.FlatHasAncestorOfType(idx, "annotation") {
+					return
+				}
+
+				// Extract the name being referenced
+				name := flatDeprecationRefName(file, idx)
+				if name == "" {
+					return
+				}
+
+				// 1. Oracle-based check: look up call target annotations
+				if r.oracleLookup != nil {
+					callTarget := r.oracleLookup.LookupCallTarget(file.Path, line, col)
+					if callTarget != "" {
+						annotations := r.oracleLookup.LookupAnnotations(callTarget)
+						for _, ann := range annotations {
+							if ann == "kotlin.Deprecated" || ann == "java.lang.Deprecated" {
+								ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+									fmt.Sprintf("'%s' is deprecated.", name))
+								return
+							}
+						}
+					}
+				}
+
+				// 2. Source-level check: look for @Deprecated on declarations in this
+				// file. The index is cached per-file and guarded by cacheMu since
+				// dispatch runs one rule instance across parallel file goroutines.
+				r.cacheMu.Lock()
+				r.ensureDeprecatedIndex(file)
+				info := r.deprecatedInfos[name]
+				r.cacheMu.Unlock()
+				if info == nil {
+					return
+				}
+
+				msg := fmt.Sprintf("'%s' is deprecated.", name)
+				if info.level != "" {
+					msg = fmt.Sprintf("'%s' is deprecated (level=%s).", name, info.level)
+				}
+				if info.message != "" {
+					msg = fmt.Sprintf("'%s' is deprecated: %s", name, info.message)
+					if info.level != "" {
+						msg = fmt.Sprintf("'%s' is deprecated (level=%s): %s", name, info.level, info.message)
+					}
+				}
+
+				f := r.Finding(file, line, col, msg)
+
+				// If replaceWith is available, offer an auto-fix
+				if info.replaceWith != "" && (nodeType == "call_expression" || nodeType == "navigation_expression") {
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   int(file.FlatStartByte(idx)),
+						EndByte:     int(file.FlatEndByte(idx)),
+						Replacement: info.replaceWith,
+					}
+				}
+
+				ctx.Emit(f)
+			},
+		})
+	}
+	{
+		r := &HasPlatformTypeRule{BaseRule: BaseRule{RuleName: "HasPlatformType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects public functions with expression bodies that lack an explicit return type, risking platform type exposure from Java interop."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) {
+					return
+				}
+				if file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "internal") ||
+					file.FlatHasModifier(idx, "protected") || file.FlatHasModifier(idx, "override") {
+					return
+				}
+
+				body := file.FlatFindChild(idx, "function_body")
+				if body == 0 {
+					return
+				}
+				bodyText := strings.TrimSpace(file.FlatNodeText(body))
+				if !strings.HasPrefix(bodyText, "=") || strings.HasPrefix(bodyText, "= {") {
+					return
+				}
+
+				exprText := strings.TrimSpace(strings.TrimPrefix(bodyText, "="))
+				if exprText == "Unit" {
+					return
+				}
+
+				params := file.FlatFindChild(idx, "function_value_parameters")
+				bodyStart := file.FlatStartByte(body)
+				hasReturnType := false
+				file.FlatForEachChild(idx, func(child uint32) {
+					if hasReturnType {
+						return
+					}
+					switch file.FlatType(child) {
+					case ":":
+						hasReturnType = true
+					case "user_type", "nullable_type", "type_identifier":
+						if params != 0 && file.FlatStartByte(child) > file.FlatEndByte(params) &&
+							(body == 0 || file.FlatStartByte(child) < bodyStart) {
+							hasReturnType = true
+						}
+					}
+				})
+				if hasReturnType {
+					return
+				}
+
+				line := file.FlatRow(idx) + 1
+				for _, prefix := range []string{"java.", "javax.", "android.", "Java", "Javax"} {
+					if strings.Contains(exprText, prefix) {
+						ctx.EmitAt(line, 1,
+							"Public function with expression body should have an explicit return type to avoid platform types.")
+						return
+					}
+				}
+			},
+		})
+	}
+	{
+		r := &IgnoredReturnValueRule{BaseRule: BaseRule{RuleName: "IgnoredReturnValue", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects discarded return values from functional operations or @CheckReturnValue-annotated functions."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				funcName := flatCallExpressionName(file, idx)
+				if funcName == "" {
+					return
+				}
+
+				line := file.FlatRow(idx) + 1
+				col := file.FlatCol(idx) + 1
+				isKnownFunctionalOp := functionalOps[funcName]
+
+				// Without oracle annotation metadata, only known functional operations can
+				// produce a finding in the current heuristics.
+				if r.oracleLookup == nil && !isKnownFunctionalOp {
+					return
+				}
+
+				// Check if this call's result is discarded (not used as expression)
+				if flatIsUsedAsExpression(file, idx) {
+					return
+				}
+
+				// Oracle-based annotation check
+				if r.oracleLookup != nil {
+					callTarget := r.oracleLookup.LookupCallTarget(file.Path, line, col)
+					if callTarget != "" {
+						annotations := r.oracleLookup.LookupAnnotations(callTarget)
+						if hasCheckReturnAnnotation(annotations, r.ReturnValueAnnotations) &&
+							!hasIgnoreReturnAnnotation(annotations, r.IgnoreReturnValueAnnotations) {
+							ctx.EmitAt(line, col,
+								fmt.Sprintf("Return value of '%s' is ignored. The function is annotated with @CheckReturnValue.", funcName))
+							return
+						}
+					}
+				}
+
+				if isKnownFunctionalOp {
+					ctx.EmitAt(line, col,
+						"Return value of functional operation is ignored. If this is intentional, assign to a variable or use 'also' instead.")
+				}
+			},
+		})
+	}
+	{
+		r := &ImplicitDefaultLocaleRule{BaseRule: BaseRule{RuleName: "ImplicitDefaultLocale", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects locale-sensitive string methods called without an explicit Locale argument."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if strings.HasSuffix(file.Path, ".gradle.kts") {
+					return
+				}
+				if strings.HasSuffix(file.Path, "Table.kt") || strings.HasSuffix(file.Path, "Tables.kt") ||
+					strings.HasSuffix(file.Path, "Dao.kt") || strings.HasSuffix(file.Path, "DAO.kt") {
+					return
+				}
+				navExpr, args := flatCallExpressionParts(file, idx)
+				if navExpr == 0 {
+					return
+				}
+
+				methodName := flatNavigationExpressionLastIdentifier(file, navExpr)
+				if methodName == "" {
+					return
+				}
+				var receiverIdx uint32
+				if file.FlatNamedChildCount(navExpr) > 0 {
+					receiverIdx = file.FlatNamedChild(navExpr, 0)
+				}
+
+				firstArg, argCount := flatValueArgumentStats(file, args)
+
+				if implicitLocaleMethods[methodName] {
+					if argCount != 0 {
+						return
+					}
+					if receiverIdx != 0 {
+						recvText := file.FlatNodeText(receiverIdx)
+						if containsAsciiInvariantIdentifier(recvText) {
+							return
+						}
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						fmt.Sprintf("'%s()' called without explicit Locale. Use '%s(Locale.ROOT)' or '%s(Locale.getDefault())' to be explicit.", methodName, methodName, methodName))
+					return
+				}
+
+				if methodName == "format" {
+					if receiverIdx == 0 {
+						return
+					}
+					receiverType := file.FlatType(receiverIdx)
+
+					isStringLiteral := receiverType == "string_literal" || receiverType == "line_string_literal" || receiverType == "multi_line_string_literal"
+					receiverText := ""
+					isStringCompanion := false
+					if !isStringLiteral {
+						receiverText = file.FlatNodeText(receiverIdx)
+						isStringCompanion = receiverText == "String"
+					}
+
+					if !isStringCompanion && !isStringLiteral {
+						if receiverText == "String" {
+							isStringLiteral = true
+						}
+						if !isStringLiteral {
+							return
+						}
+					}
+					if receiverText == "" {
+						receiverText = file.FlatNodeText(receiverIdx)
+					}
+
+					if isExplicitLocaleArgFlat(file, firstArg) {
+						return
+					}
+
+					if isStringLiteral && isLocaleInsensitiveFormat(receiverText) {
+						return
+					}
+					if isStringCompanion && firstArg != 0 {
+						argText := file.FlatNodeText(firstArg)
+						if strings.HasPrefix(strings.TrimSpace(argText), "\"") {
+							if isLocaleInsensitiveFormat(argText) {
+								return
+							}
+						}
+					}
+
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						fmt.Sprintf("'%s' uses implicit default locale for string formatting. Pass Locale explicitly, e.g. Locale.ROOT or Locale.US.", receiverText+".format(...)"))
+				}
+			},
+		})
+	}
+	{
+		r := &LocaleDefaultForCurrencyRule{BaseRule: BaseRule{RuleName: "LocaleDefaultForCurrency", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Currency.getInstance(Locale.getDefault()) in money-related classes where currency should come from business data."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				className := enclosingClassNameFlat(file, idx)
+				if !isCurrencyCarrierClassName(className) {
+					return
+				}
+
+				navExpr, args := flatCallExpressionParts(file, idx)
+				if navExpr == 0 || args == 0 {
+					return
+				}
+
+				if flatNavigationExpressionLastIdentifier(file, navExpr) != "getInstance" {
+					return
+				}
+
+				receiver := file.FlatNamedChild(navExpr, 0)
+				if receiver == 0 {
+					return
+				}
+				receiverText := compactKotlinExpr(file.FlatNodeText(receiver))
+				if receiverText != "Currency" && receiverText != "java.util.Currency" {
+					return
+				}
+
+				firstArg, argCount := flatValueArgumentStats(file, args)
+				if argCount != 1 || firstArg == 0 {
+					return
+				}
+
+				argText := compactKotlinExpr(file.FlatNodeText(firstArg))
+				if argText != "Locale.getDefault()" && argText != "java.util.Locale.getDefault()" {
+					return
+				}
+
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("Class '%s' derives currency from Locale.getDefault(); use order or transaction currency data instead.", className))
+			},
+		})
+	}
 
 	// --- from potentialbugs_nullsafety_casts.go ---
 	{
@@ -8160,11 +8635,242 @@ func registerAllRules() {
 	}
 
 	// --- from potentialbugs_properties.go ---
-	v2.Register(WrapAsV2(&PropertyUsedBeforeDeclarationRule{BaseRule: BaseRule{RuleName: "PropertyUsedBeforeDeclaration", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects class properties referenced in initializers or init blocks before they are declared."}}))
-	v2.Register(WrapAsV2(&UnconditionalJumpStatementInLoopRule{BaseRule: BaseRule{RuleName: "UnconditionalJumpStatementInLoop", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects loops containing an unconditional return, break, or throw that causes the loop to execute only once."}}))
-	v2.Register(WrapAsV2(&UnnamedParameterUseRule{BaseRule: BaseRule{RuleName: "UnnamedParameterUse", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects function calls with many unnamed parameters where named parameters would improve readability."}}))
-	v2.Register(WrapAsV2(&UnusedUnaryOperatorRule{BaseRule: BaseRule{RuleName: "UnusedUnaryOperator", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects standalone unary +x or -x expressions whose result is never used."}}))
-	v2.Register(WrapAsV2(&UselessPostfixExpressionRule{BaseRule: BaseRule{RuleName: "UselessPostfixExpression", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects postfix increment or decrement in return statements where the operation has no effect."}}))
+	{
+		r := &PropertyUsedBeforeDeclarationRule{BaseRule: BaseRule{RuleName: "PropertyUsedBeforeDeclaration", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects class properties referenced in initializers or init blocks before they are declared."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_body"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				type propInfo struct {
+					name  string
+					node  uint32
+					index int // order among direct children
+				}
+
+				// First pass: collect class-level property declarations (direct children of class_body).
+				var props []propInfo
+				propByName := map[string]int{} // property name -> index in class_body children
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					child := file.FlatChild(idx, i)
+					if file.FlatType(child) != "property_declaration" {
+						continue
+					}
+					name := propertyDeclarationNameFlat(file, child)
+					if name == "" {
+						continue
+					}
+					props = append(props, propInfo{name, child, i})
+					propByName[name] = i
+				}
+				if len(props) == 0 {
+					return
+				}
+
+				// collectIdentifiers gathers all simple_identifier text from a subtree,
+				// but does NOT descend into function_declaration or lambda_literal nodes
+				// (those execute lazily, so references there are fine).
+				var collectIdentifiers func(n uint32) []string
+				collectIdentifiers = func(n uint32) []string {
+					var ids []string
+					switch file.FlatType(n) {
+					case "function_declaration", "lambda_literal":
+						return nil
+					}
+					if file.FlatType(n) == "simple_identifier" {
+						ids = append(ids, file.FlatNodeText(n))
+					}
+					for i := 0; i < file.FlatChildCount(n); i++ {
+						ids = append(ids, collectIdentifiers(file.FlatChild(n, i))...)
+					}
+					return ids
+				}
+
+				// Second pass: for each class-level property initializer AND each init block,
+				// check if it references a property declared later.
+				for i := 0; i < file.FlatChildCount(idx); i++ {
+					child := file.FlatChild(idx, i)
+					switch file.FlatType(child) {
+					case "property_declaration":
+						propName := propertyDeclarationNameFlat(file, child)
+						if propName == "" {
+							continue
+						}
+						refs := collectIdentifiers(child)
+						for _, ref := range refs {
+							if ref == propName {
+								continue
+							}
+							declIdx, ok := propByName[ref]
+							if ok && declIdx > i {
+								ctx.EmitAt(file.FlatRow(child)+1, 1,
+									fmt.Sprintf("Property '%s' uses '%s' which is declared later.", propName, ref))
+								break // one finding per property
+							}
+						}
+					case "anonymous_initializer":
+						// init {} blocks execute eagerly in declaration order.
+						refs := collectIdentifiers(child)
+						for _, ref := range refs {
+							declIdx, ok := propByName[ref]
+							if ok && declIdx > i {
+								ctx.EmitAt(file.FlatRow(child)+1, 1,
+									fmt.Sprintf("Init block uses '%s' which is declared later.", ref))
+								break
+							}
+						}
+					}
+				}
+			},
+		})
+	}
+	{
+		r := &UnconditionalJumpStatementInLoopRule{BaseRule: BaseRule{RuleName: "UnconditionalJumpStatementInLoop", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects loops containing an unconditional return, break, or throw that causes the loop to execute only once."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"for_statement", "while_statement", "do_while_statement"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				body := file.FlatFindChild(idx, "statements")
+				if body == 0 {
+					for i := 0; i < file.FlatChildCount(idx); i++ {
+						child := file.FlatChild(idx, i)
+						if file.FlatType(child) == "control_structure_body" {
+							body = child
+							break
+						}
+					}
+				}
+				if body == 0 {
+					return
+				}
+				text := file.FlatNodeText(body)
+				trimmed := strings.TrimSpace(text)
+				if strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}") {
+					trimmed = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+				}
+				lines := strings.Split(trimmed, "\n")
+				for _, l := range lines {
+					lt := strings.TrimSpace(l)
+					if lt == "" {
+						continue
+					}
+					if strings.HasPrefix(lt, "return") || strings.HasPrefix(lt, "break") || strings.HasPrefix(lt, "continue") || strings.HasPrefix(lt, "throw") {
+						if !strings.Contains(trimmed, "if ") && !strings.Contains(trimmed, "if(") && !strings.Contains(trimmed, "when") {
+							ctx.EmitAt(file.FlatRow(idx)+1, 1,
+								"Unconditional jump statement in loop. The loop will only execute once.")
+						}
+					}
+					break // Only check the first non-empty statement
+				}
+			},
+		})
+	}
+	{
+		r := &UnnamedParameterUseRule{BaseRule: BaseRule{RuleName: "UnnamedParameterUse", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects function calls with many unnamed parameters where named parameters would improve readability."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					return
+				}
+				count := 0
+				hasNamed := false
+				for i := 0; i < file.FlatChildCount(args); i++ {
+					child := file.FlatChild(args, i)
+					if file.FlatType(child) == "value_argument" {
+						count++
+						hasNamed = hasNamed || flatHasValueArgumentLabel(file, child)
+					}
+				}
+				if count < 5 || hasNamed {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Function call with many unnamed parameters. Consider using named parameters for clarity.")
+			},
+		})
+	}
+	{
+		r := &UnusedUnaryOperatorRule{BaseRule: BaseRule{RuleName: "UnusedUnaryOperator", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects standalone unary +x or -x expressions whose result is never used."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"prefix_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if file.FlatChildCount(idx) < 2 {
+					return
+				}
+				op := file.FlatNodeText(file.FlatChild(idx, 0))
+				if op != "+" && op != "-" {
+					return
+				}
+
+				topExpr := idx
+				for {
+					parent, ok := file.FlatParent(topExpr)
+					if !ok || file.FlatType(parent) != "binary_expression" {
+						break
+					}
+					topExpr = parent
+				}
+
+				stmts, ok := file.FlatParent(topExpr)
+				if !ok {
+					return
+				}
+
+				if file.FlatType(stmts) != "statements" {
+					return
+				}
+
+				if flatIsLastNamedChildOf(file, topExpr, stmts) && flatIsExpressionBlock(file, stmts) {
+					return
+				}
+
+				text := file.FlatNodeText(idx)
+				if file.FlatType(topExpr) == "binary_expression" {
+					text = file.FlatNodeText(topExpr)
+				}
+
+				row := file.FlatRow(idx) + 1
+				col := file.FlatCol(idx) + 1
+				ctx.EmitAt(row, col,
+					fmt.Sprintf("Unused unary operator. The result of '%s' is not used.", text))
+			},
+		})
+	}
+	{
+		r := &UselessPostfixExpressionRule{BaseRule: BaseRule{RuleName: "UselessPostfixExpression", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects postfix increment or decrement in return statements where the operation has no effect."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"jump_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if !uselessPostfixRe.MatchString(text) {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Useless postfix expression in return statement. The increment/decrement has no effect.")
+				if m := uselessPostfixFixRe.FindStringSubmatch(text); m != nil {
+					indent := m[1]
+					varName := m[2]
+					op := m[3]
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   int(file.FlatStartByte(idx)),
+						EndByte:     int(file.FlatEndByte(idx)),
+						Replacement: indent + varName + op + "\n" + indent + "return " + varName,
+					}
+				}
+				ctx.Emit(f)
+			},
+		})
+	}
 
 	// --- from potentialbugs_types.go ---
 	{
@@ -8690,21 +9396,172 @@ func registerAllRules() {
 	}
 
 	// --- from privacy_analytics.go ---
-	v2.Register(WrapAsV2(&AnalyticsEventWithPiiParamNameRule{
-		BaseRule: BaseRule{RuleName: "AnalyticsEventWithPiiParamName", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects analytics event parameters whose key names match PII patterns like email, phone, or SSN."},
-	}))
-	v2.Register(WrapAsV2(&AnalyticsUserIdFromPiiRule{
-		BaseRule: BaseRule{RuleName: "AnalyticsUserIdFromPii", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects user-ID setter calls whose argument is a PII property like email or phoneNumber."},
-	}))
-	v2.Register(WrapAsV2(&CrashlyticsCustomKeyWithPiiRule{
-		BaseRule: BaseRule{RuleName: "CrashlyticsCustomKeyWithPii", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects Crashlytics setCustomKey calls where the key name matches PII patterns."},
-	}))
-	v2.Register(WrapAsV2(&FirebaseRemoteConfigDefaultsWithPiiRule{
-		BaseRule: BaseRule{RuleName: "FirebaseRemoteConfigDefaultsWithPii", RuleSetName: privacyRuleSet, Sev: "info", Desc: "Detects Firebase Remote Config default map keys that match PII patterns."},
-	}))
-	v2.Register(WrapAsV2(&AnalyticsCallWithoutConsentGateRule{
-		BaseRule: BaseRule{RuleName: "AnalyticsCallWithoutConsentGate", RuleSetName: privacyRuleSet, Sev: "info", Desc: "Detects analytics event calls that are not guarded by a consent or GDPR check."},
-	}))
+	{
+		r := &AnalyticsEventWithPiiParamNameRule{BaseRule: BaseRule{RuleName: "AnalyticsEventWithPiiParamName", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects analytics event parameters whose key names match PII patterns like email, phone, or SSN."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				if !isAnalyticsEventMethod(name) {
+					return
+				}
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					return
+				}
+				var emitted bool
+				file.FlatWalkNodes(args, "infix_expression", func(infix uint32) {
+					text := file.FlatNodeText(infix)
+					if !strings.Contains(text, " to ") {
+						return
+					}
+					parts := strings.SplitN(text, " to ", 2)
+					keyText := strings.Trim(strings.TrimSpace(parts[0]), "\"")
+					if piiKeyPattern.MatchString(keyText) {
+						ctx.EmitAt(file.FlatRow(infix)+1, file.FlatCol(infix)+1, "Analytics event parameter \""+keyText+"\" looks like PII. Avoid sending personally identifiable information to analytics services.")
+						emitted = true
+					}
+				})
+				if emitted {
+					return
+				}
+				file.FlatWalkNodes(args, "string_literal", func(strNode uint32) {
+					parent, ok := file.FlatParent(strNode)
+					if !ok {
+						return
+					}
+					if file.FlatType(parent) == "value_argument" || file.FlatType(parent) == "infix_expression" {
+						return
+					}
+					body, ok := kotlinStringLiteralBody(file.FlatNodeText(strNode))
+					if !ok {
+						return
+					}
+					if piiKeyPattern.MatchString(body) {
+						ctx.EmitAt(file.FlatRow(strNode)+1, file.FlatCol(strNode)+1, "Analytics event parameter \""+body+"\" looks like PII. Avoid sending personally identifiable information to analytics services.")
+					}
+				})
+			},
+		})
+	}
+	{
+		r := &AnalyticsUserIdFromPiiRule{BaseRule: BaseRule{RuleName: "AnalyticsUserIdFromPii", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects user-ID setter calls whose argument is a PII property like email or phoneNumber."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				if !isUserIdSetterMethod(name) {
+					return
+				}
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					return
+				}
+				arg := flatPositionalValueArgument(file, args, 0)
+				if arg == 0 {
+					return
+				}
+				argExpr := flatValueArgumentExpression(file, arg)
+				if argExpr == 0 {
+					return
+				}
+				argText := file.FlatNodeText(argExpr)
+				lastProp := privacyLastPropertyName(argText)
+				if !piiPropertyNames[lastProp] {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(argExpr)+1, file.FlatCol(argExpr)+1, "User ID set from PII property \""+lastProp+"\". User IDs should be opaque identifiers, not personally identifiable information.")
+			},
+		})
+	}
+	{
+		r := &CrashlyticsCustomKeyWithPiiRule{BaseRule: BaseRule{RuleName: "CrashlyticsCustomKeyWithPii", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects Crashlytics setCustomKey calls where the key name matches PII patterns."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if flatCallExpressionName(file, idx) != "setCustomKey" {
+					return
+				}
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					return
+				}
+				arg := flatPositionalValueArgument(file, args, 0)
+				if arg == 0 {
+					return
+				}
+				argExpr := flatValueArgumentExpression(file, arg)
+				if argExpr == 0 {
+					return
+				}
+				body, ok := kotlinStringLiteralBody(file.FlatNodeText(argExpr))
+				if !ok {
+					return
+				}
+				if !piiKeyPattern.MatchString(body) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(argExpr)+1, file.FlatCol(argExpr)+1, "Crashlytics custom key \""+body+"\" looks like PII. Crash reports should not carry personally identifiable information.")
+			},
+		})
+	}
+	{
+		r := &FirebaseRemoteConfigDefaultsWithPiiRule{BaseRule: BaseRule{RuleName: "FirebaseRemoteConfigDefaultsWithPii", RuleSetName: privacyRuleSet, Sev: "info", Desc: "Detects Firebase Remote Config default map keys that match PII patterns."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				if name != "setDefaults" && name != "setDefaultsAsync" {
+					return
+				}
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					return
+				}
+				file.FlatWalkNodes(args, "infix_expression", func(infix uint32) {
+					text := file.FlatNodeText(infix)
+					if !strings.Contains(text, " to ") {
+						return
+					}
+					parts := strings.SplitN(text, " to ", 2)
+					keyText := strings.Trim(strings.TrimSpace(parts[0]), "\"")
+					if piiKeyPattern.MatchString(keyText) {
+						ctx.EmitAt(file.FlatRow(infix)+1, file.FlatCol(infix)+1, "Remote Config default key \""+keyText+"\" looks like PII. Remote Config values are not encrypted at rest.")
+					}
+				})
+			},
+		})
+	}
+	{
+		r := &AnalyticsCallWithoutConsentGateRule{BaseRule: BaseRule{RuleName: "AnalyticsCallWithoutConsentGate", RuleSetName: privacyRuleSet, Sev: "info", Desc: "Detects analytics event calls that are not guarded by a consent or GDPR check."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				if !isAnalyticsEventMethod(name) {
+					return
+				}
+				if privacyCallIsInsideConsentGuard(file, idx) {
+					return
+				}
+				fn, ok := flatEnclosingFunction(file, idx)
+				if ok && privacyHasConsentEarlyReturn(file, fn, idx) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Analytics call without a visible consent gate. Guard analytics events behind a consent check (e.g. if (consent.analyticsAllowed) { ... }).")
+			},
+		})
+	}
 
 	// --- from privacy_permissions.go ---
 	{

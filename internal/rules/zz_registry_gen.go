@@ -8021,17 +8021,143 @@ func registerAllRules() {
 	v2.Register(WrapAsV2(&ImplicitDefaultLocaleRule{BaseRule: BaseRule{RuleName: "ImplicitDefaultLocale", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects locale-sensitive string methods called without an explicit Locale argument."}}))
 	v2.Register(WrapAsV2(&LocaleDefaultForCurrencyRule{BaseRule: BaseRule{RuleName: "LocaleDefaultForCurrency", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Currency.getInstance(Locale.getDefault()) in money-related classes where currency should come from business data."}}))
 
-	// --- from potentialbugs_nullsafety.go ---
-	v2.Register(WrapAsV2(&UnsafeCastRule{BaseRule: BaseRule{RuleName: "UnsafeCast", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects non-safe casts using 'as Type' that may throw ClassCastException at runtime."}}))
-	v2.Register(WrapAsV2(&UnsafeCallOnNullableTypeRule{BaseRule: BaseRule{RuleName: "UnsafeCallOnNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects usage of the !! not-null assertion operator which may throw NullPointerException."}}))
-	v2.Register(WrapAsV2(&MapGetWithNotNullAssertionRule{BaseRule: BaseRule{RuleName: "MapGetWithNotNullAssertionOperator", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects map[key]!! usage and suggests getValue() or safe alternatives."}}))
-	v2.Register(WrapAsV2(&CastNullableToNonNullableTypeRule{BaseRule: BaseRule{RuleName: "CastNullableToNonNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects casting a nullable expression to a non-nullable type using 'as Type'."}}))
-	v2.Register(WrapAsV2(&CastToNullableTypeRule{BaseRule: BaseRule{RuleName: "CastToNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects casts to nullable types like 'as Type?' which always succeed and may hide bugs."}}))
-	v2.Register(WrapAsV2(&UnnecessaryNotNullCheckRule{BaseRule: BaseRule{RuleName: "UnnecessaryNotNullCheck", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects unnecessary null checks on expressions that are already non-nullable."}}))
-	v2.Register(WrapAsV2(&UnnecessaryNotNullOperatorRule{BaseRule: BaseRule{RuleName: "UnnecessaryNotNullOperator", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects the !! operator applied to expressions that are already non-nullable."}}))
-	v2.Register(WrapAsV2(&UnnecessarySafeCallRule{BaseRule: BaseRule{RuleName: "UnnecessarySafeCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects the ?. safe-call operator applied to expressions that are already non-nullable."}}))
+	// --- from potentialbugs_nullsafety_casts.go ---
+	{
+		r := &UnsafeCastRule{BaseRule: BaseRule{RuleName: "UnsafeCast", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects non-safe casts using 'as Type' that may throw ClassCastException at runtime."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
+			Needs: v2.NeedsResolver, OriginalV1: r,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.CheckFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &CastNullableToNonNullableTypeRule{BaseRule: BaseRule{RuleName: "CastNullableToNonNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects casting a nullable expression to a non-nullable type using 'as Type'."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
+			Needs: v2.NeedsResolver, OriginalV1: r,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.CheckFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &CastToNullableTypeRule{BaseRule: BaseRule{RuleName: "CastToNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects casts to nullable types like 'as Type?' which always succeed and may hide bugs."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.CheckFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+
+	// --- from potentialbugs_nullsafety_bangbang.go ---
+	{
+		r := &UnsafeCallOnNullableTypeRule{BaseRule: BaseRule{RuleName: "UnsafeCallOnNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects usage of the !! not-null assertion operator which may throw NullPointerException."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75,
+			Needs: v2.NeedsResolver, OriginalV1: r,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.CheckFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &MapGetWithNotNullAssertionRule{BaseRule: BaseRule{RuleName: "MapGetWithNotNullAssertionOperator", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects map[key]!! usage and suggests getValue() or safe alternatives."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
+			Needs: v2.NeedsResolver, OriginalV1: r,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.CheckFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+
+	// --- from potentialbugs_nullsafety_redundant.go ---
+	{
+		r := &UnnecessaryNotNullCheckRule{BaseRule: BaseRule{RuleName: "UnnecessaryNotNullCheck", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects unnecessary null checks on expressions that are already non-nullable."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.CheckFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UnnecessaryNotNullOperatorRule{BaseRule: BaseRule{RuleName: "UnnecessaryNotNullOperator", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects the !! operator applied to expressions that are already non-nullable."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
+			Needs: v2.NeedsResolver, OriginalV1: r,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.CheckFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
+	{
+		r := &UnnecessarySafeCallRule{BaseRule: BaseRule{RuleName: "UnnecessarySafeCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects the ?. safe-call operator applied to expressions that are already non-nullable."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
+			Needs: v2.NeedsResolver, OriginalV1: r,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.CheckFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 	v2.Register(WrapAsV2(&NullCheckOnMutablePropertyRule{BaseRule: BaseRule{RuleName: "NullCheckOnMutableProperty", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects null checks on mutable var properties that may be changed by another thread between the check and use."}}))
-	v2.Register(WrapAsV2(&NullableToStringCallRule{BaseRule: BaseRule{RuleName: "NullableToStringCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects .toString() calls on nullable receivers that may produce the string \"null\"."}}))
+	{
+		r := &NullableToStringCallRule{BaseRule: BaseRule{RuleName: "NullableToStringCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects .toString() calls on nullable receivers that may produce the string \"null\"."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75,
+			Needs: v2.NeedsResolver, OriginalV1: r,
+			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				for _, f := range r.CheckFlatNode(idx, file) {
+					ctx.Emit(f)
+				}
+			},
+		})
+	}
 
 	// --- from potentialbugs_properties.go ---
 	v2.Register(WrapAsV2(&PropertyUsedBeforeDeclarationRule{BaseRule: BaseRule{RuleName: "PropertyUsedBeforeDeclaration", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects class properties referenced in initializers or init blocks before they are declared."}}))

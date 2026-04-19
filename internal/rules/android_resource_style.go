@@ -9,6 +9,7 @@ import (
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -65,14 +66,14 @@ func isPxValue(val string) bool {
 // XML. Classified per roadmap/17.
 func (r *PxUsageResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *PxUsageResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *PxUsageResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			for _, attr := range pxDimensionAttrs {
 				val := v.Attributes[attr]
 				if isPxValue(val) {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Avoid using `px` in `%s=\"%s\"`. Use `dp` or `sp` instead for density-independent sizing.",
 							attr, val)))
 				}
@@ -82,12 +83,11 @@ func (r *PxUsageResourceRule) CheckResources(idx *android.ResourceIndex) []scann
 	// Also check values/dimens
 	for name, val := range idx.Dimensions {
 		if isPxValue(val) {
-			findings = append(findings, resourceFinding("res/values/dimens.xml", 0, r.BaseRule,
+			ctx.Emit(resourceFinding("res/values/dimens.xml", 0, r.BaseRule,
 				fmt.Sprintf("Dimension `%s` uses `px` value `%s`. Use `dp` or `sp` instead.",
 					name, val)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -129,19 +129,18 @@ func isDpValue(val string) bool {
 // XML. Classified per roadmap/17.
 func (r *SpUsageResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *SpUsageResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *SpUsageResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			val := v.Attributes["android:textSize"]
 			if isDpValue(val) {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`android:textSize=\"%s\"` uses `dp`. Use `sp` instead so text respects the user's font size preference.",
 						val)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -174,8 +173,8 @@ func parseSpValue(val string) (float64, bool) {
 // XML. Classified per roadmap/17.
 func (r *SmallSpResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *SmallSpResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *SmallSpResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			textSize := v.Attributes["android:textSize"]
@@ -187,13 +186,12 @@ func (r *SmallSpResourceRule) CheckResources(idx *android.ResourceIndex) []scann
 				return
 			}
 			if sp < 12 {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Text size `%s` is too small (below 12sp). Consider using at least 12sp for readability.",
 						textSize)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -243,14 +241,14 @@ func isNumeric(s string) bool {
 // XML. Classified per roadmap/17.
 func (r *InOrMmUsageResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *InOrMmUsageResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *InOrMmUsageResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			for _, attr := range pxDimensionAttrs {
 				val := v.Attributes[attr]
 				if unit, ok := isInOrMmValue(val); ok {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Avoid using `%s` units in `%s=\"%s\"`. Use `dp` or `sp` for density-independent sizing.",
 							unit, attr, val)))
 				}
@@ -260,12 +258,11 @@ func (r *InOrMmUsageResourceRule) CheckResources(idx *android.ResourceIndex) []s
 	// Also check values/dimens
 	for name, val := range idx.Dimensions {
 		if unit, ok := isInOrMmValue(val); ok {
-			findings = append(findings, resourceFinding("res/values/dimens.xml", 0, r.BaseRule,
+			ctx.Emit(resourceFinding("res/values/dimens.xml", 0, r.BaseRule,
 				fmt.Sprintf("Dimension `%s` uses `%s` value `%s`. Use `dp` or `sp` instead.",
 					name, unit, val)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -297,8 +294,8 @@ func isNegativeMargin(val string) bool {
 // XML. Classified per roadmap/17.
 func (r *NegativeMarginResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *NegativeMarginResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *NegativeMarginResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			// Combine all negative-margin attributes on a single view
@@ -315,17 +312,16 @@ func (r *NegativeMarginResourceRule) CheckResources(idx *android.ResourceIndex) 
 				return
 			}
 			if len(offenders) == 1 {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Negative margin %s in `%s`. Negative margins can cause overlapping or clipping.",
 						offenders[0], v.Type)))
 				return
 			}
-			findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("Negative margins in `%s`: %s. Negative margins can cause overlapping or clipping.",
 					v.Type, strings.Join(offenders, ", "))))
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -340,8 +336,8 @@ type Suspicious0dpResourceRule struct {
 	AndroidRule
 }
 
-func (r *Suspicious0dpResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *Suspicious0dpResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViewsWithParent(layout.RootView, nil, func(v, parent *android.View) {
 			if parent == nil || parent.Type != "LinearLayout" {
@@ -354,19 +350,18 @@ func (r *Suspicious0dpResourceRule) CheckResources(idx *android.ResourceIndex) [
 			if orientation == "horizontal" {
 				// In horizontal, 0dp height is suspicious
 				if h == "0dp" && w != "0dp" {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						"Suspicious `0dp` on `layout_height` in horizontal `LinearLayout`. Did you mean `layout_width=\"0dp\"` (for weight)?"))
 				}
 			} else if orientation == "vertical" {
 				// In vertical, 0dp width is suspicious
 				if w == "0dp" && h != "0dp" {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						"Suspicious `0dp` on `layout_width` in vertical `LinearLayout`. Did you mean `layout_height=\"0dp\"` (for weight)?"))
 				}
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -386,9 +381,9 @@ type DisableBaselineAlignmentResourceRule struct {
 // XML. Classified per roadmap/17.
 func (r *DisableBaselineAlignmentResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *DisableBaselineAlignmentResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
+func (r *DisableBaselineAlignmentResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	requireText := experiment.Enabled("disable-baseline-alignment-require-text-children")
-	var findings []scanner.Finding
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Type != "LinearLayout" && v.Type != "AppCompatLinearLayout" {
@@ -421,11 +416,10 @@ func (r *DisableBaselineAlignmentResourceRule) CheckResources(idx *android.Resou
 			if requireText && !hasDirectTextChild(v) {
 				return
 			}
-			findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("`%s` with weighted children should set `android:baselineAligned=\"false\"` for better performance.", v.Type)))
 		})
 	}
-	return findings
 }
 
 // hasDirectTextChild reports whether the view has at least one direct
@@ -481,8 +475,8 @@ type InefficientWeightResourceRule struct {
 // XML. Classified per roadmap/17.
 func (r *InefficientWeightResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *InefficientWeightResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *InefficientWeightResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Type != "LinearLayout" && v.Type != "AppCompatLinearLayout" {
@@ -501,13 +495,12 @@ func (r *InefficientWeightResourceRule) CheckResources(idx *android.ResourceInde
 			}
 			// Check if orientation is missing
 			if v.Attributes["android:orientation"] == "" {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` uses `layout_weight` but is missing `android:orientation`. "+
 						"Declare orientation explicitly when using weights.", v.Type)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -527,12 +520,15 @@ type NestedWeightsResourceRule struct {
 // XML. Classified per roadmap/17.
 func (r *NestedWeightsResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *NestedWeightsResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
+func (r *NestedWeightsResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	var findings []scanner.Finding
 	for _, layout := range idx.Layouts {
 		findNestedWeights(layout.RootView, layout.FilePath, r.BaseRule, &findings)
 	}
-	return findings
+	for _, f := range findings {
+		ctx.Emit(f)
+	}
 }
 
 func isLinearLayout(viewType string) bool {
@@ -585,12 +581,15 @@ type ObsoleteLayoutParamsResourceRule struct {
 // XML. Classified per roadmap/17.
 func (r *ObsoleteLayoutParamsResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *ObsoleteLayoutParamsResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
+func (r *ObsoleteLayoutParamsResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	var findings []scanner.Finding
 	for _, layout := range idx.Layouts {
 		checkObsoleteParams(layout.RootView, layout.FilePath, r.BaseRule, &findings)
 	}
-	return findings
+	for _, f := range findings {
+		ctx.Emit(f)
+	}
 }
 
 func checkObsoleteParams(v *android.View, path string, rule BaseRule, findings *[]scanner.Finding) {
@@ -627,8 +626,8 @@ type MergeRootFrameResourceRule struct {
 // XML. Classified per roadmap/17.
 func (r *MergeRootFrameResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *MergeRootFrameResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *MergeRootFrameResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		root := layout.RootView
 		if root == nil {
@@ -645,11 +644,10 @@ func (r *MergeRootFrameResourceRule) CheckResources(idx *android.ResourceIndex) 
 		if hasAnyPadding(root) {
 			continue
 		}
-		findings = append(findings, resourceFinding(layout.FilePath, root.Line, r.BaseRule,
+		ctx.Emit(resourceFinding(layout.FilePath, root.Line, r.BaseRule,
 			fmt.Sprintf("Root `FrameLayout` in `%s` can be replaced with `<merge>` tag to reduce nesting.",
 				layout.Name)))
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -690,8 +688,8 @@ func isTransparentBackground(bg string) bool {
 // XML. Classified per roadmap/17.
 func (r *OverdrawResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *OverdrawResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *OverdrawResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		root := layout.RootView
 		if root == nil || root.Background == "" || isTransparentBackground(root.Background) {
@@ -702,14 +700,13 @@ func (r *OverdrawResourceRule) CheckResources(idx *android.ResourceIndex) []scan
 				continue
 			}
 			if android.IsLayoutView(child.Type) {
-				findings = append(findings, resourceFinding(layout.FilePath, child.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, child.Line, r.BaseRule,
 					fmt.Sprintf("Possible overdraw: child `%s` has background `%s` and root `%s` also has background `%s`. "+
 						"Remove one background to reduce overdraw.",
 						child.Type, child.Background, root.Type, root.Background)))
 			}
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -729,8 +726,8 @@ type AlwaysShowActionResourceRule struct {
 // XML. Classified per roadmap/17.
 func (r *AlwaysShowActionResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *AlwaysShowActionResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *AlwaysShowActionResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			val := v.Attributes["app:showAsAction"]
@@ -738,13 +735,12 @@ func (r *AlwaysShowActionResourceRule) CheckResources(idx *android.ResourceIndex
 				val = v.Attributes["android:showAsAction"]
 			}
 			if strings.Contains(val, "always") {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`showAsAction=\"%s\"` in `%s`. Use `ifRoom` instead of `always` to avoid crowding the action bar on small screens.",
 						val, v.Type)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -767,11 +763,10 @@ type StateListReachableResourceRule struct {
 // XML. Classified per roadmap/17.
 func (r *StateListReachableResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *StateListReachableResourceRule) CheckResources(_ *android.ResourceIndex) []scanner.Finding {
+func (r *StateListReachableResourceRule) check(_ *v2.Context) {
 	// Drawable XML parsing is not yet available in ResourceIndex.
 	// This is a placeholder that returns no findings until drawable XML
 	// parsing support is added.
-	return nil
 }
 
 // ---------------------------------------------------------------------------

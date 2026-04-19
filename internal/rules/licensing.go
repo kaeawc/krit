@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 const (
@@ -163,12 +163,12 @@ var embeddedDependencyLicenseRegistry = map[string]string{
 // negatives. Classified per roadmap/17.
 func (r *DependencyLicenseUnknownRule) Confidence() float64 { return 0.75 }
 
-func (r *DependencyLicenseUnknownRule) CheckGradle(path string, content string, cfg *android.BuildConfig) []scanner.Finding {
+func (r *DependencyLicenseUnknownRule) check(ctx *v2.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	if !r.RequireVerification || cfg == nil {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for _, dep := range cfg.Dependencies {
 		if dep.Group == "" || dep.Name == "" {
 			continue
@@ -189,9 +189,7 @@ func (r *DependencyLicenseUnknownRule) CheckGradle(path string, content string, 
 			line = 1
 		}
 
-		findings = append(findings, gradleFinding(path, line, r.BaseRule,
+		ctx.Emit(gradleFinding(path, line, r.BaseRule,
 			fmt.Sprintf("Dependency %s is not present in the embedded license registry; add a registry entry or disable license verification for this project.", coord)))
 	}
-
-	return findings
 }

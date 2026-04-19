@@ -1221,11 +1221,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1241,11 +1237,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1261,11 +1253,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1281,11 +1269,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1301,11 +1285,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1321,11 +1301,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1341,11 +1317,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1361,11 +1333,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1381,11 +1349,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1401,11 +1365,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1421,11 +1381,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1441,11 +1397,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1461,11 +1413,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1481,11 +1429,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1501,11 +1445,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1521,11 +1461,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1541,11 +1477,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1561,11 +1493,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1581,11 +1509,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -1722,12 +1646,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1743,12 +1662,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1764,12 +1678,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1785,12 +1694,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1806,12 +1710,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1827,12 +1726,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1848,12 +1742,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1869,12 +1758,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1890,12 +1774,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1911,12 +1790,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1932,12 +1806,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1953,12 +1822,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -1974,12 +1838,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -1997,12 +1856,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -2020,12 +1874,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2041,12 +1890,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2062,12 +1906,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2083,12 +1922,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2104,12 +1938,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2125,12 +1954,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2146,12 +1970,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2167,12 +1986,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2188,12 +2002,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2209,12 +2018,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2230,12 +2034,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2251,12 +2050,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2272,12 +2066,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2293,12 +2082,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -2316,12 +2100,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2337,12 +2116,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2358,12 +2132,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2379,12 +2148,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2400,12 +2164,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2421,12 +2180,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2442,12 +2196,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2463,12 +2212,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2484,12 +2228,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2505,12 +2244,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2526,12 +2260,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2547,12 +2276,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2568,12 +2292,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2589,12 +2308,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2610,12 +2324,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2631,12 +2340,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2652,12 +2356,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2673,12 +2372,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				m, _ := ctx.Manifest.(*Manifest)
-				for _, f := range r.CheckManifest(m) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -2696,11 +2390,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2716,11 +2406,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2736,11 +2422,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2756,11 +2438,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2776,11 +2454,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2796,11 +2470,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2816,11 +2486,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2836,11 +2502,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2856,11 +2518,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2876,11 +2534,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2896,11 +2550,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2916,11 +2566,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2936,11 +2582,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2956,11 +2598,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2976,11 +2614,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -2996,11 +2630,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -3018,11 +2648,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3038,11 +2664,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3058,11 +2680,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3078,11 +2696,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3098,11 +2712,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3118,11 +2728,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3138,11 +2744,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3158,11 +2760,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3178,11 +2776,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3198,11 +2792,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3218,11 +2808,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3238,11 +2824,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3258,11 +2840,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3278,11 +2856,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -3300,11 +2874,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3320,11 +2890,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3340,11 +2906,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3360,11 +2922,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3380,11 +2938,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3400,11 +2954,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3420,11 +2970,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3440,11 +2986,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3460,11 +3002,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3480,11 +3018,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3500,11 +3034,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3520,11 +3050,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3540,11 +3066,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -3562,11 +3084,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3582,11 +3100,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3602,11 +3116,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3622,11 +3132,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3642,11 +3148,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -3664,11 +3166,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3684,11 +3182,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3704,11 +3198,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3724,11 +3214,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3744,11 +3230,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3764,11 +3246,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3784,11 +3262,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3804,11 +3278,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3824,11 +3294,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3844,11 +3310,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3864,11 +3326,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3884,11 +3342,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3904,11 +3358,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3924,11 +3374,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -3946,11 +3392,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3966,11 +3408,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -3986,11 +3424,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4006,11 +3440,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4026,11 +3456,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4046,11 +3472,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4066,11 +3488,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4086,11 +3504,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4106,11 +3520,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4126,11 +3536,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4146,11 +3552,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4166,11 +3568,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4186,11 +3584,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4206,11 +3600,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4221,11 +3611,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4241,11 +3627,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -4261,11 +3643,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 
@@ -5138,11 +4516,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckResources(ctx.ResourceIndex) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -9079,11 +8453,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				for _, f := range r.CheckGradle(ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig) {
-					ctx.Emit(f)
-				}
-			},
+			Check: r.check,
 		})
 	}
 

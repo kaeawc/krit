@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/experiment"
-	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -25,32 +25,34 @@ type AllowBackupManifestRule struct {
 // checks on manifest nodes. Classified per roadmap/17.
 func (r *AllowBackupManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *AllowBackupManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *AllowBackupManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	// Skip variant manifests — they merge into main and inherit attributes.
 	if isNonMainManifestPath(m.Path) {
-		return nil
+		return
 	}
 	if isLibraryOrTestModuleManifest(m.Path) {
-		return nil
+		return
 	}
 	app := m.Application
 	if app.AllowBackup == nil {
 		// Not set — defaults to true, which is the risky default
-		return []scanner.Finding{manifestFinding(m.Path, app.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, app.Line, r.BaseRule,
 			"Missing `android:allowBackup` attribute on <application>. "+
 				"Consider explicitly setting android:allowBackup=\"false\" to disable backup. "+
-				"http://developer.android.com/reference/android/R.attr.html#allowBackup")}
+				"http://developer.android.com/reference/android/R.attr.html#allowBackup"))
+		return
 	}
 	if *app.AllowBackup {
-		return []scanner.Finding{manifestFinding(m.Path, app.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, app.Line, r.BaseRule,
 			"`android:allowBackup=\"true\"` allows app data to be backed up via adb. "+
 				"Set to false if your app handles sensitive data. "+
-				"http://developer.android.com/reference/android/R.attr.html#allowBackup")}
+				"http://developer.android.com/reference/android/R.attr.html#allowBackup"))
+		return
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -70,18 +72,19 @@ type DebuggableManifestRule struct {
 // checks on manifest nodes. Classified per roadmap/17.
 func (r *DebuggableManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *DebuggableManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *DebuggableManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	app := m.Application
 	if app.Debuggable != nil && *app.Debuggable {
-		return []scanner.Finding{manifestFinding(m.Path, app.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, app.Line, r.BaseRule,
 			"`android:debuggable=\"true\"` is set in the manifest. "+
 				"This should be controlled by the build system (debug vs release build type). "+
-				"Remove the debuggable attribute from the manifest.")}
+				"Remove the debuggable attribute from the manifest."))
+		return
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -100,17 +103,17 @@ type ExportedWithoutPermissionRule struct {
 // checks on manifest nodes. Classified per roadmap/17.
 func (r *ExportedWithoutPermissionRule) Confidence() float64 { return 0.75 }
 
-func (r *ExportedWithoutPermissionRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *ExportedWithoutPermissionRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	// Skip test/benchmark/debug manifests — these legitimately export
 	// components for testing infrastructure and aren't shipped to production.
 	if isTestManifestPath(m.Path) {
-		return nil
+		return
 	}
 	skipSystemActions := experiment.Enabled("exported-without-permission-skip-system-actions")
-	var findings []scanner.Finding
 	components := allComponents(m.Application)
 	for _, c := range components {
 		if c.Exported == nil || !*c.Exported || c.Permission != "" {
@@ -134,12 +137,11 @@ func (r *ExportedWithoutPermissionRule) CheckManifest(m *Manifest) []scanner.Fin
 			// would break the contract with the calling system service.
 			continue
 		}
-		findings = append(findings, manifestFinding(m.Path, c.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, c.Line, r.BaseRule,
 			fmt.Sprintf("Exported %s `%s` does not require a permission. "+
 				"Add android:permission to restrict access.",
 				c.Tag, c.Name)))
 	}
-	return findings
 }
 
 // publicSystemActions lists intent-filter action names that identify a
@@ -239,22 +241,21 @@ type MissingExportedFlagRule struct {
 // checks on manifest nodes. Classified per roadmap/17.
 func (r *MissingExportedFlagRule) Confidence() float64 { return 0.75 }
 
-func (r *MissingExportedFlagRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *MissingExportedFlagRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	components := allComponents(m.Application)
 	for _, c := range components {
 		if c.HasIntentFilter && c.Exported == nil {
-			findings = append(findings, manifestFinding(m.Path, c.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, c.Line, r.BaseRule,
 				fmt.Sprintf("%s `%s` has an intent-filter but does not set android:exported. "+
 					"Starting with Android 12 (API 31), android:exported must be explicitly set "+
 					"for components with intent-filters.",
 					strings.Title(c.Tag), c.Name)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -273,20 +274,19 @@ type ExportedServiceManifestRule struct {
 // checks on manifest nodes. Classified per roadmap/17.
 func (r *ExportedServiceManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *ExportedServiceManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *ExportedServiceManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, svc := range m.Application.Services {
 		if svc.Exported != nil && *svc.Exported && svc.Permission == "" {
-			findings = append(findings, manifestFinding(m.Path, svc.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, svc.Line, r.BaseRule,
 				fmt.Sprintf("Exported service `%s` does not require a permission. "+
 					"Any app can bind to it. Add android:permission to restrict access.",
 					svc.Name)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -306,25 +306,24 @@ type ExportedPreferenceActivityManifestRule struct {
 // checks on manifest nodes. Classified per roadmap/17.
 func (r *ExportedPreferenceActivityManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *ExportedPreferenceActivityManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *ExportedPreferenceActivityManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, act := range m.Application.Activities {
 		if !isLikelyPreferenceActivity(act.Name) {
 			continue
 		}
 		exported := (act.Exported != nil && *act.Exported) || act.HasIntentFilter
 		if exported {
-			findings = append(findings, manifestFinding(m.Path, act.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, act.Line, r.BaseRule,
 				fmt.Sprintf("Activity `%s` appears to extend PreferenceActivity and is exported. "+
 					"Exported PreferenceActivity subclasses are vulnerable to fragment injection attacks. "+
 					"Restrict access with android:permission or set android:exported=\"false\".",
 					act.Name)))
 		}
 	}
-	return findings
 }
 
 func isLikelyPreferenceActivity(name string) bool {
@@ -347,17 +346,18 @@ type CleartextTrafficRule struct {
 // checks on manifest nodes. Classified per roadmap/17.
 func (r *CleartextTrafficRule) Confidence() float64 { return 0.75 }
 
-func (r *CleartextTrafficRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *CleartextTrafficRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	if m.Application.UsesCleartextTraffic != nil && *m.Application.UsesCleartextTraffic {
-		return []scanner.Finding{manifestFinding(m.Path, m.Application.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, m.Application.Line, r.BaseRule,
 			"`android:usesCleartextTraffic=\"true\"` allows unencrypted HTTP traffic. "+
 				"This is a security risk. Use HTTPS and set usesCleartextTraffic to false, "+
-				"or use a Network Security Config to restrict cleartext to specific domains.")}
+				"or use a Network Security Config to restrict cleartext to specific domains."))
+		return
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -376,21 +376,22 @@ type BackupRulesRule struct {
 // checks on manifest nodes. Classified per roadmap/17.
 func (r *BackupRulesRule) Confidence() float64 { return 0.75 }
 
-func (r *BackupRulesRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *BackupRulesRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	app := m.Application
 	// If backup is explicitly disabled, no need for backup rules
 	if app.AllowBackup != nil && !*app.AllowBackup {
-		return nil
+		return
 	}
 	if app.FullBackupContent == "" && app.DataExtractionRules == "" {
-		return []scanner.Finding{manifestFinding(m.Path, app.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, app.Line, r.BaseRule,
 			"Missing backup configuration. Add `android:fullBackupContent` (API < 31) "+
-				"or `android:dataExtractionRules` (API 31+) to control what data is backed up.")}
+				"or `android:dataExtractionRules` (API 31+) to control what data is backed up."))
+		return
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -410,27 +411,28 @@ type InsecureBaseConfigurationManifestRule struct {
 // checks on manifest nodes. Classified per roadmap/17.
 func (r *InsecureBaseConfigurationManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *InsecureBaseConfigurationManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *InsecureBaseConfigurationManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	// Skip variant manifests.
 	if isNonMainManifestPath(m.Path) {
-		return nil
+		return
 	}
 	if isLibraryOrTestModuleManifest(m.Path) {
-		return nil
+		return
 	}
 	if m.TargetSDK > 0 && m.TargetSDK < 28 {
-		return nil
+		return
 	}
 	if m.Application.NetworkSecurityConfig == "" {
-		return []scanner.Finding{manifestFinding(m.Path, m.Application.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, m.Application.Line, r.BaseRule,
 			"Missing `android:networkSecurityConfig` on <application> with targetSdkVersion >= 28. "+
 				"Add a Network Security Configuration to explicitly control network security behavior. "+
-				"https://developer.android.com/training/articles/security-config")}
+				"https://developer.android.com/training/articles/security-config"))
+		return
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -450,18 +452,18 @@ type UnprotectedSMSBroadcastReceiverManifestRule struct {
 // checks on manifest nodes. Classified per roadmap/17.
 func (r *UnprotectedSMSBroadcastReceiverManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *UnprotectedSMSBroadcastReceiverManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *UnprotectedSMSBroadcastReceiverManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, recv := range m.Application.Receivers {
 		if recv.Permission != "" {
 			continue
 		}
 		for _, action := range recv.IntentFilterActions {
 			if action == "android.provider.Telephony.SMS_RECEIVED" {
-				findings = append(findings, manifestFinding(m.Path, recv.Line, r.BaseRule,
+				ctx.Emit(manifestFinding(m.Path, recv.Line, r.BaseRule,
 					fmt.Sprintf("Receiver `%s` listens for SMS_RECEIVED but has no android:permission. "+
 						"Add `android:permission=\"android.permission.BROADCAST_SMS\"` to prevent spoofed broadcasts.",
 						recv.Name)))
@@ -469,7 +471,6 @@ func (r *UnprotectedSMSBroadcastReceiverManifestRule) CheckManifest(m *Manifest)
 			}
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -508,11 +509,11 @@ var protectedBroadcastActions = map[string]bool{
 // checks on manifest nodes. Classified per roadmap/17.
 func (r *UnsafeProtectedBroadcastReceiverManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *UnsafeProtectedBroadcastReceiverManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *UnsafeProtectedBroadcastReceiverManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, recv := range m.Application.Receivers {
 		if !recv.HasIntentFilter {
 			continue
@@ -526,7 +527,7 @@ func (r *UnsafeProtectedBroadcastReceiverManifestRule) CheckManifest(m *Manifest
 		}
 		for _, action := range recv.IntentFilterActions {
 			if protectedBroadcastActions[action] {
-				findings = append(findings, manifestFinding(m.Path, recv.Line, r.BaseRule,
+				ctx.Emit(manifestFinding(m.Path, recv.Line, r.BaseRule,
 					fmt.Sprintf("Receiver `%s` listens for protected broadcast `%s` and is exported without a permission. "+
 						"Add android:permission to prevent unauthorized broadcasts.",
 						recv.Name, action)))
@@ -534,7 +535,6 @@ func (r *UnsafeProtectedBroadcastReceiverManifestRule) CheckManifest(m *Manifest
 			}
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -571,11 +571,11 @@ var sensitiveServiceActions = map[string]bool{
 // checks on manifest nodes. Classified per roadmap/17.
 func (r *UseCheckPermissionManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *UseCheckPermissionManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *UseCheckPermissionManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, svc := range m.Application.Services {
 		exported := svc.Exported != nil && *svc.Exported
 		if !exported {
@@ -586,7 +586,7 @@ func (r *UseCheckPermissionManifestRule) CheckManifest(m *Manifest) []scanner.Fi
 		}
 		for _, action := range svc.IntentFilterActions {
 			if sensitiveServiceActions[action] {
-				findings = append(findings, manifestFinding(m.Path, svc.Line, r.BaseRule,
+				ctx.Emit(manifestFinding(m.Path, svc.Line, r.BaseRule,
 					fmt.Sprintf("Exported service `%s` handles sensitive action `%s` "+
 						"without declaring android:permission. "+
 						"Add a permission attribute to restrict access to this service.",
@@ -595,7 +595,6 @@ func (r *UseCheckPermissionManifestRule) CheckManifest(m *Manifest) []scanner.Fi
 			}
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -645,21 +644,20 @@ var protectedPermissions = map[string]bool{
 // checks on manifest nodes. Classified per roadmap/17.
 func (r *ProtectedPermissionsManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *ProtectedPermissionsManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *ProtectedPermissionsManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	for _, perm := range m.UsesPermissions {
 		if protectedPermissions[perm] {
 			short := perm
 			if idx := strings.LastIndex(perm, "."); idx >= 0 {
 				short = perm[idx+1:]
 			}
-			findings = append(findings, manifestFinding(m.Path, 1, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 				fmt.Sprintf("Permission `%s` is only granted to system apps. "+
 					"Third-party apps cannot acquire this permission.",
 					short)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -680,20 +678,19 @@ type ServiceExportedManifestRule struct {
 // checks on manifest nodes. Classified per roadmap/17.
 func (r *ServiceExportedManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *ServiceExportedManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *ServiceExportedManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, svc := range m.Application.Services {
 		if svc.Exported != nil && *svc.Exported && svc.Permission == "" {
-			findings = append(findings, manifestFinding(m.Path, svc.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, svc.Line, r.BaseRule,
 				fmt.Sprintf("Exported service `%s` does not require a permission. "+
 					"Any app can bind to it. Consider adding android:permission.",
 					svc.Name)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------

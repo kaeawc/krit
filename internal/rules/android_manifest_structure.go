@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -25,18 +25,18 @@ type DuplicateActivityManifestRule struct {
 // roadmap/17.
 func (r *DuplicateActivityManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *DuplicateActivityManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *DuplicateActivityManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	seen := make(map[string]int) // name -> first line
 	for _, act := range m.Application.Activities {
 		if act.Name == "" {
 			continue
 		}
 		if firstLine, ok := seen[act.Name]; ok {
-			findings = append(findings, manifestFinding(m.Path, act.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, act.Line, r.BaseRule,
 				fmt.Sprintf("Activity `%s` is registered more than once (first at line %d). "+
 					"Duplicate activity declarations cause subtle bugs.",
 					act.Name, firstLine)))
@@ -44,7 +44,6 @@ func (r *DuplicateActivityManifestRule) CheckManifest(m *Manifest) []scanner.Fin
 			seen[act.Name] = act.Line
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -81,15 +80,15 @@ var expectedParent = map[string]string{
 // roadmap/17.
 func (r *WrongManifestParentManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *WrongManifestParentManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *WrongManifestParentManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	for _, elem := range m.Elements {
 		expected, ok := expectedParent[elem.Tag]
 		if !ok {
 			continue
 		}
 		if elem.ParentTag != expected {
-			findings = append(findings, manifestFinding(m.Path, elem.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, elem.Line, r.BaseRule,
 				fmt.Sprintf("<%s> should be a child of <%s>, not <%s>.",
 					elem.Tag, expected, elem.ParentTag)))
 		}
@@ -102,13 +101,12 @@ func (r *WrongManifestParentManifestRule) CheckManifest(m *Manifest) []scanner.F
 				continue
 			}
 			if c.ParentTag != expected {
-				findings = append(findings, manifestFinding(m.Path, c.Line, r.BaseRule,
+				ctx.Emit(manifestFinding(m.Path, c.Line, r.BaseRule,
 					fmt.Sprintf("<%s> should be a child of <%s>, not <%s>.",
 						c.Tag, expected, c.ParentTag)))
 			}
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -129,22 +127,21 @@ type GradleOverridesManifestRule struct {
 // roadmap/17.
 func (r *GradleOverridesManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *GradleOverridesManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *GradleOverridesManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.UsesSdk == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	if m.MinSDK > 0 {
-		findings = append(findings, manifestFinding(m.Path, m.UsesSdk.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, m.UsesSdk.Line, r.BaseRule,
 			"This `minSdkVersion` value in the manifest is overridden by the value in "+
 				"build.gradle. Remove the value from AndroidManifest.xml."))
 	}
 	if m.TargetSDK > 0 {
-		findings = append(findings, manifestFinding(m.Path, m.UsesSdk.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, m.UsesSdk.Line, r.BaseRule,
 			"This `targetSdkVersion` value in the manifest is overridden by the value in "+
 				"build.gradle. Remove the value from AndroidManifest.xml."))
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -164,16 +161,17 @@ type UsesSdkManifestRule struct {
 // roadmap/17.
 func (r *UsesSdkManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *UsesSdkManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *UsesSdkManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	// Skip variant manifests — they merge into main and don't need uses-sdk.
 	if isNonMainManifestPath(m.Path) {
-		return nil
+		return
 	}
 	// Skip library/test module stubs with no <application> element —
 	// these modules get min/target SDK from their build.gradle, not the
 	// manifest.
 	if m.Application == nil {
-		return nil
+		return
 	}
 	gi := lookupManifestGradleInfo(m.Path)
 	if gi.found {
@@ -181,27 +179,27 @@ func (r *UsesSdkManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
 		// projects define the SDK levels in gradle and the manifest
 		// does not need a redundant <uses-sdk> element.
 		if gi.hasMinSdk {
-			return nil
+			return
 		}
 		// Skip dedicated Android test modules (`com.android.test`) —
 		// they never require <uses-sdk>.
 		if gi.isTest {
-			return nil
+			return
 		}
 		// Skip any module whose build.gradle marks it as an Android
 		// application (including convention-plugin sample apps) —
 		// SDK levels come from the convention plugin, parent project,
 		// or catalog, not the manifest.
 		if gi.isApplication || gi.isLibrary {
-			return nil
+			return
 		}
 	}
 	if m.UsesSdk == nil {
-		return []scanner.Finding{manifestFinding(m.Path, 1, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 			"Manifest is missing a `<uses-sdk>` element. Add `<uses-sdk>` with "+
-				"android:minSdkVersion and android:targetSdkVersion attributes.")}
+				"android:minSdkVersion and android:targetSdkVersion attributes."))
+		return
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -221,21 +219,22 @@ type MipmapLauncherRule struct {
 // roadmap/17.
 func (r *MipmapLauncherRule) Confidence() float64 { return 0.75 }
 
-func (r *MipmapLauncherRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *MipmapLauncherRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	icon := m.Application.Icon
 	if icon == "" {
-		return nil // MissingApplicationIcon handles this case
+		return // MissingApplicationIcon handles this case
 	}
 	if strings.HasPrefix(icon, "@drawable/") {
-		return []scanner.Finding{manifestFinding(m.Path, m.Application.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, m.Application.Line, r.BaseRule,
 			fmt.Sprintf("Launcher icon `%s` uses @drawable/ instead of @mipmap/. "+
 				"Use @mipmap/ resources for launcher icons to ensure proper density handling.",
-				icon))}
+				icon)))
+		return
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -292,17 +291,16 @@ var systemPermissions = map[string]bool{
 // roadmap/17.
 func (r *UniquePermissionRule) Confidence() float64 { return 0.75 }
 
-func (r *UniquePermissionRule) CheckManifest(m *Manifest) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *UniquePermissionRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	for _, perm := range m.Permissions {
 		if systemPermissions[perm] {
-			findings = append(findings, manifestFinding(m.Path, 1, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 				fmt.Sprintf("Custom permission `%s` collides with a system permission. "+
 					"Use a unique name prefixed with your application package.",
 					perm)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -350,8 +348,8 @@ var dangerousPermissions = map[string]bool{
 // roadmap/17.
 func (r *SystemPermissionRule) Confidence() float64 { return 0.75 }
 
-func (r *SystemPermissionRule) CheckManifest(m *Manifest) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *SystemPermissionRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	for _, perm := range m.UsesPermissions {
 		if dangerousPermissions[perm] {
 			// Extract the short name after the last dot
@@ -359,13 +357,12 @@ func (r *SystemPermissionRule) CheckManifest(m *Manifest) []scanner.Finding {
 			if idx := strings.LastIndex(perm, "."); idx >= 0 {
 				short = perm[idx+1:]
 			}
-			findings = append(findings, manifestFinding(m.Path, 1, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 				fmt.Sprintf("Requesting dangerous permission `%s`. "+
 					"Ensure this permission is necessary and that runtime permission handling is implemented.",
 					short)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -447,16 +444,15 @@ var manifestTypos = map[string]string{
 // roadmap/17.
 func (r *ManifestTypoRule) Confidence() float64 { return 0.75 }
 
-func (r *ManifestTypoRule) CheckManifest(m *Manifest) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *ManifestTypoRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	for _, elem := range m.Elements {
 		if correct, ok := manifestTypos[elem.Tag]; ok {
-			findings = append(findings, manifestFinding(m.Path, elem.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, elem.Line, r.BaseRule,
 				fmt.Sprintf("Probable typo: `<%s>` should be `<%s>`.",
 					elem.Tag, correct)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -475,22 +471,23 @@ type MissingApplicationIconRule struct {
 // roadmap/17.
 func (r *MissingApplicationIconRule) Confidence() float64 { return 0.75 }
 
-func (r *MissingApplicationIconRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *MissingApplicationIconRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	if isNonMainManifestPath(m.Path) {
-		return nil
+		return
 	}
 	if isLibraryOrTestModuleManifest(m.Path) {
-		return nil
+		return
 	}
 	if m.Application.Icon == "" {
-		return []scanner.Finding{manifestFinding(m.Path, m.Application.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, m.Application.Line, r.BaseRule,
 			"Missing `android:icon` attribute on <application>. "+
-				"Add an icon to ensure the app has a visible launcher icon.")}
+				"Add an icon to ensure the app has a visible launcher icon."))
+		return
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -511,17 +508,18 @@ const minRecommendedTargetSDK = 33
 // roadmap/17.
 func (r *TargetNewerRule) Confidence() float64 { return 0.75 }
 
-func (r *TargetNewerRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *TargetNewerRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.TargetSDK == 0 {
-		return nil // Not set in manifest; Gradle likely controls this
+		return // Not set in manifest; Gradle likely controls this
 	}
 	if m.TargetSDK < minRecommendedTargetSDK {
-		return []scanner.Finding{manifestFinding(m.Path, 1, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 			fmt.Sprintf("targetSdkVersion %d is outdated. "+
 				"Target at least API %d for latest security and behavior changes.",
-				m.TargetSDK, minRecommendedTargetSDK))}
+				m.TargetSDK, minRecommendedTargetSDK)))
+		return
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -542,25 +540,24 @@ type IntentFilterExportRequiredRule struct {
 // roadmap/17.
 func (r *IntentFilterExportRequiredRule) Confidence() float64 { return 0.75 }
 
-func (r *IntentFilterExportRequiredRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *IntentFilterExportRequiredRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	// Only enforce for API 31+
 	if m.TargetSDK > 0 && m.TargetSDK < 31 {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	components := allComponents(m.Application)
 	for _, c := range components {
 		if c.HasIntentFilter && c.Exported == nil {
-			findings = append(findings, manifestFinding(m.Path, c.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, c.Line, r.BaseRule,
 				fmt.Sprintf("%s `%s` declares an intent-filter but is missing android:exported. "+
 					"API 31+ requires android:exported on all components with intent-filters.",
 					strings.Title(c.Tag), c.Name)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -580,18 +577,18 @@ type DuplicateUsesFeatureManifestRule struct {
 // roadmap/17.
 func (r *DuplicateUsesFeatureManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *DuplicateUsesFeatureManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *DuplicateUsesFeatureManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if len(m.UsesFeatures) == 0 {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	seen := make(map[string]int) // name -> first line
 	for _, f := range m.UsesFeatures {
 		if f.Name == "" {
 			continue
 		}
 		if firstLine, ok := seen[f.Name]; ok {
-			findings = append(findings, manifestFinding(m.Path, f.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, f.Line, r.BaseRule,
 				fmt.Sprintf("Duplicate `<uses-feature android:name=\"%s\">` (first at line %d). "+
 					"Remove the duplicate declaration.",
 					f.Name, firstLine)))
@@ -599,7 +596,6 @@ func (r *DuplicateUsesFeatureManifestRule) CheckManifest(m *Manifest) []scanner.
 			seen[f.Name] = f.Line
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -619,7 +615,8 @@ type MultipleUsesSdkManifestRule struct {
 // roadmap/17.
 func (r *MultipleUsesSdkManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *MultipleUsesSdkManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *MultipleUsesSdkManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	count := 0
 	var secondLine int
 	for _, elem := range m.Elements {
@@ -631,10 +628,10 @@ func (r *MultipleUsesSdkManifestRule) CheckManifest(m *Manifest) []scanner.Findi
 		}
 	}
 	if count > 1 {
-		return []scanner.Finding{manifestFinding(m.Path, secondLine, r.BaseRule,
-			fmt.Sprintf("Found %d `<uses-sdk>` elements. Only one is allowed per manifest.", count))}
+		ctx.Emit(manifestFinding(m.Path, secondLine, r.BaseRule,
+			fmt.Sprintf("Found %d `<uses-sdk>` elements. Only one is allowed per manifest.", count)))
+		return
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -655,7 +652,8 @@ type ManifestOrderManifestRule struct {
 // roadmap/17.
 func (r *ManifestOrderManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *ManifestOrderManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *ManifestOrderManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	// Find the line of the <application> element
 	appLine := 0
 	for _, elem := range m.Elements {
@@ -665,19 +663,17 @@ func (r *ManifestOrderManifestRule) CheckManifest(m *Manifest) []scanner.Finding
 		}
 	}
 	if appLine == 0 {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for _, elem := range m.Elements {
 		if (elem.Tag == "uses-permission" || elem.Tag == "uses-sdk") && elem.Line > appLine {
-			findings = append(findings, manifestFinding(m.Path, elem.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, elem.Line, r.BaseRule,
 				fmt.Sprintf("`<%s>` appears after `<application>` (line %d). "+
 					"Move `<%s>` before `<application>` for conventional manifest ordering.",
 					elem.Tag, appLine, elem.Tag)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -697,25 +693,26 @@ type MissingVersionManifestRule struct {
 // roadmap/17.
 func (r *MissingVersionManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *MissingVersionManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *MissingVersionManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	// Skip variant manifests — they merge into main and inherit version info
 	// from build.gradle or the main manifest.
 	if isNonMainManifestPath(m.Path) {
-		return nil
+		return
 	}
 	// Skip library module manifests — Android library modules never set
 	// versionCode/versionName (only app modules do). Heuristic: if the
 	// manifest has no <application> element, no activities/services/providers,
 	// it's a library stub.
 	if m.Application == nil {
-		return nil
+		return
 	}
 	if len(m.Application.Activities) == 0 &&
 		len(m.Application.Services) == 0 &&
 		len(m.Application.Receivers) == 0 &&
 		len(m.Application.Providers) == 0 {
 		// Minimal application element with no components — likely a library.
-		return nil
+		return
 	}
 	// Modern AGP projects set versionCode/versionName in build.gradle's
 	// defaultConfig, not the manifest. Skip if the build.gradle
@@ -723,11 +720,11 @@ func (r *MissingVersionManifestRule) CheckManifest(m *Manifest) []scanner.Findin
 	// application driven by a convention plugin.
 	if gi := lookupManifestGradleInfo(m.Path); gi.found {
 		if gi.hasVersionCode && gi.hasVersionName {
-			return nil
+			return
 		}
 		// Library and test modules never need versionCode/versionName.
 		if gi.isLibrary || gi.isTest {
-			return nil
+			return
 		}
 		// Sample apps and convention-plugin driven modules typically
 		// have versionCode/versionName supplied by the plugin itself,
@@ -735,30 +732,30 @@ func (r *MissingVersionManifestRule) CheckManifest(m *Manifest) []scanner.Findin
 		// marks the module as an Android application as "versions
 		// managed elsewhere".
 		if gi.isApplication {
-			return nil
+			return
 		}
 	}
 	missingCode := m.VersionCode == ""
 	missingName := m.VersionName == ""
 	if !missingCode && !missingName {
-		return nil
+		return
 	}
 	// Emit a single combined finding when both are missing. Emitting two
 	// findings at the same (file, line, col) was producing duplicate
 	// keys in downstream reporting.
 	switch {
 	case missingCode && missingName:
-		return []scanner.Finding{manifestFinding(m.Path, 1, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 			"Missing `android:versionCode` and `android:versionName` on <manifest>. "+
-				"Set a version code and name for release builds.")}
+				"Set a version code and name for release builds."))
 	case missingCode:
-		return []scanner.Finding{manifestFinding(m.Path, 1, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 			"Missing `android:versionCode` on <manifest>. "+
-				"Set a version code for release builds.")}
+				"Set a version code for release builds."))
 	default: // missingName
-		return []scanner.Finding{manifestFinding(m.Path, 1, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 			"Missing `android:versionName` on <manifest>. "+
-				"Set a version name for release builds.")}
+				"Set a version name for release builds."))
 	}
 }
 
@@ -779,18 +776,19 @@ type MockLocationManifestRule struct {
 // roadmap/17.
 func (r *MockLocationManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *MockLocationManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *MockLocationManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.IsDebugManifest {
-		return nil
+		return
 	}
 	for _, perm := range m.UsesPermissions {
 		if perm == "android.permission.ACCESS_MOCK_LOCATION" {
-			return []scanner.Finding{manifestFinding(m.Path, 1, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 				"`android.permission.ACCESS_MOCK_LOCATION` should only be declared in a debug-specific "+
-					"manifest, not in the main AndroidManifest.xml.")}
+					"manifest, not in the main AndroidManifest.xml."))
+			return
 		}
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -811,20 +809,21 @@ type UnpackedNativeCodeManifestRule struct {
 // roadmap/17.
 func (r *UnpackedNativeCodeManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *UnpackedNativeCodeManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *UnpackedNativeCodeManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if !m.HasNativeLibs {
-		return nil
+		return
 	}
 	if m.Application == nil {
-		return nil
+		return
 	}
 	app := m.Application
 	if app.ExtractNativeLibs == nil || *app.ExtractNativeLibs {
-		return []scanner.Finding{manifestFinding(m.Path, app.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, app.Line, r.BaseRule,
 			"Project uses native libraries but `android:extractNativeLibs` is not set to false. "+
-				"Set `android:extractNativeLibs=\"false\"` on <application> to reduce APK size.")}
+				"Set `android:extractNativeLibs=\"false\"` on <application> to reduce APK size."))
+		return
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -844,20 +843,19 @@ type InvalidUsesTagAttributeManifestRule struct {
 // roadmap/17.
 func (r *InvalidUsesTagAttributeManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *InvalidUsesTagAttributeManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *InvalidUsesTagAttributeManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	for _, f := range m.UsesFeatures {
 		if f.Required == "" {
 			continue // not set is OK
 		}
 		if f.Required != "true" && f.Required != "false" {
-			findings = append(findings, manifestFinding(m.Path, f.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, f.Line, r.BaseRule,
 				fmt.Sprintf("`<uses-feature android:name=\"%s\">` has android:required=\"%s\". "+
 					"Value must be \"true\" or \"false\".",
 					f.Name, f.Required)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------

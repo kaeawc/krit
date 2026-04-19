@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 var localeConfigResourceRef = regexp.MustCompile(`^@(?:[\w.]+:)?xml/([A-Za-z0-9_]+)$`)
@@ -24,30 +24,33 @@ type LocaleConfigMissingRule struct {
 // roadmap/17.
 func (r *LocaleConfigMissingRule) Confidence() float64 { return 0.75 }
 
-func (r *LocaleConfigMissingRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *LocaleConfigMissingRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil || m.Application.LocaleConfig == "" {
-		return nil
+		return
 	}
 	if isNonMainManifestPath(m.Path) {
-		return nil
+		return
 	}
 	if isLibraryOrTestModuleManifest(m.Path) {
-		return nil
+		return
 	}
 
 	resourceName, ok := localeConfigResourceName(m.Application.LocaleConfig)
 	if !ok {
-		return nil
+		return
 	}
 
 	resourcePath := filepath.Join(filepath.Dir(m.Path), "res", "xml", resourceName+".xml")
 	if _, err := os.Stat(resourcePath); err == nil {
-		return nil
+		return
 	}
 
-	return []scanner.Finding{manifestFinding(m.Path, m.Application.Line, r.BaseRule,
+	f := manifestFinding(m.Path, m.Application.Line, r.BaseRule,
 		fmt.Sprintf("<application> declares `android:localeConfig=\"%s\"` but `res/xml/%s.xml` is missing.",
-			m.Application.LocaleConfig, resourceName))}
+			m.Application.LocaleConfig, resourceName))
+	ctx.Emit(f)
+	return
 }
 
 func localeConfigResourceName(ref string) (string, bool) {

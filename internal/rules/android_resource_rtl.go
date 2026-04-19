@@ -8,6 +8,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -33,14 +34,14 @@ var rtlReplacements = map[string]string{
 // Classified per roadmap/17.
 func (r *RtlHardcodedResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *RtlHardcodedResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
+func (r *RtlHardcodedResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	// Iterate attributes in a stable order so a view with multiple
 	// hardcoded Left/Right attributes produces deterministic messages.
 	stableAttrs := []string{
 		"android:layout_marginLeft", "android:layout_marginRight",
 		"android:paddingLeft", "android:paddingRight",
 	}
-	var findings []scanner.Finding
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			var replacements []struct{ old, new string }
@@ -57,7 +58,7 @@ func (r *RtlHardcodedResourceRule) CheckResources(idx *android.ResourceIndex) []
 			// attribute at the same (file, line) collided on the finding
 			// key downstream.
 			if len(replacements) == 1 {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Use `%s` instead of `%s` for RTL support in `%s`.",
 						replacements[0].new, replacements[0].old, v.Type)))
 				return
@@ -66,12 +67,11 @@ func (r *RtlHardcodedResourceRule) CheckResources(idx *android.ResourceIndex) []
 			for _, rep := range replacements {
 				parts = append(parts, fmt.Sprintf("`%s` -> `%s`", rep.old, rep.new))
 			}
-			findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("Use Start/End instead of Left/Right in `%s` for RTL support: %s.",
 					v.Type, strings.Join(parts, ", "))))
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -126,8 +126,8 @@ func hasSingleEdgeConstraint(v *android.View) bool {
 // Classified per roadmap/17.
 func (r *RtlSymmetryResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *RtlSymmetryResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *RtlSymmetryResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			// Skip views anchored to only one horizontal edge — asymmetry is intentional.
@@ -138,18 +138,17 @@ func (r *RtlSymmetryResourceRule) CheckResources(idx *android.ResourceIndex) []s
 				hasLeft := v.Attributes[pair[0]] != ""
 				hasRight := v.Attributes[pair[1]] != ""
 				if hasLeft && !hasRight {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("`%s` has `%s` but not `%s`. Add the missing attribute for symmetric spacing.",
 							v.Type, pair[0], pair[1])))
 				} else if hasRight && !hasLeft {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("`%s` has `%s` but not `%s`. Add the missing attribute for symmetric spacing.",
 							v.Type, pair[1], pair[0])))
 				}
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -168,8 +167,8 @@ type RtlSuperscriptResourceRule struct {
 // Classified per roadmap/17.
 func (r *RtlSuperscriptResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *RtlSuperscriptResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *RtlSuperscriptResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			textStyle := v.Attributes["android:textStyle"]
@@ -178,12 +177,11 @@ func (r *RtlSuperscriptResourceRule) CheckResources(idx *android.ResourceIndex) 
 			}
 			lower := strings.ToLower(textStyle)
 			if strings.Contains(lower, "superscript") || strings.Contains(lower, "subscript") {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` uses textStyle `%s` which may render incorrectly in RTL locales.", v.Type, textStyle)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -219,8 +217,8 @@ func verticalConstraintKey(v *android.View) string {
 // Classified per roadmap/17.
 func (r *RelativeOverlapResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *RelativeOverlapResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *RelativeOverlapResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Type != "RelativeLayout" {
@@ -245,7 +243,7 @@ func (r *RelativeOverlapResourceRule) CheckResources(idx *android.ResourceIndex)
 			for i := 0; i < len(leftAligned); i++ {
 				for j := i + 1; j < len(leftAligned); j++ {
 					if leftAligned[i].vertKey == leftAligned[j].vertKey {
-						findings = append(findings, resourceFinding(layout.FilePath, leftAligned[j].view.Line, r.BaseRule,
+						ctx.Emit(resourceFinding(layout.FilePath, leftAligned[j].view.Line, r.BaseRule,
 							fmt.Sprintf("`%s` (line %d) and `%s` (line %d) in `RelativeLayout` both use left/start alignment "+
 								"without different vertical constraints and may overlap.",
 								leftAligned[i].view.Type, leftAligned[i].view.Line,
@@ -255,7 +253,6 @@ func (r *RelativeOverlapResourceRule) CheckResources(idx *android.ResourceIndex)
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -292,12 +289,15 @@ var relativeConstraintAttrs = []string{
 // Classified per roadmap/17.
 func (r *NotSiblingResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *NotSiblingResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
+func (r *NotSiblingResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	var findings []scanner.Finding
 	for _, layout := range idx.Layouts {
 		checkNotSibling(layout.RootView, layout.FilePath, r.BaseRule, &findings)
 	}
-	return findings
+	for _, f := range findings {
+		ctx.Emit(f)
+	}
 }
 
 func checkNotSibling(v *android.View, filePath string, base BaseRule, findings *[]scanner.Finding) {

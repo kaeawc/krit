@@ -124,14 +124,15 @@ licensing:
 		if err != nil {
 			t.Fatalf("ParseBuildGradleContent: %v", err)
 		}
-		findings := rule.CheckGradle("build.gradle.kts", content, cfg)
+		r2 := findGradleRule(t, "DependencyLicenseUnknown")
+		findings := runGradleRule(r2, "build.gradle.kts", content, cfg)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 }
 
-func runDependencyLicenseUnknownFixture(t *testing.T, rule *rules.DependencyLicenseUnknownRule, buildPath string) []scanner.Finding {
+func runDependencyLicenseUnknownFixture(t *testing.T, _ *rules.DependencyLicenseUnknownRule, buildPath string) []scanner.Finding {
 	t.Helper()
 	content, err := os.ReadFile(buildPath)
 	if err != nil {
@@ -141,7 +142,8 @@ func runDependencyLicenseUnknownFixture(t *testing.T, rule *rules.DependencyLice
 	if err != nil {
 		t.Fatalf("ParseBuildGradleContent(%s): %v", buildPath, err)
 	}
-	return rule.CheckGradle(buildPath, string(content), cfg)
+	r2 := findGradleRule(t, "DependencyLicenseUnknown")
+	return runGradleRule(r2, buildPath, string(content), cfg)
 }
 
 func loadFixtureRuleConfig(t *testing.T, path string) {

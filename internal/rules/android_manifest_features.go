@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -24,23 +24,25 @@ type RtlEnabledManifestRule struct {
 // checks. Classified per roadmap/17.
 func (r *RtlEnabledManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *RtlEnabledManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *RtlEnabledManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	if isNonMainManifestPath(m.Path) {
-		return nil
+		return
 	}
 	if isLibraryOrTestModuleManifest(m.Path) {
-		return nil
+		return
 	}
 	app := m.Application
 	if app.SupportsRtl == nil || !*app.SupportsRtl {
-		return []scanner.Finding{manifestFinding(m.Path, app.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, app.Line, r.BaseRule,
 			"Missing `android:supportsRtl=\"true\"` on <application>. "+
-				"Add RTL support to ensure proper layout mirroring for RTL languages.")}
+				"Add RTL support to ensure proper layout mirroring for RTL languages."))
+		return
 	}
-	return nil
+	return
 }
 
 // ---------------------------------------------------------------------------
@@ -60,24 +62,26 @@ type RtlCompatManifestRule struct {
 // checks. Classified per roadmap/17.
 func (r *RtlCompatManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *RtlCompatManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *RtlCompatManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	if m.TargetSDK > 0 && m.TargetSDK < 17 {
-		return nil
+		return
 	}
 	// If TargetSDK is 0 (not set), we don't flag — can't confirm API level
 	if m.TargetSDK == 0 {
-		return nil
+		return
 	}
 	if m.Application.SupportsRtl == nil || !*m.Application.SupportsRtl {
-		return []scanner.Finding{manifestFinding(m.Path, m.Application.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, m.Application.Line, r.BaseRule,
 			fmt.Sprintf("targetSdkVersion is %d (>= 17) but `android:supportsRtl` is not set to true. "+
 				"Enable RTL support with `android:supportsRtl=\"true\"` for proper right-to-left layout mirroring.",
-				m.TargetSDK))}
+				m.TargetSDK)))
+		return
 	}
-	return nil
+	return
 }
 
 // ---------------------------------------------------------------------------
@@ -97,17 +101,17 @@ type AppIndexingErrorManifestRule struct {
 // checks. Classified per roadmap/17.
 func (r *AppIndexingErrorManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *AppIndexingErrorManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *AppIndexingErrorManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	if isNonMainManifestPath(m.Path) {
-		return nil
+		return
 	}
 	if isLibraryOrTestModuleManifest(m.Path) {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, act := range m.Application.Activities {
 		hasViewAction := false
 		for _, action := range act.IntentFilterActions {
@@ -137,13 +141,12 @@ func (r *AppIndexingErrorManifestRule) CheckManifest(m *Manifest) []scanner.Find
 			if hasHTTPS {
 				missing = "http"
 			}
-			findings = append(findings, manifestFinding(m.Path, act.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, act.Line, r.BaseRule,
 				fmt.Sprintf("Activity `%s` has a web deep link but is missing the `%s` scheme. "+
 					"Add `<data android:scheme=\"%s\" />` to handle both http and https URLs.",
 					act.Name, missing, missing)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -164,11 +167,11 @@ type AppIndexingWarningManifestRule struct {
 // checks. Classified per roadmap/17.
 func (r *AppIndexingWarningManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *AppIndexingWarningManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *AppIndexingWarningManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, act := range m.Application.Activities {
 		hasBrowsable := false
 		for _, cat := range act.IntentFilterCategories {
@@ -188,13 +191,12 @@ func (r *AppIndexingWarningManifestRule) CheckManifest(m *Manifest) []scanner.Fi
 			}
 		}
 		if !hasViewAction {
-			findings = append(findings, manifestFinding(m.Path, act.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, act.Line, r.BaseRule,
 				fmt.Sprintf("Activity `%s` has a BROWSABLE intent filter but no VIEW action. "+
 					"Add `<action android:name=\"android.intent.action.VIEW\" />` to handle deep links properly.",
 					act.Name)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -214,14 +216,14 @@ type GoogleAppIndexingDeepLinkErrorManifestRule struct {
 // checks. Classified per roadmap/17.
 func (r *GoogleAppIndexingDeepLinkErrorManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *GoogleAppIndexingDeepLinkErrorManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *GoogleAppIndexingDeepLinkErrorManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	if isNonMainManifestPath(m.Path) {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, act := range m.Application.Activities {
 		hasViewAction := false
 		for _, action := range act.IntentFilterActions {
@@ -244,14 +246,13 @@ func (r *GoogleAppIndexingDeepLinkErrorManifestRule) CheckManifest(m *Manifest) 
 			}
 		}
 		if hasWebScheme && len(act.IntentFilterDataHosts) == 0 {
-			findings = append(findings, manifestFinding(m.Path, act.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, act.Line, r.BaseRule,
 				fmt.Sprintf("Activity `%s` has an http/https deep link with no host. "+
 					"A web URI with a scheme but no host is malformed. "+
 					"Add `<data android:host=\"...\" />` to the intent filter.",
 					act.Name)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -271,14 +272,15 @@ type GoogleAppIndexingWarningManifestRule struct {
 // checks. Classified per roadmap/17.
 func (r *GoogleAppIndexingWarningManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *GoogleAppIndexingWarningManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *GoogleAppIndexingWarningManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	// Skip variant manifests and test fixtures — app indexing is only relevant
 	// to production manifests.
 	if isTestManifestPath(m.Path) || isLibraryOrTestModuleManifest(m.Path) {
-		return nil
+		return
 	}
 	for _, act := range m.Application.Activities {
 		hasViewAction := false
@@ -293,14 +295,15 @@ func (r *GoogleAppIndexingWarningManifestRule) CheckManifest(m *Manifest) []scan
 		}
 		for _, scheme := range act.IntentFilterDataSchemes {
 			if scheme == "http" || scheme == "https" {
-				return nil // At least one activity supports deep links
+				return // At least one activity supports deep links
 			}
 		}
 	}
-	return []scanner.Finding{manifestFinding(m.Path, 1, r.BaseRule,
+	ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 		"No activity with a VIEW intent filter and http/https data scheme found. "+
 			"Add deep link support to enable Google App Indexing. "+
-			"https://developer.android.com/training/app-indexing")}
+			"https://developer.android.com/training/app-indexing"))
+	return
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +324,8 @@ type MissingLeanbackLauncherManifestRule struct {
 // checks. Classified per roadmap/17.
 func (r *MissingLeanbackLauncherManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *MissingLeanbackLauncherManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *MissingLeanbackLauncherManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	hasLeanback := false
 	for _, f := range m.UsesFeatures {
 		if f.Name == "android.software.leanback" {
@@ -330,25 +334,27 @@ func (r *MissingLeanbackLauncherManifestRule) CheckManifest(m *Manifest) []scann
 		}
 	}
 	if !hasLeanback {
-		return nil
+		return
 	}
 	if m.Application == nil {
-		return []scanner.Finding{manifestFinding(m.Path, 1, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 			"App declares `android.software.leanback` feature but has no activity with "+
 				"LEANBACK_LAUNCHER category. Add an activity with "+
-				"`<category android:name=\"android.intent.category.LEANBACK_LAUNCHER\" />`.")}
+				"`<category android:name=\"android.intent.category.LEANBACK_LAUNCHER\" />`."))
+		return
 	}
 	for _, act := range m.Application.Activities {
 		for _, cat := range act.IntentFilterCategories {
 			if cat == "android.intent.category.LEANBACK_LAUNCHER" {
-				return nil
+				return
 			}
 		}
 	}
-	return []scanner.Finding{manifestFinding(m.Path, 1, r.BaseRule,
+	ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 		"App declares `android.software.leanback` feature but has no activity with "+
 			"LEANBACK_LAUNCHER category. Add an activity with "+
-			"`<category android:name=\"android.intent.category.LEANBACK_LAUNCHER\" />`.")}
+			"`<category android:name=\"android.intent.category.LEANBACK_LAUNCHER\" />`."))
+	return
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +376,8 @@ type MissingLeanbackSupportManifestRule struct {
 // checks. Classified per roadmap/17.
 func (r *MissingLeanbackSupportManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *MissingLeanbackSupportManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *MissingLeanbackSupportManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	hasLeanback := false
 	for _, f := range m.UsesFeatures {
 		if f.Name == "android.software.leanback" {
@@ -379,17 +386,18 @@ func (r *MissingLeanbackSupportManifestRule) CheckManifest(m *Manifest) []scanne
 		}
 	}
 	if !hasLeanback {
-		return nil
+		return
 	}
 	for _, f := range m.UsesFeatures {
 		if f.Name == "android.hardware.touchscreen" && strings.EqualFold(f.Required, "false") {
-			return nil
+			return
 		}
 	}
-	return []scanner.Finding{manifestFinding(m.Path, 1, r.BaseRule,
+	ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 		"App declares `android.software.leanback` feature but does not opt out of touchscreen. "+
 			"TV apps must declare `<uses-feature android:name=\"android.hardware.touchscreen\" "+
-			"android:required=\"false\" />` because TV devices do not have touchscreens.")}
+			"android:required=\"false\" />` because TV devices do not have touchscreens."))
+	return
 }
 
 // ---------------------------------------------------------------------------
@@ -426,7 +434,8 @@ var permissionToFeature = map[string]string{
 // checks. Classified per roadmap/17.
 func (r *PermissionImpliesUnsupportedHardwareManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *PermissionImpliesUnsupportedHardwareManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *PermissionImpliesUnsupportedHardwareManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	// Build a set of features declared with required="false"
 	optionalFeatures := make(map[string]bool)
 	for _, f := range m.UsesFeatures {
@@ -456,25 +465,27 @@ func (r *PermissionImpliesUnsupportedHardwareManifestRule) CheckManifest(m *Mani
 		}
 	}
 	if len(missing) == 0 {
-		return nil
+		return
 	}
 	if len(missing) == 1 {
 		only := missing[0]
-		return []scanner.Finding{manifestFinding(m.Path, 1, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 			fmt.Sprintf("Permission `%s` implies hardware feature `%s`. "+
 				"Declare `<uses-feature android:name=\"%s\" android:required=\"false\" />` "+
 				"to allow installation on devices without this hardware.",
-				only.perm, only.feature, only.feature))}
+				only.perm, only.feature, only.feature)))
+		return
 	}
 	var parts []string
 	for _, mf := range missing {
 		parts = append(parts, fmt.Sprintf("`%s` -> `%s`", mf.perm, mf.feature))
 	}
-	return []scanner.Finding{manifestFinding(m.Path, 1, r.BaseRule,
+	ctx.Emit(manifestFinding(m.Path, 1, r.BaseRule,
 		fmt.Sprintf("Permissions imply hardware features that are not declared as optional: %s. "+
 			"Declare each with `<uses-feature android:name=\"…\" android:required=\"false\" />` "+
 			"to allow installation on devices without this hardware.",
-			strings.Join(parts, ", ")))}
+			strings.Join(parts, ", "))))
+	return
 }
 
 // ---------------------------------------------------------------------------
@@ -508,8 +519,8 @@ var chromeOsUnsupportedFeatures = map[string]bool{
 // checks. Classified per roadmap/17.
 func (r *UnsupportedChromeOsHardwareManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *UnsupportedChromeOsHardwareManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *UnsupportedChromeOsHardwareManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	for _, f := range m.UsesFeatures {
 		if !chromeOsUnsupportedFeatures[f.Name] {
 			continue
@@ -517,12 +528,11 @@ func (r *UnsupportedChromeOsHardwareManifestRule) CheckManifest(m *Manifest) []s
 		if strings.EqualFold(f.Required, "false") {
 			continue
 		}
-		findings = append(findings, manifestFinding(m.Path, f.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, f.Line, r.BaseRule,
 			fmt.Sprintf("`<uses-feature android:name=\"%s\">` is not available on most Chrome OS devices. "+
 				"Set `android:required=\"false\"` to allow installation on Chromebooks.",
 				f.Name)))
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -542,11 +552,11 @@ type DeviceAdminManifestRule struct {
 // checks. Classified per roadmap/17.
 func (r *DeviceAdminManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *DeviceAdminManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *DeviceAdminManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, recv := range m.Application.Receivers {
 		hasDeviceAdminAction := false
 		for _, action := range recv.IntentFilterActions {
@@ -567,13 +577,12 @@ func (r *DeviceAdminManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
 			}
 		}
 		if !hasDeviceAdminMeta {
-			findings = append(findings, manifestFinding(m.Path, recv.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, recv.Line, r.BaseRule,
 				fmt.Sprintf("Receiver `%s` handles DEVICE_ADMIN_ENABLED but is missing "+
 					"`<meta-data android:name=\"android.app.device_admin\" android:resource=\"@xml/device_admin\"/>`.",
 					recv.Name)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -593,27 +602,29 @@ type FullBackupContentManifestRule struct {
 // checks. Classified per roadmap/17.
 func (r *FullBackupContentManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *FullBackupContentManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *FullBackupContentManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
 	app := m.Application
 
 	// Check if allowBackup is explicitly false — no issue
 	if app.AllowBackup != nil && !*app.AllowBackup {
-		return nil
+		return
 	}
 
 	// When allowBackup is true (or default) and targetSdk >= 23, missing fullBackupContent is an issue
 	if m.TargetSDK >= 23 && app.FullBackupContent == "" {
-		return []scanner.Finding{manifestFinding(m.Path, app.Line, r.BaseRule,
+		ctx.Emit(manifestFinding(m.Path, app.Line, r.BaseRule,
 			"Missing `android:fullBackupContent` attribute on <application>. "+
 				"When allowBackup is true and targetSdkVersion >= 23, specify fullBackupContent "+
 				"to control which files are backed up. "+
-				"https://developer.android.com/guide/topics/data/autobackup")}
+				"https://developer.android.com/guide/topics/data/autobackup"))
+		return
 	}
 
-	return nil
+	return
 }
 
 // ---------------------------------------------------------------------------
@@ -658,20 +669,19 @@ func isInvalidComponentName(name string) (bool, string) {
 // checks. Classified per roadmap/17.
 func (r *MissingRegisteredManifestRule) Confidence() float64 { return 0.75 }
 
-func (r *MissingRegisteredManifestRule) CheckManifest(m *Manifest) []scanner.Finding {
+func (r *MissingRegisteredManifestRule) check(ctx *v2.Context) {
+	m, _ := ctx.Manifest.(*Manifest)
 	if m.Application == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, c := range allComponents(m.Application) {
 		invalid, reason := isInvalidComponentName(c.Name)
 		if invalid {
-			findings = append(findings, manifestFinding(m.Path, c.Line, r.BaseRule,
+			ctx.Emit(manifestFinding(m.Path, c.Line, r.BaseRule,
 				fmt.Sprintf("Invalid component name `%s` in <%s>: %s.",
 					c.Name, c.Tag, reason)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------

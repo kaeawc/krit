@@ -12,7 +12,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/experiment"
-	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -30,26 +30,25 @@ type WebViewInScrollViewResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *WebViewInScrollViewResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *WebViewInScrollViewResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *WebViewInScrollViewResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
-		findWebViewInScroll(layout.RootView, false, layout.FilePath, r.BaseRule, &findings)
+		findWebViewInScroll(layout.RootView, false, layout.FilePath, r.BaseRule, ctx)
 	}
-	return findings
 }
 
-func findWebViewInScroll(v *android.View, insideScroll bool, path string, rule BaseRule, findings *[]scanner.Finding) {
+func findWebViewInScroll(v *android.View, insideScroll bool, path string, rule BaseRule, ctx *v2.Context) {
 	if v == nil {
 		return
 	}
 	isScroll := android.IsScrollableView(v.Type)
 	if insideScroll && v.Type == "WebView" {
-		*findings = append(*findings, resourceFinding(path, v.Line, rule,
+		ctx.Emit(resourceFinding(path, v.Line, rule,
 			"WebView inside a ScrollView causes broken scrolling. "+
 				"Remove the ScrollView or use a different container."))
 	}
 	for _, child := range v.Children {
-		findWebViewInScroll(child, insideScroll || isScroll, path, rule, findings)
+		findWebViewInScroll(child, insideScroll || isScroll, path, rule, ctx)
 	}
 }
 
@@ -68,18 +67,17 @@ type OnClickResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *OnClickResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *OnClickResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *OnClickResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if handler := v.Attributes["android:onClick"]; handler != "" {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`android:onClick=\"%s\"` in `%s`. Use `View.setOnClickListener` in code instead of XML onClick handlers.",
 						handler, v.Type)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -96,8 +94,8 @@ type TextFieldsResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *TextFieldsResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *TextFieldsResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *TextFieldsResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Type != "EditText" && v.Type != "AppCompatEditText" {
@@ -106,13 +104,12 @@ func (r *TextFieldsResourceRule) CheckResources(idx *android.ResourceIndex) []sc
 			hasInputType := v.Attributes["android:inputType"] != ""
 			hasHint := v.Attributes["android:hint"] != ""
 			if !hasInputType && !hasHint {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` is missing both `android:inputType` and `android:hint`. "+
 						"Specify `inputType` so the correct keyboard is shown.", v.Type)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -136,13 +133,13 @@ var apiLevelAttrs = map[string]int{
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *UnusedAttributeResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *UnusedAttributeResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *UnusedAttributeResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			for attr, minAPI := range apiLevelAttrs {
 				if v.Attributes[attr] != "" {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Attribute `%s` is only used in API level %d and higher "+
 							"(current min is unspecified). It will be ignored on older platforms.",
 							attr, minAPI)))
@@ -150,7 +147,6 @@ func (r *UnusedAttributeResourceRule) CheckResources(idx *android.ResourceIndex)
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -203,8 +199,8 @@ var languageExpectedRegions = map[string][]string{
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *WrongRegionResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *WrongRegionResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *WrongRegionResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	seen := make(map[string]bool)
 	for _, layout := range idx.Layouts {
 		path := layout.FilePath
@@ -254,13 +250,12 @@ func (r *WrongRegionResourceRule) CheckResources(idx *android.ResourceIndex) []s
 			}
 		}
 		if !found {
-			findings = append(findings, resourceFinding(layout.FilePath, 1, r.BaseRule,
+			ctx.Emit(resourceFinding(layout.FilePath, 1, r.BaseRule,
 				fmt.Sprintf("Suspicious language/region combination: language `%s` with region `%s` "+
 					"in folder `%s`. Expected regions for `%s`: %s.",
 					lang, region, folder, lang, strings.Join(expected, ", "))))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -277,8 +272,8 @@ type LocaleConfigStaleResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *LocaleConfigStaleResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *LocaleConfigStaleResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *LocaleConfigStaleResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, resRoot := range resourceRootsFromIndex(idx) {
 		configPath := filepath.Join(resRoot, "xml", "locales_config.xml")
 		configLocales, line, err := readLocaleConfigLocales(configPath)
@@ -305,10 +300,9 @@ func (r *LocaleConfigStaleResourceRule) CheckResources(idx *android.ResourceInde
 			parts = append(parts, fmt.Sprintf("config locales without matching values folders: %s", strings.Join(missing, ", ")))
 		}
 
-		findings = append(findings, resourceFinding(configPath, line, r.BaseRule,
+		ctx.Emit(resourceFinding(configPath, line, r.BaseRule,
 			fmt.Sprintf("`locales_config.xml` does not match the explicit locale resource folders (%s).", strings.Join(parts, "; "))))
 	}
-	return findings
 }
 
 func resourceRootsFromIndex(idx *android.ResourceIndex) []string {
@@ -523,15 +517,14 @@ type MissingQuantityResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *MissingQuantityResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *MissingQuantityResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *MissingQuantityResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for name, quantities := range idx.Plurals {
 		if _, ok := quantities["other"]; !ok {
-			findings = append(findings, resourceFinding("res/values/plurals.xml", 0, r.BaseRule,
+			ctx.Emit(resourceFinding("res/values/plurals.xml", 0, r.BaseRule,
 				fmt.Sprintf("Plural `%s` is missing the required `other` quantity.", name)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -557,18 +550,17 @@ var unusedEnglishQuantities = map[string]bool{
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *UnusedQuantityResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *UnusedQuantityResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *UnusedQuantityResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for name, quantities := range idx.Plurals {
 		for qty := range quantities {
 			if unusedEnglishQuantities[qty] {
-				findings = append(findings, resourceFinding("res/values/plurals.xml", 0, r.BaseRule,
+				ctx.Emit(resourceFinding("res/values/plurals.xml", 0, r.BaseRule,
 					fmt.Sprintf("Plural `%s` defines unused quantity `%s` for English. "+
 						"Only `one` and `other` are used.", name, qty)))
 			}
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -587,19 +579,18 @@ type ImpliedQuantityResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *ImpliedQuantityResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *ImpliedQuantityResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *ImpliedQuantityResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for name, quantities := range idx.Plurals {
 		if oneVal, ok := quantities["one"]; ok {
 			if !strings.Contains(oneVal, "%d") {
-				findings = append(findings, resourceFinding("res/values/plurals.xml", 0, r.BaseRule,
+				ctx.Emit(resourceFinding("res/values/plurals.xml", 0, r.BaseRule,
 					fmt.Sprintf("Plural `%s` quantity `one` value `%s` does not contain `%%d`. "+
 						"The actual number may not be 1; use `%%d` to display it correctly.",
 						name, truncate(oneVal, 40))))
 			}
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -626,8 +617,8 @@ var validConversions = map[byte]bool{
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *StringFormatInvalidResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *StringFormatInvalidResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *StringFormatInvalidResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for name, val := range idx.Strings {
 		// Skip strings with formatted="false". These are NOT format
 		// strings — the `%{var}` / `%word` sequences are literal text
@@ -654,10 +645,9 @@ func (r *StringFormatInvalidResourceRule) CheckResources(idx *android.ResourceIn
 				line = loc.Line
 			}
 		}
-		findings = append(findings, resourceFinding(filePath, line, r.BaseRule,
+		ctx.Emit(resourceFinding(filePath, line, r.BaseRule,
 			fmt.Sprintf("String `%s` has invalid format specifier: %s", name, msg)))
 	}
-	return findings
 }
 
 // checkInvalidFormatString checks a string value for invalid % sequences.
@@ -726,15 +716,14 @@ type StringFormatCountResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *StringFormatCountResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *StringFormatCountResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *StringFormatCountResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for name, val := range idx.Strings {
 		if msg := checkFormatArgCount(val); msg != "" {
-			findings = append(findings, resourceFinding("res/values/strings.xml", 0, r.BaseRule,
+			ctx.Emit(resourceFinding("res/values/strings.xml", 0, r.BaseRule,
 				fmt.Sprintf("String `%s`: %s", name, msg)))
 		}
 	}
-	return findings
 }
 
 // checkFormatArgCount checks for gaps in positional argument indices.
@@ -806,8 +795,8 @@ type StringFormatMatchesResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *StringFormatMatchesResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *StringFormatMatchesResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *StringFormatMatchesResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for name, quantities := range idx.Plurals {
 		if len(quantities) < 2 {
 			continue
@@ -836,14 +825,14 @@ func (r *StringFormatMatchesResourceRule) CheckResources(idx *android.ResourceIn
 				continue
 			}
 			if len(types) != len(refTypes) {
-				findings = append(findings, resourceFinding("res/values/strings.xml", 0, r.BaseRule,
+				ctx.Emit(resourceFinding("res/values/strings.xml", 0, r.BaseRule,
 					fmt.Sprintf("Plural `%s`: quantity `%s` has %d format args but `%s` has %d",
 						name, qty, len(types), refQty, len(refTypes))))
 				continue
 			}
 			for i := range types {
 				if types[i] != refTypes[i] {
-					findings = append(findings, resourceFinding("res/values/strings.xml", 0, r.BaseRule,
+					ctx.Emit(resourceFinding("res/values/strings.xml", 0, r.BaseRule,
 						fmt.Sprintf("Plural `%s`: format type mismatch at arg %d — `%s` uses `%%%c` but `%s` uses `%%%c`",
 							name, i+1, qty, types[i], refQty, refTypes[i])))
 					break
@@ -851,7 +840,6 @@ func (r *StringFormatMatchesResourceRule) CheckResources(idx *android.ResourceIn
 			}
 		}
 	}
-	return findings
 }
 
 // extractFormatTypes returns the conversion characters from format specifiers.
@@ -914,17 +902,16 @@ type StringFormatTrivialResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *StringFormatTrivialResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *StringFormatTrivialResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *StringFormatTrivialResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for name, val := range idx.Strings {
 		count := countFormatSpecifiers(val)
 		if count == 1 && strings.Contains(val, "%s") {
-			findings = append(findings, resourceFinding("res/values/strings.xml", 0, r.BaseRule,
+			ctx.Emit(resourceFinding("res/values/strings.xml", 0, r.BaseRule,
 				fmt.Sprintf("String `%s` uses a single `%%s` format specifier. "+
 					"Consider using string concatenation instead of `String.format`.", name)))
 		}
 	}
-	return findings
 }
 
 // countFormatSpecifiers counts the number of format specifiers in a string.
@@ -990,9 +977,9 @@ type StringNotLocalizableResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *StringNotLocalizableResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *StringNotLocalizableResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
+func (r *StringNotLocalizableResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	skipNonDefault := experiment.Enabled("string-not-localizable-default-values-only")
-	var findings []scanner.Finding
 	for name, val := range idx.Strings {
 		if val == "" {
 			continue
@@ -1017,27 +1004,26 @@ func (r *StringNotLocalizableResourceRule) CheckResources(idx *android.ResourceI
 		}
 		line := loc.Line
 		if isURL(val) {
-			findings = append(findings, resourceFinding(filePath, line, r.BaseRule,
+			ctx.Emit(resourceFinding(filePath, line, r.BaseRule,
 				fmt.Sprintf("String `%s` contains a URL (`%s`). "+
 					"URLs should not be in localizable string resources; use a non-translatable resource.",
 					name, truncate(val, 60))))
 			continue
 		}
 		if isEmail(val) {
-			findings = append(findings, resourceFinding(filePath, line, r.BaseRule,
+			ctx.Emit(resourceFinding(filePath, line, r.BaseRule,
 				fmt.Sprintf("String `%s` contains an email address (`%s`). "+
 					"Email addresses should not be in localizable string resources.",
 					name, truncate(val, 60))))
 			continue
 		}
 		if isTechnicalIdentifier(val) {
-			findings = append(findings, resourceFinding(filePath, line, r.BaseRule,
+			ctx.Emit(resourceFinding(filePath, line, r.BaseRule,
 				fmt.Sprintf("String `%s` appears to be a technical identifier (`%s`). "+
 					"Consider marking as `translatable=\"false\"`.",
 					name, truncate(val, 60))))
 		}
 	}
-	return findings
 }
 
 // isNonDefaultValuesPath reports whether the path references a qualified
@@ -1081,8 +1067,8 @@ type GoogleApiKeyInResourcesRule struct {
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *GoogleApiKeyInResourcesRule) Confidence() float64 { return 0.75 }
 
-func (r *GoogleApiKeyInResourcesRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *GoogleApiKeyInResourcesRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for name, val := range idx.Strings {
 		if !isGoogleAPIKeyResourceName(name) {
 			continue
@@ -1094,10 +1080,9 @@ func (r *GoogleApiKeyInResourcesRule) CheckResources(idx *android.ResourceIndex)
 		if strings.HasPrefix(strings.TrimSpace(val), "@string/") {
 			continue
 		}
-		findings = append(findings, resourceFinding(loc.FilePath, loc.Line, r.BaseRule,
+		ctx.Emit(resourceFinding(loc.FilePath, loc.Line, r.BaseRule,
 			fmt.Sprintf("String resource `%s` appears to embed a Google API key directly. Reference a build-time injected `@string/...` value instead.", name)))
 	}
-	return findings
 }
 
 func isGoogleAPIKeyResourceName(name string) bool {
@@ -1151,16 +1136,15 @@ type InconsistentArraysResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *InconsistentArraysResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *InconsistentArraysResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *InconsistentArraysResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for name, items := range idx.StringArrays {
 		if len(items) == 0 {
-			findings = append(findings, resourceFinding("res/values/arrays.xml", 0, r.BaseRule,
+			ctx.Emit(resourceFinding("res/values/arrays.xml", 0, r.BaseRule,
 				fmt.Sprintf("String-array `%s` has zero items. This may indicate an incomplete array definition.",
 					name)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -1177,15 +1161,14 @@ type ExtraTextResourceRule struct {
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *ExtraTextResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *ExtraTextResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *ExtraTextResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, et := range idx.ExtraTexts {
-		findings = append(findings, resourceFinding(et.FilePath, et.Line, r.BaseRule,
+		ctx.Emit(resourceFinding(et.FilePath, et.Line, r.BaseRule,
 			fmt.Sprintf("Extraneous text `%s` found in resource file. "+
 				"Text outside elements is usually a mistake.",
 				truncate(et.Text, 40))))
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------

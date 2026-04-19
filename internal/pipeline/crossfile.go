@@ -90,12 +90,12 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 					ruleID := r.ID
 					call := func() error {
 						collector := scanner.NewFindingCollector(0)
-						rctx := &v2.Context{ParsedFiles: in.KotlinFiles, Collector: collector}
+						rctx := &v2.Context{ParsedFiles: in.KotlinFiles, Collector: collector, Rule: r}
 						r.Check(rctx)
-						found := rctx.Findings
 						cols := *collector.Columns()
-						for i := 0; i < cols.Len(); i++ {
-							found = append(found, cols.Finding(i))
+						found := make([]scanner.Finding, cols.Len())
+						for i := range found {
+							found[i] = cols.Finding(i)
 						}
 						rules.ApplyV2Confidence(found, r, 0.95)
 						crossFindings = append(crossFindings, found...)
@@ -112,12 +112,12 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 					ruleID := r.ID
 					call := func() error {
 						collector := scanner.NewFindingCollector(0)
-						rctx := &v2.Context{CodeIndex: codeIndex, Collector: collector}
+						rctx := &v2.Context{CodeIndex: codeIndex, Collector: collector, Rule: r}
 						r.Check(rctx)
-						found := rctx.Findings
 						cols := *collector.Columns()
-						for i := 0; i < cols.Len(); i++ {
-							found = append(found, cols.Finding(i))
+						found := make([]scanner.Finding, cols.Len())
+						for i := range found {
+							found[i] = cols.Finding(i)
 						}
 						rules.ApplyV2Confidence(found, r, 0.95)
 						crossFindings = append(crossFindings, found...)
@@ -165,23 +165,15 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 		runModuleRules := func() error {
 			for _, r := range moduleAwareRules {
 				collector := scanner.NewFindingCollector(0)
-				rctx := &v2.Context{ModuleIndex: in.ModuleIndex, Collector: collector}
+				rctx := &v2.Context{ModuleIndex: in.ModuleIndex, Collector: collector, Rule: r}
 				r.Check(rctx)
-				if len(rctx.Findings) > 0 {
-					rules.ApplyV2Confidence(rctx.Findings, r, 0.95)
-					crossFindings = append(crossFindings, rctx.Findings...)
-				}
 				cols := *collector.Columns()
-				for i := 0; i < cols.Len(); i++ {
-					f := cols.Finding(i)
-					if f.Confidence == 0 {
-						f.Confidence = r.Confidence
-						if f.Confidence == 0 {
-							f.Confidence = 0.95
-						}
-					}
-					crossFindings = append(crossFindings, f)
+				found := make([]scanner.Finding, cols.Len())
+				for i := range found {
+					found[i] = cols.Finding(i)
 				}
+				rules.ApplyV2Confidence(found, r, 0.95)
+				crossFindings = append(crossFindings, found...)
 			}
 			return nil
 		}
@@ -228,23 +220,15 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 				return CrossFileResult{}, err
 			}
 			collector := scanner.NewFindingCollector(0)
-			rctx := &v2.Context{ModuleIndex: pmi, Collector: collector}
+			rctx := &v2.Context{ModuleIndex: pmi, Collector: collector, Rule: r}
 			r.Check(rctx)
-			if len(rctx.Findings) > 0 {
-				rules.ApplyV2Confidence(rctx.Findings, r, 0.95)
-				crossFindings = append(crossFindings, rctx.Findings...)
-			}
 			cols := *collector.Columns()
-			for i := 0; i < cols.Len(); i++ {
-				f := cols.Finding(i)
-				if f.Confidence == 0 {
-					f.Confidence = r.Confidence
-					if f.Confidence == 0 {
-						f.Confidence = 0.95
-					}
-				}
-				crossFindings = append(crossFindings, f)
+			found := make([]scanner.Finding, cols.Len())
+			for i := range found {
+				found[i] = cols.Finding(i)
 			}
+			rules.ApplyV2Confidence(found, r, 0.95)
+			crossFindings = append(crossFindings, found...)
 		}
 	}
 

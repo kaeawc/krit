@@ -2987,10 +2987,12 @@ func findManifestRule(t *testing.T, name string) *v2rules.Rule {
 
 // runManifestRule invokes a v2 manifest rule and returns findings.
 func runManifestRule(r *v2rules.Rule, m *rules.Manifest) []scanner.Finding {
+	collector := scanner.NewFindingCollector(0)
 	ctx := &v2rules.Context{
-		Manifest: m,
-		Rule:     r,
+		Manifest:  m,
+		Rule:      r,
+		Collector: collector,
 	}
 	r.Check(ctx)
-	return ctx.Findings
+	return v2rules.ContextFindings(ctx)
 }

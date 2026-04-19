@@ -28,14 +28,16 @@ func findGradleRule(t *testing.T, name string) *v2rules.Rule {
 }
 
 func runGradleRule(r *v2rules.Rule, path, content string, cfg *android.BuildConfig) []scanner.Finding {
+	collector := scanner.NewFindingCollector(0)
 	ctx := &v2rules.Context{
 		GradlePath:    path,
 		GradleContent: content,
 		GradleConfig:  cfg,
 		Rule:          r,
+		Collector:     collector,
 	}
 	r.Check(ctx)
-	return ctx.Findings
+	return v2rules.ContextFindings(ctx)
 }
 
 func loadTempConfig(t *testing.T, content string) *config.Config {

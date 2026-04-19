@@ -113,14 +113,15 @@ func TestContext_Emit(t *testing.T) {
 		Message: "test finding",
 	})
 
-	if len(ctx.Findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(ctx.Findings))
+	findings := ContextFindings(ctx)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
-	if ctx.Findings[0].Line != 10 {
-		t.Errorf("finding line = %d, want 10", ctx.Findings[0].Line)
+	if findings[0].Line != 10 {
+		t.Errorf("finding line = %d, want 10", findings[0].Line)
 	}
-	if ctx.Findings[0].Message != "test finding" {
-		t.Errorf("finding message = %q, want %q", ctx.Findings[0].Message, "test finding")
+	if findings[0].Message != "test finding" {
+		t.Errorf("finding message = %q, want %q", findings[0].Message, "test finding")
 	}
 }
 
@@ -130,10 +131,11 @@ func TestContext_EmitAt(t *testing.T) {
 
 	ctx.EmitAt(5, 3, "issue here")
 
-	if len(ctx.Findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(ctx.Findings))
+	findings := ContextFindings(ctx)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
-	f := ctx.Findings[0]
+	f := findings[0]
 	if f.File != "test.kt" || f.Line != 5 || f.Col != 3 || f.Message != "issue here" {
 		t.Errorf("unexpected finding: %+v", f)
 	}
@@ -180,8 +182,8 @@ func TestFakeRule(t *testing.T) {
 	if !emitted {
 		t.Error("check function was not called")
 	}
-	if len(ctx.Findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(ctx.Findings))
+	if len(ContextFindings(ctx)) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(ContextFindings(ctx)))
 	}
 }
 
@@ -291,12 +293,13 @@ func TestMultipleFindings(t *testing.T) {
 	ctx := FakeContext(file)
 	r.Check(ctx)
 
-	if len(ctx.Findings) != 3 {
-		t.Fatalf("expected 3 findings, got %d", len(ctx.Findings))
+	findings := ContextFindings(ctx)
+	if len(findings) != 3 {
+		t.Fatalf("expected 3 findings, got %d", len(findings))
 	}
 	for i, msg := range []string{"first", "second", "third"} {
-		if ctx.Findings[i].Message != msg {
-			t.Errorf("finding[%d].Message = %q, want %q", i, ctx.Findings[i].Message, msg)
+		if findings[i].Message != msg {
+			t.Errorf("finding[%d].Message = %q, want %q", i, findings[i].Message, msg)
 		}
 	}
 }

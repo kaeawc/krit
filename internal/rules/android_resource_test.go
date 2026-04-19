@@ -23,12 +23,14 @@ func findResourceRule(t *testing.T, name string) *v2rules.Rule {
 }
 
 func runResourceRule(r *v2rules.Rule, idx *android.ResourceIndex) []scanner.Finding {
+	collector := scanner.NewFindingCollector(0)
 	ctx := &v2rules.Context{
 		ResourceIndex: idx,
 		Rule:          r,
+		Collector:     collector,
 	}
 	r.Check(ctx)
-	return ctx.Findings
+	return v2rules.ContextFindings(ctx)
 }
 
 // helper: build a ResourceIndex with a single layout containing the given root view.

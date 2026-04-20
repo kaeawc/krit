@@ -620,21 +620,3 @@ func (d *V2Dispatcher) ModuleAwareRules() []*v2.Rule {
 	return d.moduleAwareRules
 }
 
-// ApplyV2Confidence applies a rule's declared base confidence to any findings
-// that haven't set their own, falling back to the family default. Per-finding
-// overrides still win — the rule's base confidence is only applied to
-// findings whose Confidence field is zero. Used by call
-// sites outside the dispatcher (cmd/krit post-per-file passes). Per-finding
-// overrides still win — the rule's base confidence is only applied to
-// findings whose Confidence field is zero.
-func ApplyV2Confidence(findings []scanner.Finding, r *v2.Rule, fallback float64) {
-	confidence := r.Confidence
-	if confidence == 0 {
-		confidence = fallback
-	}
-	for i := range findings {
-		if findings[i].Confidence == 0 {
-			findings[i].Confidence = confidence
-		}
-	}
-}

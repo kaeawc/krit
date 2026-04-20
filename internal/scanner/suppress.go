@@ -2,9 +2,240 @@ package scanner
 
 import (
 	"bytes"
+	"path/filepath"
 	"sort"
 	"strings"
 )
+
+// SuppressionFilter is the single per-file query object that combines
+// every suppression source Krit understands:
+//   - @Suppress / @SuppressWarnings annotations (byte-range, via SuppressionIndex)
+//   - config-level per-rule `excludes` glob patterns
+//   - baseline entries (project-level; pointer only, filtering is per-finding
+//     and requires the full Finding struct, so callers apply it via
+//     FilterByBaseline / FilterColumnsByBaseline)
+//   - inline `// krit:ignore[RuleA,RuleB]` line comments (line-scoped)
+//
+// Built once per file in the Parse phase and cached on File.Suppression.
+// The dispatcher, cross-file phase, and any other post-collect filter all
+// ask the same filter, so adding a new suppression source is a single
+// BuildSuppressionFilter edit instead of four disconnected code paths.
+type SuppressionFilter struct {
+	file          *File
+	annotations   *SuppressionIndex
+	excludedRules map[string]bool         // rule IDs whose glob matches this file
+	inline        map[int]map[string]bool // line (1-based) → suppressed rule IDs; "" key means all
+	baseline      *Baseline
+	basePath      string
+}
+
+// BuildSuppressionFilter collects every per-file suppression source for
+// a single parsed file. baseline and excludes are project-level inputs
+// passed in by the caller (the pipeline Parse phase snapshots
+// rules.GetAllRuleExcludes() and threads it through); the rest come
+// directly from file contents.
+//
+// Safe to call with nil file; returns a non-nil filter that always
+// reports IsSuppressed == false so dispatcher / cross-file call sites
+// do not need nil checks.
+func BuildSuppressionFilter(file *File, baseline *Baseline, excludes map[string][]string, basePath string) *SuppressionFilter {
+	sf := &SuppressionFilter{
+		file:     file,
+		baseline: baseline,
+		basePath: basePath,
+	}
+	if file == nil {
+		return sf
+	}
+	if file.FlatTree != nil {
+		sf.annotations = BuildSuppressionIndexFlat(file.FlatTree, file.Content)
+	}
+	if len(excludes) > 0 {
+		excluded := make(map[string]bool)
+		for ruleID, patterns := range excludes {
+			if len(patterns) == 0 {
+				continue
+			}
+			if matchAnyExcludePattern(file.Path, patterns) {
+				excluded[ruleID] = true
+			}
+		}
+		if len(excluded) > 0 {
+			sf.excludedRules = excluded
+		}
+	}
+	sf.inline = parseInlineIgnores(file.Content)
+	return sf
+}
+
+// IsSuppressed reports whether a finding at (ruleID, ruleSet, line) is
+// suppressed by any non-baseline source. Baseline filtering is applied
+// separately via FilterByBaseline / FilterColumnsByBaseline because it
+// requires the full Finding struct (message + signature).
+//
+// A nil filter reports false — matches the pre-filter "no suppression
+// data available" behaviour.
+func (f *SuppressionFilter) IsSuppressed(ruleID, ruleSet string, line int) bool {
+	if f == nil {
+		return false
+	}
+	if f.excludedRules[ruleID] {
+		return true
+	}
+	if suppressed := f.inline[line]; suppressed != nil {
+		if suppressed[""] || suppressed[ruleID] {
+			return true
+		}
+		if ruleSet != "" && (suppressed[ruleSet+"."+ruleID] || suppressed[ruleSet+":"+ruleID]) {
+			return true
+		}
+	}
+	if f.annotations != nil && f.file != nil {
+		byteOffset := 0
+		if line > 0 {
+			byteOffset = f.file.LineOffset(line - 1)
+		}
+		if f.annotations.IsSuppressed(byteOffset, ruleID, ruleSet) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsFileExcluded reports whether the given rule is globally excluded
+// for this file via config globs. Used by the dispatcher to skip rule
+// execution entirely rather than filtering findings after the fact.
+func (f *SuppressionFilter) IsFileExcluded(ruleID string) bool {
+	if f == nil {
+		return false
+	}
+	return f.excludedRules[ruleID]
+}
+
+// Annotations exposes the underlying @Suppress index so compat callers
+// (legacy tests, the File.SuppressionIdx shim) can reuse the same data
+// without rebuilding.
+func (f *SuppressionFilter) Annotations() *SuppressionIndex {
+	if f == nil {
+		return nil
+	}
+	return f.annotations
+}
+
+// Baseline returns the project-level baseline the filter was built
+// against, or nil if none was configured.
+func (f *SuppressionFilter) Baseline() *Baseline {
+	if f == nil {
+		return nil
+	}
+	return f.baseline
+}
+
+func matchAnyExcludePattern(filePath string, patterns []string) bool {
+	filePath = filepath.ToSlash(filePath)
+	for _, p := range patterns {
+		if matchExcludePatternSlash(filePath, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchExcludePatternSlash mirrors rules.matchExcludePattern but is kept
+// in-package so scanner avoids an import cycle. Semantics:
+//   - **/dir/**   matches any path containing /dir/
+//   - **/*suffix  matches any path ending with suffix
+//   - **/name     matches any path ending with /name
+//   - plain glob  matches the basename
+func matchExcludePatternSlash(filePath, pattern string) bool {
+	pattern = filepath.ToSlash(pattern)
+	if strings.HasPrefix(pattern, "**/") {
+		suffix := pattern[3:]
+		if strings.Contains(suffix, "/**") {
+			inner := strings.TrimSuffix(suffix, "/**")
+			return strings.Contains(filePath, "/"+inner+"/")
+		}
+		if strings.HasPrefix(suffix, "*") {
+			return strings.HasSuffix(filePath, suffix[1:])
+		}
+		return strings.HasSuffix(filePath, "/"+suffix) || filePath == suffix
+	}
+	matched, _ := filepath.Match(pattern, filepath.Base(filePath))
+	return matched
+}
+
+// parseInlineIgnores scans for `// krit:ignore[...]` and
+// `// krit:ignore-all` comments. Returns a line → {ruleID: true} map,
+// with the empty-string key signalling "suppress all rules on this line".
+// Returns nil when no inline suppressions are present so the common case
+// allocates nothing beyond a single byte scan.
+func parseInlineIgnores(content []byte) map[int]map[string]bool {
+	if !bytes.Contains(content, []byte("krit:ignore")) {
+		return nil
+	}
+	out := make(map[int]map[string]bool)
+	line := 1
+	start := 0
+	for i := 0; i <= len(content); i++ {
+		if i < len(content) && content[i] != '\n' {
+			continue
+		}
+		lineBytes := content[start:i]
+		addInlineIgnore(out, line, lineBytes)
+		line++
+		start = i + 1
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func addInlineIgnore(out map[int]map[string]bool, line int, lineBytes []byte) {
+	idx := bytes.Index(lineBytes, []byte("krit:ignore"))
+	if idx < 0 {
+		return
+	}
+	// Require a preceding `//` on the same line (ignore in strings/etc.)
+	if !bytes.Contains(lineBytes[:idx], []byte("//")) {
+		return
+	}
+	rest := lineBytes[idx+len("krit:ignore"):]
+	rest = bytes.TrimLeft(rest, "-")
+	if bytes.HasPrefix(rest, []byte("all")) {
+		set := ensureInline(out, line)
+		set[""] = true
+		return
+	}
+	if !bytes.HasPrefix(rest, []byte("[")) {
+		// Bare `// krit:ignore` → suppress all on this line.
+		set := ensureInline(out, line)
+		set[""] = true
+		return
+	}
+	end := bytes.IndexByte(rest, ']')
+	if end < 0 {
+		return
+	}
+	body := rest[1:end]
+	set := ensureInline(out, line)
+	for _, tok := range bytes.Split(body, []byte(",")) {
+		name := strings.TrimSpace(string(tok))
+		if name == "" {
+			continue
+		}
+		set[name] = true
+	}
+}
+
+func ensureInline(out map[int]map[string]bool, line int) map[string]bool {
+	if s := out[line]; s != nil {
+		return s
+	}
+	s := make(map[string]bool, 2)
+	out[line] = s
+	return s
+}
 
 // Suppression represents a range of bytes where specific rules are suppressed.
 type Suppression struct {

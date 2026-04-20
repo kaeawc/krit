@@ -18,7 +18,7 @@ func TestCrossFilePhase_Name(t *testing.T) {
 }
 
 // parsedKotlinFile is a small helper: writes content to a temp file,
-// parses it through scanner.ParseFile, and installs a SuppressionIdx
+// parses it through scanner.ParseFile, and installs a SuppressionFilter
 // the way ParsePhase would. Used by multiple tests below.
 func parsedKotlinFile(t *testing.T, content string) *scanner.File {
 	t.Helper()
@@ -31,7 +31,8 @@ func parsedKotlinFile(t *testing.T, content string) *scanner.File {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.SuppressionIdx = scanner.BuildSuppressionIndexFlat(f.FlatTree, f.Content)
+	f.Suppression = scanner.BuildSuppressionFilter(f, nil, nil, "")
+	f.SuppressionIdx = f.Suppression.Annotations()
 	return f
 }
 
@@ -191,6 +192,67 @@ func TestCrossFilePhase_ContextCancel(t *testing.T) {
 	var pe *PhaseError
 	if !errors.As(err, &pe) || pe.Phase != "crossfile" {
 		t.Fatalf("want PhaseError phase=crossfile, got %v", err)
+	}
+}
+
+// TestCrossFilePhase_InlineIgnoreSuppressesCrossFileFinding proves
+// that the unified SuppressionFilter applies to cross-file findings
+// for inline `// krit:ignore[Rule]` comments, not just @Suppress.
+// Closes SuppressionMiddleware acceptance criterion #3 for the
+// inline-comment source.
+func TestCrossFilePhase_InlineIgnoreSuppressesCrossFileFinding(t *testing.T) {
+	src := "class UnusedClass // krit:ignore[DeadSymbol]\nclass OtherClass\n"
+	file := parsedKotlinFile(t, src)
+
+	kept := ApplySuppression(
+		[]scanner.Finding{
+			{File: file.Path, Line: 1, Rule: "DeadSymbol", RuleSet: "test", Message: "unused"},
+			{File: file.Path, Line: 1, Rule: "OtherRule", RuleSet: "test", Message: "keep"},
+			{File: file.Path, Line: 2, Rule: "DeadSymbol", RuleSet: "test", Message: "keep"},
+		},
+		[]*scanner.File{file},
+	)
+	if len(kept) != 2 {
+		t.Fatalf("ApplySuppression kept %d, want 2; got %+v", len(kept), kept)
+	}
+	for _, f := range kept {
+		if f.Rule == "DeadSymbol" && f.Line == 1 {
+			t.Errorf("inline ignore should have suppressed DeadSymbol on line 1, got %+v", f)
+		}
+	}
+}
+
+// TestCrossFilePhase_ExcludeGlobSuppressesCrossFileFinding proves that
+// a config-level rule exclude glob matching the finding's file causes
+// the cross-file finding to drop, closing the rule-exclude path through
+// the same SuppressionFilter.
+func TestCrossFilePhase_ExcludeGlobSuppressesCrossFileFinding(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "SomethingTest.kt")
+	if err := os.WriteFile(p, []byte("class T\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := scanner.ParseFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Suppression = scanner.BuildSuppressionFilter(f, nil, map[string][]string{
+		"DeadSymbol": {"**/*Test.kt"},
+	}, "")
+	f.SuppressionIdx = f.Suppression.Annotations()
+
+	kept := ApplySuppression(
+		[]scanner.Finding{
+			{File: f.Path, Line: 1, Rule: "DeadSymbol", RuleSet: "test"},
+			{File: f.Path, Line: 1, Rule: "OtherRule", RuleSet: "test"},
+		},
+		[]*scanner.File{f},
+	)
+	if len(kept) != 1 {
+		t.Fatalf("kept %d, want 1; got %+v", len(kept), kept)
+	}
+	if kept[0].Rule != "OtherRule" {
+		t.Errorf("kept rule = %q, want OtherRule (DeadSymbol file-excluded)", kept[0].Rule)
 	}
 }
 

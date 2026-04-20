@@ -129,6 +129,30 @@ func BenchmarkBuildSuppressionIndex(b *testing.B) {
 	}
 }
 
+// BenchmarkBuildSuppressionFilter measures the unified per-file filter
+// build cost. Used to verify the SuppressionMiddleware migration does
+// not regress allocation behaviour vs BuildSuppressionIndexFlat alone.
+func BenchmarkBuildSuppressionFilter(b *testing.B) {
+	f := helperParseFixture(b, "../../tests/fixtures/positive/complexity/LargeClass.kt")
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = BuildSuppressionFilter(f, nil, nil, "")
+	}
+}
+
+// BenchmarkSuppressionFilter_IsSuppressed measures the hot-path lookup
+// cost. The dispatcher calls this once per emitted finding.
+func BenchmarkSuppressionFilter_IsSuppressed(b *testing.B) {
+	f := helperParseFixture(b, "../../tests/fixtures/positive/complexity/LargeClass.kt")
+	sf := BuildSuppressionFilter(f, nil, nil, "")
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = sf.IsSuppressed("MagicNumber", "style", 50)
+	}
+}
+
 // benchParseIdentifiers builds a synthetic Kotlin file with repeated
 // identifiers, parses it, and returns the file plus all simple_identifier
 // node indices. Shared across node-text benchmarks.

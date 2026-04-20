@@ -19,21 +19,11 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// ---------------------------------------------------------------------------
-// Resource-rule structural contract
-// ---------------------------------------------------------------------------
+// Resource-rule marker types. These are empty structs embedded by
+// resource rule implementations. Android dependency metadata is surfaced
+// onto v2.Rule.AndroidDeps by codegen in zz_registry_gen.go, which reads
+// it back from the AndroidDependencies() methods below.
 
-// ResourceFamily is the structural type a rule must satisfy to be
-// registered via RegisterResource and stored in ResourceRules.
-// (Replaces the old `resource rule` interface.)
-type ResourceFamily = interface {
-	Rule
-	AndroidDependencyProvider
-	CheckResources(idx *android.ResourceIndex) []scanner.Finding
-}
-
-// ResourceBase provides a default nil implementation for Check so resource
-// rules do not need to implement the Kotlin-file scanner interface.
 type ResourceBase struct{}
 
 func (ResourceBase) AndroidDependencies() AndroidDataDependency {
@@ -90,20 +80,6 @@ func resourceFinding(path string, line int, rule BaseRule, msg string) scanner.F
 		Severity: rule.Sev,
 		Message:  msg,
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
-
-// ResourceRules holds all registered resource rules for use by the scanner.
-var ResourceRules []ResourceFamily
-
-// RegisterResource adds a resource rule to both the resource registry and the
-// global rule registry (for config/suppression compatibility).
-func RegisterResource(r ResourceFamily) {
-	ResourceRules = append(ResourceRules, r)
-	Register(r)
 }
 
 // ---------------------------------------------------------------------------

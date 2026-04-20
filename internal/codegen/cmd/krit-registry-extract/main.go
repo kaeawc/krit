@@ -418,14 +418,6 @@ func stmtContainsRegister(stmt ast.Stmt) bool {
 			found = true
 			return false
 		}
-		// Also catch v1-style helpers, in case any linger.
-		if sel.Sel != nil {
-			switch sel.Sel.Name {
-			case "RegisterManifest", "RegisterResource", "RegisterGradle":
-				found = true
-				return false
-			}
-		}
 		return true
 	})
 	return found

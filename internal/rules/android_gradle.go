@@ -18,21 +18,9 @@ import (
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
-// ---------------------------------------------------------------------------
-// Gradle-rule structural contract
-// ---------------------------------------------------------------------------
-
-// GradleFamily is the structural type a rule must satisfy to be
-// registered via RegisterGradle and stored in GradleRules.
-// (Replaces the old `gradle rule` interface.)
-type GradleFamily = interface {
-	Rule
-	AndroidDependencyProvider
-	CheckGradle(path string, content string, cfg *android.BuildConfig) []scanner.Finding
-}
-
-// GradleBase provides a default nil implementation for Check so that
-// gradle rule implementations satisfy the Rule interface without stubs.
+// GradleBase is an empty marker type embedded by Gradle rule
+// implementations. Codegen reads AndroidDependencies() to populate
+// v2.Rule.AndroidDeps in zz_registry_gen.go.
 type GradleBase struct{}
 
 func (GradleBase) AndroidDependencies() AndroidDataDependency {
@@ -724,16 +712,3 @@ func (r *NewerVersionAvailableRule) check(ctx *v2.Context) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
-
-// GradleRules holds all registered Gradle rules for use by the scanner.
-var GradleRules []GradleFamily
-
-// RegisterGradle adds a Gradle rule to both the Gradle registry and the
-// global rule registry (for config/suppression compatibility).
-func RegisterGradle(r GradleFamily) {
-	GradleRules = append(GradleRules, r)
-	Register(r)
-}

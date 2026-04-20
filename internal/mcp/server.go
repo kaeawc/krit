@@ -257,16 +257,6 @@ func (s *Server) parseAndAnalyzeColumns(code string, path string) (scanner.Findi
 	return columns, err
 }
 
-// parseAndAnalyze parses Kotlin code and runs the dispatcher, returning
-// compatibility Finding values.
-func (s *Server) parseAndAnalyze(code string, path string) ([]scanner.Finding, error) {
-	columns, err := s.parseAndAnalyzeColumns(code, path)
-	if err != nil {
-		return nil, err
-	}
-	return columns.Findings(), nil
-}
-
 // parseKotlinCode parses Kotlin source code string into a scanner.File via
 // the shared pipeline.ParseSingle helper.
 func parseKotlinCode(code string, path string) (*scanner.File, error) {

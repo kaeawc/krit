@@ -812,36 +812,21 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *v2.Context) {
 		return
 	}
 
-	for _, file := range index.Files {
-		if isTestFile(file.Path) {
-			continue
-		}
-		for _, line := range file.Lines {
-			trimmed := strings.TrimSpace(line)
-			if strings.Contains(trimmed, "@VisibleForTesting") {
-				break
-			}
-		}
-	}
-	// Scan for @VisibleForTesting annotated declarations, then check call-sites
-	vftDecls := make(map[string]bool)
+	vftDecls := make(map[string]struct{})
 	for _, file := range index.Files {
 		for i, line := range file.Lines {
-			trimmed := strings.TrimSpace(line)
-			if strings.Contains(trimmed, "@VisibleForTesting") {
-				// Next non-annotation line has the declaration
-				for j := i + 1; j < len(file.Lines); j++ {
-					nextLine := strings.TrimSpace(file.Lines[j])
-					if strings.HasPrefix(nextLine, "@") {
-						continue
-					}
-					// Extract function/property name
-					funcName := extractDeclName(nextLine)
-					if funcName != "" {
-						vftDecls[funcName] = true
-					}
-					break
+			if !strings.Contains(line, "@VisibleForTesting") {
+				continue
+			}
+			for j := i + 1; j < len(file.Lines); j++ {
+				nextLine := strings.TrimSpace(file.Lines[j])
+				if strings.HasPrefix(nextLine, "@") {
+					continue
 				}
+				if name := extractDeclName(nextLine); name != "" {
+					vftDecls[name] = struct{}{}
+				}
+				break
 			}
 		}
 	}
@@ -850,35 +835,119 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *v2.Context) {
 		return
 	}
 
+	// Bucket by byte length so per-line lookup is O(line_len × #lengths) rather
+	// than O(line_len × #names) — a large Android repo has hundreds of names
+	// but only ~20 unique lengths.
+	namesByLen := make(map[int]map[string]struct{})
+	for name := range vftDecls {
+		L := len(name)
+		bucket := namesByLen[L]
+		if bucket == nil {
+			bucket = make(map[string]struct{})
+			namesByLen[L] = bucket
+		}
+		bucket[name] = struct{}{}
+	}
+	lengths := make([]int, 0, len(namesByLen))
+	for L := range namesByLen {
+		lengths = append(lengths, L)
+	}
+
+	sc := newVftScanner(namesByLen, lengths)
 	for _, file := range index.Files {
 		if isTestFile(file.Path) {
 			continue
 		}
 		for i, line := range file.Lines {
-			for name := range vftDecls {
-				if strings.Contains(line, name+"(") || strings.Contains(line, name+" ") {
-					trimmed := strings.TrimSpace(line)
-					if strings.Contains(trimmed, "@VisibleForTesting") {
-						continue
-					}
-					if strings.HasPrefix(trimmed, "fun ") || strings.HasPrefix(trimmed, "internal ") || strings.HasPrefix(trimmed, "private ") {
-						continue
-					}
-					col := strings.Index(line, name)
-					ctx.Emit(scanner.Finding{
-						File:       file.Path,
-						Line:       i + 1,
-						Col:        col + 1,
-						RuleSet:    r.RuleSetName,
-						Rule:       r.RuleName,
-						Severity:   r.Sev,
-						Message:    fmt.Sprintf("@VisibleForTesting function %q called from non-test code.", name),
-						Confidence: 0.7,
-					})
-				}
+			if len(line) < 2 || !strings.ContainsAny(line, "( ") {
+				continue
+			}
+			if strings.Contains(line, "@VisibleForTesting") {
+				continue
+			}
+
+			sc.reset()
+			sc.scan(line, '(')
+			sc.scan(line, ' ')
+			if len(sc.matched) == 0 {
+				continue
+			}
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "fun ") || strings.HasPrefix(trimmed, "internal ") || strings.HasPrefix(trimmed, "private ") {
+				continue
+			}
+			for name := range sc.matched {
+				col := strings.Index(line, name)
+				ctx.Emit(scanner.Finding{
+					File:       file.Path,
+					Line:       i + 1,
+					Col:        col + 1,
+					RuleSet:    r.RuleSetName,
+					Rule:       r.RuleName,
+					Severity:   r.Sev,
+					Message:    fmt.Sprintf("@VisibleForTesting function %q called from non-test code.", name),
+					Confidence: 0.7,
+				})
 			}
 		}
 	}
+}
+
+// vftScanner holds the read-only name dictionary (bucketed by length) and a
+// reusable match set for a single pass over a file's lines. reset() clears
+// matches between lines without reallocating the map.
+type vftScanner struct {
+	namesByLen map[int]map[string]struct{}
+	lengths    []int
+	matched    map[string]struct{}
+}
+
+func newVftScanner(namesByLen map[int]map[string]struct{}, lengths []int) *vftScanner {
+	return &vftScanner{
+		namesByLen: namesByLen,
+		lengths:    lengths,
+		matched:    make(map[string]struct{}),
+	}
+}
+
+func (s *vftScanner) reset() {
+	for k := range s.matched {
+		delete(s.matched, k)
+	}
+}
+
+// scan records all names that appear immediately before any `boundary` byte in
+// the line. Uses SIMD-accelerated IndexByte to skip to each boundary because
+// `(` and ` ` are sparse relative to the full byte range.
+func (s *vftScanner) scan(line string, boundary byte) {
+	start := 0
+	for start < len(line) {
+		rel := strings.IndexByte(line[start:], boundary)
+		if rel < 0 {
+			return
+		}
+		pos := start + rel
+		// Names end in an identifier byte; if line[pos-1] isn't, skip the
+		// O(#lengths) bucket loop entirely.
+		if pos == 0 || !isIdentByte(line[pos-1]) {
+			start = pos + 1
+			continue
+		}
+		for _, L := range s.lengths {
+			if pos < L {
+				continue
+			}
+			cand := line[pos-L : pos]
+			if _, ok := s.namesByLen[L][cand]; ok {
+				s.matched[cand] = struct{}{}
+			}
+		}
+		start = pos + 1
+	}
+}
+
+func isIdentByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
 }
 
 func extractDeclName(line string) string {

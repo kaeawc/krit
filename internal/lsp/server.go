@@ -61,7 +61,7 @@ type Document struct {
 	URI      string
 	Content  []byte
 	Version  int32
-	Findings []scanner.Finding
+	Findings scanner.FindingColumns
 	File     *scanner.File
 	debounce *time.Timer // debounce timer for didChange
 }
@@ -452,18 +452,18 @@ func (s *Server) analyzeAndPublish(uri string, content []byte) {
 	}
 
 	// Run per-file rules through the shared pipeline analyzer.
-	findings := s.analyzer.AnalyzeFile(file)
+	columns := s.analyzer.AnalyzeFileColumns(file)
 
 	// Store findings and cached tree alongside the document for code actions
 	s.docsMu.Lock()
 	if doc, ok := s.docs[uri]; ok {
-		doc.Findings = findings
+		doc.Findings = columns
 		doc.File = file
 	}
 	s.docsMu.Unlock()
 
 	// Convert to LSP diagnostics
-	diagnostics := FindingsToDiagnostics(findings)
+	diagnostics := FindingColumnsToDiagnostics(&columns)
 
 	s.publishDiagnostics(uri, diagnostics)
 }
@@ -492,7 +492,7 @@ func (s *Server) handleCodeAction(req *Request) {
 	s.docsMu.Lock()
 	doc, ok := s.docs[uri]
 	var docContent string
-	var docFindings []scanner.Finding
+	var docFindings scanner.FindingColumns
 	if ok {
 		docContent = string(doc.Content)
 		docFindings = doc.Findings
@@ -503,30 +503,33 @@ func (s *Server) handleCodeAction(req *Request) {
 		return
 	}
 
-	actions := findingsToCodeActions(uri, docContent, docFindings)
+	actions := findingColumnsToCodeActions(uri, docContent, &docFindings)
 	s.sendResponse(req.ID, actions, nil)
 }
 
-// findingsToCodeActions converts fixable findings to LSP code actions.
-func findingsToCodeActions(uri string, content string, findings []scanner.Finding) []CodeAction {
+// findingColumnsToCodeActions converts fixable columnar findings to LSP code actions.
+func findingColumnsToCodeActions(uri string, content string, columns *scanner.FindingColumns) []CodeAction {
 	var actions []CodeAction
-	for _, f := range findings {
-		if f.Fix == nil {
+	if columns == nil {
+		return []CodeAction{}
+	}
+	for row := 0; row < columns.Len(); row++ {
+		fix := columns.FixAt(row)
+		if fix == nil {
 			continue
 		}
 
 		var startPos, endPos Position
 		var newText string
 
-		if f.Fix.ByteMode {
-			startPos = byteOffsetToPosition(content, f.Fix.StartByte)
-			endPos = byteOffsetToPosition(content, f.Fix.EndByte)
-			newText = f.Fix.Replacement
-		} else if f.Fix.StartLine > 0 && f.Fix.EndLine > 0 {
-			// Line-based fix: convert to byte offsets
+		if fix.ByteMode {
+			startPos = byteOffsetToPosition(content, fix.StartByte)
+			endPos = byteOffsetToPosition(content, fix.EndByte)
+			newText = fix.Replacement
+		} else if fix.StartLine > 0 && fix.EndLine > 0 {
 			lines := strings.Split(content, "\n")
-			startLine := f.Fix.StartLine - 1 // 0-based
-			endLine := f.Fix.EndLine         // exclusive
+			startLine := fix.StartLine - 1 // 0-based
+			endLine := fix.EndLine         // exclusive
 			if startLine < 0 {
 				startLine = 0
 			}
@@ -534,21 +537,20 @@ func findingsToCodeActions(uri string, content string, findings []scanner.Findin
 				endLine = len(lines)
 			}
 			startPos = Position{Line: uint32(startLine), Character: 0}
-			// End position: start of the line after the last replaced line
 			if endLine < len(lines) {
 				endPos = Position{Line: uint32(endLine), Character: 0}
 			} else {
-				// End of file
 				endPos = byteOffsetToPosition(content, len(content))
 			}
-			newText = f.Fix.Replacement
+			newText = fix.Replacement
 		} else {
 			continue
 		}
 
-		diag := FindingToDiagnostic(f)
+		ruleName := columns.RuleAt(row)
+		diag := rowToDiagnostic(columns, row)
 		action := CodeAction{
-			Title:       fmt.Sprintf("Fix: %s", f.Rule),
+			Title:       fmt.Sprintf("Fix: %s", ruleName),
 			Kind:        "quickfix",
 			Diagnostics: []Diagnostic{diag},
 			Edit: &WorkspaceEdit{
@@ -565,7 +567,7 @@ func findingsToCodeActions(uri string, content string, findings []scanner.Findin
 				},
 			},
 		}
-		if preview := buildQuickFixPreview(uri, content, f); preview != nil {
+		if preview := buildQuickFixPreview(uri, content, ruleName, fix); preview != nil {
 			action.Data = &CodeActionData{Preview: preview}
 		}
 		actions = append(actions, action)
@@ -589,10 +591,10 @@ func (s *Server) handleFormatting(req *Request) {
 	s.docsMu.Lock()
 	doc, ok := s.docs[uri]
 	var content []byte
-	var findings []scanner.Finding
+	var columns scanner.FindingColumns
 	if ok {
 		content = doc.Content
-		findings = doc.Findings
+		columns = doc.Findings
 	}
 	s.docsMu.Unlock()
 
@@ -602,7 +604,7 @@ func (s *Server) handleFormatting(req *Request) {
 	}
 
 	// If we don't have findings yet, run analysis now
-	if findings == nil && s.analyzer != nil {
+	if columns.Len() == 0 && s.analyzer != nil {
 		path := uriToPath(uri)
 		if strings.HasSuffix(path, ".kt") || strings.HasSuffix(path, ".kts") {
 			file := doc.File
@@ -618,7 +620,7 @@ func (s *Server) handleFormatting(req *Request) {
 				}
 			}
 			if file != nil {
-				findings = s.analyzer.AnalyzeFile(file)
+				columns = s.analyzer.AnalyzeFileColumns(file)
 			}
 		}
 	}
@@ -626,22 +628,23 @@ func (s *Server) handleFormatting(req *Request) {
 	// Collect fixable findings and build text edits
 	contentStr := string(content)
 	var edits []TextEdit
-	for _, f := range findings {
-		if f.Fix == nil {
+	for row := 0; row < columns.Len(); row++ {
+		fix := columns.FixAt(row)
+		if fix == nil {
 			continue
 		}
 
 		var startPos, endPos Position
 		var newText string
 
-		if f.Fix.ByteMode {
-			startPos = byteOffsetToPosition(contentStr, f.Fix.StartByte)
-			endPos = byteOffsetToPosition(contentStr, f.Fix.EndByte)
-			newText = f.Fix.Replacement
-		} else if f.Fix.StartLine > 0 && f.Fix.EndLine > 0 {
+		if fix.ByteMode {
+			startPos = byteOffsetToPosition(contentStr, fix.StartByte)
+			endPos = byteOffsetToPosition(contentStr, fix.EndByte)
+			newText = fix.Replacement
+		} else if fix.StartLine > 0 && fix.EndLine > 0 {
 			lines := strings.Split(contentStr, "\n")
-			startLine := f.Fix.StartLine - 1
-			endLine := f.Fix.EndLine
+			startLine := fix.StartLine - 1
+			endLine := fix.EndLine
 			if startLine < 0 {
 				startLine = 0
 			}
@@ -654,7 +657,7 @@ func (s *Server) handleFormatting(req *Request) {
 			} else {
 				endPos = byteOffsetToPosition(contentStr, len(contentStr))
 			}
-			newText = f.Fix.Replacement
+			newText = fix.Replacement
 		} else {
 			continue
 		}
@@ -686,23 +689,23 @@ func (s *Server) handleHover(req *Request) {
 	uri := params.TextDocument.URI
 	s.docsMu.Lock()
 	doc, ok := s.docs[uri]
-	var findings []scanner.Finding
+	var columns scanner.FindingColumns
 	if ok {
-		findings = doc.Findings
+		columns = doc.Findings
 	}
 	s.docsMu.Unlock()
 
-	if !ok || findings == nil {
+	if !ok || columns.Len() == 0 {
 		s.sendResponse(req.ID, nil, nil)
 		return
 	}
 
 	// Find findings on the hovered line (LSP position is 0-based, findings are 1-based)
 	hoverLine := int(params.Position.Line) + 1
-	var matched []scanner.Finding
-	for _, f := range findings {
-		if f.Line == hoverLine {
-			matched = append(matched, f)
+	var matched []int
+	for row := 0; row < columns.Len(); row++ {
+		if columns.LineAt(row) == hoverLine {
+			matched = append(matched, row)
 		}
 	}
 
@@ -714,7 +717,7 @@ func (s *Server) handleHover(req *Request) {
 	hover := Hover{
 		Contents: MarkupContent{
 			Kind:  "markdown",
-			Value: formatHoverContent(matched),
+			Value: formatHoverColumns(&columns, matched),
 		},
 	}
 	s.sendResponse(req.ID, hover, nil)

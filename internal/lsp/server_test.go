@@ -1300,14 +1300,14 @@ func TestFormattingWithFixableFindings(t *testing.T) {
 	server.docs[uri] = &Document{
 		URI:     uri,
 		Content: []byte(content),
-		Findings: []scanner.Finding{
+		Findings: scanner.CollectFindings([]scanner.Finding{
 			{
 				File: "/tmp/test/Test.kt", Line: 1, Col: 8,
 				RuleSet: "style", Rule: "TestFix", Severity: "warning",
 				Message: "use baz()",
 				Fix:     &scanner.Fix{StartByte: 8, EndByte: 13, Replacement: "baz()", ByteMode: true},
 			},
-		},
+		}),
 	}
 
 	// Simulate a formatting request directly
@@ -1358,13 +1358,13 @@ func TestHoverReturnsRuleInfo(t *testing.T) {
 	server.docs[uri] = &Document{
 		URI:     uri,
 		Content: []byte("val x = foo()\n"),
-		Findings: []scanner.Finding{
+		Findings: scanner.CollectFindings([]scanner.Finding{
 			{
 				File: "/tmp/test/Test.kt", Line: 1, Col: 0,
 				RuleSet: "style", Rule: "MagicNumber", Severity: "warning",
 				Message: "Avoid magic numbers",
 			},
-		},
+		}),
 	}
 
 	params := HoverParams{
@@ -1427,7 +1427,7 @@ func TestHoverNoFindingReturnsNull(t *testing.T) {
 	server.docs[uri] = &Document{
 		URI:      uri,
 		Content:  []byte("val x = 1\n"),
-		Findings: []scanner.Finding{},
+		Findings: scanner.FindingColumns{},
 	}
 
 	params := HoverParams{
@@ -1467,10 +1467,10 @@ func TestHoverMultipleFindingsOnSameLine(t *testing.T) {
 	server.docs[uri] = &Document{
 		URI:     uri,
 		Content: []byte("val x = foo()\n"),
-		Findings: []scanner.Finding{
+		Findings: scanner.CollectFindings([]scanner.Finding{
 			{File: "/tmp/test/Test.kt", Line: 1, Col: 0, RuleSet: "style", Rule: "RuleA", Severity: "warning", Message: "msg A"},
 			{File: "/tmp/test/Test.kt", Line: 1, Col: 5, RuleSet: "style", Rule: "RuleB", Severity: "error", Message: "msg B"},
-		},
+		}),
 	}
 
 	params := HoverParams{
@@ -1516,13 +1516,13 @@ func TestHoverIncludesFixLevelForFixableRule(t *testing.T) {
 	server.docs[uri] = &Document{
 		URI:     uri,
 		Content: []byte("val x = foo()\n"),
-		Findings: []scanner.Finding{
+		Findings: scanner.CollectFindings([]scanner.Finding{
 			{
 				File: "/tmp/test/Test.kt", Line: 1, Col: 0,
 				RuleSet: "style", Rule: "UseCheckNotNull", Severity: "warning",
 				Message: "Use checkNotNull instead of check(x != null)",
 			},
-		},
+		}),
 	}
 
 	params := HoverParams{

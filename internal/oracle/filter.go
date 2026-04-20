@@ -2,6 +2,8 @@ package oracle
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"sort"
@@ -48,6 +50,12 @@ type OracleFilterSummary struct {
 	// for oracle access. When AllFiles is true, Paths is nil (the caller
 	// should fall back to the unfiltered set).
 	Paths []string
+	// Fingerprint is a short hex-encoded SHA-256 prefix over the sorted
+	// Paths. It is a stable identity for the oracle input set: narrowing
+	// PRs can diff fingerprints to detect which files moved in or out
+	// without a full finding diff. Empty when AllFiles is true (the
+	// "full corpus" set is not fingerprinted — its identity is implicit).
+	Fingerprint string
 }
 
 // CollectOracleFiles returns the subset of files any enabled rule wants
@@ -104,6 +112,7 @@ func CollectOracleFiles(rules []OracleFilterRule, files []*scanner.File) OracleF
 		// oracle. Return an empty Paths set (not nil) so the caller can
 		// still write an empty --files list.
 		summary.Paths = []string{}
+		summary.Fingerprint = fingerprintPaths(summary.Paths)
 		return summary
 	}
 
@@ -123,7 +132,20 @@ func CollectOracleFiles(rules []OracleFilterRule, files []*scanner.File) OracleF
 	sort.Strings(matched)
 	summary.MarkedFiles = len(matched)
 	summary.Paths = matched
+	summary.Fingerprint = fingerprintPaths(matched)
 	return summary
+}
+
+// fingerprintPaths returns the first 16 hex chars of SHA-256 over the
+// newline-joined sorted path list. 64 bits of collision space is
+// plenty for human-diffable fingerprints across narrowing scans.
+func fingerprintPaths(paths []string) string {
+	h := sha256.New()
+	for _, p := range paths {
+		h.Write([]byte(p))
+		h.Write([]byte{'\n'})
+	}
+	return hex.EncodeToString(h.Sum(nil)[:8])
 }
 
 // WriteFilterListFile writes the filter's matched paths to a temp file

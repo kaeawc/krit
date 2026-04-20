@@ -34,16 +34,12 @@ var mutableVarPropertyRe = regexp.MustCompile(`\bvar\s+(\w+)`)
 // isMutableVarProperty returns true if the given name is declared as `var`
 // anywhere in the file. Kotlin cannot smart-cast mutable properties because
 // their value could change between the null check and access.
+//
+// Backed by the per-file nullSafetyFileSummary so repeat queries on the same
+// file are O(1). The first call builds a single-pass scan of all four
+// helpers' results; subsequent calls (including from sibling rules) reuse it.
 func isMutableVarProperty(file *scanner.File, name string) bool {
-	for _, line := range file.Lines {
-		matches := mutableVarPropertyRe.FindAllStringSubmatch(line, -1)
-		for _, m := range matches {
-			if m[1] == name {
-				return true
-			}
-		}
-	}
-	return false
+	return nullSafetySummaryFor(file).mutableVar[name]
 }
 
 // explicitNullableDeclRe matches `[val|var] name : SomeType?` patterns.
@@ -83,36 +79,13 @@ func isFrameworkNullableProperty(name string) bool {
 var valMemberInitRe = regexp.MustCompile(`\bval\s+(\w+)\s*=\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)\s*(?:$|//|\n)`)
 
 func hasMemberAccessInitializer(file *scanner.File, name string) bool {
-	for _, line := range file.Lines {
-		m := valMemberInitRe.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		if m[1] != name {
-			continue
-		}
-		init := m[2]
-		// If the initializer ends with `!!`, it's explicitly non-null; allow flagging.
-		if strings.HasSuffix(init, "!!") {
-			return false
-		}
-		return true
-	}
-	return false
+	return nullSafetySummaryFor(file).memberAccessInitializer[name]
 }
 
 // isExplicitNullableDeclaration returns true if the given name is declared
 // with an explicit nullable type annotation (`: T?`) anywhere in the file.
 func isExplicitNullableDeclaration(file *scanner.File, name string) bool {
-	for _, line := range file.Lines {
-		matches := explicitNullableDeclRe.FindAllStringSubmatch(line, -1)
-		for _, m := range matches {
-			if m[1] == name {
-				return true
-			}
-		}
-	}
-	return false
+	return nullSafetySummaryFor(file).explicitNullable[name]
 }
 
 func (r *UnnecessaryNotNullCheckRule) check(ctx *v2.Context) {
@@ -271,34 +244,14 @@ func (r *UnnecessaryNotNullOperatorRule) check(ctx *v2.Context) {
 // resolver may widen incorrectly. Used to suppress false positives on
 // UnnecessaryNotNullOperator / UnnecessarySafeCall.
 func hasBranchNullInitializer(file *scanner.File, name string) bool {
-	decl := regexp.MustCompile(`\b(?:val|var)\s+` + regexp.QuoteMeta(name) + `\b[^\n=]*=`)
-	for i, line := range file.Lines {
-		if !decl.MatchString(line) {
-			continue
-		}
-		// Track brace/paren balance to find the end of the initializer.
-		depth := 0
-		joined := line
-		depth += strings.Count(line, "(") + strings.Count(line, "{")
-		depth -= strings.Count(line, ")") + strings.Count(line, "}")
-		for j := i + 1; j < len(file.Lines) && j < i+60; j++ {
-			cur := file.Lines[j]
-			joined += " " + cur
-			depth += strings.Count(cur, "(") + strings.Count(cur, "{")
-			depth -= strings.Count(cur, ")") + strings.Count(cur, "}")
-			if depth <= 0 {
-				break
-			}
-		}
-		if strings.Contains(joined, "else null") ||
-			strings.Contains(joined, "-> null") ||
-			strings.Contains(joined, "?: null") ||
-			strings.Contains(joined, "?.let") {
-			return true
-		}
-	}
-	return false
+	return nullSafetySummaryFor(file).branchNullInitializer[name]
 }
+
+// valOrVarDeclRe matches any `[val|var] name` declaration header followed
+// by an initializer (= on the same line). Mirrors the per-name regex used
+// by the pre-summary hasBranchNullInitializer but captures the name so a
+// single pass populates the summary for every declaration in the file.
+var valOrVarDeclRe = regexp.MustCompile(`\b(?:val|var)\s+(\w+)\b[^\n=]*=`)
 
 func hasNullableGenericParamBoundFlat(file *scanner.File, idx uint32, name string) bool {
 	var fn uint32
@@ -430,6 +383,126 @@ func splitTopLevelCommaParts(s string) []string {
 	}
 	parts = append(parts, s[start:])
 	return parts
+}
+
+// nullSafetyFileSummary collects the per-file facts needed by the four
+// name-keyed helper queries used by UnnecessarySafeCall and
+// UnnecessaryNotNullOperator: mutable `var` names, explicitly-nullable
+// declarations, declarations whose initializer has a branch-null tail,
+// and declarations whose initializer is a member access.
+//
+// Built lazily per file on first use and cached in nullSafetyFileCache
+// keyed by file.Path. The single-pass build replaces what used to be
+// four independent O(lines) scans per `?.` / `!!` receiver name, which
+// was the dominant UnnecessarySafeCall cost on large corpora.
+//
+// Semantics of every map are preserved from the original helpers. In
+// particular `memberAccessInitializer` records only the first matching
+// declaration line per name (and drops the entry when that first line's
+// initializer ends with `!!`) to match the early-return behavior of
+// hasMemberAccessInitializer.
+type nullSafetyFileSummary struct {
+	mutableVar              map[string]bool
+	explicitNullable        map[string]bool
+	branchNullInitializer   map[string]bool
+	memberAccessInitializer map[string]bool
+}
+
+var nullSafetyFileCache sync.Map // file.Path -> *nullSafetyFileSummary
+
+// nullSafetySummaryFor returns a cached summary for the file, building it
+// on first call. Safe for concurrent use: concurrent builders race via
+// LoadOrStore and agree on a single stored instance.
+func nullSafetySummaryFor(file *scanner.File) *nullSafetyFileSummary {
+	if file == nil {
+		return emptyNullSafetySummary
+	}
+	if v, ok := nullSafetyFileCache.Load(file.Path); ok {
+		return v.(*nullSafetyFileSummary)
+	}
+	built := buildNullSafetySummary(file)
+	if actual, loaded := nullSafetyFileCache.LoadOrStore(file.Path, built); loaded {
+		return actual.(*nullSafetyFileSummary)
+	}
+	return built
+}
+
+var emptyNullSafetySummary = &nullSafetyFileSummary{
+	mutableVar:              map[string]bool{},
+	explicitNullable:        map[string]bool{},
+	branchNullInitializer:   map[string]bool{},
+	memberAccessInitializer: map[string]bool{},
+}
+
+func buildNullSafetySummary(file *scanner.File) *nullSafetyFileSummary {
+	s := &nullSafetyFileSummary{
+		mutableVar:              make(map[string]bool),
+		explicitNullable:        make(map[string]bool),
+		branchNullInitializer:   make(map[string]bool),
+		memberAccessInitializer: make(map[string]bool),
+	}
+	// memberAccessInitializer matches the original helper's first-match
+	// semantics: for each name, only the first line whose val-init matches
+	// valMemberInitRe contributes, and if that first init ends with `!!`
+	// the name is NOT recorded (left false). memberSeen tracks which names
+	// have already had their first occurrence resolved.
+	memberSeen := make(map[string]bool)
+
+	for i, line := range file.Lines {
+		for _, m := range mutableVarPropertyRe.FindAllStringSubmatch(line, -1) {
+			s.mutableVar[m[1]] = true
+		}
+		for _, m := range explicitNullableDeclRe.FindAllStringSubmatch(line, -1) {
+			s.explicitNullable[m[1]] = true
+		}
+		if m := valMemberInitRe.FindStringSubmatch(line); m != nil {
+			name := m[1]
+			if !memberSeen[name] {
+				memberSeen[name] = true
+				if !strings.HasSuffix(m[2], "!!") {
+					s.memberAccessInitializer[name] = true
+				}
+			}
+		}
+		// branchNullInitializer: for every `[val|var] name ... =` on this
+		// line, walk forward up to 60 lines joining text until paren/brace
+		// depth falls to <= 0. Record name=true if the joined window
+		// contains any of the four branch-null markers. Mirrors the
+		// per-name hasBranchNullInitializer exactly, modulo it's now
+		// keyed by all captured names per line instead of one regex per
+		// query name.
+		declMatches := valOrVarDeclRe.FindAllStringSubmatchIndex(line, -1)
+		if len(declMatches) == 0 {
+			continue
+		}
+		// One depth walk per line is enough: the walk starts from `i` and
+		// is independent of the captured name.
+		depth := 0
+		joined := line
+		depth += strings.Count(line, "(") + strings.Count(line, "{")
+		depth -= strings.Count(line, ")") + strings.Count(line, "}")
+		for j := i + 1; j < len(file.Lines) && j < i+60; j++ {
+			cur := file.Lines[j]
+			joined += " " + cur
+			depth += strings.Count(cur, "(") + strings.Count(cur, "{")
+			depth -= strings.Count(cur, ")") + strings.Count(cur, "}")
+			if depth <= 0 {
+				break
+			}
+		}
+		hasBranchNull := strings.Contains(joined, "else null") ||
+			strings.Contains(joined, "-> null") ||
+			strings.Contains(joined, "?: null") ||
+			strings.Contains(joined, "?.let")
+		if !hasBranchNull {
+			continue
+		}
+		for _, m := range declMatches {
+			name := line[m[2]:m[3]]
+			s.branchNullInitializer[name] = true
+		}
+	}
+	return s
 }
 
 // ---------------------------------------------------------------------------

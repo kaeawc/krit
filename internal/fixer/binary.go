@@ -207,28 +207,40 @@ func applyBinaryFixPartitions(
 	dryRun bool,
 	refDirs []string,
 ) (applied int, errors []error) {
+	// Track conversions that actually succeeded so Pass 5 only deletes
+	// sources whose target was written.
+	converted := make(map[string]bool)
+
 	// Pass 1: WebP conversions (with safety validation).
 	for _, bf := range conversions {
-		refs, err := ValidateBinaryFix(&scanner.BinaryFix{
-			Type:       bf.Type,
-			SourcePath: bf.SourcePath,
-			TargetPath: bf.TargetPath,
-			MinSdk:     bf.MinSdk,
-		}, refDirs)
-		if err != nil {
-			errors = append(errors, err)
+		refs, safetyErr := ValidateBinaryFix(bf, refDirs)
+		if safetyErr != nil {
+			bf.HintOnly = true
+			bf.Description = fmt.Sprintf("skipped: %s", safetyErr.Error())
+			errors = append(errors, fmt.Errorf(
+				"skipped conversion of %s: %s",
+				bf.SourcePath, safetyErr.Error(),
+			))
 			continue
 		}
 		if len(refs) > 0 {
 			bf.HintOnly = true
+			bf.Description = fmt.Sprintf(
+				"skipped: %d direct reference(s) to %q would break after conversion",
+				len(refs), filepath.Base(bf.SourcePath),
+			)
+			errors = append(errors, fmt.Errorf(
+				"skipped conversion of %s: %d direct file reference(s) found",
+				bf.SourcePath, len(refs),
+			))
 			continue
 		}
-		err = convertToWebP(bf.SourcePath, bf.TargetPath, dryRun)
-		if err != nil {
+		if err := convertToWebP(bf.SourcePath, bf.TargetPath, dryRun); err != nil {
 			errors = append(errors, err)
 			continue
 		}
 		applied++
+		converted[bf.SourcePath] = true
 	}
 
 	// Pass 2: PNG optimizations.
@@ -279,7 +291,7 @@ func applyBinaryFixPartitions(
 	// Pass 5: delete source files for conversions that succeeded (DeleteSource flag).
 	if !dryRun {
 		for _, bf := range conversions {
-			if bf.HintOnly || !bf.DeleteSource {
+			if !bf.DeleteSource || !converted[bf.SourcePath] {
 				continue
 			}
 			if err := os.Remove(bf.SourcePath); err != nil {

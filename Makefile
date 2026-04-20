@@ -1,4 +1,4 @@
-.PHONY: build test vet lint fix schema clean bench integration playground ci regression docs all install install-completions watch generate
+.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression docs all install install-completions watch generate
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
@@ -20,6 +20,12 @@ test: generate
 
 vet:
 	go vet ./...
+
+# lint-rules enforces the NeedsResolver / NeedsOracle capability-declaration
+# gate: any rule whose Check body calls ctx.Resolver or (*CompositeResolver).Oracle()
+# must declare the matching capability in its v2.Rule registration.
+lint-rules:
+	go test ./internal/ruleslinter/ -run TestRulesPackageHasNoCapabilityDrift -count=1
 
 lint: build
 	./krit .

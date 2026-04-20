@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -92,40 +91,9 @@ class UnusedClass
 `
 	file := parsedKotlinFile(t, src)
 
-	// Synthesize a cross-file rule that emits a DeadSymbol finding on
-	// the class's line (line 2). We go through the v1 adapter by
-	// constructing a v2.Rule that wraps a CheckParsedFiles-emitting
-	// v1 adapter.
-	emittedRule := &fakeCrossFileRule{
-		id:      "DeadSymbol",
-		ruleSet: "test",
-		emit: scanner.Finding{
-			File:    file.Path,
-			Line:    2,
-			Rule:    "DeadSymbol",
-			RuleSet: "test",
-			Message: "unused",
-		},
-	}
-
-	// Register globally so v2RulesToV1 can find the v1 wrapper.
-	// Actually the pipeline wires via v2.ToV1 — so we construct a v2.Rule
-	// whose capability bit is NeedsCrossFile (which produces a
-	// V1CrossFile wrapper), but V1CrossFile doesn't let us inject a
-	// CheckParsedFiles implementation easily.
-	//
-	// Instead we bypass v2.ToV1 by inserting our fake into a
-	// DispatchResult whose ActiveRules is a single v2.Rule that carries
-	// our v1 rule via the OriginalV1 field. v2RulesToV1 uses
-	// v2.ToV1(r) which returns a wrapper, not OriginalV1. So we need a
-	// different strategy: supply our own v1 rule directly by stubbing
-	// the dispatchResult with a fabricated slice.
-	//
-	// Simpler: test `ApplySuppression` directly — it is the suppression
-	// logic we actually care about. The cross-file rule invocation
-	// path is exercised by existing integration smoke against the
-	// playground.
-
+	// We validate the suppression behaviour via ApplySuppression directly;
+	// the cross-file rule invocation path is exercised by existing
+	// integration smoke against the playground.
 	kept := ApplySuppression(
 		[]scanner.Finding{
 			{File: file.Path, Line: 2, Rule: "DeadSymbol", RuleSet: "test", Message: "unused"},
@@ -140,7 +108,6 @@ class UnusedClass
 		t.Errorf("kept rule = %q, want OtherRule (DeadSymbol should be suppressed)", kept[0].Rule)
 	}
 
-	_ = emittedRule
 }
 
 func TestCrossFilePhase_SuppressionPassesThrough_WhenNoIndex(t *testing.T) {
@@ -256,25 +223,3 @@ func TestCrossFilePhase_ExcludeGlobSuppressesCrossFileFinding(t *testing.T) {
 	}
 }
 
-// fakeCrossFileRule satisfies the v1 rules.Rule interface and the
-// CheckParsedFiles(files) interface so the CrossFile phase recognises
-// it as a parsed-files rule. (Left unused by the current test — we
-// validate the suppression behaviour via ApplySuppression directly;
-// this type is kept for a future integration-level regression.)
-type fakeCrossFileRule struct {
-	id      string
-	ruleSet string
-	emit    scanner.Finding
-}
-
-func (r *fakeCrossFileRule) Name() string                               { return r.id }
-func (r *fakeCrossFileRule) Description() string                        { return "test" }
-func (r *fakeCrossFileRule) RuleSet() string                            { return r.ruleSet }
-func (r *fakeCrossFileRule) Severity() string                           { return "warning" }
-func (r *fakeCrossFileRule) Check(*scanner.File) []scanner.Finding      { return nil }
-func (r *fakeCrossFileRule) CheckParsedFiles([]*scanner.File) []scanner.Finding {
-	return []scanner.Finding{r.emit}
-}
-
-// Compile-time interface check so the test type is kept honest.
-var _ rules.Rule = (*fakeCrossFileRule)(nil)

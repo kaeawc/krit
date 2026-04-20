@@ -10,10 +10,11 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// Rule is the v1 rule interface.
-//
-// Deprecated: implement rules as native *v2.Rule values registered via
-// v2.Register.
+// Rule is the v1 rule interface. Retained as the embedded constraint in
+// the Android family type aliases (GradleFamily/ManifestFamily/
+// ResourceFamily) and their per-family RegisterX glue. All active
+// dispatch is v2-native; these types are scaffolding the Android rule
+// files still embed for metadata plumbing.
 type Rule interface {
 	Name() string
 	Description() string
@@ -109,8 +110,10 @@ func (f *OracleFilter) NeverNeedsOracle() bool {
 // a specific edge-case branch). The base is applied only to findings
 // that leave Confidence unset (zero).
 
-// Registry holds all registered rules. No longer populated in production;
-// retained only for compatibility with tests that have not yet been migrated.
+// Registry retained as the write-side of the Android family RegisterX
+// glue (GradleRules/ManifestRules/ResourceRules). No production code
+// reads from it; runtime dispatch goes through v2.Registry. Kept so the
+// Android rule registration path still compiles.
 var Registry []Rule
 
 // Register adds a rule to the global registry.
@@ -122,7 +125,12 @@ func Register(r Rule) {
 	Registry = append(Registry, r)
 }
 
-// BaseRule provides common fields.
+// BaseRule provides common fields embedded in every rule implementation.
+// It carries the canonical name/ruleset/severity/description metadata that
+// the codegen (krit-gen) reads when emitting zz_registry_gen.go's
+// v2.Register(&FooRule{BaseRule: BaseRule{...}}) literals, and it provides
+// the Finding() helper rules use to construct emit-boundary
+// scanner.Finding values.
 type BaseRule struct {
 	RuleName    string
 	RuleSetName string

@@ -99,11 +99,6 @@ func NewV2Dispatcher(rules []*v2.Rule, resolver ...typeinfer.TypeResolver) *V2Di
 		if r == nil {
 			continue
 		}
-		// Fire SetResolverHook for rules that advertise NeedsResolver.
-		if d.typeResolver != nil && r.Needs.Has(v2.NeedsResolver) && r.SetResolverHook != nil {
-			r.SetResolverHook(d.typeResolver)
-		}
-
 		switch {
 		case r.Needs.Has(v2.NeedsCrossFile):
 			d.crossFileRules = append(d.crossFileRules, r)
@@ -289,7 +284,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 							continue
 						}
 						t := time.Now()
-						safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats)
+						safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, d.typeResolver)
 						elapsed := time.Since(t).Nanoseconds()
 						stats.DispatchRuleNs += elapsed
 						stats.DispatchRuleNsByRule[r.ID] += elapsed
@@ -301,7 +296,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 					continue
 				}
 				t := time.Now()
-				safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats)
+				safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, d.typeResolver)
 				elapsed := time.Since(t).Nanoseconds()
 				stats.DispatchRuleNs += elapsed
 				stats.DispatchRuleNsByRule[r.ID] += elapsed
@@ -323,6 +318,9 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 				}
 			}()
 			ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector}
+			if r.Needs.Has(v2.NeedsResolver) {
+				ctx.Resolver = d.typeResolver
+			}
 			r.Check(ctx)
 		}()
 	}
@@ -341,6 +339,9 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 				}
 			}()
 			ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.50, Collector: collector}
+			if r.Needs.Has(v2.NeedsResolver) {
+				ctx.Resolver = d.typeResolver
+			}
 			r.Check(ctx)
 		}()
 	}
@@ -369,7 +370,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 // safeCheckV2NodeColumnar invokes a rule with a Collector attached so
 // ctx.Emit routes findings directly into columnar storage. Any residual
 // ctx.Findings mutations (rules not yet using ctx.Emit) are also drained.
-func safeCheckV2NodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats) {
+func safeCheckV2NodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats, typeResolver typeinfer.TypeResolver) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			line := 0
@@ -393,6 +394,9 @@ func safeCheckV2NodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, fil
 		Rule:              r,
 		DefaultConfidence: 0.95,
 		Collector:         collector,
+	}
+	if r.Needs.Has(v2.NeedsResolver) {
+		ctx.Resolver = typeResolver
 	}
 	r.Check(ctx)
 }
@@ -575,6 +579,9 @@ func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate f
 	}()
 	collector := scanner.NewFindingCollector(0)
 	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector}
+	if r.Needs.Has(v2.NeedsResolver) {
+		ctx.Resolver = d.typeResolver
+	}
 	if populate != nil {
 		populate(ctx)
 	}

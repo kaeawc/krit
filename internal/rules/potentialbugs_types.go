@@ -6,7 +6,6 @@ import (
 
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // ---------------------------------------------------------------------------
@@ -67,11 +66,9 @@ func walkFlatClassMembers(file *scanner.File, parent uint32, fn func(uint32)) {
 type AvoidReferentialEqualityRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver              typeinfer.TypeResolver
 	ForbiddenTypePatterns []string
 }
 
-func (r *AvoidReferentialEqualityRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — flags === / !==
 // on value types; needs resolver to confirm operand types, falls back to a
@@ -86,13 +83,9 @@ func (r *AvoidReferentialEqualityRule) Confidence() float64 { return 0.75 }
 type DoubleMutabilityForCollectionRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver     typeinfer.TypeResolver
 	MutableTypes []string
 }
 
-func (r *DoubleMutabilityForCollectionRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-}
 
 // Confidence reports a tier-2 (medium) base confidence. The rule
 // uses a fixed allow-list of mutable-collection type names and
@@ -236,10 +229,8 @@ var wrongEqualsFixRe = regexp.MustCompile(`(fun\s+equals\s*\(\s*(?:other|obj)\s*
 type CharArrayToStringCallRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *CharArrayToStringCallRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — flags
 // toString() on CharArray receivers; receiver type detection is
@@ -274,12 +265,8 @@ func (r *CharArrayToStringCallRule) reportCharArrayFlat(ctx *v2.Context, text st
 type DontDowncastCollectionTypesRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *DontDowncastCollectionTypesRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-}
 
 // Confidence reports a tier-2 (medium) base confidence — flags downcasts
 // like List -> MutableList; source type determination requires the
@@ -311,10 +298,8 @@ var immutableToMutableMap = map[string]string{
 type ImplicitUnitReturnTypeRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *ImplicitUnitReturnTypeRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence because this
 // rule fires on any function_declaration lacking an explicit return
@@ -334,12 +319,8 @@ func (r *ImplicitUnitReturnTypeRule) Confidence() float64 { return 0.75 }
 type ElseCaseInsteadOfExhaustiveWhenRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *ElseCaseInsteadOfExhaustiveWhenRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-}
 
 // Confidence reports a tier-2 (medium) base confidence — with the
 // resolver it checks if sealed/enum variants are fully covered; fallback

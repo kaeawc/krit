@@ -7,10 +7,8 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/module"
-	"github.com/kaeawc/krit/internal/oracle"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // CollectInOnCreateWithoutLifecycleRule detects Flow.collect calls in lifecycle
@@ -183,16 +181,6 @@ func isIdiomaticDispatcherHost(receiver string, method string) bool {
 type RedundantSuspendModifierRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver     typeinfer.TypeResolver
-	oracleLookup oracle.Lookup // optional, extracted from CompositeResolver
-}
-
-func (r *RedundantSuspendModifierRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-	// Extract oracle if the resolver is a CompositeResolver
-	if cr, ok := res.(*oracle.CompositeResolver); ok {
-		r.oracleLookup = cr.Oracle()
-	}
 }
 
 // Confidence reports a tier-2 (medium) base confidence because this
@@ -371,12 +359,8 @@ func (r *SuspendFunInFinallySectionRule) Confidence() float64 { return 0.75 }
 type SuspendFunSwallowedCancellationRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *SuspendFunSwallowedCancellationRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-}
 
 // Confidence reports a tier-2 (medium) base confidence — detecting which
 // catch blocks swallow CancellationException without rethrow is structural

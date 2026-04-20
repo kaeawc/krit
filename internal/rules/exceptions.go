@@ -9,7 +9,6 @@ import (
 	"github.com/kaeawc/krit/internal/experiment"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // ExceptionRaisedInUnexpectedLocationRule detects throw inside equals/hashCode/toString/finalize.
@@ -435,10 +434,8 @@ func (r *ErrorUsageWithThrowableRule) Confidence() float64 { return 0.75 }
 type ObjectExtendsThrowableRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *ObjectExtendsThrowableRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — relies on
 // resolver to determine supertypes; falls back to name-based heuristics on

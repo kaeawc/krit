@@ -7,7 +7,6 @@ import (
 
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 var useIsNullOrEmptyTextRe = regexp.MustCompile(`^(?:([A-Za-z_][A-Za-z0-9_\.]*)==null|null==([A-Za-z_][A-Za-z0-9_\.]*))\|\|([A-Za-z_][A-Za-z0-9_\.]*)(?:\.isEmpty\(\)|\.(?:size|length)==0|\.count\(\)==0|=="")$`)
@@ -302,10 +301,8 @@ func flatIsEmptyRHS(file *scanner.File, node uint32) bool {
 type UseCheckNotNullRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *UseCheckNotNullRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — suggests
 // checkNotNull over `if (x == null) throw`; pattern-based with resolver
@@ -319,10 +316,8 @@ func (r *UseCheckNotNullRule) Confidence() float64 { return 0.75 }
 type UseRequireNotNullRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *UseRequireNotNullRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — suggests
 // requireNotNull over `if (x == null) throw IAE`; pattern-based with
@@ -360,10 +355,8 @@ func (r *UseRequireRule) Confidence() float64 { return 0.75 }
 type UseIsNullOrEmptyRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *UseIsNullOrEmptyRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — suggests
 // isNullOrEmpty() for `x == null || x.isEmpty()`; needs resolver to confirm

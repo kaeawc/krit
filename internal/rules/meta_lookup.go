@@ -65,7 +65,7 @@ func V2RulePrecision(r *v2.Rule) Precision {
 	if r.Needs.Has(v2.NeedsModuleIndex) {
 		return PrecisionProjectStructure
 	}
-	if r.Needs.Has(v2.NeedsResolver) || r.SetResolverHook != nil {
+	if r.Needs.Has(v2.NeedsResolver) {
 		return PrecisionTypeAware
 	}
 	if r.OriginalV1 != nil {

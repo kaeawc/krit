@@ -194,41 +194,45 @@ func TestV2Dispatcher_RespectsExclusions(t *testing.T) {
 	}
 }
 
-// --- 5. Resolver hook fires --------------------------------------------------
+// --- 5. ctx.Resolver is populated for NeedsResolver rules -------------------
 
-func TestV2Dispatcher_ResolverHookFires(t *testing.T) {
-	hookFired := false
+func TestV2Dispatcher_ResolverPopulatedInContext(t *testing.T) {
+	file := writeKotlinFile(t, "fun foo() { bar() }", "Resolver.kt")
+
+	var gotResolver typeinfer.TypeResolver
 	rule := v2.FakeRule("ResolverRule",
 		v2.WithNodeTypes("call_expression"),
 		v2.WithNeeds(v2.NeedsResolver),
+		v2.WithCheck(func(ctx *v2.Context) {
+			gotResolver = ctx.Resolver
+		}),
 	)
-	rule.SetResolverHook = func(r typeinfer.TypeResolver) {
-		if r != nil {
-			hookFired = true
-		}
-	}
 
-	_ = NewV2Dispatcher([]*v2.Rule{rule}, typeinfer.NewFakeResolver())
+	d := NewV2Dispatcher([]*v2.Rule{rule}, typeinfer.NewFakeResolver())
+	_ = d.Run(file)
 
-	if !hookFired {
-		t.Error("SetResolverHook was not called even though resolver was provided")
+	if gotResolver == nil {
+		t.Error("ctx.Resolver was nil even though resolver was provided")
 	}
 }
 
-func TestV2Dispatcher_ResolverHookNotFiredWithoutResolver(t *testing.T) {
-	hookFired := false
+func TestV2Dispatcher_ResolverNilWithoutResolver(t *testing.T) {
+	file := writeKotlinFile(t, "fun foo() { bar() }", "Resolver2.kt")
+
+	var gotResolver typeinfer.TypeResolver
 	rule := v2.FakeRule("ResolverRule2",
 		v2.WithNodeTypes("call_expression"),
 		v2.WithNeeds(v2.NeedsResolver),
+		v2.WithCheck(func(ctx *v2.Context) {
+			gotResolver = ctx.Resolver
+		}),
 	)
-	rule.SetResolverHook = func(r typeinfer.TypeResolver) {
-		hookFired = true
-	}
 
-	_ = NewV2Dispatcher([]*v2.Rule{rule})
+	d := NewV2Dispatcher([]*v2.Rule{rule})
+	_ = d.Run(file)
 
-	if hookFired {
-		t.Error("SetResolverHook fired even though no resolver was supplied")
+	if gotResolver != nil {
+		t.Error("ctx.Resolver was non-nil even though no resolver was supplied")
 	}
 }
 

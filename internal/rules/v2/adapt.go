@@ -8,7 +8,6 @@ import (
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // AdaptFlatDispatch wraps a v1 FlatDispatchRule-shaped rule into a v2.Rule.
@@ -29,8 +28,7 @@ func AdaptFlatDispatch(id, category, desc string, sev Severity, nodeTypes []stri
 		Fix:             o.fix,
 		Confidence:      o.confidence,
 		Oracle:          o.oracle,
-		SetResolverHook: o.setResolverHook,
-		OriginalV1:      o.originalV1,
+		OriginalV1: o.originalV1,
 		Check: func(ctx *Context) {
 			for _, f := range check(ctx.Idx, ctx.File) {
 				ctx.Emit(f)
@@ -47,15 +45,14 @@ func AdaptLine(id, category, desc string, sev Severity,
 	o := applyAdaptOpts(opts)
 	o.needs |= NeedsLinePass
 	return &Rule{
-		ID:              id,
-		Category:        category,
-		Description:     desc,
-		Sev:             sev,
-		Needs:           o.needs,
-		Fix:             o.fix,
-		Confidence:      o.confidence,
-		Oracle:          o.oracle,
-		SetResolverHook: o.setResolverHook,
+		ID:         id,
+		Category:   category,
+		Description: desc,
+		Sev:        sev,
+		Needs:      o.needs,
+		Fix:        o.fix,
+		Confidence: o.confidence,
+		Oracle:     o.oracle,
 		Check: func(ctx *Context) {
 			for _, f := range check(ctx.File) {
 				ctx.Emit(f)
@@ -116,12 +113,11 @@ func AdaptParsedFiles(id, category, desc string, sev Severity,
 type AdaptOption func(*adaptOpts)
 
 type adaptOpts struct {
-	needs           Capabilities
-	fix             FixLevel
-	confidence      float64
-	oracle          *OracleFilter
-	setResolverHook func(typeinfer.TypeResolver)
-	originalV1      interface{}
+	needs      Capabilities
+	fix        FixLevel
+	confidence float64
+	oracle     *OracleFilter
+	originalV1 interface{}
 }
 
 func applyAdaptOpts(opts []AdaptOption) adaptOpts {
@@ -150,13 +146,6 @@ func AdaptWithConfidence(c float64) AdaptOption {
 // AdaptWithOracle sets the oracle filter.
 func AdaptWithOracle(f *OracleFilter) AdaptOption {
 	return func(o *adaptOpts) { o.oracle = f }
-}
-
-// AdaptWithResolverHook stores a callback that the v1 dispatcher can use
-// to forward SetResolver calls to the original rule struct. This ensures
-// that rules with a captured check closure receive the type resolver.
-func AdaptWithResolverHook(fn func(typeinfer.TypeResolver)) AdaptOption {
-	return func(o *adaptOpts) { o.setResolverHook = fn }
 }
 
 // AdaptWithOriginalV1 stores a pointer to the underlying v1 rule struct

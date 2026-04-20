@@ -141,12 +141,6 @@ type Rule struct {
 	// by the v2shim bridge and will be removed once all rules are migrated.
 	Check func(*Context)
 
-	// SetResolverHook is an optional callback that forwards the v1
-	// dispatcher's SetResolver call to the underlying rule struct.
-	// Populated by AdaptFlatDispatch/AdaptLine when the rule needs
-	// resolver wiring for the captured closure to work correctly.
-	SetResolverHook func(typeinfer.TypeResolver)
-
 	// AndroidDeps carries the AndroidDataDependency bitfield (stored as
 	// uint32 to avoid an import cycle with the rules package) for rules
 	// that implement AndroidDependencyProvider. The rules package reads

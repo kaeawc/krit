@@ -4,9 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // ---------------------------------------------------------------------------
@@ -31,21 +29,12 @@ type DeprecationRule struct {
 	FlatDispatchBase
 	BaseRule
 	ExcludeImportStatements bool
-	resolver                typeinfer.TypeResolver
-	oracleLookup            oracle.Lookup
 	// per-file cache of deprecated declaration info. cacheMu guards
 	// concurrent access from parallel file-scan goroutines which all
 	// share the same DeprecationRule instance.
 	cacheMu         sync.Mutex
 	cachedFile      string
 	deprecatedInfos map[string]*deprecationInfo
-}
-
-func (r *DeprecationRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-	if cr, ok := res.(*oracle.CompositeResolver); ok {
-		r.oracleLookup = cr.Oracle()
-	}
 }
 
 // Confidence reports a tier-2 (medium) base confidence — matches on
@@ -231,12 +220,8 @@ func extractReplaceWith(annText string) string {
 type HasPlatformTypeRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *HasPlatformTypeRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-}
 
 // Confidence reports a tier-2 (medium) base confidence because the rule
 // falls back to a string-prefix heuristic on "java./javax./android./Java/Javax"
@@ -259,16 +244,6 @@ type IgnoredReturnValueRule struct {
 	IgnoreReturnValueAnnotations []string
 	ReturnValueTypes             []string
 	IgnoreFunctionCall           []string
-	resolver                     typeinfer.TypeResolver
-	oracleLookup                 oracle.Lookup // optional, extracted from CompositeResolver
-}
-
-func (r *IgnoredReturnValueRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-	// Extract oracle if the resolver is a CompositeResolver
-	if cr, ok := res.(*oracle.CompositeResolver); ok {
-		r.oracleLookup = cr.Oracle()
-	}
 }
 
 // Confidence reports a tier-2 (medium) base confidence because this
@@ -614,7 +589,6 @@ type ImplicitDefaultLocaleRule struct {
 	BaseRule
 }
 
-func (r *ImplicitDefaultLocaleRule) SetResolver(res typeinfer.TypeResolver) {}
 
 // Confidence reports a tier-2 (medium) base confidence because the rule
 // matches on method names (toLowerCase/toUpperCase/capitalize/

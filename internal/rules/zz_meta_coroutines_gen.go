@@ -18,7 +18,7 @@ func (r *ChannelReceiveWithoutCloseRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *CollectInOnCreateWithoutLifecycleRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        &registry.OracleFilter{},
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *CollectionsSynchronizedListIterationRule) Meta() registry.RuleDescripto
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *ConcurrentModificationIterationRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *CoroutineLaunchedInTestWithoutRunTestRule) Meta() registry.RuleDescript
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *CoroutineScopeCreatedButNeverCancelledRule) Meta() registry.RuleDescrip
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *DeferredAwaitInFinallyRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *FlowWithoutFlowOnRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *GlobalCoroutineUsageRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        &registry.OracleFilter{},
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -144,7 +144,7 @@ func (r *GlobalScopeLaunchInViewModelRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -158,7 +158,7 @@ func (r *InjectDispatcherRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        &registry.OracleFilter{},
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "dispatcherNames",
@@ -183,7 +183,7 @@ func (r *LaunchWithoutCoroutineExceptionHandlerRule) Meta() registry.RuleDescrip
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -197,7 +197,7 @@ func (r *MainDispatcherInLibraryCodeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -211,7 +211,7 @@ func (r *MutableStateInObjectRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -225,7 +225,7 @@ func (r *RedundantSuspendModifierRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        &registry.OracleFilter{Identifiers: []string{"suspend"}},
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -239,7 +239,7 @@ func (r *SharedFlowWithoutReplayRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -253,7 +253,7 @@ func (r *SleepInsteadOfDelayRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -267,7 +267,7 @@ func (r *StateFlowCompareByReferenceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -281,7 +281,7 @@ func (r *StateFlowMutableLeakRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -295,7 +295,7 @@ func (r *SupervisorScopeInEventHandlerRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -309,7 +309,7 @@ func (r *SuspendFunInFinallySectionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -323,7 +323,7 @@ func (r *SuspendFunSwallowedCancellationRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -337,7 +337,7 @@ func (r *SuspendFunWithCoroutineScopeReceiverRule) Meta() registry.RuleDescripto
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -351,7 +351,7 @@ func (r *SuspendFunWithFlowReturnTypeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -365,7 +365,7 @@ func (r *SynchronizedOnBoxedPrimitiveRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -379,7 +379,7 @@ func (r *SynchronizedOnNonFinalRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -393,7 +393,7 @@ func (r *SynchronizedOnStringRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -407,7 +407,7 @@ func (r *VolatileMissingOnDclRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }
 
@@ -421,6 +421,6 @@ func (r *WithContextInSuspendFunctionNoopRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "76b1abad33304abd",
+		SourceHash:    "5dfdb8b9fd3ec4b5",
 	}
 }

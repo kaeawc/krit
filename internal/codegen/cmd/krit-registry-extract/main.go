@@ -220,6 +220,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	needsUnicode := false
 	needsScanner := false
 	needsTypeinfer := false
+	needsOracle := false
 	needsExperiment := false
 	for _, e := range all {
 		s := string(e.stmt)
@@ -249,6 +250,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 		}
 		if strings.Contains(s, "typeinfer.") {
 			needsTypeinfer = true
+		}
+		if strings.Contains(s, "oracle.") {
+			needsOracle = true
 		}
 		if strings.Contains(s, "experiment.") {
 			needsExperiment = true
@@ -294,6 +298,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 	if needsExperiment {
 		b.WriteString("\t\"github.com/kaeawc/krit/internal/experiment\"\n")
+	}
+	if needsOracle {
+		b.WriteString("\t\"github.com/kaeawc/krit/internal/oracle\"\n")
 	}
 	b.WriteString("\tv2 \"github.com/kaeawc/krit/internal/rules/v2\"\n")
 	if needsScanner {

@@ -55,13 +55,6 @@ func NewDispatcherV2(activeRules []*v2.Rule, resolver ...typeinfer.TypeResolver)
 	if len(resolver) > 0 && resolver[0] != nil {
 		res = resolver[0]
 	}
-	if res != nil {
-		for _, r := range activeRules {
-			if r != nil && r.Needs.Has(v2.NeedsResolver) && r.SetResolverHook != nil {
-				r.SetResolverHook(res)
-			}
-		}
-	}
 	var d *V2Dispatcher
 	if res != nil {
 		d = NewV2Dispatcher(activeRules, res)

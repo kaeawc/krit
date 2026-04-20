@@ -50,16 +50,6 @@ type JSONSummary struct {
 	Fixable   int            `json:"fixable"`
 }
 
-// FormatJSON writes findings as JSON.
-func FormatJSON(w io.Writer, findings []scanner.Finding, version string,
-	fileCount, ruleCount int, start time.Time,
-	perfTimings []perf.TimingEntry, activeRules []*v2.Rule,
-	experiments []string,
-	cacheStats *cache.CacheStats) error {
-	columns := scanner.CollectFindings(findings)
-	return FormatJSONColumns(w, &columns, version, fileCount, ruleCount, start, perfTimings, activeRules, experiments, cacheStats)
-}
-
 // FormatJSONColumns writes columnar findings as JSON.
 func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version string,
 	fileCount, ruleCount int, start time.Time,

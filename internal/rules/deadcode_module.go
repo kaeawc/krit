@@ -9,10 +9,6 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// Module-aware rules are identified structurally by the presence of
-// SetModuleIndex + CheckModuleAware methods. See v2.Rule.Needs
-// (NeedsModuleIndex) for the canonical form.
-
 // ModuleAwareNeeds describes which module-analysis inputs a rule requires.
 // Graph-only rules can avoid the heavier dependency parsing and per-module
 // symbol index build that dead-code style rules need.

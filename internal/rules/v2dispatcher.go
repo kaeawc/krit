@@ -543,8 +543,6 @@ func (d *V2Dispatcher) runProjectRuleSet(file *scanner.File, ruleSet []*v2.Rule,
 			continue
 		}
 		cols := d.runProjectRule(r, file, populate)
-		// Apply base confidence to findings that haven't set their own.
-		applyV2ConfidenceColumns(&cols, r, 0.75)
 		collector.AppendColumns(&cols)
 	}
 	return *collector.Columns()
@@ -561,46 +559,12 @@ func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate f
 		}
 	}()
 	collector := scanner.NewFindingCollector(0)
-	ctx := &v2.Context{File: file, Rule: r, Collector: collector}
+	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector}
 	if populate != nil {
 		populate(ctx)
 	}
 	r.Check(ctx)
 	return *collector.Columns()
-}
-
-// applyV2ConfidenceColumns applies a rule's base confidence to columnar
-// findings that haven't set their own. This is the columnar equivalent of
-// ApplyV2Confidence for use inside runProjectRuleSet.
-func applyV2ConfidenceColumns(cols *scanner.FindingColumns, r *v2.Rule, fallback float64) {
-	if cols == nil || cols.Len() == 0 {
-		return
-	}
-	confidence := r.Confidence
-	if confidence == 0 {
-		confidence = fallback
-	}
-	// Re-use the Finding round-trip to apply confidence to zero-valued rows.
-	// FindingColumns does not expose a direct per-column confidence setter, so
-	// we rebuild via collector only when there are zero-confidence findings.
-	needsUpdate := false
-	for i := 0; i < cols.Len(); i++ {
-		if cols.ConfidenceAt(i) == 0 {
-			needsUpdate = true
-			break
-		}
-	}
-	if !needsUpdate {
-		return
-	}
-	findings := cols.Findings()
-	for i := range findings {
-		if findings[i].Confidence == 0 {
-			findings[i].Confidence = confidence
-		}
-	}
-	updated := scanner.CollectFindings(findings)
-	*cols = updated
 }
 
 // excludedForLanguage returns the set of rule IDs that do NOT apply to

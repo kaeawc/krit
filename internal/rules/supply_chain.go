@@ -20,7 +20,6 @@ const supplyChainRuleSet = "supply-chain"
 // lower than the maximum compileSdk declared elsewhere in the same Gradle project.
 type CompileSdkMismatchAcrossModulesRule struct {
 	BaseRule
-	pmi *module.PerModuleIndex
 }
 
 type moduleCompileSDK struct {
@@ -45,12 +44,12 @@ func (r *CompileSdkMismatchAcrossModulesRule) ModuleAwareNeeds() ModuleAwareNeed
 }
 
 func (r *CompileSdkMismatchAcrossModulesRule) check(ctx *v2.Context) {
-	r.pmi = ctx.ModuleIndex
-	if r.pmi == nil || r.pmi.Graph == nil {
+	pmi := ctx.ModuleIndex
+	if pmi == nil || pmi.Graph == nil {
 		return
 	}
 
-	modules := collectAndroidModuleCompileSDKs(r.pmi.Graph)
+	modules := collectAndroidModuleCompileSDKs(pmi.Graph)
 	if len(modules) < 2 {
 		return
 	}

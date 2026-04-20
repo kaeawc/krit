@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/module"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -16,7 +15,6 @@ import (
 // clean module boundaries and incremental builds.
 type ModuleDependencyCycleRule struct {
 	BaseRule
-	pmi *module.PerModuleIndex
 }
 
 // Confidence is 0.95 — Tarjan SCC on the parsed module graph is
@@ -28,16 +26,16 @@ func (r *ModuleDependencyCycleRule) ModuleAwareNeeds() ModuleAwareNeeds {
 }
 
 func (r *ModuleDependencyCycleRule) check(ctx *v2.Context) {
-	r.pmi = ctx.ModuleIndex
-	if r.pmi == nil || r.pmi.Graph == nil {
+	pmi := ctx.ModuleIndex
+	if pmi == nil || pmi.Graph == nil {
 		return
 	}
 
-	cycles := r.pmi.Graph.FindCycles()
+	cycles := pmi.Graph.FindCycles()
 	for _, cycle := range cycles {
 		sort.Strings(cycle)
 		anchorPath := cycle[0]
-		mod, ok := r.pmi.Graph.Modules[anchorPath]
+		mod, ok := pmi.Graph.Modules[anchorPath]
 		if !ok {
 			continue
 		}

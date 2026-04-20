@@ -669,7 +669,6 @@ func (r *LaunchWithoutCoroutineExceptionHandlerRule) Confidence() float64 { retu
 // without kotlinx-coroutines-android dependency.
 type MainDispatcherInLibraryCodeRule struct {
 	BaseRule
-	pmi *module.PerModuleIndex
 }
 
 func (r *MainDispatcherInLibraryCodeRule) IsFixable() bool     { return false }
@@ -706,10 +705,6 @@ func (r *MainDispatcherInLibraryCodeRule) check(ctx *v2.Context) {
 			}
 		}
 	}
-}
-
-func (r *MainDispatcherInLibraryCodeRule) SetModuleIndex(pmi *module.PerModuleIndex) {
-	r.pmi = pmi
 }
 
 func (r *MainDispatcherInLibraryCodeRule) ModuleAwareNeeds() ModuleAwareNeeds {

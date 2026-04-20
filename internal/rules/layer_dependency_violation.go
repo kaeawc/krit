@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 
 	"github.com/kaeawc/krit/internal/arch"
-	"github.com/kaeawc/krit/internal/module"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -16,7 +15,6 @@ import (
 type LayerDependencyViolationRule struct {
 	BaseRule
 	LayerConfig *arch.LayerConfig
-	pmi         *module.PerModuleIndex
 }
 
 // Confidence is 0.95 — given a well-defined layer matrix, the check is
@@ -29,14 +27,14 @@ func (r *LayerDependencyViolationRule) ModuleAwareNeeds() ModuleAwareNeeds {
 }
 
 func (r *LayerDependencyViolationRule) check(ctx *v2.Context) {
-	r.pmi = ctx.ModuleIndex
-	if r.pmi == nil || r.pmi.Graph == nil || r.LayerConfig == nil {
+	pmi := ctx.ModuleIndex
+	if pmi == nil || pmi.Graph == nil || r.LayerConfig == nil {
 		return
 	}
 
-	violations := arch.ValidateLayers(r.LayerConfig, r.pmi.Graph)
+	violations := arch.ValidateLayers(r.LayerConfig, pmi.Graph)
 	for _, v := range violations {
-		mod, ok := r.pmi.Graph.Modules[v.SourceModule]
+		mod, ok := pmi.Graph.Modules[v.SourceModule]
 		if !ok {
 			continue
 		}

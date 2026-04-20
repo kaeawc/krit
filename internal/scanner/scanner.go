@@ -181,7 +181,7 @@ func ParseKotlinFileCached(path string, pc *ParseCache) (*File, error) {
 		return nil, err
 	}
 
-	if tree, ok := pc.Load(content); ok {
+	if tree, ok := pc.Load(path, content); ok {
 		return newKotlinFileFromFlatTree(path, content, tree), nil
 	}
 
@@ -194,7 +194,7 @@ func ParseKotlinFileCached(path string, pc *ParseCache) (*File, error) {
 
 	file := NewParsedFile(path, content, tree)
 	if file.FlatTree != nil {
-		_ = pc.Save(content, file.FlatTree)
+		_ = pc.Save(path, content, file.FlatTree)
 	}
 	return file, nil
 }

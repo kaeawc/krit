@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -285,29 +284,20 @@ func NeedsReanalysis(path string, entry FileEntry) bool {
 }
 
 // ComputeFileHash computes a SHA-256 hash of the file content (truncated to 16 hex chars).
+// Routed through the shared hashutil.Memo so a file hashed by other
+// cache subsystems in the same run pays SHA-256 once.
 func ComputeFileHash(path string) string {
-	data, err := os.ReadFile(path)
+	hx, err := hashutil.Default().HashFile(path, nil)
 	if err != nil {
 		return ""
 	}
-	return hashutil.HashHex(data)[:16]
+	return hx[:16]
 }
 
 // computeFileHash32 returns the full 32-byte SHA-256 of a file's content.
 // Used as the FileHash component of a store.Key.
 func computeFileHash32(path string) ([32]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return [32]byte{}, err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return [32]byte{}, err
-	}
-	var out [32]byte
-	copy(out[:], h.Sum(nil))
-	return out, nil
+	return hashutil.Default().HashFileRaw(path, nil)
 }
 
 // ParseRuleSetHash converts a 32-hex-char config hash string (from

@@ -44,12 +44,6 @@ func normalizedFindingColumns(columns *scanner.FindingColumns) scanner.FindingCo
 	return *columns
 }
 
-// FormatPlain writes findings as plain text with optional color.
-func FormatPlain(w io.Writer, findings []scanner.Finding) {
-	columns := scanner.CollectFindings(findings)
-	FormatPlainColumns(w, &columns)
-}
-
 // FormatPlainColumns writes columnar findings as plain text with optional color.
 func FormatPlainColumns(w io.Writer, columns *scanner.FindingColumns) {
 	color := isTerminal(w)
@@ -145,12 +139,6 @@ type sarifProperties struct {
 	Confidence float64 `json:"confidence"`
 }
 
-// FormatSARIF writes findings as SARIF 2.1.0 JSON.
-func FormatSARIF(w io.Writer, findings []scanner.Finding, version string) error {
-	columns := scanner.CollectFindings(findings)
-	return FormatSARIFColumns(w, &columns, version)
-}
-
 // FormatSARIFColumns writes columnar findings as SARIF 2.1.0 JSON.
 func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version string) error {
 	cols := normalizedFindingColumns(columns)
@@ -224,12 +212,6 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(log)
-}
-
-// FormatCheckstyle writes findings as Checkstyle XML.
-func FormatCheckstyle(w io.Writer, findings []scanner.Finding) {
-	columns := scanner.CollectFindings(findings)
-	FormatCheckstyleColumns(w, &columns)
 }
 
 // FormatCheckstyleColumns writes columnar findings as Checkstyle XML.

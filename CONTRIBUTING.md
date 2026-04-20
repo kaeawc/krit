@@ -49,6 +49,12 @@ make watch          # Re-run tests on file changes (requires fswatch)
 The CI tests `TestGeneratedFilesUpToDate` and `TestRegistryFileUpToDate`
 fail if step 4 is skipped.
 
+`build/rule_inventory.json` is a gitignored build artifact.
+`TestGeneratedFilesUpToDate` bootstraps it on demand by running
+`python3 tools/rule_inventory.py` when missing, so `go test ./...`
+works on a fresh clone. If `python3` is not on PATH the test skips
+with a pointer to `make test`.
+
 Fixes must declare a safety level: `FixCosmetic`, `FixIdiomatic`, or `FixSemantic`.
 Auto-fixes must produce ktfmt-compatible output.
 

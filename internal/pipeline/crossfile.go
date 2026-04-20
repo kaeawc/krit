@@ -235,12 +235,14 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 	// Unified suppression. This is the behaviour change: every cross-file
 	// finding now flows through the same SuppressionIndex that per-file
 	// dispatch already honours.
-	crossFindings = ApplySuppression(crossFindings, in.KotlinFiles)
+	crossCols := scanner.CollectFindings(crossFindings)
+	suppressed := applySuppressionColumns(&crossCols, in.KotlinFiles)
 
-	// Merge pre-file findings with cross-file findings.
-	existing := in.Findings.Findings()
-	merged := append(existing, crossFindings...)
-	result.Findings = scanner.CollectFindings(merged)
+	// Merge pre-file findings with suppressed cross-file findings in columnar form.
+	merged := scanner.NewFindingCollector(in.Findings.Len() + suppressed.Len())
+	merged.AppendColumns(&in.Findings)
+	merged.AppendColumns(&suppressed)
+	result.Findings = *merged.Columns()
 
 	return result, nil
 }
@@ -256,37 +258,27 @@ func pickModuleAwareV2Rules(v2Rules []*v2.Rule) []*v2.Rule {
 	return out
 }
 
-// ApplySuppression drops findings whose target file, line, and rule/ruleset
-// are covered by any of the per-file suppression sources: @Suppress
-// annotations, config excludes, or inline `// krit:ignore` comments.
-// Findings whose target file is not in the parsed-file set pass through
-// unchanged (e.g. findings reported against generated XML or Java files
-// for which no SuppressionFilter was built).
-//
-// Exported so callers that invoke cross-file rules outside the pipeline
-// (transitional CLI code in cmd/krit/main.go) can use the same
-// suppression path as the per-file dispatcher — closing the gap where
-// cross-file findings bypassed @Suppress.
-func ApplySuppression(findings []scanner.Finding, files []*scanner.File) []scanner.Finding {
-	if len(findings) == 0 {
-		return findings
+// applySuppressionColumns drops rows whose target file, line, and
+// rule/ruleset are covered by any of the per-file suppression sources:
+// @Suppress annotations, config excludes, or inline `// krit:ignore`
+// comments. Rows whose target file is not in the parsed-file set pass
+// through unchanged (e.g. rows reported against generated XML or Java
+// files for which no SuppressionFilter was built).
+func applySuppressionColumns(cols *scanner.FindingColumns, files []*scanner.File) scanner.FindingColumns {
+	if cols == nil || cols.Len() == 0 {
+		return scanner.FindingColumns{}
 	}
 	byPath := make(map[string]*scanner.File, len(files))
 	for _, f := range files {
 		byPath[f.Path] = f
 	}
-	kept := make([]scanner.Finding, 0, len(findings))
-	for _, f := range findings {
-		file, ok := byPath[f.File]
+	return cols.FilterRows(func(row int) bool {
+		file, ok := byPath[cols.FileAt(row)]
 		if !ok || file.Suppression == nil {
-			kept = append(kept, f)
-			continue
+			return true
 		}
-		if !file.Suppression.IsSuppressed(f.Rule, f.RuleSet, f.Line) {
-			kept = append(kept, f)
-		}
-	}
-	return kept
+		return !file.Suppression.IsSuppressed(cols.RuleAt(row), cols.RuleSetAt(row), cols.LineAt(row))
+	})
 }
 
 // Compile-time check.

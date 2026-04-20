@@ -3,8 +3,8 @@
 
 Phase 1B of the CodegenRegistry roadmap. Emits build/rule_inventory.json
 describing every rule's identity, default-active state, config options, fix
-level, confidence, oracle filter, and concrete Go struct type. Used by the
-downstream code generator that emits Meta() methods.
+level, confidence, and concrete Go struct type. Used by the downstream code
+generator that emits Meta() methods.
 
 Post-Phase-3D structure. The legacy `applyRuleConfig` switch in config.go,
 the literal DefaultInactive map in defaults.go, and knownRuleOptions() in
@@ -20,7 +20,7 @@ Sources parsed (all Go files, read-only):
   2. internal/rules/zz_meta_*_gen.go + meta_*.go — canonical Meta() bodies
                              (options, defaults, descriptor fields).
   3. internal/rules/*.go   — per-rule Confidence() / NodeTypes() /
-                             OracleFilter() / FixLevel() method bodies.
+                             FixLevel() method bodies.
 """
 from __future__ import annotations
 
@@ -630,8 +630,6 @@ def parse_init_registrations(rules_files: list[Path], consts: dict[str, str]) ->
                         r'AdaptWithNeeds\(\s*([^)]+)\s*\)', call_src)]
                     if needs:
                         entry["needs_exprs"] = needs
-                    if "AdaptWithOracle(" in call_src:
-                        entry["has_oracle"] = True
 
                     # Find the first positional argument of the adapt call by
                     # balancing parens after `v2.AdaptXxx(`.
@@ -823,13 +821,6 @@ def _parse_meta_body(body: str) -> dict:
                 out[key] = float(value.strip().rstrip(","))
             except ValueError:
                 out[key] = None
-        elif key == "Oracle":
-            oracle_val = value.strip().rstrip(",")
-            if oracle_val == "nil":
-                out[key] = None
-            else:
-                # e.g. "&registry.OracleFilter{}" or "&registry.OracleFilter{AllFiles: true}"
-                out[key] = {"__go_expr__": oracle_val}
 
     out["Options"] = _parse_meta_options(options_body) if options_body else []
     return out
@@ -1001,9 +992,6 @@ _NODETYPES_RE = re.compile(
     r'func\s+\(\s*\w+\s+\*([A-Z][A-Za-z0-9_]*Rule)\s*\)\s*NodeTypes\s*\(\s*\)\s*\[\]string\s*\{\s*return\s+\[\]string\s*\{([^}]*)\}',
     re.DOTALL,
 )
-_ORACLE_FILTER_RE = re.compile(
-    r'func\s+\(\s*\w+\s+\*([A-Z][A-Za-z0-9_]*Rule)\s*\)\s*OracleFilter\s*\(\s*\)\s*\*OracleFilter\s*\{\s*return\s+([A-Za-z_][A-Za-z0-9_]*)',
-)
 _FIXLEVEL_RE = re.compile(
     r'func\s+\(\s*\w+\s+\*([A-Z][A-Za-z0-9_]*Rule)\s*\)\s*FixLevel\s*\(\s*\)\s*FixLevel\s*\{\s*return\s+(FixCosmetic|FixIdiomatic|FixSemantic)',
 )
@@ -1027,8 +1015,6 @@ def scrape_method_bodies(rules_files: list[Path]) -> dict[str, dict]:
             types = re.findall(r'"([^"]+)"', body)
             if types:
                 out[m.group(1)]["node_types"] = types
-        for m in _ORACLE_FILTER_RE.finditer(text):
-            out[m.group(1)]["oracle"] = m.group(2)
         for m in _FIXLEVEL_RE.finditer(text):
             out[m.group(1)]["fix_level"] = _FIXLEVEL_MAP[m.group(2)]
     return out
@@ -1124,15 +1110,6 @@ def build_inventory() -> dict:
             confidence = reg.get("confidence")
 
         node_types = method_info.get(struct_type, {}).get("node_types") or []
-        oracle = method_info.get(struct_type, {}).get("oracle")
-        if not oracle:
-            moracle = meta.get("Oracle")
-            if isinstance(moracle, dict) and "__go_expr__" in moracle:
-                # Canonical filter name can't be recovered from the literal;
-                # mark as "unknown" for downstream visibility.
-                oracle = "unknown"
-        if not oracle and reg.get("has_oracle"):
-            oracle = "unknown"
 
         # Initializer fields: only concrete rule's own fields. Skip any
         # nested-struct expressions (AndroidRule{...}, FlatDispatchBase{...}, etc.)
@@ -1182,7 +1159,6 @@ def build_inventory() -> dict:
             "fix_level": fix_level,
             "confidence": confidence,
             "node_types": node_types,
-            "oracle": oracle,
             "needs": reg.get("needs_exprs", []),
             "struct_defaults": struct_defaults,
             "options": options,

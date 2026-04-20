@@ -47,6 +47,14 @@ type FindingColumns struct {
 }
 
 // FindingCollector incrementally builds a FindingColumns instance.
+//
+// FindingCollector is NOT safe for concurrent use: its intern maps and column
+// slices are unsynchronized. To parallelize rule or per-file execution, each
+// worker goroutine should hold its own FindingCollector and the phase owner
+// should serially merge them at a phase boundary via AppendColumns or
+// MergeCollectors. Deterministic output is recovered with SortByFileLine
+// (or SortedRowOrderByFileLine) after the merge — never per-worker — so
+// cross-worker interleavings do not affect the final row order.
 type FindingCollector struct {
 	columns    FindingColumns
 	fileIdx    map[string]uint32
@@ -191,6 +199,35 @@ func (c *FindingCollector) AppendColumns(columns *FindingColumns) {
 // Columns returns the built columns.
 func (c *FindingCollector) Columns() *FindingColumns {
 	return &c.columns
+}
+
+// MergeCollectors serially folds the columns from each worker-local collector
+// into a single destination collector, preserving per-worker insertion order
+// and each worker's relative ordering of findings. It is intended to be called
+// once at a phase boundary after all worker goroutines have stopped appending;
+// MergeCollectors itself is single-threaded.
+//
+// A nil entry in workers is skipped. The returned collector is the same as
+// dst; when dst is nil a fresh collector sized for the combined row count is
+// allocated.
+func MergeCollectors(dst *FindingCollector, workers ...*FindingCollector) *FindingCollector {
+	total := 0
+	for _, w := range workers {
+		if w == nil {
+			continue
+		}
+		total += w.columns.Len()
+	}
+	if dst == nil {
+		dst = NewFindingCollector(total)
+	}
+	for _, w := range workers {
+		if w == nil {
+			continue
+		}
+		dst.AppendColumns(&w.columns)
+	}
+	return dst
 }
 
 // Len returns the number of stored findings.

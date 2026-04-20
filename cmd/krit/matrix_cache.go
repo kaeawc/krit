@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,8 +12,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/store"
 )
+
+func init() {
+	cacheutil.Register(matrixCacheRegistered{})
+}
+
+type matrixCacheRegistered struct{}
+
+func (matrixCacheRegistered) Name() string { return "matrix-cache" }
+func (matrixCacheRegistered) Clear() error { return clearMatrixCache() }
 
 // matrixBaselineCacheEntry is the on-disk wrapper around a cached
 // baseline matrixCaseReport. The cacheKey is stored redundantly so
@@ -104,16 +115,7 @@ func computeMatrixBaselineCacheKey(exe string, baselineEnabled []string, flagArg
 }
 
 func hashFileContents(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return hashutil.HashFile(path)
 }
 
 // hashTargetTree returns an identity hash for the target source tree.
@@ -282,16 +284,7 @@ func saveBaseline(key string, report matrixCaseReport, s *store.FileStore) {
 		return
 	}
 	path := matrixCachePath(key)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		fmt.Fprintf(os.Stderr, "krit: warning: cache write failed for %s: %v\n", path, err)
-		if rmErr := os.Remove(tmp); rmErr != nil && !os.IsNotExist(rmErr) {
-			fmt.Fprintf(os.Stderr, "krit: warning: temp file cleanup failed for %s: %v\n", tmp, rmErr)
-		}
-	}
+	_ = fsutil.WriteFileAtomic(path, data, 0o644)
 }
 
 // clearMatrixCache removes every cached baseline entry. It is safe to

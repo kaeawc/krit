@@ -348,17 +348,6 @@ func findRule(name string) *v2.Rule {
 	return nil
 }
 
-// filterFindings filters findings using a predicate.
-func filterFindings(findings []scanner.Finding, keep func(scanner.Finding) bool) []scanner.Finding {
-	var result []scanner.Finding
-	for _, f := range findings {
-		if keep(f) {
-			result = append(result, f)
-		}
-	}
-	return result
-}
-
 // filterFindingColumns filters columnar findings using a row predicate.
 func filterFindingColumns(columns *scanner.FindingColumns, keep func(*scanner.FindingColumns, int) bool) scanner.FindingColumns {
 	if columns == nil || columns.Len() == 0 || keep == nil {
@@ -381,12 +370,6 @@ func severityLevel(sev string) int {
 	default:
 		return 4
 	}
-}
-
-// findingsToResult converts findings to a ToolResult with JSON text.
-func findingsToResult(findings []scanner.Finding) ToolResult {
-	columns := scanner.CollectFindings(findings)
-	return findingsToResultColumns(&columns)
 }
 
 func findingsToResultColumns(columns *scanner.FindingColumns) ToolResult {
@@ -419,12 +402,6 @@ func findingsToResultColumns(columns *scanner.FindingColumns) ToolResult {
 	return ToolResult{
 		Content: []ContentBlock{{Type: "text", Text: string(data)}},
 	}
-}
-
-// fixableToResult converts fixable findings to a ToolResult with fix details.
-func fixableToResult(findings []scanner.Finding) ToolResult {
-	columns := scanner.CollectFindings(findings)
-	return fixableToResultColumns(&columns)
 }
 
 func fixableToResultColumns(columns *scanner.FindingColumns) ToolResult {

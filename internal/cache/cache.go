@@ -449,11 +449,6 @@ func scanPathsMatch(a, b []string) bool {
 	return true
 }
 
-// UpdateEntry updates the cache for a single file after analysis.
-func (c *Cache) UpdateEntry(path string, findings []scanner.Finding) {
-	c.updateEntry(path, scanner.CollectFindings(findings))
-}
-
 // UpdateEntryColumns updates the cache for a single file after analysis using
 // columnar findings without reconstituting []Finding.
 func (c *Cache) UpdateEntryColumns(path string, columns *scanner.FindingColumns) {

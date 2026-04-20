@@ -13,7 +13,7 @@ import (
 // It's mirrored in this package (instead of importing internal/rules) so
 // that the oracle package stays dependency-clean and callers can pass in
 // a pre-extracted slice — typical callers live in cmd/krit and can bridge
-// rules.Rule through the helper in the rules package.
+// v2.Rule through the helper in the rules package.
 type OracleFilterRule struct {
 	// Name is the rule identifier, used only for verbose reporting.
 	Name string
@@ -52,7 +52,7 @@ type OracleFilterSummary struct {
 
 // CollectOracleFiles returns the subset of files any enabled rule wants
 // oracle access on. Rules are represented by OracleFilterRule (the caller
-// is expected to build this slice from rules.Registry via
+// is expected to build this slice from v2.Registry via
 // rules.GetOracleFilter).
 //
 // Matching semantics:

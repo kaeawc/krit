@@ -9,23 +9,6 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// testFlatDispatchRule is a minimal flat-dispatch v1 rule retained only
-// for the IsImplemented classifier tests below.
-type testFlatDispatchRule struct{ BaseRule }
-
-func (r *testFlatDispatchRule) Check(_ *scanner.File) []scanner.Finding { return nil }
-func (r *testFlatDispatchRule) NodeTypes() []string                     { return []string{"integer_literal"} }
-func (r *testFlatDispatchRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, "flat finding")}
-}
-
-// stubOnlyRule implements only the base Rule interface (Check returns
-// nil) and none of the family-specific interfaces. IsImplemented
-// should report false for this rule.
-type stubOnlyRule struct{ BaseRule }
-
-func (r *stubOnlyRule) Check(_ *scanner.File) []scanner.Finding { return nil }
-
 func TestDispatcher_DoesNotTreatCrossFileOrModuleAwareAsLegacy(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "Example.kt")

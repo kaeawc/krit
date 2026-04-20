@@ -3,31 +3,11 @@ package rules
 //go:generate go run ../codegen/cmd/krit-gen -inventory ../../build/rule_inventory.json -out . -root ../..
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
-
-// Rule is the v1 rule interface. Retained as the embedded constraint in
-// the Android family type aliases (GradleFamily/ManifestFamily/
-// ResourceFamily) and their per-family RegisterX glue. All active
-// dispatch is v2-native; these types are scaffolding the Android rule
-// files still embed for metadata plumbing.
-type Rule interface {
-	Name() string
-	Description() string
-	RuleSet() string
-	Severity() string
-}
-
-// FixableRule is optionally implemented by rules that can auto-fix findings.
-// Rules implementing this return findings with Fix populated.
-type FixableRule interface {
-	Rule
-	IsFixable() bool
-}
 
 // OracleFilter declares when a rule needs oracle type information.
 //
@@ -109,21 +89,6 @@ func (f *OracleFilter) NeverNeedsOracle() bool {
 // (e.g. a rule that is usually high-confidence but drops to medium on
 // a specific edge-case branch). The base is applied only to findings
 // that leave Confidence unset (zero).
-
-// Registry retained as the write-side of the Android family RegisterX
-// glue (GradleRules/ManifestRules/ResourceRules). No production code
-// reads from it; runtime dispatch goes through v2.Registry. Kept so the
-// Android rule registration path still compiles.
-var Registry []Rule
-
-// Register adds a rule to the global registry.
-// Panics if the rule has no description — every rule must document what it checks.
-func Register(r Rule) {
-	if r.Description() == "" {
-		panic(fmt.Sprintf("rule %s has no description", r.Name()))
-	}
-	Registry = append(Registry, r)
-}
 
 // BaseRule provides common fields embedded in every rule implementation.
 // It carries the canonical name/ruleset/severity/description metadata that

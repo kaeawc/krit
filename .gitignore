@@ -60,3 +60,4 @@ roadmap/clusters/.loop/
 
 # Local analysis scratch
 /.plans/scratch/
+/scratch/detekt-*.md

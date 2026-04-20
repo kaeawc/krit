@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 // KindLabel returns a human-readable label for a StoreKind.
@@ -74,23 +76,8 @@ func (s *FileStore) Put(key Key, value []byte) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("store mkdir: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, ".entry-*.tmp")
-	if err != nil {
-		return fmt.Errorf("store tempfile: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(value); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
+	if err := fsutil.WriteFileAtomic(target, value, 0o644); err != nil {
 		return fmt.Errorf("store write: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return fmt.Errorf("store close: %w", err)
-	}
-	if err := os.Rename(tmpName, target); err != nil {
-		os.Remove(tmpName)
-		return fmt.Errorf("store rename: %w", err)
 	}
 	return nil
 }

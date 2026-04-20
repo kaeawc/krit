@@ -18,6 +18,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/cache"
+	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/store"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/experiment"
@@ -587,8 +588,12 @@ potential-bugs:
 
 	// Handle --clear-cache
 	if *clearCacheFlag {
+		ctx := cacheutil.ClearContext{RepoDir: oracle.FindRepoDir(paths)}
+		if err := cacheutil.ClearAll(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(2)
+		}
 		if *cacheDirFlag != "" {
-			// Clear all cache files in the shared cache directory
 			if err := cache.ClearSharedCache(*cacheDirFlag); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				os.Exit(2)
@@ -598,12 +603,6 @@ potential-bugs:
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				os.Exit(2)
 			}
-		}
-		// Also clear the tree-sitter parse cache, which lives under
-		// {repo}/.krit/parse-cache regardless of --cache-dir.
-		if err := scanner.ClearParseCache(oracle.FindRepoDir(paths)); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(2)
 		}
 		fmt.Fprintln(os.Stderr, "info: Cache cleared.")
 		os.Exit(0)

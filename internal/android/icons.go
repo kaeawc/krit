@@ -1,7 +1,6 @@
 package android
 
 import (
-	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"image"
@@ -14,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/kaeawc/krit/internal/hashutil"
 )
 
 // Density represents an Android screen density bucket.
@@ -233,8 +234,7 @@ func parseIconFile(path string, density string) *IconFile {
 	if err != nil {
 		return icon
 	}
-	h := sha256.Sum256(data)
-	icon.Hash = fmt.Sprintf("%x", h)
+	icon.Hash = hashutil.HashHex(data)
 
 	// Detect actual format from content (overrides extension-based format)
 	if detected := detectFormatFromContent(data); detected != "" {

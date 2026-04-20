@@ -6,14 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/store"
 )
@@ -114,7 +114,6 @@ func CacheFilePath(cacheDir string, scanPaths []string) string {
 	if len(scanPaths) == 0 {
 		return filepath.Join(cacheDir, CacheFileName)
 	}
-	h := sha256.New()
 	// Use sorted absolute paths for deterministic hashing
 	sorted := make([]string, len(scanPaths))
 	for i, p := range scanPaths {
@@ -125,8 +124,7 @@ func CacheFilePath(cacheDir string, scanPaths []string) string {
 		sorted[i] = abs
 	}
 	sort.Strings(sorted)
-	h.Write([]byte(strings.Join(sorted, "\x00")))
-	hash := hex.EncodeToString(h.Sum(nil))[:12]
+	hash := hashutil.HashHex([]byte(strings.Join(sorted, "\x00")))[:12]
 	return filepath.Join(cacheDir, "krit-"+hash+".cache")
 }
 
@@ -187,15 +185,8 @@ func (c *Cache) Save(cacheFilePath string) error {
 	if err != nil {
 		return fmt.Errorf("marshal cache: %w", err)
 	}
-	// Write to temp file then atomic rename
-	tmpFile := cacheFilePath + fmt.Sprintf(".tmp.%d.%d", time.Now().UnixNano(), rand.Int63())
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
-		os.Remove(tmpFile) // best effort cleanup
-		return fmt.Errorf("write cache temp: %w", err)
-	}
-	if err := os.Rename(tmpFile, cacheFilePath); err != nil {
-		os.Remove(tmpFile) // best effort cleanup
-		return fmt.Errorf("rename cache: %w", err)
+	if err := fsutil.WriteFileAtomic(cacheFilePath, data, 0644); err != nil {
+		return fmt.Errorf("write cache: %w", err)
 	}
 	return nil
 }
@@ -244,9 +235,7 @@ func ComputeRuleHash(ruleNames []string) string {
 	sorted := make([]string, len(ruleNames))
 	copy(sorted, ruleNames)
 	sort.Strings(sorted)
-	h := sha256.New()
-	h.Write([]byte(strings.Join(sorted, ",")))
-	return hex.EncodeToString(h.Sum(nil))[:16]
+	return hashutil.HashHex([]byte(strings.Join(sorted, ",")))[:16]
 }
 
 // ComputeConfigHash computes a hash from active rule names, the resolved config,
@@ -301,9 +290,7 @@ func ComputeFileHash(path string) string {
 	if err != nil {
 		return ""
 	}
-	h := sha256.New()
-	h.Write(data)
-	return hex.EncodeToString(h.Sum(nil))[:16]
+	return hashutil.HashHex(data)[:16]
 }
 
 // computeFileHash32 returns the full 32-byte SHA-256 of a file's content.
@@ -498,3 +485,4 @@ func (c *Cache) Prune() {
 		}
 	}
 }
+

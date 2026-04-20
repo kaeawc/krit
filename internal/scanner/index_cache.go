@@ -6,11 +6,27 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/hashutil"
 )
+
+func init() {
+	cacheutil.Register(crossFileCacheRegistered{})
+}
+
+type crossFileCacheRegistered struct{}
+
+func (crossFileCacheRegistered) Name() string { return crossFileCacheDirName }
+func (crossFileCacheRegistered) Clear(ctx cacheutil.ClearContext) error {
+	return ClearCrossFileCache(CrossFileCacheDir(ctx.RepoDir))
+}
 
 // CrossFileCacheVersion is bumped whenever the on-disk layout or the
 // Symbol / Reference shapes change. A version mismatch is treated as a
@@ -48,8 +64,7 @@ func CrossFileCacheDir(repoDir string) string {
 }
 
 func contentHashBytes(b []byte) string {
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:])
+	return hashutil.HashHex(b)
 }
 
 type fingerprintEntry struct {
@@ -312,14 +327,16 @@ func SaveCrossFileCache(dir, fingerprint string, meta CrossFileCacheMeta, symbol
 	meta.ReferenceCount = len(refs)
 
 	packed := packPayload(symbols, refs)
-	if err := encodeGob(paths.Symbols, packed); err != nil {
-		return fmt.Errorf("write payload: %w", err)
+	if err := fsutil.WriteFileAtomicStream(paths.Symbols, 0o644, func(w io.Writer) error {
+		return gob.NewEncoder(w).Encode(packed)
+	}); err != nil {
+		return fmt.Errorf("write cross-file cache symbols: %w", err)
 	}
 	metaBytes, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal meta: %w", err)
 	}
-	if err := writeFileAtomic(paths.Meta, metaBytes, 0o644); err != nil {
+	if err := fsutil.WriteFileAtomic(paths.Meta, metaBytes, 0644); err != nil {
 		return fmt.Errorf("write meta: %w", err)
 	}
 	return nil
@@ -333,30 +350,6 @@ func ClearCrossFileCache(dir string) error {
 	return os.RemoveAll(dir)
 }
 
-// encodeGob streams v through gob into a tempfile, then atomically
-// renames it into place. Streaming avoids holding the serialized bytes
-// in memory alongside the source slice.
-func encodeGob(path string, v any) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := gob.NewEncoder(tmp).Encode(v); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
-}
-
 func decodeGob(path string, v any) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -366,29 +359,3 @@ func decodeGob(path string, v any) error {
 	return gob.NewDecoder(f).Decode(v)
 }
 
-// writeFileAtomic writes data to a tempfile in the same directory and
-// renames it into place, so concurrent readers never see a truncated
-// file.
-func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpName, perm); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
-}

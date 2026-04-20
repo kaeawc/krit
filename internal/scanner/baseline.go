@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 // Baseline represents a detekt-compatible baseline file.
@@ -118,11 +120,10 @@ func WriteBaselineJSON(path string, b *Baseline) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	return fsutil.WriteFileAtomic(path, append(data, '\n'), 0o644)
 }
 
 // Contains checks if a finding ID is in the baseline (either section).

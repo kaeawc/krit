@@ -69,14 +69,6 @@ type Plan struct {
 	candidateColumns scanner.FindingColumns
 }
 
-// BuildPlan classifies dead-code findings into immediately removable entries
-// (currently fix-backed DeadCode findings) and blocked entries that still need
-// more safety infrastructure.
-func BuildPlan(findings []scanner.Finding) Plan {
-	columns := scanner.CollectFindings(findings)
-	return BuildPlanColumns(&columns)
-}
-
 // BuildPlanColumns classifies columnar dead-code findings into immediately
 // removable entries and blocked entries without reconstructing all rows.
 func BuildPlanColumns(columns *scanner.FindingColumns) Plan {

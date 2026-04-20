@@ -67,9 +67,10 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 		result.CodeIndex = codeIndex
 	}
 
-	// Collect cross-file findings in a single slice so we can apply
-	// suppression uniformly at the end.
-	var crossFindings []scanner.Finding
+	// Collect cross-file findings into a single shared columnar collector.
+	// Each rule's Context carries DefaultConfidence so Emit stamps the
+	// family default on findings that leave Confidence unset.
+	crossCollector := scanner.NewFindingCollector(0)
 
 	crossStart := time.Now()
 	if hasIndexBackedCrossFileRule || hasParsedFilesRule {
@@ -89,16 +90,8 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 				if r.Needs.Has(v2.NeedsParsedFiles) {
 					ruleID := r.ID
 					call := func() error {
-						collector := scanner.NewFindingCollector(0)
-						rctx := &v2.Context{ParsedFiles: in.KotlinFiles, Collector: collector, Rule: r}
+						rctx := &v2.Context{ParsedFiles: in.KotlinFiles, Collector: crossCollector, Rule: r, DefaultConfidence: 0.95}
 						r.Check(rctx)
-						cols := *collector.Columns()
-						found := make([]scanner.Finding, cols.Len())
-						for i := range found {
-							found[i] = cols.Finding(i)
-						}
-						rules.ApplyV2Confidence(found, r, 0.95)
-						crossFindings = append(crossFindings, found...)
 						return nil
 					}
 					if ruleTracker != nil {
@@ -111,16 +104,8 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 				if r.Needs.Has(v2.NeedsCrossFile) {
 					ruleID := r.ID
 					call := func() error {
-						collector := scanner.NewFindingCollector(0)
-						rctx := &v2.Context{CodeIndex: codeIndex, Collector: collector, Rule: r}
+						rctx := &v2.Context{CodeIndex: codeIndex, Collector: crossCollector, Rule: r, DefaultConfidence: 0.95}
 						r.Check(rctx)
-						cols := *collector.Columns()
-						found := make([]scanner.Finding, cols.Len())
-						for i := range found {
-							found[i] = cols.Finding(i)
-						}
-						rules.ApplyV2Confidence(found, r, 0.95)
-						crossFindings = append(crossFindings, found...)
 						return nil
 					}
 					if ruleTracker != nil {
@@ -164,16 +149,8 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 	if in.ModuleGraph != nil && len(in.ModuleGraph.Modules) > 0 && hasModuleAwareRule {
 		runModuleRules := func() error {
 			for _, r := range moduleAwareRules {
-				collector := scanner.NewFindingCollector(0)
-				rctx := &v2.Context{ModuleIndex: in.ModuleIndex, Collector: collector, Rule: r}
+				rctx := &v2.Context{ModuleIndex: in.ModuleIndex, Collector: crossCollector, Rule: r, DefaultConfidence: 0.95}
 				r.Check(rctx)
-				cols := *collector.Columns()
-				found := make([]scanner.Finding, cols.Len())
-				for i := range found {
-					found[i] = cols.Finding(i)
-				}
-				rules.ApplyV2Confidence(found, r, 0.95)
-				crossFindings = append(crossFindings, found...)
 			}
 			return nil
 		}
@@ -219,23 +196,14 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 			if err := ctx.Err(); err != nil {
 				return CrossFileResult{}, err
 			}
-			collector := scanner.NewFindingCollector(0)
-			rctx := &v2.Context{ModuleIndex: pmi, Collector: collector, Rule: r}
+			rctx := &v2.Context{ModuleIndex: pmi, Collector: crossCollector, Rule: r, DefaultConfidence: 0.95}
 			r.Check(rctx)
-			cols := *collector.Columns()
-			found := make([]scanner.Finding, cols.Len())
-			for i := range found {
-				found[i] = cols.Finding(i)
-			}
-			rules.ApplyV2Confidence(found, r, 0.95)
-			crossFindings = append(crossFindings, found...)
 		}
 	}
 
-	// Unified suppression. This is the behaviour change: every cross-file
-	// finding now flows through the same SuppressionIndex that per-file
-	// dispatch already honours.
-	crossCols := scanner.CollectFindings(crossFindings)
+	// Unified suppression: every cross-file finding flows through the same
+	// SuppressionIndex that per-file dispatch already honours.
+	crossCols := *crossCollector.Columns()
 	suppressed := applySuppressionColumns(&crossCols, in.KotlinFiles)
 
 	// Merge pre-file findings with suppressed cross-file findings in columnar form.

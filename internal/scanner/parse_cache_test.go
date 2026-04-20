@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/hashutil"
 )
 
 // largeSource returns a Kotlin source blob guaranteed to exceed
@@ -106,7 +108,7 @@ func TestParseCache_HitAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	tree, ok := pc2.Load(content)
+	tree, ok := pc2.Load("", content)
 	if !ok {
 		t.Fatal("expected cache hit on run 2")
 	}
@@ -135,7 +137,7 @@ func TestParseCache_GrammarVersionMismatch(t *testing.T) {
 
 	// Mutate the stored entry's GrammarVer to something else and
 	// verify the next Load treats it as a miss.
-	hash := hashContent([]byte(src))
+	hash := hashutil.HashHex([]byte(src))
 	entryPath := pc.entryPath(hash)
 
 	data, err := os.ReadFile(entryPath)
@@ -155,7 +157,7 @@ func TestParseCache_GrammarVersionMismatch(t *testing.T) {
 		t.Fatalf("rewrite entry: %v", err)
 	}
 
-	if _, ok := pc.Load([]byte(src)); ok {
+	if _, ok := pc.Load("", []byte(src)); ok {
 		t.Fatal("expected miss after grammar-version mismatch")
 	}
 }
@@ -172,10 +174,10 @@ func TestParseCache_ContentChangeMisses(t *testing.T) {
 	}
 
 	mutated := src + " // one byte change\n"
-	if _, ok := pc.Load([]byte(mutated)); ok {
+	if _, ok := pc.Load("", []byte(mutated)); ok {
 		t.Fatal("expected miss for mutated content")
 	}
-	if _, ok := pc.Load([]byte(src)); !ok {
+	if _, ok := pc.Load("", []byte(src)); !ok {
 		t.Fatal("expected hit for original content")
 	}
 }
@@ -190,12 +192,12 @@ func TestParseCache_CorruptEntryTreatedAsMiss(t *testing.T) {
 	if _, err := ParseKotlinFileCached(writeKotlin(t, repo, "Bad.kt", src), pc); err != nil {
 		t.Fatalf("seed parse: %v", err)
 	}
-	hash := hashContent([]byte(src))
+	hash := hashutil.HashHex([]byte(src))
 	entryPath := pc.entryPath(hash)
 	if err := os.WriteFile(entryPath, []byte("not-a-gob-payload"), 0o644); err != nil {
 		t.Fatalf("corrupt entry: %v", err)
 	}
-	if _, ok := pc.Load([]byte(src)); ok {
+	if _, ok := pc.Load("", []byte(src)); ok {
 		t.Fatal("expected miss on corrupt entry")
 	}
 	// Corrupt entry should have been removed so the next hit path
@@ -251,12 +253,12 @@ func TestParseCache_ConcurrentWritesSameHash(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = pc.Save([]byte(src), seed.FlatTree)
+			_ = pc.Save("", []byte(src), seed.FlatTree)
 		}()
 	}
 	wg.Wait()
 
-	tree, ok := pc.Load([]byte(src))
+	tree, ok := pc.Load("", []byte(src))
 	if !ok {
 		t.Fatal("expected hit after concurrent writes")
 	}
@@ -271,10 +273,10 @@ func TestParseCache_NilIsSafe(t *testing.T) {
 	// cache. Exercise the public methods so a future edit that adds an
 	// unconditional deref gets caught by CI.
 	var pc *ParseCache
-	if tree, ok := pc.Load([]byte("anything")); ok || tree != nil {
+	if tree, ok := pc.Load("", []byte("anything")); ok || tree != nil {
 		t.Fatal("nil Load should be a miss")
 	}
-	if err := pc.Save([]byte("anything"), &FlatTree{}); err != nil {
+	if err := pc.Save("", []byte("anything"), &FlatTree{}); err != nil {
 		t.Fatalf("nil Save: %v", err)
 	}
 	if err := pc.Clear(); err != nil {

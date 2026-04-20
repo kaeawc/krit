@@ -621,7 +621,7 @@ func loadXMLFilesForCache(ktFiles []*File) []*xmlCacheFile {
 			out = append(out, &xmlCacheFile{
 				Path:    path,
 				Content: content,
-				Hash:    contentHashBytes(content),
+				Hash:    contentHashForFile(path, content),
 			})
 			return nil
 		})

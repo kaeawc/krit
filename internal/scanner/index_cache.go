@@ -67,6 +67,13 @@ func contentHashBytes(b []byte) string {
 	return hashutil.HashHex(b)
 }
 
+// contentHashForFile returns the content hash of f using the shared
+// hashutil.Memo keyed on f.Path, so the cross-file index reuses the
+// parse-cache / oracle hash instead of re-computing SHA-256.
+func contentHashForFile(path string, content []byte) string {
+	return hashutil.Default().HashContent(path, content)
+}
+
 type fingerprintEntry struct {
 	Path string
 	Hash string
@@ -81,13 +88,13 @@ func computeCrossFileFingerprint(kotlinFiles, javaFiles []*File, xmlFiles []*xml
 		if f == nil {
 			continue
 		}
-		entries = append(entries, fingerprintEntry{Path: f.Path, Hash: contentHashBytes(f.Content)})
+		entries = append(entries, fingerprintEntry{Path: f.Path, Hash: contentHashForFile(f.Path, f.Content)})
 	}
 	for _, f := range javaFiles {
 		if f == nil {
 			continue
 		}
-		entries = append(entries, fingerprintEntry{Path: f.Path, Hash: contentHashBytes(f.Content)})
+		entries = append(entries, fingerprintEntry{Path: f.Path, Hash: contentHashForFile(f.Path, f.Content)})
 	}
 	for _, f := range xmlFiles {
 		if f == nil {

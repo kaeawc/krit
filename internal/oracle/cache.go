@@ -102,9 +102,11 @@ func FindRepoDir(scanPaths []string) string {
 
 // ContentHash returns sha256(content) of the file at path in lowercase hex.
 // Used both as the cache key and as the building block for closure
-// fingerprints.
+// fingerprints. Routed through the process-scoped hashutil.Memo so the
+// same file hashed by multiple cache subsystems within one run only
+// pays the SHA-256 cost once.
 func ContentHash(path string) (string, error) {
-	return hashutil.HashFile(path)
+	return hashutil.Default().HashFile(path, nil)
 }
 
 // entryPath returns the disk path for a given content hash inside cacheDir.

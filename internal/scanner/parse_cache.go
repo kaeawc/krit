@@ -107,10 +107,6 @@ func (pc *ParseCache) Dir() string {
 	return pc.dir
 }
 
-func hashContent(b []byte) string {
-	return hashutil.HashHex(b)
-}
-
 // entryPath returns the sharded on-disk path for a content hash.
 // Layout: entries/{hash[:2]}/{hash[2:]}.gob — two-level sharding so no
 // single directory grows past 256 shards even on huge repos.
@@ -120,15 +116,18 @@ func (pc *ParseCache) entryPath(hash string) string {
 
 // Load tries to load a cached FlatTree for the given content. Returns
 // (tree, true) on hit, (nil, false) on miss, small file, or any
-// read/decode error. A nil ParseCache is always a miss.
-func (pc *ParseCache) Load(content []byte) (*FlatTree, bool) {
+// read/decode error. A nil ParseCache is always a miss. When path is
+// non-empty, the content hash is also recorded in the shared
+// hashutil.Memo so downstream subsystems (cross-file index, oracle,
+// incremental cache) reuse it without re-reading or re-hashing.
+func (pc *ParseCache) Load(path string, content []byte) (*FlatTree, bool) {
 	if pc == nil {
 		return nil, false
 	}
 	if len(content) < parseCacheMinFileSize {
 		return nil, false
 	}
-	hash := hashContent(content)
+	hash := hashutil.Default().HashContent(path, content)
 	return pc.loadByHash(hash)
 }
 
@@ -178,14 +177,14 @@ func remapEntryNodes(nodes []FlatNode, localTable []string) {
 // Save persists the parse result for content under its SHA-256. Small
 // files are skipped. A returned error means the write failed and the
 // next run will miss; callers typically discard it.
-func (pc *ParseCache) Save(content []byte, tree *FlatTree) error {
+func (pc *ParseCache) Save(path string, content []byte, tree *FlatTree) error {
 	if pc == nil || tree == nil {
 		return nil
 	}
 	if len(content) < parseCacheMinFileSize {
 		return nil
 	}
-	return pc.saveEntry(hashContent(content), tree)
+	return pc.saveEntry(hashutil.Default().HashContent(path, content), tree)
 }
 
 func (pc *ParseCache) saveEntry(hash string, tree *FlatTree) error {

@@ -22,6 +22,7 @@ import (
 	"github.com/kaeawc/krit/internal/store"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/experiment"
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/pipeline"
@@ -610,6 +611,12 @@ potential-bugs:
 
 	start := time.Now()
 	tracker := perf.New(*perfFlag)
+
+	// Per-run content-hash memo: every cache subsystem that hashes files
+	// routes through hashutil.Default(), so clearing it here guarantees
+	// the memo lifetime is scoped to a single invocation and never
+	// returns stale hashes across runs with the same working directory.
+	hashutil.ResetDefault()
 
 	// cpuProfileFile is stopped explicitly alongside the memory profile write —
 	// defer won't fire through os.Exit, so we manage the lifecycle manually.
@@ -1257,6 +1264,21 @@ potential-bugs:
 						s.FuncHits, s.FuncMisses, funcRate)
 				}
 			}
+		}
+	}
+
+	// Surface hashutil.Memo hit/miss counters so the redundancy elimination
+	// from SharedContentHashMemo (#305) is observable. A high hit ratio
+	// confirms multiple cache subsystems collapsed their per-file SHA-256
+	// computations to a single pass.
+	if *perfFlag {
+		hits, misses := hashutil.Default().Stats()
+		total := hits + misses
+		if total > 0 {
+			rate := int(hits * 100 / total)
+			fmt.Fprintf(os.Stderr,
+				"perf: content-hash memo — %d hit / %d miss (%d%%), %d unique files\n",
+				hits, misses, rate, hashutil.Default().Len())
 		}
 	}
 

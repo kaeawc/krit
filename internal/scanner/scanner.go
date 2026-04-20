@@ -168,9 +168,21 @@ func (f *File) LineOffset(lineIdx int) int {
 
 // ParseFile parses a Kotlin file and returns the AST.
 func ParseFile(path string) (*File, error) {
+	return ParseKotlinFileCached(path, nil)
+}
+
+// ParseKotlinFileCached parses a Kotlin file, consulting the parse cache
+// first when pc is non-nil. On a cache hit the tree-sitter parse and
+// flattenTree walk are both skipped. A nil pc behaves exactly like
+// ParseFile.
+func ParseKotlinFileCached(path string, pc *ParseCache) (*File, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
+	}
+
+	if tree, ok := pc.Load(content); ok {
+		return newKotlinFileFromFlatTree(path, content, tree), nil
 	}
 
 	parser := GetKotlinParser()
@@ -180,7 +192,21 @@ func ParseFile(path string) (*File, error) {
 		return nil, err
 	}
 
-	return NewParsedFile(path, content, tree), nil
+	file := NewParsedFile(path, content, tree)
+	if file.FlatTree != nil {
+		_ = pc.Save(content, file.FlatTree)
+	}
+	return file, nil
+}
+
+func newKotlinFileFromFlatTree(path string, content []byte, tree *FlatTree) *File {
+	return &File{
+		Path:     internString(path),
+		Language: LangKotlin,
+		Content:  content,
+		Lines:    strings.Split(string(content), "\n"),
+		FlatTree: tree,
+	}
 }
 
 // NewParsedFile builds a scanner.File from already-parsed Kotlin source.
@@ -258,6 +284,15 @@ func CollectKotlinFiles(paths []string, excludes []string) ([]string, error) {
 // ScanFiles parses all files in parallel and returns parsed File objects.
 func ScanFiles(paths []string, workers int) ([]*File, []error) {
 	return scanFilesParallel(paths, workers, ParseFile)
+}
+
+// ScanFilesCached is like ScanFiles but routes every file through
+// ParseKotlinFileCached so the on-disk parse cache is consulted (and
+// populated) on each file. A nil pc is a no-op cache.
+func ScanFilesCached(paths []string, workers int, pc *ParseCache) ([]*File, []error) {
+	return scanFilesParallel(paths, workers, func(p string) (*File, error) {
+		return ParseKotlinFileCached(p, pc)
+	})
 }
 
 func isKotlinFile(path string) bool {

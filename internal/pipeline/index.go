@@ -514,10 +514,14 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 							fmt.Fprintf(os.Stderr, "verbose: Oracle filter: %d/%d files (no reduction)\n",
 								summary.MarkedFiles, summary.TotalFiles)
 						default:
-							fmt.Fprintf(os.Stderr, "verbose: Oracle filter: %d/%d files (%.1f%% of corpus)\n",
+							fmt.Fprintf(os.Stderr, "verbose: Oracle filter: %d/%d files (%.1f%% of corpus) fingerprint=%s\n",
 								summary.MarkedFiles, summary.TotalFiles,
-								100*float64(summary.MarkedFiles)/float64(maxIntLocal(summary.TotalFiles, 1)))
+								100*float64(summary.MarkedFiles)/float64(maxIntLocal(summary.TotalFiles, 1)),
+								summary.Fingerprint)
 						}
+					}
+					if summary.Fingerprint != "" {
+						perf.AddEntry(oracleTracker, "filterFingerprint/"+summary.Fingerprint, 0)
 					}
 					// Skip the filter entirely if it doesn't reduce the
 					// file set (no benefit, just overhead of writing the

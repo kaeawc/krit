@@ -190,6 +190,29 @@ func TestWriteFilterListFile_AllFilesReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestCollectOracleFiles_FingerprintStableAndDiffers(t *testing.T) {
+	f1 := mkFile(t, "A.kt", "class A { fun f() {} }")
+	f2 := mkFile(t, "B.kt", "suspend fun g() {}")
+	f3 := mkFile(t, "C.kt", "suspend fun h() {}")
+	rules := []OracleFilterRule{
+		{Name: "RedundantSuspendModifier", Filter: &OracleFilterSpec{Identifiers: []string{"suspend"}}},
+	}
+
+	a := CollectOracleFiles(rules, []*scanner.File{f1, f2})
+	b := CollectOracleFiles(rules, []*scanner.File{f1, f2})
+	if a.Fingerprint == "" {
+		t.Fatalf("Fingerprint empty, want non-empty for reduced set")
+	}
+	if a.Fingerprint != b.Fingerprint {
+		t.Errorf("fingerprint not stable across identical inputs: %q vs %q", a.Fingerprint, b.Fingerprint)
+	}
+
+	c := CollectOracleFiles(rules, []*scanner.File{f1, f2, f3})
+	if c.Fingerprint == a.Fingerprint {
+		t.Errorf("fingerprint unchanged after adding a matching file: got %q for both", a.Fingerprint)
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

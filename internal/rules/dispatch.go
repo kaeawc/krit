@@ -87,6 +87,12 @@ func (d *Dispatcher) Stats() (dispatched, aggregate, lineRules, crossFile, modul
 	return d.v2.Stats()
 }
 
+// ReportMissingCapabilities forwards to the underlying V2Dispatcher. See
+// V2Dispatcher.ReportMissingCapabilities for semantics.
+func (d *Dispatcher) ReportMissingCapabilities(oracleAvailable bool, logger func(format string, args ...any)) {
+	d.v2.ReportMissingCapabilities(oracleAvailable, logger)
+}
+
 // RunGradle runs all registered Gradle rules against a single parsed
 // Gradle build script. See V2Dispatcher.RunGradle.
 func (d *Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) scanner.FindingColumns {

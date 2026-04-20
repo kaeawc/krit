@@ -23,11 +23,6 @@ type baselineAuditReport struct {
 	StaleEntries []baselineAuditIssue `json:"staleEntries"`
 }
 
-func runBaselineAudit(findings []scanner.Finding, baseline *scanner.Baseline, baselinePath, basePath string, scanPaths []string, format string) int {
-	columns := scanner.CollectFindings(findings)
-	return runBaselineAuditColumns(&columns, baseline, baselinePath, basePath, scanPaths, format)
-}
-
 func runBaselineAuditColumns(columns *scanner.FindingColumns, baseline *scanner.Baseline, baselinePath, basePath string, scanPaths []string, format string) int {
 	liveCapacity := 0
 	if columns != nil {

@@ -14,22 +14,29 @@ type hoverRuleMeta struct {
 	fixLevel      string
 }
 
-func formatHoverContent(findings []scanner.Finding) string {
+// formatHoverColumns renders hover markdown for the rows in columns whose
+// indices are listed in rowIndices (typically all rows whose Line == the
+// hovered LSP line).
+func formatHoverColumns(columns *scanner.FindingColumns, rowIndices []int) string {
+	if columns == nil {
+		return ""
+	}
 	var sb strings.Builder
-	for i, f := range findings {
+	for i, row := range rowIndices {
 		if i > 0 {
 			sb.WriteString("\n\n---\n\n")
 		}
-		sb.WriteString(formatHoverFinding(f))
+		sb.WriteString(formatHoverRow(columns, row))
 	}
 	return sb.String()
 }
 
-func formatHoverFinding(f scanner.Finding) string {
+func formatHoverRow(columns *scanner.FindingColumns, row int) string {
+	rule := columns.RuleAt(row)
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("**%s/%s**\n\n", f.RuleSet, f.Rule))
-	sb.WriteString(fmt.Sprintf("- Severity: `%s`\n", f.Severity))
-	if meta, ok := lookupHoverRuleMeta(f.Rule); ok {
+	sb.WriteString(fmt.Sprintf("**%s/%s**\n\n", columns.RuleSetAt(row), rule))
+	sb.WriteString(fmt.Sprintf("- Severity: `%s`\n", columns.SeverityAt(row)))
+	if meta, ok := lookupHoverRuleMeta(rule); ok {
 		defaultState := "opt-in"
 		if meta.defaultActive {
 			defaultState = "active"
@@ -41,7 +48,7 @@ func formatHoverFinding(f scanner.Finding) string {
 			sb.WriteString("- Auto-fix: unavailable\n")
 		}
 	}
-	sb.WriteString(fmt.Sprintf("- Finding: %s", f.Message))
+	sb.WriteString(fmt.Sprintf("- Finding: %s", columns.MessageAt(row)))
 	return sb.String()
 }
 

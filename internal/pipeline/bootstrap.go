@@ -95,10 +95,9 @@ func (a *SingleFileAnalyzer) AnalyzeBufferColumns(ctx context.Context, path stri
 	return columns, file, nil
 }
 
-// AnalyzeFile dispatches per-file rules against an already-parsed file
-// and returns the compatibility Finding slice. Used by LSP when the
+// AnalyzeFileColumns dispatches per-file rules against an already-parsed
+// file and returns findings in columnar form. Used by LSP when the
 // cached *scanner.File is reused across requests.
-func (a *SingleFileAnalyzer) AnalyzeFile(file *scanner.File) []scanner.Finding {
-	columns := a.Dispatcher.Run(file)
-	return columns.Findings()
+func (a *SingleFileAnalyzer) AnalyzeFileColumns(file *scanner.File) scanner.FindingColumns {
+	return a.Dispatcher.Run(file)
 }

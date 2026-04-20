@@ -12,17 +12,17 @@ import (
 
 const quickFixPreviewContextLines = 3
 
-func buildQuickFixPreview(uri, content string, finding scanner.Finding) *CodeActionPreview {
-	if finding.Fix == nil {
+func buildQuickFixPreview(uri, content, ruleName string, fix *scanner.Fix) *CodeActionPreview {
+	if fix == nil {
 		return nil
 	}
 
-	fixLevel, ok := lookupCodeActionFixLevel(finding.Rule)
+	fixLevel, ok := lookupCodeActionFixLevel(ruleName)
 	if !ok || fixLevel < rules.FixIdiomatic {
 		return nil
 	}
 
-	updated, ok := applyPreviewFix(content, finding.Fix)
+	updated, ok := applyPreviewFix(content, fix)
 	if !ok || updated == content {
 		return nil
 	}

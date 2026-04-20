@@ -4,25 +4,29 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// FindingsToDiagnostics converts a slice of krit findings to LSP diagnostics.
-func FindingsToDiagnostics(findings []scanner.Finding) []Diagnostic {
-	diags := make([]Diagnostic, 0, len(findings))
-	for _, f := range findings {
-		diags = append(diags, FindingToDiagnostic(f))
+// FindingColumnsToDiagnostics converts columnar findings to LSP diagnostics.
+func FindingColumnsToDiagnostics(columns *scanner.FindingColumns) []Diagnostic {
+	if columns == nil {
+		return nil
+	}
+	diags := make([]Diagnostic, 0, columns.Len())
+	for row := 0; row < columns.Len(); row++ {
+		diags = append(diags, rowToDiagnostic(columns, row))
 	}
 	return diags
 }
 
-// FindingToDiagnostic converts a single krit finding to an LSP diagnostic.
-func FindingToDiagnostic(f scanner.Finding) Diagnostic {
-	severity := mapSeverity(f.Severity)
+// rowToDiagnostic builds a Diagnostic from a single columnar row.
+func rowToDiagnostic(columns *scanner.FindingColumns, row int) Diagnostic {
+	severity := mapSeverity(columns.SeverityAt(row))
 
 	// LSP lines and characters are 0-based; krit lines are 1-based, cols are 0-based.
+	findingLine := columns.LineAt(row)
 	line := uint32(0)
-	if f.Line > 0 {
-		line = uint32(f.Line - 1)
+	if findingLine > 0 {
+		line = uint32(findingLine - 1)
 	}
-	col := uint32(f.Col)
+	col := uint32(columns.ColumnAt(row))
 
 	return Diagnostic{
 		Range: Range{
@@ -30,9 +34,9 @@ func FindingToDiagnostic(f scanner.Finding) Diagnostic {
 			End:   Position{Line: line, Character: col},
 		},
 		Severity: severity,
-		Code:     f.RuleSet + "/" + f.Rule,
+		Code:     columns.RuleSetAt(row) + "/" + columns.RuleAt(row),
 		Source:   "krit",
-		Message:  f.Message,
+		Message:  columns.MessageAt(row),
 	}
 }
 

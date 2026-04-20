@@ -70,6 +70,43 @@ func BuildIndex(files []*File, workers int, javaFiles ...*File) *CodeIndex {
 	return BuildIndexWithTracker(files, workers, nil, javaFiles...)
 }
 
+// BuildIndexCached behaves like BuildIndexWithTracker but tries the
+// on-disk cross-file index cache first. When cacheDir is empty, the
+// cache is bypassed entirely and this reduces to BuildIndexWithTracker.
+// On a miss (or when persistence fails) the full build path runs and
+// the result is written back. Returns the index and a bool reporting
+// whether the cache was hit.
+func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.Tracker, javaFiles ...*File) (*CodeIndex, bool) {
+	if cacheDir == "" {
+		return BuildIndexWithTracker(files, workers, tracker, javaFiles...), false
+	}
+
+	// Pre-load XML files so fingerprint and reference extraction share
+	// one disk walk. Also gives the cache a complete file-set snapshot.
+	xmlFiles := loadXMLFilesForCache(files)
+	fingerprint, _ := computeCrossFileFingerprint(files, javaFiles, xmlFiles)
+
+	if syms, refs, ok := LoadCrossFileCache(cacheDir, fingerprint); ok {
+		idx := BuildIndexFromDataWithTracker(syms, refs, tracker)
+		idx.Files = append(idx.Files, files...)
+		return idx, true
+	}
+
+	// Miss → full build. Reuse the pre-loaded XML so we don't re-walk.
+	symbols, refs := collectIndexDataInternal(files, workers, tracker, xmlFiles, javaFiles...)
+	idx := BuildIndexFromDataWithTracker(symbols, refs, tracker)
+	idx.Files = append(idx.Files, files...)
+
+	meta := CrossFileCacheMeta{
+		KotlinFiles: len(files),
+		JavaFiles:   len(javaFiles),
+		XMLFiles:    len(xmlFiles),
+	}
+	// Best-effort persistence; any error just means the next run rebuilds.
+	_ = SaveCrossFileCache(cacheDir, fingerprint, meta, symbols, refs)
+	return idx, false
+}
+
 // BuildIndexWithTracker constructs a cross-file index and records sub-phase timings when tracker is enabled.
 func BuildIndexWithTracker(files []*File, workers int, tracker perf.Tracker, javaFiles ...*File) *CodeIndex {
 	symbols, refs := collectIndexDataWithTracker(files, workers, tracker, javaFiles...)
@@ -103,6 +140,13 @@ func collectIndexData(files []*File, workers int, javaFiles ...*File) ([]Symbol,
 }
 
 func collectIndexDataWithTracker(files []*File, workers int, tracker perf.Tracker, javaFiles ...*File) ([]Symbol, []Reference) {
+	return collectIndexDataInternal(files, workers, tracker, nil, javaFiles...)
+}
+
+// collectIndexDataInternal is the shared body. A non-nil preloadedXML
+// skips the per-run XML disk walk and reuses the caller's read bytes;
+// nil falls back to a fresh walk.
+func collectIndexDataInternal(files []*File, workers int, tracker perf.Tracker, preloadedXML []*xmlCacheFile, javaFiles ...*File) ([]Symbol, []Reference) {
 	var (
 		mu      sync.Mutex
 		wg      sync.WaitGroup
@@ -164,14 +208,21 @@ func collectIndexDataWithTracker(files []*File, workers int, tracker perf.Tracke
 		runJava()
 	}
 
-	// Index XML files for class/name references (Android layouts, navigation, manifest)
+	// Index XML files for class/name references (Android layouts, navigation, manifest).
+	runXML := func() {
+		if preloadedXML != nil {
+			refs = append(refs, collectXmlReferencesFromLoaded(preloadedXML)...)
+		} else {
+			refs = append(refs, collectXmlReferences(files)...)
+		}
+	}
 	if tracker != nil && tracker.IsEnabled() {
 		_ = tracker.Track("xmlReferenceCollection", func() error {
-			refs = append(refs, collectXmlReferences(files)...)
+			runXML()
 			return nil
 		})
 	} else {
-		refs = append(refs, collectXmlReferences(files)...)
+		runXML()
 	}
 	return symbols, refs
 }
@@ -506,9 +557,25 @@ func collectJavaReferencesFlat(file *File, refs *[]Reference) {
 	})
 }
 
+// xmlCacheFile is a pre-loaded XML source whose content and hash are
+// consumed by both the cross-file cache fingerprint and the reference
+// walk, so each file is read from disk once.
+type xmlCacheFile struct {
+	Path    string
+	Content []byte
+	Hash    string
+}
+
 // collectXmlReferences scans for XML files in the project and extracts class name references.
 // Android references Kotlin/Java classes from XML in: layouts, navigation graphs, manifest, etc.
 func collectXmlReferences(ktFiles []*File) []Reference {
+	return collectXmlReferencesFromLoaded(loadXMLFilesForCache(ktFiles))
+}
+
+// loadXMLFilesForCache walks the project for XML reference-candidate
+// files, reads them, and hashes each. The result feeds both the cache
+// fingerprint and the reference extraction in a single I/O pass.
+func loadXMLFilesForCache(ktFiles []*File) []*xmlCacheFile {
 	if len(ktFiles) == 0 {
 		return nil
 	}
@@ -527,9 +594,7 @@ func collectXmlReferences(ktFiles []*File) []Reference {
 		}
 	}
 
-	// classRefPatterns defined at package level for reuse
-
-	var refs []Reference
+	var out []*xmlCacheFile
 	for root := range roots {
 		filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
@@ -553,9 +618,24 @@ func collectXmlReferences(ktFiles []*File) []Reference {
 			if err != nil {
 				return nil
 			}
-			appendXMLReferences(&refs, path, content)
+			out = append(out, &xmlCacheFile{
+				Path:    path,
+				Content: content,
+				Hash:    contentHashBytes(content),
+			})
 			return nil
 		})
+	}
+	return out
+}
+
+func collectXmlReferencesFromLoaded(files []*xmlCacheFile) []Reference {
+	if len(files) == 0 {
+		return nil
+	}
+	var refs []Reference
+	for _, f := range files {
+		appendXMLReferences(&refs, f.Path, f.Content)
 	}
 	return refs
 }

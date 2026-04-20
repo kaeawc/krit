@@ -37,6 +37,20 @@ var version = "dev"
 //go:embed completions
 var completionsFS embed.FS
 
+// resolveCrossFileCacheDir returns the directory that scanner.BuildIndexCached
+// should use, or "" when caching is disabled. Disabling follows the
+// --no-cross-file-cache flag or an empty scan-paths list (nothing to key).
+func resolveCrossFileCacheDir(paths []string, disabled bool) string {
+	if disabled {
+		return ""
+	}
+	repoDir := oracle.FindRepoDir(paths)
+	if repoDir == "" {
+		return ""
+	}
+	return scanner.CrossFileCacheDir(repoDir)
+}
+
 // resolvedStore returns a *store.FileStore for the given --store-dir flag
 // pointer, or nil when no store directory is configured and the default
 // .krit/store does not yet exist.
@@ -122,6 +136,7 @@ func main() {
 	outputTypesFlag := flag.String("output-types", "", "Run krit-types and write oracle JSON to this path, then exit")
 	noTypeOracleFlag := flag.Bool("no-type-oracle", false, "Skip the JVM type oracle entirely (faster, less precise)")
 	noCacheOracleFlag := flag.Bool("no-cache-oracle", false, "Disable the on-disk incremental oracle cache (forces a full JVM run)")
+	noCrossFileCacheFlag := flag.Bool("no-cross-file-cache", false, "Disable the on-disk cross-file index cache (forces a full crossFileAnalysis rebuild)")
 	daemonFlag := flag.Bool("daemon", false, "Use long-lived krit-types daemon instead of one-shot invocation")
 	noOracleFilterFlag := flag.Bool("no-oracle-filter", false, "Disable the rule-classification oracle filter (feeds every file to krit-types, matching the pre-filter baseline; used to validate findings-equivalence)")
 	fixBinaryFlag := flag.Bool("fix-binary", false, "Apply binary file fixes (image conversion, optimization, file operations)")
@@ -934,6 +949,7 @@ potential-bugs:
 		BuildCodeIndex:         hasIndexBackedCrossFileRule,
 		CrossFileParentTracker: crossTracker,
 		CrossFileJobsFlag:      *jobsFlag,
+		CrossFileCacheDir:      resolveCrossFileCacheDir(paths, *noCrossFileCacheFlag),
 		BuildModuleIndex:       true,
 		ModuleParentTracker:    moduleTracker,
 		ModuleScanRoot:         scanRoot,

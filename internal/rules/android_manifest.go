@@ -89,23 +89,9 @@ type ManifestElement struct {
 	ParentTag string
 }
 
-// ---------------------------------------------------------------------------
-// Manifest-rule structural contract
-// ---------------------------------------------------------------------------
-
-// ManifestFamily is the structural type a rule must satisfy to be
-// registered via RegisterManifest and stored in ManifestRules. It is
-// defined as a type alias for an anonymous interface so external
-// callers interact with it by method set, not by a named family
-// interface. (Replaces the old `manifest rule` interface.)
-type ManifestFamily = interface {
-	Rule
-	AndroidDependencyProvider
-	CheckManifest(m *Manifest) []scanner.Finding
-}
-
-// ManifestBase provides default nil implementations for Rule methods that
-// don't apply to manifest rules (Check, CheckNode, CheckLines).
+// ManifestBase is an empty marker type embedded by manifest rule
+// implementations. Codegen reads AndroidDependencies() to populate
+// v2.Rule.AndroidDeps in zz_registry_gen.go.
 type ManifestBase struct{}
 
 func (ManifestBase) AndroidDependencies() AndroidDataDependency {
@@ -142,16 +128,3 @@ func allComponents(app *ManifestApplication) []ManifestComponent {
 	return all
 }
 
-// ---------------------------------------------------------------------------
-// Registration
-// ---------------------------------------------------------------------------
-
-// ManifestRules holds all registered manifest rules for use by the scanner.
-var ManifestRules []ManifestFamily
-
-// RegisterManifest adds a manifest rule to both the manifest registry and the
-// global rule registry (for config/suppression compatibility).
-func RegisterManifest(r ManifestFamily) {
-	ManifestRules = append(ManifestRules, r)
-	Register(r)
-}

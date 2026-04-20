@@ -187,10 +187,6 @@ func TestBuildPlanColumnsApplyKeepsColumnarFixState(t *testing.T) {
 		t.Fatalf("expected 1 candidate, got %d", len(plan.Candidates))
 	}
 
-	// Mutate the compatibility Finding payload after planning. Apply should
-	// still use the preserved columnar fix rows rather than the candidate struct.
-	plan.Candidates[0].Finding.Fix = nil
-
 	result := plan.Apply("")
 	if len(result.Errors) > 0 {
 		t.Fatalf("unexpected apply errors: %v", result.Errors)

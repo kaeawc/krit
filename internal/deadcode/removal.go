@@ -14,12 +14,11 @@ var deadCodeMessagePattern = regexp.MustCompile(`^[A-Z][a-z]+ ([a-z]+) '([^']+)'
 
 // Candidate is a directly removable dead-code finding.
 type Candidate struct {
-	File    string `json:"file"`
-	Line    int    `json:"line"`
-	Rule    string `json:"rule"`
-	Kind    string `json:"kind"`
-	Name    string `json:"name"`
-	Finding scanner.Finding
+	File string `json:"file"`
+	Line int    `json:"line"`
+	Rule string `json:"rule"`
+	Kind string `json:"kind"`
+	Name string `json:"name"`
 }
 
 // BlockedCandidate is a dead-code finding that is intentionally not removed.
@@ -94,14 +93,12 @@ func BuildPlanColumns(columns *scanner.FindingColumns) Plan {
 		}
 		removableKeys[key] = true
 		candidateCollector.AppendRow(columns, row)
-		finding := columns.Finding(row)
 		candidates = append(candidates, Candidate{
-			File:    file,
-			Line:    line,
-			Rule:    rule,
-			Kind:    kind,
-			Name:    name,
-			Finding: finding,
+			File: file,
+			Line: line,
+			Rule: rule,
+			Kind: kind,
+			Name: name,
 		})
 	}
 
@@ -186,20 +183,12 @@ func (p Plan) Apply(suffix string) ApplyResult {
 	}
 }
 
-func classifyFinding(finding scanner.Finding) (kind, name string) {
-	return classifyFindingMessage(finding.Message)
-}
-
 func classifyFindingMessage(message string) (kind, name string) {
 	matches := deadCodeMessagePattern.FindStringSubmatch(message)
 	if len(matches) == 3 {
 		return matches[1], matches[2]
 	}
 	return "declaration", ""
-}
-
-func blockedReason(finding scanner.Finding) (string, bool) {
-	return blockedReasonFor(finding.Rule, finding.Fix != nil, finding.Message)
 }
 
 func blockedReasonFor(rule string, hasFix bool, message string) (string, bool) {

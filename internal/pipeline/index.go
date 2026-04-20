@@ -166,6 +166,9 @@ type IndexInput struct {
 	// CrossFileJobsFlag is the -jobs flag value used by
 	// phaseWorkerCount("crossFileAnalysis", ...).
 	CrossFileJobsFlag int
+	// CrossFileCacheDir enables the on-disk cross-file index cache when
+	// non-empty; empty forces a full rebuild every run.
+	CrossFileCacheDir string
 	// CrossFileWorkers is the pre-computed initial worker count for the
 	// Kotlin-only case (before Java file paths are known). IndexPhase
 	// recomputes when Java files land. When zero, IndexPhase derives it
@@ -654,7 +657,19 @@ func (p IndexPhase) runCodeIndexBuild(in IndexInput, result *IndexResult) {
 	var codeIndex *scanner.CodeIndex
 	_ = crossTracker.Track("codeIndexBuild", func() error {
 		indexTracker := crossTracker.Serial("indexBuild")
-		codeIndex = scanner.BuildIndexWithTracker(parsedFiles, crossWorkers, indexTracker, parsedJavaFiles...)
+		if in.CrossFileCacheDir != "" {
+			var hit bool
+			codeIndex, hit = scanner.BuildIndexCached(in.CrossFileCacheDir, parsedFiles, crossWorkers, indexTracker, parsedJavaFiles...)
+			if in.Verbose {
+				if hit {
+					fmt.Fprintf(os.Stderr, "verbose: Cross-file index cache: HIT\n")
+				} else {
+					fmt.Fprintf(os.Stderr, "verbose: Cross-file index cache: MISS (rebuilt + persisted)\n")
+				}
+			}
+		} else {
+			codeIndex = scanner.BuildIndexWithTracker(parsedFiles, crossWorkers, indexTracker, parsedJavaFiles...)
+		}
 		indexTracker.End()
 		return nil
 	})

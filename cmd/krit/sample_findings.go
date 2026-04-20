@@ -11,20 +11,15 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// runSampleFindings prints a deterministic random sample of findings matching
-// ruleName, each accompanied by surrounding source context. It is used by the
-// --sample-rule CLI flag to help with false-positive hunting.
+// runSampleFindingsColumns prints a deterministic random sample of findings
+// matching ruleName, each accompanied by surrounding source context. It is
+// used by the --sample-rule CLI flag to help with false-positive hunting.
 //
 // Returns the process exit code:
 //   - 0 on success (including the "zero matching findings but asked-for rule exists"
 //     case where we still want a clean exit so callers can script against it).
 //   - 2 when no findings at all matched the requested rule name (mirrors the
 //     unknown-format error path).
-func runSampleFindings(findings []scanner.Finding, ruleName string, count int, contextLines int, basePath string) int {
-	columns := scanner.CollectFindings(findings)
-	return runSampleFindingsColumns(&columns, ruleName, count, contextLines, basePath)
-}
-
 func runSampleFindingsColumns(columns *scanner.FindingColumns, ruleName string, count int, contextLines int, basePath string) int {
 	if count < 0 {
 		count = 0

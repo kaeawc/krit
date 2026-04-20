@@ -67,16 +67,11 @@ type ruleAuditJSONReport struct {
 	Targets []ruleAuditJSONTarget `json:"targets"`
 }
 
-// runRuleAudit prints a prioritized audit of every rule that fires on the
-// target(s), annotated with whether any experiment in the catalog already
-// targets it and a short "cluster" tag (dominant file extension or file
-// pattern) to help pick the next FP-hunt target. Returns the process exit
-// code.
-func runRuleAudit(findings []scanner.Finding, opts ruleAuditOpts) int {
-	columns := scanner.CollectFindings(findings)
-	return runRuleAuditColumns(&columns, opts)
-}
-
+// runRuleAuditColumns prints a prioritized audit of every rule that fires
+// on the target(s), annotated with whether any experiment in the catalog
+// already targets it and a short "cluster" tag (dominant file extension or
+// file pattern) to help pick the next FP-hunt target. Returns the process
+// exit code.
 func runRuleAuditColumns(columns *scanner.FindingColumns, opts ruleAuditOpts) int {
 	opts = normalizeRuleAuditOpts(opts)
 	experimentsByRule := buildRuleAuditExperimentsByRule()

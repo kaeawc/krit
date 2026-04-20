@@ -16,11 +16,6 @@ type deadCodeRemovalReport struct {
 	Errors  []string         `json:"errors,omitempty"`
 }
 
-func runDeadCodeRemoval(findings []scanner.Finding, format string, dryRun bool, suffix string) int {
-	columns := scanner.CollectFindings(findings)
-	return runDeadCodeRemovalColumns(&columns, format, dryRun, suffix)
-}
-
 func runDeadCodeRemovalColumns(columns *scanner.FindingColumns, format string, dryRun bool, suffix string) int {
 	plan := deadcode.BuildPlanColumns(columns)
 	summary := plan.Summary()

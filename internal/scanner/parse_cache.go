@@ -7,16 +7,18 @@ package scanner
 // wrote.
 
 import (
-	"bufio"
-	"crypto/sha256"
 	"encoding/gob"
-	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime/debug"
 	"sync"
+
+	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/hashutil"
 )
 
 const (
@@ -83,30 +85,17 @@ func NewParseCache(repoDir string) (*ParseCache, error) {
 		return nil, errors.New("scanner: NewParseCache requires a non-empty repoDir")
 	}
 	dir := filepath.Join(repoDir, ".krit", parseCacheDirName)
-	entriesDir := filepath.Join(dir, parseCacheEntries)
-	if err := os.MkdirAll(entriesDir, 0o755); err != nil {
+	vd := cacheutil.VersionedDir{
+		Root:       dir,
+		EntriesDir: parseCacheEntries,
+		Tokens: []cacheutil.SchemaToken{
+			{Name: "version", Value: parseCacheVersionStr},
+			{Name: "grammar-version", Value: GrammarVersion()},
+		},
+	}
+	if _, err := vd.Open(); err != nil {
 		return nil, fmt.Errorf("create parse cache dir: %w", err)
 	}
-	gv := GrammarVersion()
-
-	vPath := filepath.Join(dir, "version")
-	gPath := filepath.Join(dir, "grammar-version")
-	nuke := false
-	if b, err := os.ReadFile(vPath); err == nil && string(b) != parseCacheVersionStr {
-		nuke = true
-	}
-	if !nuke {
-		if b, err := os.ReadFile(gPath); err == nil && string(b) != gv {
-			nuke = true
-		}
-	}
-	if nuke {
-		_ = os.RemoveAll(entriesDir)
-		_ = os.MkdirAll(entriesDir, 0o755)
-	}
-	_ = os.WriteFile(vPath, []byte(parseCacheVersionStr), 0o644)
-	_ = os.WriteFile(gPath, []byte(gv), 0o644)
-
 	return &ParseCache{dir: dir}, nil
 }
 
@@ -119,18 +108,14 @@ func (pc *ParseCache) Dir() string {
 }
 
 func hashContent(b []byte) string {
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:])
+	return hashutil.HashHex(b)
 }
 
 // entryPath returns the sharded on-disk path for a content hash.
 // Layout: entries/{hash[:2]}/{hash[2:]}.gob — two-level sharding so no
 // single directory grows past 256 shards even on huge repos.
 func (pc *ParseCache) entryPath(hash string) string {
-	if len(hash) < 3 {
-		return filepath.Join(pc.dir, parseCacheEntries, "_", hash+parseCacheExt)
-	}
-	return filepath.Join(pc.dir, parseCacheEntries, hash[:2], hash[2:]+parseCacheExt)
+	return cacheutil.ShardedEntryPath(filepath.Join(pc.dir, parseCacheEntries), hash, parseCacheExt)
 }
 
 // Load tries to load a cached FlatTree for the given content. Returns
@@ -207,42 +192,19 @@ func (pc *ParseCache) saveEntry(hash string, tree *FlatTree) error {
 	local, cloned := buildLocalTableAndNodes(tree.Nodes)
 
 	target := pc.entryPath(hash)
-	dir := filepath.Dir(target)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dir, err)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("create cache shard dir: %w", err)
 	}
-
-	tmp, err := os.CreateTemp(dir, ".entry-*.tmp")
-	if err != nil {
-		return fmt.Errorf("parse cache tempfile: %w", err)
-	}
-	tmpName := tmp.Name()
-
-	bw := bufio.NewWriter(tmp)
-	err = gob.NewEncoder(bw).Encode(&parseCacheEntry{
+	entry := parseCacheEntry{
 		Version:       parseCacheVersion,
 		GrammarVer:    GrammarVersion(),
 		ContentHash:   hash,
 		NodeTypeTable: local,
 		Nodes:         cloned,
+	}
+	return fsutil.WriteFileAtomicStream(target, 0o644, func(w io.Writer) error {
+		return gob.NewEncoder(w).Encode(entry)
 	})
-	if err == nil {
-		err = bw.Flush()
-	}
-	if err != nil {
-		tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("encode parse cache entry: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("close parse cache tempfile: %w", err)
-	}
-	if err := os.Rename(tmpName, target); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("rename parse cache entry: %w", err)
-	}
-	return nil
 }
 
 // buildLocalTableAndNodes walks nodes, collects the set of global Type
@@ -287,6 +249,19 @@ func (pc *ParseCache) Clear() error {
 		return fmt.Errorf("clear parse cache: %w", err)
 	}
 	return os.MkdirAll(entries, 0o755)
+}
+
+func init() {
+	cacheutil.Register(parseCacheRegistered{})
+}
+
+type parseCacheRegistered struct{}
+
+func (parseCacheRegistered) Name() string { return "parse-cache" }
+func (parseCacheRegistered) Clear() error {
+	// ClearParseCache needs a repoDir; without one, it's a no-op at init time.
+	// Phase 2 will call ClearParseCache directly with the resolved repoDir.
+	return nil
 }
 
 // ClearParseCache removes the parse-cache directory under repoDir.

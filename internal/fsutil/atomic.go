@@ -19,8 +19,8 @@ import (
 // rename is atomic on POSIX) with prefix derived from filepath.Base(path).
 // On any error after tempfile creation, the tempfile is removed best-effort.
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
-	return WriteFileAtomicStream(path, perm, func(w io.Writer) error {
-		_, err := w.Write(data)
+	return writeAtomic(path, perm, func(f *os.File) error {
+		_, err := f.Write(data)
 		return err
 	})
 }
@@ -36,6 +36,18 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 // The writer is buffered; flush is handled by the helper. fsync runs after
 // flush and before rename.
 func WriteFileAtomicStream(path string, perm os.FileMode, write func(io.Writer) error) error {
+	return writeAtomic(path, perm, func(f *os.File) error {
+		bw := bufio.NewWriter(f)
+		if err := write(bw); err != nil {
+			return err
+		}
+		return bw.Flush()
+	})
+}
+
+// writeAtomic is the shared tempfile + fsync + rename core. payload decides
+// how bytes reach the file handle (direct write vs. buffered stream).
+func writeAtomic(path string, perm os.FileMode, payload func(*os.File) error) error {
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
 
@@ -45,25 +57,17 @@ func WriteFileAtomicStream(path string, perm os.FileMode, write func(io.Writer) 
 	}
 	tmpName := tmp.Name()
 
-	// cleanup helper: close + remove the tempfile best-effort
 	cleanup := func() {
 		tmp.Close()
 		os.Remove(tmpName)
 	}
 
-	// Apply permissions before writing.
 	if err := tmp.Chmod(perm); err != nil {
 		cleanup()
 		return fmt.Errorf("write tempfile: %w", err)
 	}
 
-	bw := bufio.NewWriter(tmp)
-	if err := write(bw); err != nil {
-		cleanup()
-		return fmt.Errorf("write tempfile: %w", err)
-	}
-
-	if err := bw.Flush(); err != nil {
+	if err := payload(tmp); err != nil {
 		cleanup()
 		return fmt.Errorf("write tempfile: %w", err)
 	}

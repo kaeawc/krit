@@ -81,11 +81,9 @@ func CacheDir(repoDir string) (string, error) {
 		EntriesDir: "entries",
 		Tokens:     []cacheutil.SchemaToken{{Name: "version", Value: fmt.Sprintf("%d", CacheVersion)}},
 	}
-	entriesDir, err := vd.Open()
-	if err != nil {
+	if _, err := vd.Open(); err != nil {
 		return "", fmt.Errorf("create cache dir: %w", err)
 	}
-	_ = entriesDir // callers use filepath.Join(dir, "entries") via entryPath
 	return dir, nil
 }
 
@@ -705,29 +703,16 @@ func CacheStats(cacheDir string) (count int, bytes int64, err error) {
 	return count, bytes, err
 }
 
-// oracleCacheEntry implements cacheutil.Registered for the oracle cache.
-type oracleCacheEntry struct {
-	repoDir string
-}
+type oracleCacheEntry struct{}
 
-func (o *oracleCacheEntry) Name() string { return "oracle-cache" }
-func (o *oracleCacheEntry) Clear() error {
-	if o.repoDir == "" {
+func (oracleCacheEntry) Name() string { return "oracle-cache" }
+func (oracleCacheEntry) Clear(ctx cacheutil.ClearContext) error {
+	if ctx.RepoDir == "" {
 		return nil
 	}
-	dir := filepath.Join(o.repoDir, ".krit", "types-cache")
-	return os.RemoveAll(dir)
-}
-
-var registeredOracleCache = &oracleCacheEntry{}
-
-// SetOracleCacheRepoDir sets the repo directory used by the registered
-// oracle-cache entry when cacheutil.ClearAll() is called. Stub for Phase 2
-// wiring from main.go.
-func SetOracleCacheRepoDir(dir string) {
-	registeredOracleCache.repoDir = dir
+	return os.RemoveAll(filepath.Join(ctx.RepoDir, ".krit", "types-cache"))
 }
 
 func init() {
-	cacheutil.Register(registeredOracleCache)
+	cacheutil.Register(oracleCacheEntry{})
 }

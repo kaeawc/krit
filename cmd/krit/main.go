@@ -588,16 +588,11 @@ potential-bugs:
 
 	// Handle --clear-cache
 	if *clearCacheFlag {
-		repoDir := oracle.FindRepoDir(paths)
-		// Bind repo-dir-dependent caches before ClearAll fires.
-		oracle.SetOracleCacheRepoDir(repoDir)
-		scanner.SetParseCacheRepoDir(repoDir)
-		scanner.SetCrossFileCacheRepoDir(repoDir)
-		if err := cacheutil.ClearAll(); err != nil {
+		ctx := cacheutil.ClearContext{RepoDir: oracle.FindRepoDir(paths)}
+		if err := cacheutil.ClearAll(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(2)
 		}
-		// --cache-dir overrides the incremental cache location; clear that too.
 		if *cacheDirFlag != "" {
 			if err := cache.ClearSharedCache(*cacheDirFlag); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)

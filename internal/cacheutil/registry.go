@@ -6,10 +6,17 @@ import (
 	"sync"
 )
 
+// ClearContext is passed to every Registered.Clear() call. Subsystems that
+// need runtime-resolved paths (e.g. the repo root) read them from here
+// rather than maintaining their own globals.
+type ClearContext struct {
+	RepoDir string
+}
+
 // Registered is anything that can be enumerated and cleared wholesale.
 type Registered interface {
 	Name() string
-	Clear() error
+	Clear(ctx ClearContext) error
 }
 
 var (
@@ -34,7 +41,7 @@ func Register(c Registered) {
 
 // ClearAll invokes Clear() on every registered cache. Uses errors.Join;
 // never short-circuits. Errors from individual caches are accumulated.
-func ClearAll() error {
+func ClearAll(ctx ClearContext) error {
 	mu.Lock()
 	snapshot := make([]Registered, len(registry))
 	copy(snapshot, registry)
@@ -42,7 +49,7 @@ func ClearAll() error {
 
 	var errs []error
 	for _, c := range snapshot {
-		if err := c.Clear(); err != nil {
+		if err := c.Clear(ctx); err != nil {
 			errs = append(errs, err)
 		}
 	}

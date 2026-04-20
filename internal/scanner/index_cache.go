@@ -17,21 +17,15 @@ import (
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
-var crossFileCacheRepoDir string
-
-// SetCrossFileCacheRepoDir configures the repo root used by the cacheutil
-// registry entry's Clear(). Called by cmd/krit/main.go before --clear-cache.
-func SetCrossFileCacheRepoDir(dir string) { crossFileCacheRepoDir = dir }
-
 func init() {
 	cacheutil.Register(crossFileCacheRegistered{})
 }
 
 type crossFileCacheRegistered struct{}
 
-func (crossFileCacheRegistered) Name() string { return "cross-file-cache" }
-func (crossFileCacheRegistered) Clear() error {
-	return ClearCrossFileCache(CrossFileCacheDir(crossFileCacheRepoDir))
+func (crossFileCacheRegistered) Name() string { return crossFileCacheDirName }
+func (crossFileCacheRegistered) Clear(ctx cacheutil.ClearContext) error {
+	return ClearCrossFileCache(CrossFileCacheDir(ctx.RepoDir))
 }
 
 // CrossFileCacheVersion is bumped whenever the on-disk layout or the

@@ -251,20 +251,14 @@ func (pc *ParseCache) Clear() error {
 	return os.MkdirAll(entries, 0o755)
 }
 
-var parseCacheRepoDir string
-
-// SetParseCacheRepoDir configures the repo root used by the cacheutil registry
-// entry's Clear(). Called by cmd/krit/main.go before --clear-cache runs.
-func SetParseCacheRepoDir(dir string) { parseCacheRepoDir = dir }
-
 func init() {
 	cacheutil.Register(parseCacheRegistered{})
 }
 
 type parseCacheRegistered struct{}
 
-func (parseCacheRegistered) Name() string { return "parse-cache" }
-func (parseCacheRegistered) Clear() error { return ClearParseCache(parseCacheRepoDir) }
+func (parseCacheRegistered) Name() string                              { return parseCacheDirName }
+func (parseCacheRegistered) Clear(ctx cacheutil.ClearContext) error    { return ClearParseCache(ctx.RepoDir) }
 
 // ClearParseCache removes the parse-cache directory under repoDir.
 // Used by --clear-cache at the CLI boundary; a no-op when the cache

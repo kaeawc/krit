@@ -2,8 +2,6 @@ package oracle
 
 import (
 	"bufio"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,23 +16,19 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/kaeawc/krit/internal/hashutil"
 )
 
 // jarCachePath returns a cache path keyed by the JAR's content hash, with the
 // given suffix appended.  The file lives under $TMPDIR/krit-cache/ (or
 // ~/.krit/cache/ if HOME is set) and is named krit-types-<hash><suffix>.
 func jarCachePath(jarPath, suffix string) (string, error) {
-	f, err := os.Open(jarPath)
+	full, err := hashutil.HashFile(jarPath)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	hash := hex.EncodeToString(h.Sum(nil))[:12]
+	hash := full[:12]
 
 	cacheDir := filepath.Join(os.TempDir(), "krit-cache")
 	if home, err := os.UserHomeDir(); err == nil {
@@ -709,8 +703,7 @@ func hashSources(sourceDirs []string) string {
 	sorted := make([]string, len(sourceDirs))
 	copy(sorted, sourceDirs)
 	sort.Strings(sorted)
-	h := sha256.Sum256([]byte(strings.Join(sorted, "\n")))
-	return hex.EncodeToString(h[:])[:16]
+	return hashutil.HashHex([]byte(strings.Join(sorted, "\n")))[:16]
 }
 
 // pidFileInfo holds the contents of the PID file pair for one daemon.

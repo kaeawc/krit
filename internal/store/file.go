@@ -8,22 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/fsutil"
 )
-
-func init() {
-	cacheutil.Register(storeRegistered{})
-}
-
-type storeRegistered struct{}
-
-func (storeRegistered) Name() string { return "unified-store" }
-func (storeRegistered) Clear() error {
-	// Without a configurable root at init time, clearing must go through
-	// the FileStore.Invalidate() method. Phase 2 will wire this up.
-	return nil
-}
 
 // KindLabel returns a human-readable label for a StoreKind.
 func KindLabel(k StoreKind) string {

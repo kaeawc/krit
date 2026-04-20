@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
@@ -487,15 +486,3 @@ func (c *Cache) Prune() {
 	}
 }
 
-func init() {
-	cacheutil.Register(incrementalCacheRegistered{})
-}
-
-type incrementalCacheRegistered struct{}
-
-func (incrementalCacheRegistered) Name() string { return "incremental-cache" }
-func (incrementalCacheRegistered) Clear() error {
-	// Without a dir at init time, clearing routes through ClearSharedCache.
-	// Phase 2 will wire this up.
-	return nil
-}

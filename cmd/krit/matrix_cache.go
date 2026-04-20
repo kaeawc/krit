@@ -24,8 +24,8 @@ func init() {
 
 type matrixCacheRegistered struct{}
 
-func (matrixCacheRegistered) Name() string { return "matrix-cache" }
-func (matrixCacheRegistered) Clear() error { return clearMatrixCache() }
+func (matrixCacheRegistered) Name() string                              { return "matrix-cache" }
+func (matrixCacheRegistered) Clear(cacheutil.ClearContext) error        { return clearMatrixCache() }
 
 // matrixBaselineCacheEntry is the on-disk wrapper around a cached
 // baseline matrixCaseReport. The cacheKey is stored redundantly so

@@ -149,6 +149,22 @@ func GetRuleExcludes(ruleName string) []string {
 	return ruleExcludes[ruleName]
 }
 
+// GetAllRuleExcludes returns a snapshot of every rule's exclude globs,
+// omitting rules with an empty pattern list. The pipeline Parse phase
+// passes this into scanner.BuildSuppressionFilter so the exclude globs
+// live on each file's filter rather than being reconsulted per
+// rule/file combination by the dispatcher.
+func GetAllRuleExcludes() map[string][]string {
+	out := make(map[string][]string, len(ruleExcludes))
+	for k, v := range ruleExcludes {
+		if len(v) == 0 {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
 // IsFileExcluded checks whether a file path matches any of the rule's exclude patterns.
 func IsFileExcluded(filePath string, excludes []string) bool {
 	for _, pattern := range excludes {

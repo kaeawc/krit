@@ -257,10 +257,11 @@ func pickModuleAwareV2Rules(v2Rules []*v2.Rule) []*v2.Rule {
 }
 
 // ApplySuppression drops findings whose target file, line, and rule/ruleset
-// are covered by a @Suppress annotation visible at that byte offset.
+// are covered by any of the per-file suppression sources: @Suppress
+// annotations, config excludes, or inline `// krit:ignore` comments.
 // Findings whose target file is not in the parsed-file set pass through
 // unchanged (e.g. findings reported against generated XML or Java files
-// for which no SuppressionIndex was built).
+// for which no SuppressionFilter was built).
 //
 // Exported so callers that invoke cross-file rules outside the pipeline
 // (transitional CLI code in cmd/krit/main.go) can use the same
@@ -277,15 +278,11 @@ func ApplySuppression(findings []scanner.Finding, files []*scanner.File) []scann
 	kept := make([]scanner.Finding, 0, len(findings))
 	for _, f := range findings {
 		file, ok := byPath[f.File]
-		if !ok || file.SuppressionIdx == nil {
+		if !ok || file.Suppression == nil {
 			kept = append(kept, f)
 			continue
 		}
-		byteOffset := 0
-		if f.Line > 0 {
-			byteOffset = file.LineOffset(f.Line - 1)
-		}
-		if !file.SuppressionIdx.IsSuppressed(byteOffset, f.Rule, f.RuleSet) {
+		if !file.Suppression.IsSuppressed(f.Rule, f.RuleSet, f.Line) {
 			kept = append(kept, f)
 		}
 	}

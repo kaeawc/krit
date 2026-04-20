@@ -256,8 +256,17 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 
 	flatTypeRules := d.ensureFlatTypeIndex(d.collectAllRules())
 
+	// Reuse the SuppressionFilter built in pipeline.Parse when present;
+	// otherwise (LSP/MCP ParseSingle path) build one lazily so single-
+	// file callers keep the same @Suppress semantics. Either way the
+	// annotation index walks the flat tree only once per file.
 	start := time.Now()
-	suppressIndex := scanner.BuildSuppressionIndexFlat(file.FlatTree, file.Content)
+	filter := file.Suppression
+	if filter == nil {
+		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "")
+		file.Suppression = filter
+		file.SuppressionIdx = filter.Annotations()
+	}
 	stats.SuppressionIndexMs += time.Since(start).Milliseconds()
 
 	excludedRules := d.buildExcludedSet(file.Path)
@@ -339,16 +348,13 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 
 	columns := *collector.Columns()
 
-	// Suppression filter.
+	// Suppression filter — one call covers annotations, config excludes,
+	// and inline comments. Baseline filtering is still applied as a
+	// post-collect step because it needs the full Finding struct.
 	start = time.Now()
 	if columns.Len() > 0 {
 		filtered := columns.FilterRows(func(row int) bool {
-			line := columns.LineAt(row)
-			byteOffset := 0
-			if line > 0 {
-				byteOffset = file.LineOffset(line - 1)
-			}
-			return !suppressIndex.IsSuppressed(byteOffset, columns.RuleAt(row), columns.RuleSetAt(row))
+			return !filter.IsSuppressed(columns.RuleAt(row), columns.RuleSetAt(row), columns.LineAt(row))
 		})
 		columns = filtered
 	}
@@ -398,6 +404,15 @@ func filePathOrEmpty(file *scanner.File) string {
 		return ""
 	}
 	return file.Path
+}
+
+// allRuleExcludes returns a snapshot of every rule's exclude globs. Used
+// by the dispatcher's lazy SuppressionFilter build on the LSP/MCP path
+// (where pipeline.Parse has not pre-populated file.Suppression). The
+// snapshot is cheap — excludes rarely exceed a handful of entries — and
+// avoids threading a new parameter through the v2.Dispatcher API.
+func allRuleExcludes() map[string][]string {
+	return GetAllRuleExcludes()
 }
 
 // buildExcludedSet returns rule IDs that should be skipped for filePath

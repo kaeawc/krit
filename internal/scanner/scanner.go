@@ -126,11 +126,19 @@ type File struct {
 	// for non-source-language files. Nil for Kotlin/Java.
 	Metadata any
 
-	// SuppressionIdx is populated by the pipeline.Parse phase with a
-	// per-file SuppressionIndex so cross-file and module-aware rules
-	// can consult the same @Suppress map as per-file dispatch. Nil when
-	// the caller (LSP/MCP) builds files without running Parse.
+	// SuppressionIdx is the byte-range annotation index. Populated by
+	// the pipeline.Parse phase as a side-effect of building Suppression;
+	// retained as its own field for legacy callers and tests that have
+	// not yet migrated to the unified filter.
 	SuppressionIdx *SuppressionIndex
+
+	// Suppression is the unified per-file suppression filter combining
+	// annotations, config excludes, baseline, and inline comments. Built
+	// once in pipeline.Parse and consulted by the dispatcher, cross-file
+	// phase, and any other post-collect filter. Nil when the caller
+	// (LSP/MCP ParseSingle) builds files without running Parse; the
+	// dispatcher handles the nil case by lazily building a filter.
+	Suppression *SuppressionFilter
 }
 
 // LineOffsets returns the byte offset of each line start, computed lazily and cached.

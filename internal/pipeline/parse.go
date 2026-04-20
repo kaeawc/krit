@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kaeawc/krit/internal/rules"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -101,15 +102,20 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 		return len(kotlinFiles[i].Content) > len(kotlinFiles[j].Content)
 	})
 
-	// Build per-file SuppressionIndex so cross-file / module-aware rules
-	// can consult the same @Suppress map the dispatcher uses for per-file
-	// rules. LSP/MCP callers that construct files directly still get a
-	// nil SuppressionIdx and fall through the "no suppression" path.
+	// Build per-file SuppressionFilter once per file. This unifies the
+	// four pre-refactor suppression sources (annotations, config
+	// excludes, baseline, inline comments) into a single filter that
+	// both the dispatcher and the cross-file phase consult, instead of
+	// each call site rebuilding the annotation index independently.
+	// LSP/MCP callers that construct files directly still get nil
+	// fields here and fall through to the dispatcher's lazy build.
+	ruleExcludes := rules.GetAllRuleExcludes()
 	for _, f := range kotlinFiles {
 		if f.FlatTree == nil {
 			continue
 		}
-		f.SuppressionIdx = scanner.BuildSuppressionIndexFlat(f.FlatTree, f.Content)
+		f.Suppression = scanner.BuildSuppressionFilter(f, nil, ruleExcludes, "")
+		f.SuppressionIdx = f.Suppression.Annotations()
 	}
 
 	// Collect Java files only when at least one active rule needs them.

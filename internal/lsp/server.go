@@ -19,6 +19,7 @@ import (
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // debounceDelay is the duration to wait after a didChange before analyzing.
@@ -43,6 +44,7 @@ type Server struct {
 
 	// Analysis: pipeline-driven single-file analyzer shared with MCP + CLI.
 	analyzer *pipeline.SingleFileAnalyzer
+	resolver typeinfer.TypeResolver
 	cfg      *config.Config
 
 	// Verbose gates informational log output.
@@ -378,7 +380,15 @@ func (s *Server) loadConfigAndBuildDispatcher() {
 	// analysis (didOpen / didChange / formatting); cross-file and
 	// module-aware rules are skipped because the LSP only sees one
 	// buffer at a time.
-	s.analyzer = pipeline.NewSingleFileAnalyzer(nil, nil)
+	// Wire up a source-level type resolver so type-aware rules
+	// (NeedsResolver capability) receive a non-nil ctx.Resolver via the
+	// dispatcher. The LSP only sees one buffer at a time, so
+	// analyzeAndPublish re-indexes each parsed file into this resolver
+	// before dispatch. Without this wiring, type-aware rules silently
+	// degrade to their fallback heuristics — matching the CLI behaviour
+	// required by the TypeResolutionService acceptance criteria.
+	s.resolver = typeinfer.NewResolver()
+	s.analyzer = pipeline.NewSingleFileAnalyzer(nil, s.resolver)
 	s.logInfo("dispatcher: %d active rules", len(s.analyzer.ActiveRules))
 }
 
@@ -449,6 +459,17 @@ func (s *Server) analyzeAndPublish(uri string, content []byte) {
 		log.Printf("parse error for %s: %v", uri, err)
 		s.publishDiagnostics(uri, nil)
 		return
+	}
+
+	// Index the current buffer into the type resolver so rules
+	// declaring NeedsResolver see up-to-date scope / class / import
+	// data. Single-file indexing is cheap; full-workspace indexing is
+	// intentionally skipped because the LSP only holds one buffer at a
+	// time.
+	if indexer, ok := s.resolver.(interface {
+		IndexFilesParallel([]*scanner.File, int)
+	}); ok {
+		indexer.IndexFilesParallel([]*scanner.File{file}, 1)
 	}
 
 	// Run per-file rules through the shared pipeline analyzer.

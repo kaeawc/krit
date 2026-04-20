@@ -66,6 +66,11 @@ type ParseInput struct {
 	// Tracker, when non-nil, wraps expensive sub-phases with
 	// Tracker.Serial(name). Zero value (nil interface) means no tracking.
 	Tracker perf.Tracker
+	// ParseCache, when non-nil, is consulted during the Kotlin parse
+	// loop to skip tree-sitter on files whose SHA-256 matches a
+	// previously-cached FlatTree. Misses trigger a normal parse and a
+	// cache write-back. Nil disables the cache entirely.
+	ParseCache *scanner.ParseCache
 }
 
 // logf invokes Logger when set; nil Logger is a no-op.

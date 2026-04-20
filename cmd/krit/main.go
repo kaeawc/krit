@@ -107,7 +107,8 @@ func main() {
 	editorConfigFlag := flag.Bool("enable-editorconfig", false, "Read .editorconfig for max_line_length, indent_size, etc.")
 	versionFlag := flag.Bool("version", false, "Print version")
 	noCacheFlag := flag.Bool("no-cache", false, "Disable incremental analysis cache")
-	clearCacheFlag := flag.Bool("clear-cache", false, "Delete the cache file and exit")
+	noParseCacheFlag := flag.Bool("no-parse-cache", false, "Disable the on-disk tree-sitter parse cache (forces re-parse of every file)")
+	clearCacheFlag := flag.Bool("clear-cache", false, "Delete all on-disk caches (incremental, parse) and exit")
 	noMatrixCacheFlag := flag.Bool("no-matrix-cache", false, "Disable the experiment-matrix baseline cache (no read, no write)")
 	clearMatrixCacheFlag := flag.Bool("clear-matrix-cache", false, "Delete the experiment-matrix baseline cache and exit")
 	cacheDirFlag := flag.String("cache-dir", "", "Shared cache directory (cache file named by hash of scan paths)")
@@ -583,6 +584,12 @@ potential-bugs:
 				os.Exit(2)
 			}
 		}
+		// Also clear the tree-sitter parse cache, which lives under
+		// {repo}/.krit/parse-cache regardless of --cache-dir.
+		if err := scanner.ClearParseCache(oracle.FindRepoDir(paths)); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(2)
+		}
 		fmt.Fprintln(os.Stderr, "info: Cache cleared.")
 		os.Exit(0)
 	}
@@ -776,6 +783,14 @@ potential-bugs:
 			fmt.Fprintf(os.Stderr, format, args...)
 		}
 	}
+	var parseCache *scanner.ParseCache
+	if !*noParseCacheFlag {
+		if pc, pcErr := scanner.NewParseCache(oracle.FindRepoDir(paths)); pcErr == nil {
+			parseCache = pc
+		} else if *verboseFlag {
+			fmt.Fprintf(os.Stderr, "verbose: parse cache disabled: %v\n", pcErr)
+		}
+	}
 	parseResult, err := pipeline.ParsePhase{}.Run(context.Background(), pipeline.ParseInput{
 		Config:             cfg,
 		Paths:              paths,
@@ -785,6 +800,7 @@ potential-bugs:
 		SkipJavaCollection: true,
 		Logger:             verboseLogger,
 		Tracker:            tracker,
+		ParseCache:         parseCache,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

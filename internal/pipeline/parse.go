@@ -71,7 +71,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 	)
 	parseStart := time.Now()
 	_ = in.trackSerial("parse", func() error {
-		kotlinFiles, parseErrs = scanner.ScanFiles(kotlinPaths, workers)
+		kotlinFiles, parseErrs = scanner.ScanFilesCached(kotlinPaths, workers, in.ParseCache)
 		return nil
 	})
 	in.logf("verbose: Parsed %d files in %v (%d errors, %d workers)\n",

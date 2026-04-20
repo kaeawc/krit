@@ -9,24 +9,24 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// OracleFilterRule is a minimal view of a rule that carries an OracleFilter.
-// It's mirrored in this package (instead of importing internal/rules) so
-// that the oracle package stays dependency-clean and callers can pass in
-// a pre-extracted slice — typical callers live in cmd/krit and can bridge
-// v2.Rule through the helper in the rules package.
+// OracleFilterRule is a minimal view of a rule that declared
+// NeedsOracle. The caller (internal/rules.BuildOracleFilterRulesV2)
+// pre-filters the registered v2 rules and passes only oracle-needing
+// rules here — the filter inversion (roadmap:
+// core-infra/oracle-filter-inversion.md) means rules without
+// NeedsOracle never reach this package.
 type OracleFilterRule struct {
 	// Name is the rule identifier, used only for verbose reporting.
 	Name string
-	// Filter is the rule's declared oracle filter. A nil Filter is treated
-	// as AllFiles: true (conservative — the caller should not pass nil in
-	// practice because rules.GetOracleFilter always returns a non-nil
-	// default).
+	// Filter is the rule's declared oracle filter. A nil Filter (or
+	// AllFiles: true) means the rule wants every file — the caller
+	// should set AllFiles: true explicitly when no narrowing applies.
 	Filter *OracleFilterSpec
 }
 
-// OracleFilterSpec is an in-package mirror of rules.OracleFilter. The
+// OracleFilterSpec is an in-package mirror of v2.OracleFilter. The
 // value types are decoupled so internal/oracle does not import
-// internal/rules. The fields match rules.OracleFilter 1:1.
+// internal/rules. The fields match v2.OracleFilter 1:1.
 type OracleFilterSpec struct {
 	Identifiers []string
 	AllFiles    bool

@@ -17,7 +17,6 @@ func (r *DaoNotInterfaceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "d67382c415a0c063",
 	}
 }
@@ -31,7 +30,6 @@ func (r *DaoWithoutAnnotationsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "d67382c415a0c063",
 	}
 }
@@ -45,7 +43,6 @@ func (r *DatabaseInstanceRecreatedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "d67382c415a0c063",
 	}
 }
@@ -59,7 +56,6 @@ func (r *JdbcPreparedStatementNotClosedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "d67382c415a0c063",
 	}
 }

@@ -59,9 +59,6 @@ func TestLicensing_Meta_Descriptors(t *testing.T) {
 		if d.Confidence != 0.75 {
 			t.Errorf("Confidence = %v, want 0.75", d.Confidence)
 		}
-		if d.Oracle != nil {
-			t.Errorf("Oracle = %+v, want nil (syntactic-only rule)", d.Oracle)
-		}
 		if len(d.Options) != 0 {
 			t.Errorf("Options = %d, want 0", len(d.Options))
 		}

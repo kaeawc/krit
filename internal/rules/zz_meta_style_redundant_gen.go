@@ -17,7 +17,6 @@ func (r *OptionalUnitRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c8800bc62687933a",
 	}
 }
@@ -31,7 +30,6 @@ func (r *RedundantConstructorKeywordRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c8800bc62687933a",
 	}
 }
@@ -45,7 +43,6 @@ func (r *RedundantExplicitTypeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c8800bc62687933a",
 	}
 }
@@ -59,7 +56,6 @@ func (r *RedundantVisibilityModifierRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c8800bc62687933a",
 	}
 }
@@ -73,7 +69,6 @@ func (r *UnnecessaryBackticksRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c8800bc62687933a",
 	}
 }
@@ -87,7 +82,6 @@ func (r *UnnecessaryInheritanceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c8800bc62687933a",
 	}
 }
@@ -101,7 +95,6 @@ func (r *UnnecessaryInnerClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c8800bc62687933a",
 	}
 }
@@ -115,7 +108,6 @@ func (r *UnnecessaryParenthesesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c8800bc62687933a",
 		Options: []registry.ConfigOption{
 			{
@@ -140,7 +132,6 @@ func (r *UselessCallOnNotNullRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c8800bc62687933a",
 	}
 }

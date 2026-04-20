@@ -17,7 +17,6 @@ func (r *PackageDependencyCycleRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4c5c08492ce4dccd",
 	}
 }

@@ -18,8 +18,7 @@ func (r *AndroidGradlePluginVersionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
-		SourceHash:    "930386ea13f6c1ce",
+		SourceHash:    "bfafafaf1e141eaa",
 	}
 }
 
@@ -32,8 +31,7 @@ func (r *DeprecatedDependencyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
-		SourceHash:    "930386ea13f6c1ce",
+		SourceHash:    "bfafafaf1e141eaa",
 	}
 }
 
@@ -47,8 +45,7 @@ func (r *DynamicVersionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
-		SourceHash:    "930386ea13f6c1ce",
+		SourceHash:    "bfafafaf1e141eaa",
 	}
 }
 
@@ -61,8 +58,7 @@ func (r *GradleDeprecatedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
-		SourceHash:    "930386ea13f6c1ce",
+		SourceHash:    "bfafafaf1e141eaa",
 	}
 }
 
@@ -75,8 +71,7 @@ func (r *GradleGetterRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
-		SourceHash:    "930386ea13f6c1ce",
+		SourceHash:    "bfafafaf1e141eaa",
 	}
 }
 
@@ -89,8 +84,7 @@ func (r *GradleIdeErrorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
-		SourceHash:    "930386ea13f6c1ce",
+		SourceHash:    "bfafafaf1e141eaa",
 	}
 }
 
@@ -103,8 +97,7 @@ func (r *GradleOldTargetApiRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
-		SourceHash:    "930386ea13f6c1ce",
+		SourceHash:    "bfafafaf1e141eaa",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "threshold",
@@ -126,8 +119,7 @@ func (r *GradleOverridesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
-		SourceHash:    "930386ea13f6c1ce",
+		SourceHash:    "bfafafaf1e141eaa",
 	}
 }
 
@@ -140,8 +132,7 @@ func (r *GradlePathRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
-		SourceHash:    "930386ea13f6c1ce",
+		SourceHash:    "bfafafaf1e141eaa",
 	}
 }
 
@@ -155,8 +146,7 @@ func (r *GradlePluginCompatibilityRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
-		SourceHash:    "930386ea13f6c1ce",
+		SourceHash:    "bfafafaf1e141eaa",
 	}
 }
 
@@ -169,8 +159,7 @@ func (r *MavenLocalRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
-		SourceHash:    "930386ea13f6c1ce",
+		SourceHash:    "bfafafaf1e141eaa",
 	}
 }
 
@@ -183,8 +172,7 @@ func (r *MinSdkTooLowRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
-		SourceHash:    "930386ea13f6c1ce",
+		SourceHash:    "bfafafaf1e141eaa",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "threshold",
@@ -206,8 +194,7 @@ func (r *RemoteVersionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
-		SourceHash:    "930386ea13f6c1ce",
+		SourceHash:    "bfafafaf1e141eaa",
 	}
 }
 
@@ -221,7 +208,6 @@ func (r *StringIntegerRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
-		SourceHash:    "930386ea13f6c1ce",
+		SourceHash:    "bfafafaf1e141eaa",
 	}
 }

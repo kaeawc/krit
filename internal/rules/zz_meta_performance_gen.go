@@ -17,7 +17,6 @@ func (r *ArrayPrimitiveRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "6846d726ff52cb30",
 	}
 }
@@ -31,7 +30,6 @@ func (r *BitmapDecodeWithoutOptionsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "6846d726ff52cb30",
 	}
 }
@@ -45,7 +43,6 @@ func (r *CouldBeSequenceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "6846d726ff52cb30",
 		Options: []registry.ConfigOption{
 			{
@@ -71,7 +68,6 @@ func (r *ForEachOnRangeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "6846d726ff52cb30",
 	}
 }
@@ -85,7 +81,6 @@ func (r *SpreadOperatorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "6846d726ff52cb30",
 	}
 }
@@ -99,7 +94,6 @@ func (r *UnnecessaryInitOnArrayRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "6846d726ff52cb30",
 	}
 }
@@ -113,7 +107,6 @@ func (r *UnnecessaryPartOfBinaryExpressionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "6846d726ff52cb30",
 	}
 }
@@ -127,7 +120,6 @@ func (r *UnnecessaryTemporaryInstantiationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "6846d726ff52cb30",
 	}
 }
@@ -141,7 +133,6 @@ func (r *UnnecessaryTypeCastingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "6846d726ff52cb30",
 	}
 }

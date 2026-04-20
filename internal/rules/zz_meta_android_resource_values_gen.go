@@ -17,7 +17,6 @@ func (r *ExtraTextResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -31,7 +30,6 @@ func (r *GoogleApiKeyInResourcesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -45,7 +43,6 @@ func (r *ImpliedQuantityResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -59,7 +56,6 @@ func (r *InconsistentArraysResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -73,7 +69,6 @@ func (r *LocaleConfigStaleResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -87,7 +82,6 @@ func (r *MissingQuantityResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -101,7 +95,6 @@ func (r *OnClickResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -115,7 +108,6 @@ func (r *StringFormatCountResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -129,7 +121,6 @@ func (r *StringFormatInvalidResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -143,7 +134,6 @@ func (r *StringFormatMatchesResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -157,7 +147,6 @@ func (r *StringFormatTrivialResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -171,7 +160,6 @@ func (r *StringNotLocalizableResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -185,7 +173,6 @@ func (r *TextFieldsResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -199,7 +186,6 @@ func (r *UnusedAttributeResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -213,7 +199,6 @@ func (r *UnusedQuantityResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -227,7 +212,6 @@ func (r *WebViewInScrollViewResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
@@ -241,7 +225,6 @@ func (r *WrongRegionResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "e8a9cd121678b6fd",
 	}
 }

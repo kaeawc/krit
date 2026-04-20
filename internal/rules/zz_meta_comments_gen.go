@@ -21,7 +21,6 @@ func (r *AbsentOrWrongFileLicenseRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4b43136e8436b15f",
 		Options: []registry.ConfigOption{
 			{
@@ -55,7 +54,6 @@ func (r *DeprecatedBlockTagRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4b43136e8436b15f",
 	}
 }
@@ -69,7 +67,6 @@ func (r *DocumentationOverPrivateFunctionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4b43136e8436b15f",
 	}
 }
@@ -83,7 +80,6 @@ func (r *DocumentationOverPrivatePropertyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4b43136e8436b15f",
 	}
 }
@@ -97,7 +93,6 @@ func (r *EndOfSentenceFormatRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4b43136e8436b15f",
 		Options: []registry.ConfigOption{
 			{
@@ -131,7 +126,6 @@ func (r *KDocReferencesNonPublicPropertyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4b43136e8436b15f",
 	}
 }
@@ -145,7 +139,6 @@ func (r *OutdatedDocumentationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4b43136e8436b15f",
 		Options: []registry.ConfigOption{
 			{
@@ -179,7 +172,6 @@ func (r *UndocumentedPublicClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4b43136e8436b15f",
 		Options: []registry.ConfigOption{
 			{
@@ -231,7 +223,6 @@ func (r *UndocumentedPublicFunctionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4b43136e8436b15f",
 	}
 }
@@ -245,7 +236,6 @@ func (r *UndocumentedPublicPropertyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4b43136e8436b15f",
 	}
 }

@@ -17,7 +17,6 @@ func (r *DuplicateActivityManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -31,7 +30,6 @@ func (r *DuplicateUsesFeatureManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -45,7 +43,6 @@ func (r *GradleOverridesManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -59,7 +56,6 @@ func (r *IntentFilterExportRequiredRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -73,7 +69,6 @@ func (r *InvalidUsesTagAttributeManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -87,7 +82,6 @@ func (r *ManifestOrderManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -101,7 +95,6 @@ func (r *ManifestTypoRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -115,7 +108,6 @@ func (r *MipmapLauncherRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -129,7 +121,6 @@ func (r *MissingApplicationIconRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -143,7 +134,6 @@ func (r *MissingVersionManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -157,7 +147,6 @@ func (r *MockLocationManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -171,7 +160,6 @@ func (r *MultipleUsesSdkManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -185,7 +173,6 @@ func (r *SystemPermissionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -199,7 +186,6 @@ func (r *TargetNewerRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -213,7 +199,6 @@ func (r *UniquePermissionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -227,7 +212,6 @@ func (r *UnpackedNativeCodeManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -241,7 +225,6 @@ func (r *UsesSdkManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }
@@ -255,7 +238,6 @@ func (r *WrongManifestParentManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "08fa906b77f37dc0",
 	}
 }

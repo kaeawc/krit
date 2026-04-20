@@ -17,7 +17,6 @@ func (r *AvoidReferentialEqualityRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "aac7dfba23cd469a",
 		Options: []registry.ConfigOption{
 			{
@@ -42,7 +41,6 @@ func (r *CharArrayToStringCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "aac7dfba23cd469a",
 	}
 }
@@ -56,7 +54,6 @@ func (r *DontDowncastCollectionTypesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "aac7dfba23cd469a",
 	}
 }
@@ -70,7 +67,6 @@ func (r *DoubleMutabilityForCollectionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "aac7dfba23cd469a",
 		Options: []registry.ConfigOption{
 			{
@@ -95,7 +91,6 @@ func (r *ElseCaseInsteadOfExhaustiveWhenRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "aac7dfba23cd469a",
 	}
 }
@@ -109,7 +104,6 @@ func (r *EqualsAlwaysReturnsTrueOrFalseRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "aac7dfba23cd469a",
 	}
 }
@@ -123,7 +117,6 @@ func (r *EqualsWithHashCodeExistRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "aac7dfba23cd469a",
 	}
 }
@@ -137,7 +130,6 @@ func (r *ImplicitUnitReturnTypeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "aac7dfba23cd469a",
 	}
 }
@@ -151,7 +143,6 @@ func (r *WrongEqualsTypeParameterRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "aac7dfba23cd469a",
 	}
 }

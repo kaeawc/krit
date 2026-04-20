@@ -21,7 +21,6 @@ func (r *BooleanPropertyNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -46,7 +45,6 @@ func (r *ClassNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        &registry.OracleFilter{},
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -71,7 +69,6 @@ func (r *ConstructorParameterNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -114,7 +111,6 @@ func (r *EnumNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -137,7 +133,6 @@ func (r *ForbiddenClassNameRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -162,7 +157,6 @@ func (r *FunctionNameMaxLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -188,7 +182,6 @@ func (r *FunctionNameMinLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -214,7 +207,6 @@ func (r *FunctionNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        &registry.OracleFilter{},
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -257,7 +249,6 @@ func (r *FunctionParameterNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -291,7 +282,6 @@ func (r *InvalidPackageDeclarationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -325,7 +315,6 @@ func (r *LambdaParameterNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -350,7 +339,6 @@ func (r *MatchingDeclarationNameRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -384,7 +372,6 @@ func (r *MemberNameEqualsClassNameRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -409,7 +396,6 @@ func (r *NoNameShadowingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 	}
 }
@@ -423,7 +409,6 @@ func (r *NonBooleanPropertyPrefixedWithIsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 	}
 }
@@ -437,7 +422,6 @@ func (r *ObjectPropertyNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -480,7 +464,6 @@ func (r *PackageNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -505,7 +488,6 @@ func (r *TopLevelPropertyNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -548,7 +530,6 @@ func (r *VariableMaxLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -572,7 +553,6 @@ func (r *VariableMinLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
@@ -596,7 +576,6 @@ func (r *VariableNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{

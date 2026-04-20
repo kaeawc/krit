@@ -17,7 +17,6 @@ func (r *ModuleDependencyCycleRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "b3767364f08aed96",
 	}
 }

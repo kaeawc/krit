@@ -17,7 +17,6 @@ func (r *AlsoCouldBeApplyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c0e1ed11b73f17ef",
 	}
 }
@@ -31,7 +30,6 @@ func (r *EqualsNullCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c0e1ed11b73f17ef",
 	}
 }
@@ -45,7 +43,6 @@ func (r *ExplicitCollectionElementAccessMethodRule) Meta() registry.RuleDescript
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c0e1ed11b73f17ef",
 	}
 }
@@ -59,7 +56,6 @@ func (r *UseArrayLiteralsInAnnotationsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c0e1ed11b73f17ef",
 	}
 }
@@ -73,7 +69,6 @@ func (r *UseDataClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c0e1ed11b73f17ef",
 		Options: []registry.ConfigOption{
 			{
@@ -96,7 +91,6 @@ func (r *UseIfEmptyOrIfBlankRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c0e1ed11b73f17ef",
 	}
 }
@@ -110,7 +104,6 @@ func (r *UseIfInsteadOfWhenRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c0e1ed11b73f17ef",
 		Options: []registry.ConfigOption{
 			{
@@ -135,7 +128,6 @@ func (r *UseLetRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c0e1ed11b73f17ef",
 	}
 }
@@ -149,7 +141,6 @@ func (r *UseSumOfInsteadOfFlatMapSizeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "c0e1ed11b73f17ef",
 	}
 }

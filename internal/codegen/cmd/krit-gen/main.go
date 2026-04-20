@@ -456,7 +456,6 @@ func renderRuleMeta(b *strings.Builder, srcHash string, r ruleEntry) {
 	fmt.Fprintf(b, "\t\tDefaultActive: %t,\n", r.DefaultActive)
 	fmt.Fprintf(b, "\t\tFixLevel:      %q,\n", r.FixLevel)
 	fmt.Fprintf(b, "\t\tConfidence:    %s,\n", formatFloat(r.Confidence))
-	fmt.Fprintf(b, "\t\tOracle:        %s,\n", renderOracle(r.Oracle))
 	fmt.Fprintf(b, "\t\tSourceHash:    %q,\n", srcHash)
 
 	if len(r.Options) == 0 {
@@ -619,35 +618,9 @@ func renderApply(structType string, o optionEntry, optType string, optOK bool) s
 // ----------------------------------------------------------------------
 // Oracle rendering.
 
-// renderOracle converts the inventory's oracle field — which the current
-// tools/rule_inventory.py encodes as the Go variable name of the filter
-// (e.g. "treeSitterOnlyFilter") or null — into a Go expression for the
-// OracleFilter pointer field. Phase 2D keeps the mapping minimal: every
-// known filter name maps to an inline &registry.OracleFilter{...}
-// literal reconstructing its value. Unknown / null values emit nil.
-func renderOracle(o interface{}) string {
-	if o == nil {
-		return "nil"
-	}
-	name, ok := o.(string)
-	if !ok {
-		return "nil"
-	}
-	switch name {
-	case "treeSitterOnlyFilter":
-		return "&registry.OracleFilter{}"
-	case "allFilesAuditedFilter":
-		return "&registry.OracleFilter{AllFiles: true}"
-	case "coroutinesRedundantSuspendFilter":
-		return `&registry.OracleFilter{Identifiers: []string{"suspend"}}`
-	case "nullSafetyAsExpressionFilter":
-		return `&registry.OracleFilter{Identifiers: []string{" as "}}`
-	case "nullSafetyNotNullOperatorFilter":
-		return `&registry.OracleFilter{Identifiers: []string{"!!"}}`
-	}
-	// Unknown filter name — emit nil with a comment so a human notices.
-	return fmt.Sprintf("nil /* TODO(krit-gen): unknown oracle filter %q */", name)
-}
+// Oracle rendering removed — NeedsOracle now lives on v2.Rule.Oracle
+// and v2.Capabilities, not on the registry descriptor. See
+// roadmap/clusters/core-infra/oracle-filter-inversion.md.
 
 // ----------------------------------------------------------------------
 // Misc.

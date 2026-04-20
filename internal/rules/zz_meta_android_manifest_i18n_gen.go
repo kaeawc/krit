@@ -17,7 +17,6 @@ func (r *LocaleConfigMissingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "5f4595e1792534a9",
 	}
 }

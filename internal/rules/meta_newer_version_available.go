@@ -28,7 +28,6 @@ func (r *NewerVersionAvailableRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		Options: []registry.ConfigOption{
 			{
 				Name:        "recommendedVersions",

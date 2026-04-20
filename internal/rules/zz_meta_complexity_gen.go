@@ -17,7 +17,6 @@ func (r *CognitiveComplexMethodRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
@@ -43,7 +42,6 @@ func (r *ComplexConditionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
@@ -69,7 +67,6 @@ func (r *ComplexInterfaceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
@@ -113,7 +110,6 @@ func (r *CyclomaticComplexMethodRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        &registry.OracleFilter{},
 		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
@@ -184,7 +180,6 @@ func (r *LabeledExpressionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
@@ -209,7 +204,6 @@ func (r *LargeClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
@@ -233,7 +227,6 @@ func (r *LongMethodRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        &registry.OracleFilter{},
 		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
@@ -257,7 +250,6 @@ func (r *LongParameterListRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
@@ -319,7 +311,6 @@ func (r *MethodOverloadingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
@@ -345,7 +336,6 @@ func (r *NamedArgumentsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
@@ -371,7 +361,6 @@ func (r *NestedBlockDepthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
@@ -395,7 +384,6 @@ func (r *NestedScopeFunctionsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
@@ -430,7 +418,6 @@ func (r *ReplaceSafeCallChainWithRunRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "cd1c4831738cfd00",
 	}
 }
@@ -444,7 +431,6 @@ func (r *StringLiteralDuplicationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
@@ -497,7 +483,6 @@ func (r *TooManyFunctionsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{

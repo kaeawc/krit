@@ -30,7 +30,6 @@ func (r *LayerDependencyViolationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		Options:       nil,
 		CustomApply: func(target interface{}, cfg registry.ConfigSource) {
 			// Only a real *ConfigAdapter can expose the underlying

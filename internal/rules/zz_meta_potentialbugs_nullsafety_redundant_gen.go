@@ -17,7 +17,6 @@ func (r *NullCheckOnMutablePropertyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "ca4d038605655155",
 	}
 }
@@ -31,7 +30,6 @@ func (r *NullableToStringCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "ca4d038605655155",
 	}
 }
@@ -45,7 +43,6 @@ func (r *UnnecessaryNotNullCheckRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "ca4d038605655155",
 	}
 }
@@ -59,7 +56,6 @@ func (r *UnnecessaryNotNullOperatorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        &registry.OracleFilter{Identifiers: []string{"!!"}},
 		SourceHash:    "ca4d038605655155",
 	}
 }
@@ -73,7 +69,6 @@ func (r *UnnecessarySafeCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "ca4d038605655155",
 	}
 }

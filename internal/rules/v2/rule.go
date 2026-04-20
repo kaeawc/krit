@@ -38,6 +38,19 @@ const (
 	// NeedsAggregate marks this rule as having an aggregate lifecycle
 	// (Collect per node, Finalize per file, Reset between files).
 	NeedsAggregate
+	// NeedsOracle marks this rule as requiring the JVM oracle
+	// (krit-types) for accurate analysis. Rules that do NOT declare
+	// NeedsOracle are never fed to the oracle's file selection — they
+	// run tree-sitter-only and the JVM oracle is skipped entirely if no
+	// enabled rule declares this bit.
+	//
+	// NeedsOracle is independent of NeedsResolver: NeedsResolver gives
+	// the rule a TypeResolver whose backend may be either the
+	// tree-sitter inferrer or the composite (oracle + inferrer)
+	// resolver. NeedsOracle declares that the rule's analysis actually
+	// depends on oracle-only APIs (LookupCallTarget, LookupAnnotations,
+	// LookupDiagnostics) and would lose findings without them.
+	NeedsOracle
 )
 
 // Has reports whether c includes all bits in flag.

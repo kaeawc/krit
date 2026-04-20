@@ -812,36 +812,21 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *v2.Context) {
 		return
 	}
 
-	for _, file := range index.Files {
-		if isTestFile(file.Path) {
-			continue
-		}
-		for _, line := range file.Lines {
-			trimmed := strings.TrimSpace(line)
-			if strings.Contains(trimmed, "@VisibleForTesting") {
-				break
-			}
-		}
-	}
-	// Scan for @VisibleForTesting annotated declarations, then check call-sites
-	vftDecls := make(map[string]bool)
+	vftDecls := make(map[string]struct{})
 	for _, file := range index.Files {
 		for i, line := range file.Lines {
-			trimmed := strings.TrimSpace(line)
-			if strings.Contains(trimmed, "@VisibleForTesting") {
-				// Next non-annotation line has the declaration
-				for j := i + 1; j < len(file.Lines); j++ {
-					nextLine := strings.TrimSpace(file.Lines[j])
-					if strings.HasPrefix(nextLine, "@") {
-						continue
-					}
-					// Extract function/property name
-					funcName := extractDeclName(nextLine)
-					if funcName != "" {
-						vftDecls[funcName] = true
-					}
-					break
+			if !strings.Contains(line, "@VisibleForTesting") {
+				continue
+			}
+			for j := i + 1; j < len(file.Lines); j++ {
+				nextLine := strings.TrimSpace(file.Lines[j])
+				if strings.HasPrefix(nextLine, "@") {
+					continue
 				}
+				if name := extractDeclName(nextLine); name != "" {
+					vftDecls[name] = struct{}{}
+				}
+				break
 			}
 		}
 	}
@@ -850,35 +835,99 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *v2.Context) {
 		return
 	}
 
+	// Bucket by byte length so per-line lookup is O(line_len × #lengths) rather
+	// than O(line_len × #names) — a large Android repo has hundreds of names
+	// but only ~20 unique lengths.
+	namesByLen := make(map[int]map[string]struct{})
+	for name := range vftDecls {
+		L := len(name)
+		bucket := namesByLen[L]
+		if bucket == nil {
+			bucket = make(map[string]struct{})
+			namesByLen[L] = bucket
+		}
+		bucket[name] = struct{}{}
+	}
+	lengths := make([]int, 0, len(namesByLen))
+	for L := range namesByLen {
+		lengths = append(lengths, L)
+	}
+
+	matched := make(map[string]struct{})
 	for _, file := range index.Files {
 		if isTestFile(file.Path) {
 			continue
 		}
 		for i, line := range file.Lines {
-			for name := range vftDecls {
-				if strings.Contains(line, name+"(") || strings.Contains(line, name+" ") {
-					trimmed := strings.TrimSpace(line)
-					if strings.Contains(trimmed, "@VisibleForTesting") {
-						continue
-					}
-					if strings.HasPrefix(trimmed, "fun ") || strings.HasPrefix(trimmed, "internal ") || strings.HasPrefix(trimmed, "private ") {
-						continue
-					}
-					col := strings.Index(line, name)
-					ctx.Emit(scanner.Finding{
-						File:       file.Path,
-						Line:       i + 1,
-						Col:        col + 1,
-						RuleSet:    r.RuleSetName,
-						Rule:       r.RuleName,
-						Severity:   r.Sev,
-						Message:    fmt.Sprintf("@VisibleForTesting function %q called from non-test code.", name),
-						Confidence: 0.7,
-					})
-				}
+			if len(line) < 2 || !strings.ContainsAny(line, "( ") {
+				continue
+			}
+			if strings.Contains(line, "@VisibleForTesting") {
+				continue
+			}
+
+			for k := range matched {
+				delete(matched, k)
+			}
+			scanBoundaries(line, '(', lengths, namesByLen, matched)
+			scanBoundaries(line, ' ', lengths, namesByLen, matched)
+			if len(matched) == 0 {
+				continue
+			}
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "fun ") || strings.HasPrefix(trimmed, "internal ") || strings.HasPrefix(trimmed, "private ") {
+				continue
+			}
+			for name := range matched {
+				col := strings.Index(line, name)
+				ctx.Emit(scanner.Finding{
+					File:       file.Path,
+					Line:       i + 1,
+					Col:        col + 1,
+					RuleSet:    r.RuleSetName,
+					Rule:       r.RuleName,
+					Severity:   r.Sev,
+					Message:    fmt.Sprintf("@VisibleForTesting function %q called from non-test code.", name),
+					Confidence: 0.7,
+				})
 			}
 		}
 	}
+}
+
+// scanBoundaries finds each occurrence of `boundary` in `line` and, for each
+// bucketed name-length, checks whether the preceding bytes form a known name.
+// IndexByte is SIMD-accelerated, which matters because `(` and ` ` are sparse
+// in code compared to the full character range.
+func scanBoundaries(line string, boundary byte, lengths []int, namesByLen map[int]map[string]struct{}, matched map[string]struct{}) {
+	start := 0
+	for start < len(line) {
+		rel := strings.IndexByte(line[start:], boundary)
+		if rel < 0 {
+			return
+		}
+		pos := start + rel
+		// Names end in an identifier byte; if line[pos-1] isn't, skip the
+		// O(#lengths) bucket loop entirely.
+		if pos == 0 || !isIdentByte(line[pos-1]) {
+			start = pos + 1
+			continue
+		}
+		for _, L := range lengths {
+			if pos < L {
+				continue
+			}
+			cand := line[pos-L : pos]
+			if _, ok := namesByLen[L][cand]; ok {
+				matched[cand] = struct{}{}
+			}
+		}
+		start = pos + 1
+	}
+}
+
+func isIdentByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
 }
 
 func extractDeclName(line string) string {

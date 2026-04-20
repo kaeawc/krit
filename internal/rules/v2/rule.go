@@ -170,7 +170,7 @@ type Aggregate struct {
 	// fields in its adapter).
 	Collect func(ctx *Context)
 	// Finalize is invoked after the walk completes for a file. It
-	// should append any findings to ctx.Findings.
+	// should report findings via ctx.Emit / ctx.EmitAt.
 	Finalize func(ctx *Context)
 	// Reset clears any per-file state. Called before Collect for the
 	// next file.

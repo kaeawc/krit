@@ -368,8 +368,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 }
 
 // safeCheckV2NodeColumnar invokes a rule with a Collector attached so
-// ctx.Emit routes findings directly into columnar storage. Any residual
-// ctx.Findings mutations (rules not yet using ctx.Emit) are also drained.
+// ctx.Emit routes findings directly into columnar storage.
 func safeCheckV2NodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats, typeResolver typeinfer.TypeResolver) {
 	defer func() {
 		if rec := recover(); rec != nil {

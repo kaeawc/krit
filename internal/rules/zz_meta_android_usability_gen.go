@@ -18,7 +18,7 @@ func (r *InlinedApiRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6292fb7578ba34f2",
+		SourceHash:    "5feeeadfa16209e7",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *NewApiRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6292fb7578ba34f2",
+		SourceHash:    "5feeeadfa16209e7",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *OverrideRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6292fb7578ba34f2",
+		SourceHash:    "5feeeadfa16209e7",
 	}
 }
 
@@ -60,6 +60,6 @@ func (r *UnusedResourcesRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6292fb7578ba34f2",
+		SourceHash:    "5feeeadfa16209e7",
 	}
 }

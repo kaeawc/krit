@@ -9,7 +9,6 @@ import (
 
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
-	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -31,27 +30,21 @@ func (DispatchPhase) Name() string { return "dispatch" }
 // in.KotlinFiles in parallel, dispatching per-file rules through the
 // shared dispatcher, and accumulates the findings and run statistics.
 //
-// When in.ActiveRulesV1 is non-nil the phase uses it directly. Otherwise
-// it derives a v1 rule slice from in.ActiveRules via v2.ToV1. When
-// in.Tracker is non-nil it wraps the dispatch loop in a "ruleExecution"
-// serial child and emits per-family timing entries + a topDispatchRules
-// breakdown matching the pre-refactor CLI. When in.UseCache / Cache /
-// Version are set, the phase updates and saves the cache under a
-// "cacheSave" tracker entry.
+// It creates the dispatcher from in.ActiveRules ([]*v2.Rule) via
+// NewDispatcherV2, skipping the v2→v1 roundtrip. When in.Tracker is
+// non-nil it wraps the dispatch loop in a "ruleExecution" serial child
+// and emits per-family timing entries + a topDispatchRules breakdown
+// matching the pre-refactor CLI. When in.UseCache / Cache / Version are
+// set, the phase updates and saves the cache under a "cacheSave" tracker
+// entry.
 func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult, error) {
 	if err := ctx.Err(); err != nil {
 		return DispatchResult{}, err
 	}
 
-	v1Rules := in.ActiveRulesV1
-	if v1Rules == nil {
-		v1Rules = v2RulesToV1(in.ActiveRules)
-	}
-
-	// Pass the resolver through unconditionally — NewDispatcher handles a
-	// nil resolver gracefully (internal/rules/dispatch.go:54-84 checks
-	// res != nil before wiring SetResolver / the v2 dispatcher).
-	dispatcher := rules.NewDispatcher(v1Rules, in.Resolver)
+	// Pass the resolver through unconditionally — NewDispatcherV2 handles a
+	// nil resolver gracefully.
+	dispatcher := rules.NewDispatcherV2(in.ActiveRules, in.Resolver)
 
 	workers := d.Workers
 	if workers <= 0 {
@@ -70,7 +63,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	var (
 		wg          sync.WaitGroup
 		mu          sync.Mutex
-		allFindings []scanner.Finding
+		allColumns  scanner.FindingColumns
 		fileTimings []FileTiming
 		acc         = rules.RunStats{
 			DispatchRuleNsByRule: make(map[string]int64),
@@ -102,7 +95,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 				startedAt = time.Now()
 			}
 
-			fileFindings, fileStats := dispatcher.RunWithStats(file)
+			fileColumns, fileStats := dispatcher.RunWithStats(file)
 
 			if in.ProfileDispatch {
 				finishedRunAt = time.Now()
@@ -112,11 +105,14 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 			if in.ProfileDispatch {
 				lockedAt = time.Now()
 			}
-			if len(fileFindings) > 0 {
-				allFindings = append(allFindings, fileFindings...)
+			if fileColumns.Len() > 0 {
+				collector := scanner.NewFindingCollector(allColumns.Len() + fileColumns.Len())
+				collector.AppendColumns(&allColumns)
+				collector.AppendColumns(&fileColumns)
+				allColumns = *collector.Columns()
 			}
 			if useCache {
-				findingsByFile[file.Path] = scanner.CollectFindings(fileFindings)
+				findingsByFile[file.Path] = fileColumns
 			}
 			mergeStats(&acc, fileStats)
 			if in.ProfileDispatch {
@@ -129,7 +125,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 					LockMs:   lockedAt.Sub(finishedRunAt).Milliseconds(),
 					AggMs:    endAt.Sub(lockedAt).Milliseconds(),
 					TotalMs:  endAt.Sub(dispatched).Milliseconds(),
-					Findings: len(fileFindings),
+					Findings: fileColumns.Len(),
 				})
 			}
 			mu.Unlock()
@@ -200,7 +196,11 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 
 	// Merge cached findings back in, mirroring main.go.
 	if in.CacheResult != nil && in.CacheResult.CachedColumns.Len() > 0 {
-		allFindings = append(allFindings, in.CacheResult.CachedColumns.Findings()...)
+		cachedCols := in.CacheResult.CachedColumns
+		collector := scanner.NewFindingCollector(allColumns.Len() + cachedCols.Len())
+		collector.AppendColumns(&allColumns)
+		collector.AppendColumns(&cachedCols)
+		allColumns = *collector.Columns()
 	}
 
 	// Cache write-back: update per-file entries, set header metadata,
@@ -241,34 +241,13 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 
 	return DispatchResult{
 		IndexResult:    in,
-		Findings:       scanner.CollectFindings(allFindings),
+		Findings:       allColumns,
 		Stats:          acc,
 		FileTimings:    fileTimings,
 		FindingsByFile: findingsByFile,
 	}, nil
 }
 
-// v2RulesToV1 converts the IndexResult's []*v2.Rule active set into the
-// []rules.Rule slice the legacy dispatcher expects. Each v2.Rule is
-// routed through v2.ToV1, whose return type is interface{} — we type-
-// assert to rules.Rule and drop entries that don't satisfy it. In
-// practice this drops cross-file, module-aware, manifest, resource, and
-// gradle wrappers (V1CrossFile, V1ModuleAware, V1Manifest, V1Resource,
-// V1Gradle) which do not implement the v1 Rule interface — those rules
-// are handled by later phases (CrossFile) rather than per-file dispatch.
-// This mirrors the conversion done in internal/rules/zzz_v2bridge.go.
-func v2RulesToV1(rs []*v2.Rule) []rules.Rule {
-	out := make([]rules.Rule, 0, len(rs))
-	for _, r := range rs {
-		if r == nil {
-			continue
-		}
-		if v1, ok := v2.ToV1(r).(rules.Rule); ok {
-			out = append(out, v1)
-		}
-	}
-	return out
-}
 
 // mergeStats folds src's counters into dst. Counter fields add, the
 // per-rule map merges by summing matching keys, and the error slice

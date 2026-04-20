@@ -18,7 +18,7 @@ func (r *LogOfSharedPreferenceReadRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6eb6ae9ea38707ad",
+		SourceHash:    "f36dcf173ce8c985",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *PlainFileWriteOfSensitiveRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6eb6ae9ea38707ad",
+		SourceHash:    "f36dcf173ce8c985",
 	}
 }
 
@@ -46,6 +46,6 @@ func (r *SharedPreferencesForSensitiveKeyRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6eb6ae9ea38707ad",
+		SourceHash:    "f36dcf173ce8c985",
 	}
 }

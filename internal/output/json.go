@@ -10,6 +10,7 @@ import (
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -52,7 +53,7 @@ type JSONSummary struct {
 // FormatJSON writes findings as JSON.
 func FormatJSON(w io.Writer, findings []scanner.Finding, version string,
 	fileCount, ruleCount int, start time.Time,
-	perfTimings []perf.TimingEntry, activeRules []rules.Rule,
+	perfTimings []perf.TimingEntry, activeRules []*v2.Rule,
 	experiments []string,
 	cacheStats *cache.CacheStats) error {
 	columns := scanner.CollectFindings(findings)
@@ -62,7 +63,7 @@ func FormatJSON(w io.Writer, findings []scanner.Finding, version string,
 // FormatJSONColumns writes columnar findings as JSON.
 func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version string,
 	fileCount, ruleCount int, start time.Time,
-	perfTimings []perf.TimingEntry, activeRules []rules.Rule,
+	perfTimings []perf.TimingEntry, activeRules []*v2.Rule,
 	experiments []string,
 	cacheStats *cache.CacheStats) error {
 
@@ -71,8 +72,11 @@ func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version str
 	// Build fix-level lookup
 	fixLevels := make(map[string]string)
 	for _, r := range activeRules {
-		if _, ok := r.(rules.FixableRule); ok {
-			fixLevels[r.Name()] = rules.GetFixLevel(r).String()
+		if r == nil {
+			continue
+		}
+		if lvl, ok := rules.GetV2FixLevel(r); ok {
+			fixLevels[r.ID] = lvl.String()
 		}
 	}
 

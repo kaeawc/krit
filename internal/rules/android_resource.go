@@ -36,7 +36,6 @@ type ResourceFamily = interface {
 // rules do not need to implement the Kotlin-file scanner interface.
 type ResourceBase struct{}
 
-func (ResourceBase) Check(file *scanner.File) []scanner.Finding { return nil }
 func (ResourceBase) AndroidDependencies() AndroidDataDependency {
 	return AndroidDepValues | AndroidDepLayout
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -52,14 +53,10 @@ func ExtractFixture(target Target, ruleName string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if _, ok := rule.(interface {
-		CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding
-	}); ok {
+	if rule.Needs.Has(v2.NeedsCrossFile) {
 		return Result{}, fmt.Errorf("rule %s requires cross-file analysis and cannot be harvested from a single source file yet", ruleName)
 	}
-	if _, ok := rule.(interface {
-		CheckModuleAware() []scanner.Finding
-	}); ok {
+	if rule.Needs.Has(v2.NeedsModuleIndex) {
 		return Result{}, fmt.Errorf("rule %s requires module-aware analysis and cannot be harvested from a single source file yet", ruleName)
 	}
 
@@ -68,7 +65,8 @@ func ExtractFixture(target Target, ruleName string) (Result, error) {
 		return Result{}, err
 	}
 
-	findings := rules.NewDispatcher([]rules.Rule{rule}).Run(file)
+	columns, _ := rules.NewDispatcherV2([]*v2.Rule{rule}).RunColumnsWithStats(file)
+	findings := columns.Findings()
 	match, err := selectFinding(findings, target.Line, ruleName)
 	if err != nil {
 		return Result{}, err
@@ -126,9 +124,9 @@ func WriteFixture(outPath string, result Result) error {
 	return os.WriteFile(outPath, content, 0644)
 }
 
-func lookupRule(ruleName string) (rules.Rule, error) {
-	for _, rule := range rules.Registry {
-		if rule.Name() == ruleName {
+func lookupRule(ruleName string) (*v2.Rule, error) {
+	for _, rule := range v2.Registry {
+		if rule.ID == ruleName {
 			return rule, nil
 		}
 	}

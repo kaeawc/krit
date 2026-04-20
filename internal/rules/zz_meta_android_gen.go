@@ -18,7 +18,7 @@ func (r *ContentDescriptionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b703554f590cb527",
+		SourceHash:    "16f14510999efb93",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *ExportedServiceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b703554f590cb527",
+		SourceHash:    "16f14510999efb93",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *HardcodedTextRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b703554f590cb527",
+		SourceHash:    "16f14510999efb93",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *LogDetectorRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b703554f590cb527",
+		SourceHash:    "16f14510999efb93",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *ObsoleteLayoutParamsRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b703554f590cb527",
+		SourceHash:    "16f14510999efb93",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *PrivateKeyRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b703554f590cb527",
+		SourceHash:    "16f14510999efb93",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *SdCardPathRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b703554f590cb527",
+		SourceHash:    "16f14510999efb93",
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *SetJavaScriptEnabledRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b703554f590cb527",
+		SourceHash:    "16f14510999efb93",
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *ViewHolderRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b703554f590cb527",
+		SourceHash:    "16f14510999efb93",
 	}
 }
 
@@ -144,6 +144,6 @@ func (r *WakelockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b703554f590cb527",
+		SourceHash:    "16f14510999efb93",
 	}
 }

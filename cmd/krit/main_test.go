@@ -270,11 +270,11 @@ func TestRunActiveIconChecksColumnsMatchesUnderlyingRules(t *testing.T) {
 
 	columns := pipeline.RunActiveIconChecksColumns(idx, activeNames)
 	got := columns.Findings()
-	want := append([]scanner.Finding(nil), rules.CheckGifUsage(idx)...)
-	want = append(want, rules.CheckConvertToWebp(idx)...)
-	want = append(want, rules.CheckIconMissingDensityFolder(idx)...)
-	normalized := scanner.CollectFindings(want)
-	normalizedWant := normalized.Findings()
+	wantCollector := scanner.NewFindingCollector(0)
+	rules.CheckGifUsage(idx, wantCollector)
+	rules.CheckConvertToWebp(idx, wantCollector)
+	rules.CheckIconMissingDensityFolder(idx, wantCollector)
+	normalizedWant := wantCollector.Columns().Findings()
 
 	if !reflect.DeepEqual(got, normalizedWant) {
 		t.Fatalf("icon columns mismatch:\nwant: %#v\ngot:  %#v", normalizedWant, got)

@@ -18,7 +18,7 @@ func (r *BackButtonResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *ButtonCaseResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *ButtonOrderResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *ButtonStyleResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *ClickableViewAccessibilityResourceRule) Meta() registry.RuleDescriptor 
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *HardcodedValuesResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *LabelForResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *LayoutAutofillHintMismatchRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *LayoutClickableWithoutMinSizeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -144,7 +144,7 @@ func (r *LayoutEditTextMissingImportanceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -158,7 +158,7 @@ func (r *LayoutImportantForAccessibilityNoRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -172,7 +172,7 @@ func (r *LayoutMinTouchTargetInButtonRowRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *MissingContentDescriptionResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -200,7 +200,7 @@ func (r *StringNotSelectableRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -214,7 +214,7 @@ func (r *StringRepeatedInContentDescriptionRule) Meta() registry.RuleDescriptor 
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }
 
@@ -228,6 +228,6 @@ func (r *StringSpanInContentDescriptionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7b7cd84af90d7dd",
+		SourceHash:    "662fe0a704f23952",
 	}
 }

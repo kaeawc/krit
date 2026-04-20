@@ -1,6 +1,10 @@
 package rules
 
-import "sync"
+import (
+	"sync"
+
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
+)
 
 // DefaultInactive lists rules that are inactive by default (opt-in).
 // DefaultInactive rules are off by default (opt-in). Users enable them
@@ -82,4 +86,20 @@ func aliasDefaultInactive() []string {
 func IsDefaultActive(name string) bool {
 	ensureDefaultInactive()
 	return !DefaultInactive[name]
+}
+
+// ActiveRulesV2 filters v2.Registry using the same config-driven logic as
+// main.go's v1 loop. Returns rules that are enabled, not disabled, and
+// either in enabledSet, allRules=true, or IsDefaultActive.
+func ActiveRulesV2(disabledSet, enabledSet map[string]bool, allRules bool) []*v2.Rule {
+	var out []*v2.Rule
+	for _, r := range v2.Registry {
+		if disabledSet[r.ID] {
+			continue
+		}
+		if enabledSet[r.ID] || allRules || IsDefaultActive(r.ID) {
+			out = append(out, r)
+		}
+	}
+	return out
 }

@@ -225,102 +225,27 @@ func (d *V2Dispatcher) ensureFlatTypeIndex(rules []*v2.Rule) [][]*v2.Rule {
 	return d.flatTypeRules
 }
 
-// Run executes all per-file rules and returns findings.
+// Run executes all per-file rules and returns findings in columnar form.
 // Rule panics are logged to stderr, matching v1 Dispatcher.Run behavior.
-func (d *V2Dispatcher) Run(file *scanner.File) []scanner.Finding {
-	findings, stats := d.RunWithStats(file)
+func (d *V2Dispatcher) Run(file *scanner.File) scanner.FindingColumns {
+	columns, stats := d.RunColumnsWithStats(file)
 	for _, e := range stats.Errors {
 		fmt.Fprintln(os.Stderr, e.Error())
 	}
-	return findings
+	return columns
 }
 
 // RunWithStats executes all per-file rules on a file and returns both
-// findings and coarse timing for each execution bucket. The stats
-// layout matches the v1 Dispatcher.RunStats.
-func (d *V2Dispatcher) RunWithStats(file *scanner.File) ([]scanner.Finding, RunStats) {
-	stats := RunStats{
-		DispatchRuleNsByRule: make(map[string]int64),
-	}
-	if file == nil {
-		return nil, stats
-	}
-
-	// Rebuild the flat index if NodeTypeTable has grown since construction.
-	// We need the rule list again — gather it from our internal slices.
-	flatTypeRules := d.ensureFlatTypeIndex(d.collectAllRules())
-
-	// Build suppression index from @Suppress annotations (same semantics as v1).
-	start := time.Now()
-	suppressIndex := scanner.BuildSuppressionIndexFlat(file.FlatTree, file.Content)
-	stats.SuppressionIndexMs += time.Since(start).Milliseconds()
-
-	// Determine per-file rule exclusions once.
-	excludedRules := d.buildExcludedSet(file.Path)
-
-	// Fold in the per-language excluded set so the hot-path
-	// walkDispatch/line/legacy loops only need one map lookup. The
-	// language-to-excluded-IDs map is cached on the dispatcher and
-	// reused across files — rules are static after construction.
-	for id := range d.excludedForLanguage(file.Language) {
-		excludedRules[id] = true
-	}
-
-	var findings []scanner.Finding
-
-	// Single-pass AST walk for all node-dispatch rules.
-	start = time.Now()
-	d.walkDispatch(file, &findings, excludedRules, &stats, flatTypeRules)
-	stats.DispatchWalkMs += time.Since(start).Milliseconds()
-
-	// Line-pass rules.
-	start = time.Now()
-	for _, r := range d.lineRules {
-		if excludedRules[r.ID] {
-			continue
-		}
-		results := d.runLineRule(r, file, &stats)
-		setV2RuleConfidence(results, r, 0.75)
-		findings = append(findings, results...)
-	}
-	stats.LineRuleMs += time.Since(start).Milliseconds()
-
-	// Legacy / catch-all rules.
-	start = time.Now()
-	for _, r := range d.legacyRules {
-		if excludedRules[r.ID] {
-			continue
-		}
-		results := d.runLegacyRule(r, file, &stats)
-		setV2RuleConfidence(results, r, 0.50)
-		findings = append(findings, results...)
-	}
-	stats.LegacyRuleMs += time.Since(start).Milliseconds()
-
-	// Suppression filter (same semantics as v1 Dispatcher).
-	start = time.Now()
-	if len(findings) > 0 {
-		filtered := findings[:0]
-		for _, f := range findings {
-			byteOffset := 0
-			if f.Line > 0 {
-				byteOffset = file.LineOffset(f.Line - 1)
-			}
-			if !suppressIndex.IsSuppressed(byteOffset, f.Rule, f.RuleSet) {
-				filtered = append(filtered, f)
-			}
-		}
-		findings = filtered
-	}
-	stats.SuppressionFilterMs += time.Since(start).Milliseconds()
-
-	return findings, stats
+// findings in columnar form and coarse timing for each execution bucket.
+func (d *V2Dispatcher) RunWithStats(file *scanner.File) (scanner.FindingColumns, RunStats) {
+	return d.RunColumnsWithStats(file)
 }
 
-// RunColumnsWithStats runs all per-file rules and returns columnar findings.
-// Rules that emit via ctx.Emit write directly into the per-file collector;
-// rules that still return []Finding via the v2shim compat path have their
-// slice drained into the collector after each Check.
+
+// RunColumnsWithStats runs all per-file rules emitting findings directly
+// into a FindingCollector, bypassing the intermediate []scanner.Finding
+// accumulation. Rules emit via ctx.Emit which routes straight to the
+// collector; the result is returned as columnar data.
 func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingColumns, RunStats) {
 	stats := RunStats{
 		DispatchRuleNsByRule: make(map[string]int64),
@@ -336,12 +261,44 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 	stats.SuppressionIndexMs += time.Since(start).Milliseconds()
 
 	excludedRules := d.buildExcludedSet(file.Path)
+	for id := range d.excludedForLanguage(file.Language) {
+		excludedRules[id] = true
+	}
 
 	collector := scanner.NewFindingCollector(0)
 
-	// Single-pass AST walk for node-dispatch rules.
+	// Single-pass AST walk.
 	start = time.Now()
-	d.walkDispatchColumns(file, collector, excludedRules, &stats, flatTypeRules)
+	if file.FlatTree != nil && len(file.FlatTree.Nodes) > 0 {
+		for idx := range file.FlatTree.Nodes {
+			flatIdx := uint32(idx)
+			flatNode := file.FlatTree.Nodes[idx]
+			if int(flatNode.Type) < len(flatTypeRules) {
+				if handlers := flatTypeRules[flatNode.Type]; handlers != nil {
+					for _, r := range handlers {
+						if excludedRules[r.ID] {
+							continue
+						}
+						t := time.Now()
+						safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats)
+						elapsed := time.Since(t).Nanoseconds()
+						stats.DispatchRuleNs += elapsed
+						stats.DispatchRuleNsByRule[r.ID] += elapsed
+					}
+				}
+			}
+			for _, r := range d.allNodeRules {
+				if excludedRules[r.ID] {
+					continue
+				}
+				t := time.Now()
+				safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats)
+				elapsed := time.Since(t).Nanoseconds()
+				stats.DispatchRuleNs += elapsed
+				stats.DispatchRuleNsByRule[r.ID] += elapsed
+			}
+		}
+	}
 	stats.DispatchWalkMs += time.Since(start).Milliseconds()
 
 	// Line-pass rules.
@@ -350,7 +307,15 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 		if excludedRules[r.ID] {
 			continue
 		}
-		d.runLineRuleColumns(r, file, collector, &stats)
+		func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					stats.Errors = append(stats.Errors, DispatchError{RuleName: r.ID, FilePath: filePathOrEmpty(file), PanicValue: rec})
+				}
+			}()
+			ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector}
+			r.Check(ctx)
+		}()
 	}
 	stats.LineRuleMs += time.Since(start).Milliseconds()
 
@@ -360,13 +325,21 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 		if excludedRules[r.ID] {
 			continue
 		}
-		d.runLegacyRuleColumns(r, file, collector, &stats)
+		func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					stats.Errors = append(stats.Errors, DispatchError{RuleName: r.ID, FilePath: filePathOrEmpty(file), PanicValue: rec})
+				}
+			}()
+			ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.50, Collector: collector}
+			r.Check(ctx)
+		}()
 	}
 	stats.LegacyRuleMs += time.Since(start).Milliseconds()
 
 	columns := *collector.Columns()
 
-	// Suppression filter (same semantics as slice path).
+	// Suppression filter.
 	start = time.Now()
 	if columns.Len() > 0 {
 		filtered := columns.FilterRows(func(row int) bool {
@@ -384,54 +357,13 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 	for _, e := range stats.Errors {
 		fmt.Fprintln(os.Stderr, e.Error())
 	}
-
 	return columns, stats
 }
 
-// walkDispatchColumns performs the per-node dispatch pass emitting
-// directly into the provided collector.
-func (d *V2Dispatcher) walkDispatchColumns(file *scanner.File, collector *scanner.FindingCollector, excludedRules map[string]bool, stats *RunStats, flatTypeRules [][]*v2.Rule) {
-	if file == nil || file.FlatTree == nil || len(file.FlatTree.Nodes) == 0 {
-		return
-	}
-
-	for idx := range file.FlatTree.Nodes {
-		flatIdx := uint32(idx)
-		flatNode := file.FlatTree.Nodes[idx]
-
-		if int(flatNode.Type) < len(flatTypeRules) {
-			if handlers := flatTypeRules[flatNode.Type]; handlers != nil {
-				for _, r := range handlers {
-					if excludedRules[r.ID] {
-						continue
-					}
-					start := time.Now()
-					safeCheckV2NodeColumns(r, flatIdx, &flatNode, file, collector, stats)
-					elapsed := time.Since(start).Nanoseconds()
-					stats.DispatchRuleNs += elapsed
-					stats.DispatchRuleNsByRule[r.ID] += elapsed
-				}
-			}
-		}
-
-		for _, r := range d.allNodeRules {
-			if excludedRules[r.ID] {
-				continue
-			}
-			start := time.Now()
-			safeCheckV2NodeColumns(r, flatIdx, &flatNode, file, collector, stats)
-			elapsed := time.Since(start).Nanoseconds()
-			stats.DispatchRuleNs += elapsed
-			stats.DispatchRuleNsByRule[r.ID] += elapsed
-		}
-	}
-}
-
-// safeCheckV2NodeColumns is the columnar twin of safeCheckV2Node. It
-// constructs the Context with the collector attached so ctx.Emit writes
-// directly into columns; any residual Findings slice mutation from
-// unmigrated rules is drained into the collector after Check returns.
-func safeCheckV2NodeColumns(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats) {
+// safeCheckV2NodeColumnar invokes a rule with a Collector attached so
+// ctx.Emit routes findings directly into columnar storage. Any residual
+// ctx.Findings mutations (rules not yet using ctx.Emit) are also drained.
+func safeCheckV2NodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			line := 0
@@ -448,7 +380,6 @@ func safeCheckV2NodeColumns(r *v2.Rule, idx uint32, node *scanner.FlatNode, file
 			})
 		}
 	}()
-
 	ctx := &v2.Context{
 		File:              file,
 		Node:              node,
@@ -458,204 +389,9 @@ func safeCheckV2NodeColumns(r *v2.Rule, idx uint32, node *scanner.FlatNode, file
 		Collector:         collector,
 	}
 	r.Check(ctx)
-	drainContextFindings(ctx, r, collector)
 }
 
-func (d *V2Dispatcher) runLineRuleColumns(r *v2.Rule, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			stats.Errors = append(stats.Errors, DispatchError{
-				RuleName:   r.ID,
-				FilePath:   filePathOrEmpty(file),
-				Line:       0,
-				PanicValue: rec,
-			})
-		}
-	}()
-	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector}
-	r.Check(ctx)
-	drainContextFindings(ctx, r, collector)
-}
 
-func (d *V2Dispatcher) runLegacyRuleColumns(r *v2.Rule, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			stats.Errors = append(stats.Errors, DispatchError{
-				RuleName:   r.ID,
-				FilePath:   filePathOrEmpty(file),
-				Line:       0,
-				PanicValue: rec,
-			})
-		}
-	}()
-	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.50, Collector: collector}
-	r.Check(ctx)
-	drainContextFindings(ctx, r, collector)
-}
-
-// drainContextFindings stamps and appends any findings a rule mutated
-// onto ctx.Findings (rather than via ctx.Emit) into the collector. Once
-// all rules are migrated this will become a no-op.
-func drainContextFindings(ctx *v2.Context, r *v2.Rule, collector *scanner.FindingCollector) {
-	if len(ctx.Findings) == 0 {
-		return
-	}
-	stampV2Findings(ctx.Findings, r, ctx.File)
-	fallback := ctx.DefaultConfidence
-	confidence := r.Confidence
-	if confidence == 0 {
-		confidence = fallback
-	}
-	for i := range ctx.Findings {
-		if ctx.Findings[i].Confidence == 0 {
-			ctx.Findings[i].Confidence = confidence
-		}
-	}
-	collector.AppendAll(ctx.Findings)
-	ctx.Findings = ctx.Findings[:0]
-}
-
-// walkDispatch performs a single pass over the flat tree, invoking each
-// node rule on every matching node with panic recovery and per-rule
-// timing.
-func (d *V2Dispatcher) walkDispatch(file *scanner.File, findings *[]scanner.Finding, excludedRules map[string]bool, stats *RunStats, flatTypeRules [][]*v2.Rule) {
-	if file == nil || file.FlatTree == nil || len(file.FlatTree.Nodes) == 0 {
-		return
-	}
-
-	for idx := range file.FlatTree.Nodes {
-		flatIdx := uint32(idx)
-		flatNode := file.FlatTree.Nodes[idx]
-
-		// Type-indexed rules.
-		if int(flatNode.Type) < len(flatTypeRules) {
-			if handlers := flatTypeRules[flatNode.Type]; handlers != nil {
-				for _, r := range handlers {
-					if excludedRules[r.ID] {
-						continue
-					}
-					start := time.Now()
-					results := safeCheckV2Node(r, flatIdx, &flatNode, file, stats)
-					elapsed := time.Since(start).Nanoseconds()
-					stats.DispatchRuleNs += elapsed
-					stats.DispatchRuleNsByRule[r.ID] += elapsed
-					setV2RuleConfidence(results, r, 0.95)
-					*findings = append(*findings, results...)
-				}
-			}
-		}
-
-		// Rules that want every node.
-		for _, r := range d.allNodeRules {
-			if excludedRules[r.ID] {
-				continue
-			}
-			start := time.Now()
-			results := safeCheckV2Node(r, flatIdx, &flatNode, file, stats)
-			elapsed := time.Since(start).Nanoseconds()
-			stats.DispatchRuleNs += elapsed
-			stats.DispatchRuleNsByRule[r.ID] += elapsed
-			setV2RuleConfidence(results, r, 0.95)
-			*findings = append(*findings, results...)
-		}
-	}
-}
-
-// safeCheckV2Node invokes the v2 rule's Check function with a freshly
-// constructed Context and recovers from panics the same way
-// safeCheckFlatNode does for v1.
-func safeCheckV2Node(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, stats *RunStats) (results []scanner.Finding) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			line := 0
-			if node != nil {
-				line = int(node.StartRow) + 1
-			} else if file != nil {
-				line = file.FlatRow(idx) + 1
-			}
-			stats.Errors = append(stats.Errors, DispatchError{
-				RuleName:   r.ID,
-				FilePath:   filePathOrEmpty(file),
-				Line:       line,
-				PanicValue: rec,
-			})
-			results = nil
-		}
-	}()
-
-	ctx := &v2.Context{
-		File:              file,
-		Node:              node,
-		Idx:               idx,
-		Rule:              r,
-		DefaultConfidence: 0.95,
-	}
-	r.Check(ctx)
-	stampV2Findings(ctx.Findings, r, file)
-	return ctx.Findings
-}
-
-// runLineRule invokes a line-pass rule's Check function once with an
-// empty Node/Idx. Line rules scan file.Lines themselves via ctx.File.
-func (d *V2Dispatcher) runLineRule(r *v2.Rule, file *scanner.File, stats *RunStats) (results []scanner.Finding) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			stats.Errors = append(stats.Errors, DispatchError{
-				RuleName:   r.ID,
-				FilePath:   filePathOrEmpty(file),
-				Line:       0,
-				PanicValue: rec,
-			})
-			results = nil
-		}
-	}()
-	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75}
-	r.Check(ctx)
-	stampV2Findings(ctx.Findings, r, file)
-	return ctx.Findings
-}
-
-// runLegacyRule invokes a catch-all rule once per file. Legacy rules
-// in the v2 world are rules that are neither node-indexed nor
-// line-pass — they operate on ctx.File directly.
-func (d *V2Dispatcher) runLegacyRule(r *v2.Rule, file *scanner.File, stats *RunStats) (results []scanner.Finding) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			stats.Errors = append(stats.Errors, DispatchError{
-				RuleName:   r.ID,
-				FilePath:   filePathOrEmpty(file),
-				Line:       0,
-				PanicValue: rec,
-			})
-			results = nil
-		}
-	}()
-	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.50}
-	r.Check(ctx)
-	stampV2Findings(ctx.Findings, r, file)
-	return ctx.Findings
-}
-
-// stampV2Findings fills in Rule/RuleSet/Severity/File fields that a rule
-// forgot to populate. Mirrors v2.v1compat.stampFindings but operates on
-// a slice header rather than needing a Context.
-func stampV2Findings(findings []scanner.Finding, r *v2.Rule, file *scanner.File) {
-	path := filePathOrEmpty(file)
-	for i := range findings {
-		if findings[i].Rule == "" {
-			findings[i].Rule = r.ID
-		}
-		if findings[i].RuleSet == "" {
-			findings[i].RuleSet = r.Category
-		}
-		if findings[i].Severity == "" {
-			findings[i].Severity = string(r.Sev)
-		}
-		if findings[i].File == "" && path != "" {
-			findings[i].File = path
-		}
-	}
-}
 
 func filePathOrEmpty(file *scanner.File) string {
 	if file == nil {
@@ -765,7 +501,7 @@ func (d *V2Dispatcher) ResourceRules() []*v2.Rule { return d.resourceRules }
 // Language == LangGradle; cfg is the parsed BuildConfig. Findings are
 // filtered by the per-rule YAML excludes and the Languages filter.
 // Panics are recovered and surfaced via stderr to match Run().
-func (d *V2Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) []scanner.Finding {
+func (d *V2Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) scanner.FindingColumns {
 	return d.runProjectRuleSet(file, d.gradleRules, func(ctx *v2.Context) {
 		ctx.GradlePath = file.Path
 		ctx.GradleContent = string(file.Content)
@@ -777,7 +513,7 @@ func (d *V2Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) [
 // AndroidManifest.xml. manifest is typed as interface{} to avoid an
 // import cycle — callers in the rules package pass *rules.Manifest; the
 // underlying rule Check functions type-assert through ctx.Manifest.
-func (d *V2Dispatcher) RunManifest(file *scanner.File, manifest interface{}) []scanner.Finding {
+func (d *V2Dispatcher) RunManifest(file *scanner.File, manifest interface{}) scanner.FindingColumns {
 	return d.runProjectRuleSet(file, d.manifestRules, func(ctx *v2.Context) {
 		ctx.Manifest = manifest
 	})
@@ -785,7 +521,7 @@ func (d *V2Dispatcher) RunManifest(file *scanner.File, manifest interface{}) []s
 
 // RunResource runs every registered resource rule against a merged
 // ResourceIndex for a single res/ directory.
-func (d *V2Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) []scanner.Finding {
+func (d *V2Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) scanner.FindingColumns {
 	return d.runProjectRuleSet(file, d.resourceRules, func(ctx *v2.Context) {
 		ctx.ResourceIndex = idx
 	})
@@ -794,42 +530,41 @@ func (d *V2Dispatcher) RunResource(file *scanner.File, idx *android.ResourceInde
 // runProjectRuleSet is the shared driver for RunGradle/RunManifest/RunResource.
 // It applies config excludes + language filtering, invokes each rule's
 // Check with a fresh Context populated by the supplied closure, stamps
-// the base confidence, and returns aggregated findings.
-func (d *V2Dispatcher) runProjectRuleSet(file *scanner.File, ruleSet []*v2.Rule, populate func(*v2.Context)) []scanner.Finding {
+// the base confidence, and returns aggregated findings in columnar form.
+func (d *V2Dispatcher) runProjectRuleSet(file *scanner.File, ruleSet []*v2.Rule, populate func(*v2.Context)) scanner.FindingColumns {
 	if file == nil {
-		return nil
+		return scanner.FindingColumns{}
 	}
 	excluded := d.buildExcludedSet(file.Path)
 	langExcluded := d.excludedForLanguage(file.Language)
-	var findings []scanner.Finding
+	collector := scanner.NewFindingCollector(0)
 	for _, r := range ruleSet {
 		if excluded[r.ID] || langExcluded[r.ID] {
 			continue
 		}
-		results := d.runProjectRule(r, file, populate)
-		setV2RuleConfidence(results, r, 0.75)
-		findings = append(findings, results...)
+		cols := d.runProjectRule(r, file, populate)
+		collector.AppendColumns(&cols)
 	}
-	return findings
+	return *collector.Columns()
 }
 
 // runProjectRule invokes a project-level rule's Check function with a
-// freshly constructed Context, recovering from panics the same way
-// safeCheckV2Node does for per-node dispatch.
-func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate func(*v2.Context)) (results []scanner.Finding) {
+// freshly constructed Context, recovering from panics. Returns findings
+// in columnar form.
+func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate func(*v2.Context)) (cols scanner.FindingColumns) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			fmt.Fprintf(os.Stderr, "krit: panic in rule %s on %s: %v\n", r.ID, file.Path, rec)
-			results = nil
+			cols = scanner.FindingColumns{}
 		}
 	}()
-	ctx := &v2.Context{File: file}
+	collector := scanner.NewFindingCollector(0)
+	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector}
 	if populate != nil {
 		populate(ctx)
 	}
 	r.Check(ctx)
-	stampV2Findings(ctx.Findings, r, file)
-	return ctx.Findings
+	return *collector.Columns()
 }
 
 // excludedForLanguage returns the set of rule IDs that do NOT apply to
@@ -864,15 +599,10 @@ func (d *V2Dispatcher) ModuleAwareRules() []*v2.Rule {
 	return d.moduleAwareRules
 }
 
-// setV2RuleConfidence applies a rule's declared base confidence to any
-// findings that haven't set their own, falling back to the family
-// default. Mirrors setRuleConfidence for v1 rules but reads the Rule
-// struct's Confidence field directly.
-func setV2RuleConfidence(findings []scanner.Finding, r *v2.Rule, fallback float64) {
-	ApplyV2Confidence(findings, r, fallback)
-}
-
-// ApplyV2Confidence is the exported form of setV2RuleConfidence for call
+// ApplyV2Confidence applies a rule's declared base confidence to any findings
+// that haven't set their own, falling back to the family default. Per-finding
+// overrides still win — the rule's base confidence is only applied to
+// findings whose Confidence field is zero. Used by call
 // sites outside the dispatcher (cmd/krit post-per-file passes). Per-finding
 // overrides still win — the rule's base confidence is only applied to
 // findings whose Confidence field is zero.

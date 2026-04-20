@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
-	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -26,8 +26,8 @@ type DuplicateIdsResourceRule struct {
 // per roadmap/17.
 func (r *DuplicateIdsResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *DuplicateIdsResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *DuplicateIdsResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		seen := make(map[string]int) // id -> first line
 		walkViews(layout.RootView, func(v *android.View) {
@@ -38,7 +38,7 @@ func (r *DuplicateIdsResourceRule) CheckResources(idx *android.ResourceIndex) []
 			id = strings.TrimPrefix(id, "@+id/")
 			id = strings.TrimPrefix(id, "@id/")
 			if firstLine, ok := seen[id]; ok {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Duplicate id `@+id/%s` in layout `%s` (first used at line %d).",
 						id, layout.Name, firstLine)))
 			} else {
@@ -46,7 +46,6 @@ func (r *DuplicateIdsResourceRule) CheckResources(idx *android.ResourceIndex) []
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -93,8 +92,8 @@ func isValidAndroidID(id string) bool {
 // per roadmap/17.
 func (r *InvalidIdResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *InvalidIdResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *InvalidIdResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			id := v.Attributes["android:id"]
@@ -102,13 +101,12 @@ func (r *InvalidIdResourceRule) CheckResources(idx *android.ResourceIndex) []sca
 				return
 			}
 			if !isValidAndroidID(id) {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Invalid `android:id` value `%s`. IDs must be `@+id/name` or `@id/name` with alphanumeric/underscore names.",
 						id)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -128,8 +126,8 @@ type MissingIdResourceRule struct {
 // per roadmap/17.
 func (r *MissingIdResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *MissingIdResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *MissingIdResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Type != "fragment" && v.Type != "include" {
@@ -142,12 +140,11 @@ func (r *MissingIdResourceRule) CheckResources(idx *android.ResourceIndex) []sca
 			if v.Attributes["android:tag"] != "" {
 				return
 			}
-			findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("<%s> should specify an `android:id` or `android:tag` to allow proper state saving.",
 					v.Type)))
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -219,8 +216,8 @@ var idPrefixToType = map[string][]string{
 // per roadmap/17.
 func (r *CutPasteIdResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *CutPasteIdResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *CutPasteIdResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.ID == "" {
@@ -260,7 +257,7 @@ func (r *CutPasteIdResourceRule) CheckResources(idx *android.ResourceIndex) []sc
 					}
 				}
 				if !matched {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("ID `%s` suggests a `%s` but the view is `%s`. Possible copy-paste mistake.",
 							v.ID, expectedTypes[0], v.Type)))
 				}
@@ -268,7 +265,6 @@ func (r *CutPasteIdResourceRule) CheckResources(idx *android.ResourceIndex) []sc
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -289,7 +285,8 @@ type DuplicateIncludedIdsResourceRule struct {
 // per roadmap/17.
 func (r *DuplicateIncludedIdsResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *DuplicateIncludedIdsResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
+func (r *DuplicateIncludedIdsResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	// Build include graph: layout name -> set of included layout names
 	includes := make(map[string]map[string]bool)
 	for _, layout := range idx.Layouts {
@@ -340,7 +337,6 @@ func (r *DuplicateIncludedIdsResourceRule) CheckResources(idx *android.ResourceI
 
 	// Only flag IDs where at least two of the layouts have an actual include
 	// relationship (direct or transitive) between them.
-	var findings []scanner.Finding
 	for id, refs := range idToLayouts {
 		if len(refs) < 2 {
 			continue
@@ -363,11 +359,10 @@ func (r *DuplicateIncludedIdsResourceRule) CheckResources(idx *android.ResourceI
 		if !foundConflict {
 			continue
 		}
-		findings = append(findings, resourceFinding(conflictPair[0].path, conflictPair[0].line, r.BaseRule,
+		ctx.Emit(resourceFinding(conflictPair[0].path, conflictPair[0].line, r.BaseRule,
 			fmt.Sprintf("ID `%s` collides: layout `%s` includes `%s` which also defines `%s`. Runtime findViewById will return the wrong view.",
 				id, conflictPair[0].name, conflictPair[1].name, id)))
 	}
-	return findings
 }
 
 // reachableInclude returns true if `from` transitively includes `to` via the
@@ -427,8 +422,8 @@ var knownAndroidAttrs = map[string]bool{
 // per roadmap/17.
 func (r *MissingPrefixResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *MissingPrefixResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *MissingPrefixResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			for attrName := range v.Attributes {
@@ -443,14 +438,13 @@ func (r *MissingPrefixResourceRule) CheckResources(idx *android.ResourceIndex) [
 				}
 				// Check if this is a known android attribute missing its prefix
 				if knownAndroidAttrs[attrName] {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Attribute `%s` missing `android:` prefix. Use `android:%s` instead.",
 							attrName, attrName)))
 				}
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -498,8 +492,8 @@ func levenshtein(a, b string) int {
 // per roadmap/17.
 func (r *NamespaceTypoResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *NamespaceTypoResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *NamespaceTypoResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		if layout.RootView == nil {
 			continue
@@ -517,14 +511,13 @@ func (r *NamespaceTypoResourceRule) CheckResources(idx *android.ResourceIndex) [
 				strings.Contains(attrVal, "shemas.android.com") {
 				dist := levenshtein(attrVal, correctAndroidNS)
 				if dist > 0 && dist <= 5 {
-					findings = append(findings, resourceFinding(layout.FilePath, layout.RootView.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, layout.RootView.Line, r.BaseRule,
 						fmt.Sprintf("Possible typo in namespace URI `%s`. Did you mean `%s`?",
 							attrVal, correctAndroidNS)))
 				}
 			}
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -546,8 +539,8 @@ const resPackagePrefix = "http://schemas.android.com/apk/res/"
 // per roadmap/17.
 func (r *ResAutoResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *ResAutoResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *ResAutoResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			for attr, val := range v.Attributes {
@@ -555,7 +548,7 @@ func (r *ResAutoResourceRule) CheckResources(idx *android.ResourceIndex) []scann
 				if strings.HasPrefix(attr, "xmlns:") && strings.HasPrefix(val, resPackagePrefix) {
 					suffix := val[len(resPackagePrefix):]
 					if suffix != "" && suffix != "android" {
-						findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+						ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 							fmt.Sprintf("Namespace declaration `%s=\"%s\"` uses a hardcoded package name. "+
 								"Use `http://schemas.android.com/apk/res-auto` instead.",
 								attr, val)))
@@ -564,7 +557,6 @@ func (r *ResAutoResourceRule) CheckResources(idx *android.ResourceIndex) []scann
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -583,8 +575,8 @@ type UnusedNamespaceResourceRule struct {
 // per roadmap/17.
 func (r *UnusedNamespaceResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *UnusedNamespaceResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *UnusedNamespaceResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		root := layout.RootView
 		if root == nil {
@@ -623,14 +615,13 @@ func (r *UnusedNamespaceResourceRule) CheckResources(idx *android.ResourceIndex)
 			}
 			prefix := strings.TrimPrefix(attr, "xmlns:")
 			if !used[prefix] {
-				findings = append(findings, resourceFinding(layout.FilePath, root.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, root.Line, r.BaseRule,
 					fmt.Sprintf("Unused namespace declaration `xmlns:%s`. "+
 						"No attributes in the layout use the `%s:` prefix.",
 						prefix, prefix)))
 			}
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -649,8 +640,8 @@ type IllegalResourceRefResourceRule struct {
 // per roadmap/17.
 func (r *IllegalResourceRefResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *IllegalResourceRefResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *IllegalResourceRefResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			for attr, val := range v.Attributes {
@@ -672,7 +663,7 @@ func (r *IllegalResourceRefResourceRule) CheckResources(idx *android.ResourceInd
 				}
 				// Must contain a / separating type from name
 				if !strings.Contains(ref, "/") {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Malformed resource reference `%s` in attribute `%s`. "+
 							"Expected format `@[type]/name`.",
 							val, attr)))
@@ -684,14 +675,14 @@ func (r *IllegalResourceRefResourceRule) CheckResources(idx *android.ResourceInd
 				// Type part (possibly prefixed with "android:")
 				resType = strings.TrimPrefix(resType, "android:")
 				if resType == "" {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Malformed resource reference `%s` in attribute `%s`. "+
 							"Missing resource type before `/`.",
 							val, attr)))
 					continue
 				}
 				if resName == "" {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Malformed resource reference `%s` in attribute `%s`. "+
 							"Missing resource name after `/`.",
 							val, attr)))
@@ -699,7 +690,6 @@ func (r *IllegalResourceRefResourceRule) CheckResources(idx *android.ResourceInd
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -758,8 +748,8 @@ var wrongCaseFixes = map[string]string{
 // per roadmap/17.
 func (r *WrongCaseResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *WrongCaseResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *WrongCaseResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			// Skip fully-qualified names (contain a dot)
@@ -772,13 +762,12 @@ func (r *WrongCaseResourceRule) CheckResources(idx *android.ResourceIndex) []sca
 				return
 			}
 			if v.Type != correct {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("View tag `%s` has wrong capitalization. Use `%s` instead.",
 						v.Type, correct)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -797,15 +786,15 @@ type WrongFolderResourceRule struct {
 // per roadmap/17.
 func (r *WrongFolderResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *WrongFolderResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
+func (r *WrongFolderResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	if len(idx.Drawables) == 0 {
-		return nil
+		return
 	}
 	drawableSet := make(map[string]bool, len(idx.Drawables))
 	for _, d := range idx.Drawables {
 		drawableSet[d] = true
 	}
-	var findings []scanner.Finding
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			for attr, val := range v.Attributes {
@@ -817,14 +806,13 @@ func (r *WrongFolderResourceRule) CheckResources(idx *android.ResourceIndex) []s
 					continue
 				}
 				if !drawableSet[name] {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("Resource reference `%s` in attribute `%s` not found in any drawable or mipmap directory.",
 							val, attr)))
 				}
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -859,8 +847,8 @@ func isValidResFolderName(folder string) bool {
 // per roadmap/17.
 func (r *InvalidResourceFolderResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *InvalidResourceFolderResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *InvalidResourceFolderResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		path := layout.FilePath
 		// Extract the folder name from the path: look for res/<folder>/file.xml
@@ -878,13 +866,12 @@ func (r *InvalidResourceFolderResourceRule) CheckResources(idx *android.Resource
 		}
 		folder := afterRes[:slashIdx]
 		if !isValidResFolderName(folder) {
-			findings = append(findings, resourceFinding(layout.FilePath, 1, r.BaseRule,
+			ctx.Emit(resourceFinding(layout.FilePath, 1, r.BaseRule,
 				fmt.Sprintf("Invalid resource folder name `%s`. "+
 					"Expected one of: layout, drawable, mipmap, values, raw, xml, anim, animator, color, menu, font, navigation, transition.",
 					folder)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -903,17 +890,16 @@ type AppCompatResourceRule struct {
 // per roadmap/17.
 func (r *AppCompatResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *AppCompatResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *AppCompatResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Attributes["android:showAsAction"] != "" {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` uses `android:showAsAction` instead of `app:showAsAction`. Use `app:showAsAction` for AppCompat compatibility.", v.Type)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------

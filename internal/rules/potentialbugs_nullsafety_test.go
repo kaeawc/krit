@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -29,10 +30,11 @@ func runRuleByNameWithResolver(t *testing.T, ruleName string, code string) []sca
 	file := parseInline(t, code)
 	resolver := typeinfer.NewResolver()
 	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
-	for _, r := range rules.Registry {
-		if r.Name() == ruleName {
-			d := rules.NewDispatcher([]rules.Rule{r}, resolver)
-			return d.Run(file)
+	for _, r := range v2rules.Registry {
+		if r.ID == ruleName {
+			d := rules.NewDispatcherV2([]*v2rules.Rule{r}, resolver)
+			cols := d.Run(file)
+			return cols.Findings()
 		}
 	}
 	t.Fatalf("rule %q not found in registry", ruleName)
@@ -72,13 +74,13 @@ fun process(record: Any) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, r := range rules.Registry {
-				if r.Name() != "UnsafeCast" {
+			for _, r := range v2rules.Registry {
+				if r.ID != "UnsafeCast" {
 					continue
 				}
-				findings := rules.NewDispatcher([]rules.Rule{r}).Run(file)
-				if len(findings) != 0 {
-					t.Fatalf("expected no findings for %s source set, got %d", root, len(findings))
+				findingCols := rules.NewDispatcherV2([]*v2rules.Rule{r}).Run(file)
+				if findingCols.Len() != 0 {
+					t.Fatalf("expected no findings for %s source set, got %d", root, findingCols.Len())
 				}
 				return
 			}

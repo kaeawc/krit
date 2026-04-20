@@ -18,7 +18,7 @@ func (r *AccidentalOctalRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *AppCompatMethodRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *CustomViewStyleableRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *DalvikOverrideRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *DeprecatedRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *InnerclassSeparatorRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *LocalSuppressRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *ObjectAnimatorBindingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *OnClickRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -144,7 +144,7 @@ func (r *OverrideAbstractRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -158,7 +158,7 @@ func (r *ParcelCreatorRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -172,7 +172,7 @@ func (r *PluralsCandidateRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *PropertyEscapeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -200,7 +200,7 @@ func (r *RangeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -214,7 +214,7 @@ func (r *ResourceAsColorRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -228,7 +228,7 @@ func (r *ResourceTypeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -242,7 +242,7 @@ func (r *ShortAlarmRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -256,7 +256,7 @@ func (r *SupportAnnotationUsageRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -270,7 +270,7 @@ func (r *SwitchIntDefRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -284,7 +284,7 @@ func (r *TextViewEditsRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }
 
@@ -298,6 +298,6 @@ func (r *WrongViewCastRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "37ac6a5063d59611",
+		SourceHash:    "3347800d8897e5f9",
 	}
 }

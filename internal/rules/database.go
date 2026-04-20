@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
@@ -19,35 +18,6 @@ type DatabaseInstanceRecreatedRule struct {
 // Classified per roadmap/17.
 func (r *DatabaseInstanceRecreatedRule) Confidence() float64 { return 0.75 }
 
-func (r *DatabaseInstanceRecreatedRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *DatabaseInstanceRecreatedRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !isRoomDatabaseBuilderCallFlat(file, idx) {
-		return nil
-	}
-
-	fn, ok := flatEnclosingFunction(file, idx)
-	if !ok {
-		return nil
-	}
-	if _, ok := flatEnclosingAncestor(file, idx, "function_body"); !ok {
-		return nil
-	}
-	if hasAnnotationFlat(file, fn, "Provides") {
-		return nil
-	}
-	if hasModuleAnnotatedAncestorFlat(file, fn) {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"Room.databaseBuilder(...) inside a regular function recreates the database; create it once via @Provides or a singleton holder.",
-	)}
-}
-
 // DaoNotInterfaceRule detects Room DAOs declared as abstract classes.
 type DaoNotInterfaceRule struct {
 	FlatDispatchBase
@@ -58,29 +28,6 @@ type DaoNotInterfaceRule struct {
 // calls without confirming the declared type is a Room DAO or entity.
 // Classified per roadmap/17.
 func (r *DaoNotInterfaceRule) Confidence() float64 { return 0.75 }
-
-func (r *DaoNotInterfaceRule) NodeTypes() []string { return []string{"class_declaration"} }
-
-func (r *DaoNotInterfaceRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !hasAnnotationFlat(file, idx, "Dao") {
-		return nil
-	}
-	if file.FlatHasChildOfType(idx, "interface") {
-		return nil
-	}
-
-	name := extractIdentifierFlat(file, idx)
-	if name == "" {
-		name = "DAO"
-	}
-
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		1,
-		fmt.Sprintf("@Dao '%s' should be declared as an interface, not an abstract class.", name),
-	)}
-}
 
 // DaoWithoutAnnotationsRule detects Room DAO member functions that are missing
 // any Room operation annotation.
@@ -93,49 +40,6 @@ type DaoWithoutAnnotationsRule struct {
 // calls without confirming the declared type is a Room DAO or entity.
 // Classified per roadmap/17.
 func (r *DaoWithoutAnnotationsRule) Confidence() float64 { return 0.75 }
-
-func (r *DaoWithoutAnnotationsRule) NodeTypes() []string { return []string{"class_declaration"} }
-
-func (r *DaoWithoutAnnotationsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !hasAnnotationFlat(file, idx, "Dao") {
-		return nil
-	}
-
-	body := file.FlatFindChild(idx, "class_body")
-	if body == 0 {
-		return nil
-	}
-
-	daoName := extractIdentifierFlat(file, idx)
-	if daoName == "" {
-		daoName = "DAO"
-	}
-
-	var findings []scanner.Finding
-	for i := 0; i < file.FlatChildCount(body); i++ {
-		child := file.FlatChild(body, i)
-		if file.FlatType(child) != "function_declaration" {
-			continue
-		}
-		if daoFunctionHasAllowedAnnotationFlat(file, child) {
-			continue
-		}
-
-		funcName := extractIdentifierFlat(file, child)
-		if funcName == "" {
-			funcName = "function"
-		}
-
-		findings = append(findings, r.Finding(
-			file,
-			file.FlatRow(child)+1,
-			1,
-			fmt.Sprintf("@Dao '%s' function '%s' must be annotated with @Query, @Insert, @Update, @Delete, or @Transaction.", daoName, funcName),
-		))
-	}
-
-	return findings
-}
 
 func daoFunctionHasAllowedAnnotationFlat(file *scanner.File, idx uint32) bool {
 	return hasAnnotationFlat(file, idx, "Query") ||
@@ -156,30 +60,6 @@ type JdbcPreparedStatementNotClosedRule struct {
 // calls without confirming the declared type is a Room DAO or entity.
 // Classified per roadmap/17.
 func (r *JdbcPreparedStatementNotClosedRule) Confidence() float64 { return 0.75 }
-
-func (r *JdbcPreparedStatementNotClosedRule) NodeTypes() []string {
-	return []string{"property_declaration"}
-}
-
-func (r *JdbcPreparedStatementNotClosedRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	stmtName := extractIdentifierFlat(file, idx)
-	if stmtName == "" {
-		return nil
-	}
-	if !jdbcPreparedStatementCallFlat(file, idx) {
-		return nil
-	}
-	if jdbcPreparedStatementHasCleanupFlat(file, idx, stmtName) {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		1,
-		fmt.Sprintf("PreparedStatement '%s' should be wrapped in use { } or explicitly closed with .close().", stmtName),
-	)}
-}
 
 func jdbcPreparedStatementCallFlat(file *scanner.File, idx uint32) bool {
 	found := false

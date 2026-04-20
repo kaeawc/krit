@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -207,14 +208,6 @@ func TestRunDeadCodeRemovalColumns_MatchesSliceOutput(t *testing.T) {
 	}
 }
 
-type testFixLevelRule struct {
-	rules.BaseRule
-	rules.FlatDispatchBase
-	level rules.FixLevel
-}
-
-func (r *testFixLevelRule) FixLevel() rules.FixLevel { return r.level }
-
 func TestFilterFixesByLevelColumns_StripsOnlyDisallowedTextFixes(t *testing.T) {
 	columns := scanner.CollectFindings([]scanner.Finding{
 		{
@@ -260,19 +253,10 @@ func TestFilterFixesByLevelColumns_StripsOnlyDisallowedTextFixes(t *testing.T) {
 		},
 	})
 
-	registry := []rules.Rule{
-		&testFixLevelRule{
-			BaseRule: rules.BaseRule{RuleName: "CosmeticRule", RuleSetName: "style", Sev: "warning"},
-			level:    rules.FixCosmetic,
-		},
-		&testFixLevelRule{
-			BaseRule: rules.BaseRule{RuleName: "SemanticRule", RuleSetName: "style", Sev: "warning"},
-			level:    rules.FixSemantic,
-		},
-		&testFixLevelRule{
-			BaseRule: rules.BaseRule{RuleName: "BinaryRule", RuleSetName: "style", Sev: "warning"},
-			level:    rules.FixSemantic,
-		},
+	registry := []*v2rules.Rule{
+		{ID: "CosmeticRule", Category: "style", Sev: v2rules.SeverityWarning, Fix: v2rules.FixCosmetic},
+		{ID: "SemanticRule", Category: "style", Sev: v2rules.SeverityWarning, Fix: v2rules.FixSemantic},
+		{ID: "BinaryRule", Category: "style", Sev: v2rules.SeverityWarning, Fix: v2rules.FixSemantic},
 	}
 
 	fixableCount, strippedByLevel := filterFixesByLevelColumns(&columns, registry, rules.FixCosmetic)

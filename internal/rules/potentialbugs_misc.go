@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"fmt"
 	"strings"
 	"sync"
 
@@ -53,90 +52,6 @@ func (r *DeprecationRule) SetResolver(res typeinfer.TypeResolver) {
 // deprecation markers and annotations via pattern, with resolver-backed
 // type checks used only when available. Classified per roadmap/17.
 func (r *DeprecationRule) Confidence() float64 { return 0.75 }
-
-func (r *DeprecationRule) NodeTypes() []string {
-	return []string{"call_expression", "navigation_expression", "user_type"}
-}
-
-func (r *DeprecationRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	line := file.FlatRow(idx) + 1
-	col := file.FlatCol(idx) + 1
-	nodeType := file.FlatType(idx)
-
-	// Skip nodes inside import statements if configured
-	if r.ExcludeImportStatements && file.FlatHasAncestorOfType(idx, "import_header") {
-		return nil
-	}
-
-	// Avoid double-reporting: if this navigation_expression is the direct
-	// child of a call_expression, let the call_expression visit handle it.
-	if nodeType == "navigation_expression" {
-		if parent, ok := file.FlatParent(idx); ok && file.FlatType(parent) == "call_expression" {
-			return nil
-		}
-	}
-
-	// For user_type nodes, skip if inside an annotation (the @Deprecated itself)
-	if nodeType == "user_type" && file.FlatHasAncestorOfType(idx, "annotation") {
-		return nil
-	}
-
-	// Extract the name being referenced
-	name := flatDeprecationRefName(file, idx)
-	if name == "" {
-		return nil
-	}
-
-	// 1. Oracle-based check: look up call target annotations
-	if r.oracleLookup != nil {
-		callTarget := r.oracleLookup.LookupCallTarget(file.Path, line, col)
-		if callTarget != "" {
-			annotations := r.oracleLookup.LookupAnnotations(callTarget)
-			for _, ann := range annotations {
-				if ann == "kotlin.Deprecated" || ann == "java.lang.Deprecated" {
-					return []scanner.Finding{r.Finding(file, line, col,
-						fmt.Sprintf("'%s' is deprecated.", name))}
-				}
-			}
-		}
-	}
-
-	// 2. Source-level check: look for @Deprecated on declarations in this
-	// file. The index is cached per-file and guarded by cacheMu since
-	// dispatch runs one rule instance across parallel file goroutines.
-	r.cacheMu.Lock()
-	r.ensureDeprecatedIndex(file)
-	info := r.deprecatedInfos[name]
-	r.cacheMu.Unlock()
-	if info == nil {
-		return nil
-	}
-
-	msg := fmt.Sprintf("'%s' is deprecated.", name)
-	if info.level != "" {
-		msg = fmt.Sprintf("'%s' is deprecated (level=%s).", name, info.level)
-	}
-	if info.message != "" {
-		msg = fmt.Sprintf("'%s' is deprecated: %s", name, info.message)
-		if info.level != "" {
-			msg = fmt.Sprintf("'%s' is deprecated (level=%s): %s", name, info.level, info.message)
-		}
-	}
-
-	f := r.Finding(file, line, col, msg)
-
-	// If replaceWith is available, offer an auto-fix
-	if info.replaceWith != "" && (nodeType == "call_expression" || nodeType == "navigation_expression") {
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   int(file.FlatStartByte(idx)),
-			EndByte:     int(file.FlatEndByte(idx)),
-			Replacement: info.replaceWith,
-		}
-	}
-
-	return []scanner.Finding{f}
-}
 
 // ensureDeprecatedIndex lazily builds a set of deprecated declaration info
 // for the current file. The index is rebuilt when the file path changes.
@@ -330,62 +245,6 @@ func (r *HasPlatformTypeRule) SetResolver(res typeinfer.TypeResolver) {
 // happen to start with those prefixes but are not Java interop.
 func (r *HasPlatformTypeRule) Confidence() float64 { return 0.75 }
 
-func (r *HasPlatformTypeRule) NodeTypes() []string { return []string{"function_declaration"} }
-
-func (r *HasPlatformTypeRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if isTestFile(file.Path) {
-		return nil
-	}
-	if file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "internal") ||
-		file.FlatHasModifier(idx, "protected") || file.FlatHasModifier(idx, "override") {
-		return nil
-	}
-
-	body := file.FlatFindChild(idx, "function_body")
-	if body == 0 {
-		return nil
-	}
-	bodyText := strings.TrimSpace(file.FlatNodeText(body))
-	if !strings.HasPrefix(bodyText, "=") || strings.HasPrefix(bodyText, "= {") {
-		return nil
-	}
-
-	exprText := strings.TrimSpace(strings.TrimPrefix(bodyText, "="))
-	if exprText == "Unit" {
-		return nil
-	}
-
-	params := file.FlatFindChild(idx, "function_value_parameters")
-	bodyStart := file.FlatStartByte(body)
-	hasReturnType := false
-	file.FlatForEachChild(idx, func(child uint32) {
-		if hasReturnType {
-			return
-		}
-		switch file.FlatType(child) {
-		case ":":
-			hasReturnType = true
-		case "user_type", "nullable_type", "type_identifier":
-			if params != 0 && file.FlatStartByte(child) > file.FlatEndByte(params) &&
-				(body == 0 || file.FlatStartByte(child) < bodyStart) {
-				hasReturnType = true
-			}
-		}
-	})
-	if hasReturnType {
-		return nil
-	}
-
-	line := file.FlatRow(idx) + 1
-	for _, prefix := range []string{"java.", "javax.", "android.", "Java", "Javax"} {
-		if strings.Contains(exprText, prefix) {
-			return []scanner.Finding{r.Finding(file, line, 1,
-				"Public function with expression body should have an explicit return type to avoid platform types.")}
-		}
-	}
-	return nil
-}
-
 // ---------------------------------------------------------------------------
 // IgnoredReturnValueRule detects call expressions whose non-Unit return value
 // is discarded. Uses type inference to resolve return types and tree-sitter
@@ -418,8 +277,6 @@ func (r *IgnoredReturnValueRule) SetResolver(res typeinfer.TypeResolver) {
 // heuristics against ReturnValueTypes/IgnoreFunctionCall lists, which
 // can miss custom wrapper APIs or fire on look-alike names.
 func (r *IgnoredReturnValueRule) Confidence() float64 { return 0.75 }
-
-func (r *IgnoredReturnValueRule) NodeTypes() []string { return []string{"call_expression"} }
 
 // returnValueTypes that should always be flagged when discarded (detekt defaults)
 var returnValueFQNs = map[string]bool{
@@ -454,51 +311,6 @@ var functionalOps = map[string]bool{
 	"plus": true, "minus": true, "toList": true, "toSet": true, "toMap": true,
 	"mapKeys": true, "mapValues": true, "flatten": true,
 	"asSequence": true, "asFlow": true,
-}
-
-func (r *IgnoredReturnValueRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	funcName := flatCallExpressionName(file, idx)
-	if funcName == "" {
-		return nil
-	}
-
-	line := file.FlatRow(idx) + 1
-	col := file.FlatCol(idx) + 1
-	isKnownFunctionalOp := functionalOps[funcName]
-
-	// Without oracle annotation metadata, only known functional operations can
-	// produce a finding in the current heuristics. Bail out before the more
-	// expensive parent-usage analysis for all other calls.
-	if r.oracleLookup == nil && !isKnownFunctionalOp {
-		return nil
-	}
-
-	// Check if this call's result is discarded (not used as expression)
-	if flatIsUsedAsExpression(file, idx) {
-		return nil
-	}
-
-	// Oracle-based annotation check: if the call target is annotated with
-	// @CheckReturnValue/@CheckResult, flag regardless of function name.
-	if r.oracleLookup != nil {
-		callTarget := r.oracleLookup.LookupCallTarget(file.Path, line, col)
-		if callTarget != "" {
-			annotations := r.oracleLookup.LookupAnnotations(callTarget)
-			if hasCheckReturnAnnotation(annotations, r.ReturnValueAnnotations) &&
-				!hasIgnoreReturnAnnotation(annotations, r.IgnoreReturnValueAnnotations) {
-				return []scanner.Finding{r.Finding(file, line, col,
-					fmt.Sprintf("Return value of '%s' is ignored. The function is annotated with @CheckReturnValue.", funcName))}
-			}
-		}
-	}
-
-	// Strategy 1: With resolver — check resolved return type
-	if isKnownFunctionalOp {
-		return []scanner.Finding{r.Finding(file, line, col,
-			"Return value of functional operation is ignored. If this is intentional, assign to a variable or use 'also' instead.")}
-	}
-
-	return nil
 }
 
 func flatIsUsedAsExpression(file *scanner.File, idx uint32) bool {
@@ -791,7 +603,6 @@ func matchesReturnValueType(fqn string, patterns []string) bool {
 	return false
 }
 
-
 // ---------------------------------------------------------------------------
 // ImplicitDefaultLocaleRule detects locale-sensitive String methods called
 // without an explicit Locale argument. Covers case-conversion methods
@@ -813,8 +624,6 @@ func (r *ImplicitDefaultLocaleRule) SetResolver(res typeinfer.TypeResolver) {}
 // but the current implementation is structural-only.
 func (r *ImplicitDefaultLocaleRule) Confidence() float64 { return 0.75 }
 
-func (r *ImplicitDefaultLocaleRule) NodeTypes() []string { return []string{"call_expression"} }
-
 // implicitLocaleMethods are case-conversion methods that use the default
 // locale when called without arguments and therefore warrant a warning.
 //
@@ -831,117 +640,6 @@ var implicitLocaleMethods = map[string]bool{
 	"decapitalize": true,
 }
 
-func (r *ImplicitDefaultLocaleRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Skip .gradle.kts build scripts entirely — they run on developer
-	// machines in a controlled environment.
-	if strings.HasSuffix(file.Path, ".gradle.kts") {
-		return nil
-	}
-	// Skip database table/DAO files — `String.format(...)` and
-	// `.uppercase()`/`.lowercase()` in SQL contexts operate on ASCII
-	// column names and ISO codes where locale cannot change the result.
-	if strings.HasSuffix(file.Path, "Table.kt") || strings.HasSuffix(file.Path, "Tables.kt") ||
-		strings.HasSuffix(file.Path, "Dao.kt") || strings.HasSuffix(file.Path, "DAO.kt") {
-		return nil
-	}
-	// Extract the method name from the call_expression's navigation_expression.
-	navExpr, args := flatCallExpressionParts(file, idx)
-	if navExpr == 0 {
-		return nil // plain function call like foo() — not a method invocation
-	}
-
-	methodName := flatNavigationExpressionLastIdentifier(file, navExpr)
-	if methodName == "" {
-		return nil
-	}
-	// The receiver is the first child of the navigation_expression.
-	var receiverIdx uint32
-	if file.FlatNamedChildCount(navExpr) > 0 {
-		receiverIdx = file.FlatNamedChild(navExpr, 0)
-	}
-
-	firstArg, argCount := flatValueArgumentStats(file, args)
-
-	// --- Case-conversion methods (lowercase, uppercase, capitalize, decapitalize) ---
-	if implicitLocaleMethods[methodName] {
-		// Only flag if called with zero arguments (no Locale passed).
-		if argCount != 0 {
-			return nil
-		}
-
-		// Skip ASCII-invariant domain identifiers where locale cannot
-		// change the result (currency codes, ISO country codes, IBANs,
-		// MIME types, URI schemes, UUIDs, protocol tokens).
-		if receiverIdx != 0 {
-			recvText := file.FlatNodeText(receiverIdx)
-			if containsAsciiInvariantIdentifier(recvText) {
-				return nil
-			}
-		}
-
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-			fmt.Sprintf("'%s()' called without explicit Locale. Use '%s(Locale.ROOT)' or '%s(Locale.getDefault())' to be explicit.", methodName, methodName, methodName))}
-	}
-
-	// --- String.format / "...".format ---
-	if methodName == "format" {
-		if receiverIdx == 0 {
-			return nil
-		}
-		receiverType := file.FlatType(receiverIdx)
-
-		isStringLiteral := receiverType == "string_literal" || receiverType == "line_string_literal" || receiverType == "multi_line_string_literal"
-		receiverText := ""
-		isStringCompanion := false
-		if !isStringLiteral {
-			receiverText = file.FlatNodeText(receiverIdx)
-			isStringCompanion = receiverText == "String"
-		}
-
-		if !isStringCompanion && !isStringLiteral {
-			if receiverText == "String" {
-				isStringLiteral = true
-			}
-			if !isStringLiteral {
-				return nil
-			}
-		}
-		if receiverText == "" {
-			receiverText = file.FlatNodeText(receiverIdx)
-		}
-
-		// Check if the first argument is a Locale (heuristic: Locale.X or locale variable).
-		if isExplicitLocaleArgFlat(file, firstArg) {
-			return nil
-		}
-
-		// Skip format strings containing only %s / %S / %% placeholders.
-		// %s is locale-independent — only numeric/date formats (%d, %f, %t,
-		// etc.) are locale-sensitive.
-		if isStringLiteral && isLocaleInsensitiveFormat(receiverText) {
-			return nil
-		}
-		// For the `String.format(fmt, args...)` static form, the format
-		// string is the first argument rather than the receiver. If it's a
-		// string literal with only locale-insensitive specifiers, skip.
-		if isStringCompanion && firstArg != 0 {
-			argText := file.FlatNodeText(firstArg)
-			// firstArg may be wrapped in a value_argument; look for an
-			// inner string literal child.
-			if strings.HasPrefix(strings.TrimSpace(argText), "\"") {
-				if isLocaleInsensitiveFormat(argText) {
-					return nil
-				}
-			}
-		}
-
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-			fmt.Sprintf("'%s' uses implicit default locale for string formatting. Pass Locale explicitly, e.g. Locale.ROOT or Locale.US.", receiverText+".format(...)"))}
-	}
-
-	return nil
-}
-
 // LocaleDefaultForCurrencyRule detects Currency.getInstance(Locale.getDefault())
 // inside money-related classes. Currency in these flows should come from the
 // business data being formatted, not from the user's device locale.
@@ -954,46 +652,6 @@ type LocaleDefaultForCurrencyRule struct {
 // resolver-backed type checks; fallback path is heuristic. Classified per
 // roadmap/17.
 func (r *LocaleDefaultForCurrencyRule) Confidence() float64 { return 0.75 }
-
-func (r *LocaleDefaultForCurrencyRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *LocaleDefaultForCurrencyRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	className := enclosingClassNameFlat(file, idx)
-	if !isCurrencyCarrierClassName(className) {
-		return nil
-	}
-
-	navExpr, args := flatCallExpressionParts(file, idx)
-	if navExpr == 0 || args == 0 {
-		return nil
-	}
-
-	if flatNavigationExpressionLastIdentifier(file, navExpr) != "getInstance" {
-		return nil
-	}
-
-	receiver := file.FlatNamedChild(navExpr, 0)
-	if receiver == 0 {
-		return nil
-	}
-	receiverText := compactKotlinExpr(file.FlatNodeText(receiver))
-	if receiverText != "Currency" && receiverText != "java.util.Currency" {
-		return nil
-	}
-
-	firstArg, argCount := flatValueArgumentStats(file, args)
-	if argCount != 1 || firstArg == 0 {
-		return nil
-	}
-
-	argText := compactKotlinExpr(file.FlatNodeText(firstArg))
-	if argText != "Locale.getDefault()" && argText != "java.util.Locale.getDefault()" {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		fmt.Sprintf("Class '%s' derives currency from Locale.getDefault(); use order or transaction currency data instead.", className))}
-}
 
 func enclosingClassNameFlat(file *scanner.File, idx uint32) string {
 	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {

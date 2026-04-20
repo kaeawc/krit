@@ -9,6 +9,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/fixer"
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -17,13 +18,13 @@ func TestFixableFixtures(t *testing.T) {
 	fixableDir := filepath.Join(root, "fixable")
 
 	// Use only default-active rules (matches CLI behavior)
-	var activeRules []rules.Rule
-	for _, r := range rules.Registry {
-		if rules.IsDefaultActive(r.Name()) {
+	var activeRules []*v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if rules.IsDefaultActive(r.ID) {
 			activeRules = append(activeRules, r)
 		}
 	}
-	dispatcher := rules.NewDispatcher(activeRules)
+	dispatcher := rules.NewDispatcherV2(activeRules)
 
 	// Bundled fixtures live directly under tests/fixtures/fixable/
 	// and run every default-active rule, applying every fixable
@@ -80,7 +81,8 @@ func runBundledFixableFixtures(t *testing.T, dir string, dispatcher *rules.Dispa
 				t.Fatalf("failed to parse %s: %v", ktPath, err)
 			}
 
-			findings := dispatcher.Run(file)
+			findingCols := dispatcher.Run(file)
+			findings := findingCols.Findings()
 			var fixableFindings []scanner.Finding
 			for _, f := range findings {
 				if f.Fix != nil {
@@ -110,9 +112,9 @@ func runPerRuleFixableFixtures(t *testing.T, dir string) (int, error) {
 	}
 
 	// Index rules by name for O(1) lookup by fixture filename.
-	byName := make(map[string]rules.Rule, len(rules.Registry))
-	for _, r := range rules.Registry {
-		byName[r.Name()] = r
+	byName := make(map[string]*v2rules.Rule, len(v2rules.Registry))
+	for _, r := range v2rules.Registry {
+		byName[r.ID] = r
 	}
 
 	bootstrap := os.Getenv("UPDATE_FIXABLE_EXPECTED") == "1"
@@ -156,8 +158,9 @@ func runPerRuleFixableFixtures(t *testing.T, dir string) (int, error) {
 			// cross-file rule, module-aware rule, or legacy Rule; the
 			// dispatcher handles all of those when given a singleton
 			// registry.
-			soloDispatcher := rules.NewDispatcher([]rules.Rule{rule})
-			findings := soloDispatcher.Run(file)
+			soloDispatcher := rules.NewDispatcherV2([]*v2rules.Rule{rule})
+			findingCols := soloDispatcher.Run(file)
+			findings := findingCols.Findings()
 
 			var fixableFindings []scanner.Finding
 			for _, f := range findings {
@@ -269,13 +272,12 @@ func TestFixableRulesHavePerRuleFixture(t *testing.T) {
 	}
 
 	var missing []string
-	for _, r := range rules.Registry {
-		fr, ok := r.(rules.FixableRule)
-		if !ok || !fr.IsFixable() {
+	for _, r := range v2rules.Registry {
+		if r.Fix == v2rules.FixNone {
 			continue
 		}
-		if !existing[r.Name()] {
-			missing = append(missing, r.Name())
+		if !existing[r.ID] {
+			missing = append(missing, r.ID)
 		}
 	}
 	sort.Strings(missing)

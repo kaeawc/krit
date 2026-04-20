@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"unicode"
 
 	"github.com/kaeawc/krit/internal/module"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -30,21 +30,6 @@ type BuildConfigDebugInLibraryRule struct {
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *BuildConfigDebugInLibraryRule) Confidence() float64 { return 0.75 }
 
-func (r *BuildConfigDebugInLibraryRule) NodeTypes() []string {
-	return []string{"navigation_expression"}
-}
-
-func (r *BuildConfigDebugInLibraryRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !isBuildConfigDebugReferenceFlat(file, idx) {
-		return nil
-	}
-	if !isAndroidLibrarySourceFile(file.Path) {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-		"BuildConfig.DEBUG in an Android library module is false in consumer release builds; this guard may silently drop its body.")}
-}
-
 // BuildConfigDebugInvertedRule flags `if (!BuildConfig.DEBUG) { ...logging... }`
 // patterns where debug-only logging appears to be guarded in the opposite
 // direction.
@@ -57,23 +42,6 @@ type BuildConfigDebugInvertedRule struct {
 // files for configuration drift and plugin hygiene; matches are
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *BuildConfigDebugInvertedRule) Confidence() float64 { return 0.75 }
-
-func (r *BuildConfigDebugInvertedRule) NodeTypes() []string {
-	return []string{"if_expression"}
-}
-
-func (r *BuildConfigDebugInvertedRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	condition, body := ifConditionAndThenBodyFlat(file, idx)
-	if !isNegatedBuildConfigDebugConditionFlat(file, condition) {
-		return nil
-	}
-	if !containsLoggingCallFlat(file, body) {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Negated BuildConfig.DEBUG guard wraps logging; this likely inverts a debug-only log check.")}
-}
 
 // AllProjectsBlockRule flags deprecated allprojects { } usage in Gradle build
 // scripts. Convention plugins or settings-level repositories are the
@@ -96,63 +64,15 @@ type HardcodedEnvironmentNameRule struct {
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *AllProjectsBlockRule) Confidence() float64 { return 0.75 }
 
-func (r *AllProjectsBlockRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *AllProjectsBlockRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !isGradleBuildScript(file.Path) {
-		return nil
-	}
-	if flatCallExpressionName(file, idx) != "allprojects" {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-		"`allprojects {}` is deprecated in Gradle 8.x; move shared configuration to settings-level repositories or convention plugins.")}
-}
-
 // Confidence reports a tier-2 (medium) base confidence. Release-engineering rule. Detection scans module metadata and Gradle
 // files for configuration drift and plugin hygiene; matches are
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *HardcodedEnvironmentNameRule) Confidence() float64 { return 0.75 }
 
-func (r *HardcodedEnvironmentNameRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *HardcodedEnvironmentNameRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	funcName := flatCallExpressionName(file, idx)
-	if !isEnvironmentConfigCallName(funcName) {
-		return nil
-	}
-
-	_, args := flatCallExpressionParts(file, idx)
-	if args == 0 {
-		return nil
-	}
-
-	for i := 0; i < file.FlatChildCount(args); i++ {
-		arg := file.FlatChild(args, i)
-		if arg == 0 || file.FlatType(arg) != "value_argument" {
-			continue
-		}
-		literal := hardcodedEnvironmentLiteralFlat(file, arg)
-		if literal == "" {
-			continue
-		}
-
-		return []scanner.Finding{r.Finding(file, file.FlatRow(arg)+1, file.FlatCol(arg)+1,
-			fmt.Sprintf("Hardcoded environment name %q passed to %s(); prefer a build- or runtime-provided environment value.", literal, funcName))}
-	}
-
-	return nil
-}
-
 // ConventionPluginDeadCodeRule flags precompiled convention plugins declared
 // under build-logic/ or buildSrc/ that are not applied by any module.
 type ConventionPluginDeadCodeRule struct {
 	BaseRule
-	pmi *module.PerModuleIndex
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Release-engineering rule. Detection scans module metadata and Gradle
@@ -160,33 +80,27 @@ type ConventionPluginDeadCodeRule struct {
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *ConventionPluginDeadCodeRule) Confidence() float64 { return 0.75 }
 
-func (r *ConventionPluginDeadCodeRule) Check(_ *scanner.File) []scanner.Finding { return nil }
-
 func (r *ConventionPluginDeadCodeRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{}
 }
 
-func (r *ConventionPluginDeadCodeRule) SetModuleIndex(pmi *module.PerModuleIndex) {
-	r.pmi = pmi
-}
-
-func (r *ConventionPluginDeadCodeRule) CheckModuleAware() []scanner.Finding {
-	if r.pmi == nil || r.pmi.Graph == nil || r.pmi.Graph.RootDir == "" {
-		return nil
+func (r *ConventionPluginDeadCodeRule) check(ctx *v2.Context) {
+	pmi := ctx.ModuleIndex
+	if pmi == nil || pmi.Graph == nil || pmi.Graph.RootDir == "" {
+		return
 	}
 
-	plugins := discoverConventionPlugins(r.pmi.Graph.RootDir)
+	plugins := discoverConventionPlugins(pmi.Graph.RootDir)
 	if len(plugins) == 0 {
-		return nil
+		return
 	}
 
-	applied := scanAppliedConventionPluginIDs(r.pmi.Graph)
-	findings := make([]scanner.Finding, 0, len(plugins))
+	applied := scanAppliedConventionPluginIDs(pmi.Graph)
 	for _, plugin := range plugins {
 		if applied[plugin.id] {
 			continue
 		}
-		findings = append(findings, scanner.Finding{
+		ctx.Emit(scanner.Finding{
 			File:       plugin.path,
 			Line:       1,
 			Col:        1,
@@ -197,8 +111,6 @@ func (r *ConventionPluginDeadCodeRule) CheckModuleAware() []scanner.Finding {
 			Confidence: 0.9,
 		})
 	}
-
-	return findings
 }
 
 type conventionPlugin struct {
@@ -229,12 +141,12 @@ type GradleBuildContainsTodoRule struct {
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *GradleBuildContainsTodoRule) Confidence() float64 { return 0.75 }
 
-func (r *GradleBuildContainsTodoRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *GradleBuildContainsTodoRule) check(ctx *v2.Context) {
+	file := ctx.File
 	if !isGradleBuildScript(file.Path) {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		commentIdx := strings.Index(line, "//")
 		if commentIdx < 0 {
@@ -246,10 +158,9 @@ func (r *GradleBuildContainsTodoRule) CheckLines(file *scanner.File) []scanner.F
 			continue
 		}
 
-		findings = append(findings, r.Finding(file, i+1, commentIdx+1,
+		ctx.Emit(r.Finding(file, i+1, commentIdx+1,
 			"TODO comment found in build.gradle(.kts); track build work in an issue or finish it before release."))
 	}
-	return findings
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Release-engineering rule. Detection scans module metadata and Gradle
@@ -257,14 +168,14 @@ func (r *GradleBuildContainsTodoRule) CheckLines(file *scanner.File) []scanner.F
 // project-structure-sensitive. Classified per roadmap/17.
 func (r *CommentedOutCodeBlockRule) Confidence() float64 { return 0.75 }
 
-func (r *CommentedOutCodeBlockRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *CommentedOutCodeBlockRule) check(ctx *v2.Context) {
+	file := ctx.File
 	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") {
-		return nil
+		return
 	}
 
 	startLine := -1
 	count := 0
-	var findings []scanner.Finding
 	flush := func(endLine int) {
 		if count < r.MinLines || startLine < 0 {
 			startLine = -1
@@ -279,7 +190,7 @@ func (r *CommentedOutCodeBlockRule) CheckLines(file *scanner.File) []scanner.Fin
 		}
 
 		msg := fmt.Sprintf("Commented-out code block detected across %d consecutive lines; delete it or restore it as live code.", endLine-startLine)
-		findings = append(findings, r.Finding(file, startLine+1, col+1, msg))
+		ctx.Emit(r.Finding(file, startLine+1, col+1, msg))
 		startLine = -1
 		count = 0
 	}
@@ -295,7 +206,6 @@ func (r *CommentedOutCodeBlockRule) CheckLines(file *scanner.File) []scanner.Fin
 		flush(i)
 	}
 	flush(len(file.Lines))
-	return findings
 }
 
 func isPlausibleCommentedKotlin(line string) bool {
@@ -650,12 +560,12 @@ type CommentedOutImportRule struct {
 
 func (r *CommentedOutImportRule) Confidence() float64 { return 0.90 }
 
-func (r *CommentedOutImportRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *CommentedOutImportRule) check(ctx *v2.Context) {
+	file := ctx.File
 	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "//") {
@@ -666,10 +576,9 @@ func (r *CommentedOutImportRule) CheckLines(file *scanner.File) []scanner.Findin
 			continue
 		}
 		col := strings.Index(line, "//")
-		findings = append(findings, r.Finding(file, i+1, col+1,
+		ctx.Emit(r.Finding(file, i+1, col+1,
 			"Commented-out import; remove it or restore it as a live import."))
 	}
-	return findings
 }
 
 // DebugToastInProductionRule flags Toast.makeText calls whose message literal
@@ -681,47 +590,7 @@ type DebugToastInProductionRule struct {
 
 func (r *DebugToastInProductionRule) Confidence() float64 { return 0.85 }
 
-func (r *DebugToastInProductionRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
 var debugToastPrefixRe = regexp.MustCompile(`(?i)^["'](debug|test|wip)`)
-
-func (r *DebugToastInProductionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if isTestFile(file.Path) {
-		return nil
-	}
-	name := flatCallExpressionName(file, idx)
-	if name != "makeText" {
-		return nil
-	}
-	receiver := flatReceiverNameFromCall(file, idx)
-	if receiver != "Toast" {
-		return nil
-	}
-	_, args := flatCallExpressionParts(file, idx)
-	if args == 0 {
-		return nil
-	}
-	// Second argument is the message (first is context)
-	argCount := 0
-	for i := 0; i < file.FlatChildCount(args); i++ {
-		arg := file.FlatChild(args, i)
-		if arg == 0 || file.FlatType(arg) != "value_argument" {
-			continue
-		}
-		argCount++
-		if argCount == 2 {
-			text := strings.TrimSpace(file.FlatNodeText(arg))
-			if debugToastPrefixRe.MatchString(text) {
-				return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Toast message starts with a debug prefix; remove or guard behind BuildConfig.DEBUG.")}
-			}
-			break
-		}
-	}
-	return nil
-}
 
 // MergeConflictMarkerLeftoverRule flags unresolved merge conflict markers.
 type MergeConflictMarkerLeftoverRule struct {
@@ -731,22 +600,21 @@ type MergeConflictMarkerLeftoverRule struct {
 
 func (r *MergeConflictMarkerLeftoverRule) Confidence() float64 { return 0.99 }
 
-func (r *MergeConflictMarkerLeftoverRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *MergeConflictMarkerLeftoverRule) check(ctx *v2.Context) {
+	file := ctx.File
 	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") &&
 		!strings.HasSuffix(file.Path, ".java") {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "<<<<<<<") || trimmed == "=======" || strings.HasPrefix(trimmed, ">>>>>>>") {
 			col := strings.IndexAny(line, "<=>")
-			findings = append(findings, r.Finding(file, i+1, col+1,
+			ctx.Emit(r.Finding(file, i+1, col+1,
 				"Unresolved merge conflict marker; resolve the conflict before committing."))
 		}
 	}
-	return findings
 }
 
 // PrintlnInProductionRule flags println/print/System.out.println/System.err.println
@@ -758,47 +626,9 @@ type PrintlnInProductionRule struct {
 
 func (r *PrintlnInProductionRule) Confidence() float64 { return 0.85 }
 
-func (r *PrintlnInProductionRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
 var printlnNames = map[string]bool{
 	"println": true,
 	"print":   true,
-}
-
-func (r *PrintlnInProductionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if isTestFile(file.Path) {
-		return nil
-	}
-	name := flatCallExpressionName(file, idx)
-	receiver := flatReceiverNameFromCall(file, idx)
-
-	isPrint := false
-	if printlnNames[name] && receiver == "" {
-		isPrint = true
-	}
-	if (name == "println" || name == "print") && (receiver == "System.out" || receiver == "System.err") {
-		isPrint = true
-	}
-	if !isPrint {
-		return nil
-	}
-
-	// Exclude if inside a top-level fun main()
-	if enclosing, ok := flatEnclosingFunction(file, idx); ok && enclosing != 0 {
-		funcText := flatFunctionName(file, enclosing)
-		if funcText == "main" {
-			if parent, ok := file.FlatParent(enclosing); ok {
-				if file.FlatType(parent) == "source_file" {
-					return nil
-				}
-			}
-		}
-	}
-
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"println/print in production code; use a logging framework instead.")}
 }
 
 // PrintStackTraceInProductionRule flags e.printStackTrace() calls in non-test
@@ -810,10 +640,6 @@ type PrintStackTraceInProductionRule struct {
 
 func (r *PrintStackTraceInProductionRule) Confidence() float64 { return 0.85 }
 
-func (r *PrintStackTraceInProductionRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
 var loggingImports = []string{
 	"timber.log.Timber",
 	"android.util.Log",
@@ -823,21 +649,6 @@ var loggingImports = []string{
 	"mu.KotlinLogging",
 	"ch.qos.logback.",
 	"org.apache.logging.",
-}
-
-func (r *PrintStackTraceInProductionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if isTestFile(file.Path) {
-		return nil
-	}
-	name := flatCallExpressionName(file, idx)
-	if name != "printStackTrace" {
-		return nil
-	}
-	if !hasLoggingImport(file) {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"printStackTrace() in code with a logging framework; use the logger to record the exception.")}
 }
 
 func hasLoggingImport(file *scanner.File) bool {
@@ -870,27 +681,26 @@ func (r *HardcodedLocalhostUrlRule) Confidence() float64 { return 0.85 }
 
 var localhostUrlRe = regexp.MustCompile(`"https?://(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?(/[^"]*)?"|'https?://(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?(/[^']*)?'`)
 
-func (r *HardcodedLocalhostUrlRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *HardcodedLocalhostUrlRule) check(ctx *v2.Context) {
+	file := ctx.File
 	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") {
-		return nil
+		return
 	}
 	if isTestFile(file.Path) {
-		return nil
+		return
 	}
 	if isDebugSourceFile(file.Path) {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		loc := localhostUrlRe.FindStringIndex(line)
 		if loc == nil {
 			continue
 		}
-		findings = append(findings, r.Finding(file, i+1, loc[0]+1,
+		ctx.Emit(r.Finding(file, i+1, loc[0]+1,
 			"Hardcoded localhost URL in production source; use a build config or environment variable."))
 	}
-	return findings
 }
 
 func isDebugSourceFile(path string) bool {
@@ -921,15 +731,15 @@ var testOnlyImportPrefixes = []string{
 	"org.mockito_kotlin.",
 }
 
-func (r *TestOnlyImportInProductionRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *TestOnlyImportInProductionRule) check(ctx *v2.Context) {
+	file := ctx.File
 	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") {
-		return nil
+		return
 	}
 	if isTestFile(file.Path) {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "import ") {
@@ -939,13 +749,12 @@ func (r *TestOnlyImportInProductionRule) CheckLines(file *scanner.File) []scanne
 		for _, prefix := range testOnlyImportPrefixes {
 			if strings.HasPrefix(pkg, prefix) {
 				col := strings.Index(line, "import")
-				findings = append(findings, r.Finding(file, i+1, col+1,
+				ctx.Emit(r.Finding(file, i+1, col+1,
 					fmt.Sprintf("Test-only import %q in non-test file; move this code to a test source set.", pkg)))
 				break
 			}
 		}
 	}
-	return findings
 }
 
 // NonAsciiIdentifierRule flags class/function/property names containing
@@ -957,34 +766,6 @@ type NonAsciiIdentifierRule struct {
 
 func (r *NonAsciiIdentifierRule) Confidence() float64 { return 0.95 }
 
-func (r *NonAsciiIdentifierRule) NodeTypes() []string {
-	return []string{"class_declaration", "function_declaration", "property_declaration"}
-}
-
-func (r *NonAsciiIdentifierRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if isTestFile(file.Path) {
-		return nil
-	}
-	var name string
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		child := file.FlatChild(idx, i)
-		if file.FlatType(child) == "simple_identifier" || file.FlatType(child) == "type_identifier" {
-			name = file.FlatNodeText(child)
-			break
-		}
-	}
-	if name == "" {
-		return nil
-	}
-	for _, ch := range name {
-		if ch > 127 && !unicode.IsControl(ch) {
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				fmt.Sprintf("Non-ASCII character in identifier %q; this may cause issues in non-UTF-8 build environments.", name))}
-		}
-	}
-	return nil
-}
-
 // HardcodedLogTagRule flags Log.d("ClassName", ...) where the tag matches
 // the enclosing class name instead of using a companion TAG constant.
 type HardcodedLogTagRule struct {
@@ -994,47 +775,8 @@ type HardcodedLogTagRule struct {
 
 func (r *HardcodedLogTagRule) Confidence() float64 { return 0.80 }
 
-func (r *HardcodedLogTagRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
 var logLevelMethods = map[string]bool{
 	"v": true, "d": true, "i": true, "w": true, "e": true, "wtf": true,
-}
-
-func (r *HardcodedLogTagRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	name := flatCallExpressionName(file, idx)
-	if !logLevelMethods[name] {
-		return nil
-	}
-	receiver := flatReceiverNameFromCall(file, idx)
-	if receiver != "Log" {
-		return nil
-	}
-	_, args := flatCallExpressionParts(file, idx)
-	if args == 0 {
-		return nil
-	}
-	// First argument is the tag
-	for i := 0; i < file.FlatChildCount(args); i++ {
-		arg := file.FlatChild(args, i)
-		if arg == 0 || file.FlatType(arg) != "value_argument" {
-			continue
-		}
-		text := strings.TrimSpace(file.FlatNodeText(arg))
-		unquoted, err := strconv.Unquote(text)
-		if err != nil {
-			return nil
-		}
-
-		className := flatEnclosingClassName(file, idx)
-		if className != "" && unquoted == className {
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				fmt.Sprintf("Log tag %q matches enclosing class name; hoist to a companion `TAG` constant.", unquoted))}
-		}
-		return nil
-	}
-	return nil
 }
 
 func flatEnclosingClassName(file *scanner.File, idx uint32) string {
@@ -1061,19 +803,15 @@ func flatEnclosingClassName(file *scanner.File, idx uint32) string {
 // functions from non-test files.
 type VisibleForTestingCallerInNonTestRule struct {
 	BaseRule
-	index *scanner.CodeIndex
 }
 
 func (r *VisibleForTestingCallerInNonTestRule) Confidence() float64 { return 0.80 }
-func (r *VisibleForTestingCallerInNonTestRule) Check(_ *scanner.File) []scanner.Finding {
-	return nil
-}
-func (r *VisibleForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding {
+func (r *VisibleForTestingCallerInNonTestRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
 	if index == nil {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for _, file := range index.Files {
 		if isTestFile(file.Path) {
 			continue
@@ -1109,7 +847,7 @@ func (r *VisibleForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.Cod
 	}
 
 	if len(vftDecls) == 0 {
-		return nil
+		return
 	}
 
 	for _, file := range index.Files {
@@ -1127,7 +865,7 @@ func (r *VisibleForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.Cod
 						continue
 					}
 					col := strings.Index(line, name)
-					findings = append(findings, scanner.Finding{
+					ctx.Emit(scanner.Finding{
 						File:       file.Path,
 						Line:       i + 1,
 						Col:        col + 1,
@@ -1141,7 +879,6 @@ func (r *VisibleForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.Cod
 			}
 		}
 	}
-	return findings
 }
 
 func extractDeclName(line string) string {
@@ -1161,16 +898,13 @@ func extractDeclName(line string) string {
 // types outside test source sets.
 type OpenForTestingCallerInNonTestRule struct {
 	BaseRule
-	index *scanner.CodeIndex
 }
 
 func (r *OpenForTestingCallerInNonTestRule) Confidence() float64 { return 0.75 }
-func (r *OpenForTestingCallerInNonTestRule) Check(_ *scanner.File) []scanner.Finding {
-	return nil
-}
-func (r *OpenForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding {
+func (r *OpenForTestingCallerInNonTestRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
 	if index == nil {
-		return nil
+		return
 	}
 
 	openForTestTypes := make(map[string]bool)
@@ -1196,10 +930,9 @@ func (r *OpenForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.CodeIn
 	}
 
 	if len(openForTestTypes) == 0 {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for _, file := range index.Files {
 		if isTestFile(file.Path) {
 			continue
@@ -1211,7 +944,7 @@ func (r *OpenForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.CodeIn
 					trimmed := strings.TrimSpace(line)
 					if strings.Contains(trimmed, "class ") && (strings.Contains(trimmed, ": "+typeName) || strings.Contains(trimmed, ":"+typeName)) {
 						col := strings.Index(line, typeName)
-						findings = append(findings, scanner.Finding{
+						ctx.Emit(scanner.Finding{
 							File:       file.Path,
 							Line:       i + 1,
 							Col:        col + 1,
@@ -1226,23 +959,19 @@ func (r *OpenForTestingCallerInNonTestRule) CheckCrossFile(index *scanner.CodeIn
 			}
 		}
 	}
-	return findings
 }
 
 // TestFixtureAccessedFromProductionRule flags usage of types declared under
 // src/testFixtures/ from non-test files.
 type TestFixtureAccessedFromProductionRule struct {
 	BaseRule
-	index *scanner.CodeIndex
 }
 
 func (r *TestFixtureAccessedFromProductionRule) Confidence() float64 { return 0.80 }
-func (r *TestFixtureAccessedFromProductionRule) Check(_ *scanner.File) []scanner.Finding {
-	return nil
-}
-func (r *TestFixtureAccessedFromProductionRule) CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding {
+func (r *TestFixtureAccessedFromProductionRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
 	if index == nil {
-		return nil
+		return
 	}
 
 	fixtureTypes := make(map[string]string)
@@ -1268,10 +997,9 @@ func (r *TestFixtureAccessedFromProductionRule) CheckCrossFile(index *scanner.Co
 	}
 
 	if len(fixtureTypes) == 0 {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for _, file := range index.Files {
 		if isTestFile(file.Path) || strings.Contains(file.Path, "/testFixtures/") {
 			continue
@@ -1280,7 +1008,7 @@ func (r *TestFixtureAccessedFromProductionRule) CheckCrossFile(index *scanner.Co
 			for typeName := range fixtureTypes {
 				if strings.Contains(line, typeName) {
 					col := strings.Index(line, typeName)
-					findings = append(findings, scanner.Finding{
+					ctx.Emit(scanner.Finding{
 						File:       file.Path,
 						Line:       i + 1,
 						Col:        col + 1,
@@ -1294,21 +1022,19 @@ func (r *TestFixtureAccessedFromProductionRule) CheckCrossFile(index *scanner.Co
 			}
 		}
 	}
-	return findings
 }
 
 // TimberTreeNotPlantedRule flags projects that use Timber.d/i/w/e but have
 // no Timber.plant() call reachable from Application.onCreate.
 type TimberTreeNotPlantedRule struct {
 	BaseRule
-	index *scanner.CodeIndex
 }
 
-func (r *TimberTreeNotPlantedRule) Confidence() float64                     { return 0.75 }
-func (r *TimberTreeNotPlantedRule) Check(_ *scanner.File) []scanner.Finding { return nil }
-func (r *TimberTreeNotPlantedRule) CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding {
+func (r *TimberTreeNotPlantedRule) Confidence() float64 { return 0.75 }
+func (r *TimberTreeNotPlantedRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
 	if index == nil {
-		return nil
+		return
 	}
 
 	var hasTimberUsage bool
@@ -1329,15 +1055,15 @@ func (r *TimberTreeNotPlantedRule) CheckCrossFile(index *scanner.CodeIndex) []sc
 			}
 		}
 		if hasTimberPlant {
-			return nil
+			return
 		}
 	}
 
 	if !hasTimberUsage || hasTimberPlant {
-		return nil
+		return
 	}
 
-	return []scanner.Finding{{
+	ctx.Emit(scanner.Finding{
 		File:       firstTimberUsage.Path,
 		Line:       firstTimberLine + 1,
 		Col:        1,
@@ -1346,7 +1072,7 @@ func (r *TimberTreeNotPlantedRule) CheckCrossFile(index *scanner.CodeIndex) []sc
 		Severity:   r.Sev,
 		Message:    "Timber is used but Timber.plant() was never called; logs will be silently dropped.",
 		Confidence: 0.7,
-	}}
+	})
 }
 
 var timberUsageRe = regexp.MustCompile(`Timber\.(v|d|i|w|e|wtf)\s*\(`)

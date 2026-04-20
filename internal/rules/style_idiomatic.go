@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -55,12 +56,13 @@ func flatNonNullCheckText(file *scanner.File, idx uint32, funcName string) (argT
 	return argText, lambdaText, true
 }
 
-func flatThrowPattern(nodeType, nodeText string, file *scanner.File, idx uint32, exceptionType, replacement string, base BaseRule) []scanner.Finding {
+func flatThrowPattern(ctx *v2.Context, nodeType, nodeText string, exceptionType, replacement string, base BaseRule) {
+	idx, file := ctx.Idx, ctx.File
 	if file == nil || nodeType != "if_expression" {
-		return nil
+		return
 	}
 	if strings.Contains(nodeText, "else") && file.FlatFindChild(idx, "else") != 0 {
-		return nil
+		return
 	}
 	var condNode, bodyNode uint32
 	for i := 0; i < file.FlatChildCount(idx); i++ {
@@ -77,7 +79,7 @@ func flatThrowPattern(nodeType, nodeText string, file *scanner.File, idx uint32,
 		}
 	}
 	if condNode == 0 || bodyNode == 0 {
-		return nil
+		return
 	}
 	condText := strings.TrimSpace(file.FlatNodeText(condNode))
 	isNegated := false
@@ -98,18 +100,18 @@ func flatThrowPattern(nodeType, nodeText string, file *scanner.File, idx uint32,
 		}
 	}
 	if !isNegated {
-		return nil
+		return
 	}
 	bodyText := strings.TrimSpace(file.FlatNodeText(bodyNode))
 	if strings.HasPrefix(bodyText, "{") && strings.HasSuffix(bodyText, "}") {
 		bodyText = strings.TrimSpace(bodyText[1 : len(bodyText)-1])
 	}
 	if !strings.HasPrefix(bodyText, "throw ") {
-		return nil
+		return
 	}
 	throwTarget := strings.TrimSpace(bodyText[6:])
 	if !strings.HasPrefix(throwTarget, exceptionType) {
-		return nil
+		return
 	}
 	f := base.Finding(file, file.FlatRow(idx)+1, 1, fmt.Sprintf("Use '%s()' instead of 'if (...) throw %s'.", replacement, exceptionType))
 	if argStart := strings.Index(throwTarget, "("); argStart >= 0 {
@@ -120,7 +122,7 @@ func flatThrowPattern(nodeType, nodeText string, file *scanner.File, idx uint32,
 			}
 		}
 	}
-	return []scanner.Finding{f}
+	ctx.Emit(f)
 }
 
 func flatNullOrEmptyNullCheckedVar(file *scanner.File, node uint32) string {
@@ -309,36 +311,6 @@ func (r *UseCheckNotNullRule) SetResolver(res typeinfer.TypeResolver) { r.resolv
 // checkNotNull over `if (x == null) throw`; pattern-based with resolver
 // used to confirm nullability when available. Classified per roadmap/17.
 func (r *UseCheckNotNullRule) Confidence() float64 { return 0.75 }
-func (r *UseCheckNotNullRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *UseCheckNotNullRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	argText, suffixText, ok := flatNonNullCheckText(file, idx, "check")
-	if !ok {
-		return nil
-	}
-	// If resolver is available, skip if the argument is known non-nullable
-	if r.resolver != nil {
-		resolved := r.resolver.ResolveByNameFlat(argText, idx, file)
-		if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
-			return nil
-		}
-	}
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Use 'checkNotNull(x)' instead of 'check(x != null)'.")
-	// Build replacement: checkNotNull(argText) plus any trailing lambda
-	replacement := "checkNotNull(" + argText + ")"
-	// Preserve trailing lambda (message): check(x != null) { "msg" } -> checkNotNull(x) { "msg" }
-	if suffixText != "" {
-		replacement += " " + suffixText
-	}
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(idx)),
-		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: replacement,
-	}
-	return []scanner.Finding{f}
-}
 
 // UseRequireNotNullRule detects require(x != null) and suggests requireNotNull(x).
 // Uses AST dispatch on call_expression for precise detection, handling both
@@ -356,36 +328,6 @@ func (r *UseRequireNotNullRule) SetResolver(res typeinfer.TypeResolver) { r.reso
 // requireNotNull over `if (x == null) throw IAE`; pattern-based with
 // resolver confirmation when available. Classified per roadmap/17.
 func (r *UseRequireNotNullRule) Confidence() float64 { return 0.75 }
-func (r *UseRequireNotNullRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *UseRequireNotNullRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	argText, suffixText, ok := flatNonNullCheckText(file, idx, "require")
-	if !ok {
-		return nil
-	}
-	// If resolver is available, skip if the argument is known non-nullable
-	if r.resolver != nil {
-		resolved := r.resolver.ResolveByNameFlat(argText, idx, file)
-		if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
-			return nil
-		}
-	}
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Use 'requireNotNull(x)' instead of 'require(x != null)'.")
-	// Build replacement: requireNotNull(argText) plus any trailing lambda
-	replacement := "requireNotNull(" + argText + ")"
-	// Preserve trailing lambda (message): require(x != null) { "msg" } -> requireNotNull(x) { "msg" }
-	if suffixText != "" {
-		replacement += " " + suffixText
-	}
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(idx)),
-		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: replacement,
-	}
-	return []scanner.Finding{f}
-}
 
 // UseCheckOrErrorRule detects `if (!x) throw IllegalStateException`.
 type UseCheckOrErrorRule struct {
@@ -399,14 +341,6 @@ type UseCheckOrErrorRule struct {
 // roadmap/17.
 func (r *UseCheckOrErrorRule) Confidence() float64 { return 0.75 }
 
-func (r *UseCheckOrErrorRule) NodeTypes() []string { return []string{"if_expression"} }
-
-func (r *UseCheckOrErrorRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	return flatThrowPattern(file.FlatType(idx), file.FlatNodeText(idx), file, idx, "IllegalStateException", "check", r.BaseRule)
-}
-
-func (r *UseCheckOrErrorRule) CheckLines(_ *scanner.File) []scanner.Finding { return nil }
-
 // UseRequireRule detects `if (!x) throw IllegalArgumentException`.
 type UseRequireRule struct {
 	FlatDispatchBase
@@ -418,14 +352,6 @@ type UseRequireRule struct {
 // replacement is actually clearer is context-dependent. Classified per
 // roadmap/17.
 func (r *UseRequireRule) Confidence() float64 { return 0.75 }
-
-func (r *UseRequireRule) NodeTypes() []string { return []string{"if_expression"} }
-
-func (r *UseRequireRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	return flatThrowPattern(file.FlatType(idx), file.FlatNodeText(idx), file, idx, "IllegalArgumentException", "require", r.BaseRule)
-}
-
-func (r *UseRequireRule) CheckLines(_ *scanner.File) []scanner.Finding { return nil }
 
 // UseIsNullOrEmptyRule detects `x == null || x.isEmpty()` and related patterns
 // such as `x == null || x.count() == 0`, `x == null || x.size == 0`,
@@ -445,8 +371,6 @@ func (r *UseIsNullOrEmptyRule) SetResolver(res typeinfer.TypeResolver) { r.resol
 // roadmap/17.
 func (r *UseIsNullOrEmptyRule) Confidence() float64 { return 0.75 }
 
-func (r *UseIsNullOrEmptyRule) NodeTypes() []string { return []string{"disjunction_expression"} }
-
 // isNullOrEmptySizeProps maps property names that indicate emptiness when == 0.
 var isNullOrEmptySizeProps = map[string]bool{
 	"size":   true,
@@ -463,95 +387,6 @@ var isNullOrEmptyEmptyFuncs = map[string]bool{
 	"isEmpty": true,
 }
 
-func (r *UseIsNullOrEmptyRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	compact := strings.ReplaceAll(file.FlatNodeText(idx), " ", "")
-	compact = strings.ReplaceAll(compact, "\n", "")
-	compact = strings.ReplaceAll(compact, "\t", "")
-	if m := useIsNullOrEmptyTextRe.FindStringSubmatch(compact); len(m) == 4 {
-		nullVar := m[1]
-		if nullVar == "" {
-			nullVar = m[2]
-		}
-		if nullVar != "" && nullVar == m[3] {
-			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				"Use 'isNullOrEmpty()' instead of 'x == null || x.isEmpty()'.")
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   int(file.FlatStartByte(idx)),
-				EndByte:     int(file.FlatEndByte(idx)),
-				Replacement: nullVar + ".isNullOrEmpty()",
-			}
-			return []scanner.Finding{f}
-		}
-	}
-
-	// disjunction_expression children: left, "||", right
-	if file.FlatChildCount(idx) < 3 {
-		return nil
-	}
-	left := file.FlatChild(idx, 0)
-	right := file.FlatChild(idx, file.FlatChildCount(idx)-1)
-
-	// LHS must be a null check: x == null or null == x
-	nullVar := flatNullOrEmptyNullCheckedVar(file, left)
-	if nullVar == "" {
-		return nil
-	}
-
-	// RHS must be an emptiness check on the same variable
-	emptyVar := flatNullOrEmptyEmptyCheckedVar(file, right)
-	if emptyVar == "" {
-		text := strings.ReplaceAll(file.FlatNodeText(idx), " ", "")
-		text = strings.ReplaceAll(text, "\n", "")
-		text = strings.ReplaceAll(text, "\t", "")
-		patterns := []string{
-			nullVar + "==null||" + nullVar + ".isEmpty()",
-			"null==" + nullVar + "||" + nullVar + ".isEmpty()",
-		}
-		for _, pattern := range patterns {
-			if text == pattern {
-				emptyVar = nullVar
-				break
-			}
-		}
-	}
-	if emptyVar == "" || emptyVar != nullVar {
-		return nil
-	}
-
-	// Skip if we're inside a function named isNullOrEmpty or isEmpty — the
-	// pattern is the idiomatic implementation of those functions and would
-	// become self-referential if rewritten.
-	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-		if file.FlatType(p) == "function_declaration" {
-			fnName := extractIdentifierFlat(file, p)
-			if fnName == "isNullOrEmpty" || fnName == "isEmpty" ||
-				fnName == "isNullOrBlank" || fnName == "isBlank" {
-				return nil
-			}
-			break
-		}
-	}
-
-	// If resolver is available, verify variable is actually nullable
-	if r.resolver != nil {
-		resolved := r.resolver.ResolveByNameFlat(nullVar, idx, file)
-		if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
-			return nil // variable is non-null, null check is unnecessary (different issue)
-		}
-	}
-
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Use 'isNullOrEmpty()' instead of 'x == null || x.isEmpty()'.")
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(idx)),
-		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: nullVar + ".isNullOrEmpty()",
-	}
-	return []scanner.Finding{f}
-}
-
 // UseOrEmptyRule detects `x ?: emptyList()` and similar patterns that can use .orEmpty().
 // Handles: emptyList/Set/Map/Array/Sequence(), listOf/setOf/mapOf/sequenceOf/arrayOf() with
 // no arguments, and empty string literals ("" / """""").
@@ -566,8 +401,6 @@ type UseOrEmptyRule struct {
 // replacement is actually clearer is context-dependent. Classified per
 // roadmap/17.
 func (r *UseOrEmptyRule) Confidence() float64 { return 0.75 }
-
-func (r *UseOrEmptyRule) NodeTypes() []string { return []string{"elvis_expression"} }
 
 // useOrEmptyFunctions maps callee names that represent empty collections/sequences.
 var useOrEmptyFunctions = map[string]bool{
@@ -597,58 +430,6 @@ func lhsNeedsParensFlat(file *scanner.File, idx uint32) bool {
 	}
 }
 
-func (r *UseOrEmptyRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// elvis_expression: child(0) = LHS, child(1) = "?:", child(2) = RHS
-	if file.FlatChildCount(idx) < 3 {
-		return nil
-	}
-	left := file.FlatChild(idx, 0)
-	right := file.FlatChild(idx, 2)
-	if left == 0 || right == 0 {
-		return nil
-	}
-
-	if !flatIsEmptyRHS(file, right) {
-		return nil
-	}
-
-	leftText := file.FlatNodeText(left)
-	// Skip when LHS contains a safe-call chain — rewriting `a?.b ?: ""`
-	// to `a?.b.orEmpty()` applies `.orEmpty()` to `b`, not to the chain.
-	if strings.Contains(leftText, "?.") {
-		return nil
-	}
-	// Skip when LHS is a `?.let { }` expression — the rewrite would be
-	// misleading.
-	if strings.Contains(leftText, "?.let") {
-		return nil
-	}
-
-	rightText := strings.TrimSpace(file.FlatNodeText(right))
-	// Skip Array? fallbacks — `Array<T>?.orEmpty()` returns `Array<out T>`
-	// which is not assignable to invariant `Array<T>`.
-	if strings.HasPrefix(rightText, "emptyArray(") {
-		return nil
-	}
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		fmt.Sprintf("Use '.orEmpty()' instead of '?: %s'.", rightText))
-
-	var replacement string
-	if lhsNeedsParensFlat(file, left) {
-		replacement = "(" + leftText + ").orEmpty()"
-	} else {
-		replacement = leftText + ".orEmpty()"
-	}
-
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(idx)),
-		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: replacement,
-	}
-	return []scanner.Finding{f}
-}
-
 // UseAnyOrNoneInsteadOfFindRule detects `.find {} != null` and `.find {} == null`
 // (and also firstOrNull / lastOrNull variants).
 // Uses AST dispatch on equality_expression for precise detection.
@@ -669,91 +450,6 @@ var anyOrNoneFindFuncs = map[string]bool{
 // replacement is actually clearer is context-dependent. Classified per
 // roadmap/17.
 func (r *UseAnyOrNoneInsteadOfFindRule) Confidence() float64 { return 0.75 }
-
-func (r *UseAnyOrNoneInsteadOfFindRule) NodeTypes() []string {
-	return []string{"equality_expression"}
-}
-
-func (r *UseAnyOrNoneInsteadOfFindRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// equality_expression children: left, operator (== or !=), right
-	if file.FlatChildCount(idx) < 3 {
-		return nil
-	}
-	left := file.FlatChild(idx, 0)
-	op := file.FlatChild(idx, 1)
-	right := file.FlatChild(idx, file.FlatChildCount(idx)-1)
-	if left == 0 || op == 0 || right == 0 {
-		return nil
-	}
-	opText := file.FlatNodeText(op)
-
-	var replacement string
-	leftText := strings.TrimSpace(file.FlatNodeText(left))
-	rightText := strings.TrimSpace(file.FlatNodeText(right))
-
-	isNullLeft := leftText == "null"
-	isNullRight := rightText == "null"
-	if !isNullLeft && !isNullRight {
-		return nil
-	}
-
-	switch opText {
-	case "!=":
-		replacement = "any"
-	case "==":
-		replacement = "none"
-	default:
-		return nil
-	}
-
-	callSideIdx := left
-	if isNullLeft {
-		callSideIdx = right
-	}
-	if file.FlatType(callSideIdx) != "call_expression" {
-		return nil
-	}
-	nav := file.FlatFindChild(callSideIdx, "navigation_expression")
-	if nav == 0 {
-		return nil
-	}
-
-	// Extract the function name from the navigation_expression's last navigation_suffix.
-	if flatLastChildOfType(file, nav, "navigation_suffix") == 0 {
-		return nil
-	}
-	funcName := flatNavigationExpressionLastIdentifier(file, nav)
-	if !anyOrNoneFindFuncs[funcName] {
-		return nil
-	}
-	// Ensure the call has a trailing lambda (the predicate)
-	callSuffix := file.FlatFindChild(callSideIdx, "call_suffix")
-	if callSuffix == 0 {
-		return nil
-	}
-	lambda := flatCallSuffixLambdaNode(file, callSuffix)
-	if lambda == 0 {
-		return nil
-	}
-
-	// Extract receiver text (everything before .find)
-	receiver := file.FlatNamedChild(nav, 0)
-	if receiver == 0 {
-		return nil
-	}
-	receiverText := file.FlatNodeText(receiver)
-	lambdaText := file.FlatNodeText(lambda)
-
-	msg := fmt.Sprintf("Use '.%s {}' instead of '.%s {} %s null'.", replacement, funcName, opText)
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(idx)),
-		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: receiverText + "." + replacement + " " + lambdaText,
-	}
-	return []scanner.Finding{f}
-}
 
 // UseEmptyCounterpartRule detects `listOf()` etc. with no arguments.
 // Uses AST dispatch on call_expression for precise detection, matching
@@ -779,45 +475,4 @@ var emptyCounterparts = map[string]string{
 // roadmap/17.
 func (r *UseEmptyCounterpartRule) Confidence() float64 { return 0.75 }
 
-func (r *UseEmptyCounterpartRule) NodeTypes() []string { return []string{"call_expression"} }
 
-func (r *UseEmptyCounterpartRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// First child should be the callee identifier
-	if file.FlatChildCount(idx) == 0 {
-		return nil
-	}
-	callee := file.FlatChild(idx, 0)
-	if callee == 0 || file.FlatType(callee) != "simple_identifier" {
-		return nil
-	}
-	calleeName := file.FlatNodeText(callee)
-	replacement, ok := emptyCounterparts[calleeName]
-	if !ok {
-		return nil
-	}
-	// Find call_suffix and check that value_arguments has zero arguments
-	suffix := file.FlatFindChild(idx, "call_suffix")
-	if suffix == 0 {
-		return nil
-	}
-	args := flatCallSuffixValueArgs(file, suffix)
-	if args == 0 {
-		return nil
-	}
-	// Check that there are no actual argument children inside value_arguments
-	for i := 0; i < file.FlatChildCount(args); i++ {
-		child := file.FlatChild(args, i)
-		if file.FlatType(child) == "value_argument" {
-			return nil
-		}
-	}
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		fmt.Sprintf("Use '%s()' instead of '%s()'.", replacement, calleeName))
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(idx)),
-		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: replacement + "()",
-	}
-	return []scanner.Finding{f}
-}

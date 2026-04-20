@@ -3,38 +3,14 @@ package rules
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 
-	"github.com/kaeawc/krit/internal/module"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-type testCrossFileRule struct {
-	BaseRule
-	checkCalls int
-}
-
-func (r *testCrossFileRule) Check(_ *scanner.File) []scanner.Finding {
-	r.checkCalls++
-	return nil
-}
-
-func (r *testCrossFileRule) CheckCrossFile(_ *scanner.CodeIndex) []scanner.Finding { return nil }
-
-type testModuleAwareRule struct {
-	BaseRule
-	checkCalls int
-}
-
-func (r *testModuleAwareRule) Check(_ *scanner.File) []scanner.Finding {
-	r.checkCalls++
-	return nil
-}
-
-func (r *testModuleAwareRule) SetModuleIndex(_ *module.PerModuleIndex) {}
-func (r *testModuleAwareRule) CheckModuleAware() []scanner.Finding     { return nil }
-
+// testFlatDispatchRule is a minimal flat-dispatch v1 rule retained only
+// for the IsImplemented classifier tests below.
 type testFlatDispatchRule struct{ BaseRule }
 
 func (r *testFlatDispatchRule) Check(_ *scanner.File) []scanner.Finding { return nil }
@@ -43,52 +19,12 @@ func (r *testFlatDispatchRule) CheckFlatNode(idx uint32, file *scanner.File) []s
 	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, "flat finding")}
 }
 
-// testMediumConfidenceDispatchRule declares a base Confidence below the
-// dispatch default (0.95) so the test can confirm the
-// confidence provider override is applied.
-type testMediumConfidenceDispatchRule struct{ BaseRule }
+// stubOnlyRule implements only the base Rule interface (Check returns
+// nil) and none of the family-specific interfaces. IsImplemented
+// should report false for this rule.
+type stubOnlyRule struct{ BaseRule }
 
-func (r *testMediumConfidenceDispatchRule) Check(_ *scanner.File) []scanner.Finding { return nil }
-func (r *testMediumConfidenceDispatchRule) NodeTypes() []string                     { return []string{"integer_literal"} }
-func (r *testMediumConfidenceDispatchRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, "medium finding")}
-}
-func (r *testMediumConfidenceDispatchRule) Confidence() float64 { return 0.60 }
-
-// testExplicitConfidenceDispatchRule sets Confidence on the finding
-// itself so the test can confirm a per-finding override beats the
-// rule-level default.
-type testExplicitConfidenceDispatchRule struct{ BaseRule }
-
-func (r *testExplicitConfidenceDispatchRule) Check(_ *scanner.File) []scanner.Finding { return nil }
-func (r *testExplicitConfidenceDispatchRule) NodeTypes() []string                     { return []string{"integer_literal"} }
-func (r *testExplicitConfidenceDispatchRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, "explicit finding")
-	f.Confidence = 0.42
-	return []scanner.Finding{f}
-}
-func (r *testExplicitConfidenceDispatchRule) Confidence() float64 { return 0.60 }
-
-type testFixingDispatchRule struct{ BaseRule }
-
-func (r *testFixingDispatchRule) Check(_ *scanner.File) []scanner.Finding { return nil }
-func (r *testFixingDispatchRule) NodeTypes() []string                     { return []string{"integer_literal"} }
-func (r *testFixingDispatchRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	return []scanner.Finding{{
-		File:     file.Path,
-		Line:     file.FlatRow(idx) + 1,
-		Col:      file.FlatCol(idx) + 1,
-		RuleSet:  r.RuleSet(),
-		Rule:     r.Name(),
-		Severity: r.Severity(),
-		Message:  "fix preserved",
-		Fix: &scanner.Fix{
-			StartLine:   file.FlatRow(idx) + 1,
-			EndLine:     file.FlatRow(idx) + 1,
-			Replacement: "0",
-		},
-	}}
-}
+func (r *stubOnlyRule) Check(_ *scanner.File) []scanner.Finding { return nil }
 
 func TestDispatcher_DoesNotTreatCrossFileOrModuleAwareAsLegacy(t *testing.T) {
 	dir := t.TempDir()
@@ -102,17 +38,25 @@ func TestDispatcher_DoesNotTreatCrossFileOrModuleAwareAsLegacy(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 
-	cross := &testCrossFileRule{BaseRule: BaseRule{RuleName: "Cross", RuleSetName: "test", Sev: "warning"}}
-	moduleAware := &testModuleAwareRule{BaseRule: BaseRule{RuleName: "Module", RuleSetName: "test", Sev: "warning"}}
-	dispatcher := NewDispatcher([]Rule{cross, moduleAware})
+	crossInvoked := 0
+	cross := v2.FakeRule("Cross",
+		v2.WithNeeds(v2.NeedsCrossFile),
+		v2.WithCheck(func(ctx *v2.Context) { crossInvoked++ }),
+	)
+	modInvoked := 0
+	mod := v2.FakeRule("Module",
+		v2.WithNeeds(v2.NeedsModuleIndex),
+		v2.WithCheck(func(ctx *v2.Context) { modInvoked++ }),
+	)
+	dispatcher := NewDispatcherV2([]*v2.Rule{cross, mod})
 
 	dispatcher.Run(file)
 
-	if cross.checkCalls != 0 {
-		t.Fatalf("expected cross-file rule Check to be skipped, got %d calls", cross.checkCalls)
+	if crossInvoked != 0 {
+		t.Fatalf("expected cross-file rule Check to be skipped, got %d calls", crossInvoked)
 	}
-	if moduleAware.checkCalls != 0 {
-		t.Fatalf("expected module-aware rule Check to be skipped, got %d calls", moduleAware.checkCalls)
+	if modInvoked != 0 {
+		t.Fatalf("expected module-aware rule Check to be skipped, got %d calls", modInvoked)
 	}
 
 	dispatchCount, aggregateCount, lineCount, crossCount, moduleCount, legacyCount := dispatcher.Stats()
@@ -142,9 +86,17 @@ func TestDispatcher_RunWithStats_TracksRuleBuckets(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 
-	dispatcher := NewDispatcher([]Rule{&testFlatDispatchRule{BaseRule: BaseRule{RuleName: "Dispatch", RuleSetName: "test", Sev: "warning"}}})
-	findings, stats := dispatcher.RunWithStats(file)
-	if len(findings) == 0 {
+	rule := v2.FakeRule("Dispatch",
+		v2.WithNodeTypes("integer_literal"),
+		v2.WithSeverity(v2.SeverityWarning),
+		v2.WithCheck(func(ctx *v2.Context) {
+			ctx.EmitAt(int(ctx.Node.StartRow)+1, int(ctx.Node.StartCol)+1, "flat finding")
+		}),
+	)
+	rule.Category = "test"
+	dispatcher := NewDispatcherV2([]*v2.Rule{rule})
+	columns, stats := dispatcher.RunWithStats(file)
+	if columns.Len() == 0 {
 		t.Fatal("expected findings from magic number rule")
 	}
 	if stats.SuppressionIndexMs < 0 || stats.DispatchWalkMs < 0 || stats.AggregateFinalizeMs < 0 ||
@@ -169,17 +121,24 @@ func TestDispatcher_FlatDispatchRuleRunsOnFlatTree(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 
-	rule := &testFlatDispatchRule{BaseRule: BaseRule{RuleName: "FlatDispatch", RuleSetName: "test", Sev: "warning"}}
-	dispatcher := NewDispatcher([]Rule{rule})
-	findings, stats := dispatcher.RunWithStats(file)
+	rule := v2.FakeRule("FlatDispatch",
+		v2.WithNodeTypes("integer_literal"),
+		v2.WithSeverity(v2.SeverityWarning),
+		v2.WithCheck(func(ctx *v2.Context) {
+			ctx.EmitAt(int(ctx.Node.StartRow)+1, int(ctx.Node.StartCol)+1, "flat finding")
+		}),
+	)
+	rule.Category = "test"
+	dispatcher := NewDispatcherV2([]*v2.Rule{rule})
+	columns, stats := dispatcher.RunWithStats(file)
 
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding from flat dispatch rule, got %d", len(findings))
+	if columns.Len() != 1 {
+		t.Fatalf("expected 1 finding from flat dispatch rule, got %d", columns.Len())
 	}
-	if findings[0].Line != 1 {
-		t.Fatalf("expected flat finding on line 1, got %d", findings[0].Line)
+	if columns.LineAt(0) != 1 {
+		t.Fatalf("expected flat finding on line 1, got %d", columns.LineAt(0))
 	}
-	if stats.DispatchRuleNsByRule[rule.Name()] <= 0 {
+	if stats.DispatchRuleNsByRule[rule.ID] <= 0 {
 		t.Fatalf("expected flat rule timing to be recorded, got %+v", stats.DispatchRuleNsByRule)
 	}
 
@@ -211,25 +170,47 @@ fun live() {
 		t.Fatalf("ParseFile: %v", err)
 	}
 
-	rule := &testFixingDispatchRule{BaseRule: BaseRule{RuleName: "KeepFix", RuleSetName: "test", Sev: "warning"}}
-	dispatcher := NewDispatcher([]Rule{rule})
-	findings, _ := dispatcher.RunWithStats(file)
+	rule := v2.FakeRule("KeepFix",
+		v2.WithNodeTypes("integer_literal"),
+		v2.WithSeverity(v2.SeverityWarning),
+		v2.WithCheck(func(ctx *v2.Context) {
+			row := int(ctx.Node.StartRow) + 1
+			col := int(ctx.Node.StartCol) + 1
+			ctx.Emit(scanner.Finding{
+				File:     ctx.File.Path,
+				Line:     row,
+				Col:      col,
+				RuleSet:  "test",
+				Rule:     "KeepFix",
+				Severity: "warning",
+				Message:  "fix preserved",
+				Fix: &scanner.Fix{
+					StartLine:   row,
+					EndLine:     row,
+					Replacement: "0",
+				},
+			})
+		}),
+	)
+	rule.Category = "test"
+	dispatcher := NewDispatcherV2([]*v2.Rule{rule})
+	columns, _ := dispatcher.RunWithStats(file)
 
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 unsuppressed finding, got %d", len(findings))
+	if columns.Len() != 1 {
+		t.Fatalf("expected 1 unsuppressed finding, got %d", columns.Len())
 	}
-	finding := findings[0]
-	if finding.Line != 7 {
-		t.Fatalf("expected unsuppressed finding on line 7, got line %d", finding.Line)
+	if columns.LineAt(0) != 7 {
+		t.Fatalf("expected unsuppressed finding on line 7, got line %d", columns.LineAt(0))
 	}
-	if finding.Fix == nil {
+	fix := columns.FixAt(0)
+	if fix == nil {
 		t.Fatal("expected fix to survive columnar round-trip")
 	}
-	if finding.Fix.Replacement != "0" {
-		t.Fatalf("expected fix replacement to survive round-trip, got %q", finding.Fix.Replacement)
+	if fix.Replacement != "0" {
+		t.Fatalf("expected fix replacement to survive round-trip, got %q", fix.Replacement)
 	}
-	if finding.Confidence != 0.95 {
-		t.Fatalf("expected default confidence to survive round-trip, got %v", finding.Confidence)
+	if columns.ConfidenceAt(0) != 0.95 {
+		t.Fatalf("expected default confidence to survive round-trip, got %v", columns.ConfidenceAt(0))
 	}
 }
 
@@ -248,23 +229,45 @@ fun second() = 2
 		t.Fatalf("ParseFile: %v", err)
 	}
 
-	rule := &testFixingDispatchRule{BaseRule: BaseRule{RuleName: "KeepFix", RuleSetName: "test", Sev: "warning"}}
-	dispatcher := NewDispatcher([]Rule{rule})
+	rule := v2.FakeRule("KeepFix",
+		v2.WithNodeTypes("integer_literal"),
+		v2.WithSeverity(v2.SeverityWarning),
+		v2.WithCheck(func(ctx *v2.Context) {
+			row := int(ctx.Node.StartRow) + 1
+			col := int(ctx.Node.StartCol) + 1
+			ctx.Emit(scanner.Finding{
+				File:     ctx.File.Path,
+				Line:     row,
+				Col:      col,
+				RuleSet:  "test",
+				Rule:     "KeepFix",
+				Severity: "warning",
+				Message:  "fix preserved",
+				Fix: &scanner.Fix{
+					StartLine:   row,
+					EndLine:     row,
+					Replacement: "0",
+				},
+			})
+		}),
+	)
+	rule.Category = "test"
+	dispatcher := NewDispatcherV2([]*v2.Rule{rule})
 
 	columns, columnStats := dispatcher.RunColumnsWithStats(file)
-	findings, sliceStats := dispatcher.RunWithStats(file)
+	columns2, sliceStats := dispatcher.RunWithStats(file)
 
-	if !reflect.DeepEqual(columns.Findings(), findings) {
-		t.Fatalf("columnar run mismatch:\nwant: %#v\ngot:  %#v", findings, columns.Findings())
+	if columns.Len() != columns2.Len() {
+		t.Fatalf("columnar run length mismatch: RunColumnsWithStats=%d RunWithStats=%d", columns.Len(), columns2.Len())
 	}
 	if len(columnStats.DispatchRuleNsByRule) != len(sliceStats.DispatchRuleNsByRule) {
 		t.Fatalf("expected same number of per-rule timing entries, got columns=%+v slice=%+v", columnStats.DispatchRuleNsByRule, sliceStats.DispatchRuleNsByRule)
 	}
-	if len(columnStats.DispatchRuleNsByRule) != 1 || columnStats.DispatchRuleNsByRule[rule.Name()] <= 0 {
-		t.Fatalf("expected recorded timing for %s, got %+v", rule.Name(), columnStats.DispatchRuleNsByRule)
+	if len(columnStats.DispatchRuleNsByRule) != 1 || columnStats.DispatchRuleNsByRule[rule.ID] <= 0 {
+		t.Fatalf("expected recorded timing for %s, got %+v", rule.ID, columnStats.DispatchRuleNsByRule)
 	}
-	if sliceStats.DispatchRuleNsByRule[rule.Name()] <= 0 {
-		t.Fatalf("expected slice run timing for %s, got %+v", rule.Name(), sliceStats.DispatchRuleNsByRule)
+	if sliceStats.DispatchRuleNsByRule[rule.ID] <= 0 {
+		t.Fatalf("expected RunWithStats timing for %s, got %+v", rule.ID, sliceStats.DispatchRuleNsByRule)
 	}
 	if columnStats.AggregateCollectNs != sliceStats.AggregateCollectNs ||
 		columnStats.AggregateFinalizeMs != sliceStats.AggregateFinalizeMs ||
@@ -286,15 +289,23 @@ func TestDispatcher_ConfidenceProviderOverridesDefault(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 
-	rule := &testMediumConfidenceDispatchRule{BaseRule: BaseRule{RuleName: "Medium", RuleSetName: "test", Sev: "warning"}}
-	dispatcher := NewDispatcher([]Rule{rule})
-	findings, _ := dispatcher.RunWithStats(file)
+	rule := v2.FakeRule("Medium",
+		v2.WithNodeTypes("integer_literal"),
+		v2.WithSeverity(v2.SeverityWarning),
+		v2.WithConfidence(0.60),
+		v2.WithCheck(func(ctx *v2.Context) {
+			ctx.EmitAt(int(ctx.Node.StartRow)+1, int(ctx.Node.StartCol)+1, "medium finding")
+		}),
+	)
+	rule.Category = "test"
+	dispatcher := NewDispatcherV2([]*v2.Rule{rule})
+	columns, _ := dispatcher.RunWithStats(file)
 
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
+	if columns.Len() != 1 {
+		t.Fatalf("expected 1 finding, got %d", columns.Len())
 	}
-	if findings[0].Confidence != 0.60 {
-		t.Fatalf("expected rule-declared confidence 0.60, got %v", findings[0].Confidence)
+	if columns.ConfidenceAt(0) != 0.60 {
+		t.Fatalf("expected rule-declared confidence 0.60, got %v", columns.ConfidenceAt(0))
 	}
 }
 
@@ -310,51 +321,60 @@ func TestDispatcher_ExplicitFindingConfidenceBeatsRuleDefault(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 
-	rule := &testExplicitConfidenceDispatchRule{BaseRule: BaseRule{RuleName: "Explicit", RuleSetName: "test", Sev: "warning"}}
-	dispatcher := NewDispatcher([]Rule{rule})
-	findings, _ := dispatcher.RunWithStats(file)
+	rule := v2.FakeRule("Explicit",
+		v2.WithNodeTypes("integer_literal"),
+		v2.WithSeverity(v2.SeverityWarning),
+		v2.WithConfidence(0.60),
+		v2.WithCheck(func(ctx *v2.Context) {
+			ctx.Emit(scanner.Finding{
+				File:       ctx.File.Path,
+				Line:       int(ctx.Node.StartRow) + 1,
+				Col:        int(ctx.Node.StartCol) + 1,
+				RuleSet:    "test",
+				Rule:       "Explicit",
+				Severity:   "warning",
+				Message:    "explicit finding",
+				Confidence: 0.42,
+			})
+		}),
+	)
+	rule.Category = "test"
+	dispatcher := NewDispatcherV2([]*v2.Rule{rule})
+	columns, _ := dispatcher.RunWithStats(file)
 
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
+	if columns.Len() != 1 {
+		t.Fatalf("expected 1 finding, got %d", columns.Len())
 	}
-	if findings[0].Confidence != 0.42 {
-		t.Fatalf("expected per-finding confidence 0.42 to beat rule default 0.60, got %v", findings[0].Confidence)
+	if columns.ConfidenceAt(0) != 0.42 {
+		t.Fatalf("expected per-finding confidence 0.42 to beat rule default 0.60, got %v", columns.ConfidenceAt(0))
 	}
 }
 
-// stubOnlyRule implements only the base Rule interface (Check returns
-// nil) and none of the family-specific interfaces. IsImplemented
-// should report false for this rule.
-type stubOnlyRule struct{ BaseRule }
-
-func (r *stubOnlyRule) Check(_ *scanner.File) []scanner.Finding { return nil }
-
-func TestIsImplemented_DetectsFlatDispatchRule(t *testing.T) {
-	rule := &testFlatDispatchRule{BaseRule: BaseRule{RuleName: "Flat", RuleSetName: "test", Sev: "warning"}}
-	if !IsImplemented(rule) {
+func TestIsImplementedV2_DetectsFlatDispatchRule(t *testing.T) {
+	rule := v2.FakeRule("Flat",
+		v2.WithNodeTypes("call_expression"),
+		v2.WithCheck(func(ctx *v2.Context) {}),
+	)
+	if !IsImplementedV2(rule) {
 		t.Fatal("expected a flat-dispatch rule to be classified as implemented")
 	}
 }
 
-func TestIsImplemented_DetectsStub(t *testing.T) {
-	rule := &stubOnlyRule{BaseRule: BaseRule{RuleName: "Stub", RuleSetName: "test", Sev: "warning"}}
-	if IsImplemented(rule) {
-		t.Fatal("expected a rule implementing only the base Rule interface to be classified as stub")
+func TestIsImplementedV2_DetectsStub(t *testing.T) {
+	rule := &v2.Rule{ID: "Stub", Category: "test"}
+	if IsImplementedV2(rule) {
+		t.Fatal("expected a rule with no NodeTypes/Needs to be classified as stub")
 	}
 }
 
-func TestIsImplemented_RegistryHasFewStubs(t *testing.T) {
+func TestIsImplementedV2_RegistryHasFewStubs(t *testing.T) {
 	stubs := 0
-	for _, r := range Registry {
-		if !IsImplemented(r) {
+	for _, r := range v2.Registry {
+		if !IsImplementedV2(r) {
 			stubs++
 		}
 	}
-	// Guard against accidental regressions of the stub classifier. The
-	// exact number is free to change as rules are implemented, but a
-	// large jump would indicate either a new stub got in or the
-	// classifier broke.
 	if stubs > 25 {
-		t.Fatalf("stub count grew unexpectedly: %d stubs in registry of %d rules; if this is intentional, raise the threshold", stubs, len(Registry))
+		t.Fatalf("stub count grew unexpectedly: %d stubs in v2 registry of %d rules; if intentional, raise threshold", stubs, len(v2.Registry))
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -25,7 +26,7 @@ type AndroidInput struct {
 	Project *android.AndroidProject
 	// ActiveRules is used to derive the set of active rule names (for
 	// icon rule dispatch) and resource dependency mask.
-	ActiveRules []rules.Rule
+	ActiveRules []*v2.Rule
 	// Dispatcher routes manifest/resource/gradle rule execution. When
 	// nil, Run returns no findings (but still walks the project for
 	// parity with the pre-refactor empty-dispatcher behavior).
@@ -64,18 +65,24 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 	collector := scanner.NewFindingCollector(len(in.Project.ManifestPaths)*4 + len(in.Project.ResDirs)*8 + len(in.Project.GradlePaths)*4)
 
 	for _, rule := range in.ActiveRules {
-		activeNames[rule.Name()] = true
+		if rule != nil {
+			activeNames[rule.ID] = true
+		}
 	}
 	var resourceDeps rules.AndroidDataDependency
 	for _, rule := range in.ActiveRules {
-		if rules.AndroidDependenciesOf(rule)&(rules.AndroidDepValues|rules.AndroidDepLayout|rules.AndroidDepResources|rules.AndroidDepValuesStrings|rules.AndroidDepValuesPlurals|rules.AndroidDepValuesArrays|rules.AndroidDepValuesExtraText) != 0 {
-			resourceDeps |= rules.AndroidDependenciesOf(rule)
+		if rule == nil {
+			continue
+		}
+		dep := rules.AndroidDataDependency(rule.AndroidDeps)
+		if dep&(rules.AndroidDepValues|rules.AndroidDepLayout|rules.AndroidDepResources|rules.AndroidDepValuesStrings|rules.AndroidDepValuesPlurals|rules.AndroidDepValuesArrays|rules.AndroidDepValuesExtraText) != 0 {
+			resourceDeps |= dep
 		}
 	}
 	valueKinds := androidValuesScanKinds(resourceDeps)
 	providers := in.Providers
 	if providers == nil {
-		providers = NewAndroidProjectProviders(in.Project, CollectAndroidDependencies(in.ActiveRules), runtime.NumCPU())
+		providers = NewAndroidProjectProviders(in.Project, CollectAndroidDependenciesV2(in.ActiveRules), runtime.NumCPU())
 	}
 
 	tracker := in.Tracker
@@ -105,7 +112,8 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 				Language: scanner.LangXML,
 				Metadata: manifest,
 			}
-			collector.AppendAll(in.Dispatcher.RunManifest(file, manifest))
+			cols := in.Dispatcher.RunManifest(file, manifest)
+			collector.AppendColumns(&cols)
 		}
 		manifestRuleDur += time.Since(start)
 	}
@@ -205,7 +213,8 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 					Language: scanner.LangXML,
 					Metadata: mergedIdx,
 				}
-				collector.AppendAll(in.Dispatcher.RunResource(file, mergedIdx))
+				cols := in.Dispatcher.RunResource(file, mergedIdx)
+				collector.AppendColumns(&cols)
 			}
 			resourceRulesDur += time.Since(start)
 		}
@@ -274,7 +283,8 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 				Content:  content,
 				Metadata: cfg,
 			}
-			collector.AppendAll(in.Dispatcher.RunGradle(file, cfg))
+			cols := in.Dispatcher.RunGradle(file, cfg)
+			collector.AppendColumns(&cols)
 		}
 		gradleRulesDur += time.Since(start)
 	}
@@ -374,13 +384,16 @@ func (p *AndroidProjectProviders) icon(resDir string) *android.IconScanFuture {
 	return p.iconFutures[resDir]
 }
 
-// CollectAndroidDependencies returns the union of every active rule's
-// Android data dependency mask. Used to decide which resource/icon
-// futures to spin up.
-func CollectAndroidDependencies(activeRules []rules.Rule) rules.AndroidDataDependency {
+// CollectAndroidDependenciesV2 reads AndroidDeps directly from
+// v2.Rule.AndroidDeps, falling back to the v1 wrapper for rules that
+// set the field at registration time.
+func CollectAndroidDependenciesV2(activeRules []*v2.Rule) rules.AndroidDataDependency {
 	var deps rules.AndroidDataDependency
-	for _, rule := range activeRules {
-		deps |= rules.AndroidDependenciesOf(rule)
+	for _, r := range activeRules {
+		if r == nil {
+			continue
+		}
+		deps |= rules.AndroidDataDependency(r.AndroidDeps)
 	}
 	return deps
 }
@@ -550,25 +563,25 @@ func RunActiveIconChecks(idx *android.IconIndex, activeNames map[string]bool) []
 func runActiveIconChecksColumns(idx *android.IconIndex, activeNames map[string]bool) scanner.FindingColumns {
 	collector := scanner.NewFindingCollector(8)
 	if activeNames["IconDensities"] {
-		collector.AppendAll(rules.CheckIconDensities(idx))
+		rules.CheckIconDensities(idx, collector)
 	}
 	if activeNames["IconDipSize"] {
-		collector.AppendAll(rules.CheckIconDipSize(idx))
+		rules.CheckIconDipSize(idx, collector)
 	}
 	if activeNames["IconDuplicates"] {
-		collector.AppendAll(rules.CheckIconDuplicates(idx))
+		rules.CheckIconDuplicates(idx, collector)
 	}
 	if activeNames["GifUsage"] {
-		collector.AppendAll(rules.CheckGifUsage(idx))
+		rules.CheckGifUsage(idx, collector)
 	}
 	if activeNames["ConvertToWebp"] {
-		collector.AppendAll(rules.CheckConvertToWebp(idx))
+		rules.CheckConvertToWebp(idx, collector)
 	}
 	if activeNames["IconMissingDensityFolder"] {
-		collector.AppendAll(rules.CheckIconMissingDensityFolder(idx))
+		rules.CheckIconMissingDensityFolder(idx, collector)
 	}
 	if activeNames["IconExpectedSize"] {
-		collector.AppendAll(rules.CheckIconExpectedSize(idx))
+		rules.CheckIconExpectedSize(idx, collector)
 	}
 	return *collector.Columns()
 }

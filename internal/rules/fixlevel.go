@@ -1,5 +1,7 @@
 package rules
 
+import v2 "github.com/kaeawc/krit/internal/rules/v2"
+
 // FixLevel indicates how safe an auto-fix is.
 type FixLevel int
 
@@ -40,29 +42,27 @@ func ParseFixLevel(s string) (FixLevel, bool) {
 	}
 }
 
-// Fixable rules declare their safety level structurally by exposing a
-// `FixLevel() FixLevel` method. GetFixLevel type-asserts to an anonymous
-// interface at the call site; rules without the method default to FixSemantic.
-
-// v2FixLevelCarrier is the interface implemented by v2 compat wrappers that
-// carry a fix level from the underlying v2.Rule. It returns the level as an
-// int to avoid an import cycle between rules and rules/v2. A zero value means
-// the wrapped rule declared no fix level.
-type v2FixLevelCarrier interface {
-	V1FixLevel() int
-}
-
-// GetFixLevel returns the fix level of a rule (defaults to FixSemantic).
-func GetFixLevel(r Rule) FixLevel {
-	if fl, ok := r.(interface{ FixLevel() FixLevel }); ok {
-		return fl.FixLevel()
+// GetV2FixLevel returns the fix level for a v2 rule. It reads r.Fix when set
+// (non-zero), otherwise falls back to the v1 OriginalV1 FixLevel() method.
+// Returns (0, false) when the rule is not fixable.
+func GetV2FixLevel(r *v2.Rule) (FixLevel, bool) {
+	if r == nil {
+		return 0, false
 	}
-	if v, ok := r.(v2FixLevelCarrier); ok {
-		if lvl := v.V1FixLevel(); lvl != 0 {
-			return FixLevel(lvl)
+	// Fast path: fix level already encoded in v2.Rule.Fix.
+	if r.Fix != v2.FixNone {
+		return FixLevel(r.Fix), true
+	}
+	// Fall back to v1 OriginalV1 FixLevel method.
+	if r.OriginalV1 != nil {
+		if fl, ok := r.OriginalV1.(interface{ FixLevel() FixLevel }); ok {
+			lvl := fl.FixLevel()
+			if lvl != 0 {
+				return lvl, true
+			}
 		}
 	}
-	return FixSemantic
+	return 0, false
 }
 
 // --- cosmetic: whitespace, formatting, comments only ---

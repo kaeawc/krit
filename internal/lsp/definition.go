@@ -5,7 +5,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/rules"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -470,9 +470,9 @@ func ruleNameCompletions(typed string) []CompletionItem {
 }
 
 func registeredRuleNames() []string {
-	var names []string
-	for _, r := range rules.Registry {
-		names = append(names, r.Name())
+	names := make([]string, 0, len(v2.Registry))
+	for _, r := range v2.Registry {
+		names = append(names, r.ID)
 	}
 	return names
 }

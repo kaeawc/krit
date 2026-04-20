@@ -6,6 +6,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -31,33 +32,32 @@ func (r *UnsafeCastRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = 
 // the same locations from a different angle.
 func (r *UnsafeCastRule) Confidence() float64 { return 0.75 }
 
-func (r *UnsafeCastRule) NodeTypes() []string { return []string{"as_expression"} }
-
-func (r *UnsafeCastRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *UnsafeCastRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	// Skip .gradle.kts files — Gradle's extra properties and configuration
 	// delegates commonly require `as` casts with no safer alternative.
 	if strings.HasSuffix(file.Path, ".gradle.kts") {
-		return nil
+		return
 	}
 	// Skip test files — test code commonly uses `as` to cast framework
 	// return values to concrete types; failure = test failure anyway.
 	if isTestFile(file.Path) {
-		return nil
+		return
 	}
 	// Skip @Preview / sample / fixture functions — these build hand-crafted
 	// test data and casts are part of the scaffolding.
 	if isInsidePreviewOrSampleFunctionFlat(file, idx) {
-		return nil
+		return
 	}
 	text := file.FlatNodeText(idx)
 	if strings.Contains(text, "as?") {
-		return nil
+		return
 	}
 
 	// Extract the variable name and target type from "expr as TargetType"
 	parts := strings.SplitN(text, " as ", 2)
 	if len(parts) != 2 {
-		return nil
+		return
 	}
 	castVar := strings.TrimSpace(parts[0])
 	castTarget := strings.TrimSpace(parts[1])
@@ -110,58 +110,58 @@ func (r *UnsafeCastRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner
 		strings.Contains(castVarLower, ".values[") ||
 		strings.Contains(castVarLower, "startValues.values") ||
 		strings.Contains(castVarLower, "endValues.values") {
-		return nil
+		return
 	}
 	// Skip `null as Type?` — cast of null literal for overload resolution.
 	if castVar == "null" {
-		return nil
+		return
 	}
 	// Skip casts to nullable types `as T?` — they can never throw
 	// ClassCastException on null input and are often used for generic
 	// variance widening.
 	if strings.HasSuffix(castTarget, "?") {
-		return nil
+		return
 	}
 	// Skip `other as ThisClass` inside an `equals(other: Any?)` method,
 	// which is the IntelliJ-generated pattern safeguarded by a prior
 	// class check.
 	if castVar == "other" && isInsideEqualsMethodFlat(file, idx) {
-		return nil
+		return
 	}
 	// Skip single-letter type parameter targets (e.g., `as T`) — these are
 	// ViewModel.Factory.create, Bundle serialization helpers, and other
 	// type-erasure boundary casts.
 	if len(castTarget) == 1 && castTarget[0] >= 'A' && castTarget[0] <= 'Z' {
-		return nil
+		return
 	}
 	// Skip `expr as Any` — every Kotlin reference type is a subtype of Any,
 	// so the cast can never fail at runtime. Authors usually add this to
 	// force a type for reflection/interop call boundaries.
 	if castTarget == "Any" {
-		return nil
+		return
 	}
 	// Skip casts inside a `when` branch whose subject is the same variable
 	// being cast's discriminator — the branch condition has guaranteed the
 	// target shape already. Common idiom for annotation/value deserializers:
 	//     when (name) { "x" -> foo = value as String; "y" -> ... }
 	if isInsideWhenBranchWithStringSubjectFlat(file, idx) {
-		return nil
+		return
 	}
 	// Skip ValueAnimator.animatedValue casts — the animator constructor
 	// determines the return type safely.
 	if strings.HasSuffix(castVar, "animatedValue") ||
 		strings.HasSuffix(castVar, ".animatedValue") {
-		return nil
+		return
 	}
 	// Skip rootProject.extra["..."] / extra[...] Gradle patterns.
 	if strings.Contains(castVar, ".extra[") || strings.Contains(castVar, "rootProject.extra") {
-		return nil
+		return
 	}
 	// Skip empty-lambda SAM conversion: `{} as OnEventListener` — the
 	// Kotlin compiler generates a valid SAM instance; the `as` is a
 	// workaround for default-parameter SAM inference limitations.
 	if strings.HasPrefix(castVar, "{") && strings.HasSuffix(castVar, "}") {
-		return nil
+		return
 	}
 
 	// 1. Resolver-based check: the expression type already matches the target
@@ -173,7 +173,7 @@ func (r *UnsafeCastRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner
 			exprType.Kind != typeinfer.TypeUnknown && targetType.Kind != typeinfer.TypeUnknown {
 			if exprType.FQN == targetType.FQN || exprType.IsSubtypeOf(targetType.FQN) ||
 				exprType.Name == targetType.Name {
-				return nil
+				return
 			}
 		}
 	}
@@ -181,7 +181,7 @@ func (r *UnsafeCastRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner
 	// 2. AST-based fallback: walk up to find an enclosing if/when that has
 	//    an is-check for the same variable and target type.
 	if unsafeCastGuardedByIsCheckFlat(file, idx, castVar, castTarget) {
-		return nil
+		return
 	}
 	// 3. Predicate-based guard: casts to sealed-hierarchy types like
 	//    `record as MmsMessageRecord` are often gated by a boolean helper
@@ -189,7 +189,7 @@ func (r *UnsafeCastRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner
 	//    small allow-list of type+predicate pairs that are ubiquitous in
 	//    Android/Signal code.
 	if isCastGuardedByTypePredicateFlat(file, idx, castVar, castTarget) {
-		return nil
+		return
 	}
 
 	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -208,7 +208,7 @@ func (r *UnsafeCastRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner
 			break
 		}
 	}
-	return []scanner.Finding{f}
+	ctx.Emit(f)
 }
 
 // castTypePredicates maps target types to boolean predicates that, when
@@ -508,18 +508,17 @@ func (r *CastNullableToNonNullableTypeRule) Confidence() float64 { return 0.75 }
 
 var castNullableRe = regexp.MustCompile(`\?\s+as\s+[A-Z]\w+\s*$|[?!]\s+as\s+[A-Z]`)
 
-func (r *CastNullableToNonNullableTypeRule) NodeTypes() []string { return []string{"as_expression"} }
-
-func (r *CastNullableToNonNullableTypeRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *CastNullableToNonNullableTypeRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	text := file.FlatNodeText(idx)
 	// Skip safe casts
 	if strings.Contains(text, "as?") {
-		return nil
+		return
 	}
 	// Check if the left-hand side is nullable (ends with ? or !!)
 	parts := strings.SplitN(text, " as ", 2)
 	if len(parts) != 2 {
-		return nil
+		return
 	}
 	lhs := strings.TrimSpace(parts[0])
 	rhs := strings.TrimSpace(parts[1])
@@ -528,7 +527,7 @@ func (r *CastNullableToNonNullableTypeRule) CheckFlatNode(idx uint32, file *scan
 		if r.resolver != nil && file.FlatChildCount(idx) >= 2 {
 			isNull := r.resolver.IsNullableFlat(file.FlatChild(idx, 0), file)
 			if isNull != nil && !*isNull {
-				return nil // source is known non-null, cast is safe
+				return // source is known non-null, cast is safe
 			}
 		}
 		f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -541,9 +540,9 @@ func (r *CastNullableToNonNullableTypeRule) CheckFlatNode(idx uint32, file *scan
 			EndByte:     int(file.FlatEndByte(idx)),
 			Replacement: fixed,
 		}
-		return []scanner.Finding{f}
+		ctx.Emit(f)
+		return
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -559,13 +558,12 @@ type CastToNullableTypeRule struct {
 // resolver is absent. Classified per roadmap/17.
 func (r *CastToNullableTypeRule) Confidence() float64 { return 0.75 }
 
-func (r *CastToNullableTypeRule) NodeTypes() []string { return []string{"as_expression"} }
-
-func (r *CastToNullableTypeRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *CastToNullableTypeRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	text := file.FlatNodeText(idx)
 	// Skip safe casts
 	if strings.Contains(text, "as?") {
-		return nil
+		return
 	}
 	// Check for `as Type?`
 	parts := strings.SplitN(text, " as ", 2)
@@ -582,8 +580,8 @@ func (r *CastToNullableTypeRule) CheckFlatNode(idx uint32, file *scanner.File) [
 			EndByte:     int(file.FlatEndByte(idx)),
 			Replacement: fixed,
 		}
-		return []scanner.Finding{f}
+		ctx.Emit(f)
+		return
 	}
-	return nil
 }
 

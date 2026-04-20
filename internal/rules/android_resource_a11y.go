@@ -10,6 +10,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -28,12 +29,12 @@ type HardcodedValuesResourceRule struct {
 // via structural checks. Classified per roadmap/17.
 func (r *HardcodedValuesResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *HardcodedValuesResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *HardcodedValuesResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.HasHardcodedText() {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Hardcoded text `%s` in `%s`. Use a `@string/` resource reference instead for internationalization.",
 						truncate(v.Text, 40), v.Type)))
 			}
@@ -41,13 +42,12 @@ func (r *HardcodedValuesResourceRule) CheckResources(idx *android.ResourceIndex)
 			if hint := v.Attributes["android:hint"]; hint != "" &&
 				!strings.HasPrefix(hint, "@string/") &&
 				!strings.HasPrefix(hint, "@android:string/") {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Hardcoded hint `%s` in `%s`. Use a `@string/` resource reference instead.",
 						truncate(hint, 40), v.Type)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -72,8 +72,8 @@ var imageViewTypes = map[string]bool{
 // via structural checks. Classified per roadmap/17.
 func (r *MissingContentDescriptionResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *MissingContentDescriptionResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *MissingContentDescriptionResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if !imageViewTypes[v.Type] {
@@ -87,13 +87,12 @@ func (r *MissingContentDescriptionResourceRule) CheckResources(idx *android.Reso
 				strings.Contains(v.Attributes["tools:ignore"], "ContentDescription") {
 				return
 			}
-			findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("`%s` missing `android:contentDescription` attribute. "+
 					"Set a description for accessibility or use `tools:ignore=\"ContentDescription\"`.",
 					v.Type)))
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -112,12 +111,15 @@ type LabelForResourceRule struct {
 // via structural checks. Classified per roadmap/17.
 func (r *LabelForResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *LabelForResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
+func (r *LabelForResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	var findings []scanner.Finding
 	for _, layout := range idx.Layouts {
 		checkLabelFor(layout.RootView, layout.FilePath, r.BaseRule, &findings)
 	}
-	return findings
+	for _, f := range findings {
+		ctx.Emit(f)
+	}
 }
 
 func checkLabelFor(v *android.View, path string, rule BaseRule, findings *[]scanner.Finding) {
@@ -215,8 +217,8 @@ func isContainerView(viewType string) bool {
 // via structural checks. Classified per roadmap/17.
 func (r *ClickableViewAccessibilityResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *ClickableViewAccessibilityResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *ClickableViewAccessibilityResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Attributes["android:clickable"] != "true" {
@@ -234,12 +236,11 @@ func (r *ClickableViewAccessibilityResourceRule) CheckResources(idx *android.Res
 				strings.Contains(v.Attributes["tools:ignore"], "ContentDescription") {
 				return
 			}
-			findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("`%s` is clickable but missing `android:contentDescription`. "+
 					"Add a description for accessibility.", v.Type)))
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -259,8 +260,8 @@ type BackButtonResourceRule struct {
 // via structural checks. Classified per roadmap/17.
 func (r *BackButtonResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *BackButtonResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *BackButtonResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Type != "Button" && v.Type != "AppCompatButton" &&
@@ -269,13 +270,12 @@ func (r *BackButtonResourceRule) CheckResources(idx *android.ResourceIndex) []sc
 			}
 			text := v.Text
 			if strings.EqualFold(text, "back") || text == "@string/back" {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Button with text `%s` detected. Avoid explicit back buttons; use the system navigation bar instead.",
 						text)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -295,8 +295,8 @@ type ButtonCaseResourceRule struct {
 // via structural checks. Classified per roadmap/17.
 func (r *ButtonCaseResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *ButtonCaseResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *ButtonCaseResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Type != "Button" && v.Type != "AppCompatButton" {
@@ -308,16 +308,15 @@ func (r *ButtonCaseResourceRule) CheckResources(idx *android.ResourceIndex) []sc
 			}
 			lower := strings.ToLower(text)
 			if lower == "ok" && text != "OK" {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Button text `%s` should be `OK` (all caps).", text)))
 			}
 			if lower == "cancel" && text != "CANCEL" {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("Button text `%s` should be `CANCEL` (all caps on Android).", text)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -347,8 +346,8 @@ func isCancelButton(v *android.View) bool {
 // via structural checks. Classified per roadmap/17.
 func (r *ButtonOrderResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *ButtonOrderResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *ButtonOrderResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			// Look at children for button pairs
@@ -366,13 +365,12 @@ func (r *ButtonOrderResourceRule) CheckResources(idx *android.ResourceIndex) []s
 				}
 			}
 			if okBtn != nil && cancelBtn != nil && cancelBtn.Line > okBtn.Line {
-				findings = append(findings, resourceFinding(layout.FilePath, cancelBtn.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, cancelBtn.Line, r.BaseRule,
 					fmt.Sprintf("Cancel button (line %d) appears after OK button (line %d). "+
 						"Android convention places Cancel before OK.", cancelBtn.Line, okBtn.Line)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -391,8 +389,8 @@ type ButtonStyleResourceRule struct {
 // via structural checks. Classified per roadmap/17.
 func (r *ButtonStyleResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *ButtonStyleResourceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *ButtonStyleResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for name, layout := range idx.Layouts {
 		if !strings.HasPrefix(name, "dialog_") && !strings.HasPrefix(name, "alert_") {
 			continue
@@ -405,11 +403,10 @@ func (r *ButtonStyleResourceRule) CheckResources(idx *android.ResourceIndex) []s
 			if style != "" && (strings.Contains(style, "Borderless") || strings.Contains(style, "borderless")) {
 				return
 			}
-			findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("Button in dialog layout `%s` should use a borderless style (e.g., `?android:attr/borderlessButtonStyle`).", name)))
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -423,8 +420,8 @@ type LayoutClickableWithoutMinSizeRule struct {
 
 func (r *LayoutClickableWithoutMinSizeRule) Confidence() float64 { return 0.75 }
 
-func (r *LayoutClickableWithoutMinSizeRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *LayoutClickableWithoutMinSizeRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Attributes["android:clickable"] != "true" {
@@ -433,13 +430,12 @@ func (r *LayoutClickableWithoutMinSizeRule) CheckResources(idx *android.Resource
 			w := parseLayoutDp(v.LayoutWidth)
 			h := parseLayoutDp(v.LayoutHeight)
 			if (w > 0 && w < 48) || (h > 0 && h < 48) {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` is clickable with a dimension below 48dp. "+
 						"Use at least 48dp for touch targets.", v.Type)))
 			}
 		})
 	}
-	return findings
 }
 
 func parseLayoutDp(value string) float64 {
@@ -467,8 +463,8 @@ type LayoutEditTextMissingImportanceRule struct {
 
 func (r *LayoutEditTextMissingImportanceRule) Confidence() float64 { return 0.75 }
 
-func (r *LayoutEditTextMissingImportanceRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *LayoutEditTextMissingImportanceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Type != "EditText" && v.Type != "AppCompatEditText" &&
@@ -478,12 +474,11 @@ func (r *LayoutEditTextMissingImportanceRule) CheckResources(idx *android.Resour
 			if v.Attributes["android:importantForAutofill"] != "" {
 				return
 			}
-			findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 				fmt.Sprintf("`%s` missing `android:importantForAutofill`. "+
 					"Set `yes` or `no` explicitly for autofill accessibility (API 26+).", v.Type)))
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -497,8 +492,8 @@ type LayoutImportantForAccessibilityNoRule struct {
 
 func (r *LayoutImportantForAccessibilityNoRule) Confidence() float64 { return 0.75 }
 
-func (r *LayoutImportantForAccessibilityNoRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *LayoutImportantForAccessibilityNoRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Attributes["android:importantForAccessibility"] != "no" {
@@ -506,13 +501,12 @@ func (r *LayoutImportantForAccessibilityNoRule) CheckResources(idx *android.Reso
 			}
 			if v.Attributes["android:clickable"] == "true" ||
 				v.Attributes["android:focusable"] == "true" {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` has `importantForAccessibility=\"no\"` but is clickable or focusable. "+
 						"This hides an interactive element from assistive technology.", v.Type)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -535,8 +529,8 @@ var inputTypeToAutofillHint = map[string]string{
 	"number":            "creditCardNumber",
 }
 
-func (r *LayoutAutofillHintMismatchRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *LayoutAutofillHintMismatchRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			inputType := v.Attributes["android:inputType"]
@@ -549,13 +543,12 @@ func (r *LayoutAutofillHintMismatchRule) CheckResources(idx *android.ResourceInd
 			}
 			autofillHints := v.Attributes["android:autofillHints"]
 			if autofillHints == "" {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` has `inputType=\"%s\"` but no `android:autofillHints`. "+
 						"Add `autofillHints=\"%s\"` for autofill support.", v.Type, inputType, expectedHint)))
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -569,8 +562,8 @@ type LayoutMinTouchTargetInButtonRowRule struct {
 
 func (r *LayoutMinTouchTargetInButtonRowRule) Confidence() float64 { return 0.75 }
 
-func (r *LayoutMinTouchTargetInButtonRowRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *LayoutMinTouchTargetInButtonRowRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Type != "LinearLayout" && v.Type != "AppCompatLinearLayout" {
@@ -586,7 +579,7 @@ func (r *LayoutMinTouchTargetInButtonRowRule) CheckResources(idx *android.Resour
 				if h == "wrap_content" || h == "" {
 					minH := child.Attributes["android:minHeight"]
 					if minH == "" || parseLayoutDp(minH) < 48 {
-						findings = append(findings, resourceFinding(layout.FilePath, child.Line, r.BaseRule,
+						ctx.Emit(resourceFinding(layout.FilePath, child.Line, r.BaseRule,
 							fmt.Sprintf("`%s` in `%s` with `wrap_content` height and no `minHeight >= 48dp`. "+
 								"Ensure a minimum 48dp touch target.", child.Type, v.Type)))
 					}
@@ -594,7 +587,6 @@ func (r *LayoutMinTouchTargetInButtonRowRule) CheckResources(idx *android.Resour
 			}
 		})
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -608,8 +600,8 @@ type StringNotSelectableRule struct {
 
 func (r *StringNotSelectableRule) Confidence() float64 { return 0.75 }
 
-func (r *StringNotSelectableRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *StringNotSelectableRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Type != "TextView" && v.Type != "AppCompatTextView" {
@@ -630,13 +622,12 @@ func (r *StringNotSelectableRule) CheckResources(idx *android.ResourceIndex) []s
 				}
 			}
 			if containsURLOrPhone(stringValue) {
-				findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 					fmt.Sprintf("`%s` with `textIsSelectable=\"false\"` contains URLs or phone numbers. "+
 						"Allow selection for assistive technology users to copy content.", v.Type)))
 			}
 		})
 	}
-	return findings
 }
 
 var urlOrPhoneRe = regexp.MustCompile(`https?://|tel:|(\+?\d[\d\-\s]{6,}\d)`)
@@ -656,8 +647,8 @@ type StringRepeatedInContentDescriptionRule struct {
 
 func (r *StringRepeatedInContentDescriptionRule) Confidence() float64 { return 0.75 }
 
-func (r *StringRepeatedInContentDescriptionRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *StringRepeatedInContentDescriptionRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	for _, layout := range idx.Layouts {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.ContentDescription == "" {
@@ -667,7 +658,7 @@ func (r *StringRepeatedInContentDescriptionRule) CheckResources(idx *android.Res
 			for _, sibling := range v.Children {
 				sibText := resolveStringValue(idx, sibling.Text)
 				if sibText != "" && strings.EqualFold(cd, sibText) {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("`contentDescription` on `%s` duplicates visible text of child `%s`. "+
 							"TalkBack reads both, causing stutter.", v.Type, sibling.Type)))
 				}
@@ -684,14 +675,13 @@ func (r *StringRepeatedInContentDescriptionRule) CheckResources(idx *android.Res
 				}
 				sibText := resolveStringValue(idx, sibling.Text)
 				if sibText != "" && strings.EqualFold(cd, sibText) {
-					findings = append(findings, resourceFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(resourceFinding(layout.FilePath, v.Line, r.BaseRule,
 						fmt.Sprintf("`contentDescription` on `%s` duplicates visible text of sibling `%s`. "+
 							"TalkBack reads both, causing stutter.", v.Type, sibling.Type)))
 				}
 			}
 		})
 	}
-	return findings
 }
 
 func resolveStringValue(idx *android.ResourceIndex, raw string) string {
@@ -717,8 +707,8 @@ func (r *StringSpanInContentDescriptionRule) Confidence() float64 { return 0.75 
 
 var htmlTagInStringRe = regexp.MustCompile(`<(b|i|u|em|strong|br|a|span|font|big|small|sup|sub|strike|tt)\b`)
 
-func (r *StringSpanInContentDescriptionRule) CheckResources(idx *android.ResourceIndex) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *StringSpanInContentDescriptionRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
 	cdStrings := collectContentDescriptionStringNames(idx)
 
 	for name := range cdStrings {
@@ -731,12 +721,11 @@ func (r *StringSpanInContentDescriptionRule) CheckResources(idx *android.Resourc
 			if !locOk {
 				continue
 			}
-			findings = append(findings, resourceFinding(loc.FilePath, loc.Line, r.BaseRule,
+			ctx.Emit(resourceFinding(loc.FilePath, loc.Line, r.BaseRule,
 				fmt.Sprintf("String `%s` used as `contentDescription` contains HTML markup. "+
 					"TalkBack reads raw tags aloud.", name)))
 		}
 	}
-	return findings
 }
 
 func collectContentDescriptionStringNames(idx *android.ResourceIndex) map[string]bool {

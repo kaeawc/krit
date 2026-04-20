@@ -59,21 +59,37 @@ func WithOracle(f *OracleFilter) FakeOption {
 }
 
 // FakeContext creates a minimal context for testing with the given file.
+// A FindingCollector is pre-allocated; use ContextFindings(ctx) to read results.
 func FakeContext(file *scanner.File) *Context {
 	return &Context{
-		File: file,
+		File:      file,
+		Collector: scanner.NewFindingCollector(0),
 	}
 }
 
 // FakeContextWithNode creates a context for testing with a specific node index.
 func FakeContextWithNode(file *scanner.File, idx uint32) *Context {
 	ctx := &Context{
-		File: file,
-		Idx:  idx,
+		File:      file,
+		Idx:       idx,
+		Collector: scanner.NewFindingCollector(0),
 	}
 	if file.FlatTree != nil && int(idx) < len(file.FlatTree.Nodes) {
 		node := file.FlatTree.Nodes[idx]
 		ctx.Node = &node
 	}
 	return ctx
+}
+
+// ContextFindings drains the context's collector and returns findings as a slice.
+func ContextFindings(ctx *Context) []scanner.Finding {
+	if ctx.Collector == nil {
+		return nil
+	}
+	cols := *ctx.Collector.Columns()
+	out := make([]scanner.Finding, cols.Len())
+	for i := range out {
+		out[i] = cols.Finding(i)
+	}
+	return out
 }

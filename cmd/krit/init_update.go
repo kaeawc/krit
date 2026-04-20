@@ -8,6 +8,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/onboarding"
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------- Update ----------
@@ -255,14 +256,14 @@ func (m *initModel) startExplorer() {
 	// scanning — and the user-facing explorer should show it
 	// once, not twice.
 	scan := m.scans[m.selected]
-	seen := make(map[string]bool, len(rules.Registry))
-	for _, r := range rules.Registry {
-		name := r.Name()
+	seen := make(map[string]bool, len(v2rules.Registry))
+	for _, r := range v2rules.Registry {
+		name := r.ID
 		if seen[name] {
 			continue
 		}
 		seen[name] = true
-		ruleset := r.RuleSet()
+		ruleset := r.Category
 		count := 0
 		if scan != nil {
 			count = scan.ByRule[name]

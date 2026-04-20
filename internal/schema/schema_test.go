@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/config"
-	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	_ "github.com/kaeawc/krit/internal/rules" // ensure rules are registered via init()
 )
 
@@ -271,9 +271,9 @@ func TestControversialRulesRegistry(t *testing.T) {
 		t.Errorf("unexpected schemaVersion %d", registry.SchemaVersion)
 	}
 
-	known := make(map[string]bool, len(rules.Registry))
-	for _, r := range rules.Registry {
-		known[r.Name()] = true
+	known := make(map[string]bool, len(v2rules.Registry))
+	for _, r := range v2rules.Registry {
+		known[r.ID] = true
 	}
 
 	ids := make(map[string]bool, len(registry.Questions))

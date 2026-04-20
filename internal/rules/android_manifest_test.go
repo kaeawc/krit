@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func boolPtr(b bool) *bool { return &b }
@@ -40,7 +42,7 @@ func TestAllowBackupManifest(t *testing.T) {
 				AllowBackup: boolPtr(true),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -54,7 +56,7 @@ func TestAllowBackupManifest(t *testing.T) {
 				AllowBackup: nil,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -67,7 +69,7 @@ func TestAllowBackupManifest(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings for library manifest, got %d", len(findings))
 		}
@@ -81,7 +83,7 @@ func TestAllowBackupManifest(t *testing.T) {
 				AllowBackup: boolPtr(false),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -99,7 +101,7 @@ func TestDebuggableManifest(t *testing.T) {
 				Debuggable: boolPtr(true),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -113,7 +115,7 @@ func TestDebuggableManifest(t *testing.T) {
 				Debuggable: boolPtr(false),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -126,7 +128,7 @@ func TestDebuggableManifest(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -145,7 +147,7 @@ func TestExportedWithoutPermission(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -160,7 +162,7 @@ func TestExportedWithoutPermission(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -175,7 +177,7 @@ func TestExportedWithoutPermission(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -194,7 +196,7 @@ func TestMissingExportedFlag(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -209,7 +211,7 @@ func TestMissingExportedFlag(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -224,7 +226,7 @@ func TestMissingExportedFlag(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -244,7 +246,7 @@ func TestDuplicateActivityManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -260,7 +262,7 @@ func TestDuplicateActivityManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -277,7 +279,7 @@ func TestWrongManifestParentManifest(t *testing.T) {
 				{Tag: "activity", Line: 10, ParentTag: "manifest"},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -290,7 +292,7 @@ func TestWrongManifestParentManifest(t *testing.T) {
 				{Tag: "uses-sdk", Line: 3, ParentTag: "manifest"},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -306,7 +308,7 @@ func TestGradleOverridesManifest(t *testing.T) {
 			MinSDK:  21,
 			UsesSdk: &rules.ManifestElement{Tag: "uses-sdk", Line: 3},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -319,7 +321,7 @@ func TestGradleOverridesManifest(t *testing.T) {
 			TargetSDK: 34,
 			UsesSdk:   &rules.ManifestElement{Tag: "uses-sdk", Line: 3},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 2 {
 			t.Fatalf("expected 2 findings, got %d", len(findings))
 		}
@@ -329,7 +331,7 @@ func TestGradleOverridesManifest(t *testing.T) {
 		m := &rules.Manifest{
 			Path: "AndroidManifest.xml",
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -344,7 +346,7 @@ func TestUsesSdkManifest(t *testing.T) {
 			Path:        "AndroidManifest.xml",
 			Application: &rules.ManifestApplication{Line: 5},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -354,7 +356,7 @@ func TestUsesSdkManifest(t *testing.T) {
 		m := &rules.Manifest{
 			Path: "AndroidManifest.xml",
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings for library stub manifest, got %d", len(findings))
 		}
@@ -366,7 +368,7 @@ func TestUsesSdkManifest(t *testing.T) {
 			Application: &rules.ManifestApplication{Line: 5},
 			UsesSdk:     &rules.ManifestElement{Tag: "uses-sdk", Line: 3},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -384,7 +386,7 @@ func TestMipmapLauncher(t *testing.T) {
 				Icon: "@drawable/ic_launcher",
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -398,7 +400,7 @@ func TestMipmapLauncher(t *testing.T) {
 				Icon: "@mipmap/ic_launcher",
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -411,7 +413,7 @@ func TestMipmapLauncher(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -426,7 +428,7 @@ func TestUniquePermission(t *testing.T) {
 			Path:        "AndroidManifest.xml",
 			Permissions: []string{"android.permission.CAMERA"},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -437,7 +439,7 @@ func TestUniquePermission(t *testing.T) {
 			Path:        "AndroidManifest.xml",
 			Permissions: []string{"com.example.MY_PERMISSION"},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -447,7 +449,7 @@ func TestUniquePermission(t *testing.T) {
 		m := &rules.Manifest{
 			Path: "AndroidManifest.xml",
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -462,7 +464,7 @@ func TestSystemPermission(t *testing.T) {
 			Path:            "AndroidManifest.xml",
 			UsesPermissions: []string{"android.permission.CAMERA"},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -473,7 +475,7 @@ func TestSystemPermission(t *testing.T) {
 			Path:            "AndroidManifest.xml",
 			UsesPermissions: []string{"android.permission.CAMERA", "android.permission.RECORD_AUDIO"},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 2 {
 			t.Fatalf("expected 2 findings, got %d", len(findings))
 		}
@@ -484,7 +486,7 @@ func TestSystemPermission(t *testing.T) {
 			Path:            "AndroidManifest.xml",
 			UsesPermissions: []string{"android.permission.INTERNET"},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -501,7 +503,7 @@ func TestManifestTypoManifest(t *testing.T) {
 				{Tag: "aplication", Line: 5, ParentTag: "manifest"},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -514,7 +516,7 @@ func TestManifestTypoManifest(t *testing.T) {
 				{Tag: "application", Line: 5, ParentTag: "manifest"},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -531,7 +533,7 @@ func TestMissingApplicationIconManifest(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -545,7 +547,7 @@ func TestMissingApplicationIconManifest(t *testing.T) {
 				Icon: "@mipmap/ic_launcher",
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -555,7 +557,7 @@ func TestMissingApplicationIconManifest(t *testing.T) {
 		m := &rules.Manifest{
 			Path: "AndroidManifest.xml",
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -568,7 +570,7 @@ func TestMissingApplicationIconManifest(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings for library manifest, got %d", len(findings))
 		}
@@ -583,7 +585,7 @@ func TestTargetNewer(t *testing.T) {
 			Path:      "AndroidManifest.xml",
 			TargetSDK: 28,
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -594,7 +596,7 @@ func TestTargetNewer(t *testing.T) {
 			Path:      "AndroidManifest.xml",
 			TargetSDK: 34,
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -604,7 +606,7 @@ func TestTargetNewer(t *testing.T) {
 		m := &rules.Manifest{
 			Path: "AndroidManifest.xml",
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -623,7 +625,7 @@ func TestExportedServiceManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -638,7 +640,7 @@ func TestExportedServiceManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -653,7 +655,7 @@ func TestExportedServiceManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -673,7 +675,7 @@ func TestIntentFilterExportRequired(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -689,7 +691,7 @@ func TestIntentFilterExportRequired(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -705,7 +707,7 @@ func TestIntentFilterExportRequired(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -720,7 +722,7 @@ func TestIntentFilterExportRequired(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -738,7 +740,7 @@ func TestCleartextTraffic(t *testing.T) {
 				UsesCleartextTraffic: boolPtr(true),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -752,7 +754,7 @@ func TestCleartextTraffic(t *testing.T) {
 				UsesCleartextTraffic: boolPtr(false),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -765,7 +767,7 @@ func TestCleartextTraffic(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -782,7 +784,7 @@ func TestBackupRules(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -796,7 +798,7 @@ func TestBackupRules(t *testing.T) {
 				FullBackupContent: "@xml/backup_rules",
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -810,7 +812,7 @@ func TestBackupRules(t *testing.T) {
 				DataExtractionRules: "@xml/data_extraction_rules",
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -824,7 +826,7 @@ func TestBackupRules(t *testing.T) {
 				AllowBackup: boolPtr(false),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -842,7 +844,7 @@ func TestDuplicateUsesFeatureManifest(t *testing.T) {
 				{Name: "android.hardware.camera", Required: "false", Line: 10},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -856,7 +858,7 @@ func TestDuplicateUsesFeatureManifest(t *testing.T) {
 				{Name: "android.hardware.bluetooth", Required: "true", Line: 10},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -866,7 +868,7 @@ func TestDuplicateUsesFeatureManifest(t *testing.T) {
 		m := &rules.Manifest{
 			Path: "AndroidManifest.xml",
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -884,7 +886,7 @@ func TestMultipleUsesSdkManifest(t *testing.T) {
 				{Tag: "uses-sdk", Line: 8, ParentTag: "manifest"},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -897,7 +899,7 @@ func TestMultipleUsesSdkManifest(t *testing.T) {
 				{Tag: "uses-sdk", Line: 3, ParentTag: "manifest"},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -907,7 +909,7 @@ func TestMultipleUsesSdkManifest(t *testing.T) {
 		m := &rules.Manifest{
 			Path: "AndroidManifest.xml",
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -925,7 +927,7 @@ func TestManifestOrderManifest(t *testing.T) {
 				{Tag: "uses-permission", Line: 10, ParentTag: "manifest"},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -939,7 +941,7 @@ func TestManifestOrderManifest(t *testing.T) {
 				{Tag: "uses-sdk", Line: 10, ParentTag: "manifest"},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -954,7 +956,7 @@ func TestManifestOrderManifest(t *testing.T) {
 				{Tag: "application", Line: 10, ParentTag: "manifest"},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -967,7 +969,7 @@ func TestManifestOrderManifest(t *testing.T) {
 				{Tag: "uses-sdk", Line: 3, ParentTag: "manifest"},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -981,7 +983,7 @@ func TestManifestOrderManifest(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings for library manifest, got %d", len(findings))
 		}
@@ -1008,7 +1010,7 @@ func TestMissingVersionManifest(t *testing.T) {
 	}
 
 	t.Run("both missing triggers single combined finding", func(t *testing.T) {
-		findings := r.CheckManifest(appManifest("", ""))
+		findings := runManifestRule(r, appManifest("", ""))
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 combined finding, got %d", len(findings))
 		}
@@ -1019,21 +1021,21 @@ func TestMissingVersionManifest(t *testing.T) {
 	})
 
 	t.Run("missing versionCode triggers once", func(t *testing.T) {
-		findings := r.CheckManifest(appManifest("", "1.0"))
+		findings := runManifestRule(r, appManifest("", "1.0"))
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 
 	t.Run("missing versionName triggers once", func(t *testing.T) {
-		findings := r.CheckManifest(appManifest("1", ""))
+		findings := runManifestRule(r, appManifest("1", ""))
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 
 	t.Run("both present is clean", func(t *testing.T) {
-		findings := r.CheckManifest(appManifest("1", "1.0"))
+		findings := runManifestRule(r, appManifest("1", "1.0"))
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1048,7 +1050,7 @@ func TestMockLocationManifest(t *testing.T) {
 			Path:            "AndroidManifest.xml",
 			UsesPermissions: []string{"android.permission.ACCESS_MOCK_LOCATION"},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1060,7 +1062,7 @@ func TestMockLocationManifest(t *testing.T) {
 			IsDebugManifest: true,
 			UsesPermissions: []string{"android.permission.ACCESS_MOCK_LOCATION"},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1071,7 +1073,7 @@ func TestMockLocationManifest(t *testing.T) {
 			Path:            "AndroidManifest.xml",
 			UsesPermissions: []string{"android.permission.INTERNET"},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1089,7 +1091,7 @@ func TestUnpackedNativeCodeManifest(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1104,7 +1106,7 @@ func TestUnpackedNativeCodeManifest(t *testing.T) {
 				ExtractNativeLibs: boolPtr(true),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1119,7 +1121,7 @@ func TestUnpackedNativeCodeManifest(t *testing.T) {
 				ExtractNativeLibs: boolPtr(false),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1132,7 +1134,7 @@ func TestUnpackedNativeCodeManifest(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1149,7 +1151,7 @@ func TestRtlEnabledManifest(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1163,7 +1165,7 @@ func TestRtlEnabledManifest(t *testing.T) {
 				SupportsRtl: boolPtr(false),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1177,7 +1179,7 @@ func TestRtlEnabledManifest(t *testing.T) {
 				SupportsRtl: boolPtr(true),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1187,7 +1189,7 @@ func TestRtlEnabledManifest(t *testing.T) {
 		m := &rules.Manifest{
 			Path: "AndroidManifest.xml",
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1204,7 +1206,7 @@ func TestInvalidUsesTagAttributeManifest(t *testing.T) {
 				{Name: "android.hardware.camera", Required: "yes", Line: 5},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1217,7 +1219,7 @@ func TestInvalidUsesTagAttributeManifest(t *testing.T) {
 				{Name: "android.hardware.camera", Required: "true", Line: 5},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1230,7 +1232,7 @@ func TestInvalidUsesTagAttributeManifest(t *testing.T) {
 				{Name: "android.hardware.camera", Required: "false", Line: 5},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1243,7 +1245,7 @@ func TestInvalidUsesTagAttributeManifest(t *testing.T) {
 				{Name: "android.hardware.camera", Line: 5},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1262,7 +1264,7 @@ func TestExportedPreferenceActivityManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1277,7 +1279,7 @@ func TestExportedPreferenceActivityManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1292,7 +1294,7 @@ func TestExportedPreferenceActivityManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1307,7 +1309,7 @@ func TestExportedPreferenceActivityManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1325,7 +1327,7 @@ func TestInsecureBaseConfigurationManifest(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1340,7 +1342,7 @@ func TestInsecureBaseConfigurationManifest(t *testing.T) {
 				NetworkSecurityConfig: "@xml/network_security_config",
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1354,7 +1356,7 @@ func TestInsecureBaseConfigurationManifest(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1365,7 +1367,7 @@ func TestInsecureBaseConfigurationManifest(t *testing.T) {
 			Path:      "AndroidManifest.xml",
 			TargetSDK: 33,
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1390,7 +1392,7 @@ func TestUnprotectedSMSBroadcastReceiverManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1412,7 +1414,7 @@ func TestUnprotectedSMSBroadcastReceiverManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1433,7 +1435,7 @@ func TestUnprotectedSMSBroadcastReceiverManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1459,7 +1461,7 @@ func TestUnsafeProtectedBroadcastReceiverManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1482,7 +1484,7 @@ func TestUnsafeProtectedBroadcastReceiverManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1504,7 +1506,7 @@ func TestUnsafeProtectedBroadcastReceiverManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1526,7 +1528,7 @@ func TestUnsafeProtectedBroadcastReceiverManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1544,7 +1546,7 @@ func TestRtlCompatManifest(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1559,7 +1561,7 @@ func TestRtlCompatManifest(t *testing.T) {
 				SupportsRtl: boolPtr(false),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1574,7 +1576,7 @@ func TestRtlCompatManifest(t *testing.T) {
 				SupportsRtl: boolPtr(true),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1588,7 +1590,7 @@ func TestRtlCompatManifest(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1601,7 +1603,7 @@ func TestRtlCompatManifest(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1627,7 +1629,7 @@ func TestAppIndexingErrorManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1649,7 +1651,7 @@ func TestAppIndexingErrorManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1671,7 +1673,7 @@ func TestAppIndexingErrorManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1692,7 +1694,7 @@ func TestAppIndexingErrorManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1714,7 +1716,7 @@ func TestAppIndexingErrorManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings for library manifest, got %d", len(findings))
 		}
@@ -1742,7 +1744,7 @@ func TestMissingLeanbackLauncherManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1766,7 +1768,7 @@ func TestMissingLeanbackLauncherManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1781,7 +1783,7 @@ func TestMissingLeanbackLauncherManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1794,7 +1796,7 @@ func TestMissingLeanbackLauncherManifest(t *testing.T) {
 				{Name: "android.software.leanback", Line: 3},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1809,7 +1811,7 @@ func TestPermissionImpliesUnsupportedHardwareManifest(t *testing.T) {
 			Path:            "AndroidManifest.xml",
 			UsesPermissions: []string{"android.permission.CAMERA"},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1823,7 +1825,7 @@ func TestPermissionImpliesUnsupportedHardwareManifest(t *testing.T) {
 				{Name: "android.hardware.camera", Required: "false", Line: 5},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1837,7 +1839,7 @@ func TestPermissionImpliesUnsupportedHardwareManifest(t *testing.T) {
 				{Name: "android.hardware.camera", Required: "true", Line: 5},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1848,7 +1850,7 @@ func TestPermissionImpliesUnsupportedHardwareManifest(t *testing.T) {
 			Path:            "AndroidManifest.xml",
 			UsesPermissions: []string{"android.permission.INTERNET"},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1859,7 +1861,7 @@ func TestPermissionImpliesUnsupportedHardwareManifest(t *testing.T) {
 			Path:            "AndroidManifest.xml",
 			UsesPermissions: []string{"android.permission.BLUETOOTH", "android.permission.BLUETOOTH_ADMIN"},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1876,7 +1878,7 @@ func TestUnsupportedChromeOsHardwareManifest(t *testing.T) {
 				{Name: "android.hardware.telephony", Required: "true", Line: 5},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1889,7 +1891,7 @@ func TestUnsupportedChromeOsHardwareManifest(t *testing.T) {
 				{Name: "android.hardware.telephony", Line: 5},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1902,7 +1904,7 @@ func TestUnsupportedChromeOsHardwareManifest(t *testing.T) {
 				{Name: "android.hardware.telephony", Required: "false", Line: 5},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1915,7 +1917,7 @@ func TestUnsupportedChromeOsHardwareManifest(t *testing.T) {
 				{Name: "android.hardware.camera", Required: "true", Line: 5},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1928,7 +1930,7 @@ func TestUnsupportedChromeOsHardwareManifest(t *testing.T) {
 				{Name: "android.hardware.wifi", Required: "true", Line: 5},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -1942,7 +1944,7 @@ func TestUnsupportedChromeOsHardwareManifest(t *testing.T) {
 				{Name: "android.hardware.camera", Required: "true", Line: 8},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 2 {
 			t.Fatalf("expected 2 findings, got %d", len(findings))
 		}
@@ -1968,7 +1970,7 @@ func TestAppIndexingWarningManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -1990,7 +1992,7 @@ func TestAppIndexingWarningManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2012,7 +2014,7 @@ func TestAppIndexingWarningManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2022,7 +2024,7 @@ func TestAppIndexingWarningManifest(t *testing.T) {
 		m := &rules.Manifest{
 			Path: "AndroidManifest.xml",
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2048,7 +2050,7 @@ func TestGoogleAppIndexingDeepLinkErrorManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2070,7 +2072,7 @@ func TestGoogleAppIndexingDeepLinkErrorManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2093,7 +2095,7 @@ func TestGoogleAppIndexingDeepLinkErrorManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2114,7 +2116,7 @@ func TestGoogleAppIndexingDeepLinkErrorManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2136,7 +2138,7 @@ func TestGoogleAppIndexingDeepLinkErrorManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2146,7 +2148,7 @@ func TestGoogleAppIndexingDeepLinkErrorManifest(t *testing.T) {
 		m := &rules.Manifest{
 			Path: "AndroidManifest.xml",
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2171,7 +2173,7 @@ func TestGoogleAppIndexingWarningManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2193,7 +2195,7 @@ func TestGoogleAppIndexingWarningManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2215,7 +2217,7 @@ func TestGoogleAppIndexingWarningManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2237,7 +2239,7 @@ func TestGoogleAppIndexingWarningManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2258,7 +2260,7 @@ func TestGoogleAppIndexingWarningManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings for test manifest, got %d", len(findings))
 		}
@@ -2268,7 +2270,7 @@ func TestGoogleAppIndexingWarningManifest(t *testing.T) {
 		m := &rules.Manifest{
 			Path: "AndroidManifest.xml",
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		// nil application means no activities, so no deep link support — but rule returns nil for nil app
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
@@ -2290,7 +2292,7 @@ func TestGoogleAppIndexingWarningManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings for library manifest, got %d", len(findings))
 		}
@@ -2307,7 +2309,7 @@ func TestMissingLeanbackSupportManifest(t *testing.T) {
 				{Name: "android.software.leanback", Line: 3},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2321,7 +2323,7 @@ func TestMissingLeanbackSupportManifest(t *testing.T) {
 				{Name: "android.hardware.touchscreen", Required: "true", Line: 5},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2335,7 +2337,7 @@ func TestMissingLeanbackSupportManifest(t *testing.T) {
 				{Name: "android.hardware.touchscreen", Required: "false", Line: 5},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2348,7 +2350,7 @@ func TestMissingLeanbackSupportManifest(t *testing.T) {
 				{Name: "android.hardware.camera", Line: 3},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2374,7 +2376,7 @@ func TestUseCheckPermissionManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2397,7 +2399,7 @@ func TestUseCheckPermissionManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2419,7 +2421,7 @@ func TestUseCheckPermissionManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2441,7 +2443,7 @@ func TestUseCheckPermissionManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2471,7 +2473,7 @@ func TestUseCheckPermissionManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 2 {
 			t.Fatalf("expected 2 findings, got %d", len(findings))
 		}
@@ -2481,7 +2483,7 @@ func TestUseCheckPermissionManifest(t *testing.T) {
 		m := &rules.Manifest{
 			Path: "AndroidManifest.xml",
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2510,7 +2512,7 @@ func TestDeviceAdminManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2540,7 +2542,7 @@ func TestDeviceAdminManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2561,7 +2563,7 @@ func TestDeviceAdminManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2569,7 +2571,7 @@ func TestDeviceAdminManifest(t *testing.T) {
 
 	t.Run("nil application is clean", func(t *testing.T) {
 		m := &rules.Manifest{Path: "AndroidManifest.xml"}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2592,7 +2594,7 @@ func TestFullBackupContentManifest(t *testing.T) {
 				AllowBackup: boolPtr(true),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2606,7 +2608,7 @@ func TestFullBackupContentManifest(t *testing.T) {
 				Line: 5,
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2621,7 +2623,7 @@ func TestFullBackupContentManifest(t *testing.T) {
 				AllowBackup: boolPtr(false),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2637,7 +2639,7 @@ func TestFullBackupContentManifest(t *testing.T) {
 				FullBackupContent: "@xml/backup_rules",
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2652,7 +2654,7 @@ func TestFullBackupContentManifest(t *testing.T) {
 				AllowBackup: boolPtr(true),
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2660,7 +2662,7 @@ func TestFullBackupContentManifest(t *testing.T) {
 
 	t.Run("nil application is clean", func(t *testing.T) {
 		m := &rules.Manifest{Path: "AndroidManifest.xml"}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2679,7 +2681,7 @@ func TestProtectedPermissionsManifest(t *testing.T) {
 			Path:            "AndroidManifest.xml",
 			UsesPermissions: []string{"android.permission.BRICK"},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2693,7 +2695,7 @@ func TestProtectedPermissionsManifest(t *testing.T) {
 				"android.permission.SET_TIME",
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 2 {
 			t.Fatalf("expected 2 findings, got %d", len(findings))
 		}
@@ -2704,7 +2706,7 @@ func TestProtectedPermissionsManifest(t *testing.T) {
 			Path:            "AndroidManifest.xml",
 			UsesPermissions: []string{"android.permission.INTERNET"},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2712,7 +2714,7 @@ func TestProtectedPermissionsManifest(t *testing.T) {
 
 	t.Run("empty permissions is clean", func(t *testing.T) {
 		m := &rules.Manifest{Path: "AndroidManifest.xml"}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2740,7 +2742,7 @@ func TestServiceExportedManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2761,7 +2763,7 @@ func TestServiceExportedManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2781,7 +2783,7 @@ func TestServiceExportedManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2789,7 +2791,7 @@ func TestServiceExportedManifest(t *testing.T) {
 
 	t.Run("nil application is clean", func(t *testing.T) {
 		m := &rules.Manifest{Path: "AndroidManifest.xml"}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2816,7 +2818,7 @@ func TestMissingRegisteredManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2835,7 +2837,7 @@ func TestMissingRegisteredManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2854,7 +2856,7 @@ func TestMissingRegisteredManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2873,7 +2875,7 @@ func TestMissingRegisteredManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2892,7 +2894,7 @@ func TestMissingRegisteredManifest(t *testing.T) {
 				},
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2900,7 +2902,7 @@ func TestMissingRegisteredManifest(t *testing.T) {
 
 	t.Run("nil application is clean", func(t *testing.T) {
 		m := &rules.Manifest{Path: "AndroidManifest.xml"}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2921,7 +2923,7 @@ func TestLocaleConfigMissing(t *testing.T) {
 				LocaleConfig: "@xml/locales_config",
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -2938,7 +2940,7 @@ func TestLocaleConfigMissing(t *testing.T) {
 				LocaleConfig: "@xml/locales_config",
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -2964,21 +2966,33 @@ func TestLocaleConfigMissing(t *testing.T) {
 				LocaleConfig: "@xml/locales_config",
 			},
 		}
-		findings := r.CheckManifest(m)
+		findings := runManifestRule(r, m)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 }
 
-// findManifestRule looks up a manifest rule by name from the manifest registry.
-func findManifestRule(t *testing.T, name string) rules.ManifestFamily {
+// findManifestRule looks up a manifest rule by name from the v2 registry.
+func findManifestRule(t *testing.T, name string) *v2rules.Rule {
 	t.Helper()
-	for _, r := range rules.ManifestRules {
-		if r.Name() == name {
+	for _, r := range v2rules.Registry {
+		if r.Needs.Has(v2rules.NeedsManifest) && r.ID == name {
 			return r
 		}
 	}
-	t.Fatalf("manifest rule %q not found in ManifestRules registry", name)
+	t.Fatalf("manifest rule %q not found in v2 Registry (NeedsManifest)", name)
 	return nil
+}
+
+// runManifestRule invokes a v2 manifest rule and returns findings.
+func runManifestRule(r *v2rules.Rule, m *rules.Manifest) []scanner.Finding {
+	collector := scanner.NewFindingCollector(0)
+	ctx := &v2rules.Context{
+		Manifest:  m,
+		Rule:      r,
+		Collector: collector,
+	}
+	r.Check(ctx)
+	return v2rules.ContextFindings(ctx)
 }

@@ -18,7 +18,7 @@ func (r *PropertyUsedBeforeDeclarationRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "552f8ede9b6f3196",
+		SourceHash:    "0f5c02dee8c6090d",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *UnconditionalJumpStatementInLoopRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "552f8ede9b6f3196",
+		SourceHash:    "0f5c02dee8c6090d",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *UnnamedParameterUseRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "552f8ede9b6f3196",
+		SourceHash:    "0f5c02dee8c6090d",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowSingleParamUse",
@@ -71,7 +71,7 @@ func (r *UnusedUnaryOperatorRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "552f8ede9b6f3196",
+		SourceHash:    "0f5c02dee8c6090d",
 	}
 }
 
@@ -85,6 +85,6 @@ func (r *UselessPostfixExpressionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "552f8ede9b6f3196",
+		SourceHash:    "0f5c02dee8c6090d",
 	}
 }

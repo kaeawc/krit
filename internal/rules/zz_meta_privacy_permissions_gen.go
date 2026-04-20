@@ -18,7 +18,7 @@ func (r *AdMobInitializedBeforeConsentRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "e34fccc755e50560",
+		SourceHash:    "5d34e32d971a3141",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *BiometricAuthNotFallingBackToDeviceCredentialRule) Meta() registry.Rule
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "e34fccc755e50560",
+		SourceHash:    "5d34e32d971a3141",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *ClipboardOnSensitiveInputTypeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "e34fccc755e50560",
+		SourceHash:    "5d34e32d971a3141",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *ContactsAccessWithoutPermissionUiRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "e34fccc755e50560",
+		SourceHash:    "5d34e32d971a3141",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *LocationBackgroundWithoutRationaleRule) Meta() registry.RuleDescriptor 
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "e34fccc755e50560",
+		SourceHash:    "5d34e32d971a3141",
 	}
 }
 
@@ -88,6 +88,6 @@ func (r *ScreenshotNotBlockedOnLoginScreenRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "e34fccc755e50560",
+		SourceHash:    "5d34e32d971a3141",
 	}
 }

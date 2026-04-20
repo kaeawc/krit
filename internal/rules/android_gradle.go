@@ -15,6 +15,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -34,7 +35,6 @@ type GradleFamily = interface {
 // gradle rule implementations satisfy the Rule interface without stubs.
 type GradleBase struct{}
 
-func (GradleBase) Check(file *scanner.File) []scanner.Finding { return nil }
 func (GradleBase) AndroidDependencies() AndroidDataDependency {
 	return AndroidDepGradle
 }
@@ -89,19 +89,18 @@ type GradlePluginCompatibilityRule struct {
 // version. Classified per roadmap/17.
 func (r *GradlePluginCompatibilityRule) Confidence() float64 { return 0.75 }
 
-func (r *GradlePluginCompatibilityRule) CheckGradle(path string, content string, cfg *android.BuildConfig) []scanner.Finding {
+func (r *GradlePluginCompatibilityRule) check(ctx *v2.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	lints := android.LintBuildGradle(content, cfg, 0) // threshold 0 = skip MinSdkTooLow
-	var findings []scanner.Finding
 	for _, l := range lints {
 		if l.Rule == "GradleCompatibility" {
 			line := l.Line
 			if line == 0 {
 				line = 1
 			}
-			findings = append(findings, gradleFinding(path, line, r.BaseRule, l.Message))
+			ctx.Emit(gradleFinding(path, line, r.BaseRule, l.Message))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -123,16 +122,15 @@ var stringIntegerRe = regexp.MustCompile(`(?m)^\s*(?:minSdk|targetSdk|compileSdk
 // version. Classified per roadmap/17.
 func (r *StringIntegerRule) Confidence() float64 { return 0.75 }
 
-func (r *StringIntegerRule) CheckGradle(path string, content string, _ *android.BuildConfig) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *StringIntegerRule) check(ctx *v2.Context) {
+	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		if stringIntegerRe.MatchString(line) {
-			findings = append(findings, gradleFinding(path, i+1, r.BaseRule,
+			ctx.Emit(gradleFinding(path, i+1, r.BaseRule,
 				"SDK version should be an integer, not a string. Remove quotes."))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -151,8 +149,8 @@ type RemoteVersionRule struct {
 // version. Classified per roadmap/17.
 func (r *RemoteVersionRule) Confidence() float64 { return 0.75 }
 
-func (r *RemoteVersionRule) CheckGradle(path string, content string, cfg *android.BuildConfig) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *RemoteVersionRule) check(ctx *v2.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	for _, dep := range cfg.Dependencies {
 		if dep.Version == "+" || dep.Version == "latest.release" || dep.Version == "latest.integration" {
 			coord := dep.Group + ":" + dep.Name + ":" + dep.Version
@@ -160,12 +158,11 @@ func (r *RemoteVersionRule) CheckGradle(path string, content string, cfg *androi
 			if line == 0 {
 				line = 1
 			}
-			findings = append(findings, gradleFinding(path, line, r.BaseRule,
+			ctx.Emit(gradleFinding(path, line, r.BaseRule,
 				fmt.Sprintf("Dependency %s:%s uses non-deterministic version `%s`. Pin to a specific version.",
 					dep.Group, dep.Name, dep.Version)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -184,8 +181,8 @@ type DynamicVersionRule struct {
 // version. Classified per roadmap/17.
 func (r *DynamicVersionRule) Confidence() float64 { return 0.75 }
 
-func (r *DynamicVersionRule) CheckGradle(path string, content string, cfg *android.BuildConfig) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *DynamicVersionRule) check(ctx *v2.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	for _, dep := range cfg.Dependencies {
 		// Skip pure "+" (handled by RemoteVersion) and empty versions.
 		if dep.Version == "" || dep.Version == "+" || dep.Version == "latest.release" || dep.Version == "latest.integration" {
@@ -197,12 +194,11 @@ func (r *DynamicVersionRule) CheckGradle(path string, content string, cfg *andro
 			if line == 0 {
 				line = 1
 			}
-			findings = append(findings, gradleFinding(path, line, r.BaseRule,
+			ctx.Emit(gradleFinding(path, line, r.BaseRule,
 				fmt.Sprintf("Dependency %s:%s uses dynamic version `%s`. Pin to a specific version for reproducible builds.",
 					dep.Group, dep.Name, dep.Version)))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -226,22 +222,23 @@ var targetSdkLineRe = regexp.MustCompile(`(?m)^\s*targetSdk(?:Version)?\s*[=(]`)
 // version. Classified per roadmap/17.
 func (r *GradleOldTargetApiRule) Confidence() float64 { return 0.75 }
 
-func (r *GradleOldTargetApiRule) CheckGradle(path string, content string, cfg *android.BuildConfig) []scanner.Finding {
+func (r *GradleOldTargetApiRule) check(ctx *v2.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	threshold := r.Threshold
 	if threshold == 0 {
 		threshold = defaultOldTargetApiThreshold
 	}
 	if cfg.TargetSdkVersion == 0 || cfg.TargetSdkVersion >= threshold {
-		return nil
+		return
 	}
 	line := findGradleLine(content, targetSdkLineRe)
 	if line == 0 {
 		line = 1
 	}
-	return []scanner.Finding{gradleFinding(path, line, r.BaseRule,
+	ctx.Emit(gradleFinding(path, line, r.BaseRule,
 		fmt.Sprintf("targetSdkVersion %d is below the recommended minimum of %d. "+
 			"Update to comply with Google Play requirements.",
-			cfg.TargetSdkVersion, threshold))}
+			cfg.TargetSdkVersion, threshold)))
 }
 
 // ---------------------------------------------------------------------------
@@ -260,9 +257,9 @@ type DeprecatedDependencyRule struct {
 // version. Classified per roadmap/17.
 func (r *DeprecatedDependencyRule) Confidence() float64 { return 0.75 }
 
-func (r *DeprecatedDependencyRule) CheckGradle(path string, content string, cfg *android.BuildConfig) []scanner.Finding {
+func (r *DeprecatedDependencyRule) check(ctx *v2.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	lints := android.LintBuildGradle(content, cfg, 0)
-	var findings []scanner.Finding
 	for _, l := range lints {
 		if l.Rule == "DeprecatedDependency" {
 			line := l.Line
@@ -270,10 +267,9 @@ func (r *DeprecatedDependencyRule) CheckGradle(path string, content string, cfg 
 				// Try to find the dependency in the content for a better line number
 				line = 1
 			}
-			findings = append(findings, gradleFinding(path, line, r.BaseRule, l.Message))
+			ctx.Emit(gradleFinding(path, line, r.BaseRule, l.Message))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -294,16 +290,17 @@ var mavenLocalLineRe = regexp.MustCompile(`(?m)^\s*mavenLocal\s*\(\s*\)`)
 // version. Classified per roadmap/17.
 func (r *MavenLocalRule) Confidence() float64 { return 0.75 }
 
-func (r *MavenLocalRule) CheckGradle(path string, content string, _ *android.BuildConfig) []scanner.Finding {
+func (r *MavenLocalRule) check(ctx *v2.Context) {
+	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	if !mavenLocalLineRe.MatchString(content) {
-		return nil
+		return
 	}
 	line := findGradleLine(content, mavenLocalLineRe)
 	if line == 0 {
 		line = 1
 	}
-	return []scanner.Finding{gradleFinding(path, line, r.BaseRule,
-		"mavenLocal() can cause unreproducible builds; prefer a remote repository or includeBuild.")}
+	ctx.Emit(gradleFinding(path, line, r.BaseRule,
+		"mavenLocal() can cause unreproducible builds; prefer a remote repository or includeBuild."))
 }
 
 // ---------------------------------------------------------------------------
@@ -327,21 +324,22 @@ var minSdkLineRe = regexp.MustCompile(`(?m)^\s*minSdk(?:Version)?\s*[=(]`)
 // version. Classified per roadmap/17.
 func (r *MinSdkTooLowRule) Confidence() float64 { return 0.75 }
 
-func (r *MinSdkTooLowRule) CheckGradle(path string, content string, cfg *android.BuildConfig) []scanner.Finding {
+func (r *MinSdkTooLowRule) check(ctx *v2.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	threshold := r.Threshold
 	if threshold == 0 {
 		threshold = defaultMinSdkTooLowThreshold
 	}
 	if cfg.MinSdkVersion == 0 || cfg.MinSdkVersion >= threshold {
-		return nil
+		return
 	}
 	line := findGradleLine(content, minSdkLineRe)
 	if line == 0 {
 		line = 1
 	}
-	return []scanner.Finding{gradleFinding(path, line, r.BaseRule,
+	ctx.Emit(gradleFinding(path, line, r.BaseRule,
 		fmt.Sprintf("minSdk %d is below the recommended minimum of %d.",
-			cfg.MinSdkVersion, threshold))}
+			cfg.MinSdkVersion, threshold)))
 }
 
 // ---------------------------------------------------------------------------
@@ -372,8 +370,8 @@ var deprecatedConfigRe = regexp.MustCompile(`(?m)^\s*(compile|testCompile|provid
 // version. Classified per roadmap/17.
 func (r *GradleDeprecatedRule) Confidence() float64 { return 0.75 }
 
-func (r *GradleDeprecatedRule) CheckGradle(path string, content string, _ *android.BuildConfig) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *GradleDeprecatedRule) check(ctx *v2.Context) {
+	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		m := deprecatedConfigRe.FindStringSubmatch(line)
@@ -382,10 +380,9 @@ func (r *GradleDeprecatedRule) CheckGradle(path string, content string, _ *andro
 		}
 		cfg := m[1]
 		replacement := deprecatedConfigs[cfg]
-		findings = append(findings, gradleFinding(path, i+1, r.BaseRule,
+		ctx.Emit(gradleFinding(path, i+1, r.BaseRule,
 			fmt.Sprintf("'%s' is deprecated; use '%s' instead.", cfg, replacement)))
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -416,12 +413,12 @@ var groovyDSLRe = regexp.MustCompile(`(?m)^\s*(compileSdkVersion|buildToolsVersi
 // version. Classified per roadmap/17.
 func (r *GradleGetterRule) Confidence() float64 { return 0.75 }
 
-func (r *GradleGetterRule) CheckGradle(path string, content string, _ *android.BuildConfig) []scanner.Finding {
+func (r *GradleGetterRule) check(ctx *v2.Context) {
+	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	// Only flag in .kts files where the Kotlin DSL should be used.
 	if !strings.HasSuffix(path, ".kts") {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		m := groovyDSLRe.FindStringSubmatch(line)
@@ -430,10 +427,9 @@ func (r *GradleGetterRule) CheckGradle(path string, content string, _ *android.B
 		}
 		old := m[1]
 		replacement := groovyStyleDSL[old]
-		findings = append(findings, gradleFinding(path, i+1, r.BaseRule,
+		ctx.Emit(gradleFinding(path, i+1, r.BaseRule,
 			fmt.Sprintf("Groovy-style '%s' should be replaced with '%s' in Kotlin DSL.", old, replacement)))
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -457,19 +453,18 @@ var (
 // version. Classified per roadmap/17.
 func (r *GradlePathRule) Confidence() float64 { return 0.75 }
 
-func (r *GradlePathRule) CheckGradle(path string, content string, _ *android.BuildConfig) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *GradlePathRule) check(ctx *v2.Context) {
+	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		if absolutePathRe.MatchString(line) {
-			findings = append(findings, gradleFinding(path, i+1, r.BaseRule,
+			ctx.Emit(gradleFinding(path, i+1, r.BaseRule,
 				"Avoid absolute paths in files()/fileTree(); use project-relative paths."))
 		} else if backslashPathRe.MatchString(line) {
-			findings = append(findings, gradleFinding(path, i+1, r.BaseRule,
+			ctx.Emit(gradleFinding(path, i+1, r.BaseRule,
 				"Avoid backslashes in dependency paths; use forward slashes for cross-platform compatibility."))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -489,17 +484,18 @@ type GradleOverridesRule struct {
 // version. Classified per roadmap/17.
 func (r *GradleOverridesRule) Confidence() float64 { return 0.75 }
 
-func (r *GradleOverridesRule) CheckGradle(path string, content string, cfg *android.BuildConfig) []scanner.Finding {
+func (r *GradleOverridesRule) check(ctx *v2.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	if cfg.MinSdkVersion > 0 && cfg.TargetSdkVersion > 0 {
 		// Report on the targetSdk line (second override).
 		line := findGradleLine(content, targetSdkLineRe)
 		if line == 0 {
 			line = 1
 		}
-		return []scanner.Finding{gradleFinding(path, line, r.BaseRule,
-			"Both minSdk and targetSdk are set in the Gradle build file, overriding any values in AndroidManifest.xml.")}
+		ctx.Emit(gradleFinding(path, line, r.BaseRule,
+			"Both minSdk and targetSdk are set in the Gradle build file, overriding any values in AndroidManifest.xml."))
+		return
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -520,19 +516,18 @@ var applyPluginLineRe = regexp.MustCompile(`(?m)^\s*apply\s+plugin:|^\s*apply\s*
 // version. Classified per roadmap/17.
 func (r *GradleIdeErrorRule) Confidence() float64 { return 0.75 }
 
-func (r *GradleIdeErrorRule) CheckGradle(path string, content string, _ *android.BuildConfig) []scanner.Finding {
+func (r *GradleIdeErrorRule) check(ctx *v2.Context) {
+	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	if !strings.HasSuffix(path, ".kts") {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		if applyPluginLineRe.MatchString(line) {
-			findings = append(findings, gradleFinding(path, i+1, r.BaseRule,
+			ctx.Emit(gradleFinding(path, i+1, r.BaseRule,
 				"Use the plugins { } block instead of 'apply plugin:' in Kotlin DSL (.kts) files."))
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -553,23 +548,24 @@ var agpVersionRe = regexp.MustCompile(`com\.android\.tools\.build:gradle:(\d+)\.
 // version. Classified per roadmap/17.
 func (r *AndroidGradlePluginVersionRule) Confidence() float64 { return 0.75 }
 
-func (r *AndroidGradlePluginVersionRule) CheckGradle(path string, content string, _ *android.BuildConfig) []scanner.Finding {
+func (r *AndroidGradlePluginVersionRule) check(ctx *v2.Context) {
+	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	matches := agpVersionRe.FindStringSubmatch(content)
 	if matches == nil {
-		return nil
+		return
 	}
 	major := 0
 	fmt.Sscanf(matches[1], "%d", &major)
 	if major >= 7 {
-		return nil
+		return
 	}
 	line := findGradleLine(content, agpVersionRe)
 	if line == 0 {
 		line = 1
 	}
 	version := matches[1] + "." + matches[2] + "." + matches[3]
-	return []scanner.Finding{gradleFinding(path, line, r.BaseRule,
-		fmt.Sprintf("Android Gradle Plugin version %s is too old. Upgrade to at least 7.0.0.", version))}
+	ctx.Emit(gradleFinding(path, line, r.BaseRule,
+		fmt.Sprintf("Android Gradle Plugin version %s is too old. Upgrade to at least 7.0.0.", version)))
 }
 
 // ---------------------------------------------------------------------------
@@ -699,12 +695,12 @@ func versionLessThan(major, minor, patch, minMajor, minMinor, minPatch int) bool
 // version. Classified per roadmap/17.
 func (r *NewerVersionAvailableRule) Confidence() float64 { return 0.75 }
 
-func (r *NewerVersionAvailableRule) CheckGradle(path string, content string, cfg *android.BuildConfig) []scanner.Finding {
+func (r *NewerVersionAvailableRule) check(ctx *v2.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	recs := r.RecommendedVersions
 	if len(recs) == 0 {
 		recs = recommendedVersions
 	}
-	var findings []scanner.Finding
 	for _, dep := range cfg.Dependencies {
 		if dep.Version == "" || dep.Version == "+" || strings.Contains(dep.Version, "+") {
 			continue
@@ -718,7 +714,7 @@ func (r *NewerVersionAvailableRule) CheckGradle(path string, content string, cfg
 					if line == 0 {
 						line = 1
 					}
-					findings = append(findings, gradleFinding(path, line, r.BaseRule,
+					ctx.Emit(gradleFinding(path, line, r.BaseRule,
 						fmt.Sprintf("A newer version of %s:%s is available. Update from %s to at least %s.",
 							dep.Group, dep.Name, dep.Version, rec.Display)))
 				}
@@ -726,7 +722,6 @@ func (r *NewerVersionAvailableRule) CheckGradle(path string, content string, cfg
 			}
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------

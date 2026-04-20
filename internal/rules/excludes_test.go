@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -65,9 +66,9 @@ fun check(x: Boolean) {
 	}
 
 	// Find EmptyElseBlock rule
-	var rule rules.Rule
-	for _, r := range rules.Registry {
-		if r.Name() == "EmptyElseBlock" {
+	var rule *v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if r.ID == "EmptyElseBlock" {
 			rule = r
 			break
 		}
@@ -80,9 +81,9 @@ fun check(x: Boolean) {
 	rules.SetRuleExcludes("EmptyElseBlock", nil)
 
 	// Without excludes: should produce findings
-	d := rules.NewDispatcher([]rules.Rule{rule})
+	d := rules.NewDispatcherV2([]*v2rules.Rule{rule})
 	findings := d.Run(file)
-	if len(findings) == 0 {
+	if findings.Len() == 0 {
 		t.Fatal("expected EmptyElseBlock to fire without excludes")
 	}
 
@@ -91,10 +92,10 @@ fun check(x: Boolean) {
 	defer rules.SetRuleExcludes("EmptyElseBlock", nil) // cleanup
 
 	// With excludes: should skip the rule for this test file
-	d2 := rules.NewDispatcher([]rules.Rule{rule})
+	d2 := rules.NewDispatcherV2([]*v2rules.Rule{rule})
 	findings2 := d2.Run(file)
-	if len(findings2) != 0 {
-		t.Errorf("expected EmptyElseBlock to be excluded for test file, got %d findings", len(findings2))
+	if findings2.Len() != 0 {
+		t.Errorf("expected EmptyElseBlock to be excluded for test file, got %d findings", findings2.Len())
 	}
 }
 
@@ -122,9 +123,9 @@ fun check(x: Boolean) {
 		t.Fatal(err)
 	}
 
-	var rule rules.Rule
-	for _, r := range rules.Registry {
-		if r.Name() == "EmptyElseBlock" {
+	var rule *v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if r.ID == "EmptyElseBlock" {
 			rule = r
 			break
 		}
@@ -137,9 +138,9 @@ fun check(x: Boolean) {
 	rules.SetRuleExcludes("EmptyElseBlock", []string{"**/test/**", "**/*Test.kt"})
 	defer rules.SetRuleExcludes("EmptyElseBlock", nil)
 
-	d := rules.NewDispatcher([]rules.Rule{rule})
+	d := rules.NewDispatcherV2([]*v2rules.Rule{rule})
 	findings := d.Run(file)
-	if len(findings) == 0 {
+	if findings.Len() == 0 {
 		t.Error("expected EmptyElseBlock to fire on non-excluded main file")
 	}
 }
@@ -169,9 +170,9 @@ fun check(x: Boolean) {
 		t.Fatal(err)
 	}
 
-	var rule rules.Rule
-	for _, r := range rules.Registry {
-		if r.Name() == "EmptyElseBlock" {
+	var rule *v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if r.ID == "EmptyElseBlock" {
 			rule = r
 			break
 		}
@@ -184,10 +185,10 @@ fun check(x: Boolean) {
 	rules.SetRuleExcludes("EmptyElseBlock", []string{"**/test/**", "**/*Spec.kt"})
 	defer rules.SetRuleExcludes("EmptyElseBlock", nil)
 
-	d := rules.NewDispatcher([]rules.Rule{rule})
+	d := rules.NewDispatcherV2([]*v2rules.Rule{rule})
 	findings := d.Run(file)
-	if len(findings) != 0 {
-		t.Errorf("expected EmptyElseBlock to be excluded for Spec file, got %d findings", len(findings))
+	if findings.Len() != 0 {
+		t.Errorf("expected EmptyElseBlock to be excluded for Spec file, got %d findings", findings.Len())
 	}
 }
 

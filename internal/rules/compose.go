@@ -27,64 +27,6 @@ type ComposeColumnRowInScrollableRule struct {
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeColumnRowInScrollableRule) Confidence() float64 { return 0.75 }
 
-func (r *ComposeColumnRowInScrollableRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *ComposeColumnRowInScrollableRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	call := file.FlatChild(idx, 0)
-	if call == 0 || file.FlatType(call) != "call_expression" {
-		return nil
-	}
-	nameNode := file.FlatFindChild(call, "simple_identifier")
-	if nameNode == 0 {
-		return nil
-	}
-	callSuffix := file.FlatFindChild(idx, "call_suffix")
-	if callSuffix == 0 {
-		return nil
-	}
-	annotatedLambda := file.FlatFindChild(callSuffix, "annotated_lambda")
-	if annotatedLambda == 0 {
-		return nil
-	}
-	lambda := file.FlatFindChild(annotatedLambda, "lambda_literal")
-	if lambda == 0 {
-		return nil
-	}
-
-	if file.FlatNodeTextEquals(nameNode, "Column") {
-		if !composeFlatNodeMayContain(file, call, composeVerticalScrollToken) ||
-			!composeFlatNodeMayContain(file, lambda, composeLazyColumnToken) ||
-			!composeFlatCallContainsCall(file, call, "verticalScroll") {
-			return nil
-		}
-		if !composeFlatCallContainsCall(file, lambda, "LazyColumn") {
-			return nil
-		}
-		return []scanner.Finding{r.Finding(
-			file,
-			file.FlatRow(idx)+1,
-			file.FlatCol(idx)+1,
-			"Column with verticalScroll should not contain LazyColumn; use a single LazyColumn for the scrollable content.",
-		)}
-	} else if file.FlatNodeTextEquals(nameNode, "Row") {
-		if !composeFlatNodeMayContain(file, call, composeHorizontalScrollToken) ||
-			!composeFlatNodeMayContain(file, lambda, composeLazyRowToken) ||
-			!composeFlatCallContainsCall(file, call, "horizontalScroll") {
-			return nil
-		}
-		if !composeFlatCallContainsCall(file, lambda, "LazyRow") {
-			return nil
-		}
-		return []scanner.Finding{r.Finding(
-			file,
-			file.FlatRow(idx)+1,
-			file.FlatCol(idx)+1,
-			"Row with horizontalScroll should not contain LazyRow; use a single LazyRow for the scrollable content.",
-		)}
-	}
-	return nil
-}
-
 // ComposeDerivedStateMisuseRule detects derivedStateOf around direct boolean
 // comparisons of Compose state reads. Those reads already trigger
 // recomposition, so wrapping them in derivedStateOf usually adds overhead
@@ -99,34 +41,6 @@ type ComposeDerivedStateMisuseRule struct {
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeDerivedStateMisuseRule) Confidence() float64 { return 0.75 }
-
-func (r *ComposeDerivedStateMisuseRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *ComposeDerivedStateMisuseRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if flatCallExpressionName(file, idx) != "derivedStateOf" {
-		return nil
-	}
-
-	body := composeDerivedStateBodyFlat(file, idx)
-	if body == 0 {
-		return nil
-	}
-	if t := file.FlatType(body); t != "comparison_expression" && t != "equality_expression" {
-		return nil
-	}
-
-	delegatedReads, stateHolders := composeStateBindingsInScopeFlat(file, idx)
-	if !composeIsDirectStateComparisonFlat(file, body, delegatedReads, stateHolders) {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"derivedStateOf around a direct state comparison is unnecessary; the state read already drives recomposition.",
-	)}
-}
 
 func composeDerivedStateBodyFlat(file *scanner.File, idx uint32) uint32 {
 	callSuffix := file.FlatFindChild(idx, "call_suffix")
@@ -386,34 +300,6 @@ type ComposeLambdaCapturesUnstableStateRule struct {
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeLambdaCapturesUnstableStateRule) Confidence() float64 { return 0.75 }
 
-func (r *ComposeLambdaCapturesUnstableStateRule) NodeTypes() []string {
-	return []string{"lambda_literal"}
-}
-
-func (r *ComposeLambdaCapturesUnstableStateRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !composeIsNamedArgumentLambdaFlat(file, idx, "onClick") {
-		return nil
-	}
-
-	itemsLambda := composeNearestAncestorFlat(file, idx, "lambda_literal")
-	if itemsLambda == 0 || !composeLambdaBelongsToCallFlat(file, itemsLambda, "items", "itemsIndexed") {
-		return nil
-	}
-
-	for _, paramName := range composeLambdaParameterNamesFlat(file, itemsLambda) {
-		if composeLambdaReferencesIdentifierFlat(file, idx, paramName) {
-			return []scanner.Finding{r.Finding(
-				file,
-				file.FlatRow(idx)+1,
-				file.FlatCol(idx)+1,
-				"inline Compose callback captures the current lazy item; hoist it behind remember(item) before passing it to onClick.",
-			)}
-		}
-	}
-
-	return nil
-}
-
 func composeIsNamedArgumentLambdaFlat(file *scanner.File, node uint32, argName string) bool {
 	if file == nil || node == 0 || file.FlatType(node) != "lambda_literal" {
 		return false
@@ -540,26 +426,6 @@ var composeFillMaxAxisNames = map[string]struct{}{
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeModifierFillAfterSizeRule) Confidence() float64 { return 0.75 }
 
-func (r *ComposeModifierFillAfterSizeRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *ComposeModifierFillAfterSizeRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if _, ok := composeFillMaxAxisNames[flatCallExpressionName(file, idx)]; !ok {
-		return nil
-	}
-	prev := composeChainedCallPrev(file, idx)
-	if prev == 0 || flatCallExpressionName(file, prev) != "size" {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"fillMax* after size() overrides the explicit size on one or both axes; drop the size() or swap the order so fillMax*() is applied first.",
-	)}
-}
-
 // ComposeModifierBackgroundAfterClipRule flags `Modifier.background(...).clip(...)`
 // where the background is drawn in the un-clipped rectangular region instead
 // of the clipped shape the author almost certainly intended.
@@ -574,26 +440,6 @@ type ComposeModifierBackgroundAfterClipRule struct {
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeModifierBackgroundAfterClipRule) Confidence() float64 { return 0.75 }
 
-func (r *ComposeModifierBackgroundAfterClipRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *ComposeModifierBackgroundAfterClipRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if flatCallExpressionName(file, idx) != "clip" {
-		return nil
-	}
-	prev := composeChainedCallPrev(file, idx)
-	if prev == 0 || flatCallExpressionName(file, prev) != "background" {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"background() applied before clip() paints the un-clipped rectangle; put .clip(...) before .background(...) so the background respects the clip shape.",
-	)}
-}
-
 // ComposeModifierClickableBeforePaddingRule flags
 // `Modifier.clickable { }.padding(...)` — the click area excludes the padding
 // region, which is almost never what the author wants.
@@ -607,26 +453,6 @@ type ComposeModifierClickableBeforePaddingRule struct {
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeModifierClickableBeforePaddingRule) Confidence() float64 { return 0.75 }
-
-func (r *ComposeModifierClickableBeforePaddingRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *ComposeModifierClickableBeforePaddingRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if flatCallExpressionName(file, idx) != "padding" {
-		return nil
-	}
-	prev := composeChainedCallPrev(file, idx)
-	if prev == 0 || flatCallExpressionName(file, prev) != "clickable" {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"clickable { } before padding() makes the click area exclude the padding region; put .padding(...) first so the click hit test covers the padded bounds.",
-	)}
-}
 
 // composeEnclosingLambdaArgumentName walks up from idx looking for the
 // nearest lambda_literal ancestor that is itself a named value_argument, and
@@ -728,33 +554,6 @@ type ComposeRememberWithoutKeyRule struct {
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeRememberWithoutKeyRule) Confidence() float64 { return 0.75 }
 
-func (r *ComposeRememberWithoutKeyRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *ComposeRememberWithoutKeyRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if flatCallNameAny(file, idx) != "remember" {
-		return nil
-	}
-	if flatCallKeyArguments(file, idx) != 0 {
-		return nil
-	}
-	lambda := flatCallTrailingLambda(file, idx)
-	if lambda == 0 {
-		return nil
-	}
-	paramName, ok := composeLambdaReferencesEnclosingParam(file, lambda)
-	if !ok {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"remember { } reads enclosing parameter "+paramName+" but has no keys; the cached value won't update when "+paramName+" changes. Pass remember("+paramName+") { ... }.",
-	)}
-}
-
 // ComposeLaunchedEffectWithoutKeysRule flags `LaunchedEffect(Unit) { f(param) }`
 // where the effect body references an enclosing parameter but the keys are
 // constant (Unit / true / false / null). The effect won't re-run when the
@@ -770,9 +569,6 @@ type ComposeLaunchedEffectWithoutKeysRule struct {
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeLaunchedEffectWithoutKeysRule) Confidence() float64 { return 0.75 }
 
-func (r *ComposeLaunchedEffectWithoutKeysRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
 
 var composeConstantKeyTexts = map[string]struct{}{
 	"Unit":  {},
@@ -780,43 +576,6 @@ var composeConstantKeyTexts = map[string]struct{}{
 	"false": {},
 	"null":  {},
 }
-
-func (r *ComposeLaunchedEffectWithoutKeysRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if flatCallNameAny(file, idx) != "LaunchedEffect" {
-		return nil
-	}
-	lambda := flatCallTrailingLambda(file, idx)
-	if lambda == 0 {
-		return nil
-	}
-	args := flatCallKeyArguments(file, idx)
-	if args == 0 {
-		return nil
-	}
-	// Every value_argument must be a constant key (Unit / true / false /
-	// null) for the "effectively no keys" check to fire. If the author
-	// passes any non-constant, assume they thought about keying.
-	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
-		if file.FlatType(arg) != "value_argument" {
-			continue
-		}
-		text := file.FlatNodeText(arg)
-		if _, ok := composeConstantKeyTexts[text]; !ok {
-			return nil
-		}
-	}
-	paramName, ok := composeLambdaReferencesEnclosingParam(file, lambda)
-	if !ok {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"LaunchedEffect body reads enclosing parameter "+paramName+" but is keyed only on constants; the effect won't re-run when "+paramName+" changes. Pass LaunchedEffect("+paramName+") { ... }.",
-	)}
-}
-
 // ComposeUnstableParameterRule flags `@Composable fun X(users: List<User>)`
 // whose parameters use the mutable Kotlin collection types (`List`, `Map`,
 // `Set`, `MutableList`, etc.) directly. Compose considers these unstable
@@ -844,49 +603,6 @@ var composeUnstableCollectionTypes = map[string]struct{}{
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeUnstableParameterRule) Confidence() float64 { return 0.75 }
-
-func (r *ComposeUnstableParameterRule) NodeTypes() []string {
-	return []string{"function_declaration"}
-}
-
-func (r *ComposeUnstableParameterRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !flatHasAnnotationNamed(file, idx, "Composable") {
-		return nil
-	}
-	params := file.FlatFindChild(idx, "function_value_parameters")
-	if params == 0 {
-		return nil
-	}
-	var findings []scanner.Finding
-	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatType(child) != "parameter" {
-			continue
-		}
-		typeNode := file.FlatFindChild(child, "user_type")
-		if typeNode == 0 {
-			continue
-		}
-		typeIdent := file.FlatFindChild(typeNode, "type_identifier")
-		if typeIdent == 0 {
-			continue
-		}
-		name := file.FlatNodeText(typeIdent)
-		if _, unstable := composeUnstableCollectionTypes[name]; !unstable {
-			continue
-		}
-		paramName := ""
-		if idNode := file.FlatFindChild(child, "simple_identifier"); idNode != 0 {
-			paramName = file.FlatNodeText(idNode)
-		}
-		findings = append(findings, r.Finding(
-			file,
-			file.FlatRow(child)+1,
-			file.FlatCol(child)+1,
-			"@Composable parameter "+paramName+": "+name+"<...> is an unstable type for recomposition skipping; use an ImmutableList/PersistentList from kotlinx.collections.immutable or wrap the collection in an @Immutable data class.",
-		))
-	}
-	return findings
-}
 
 // ComposeRememberSaveableNonParcelableRule flags `rememberSaveable {
 // SomeType() }` where SomeType() is a constructor call to a plain class
@@ -924,73 +640,6 @@ var composeSaverSafeBuiltins = map[string]struct{}{
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeRememberSaveableNonParcelableRule) Confidence() float64 { return 0.75 }
 
-func (r *ComposeRememberSaveableNonParcelableRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *ComposeRememberSaveableNonParcelableRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if flatCallNameAny(file, idx) != "rememberSaveable" {
-		return nil
-	}
-	// If the user passed a saver / stateSaver argument, assume they know
-	// what they're doing.
-	if args := flatCallKeyArguments(file, idx); args != 0 {
-		for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
-			if file.FlatType(arg) != "value_argument" {
-				continue
-			}
-			if file.FlatNamedChildCount(arg) < 2 {
-				continue
-			}
-			label := file.FlatNamedChild(arg, 0)
-			if label == 0 || file.FlatType(label) != "simple_identifier" {
-				continue
-			}
-			text := file.FlatNodeText(label)
-			if text == "saver" || text == "stateSaver" {
-				return nil
-			}
-		}
-	}
-	lambda := flatCallTrailingLambda(file, idx)
-	if lambda == 0 {
-		return nil
-	}
-	stmts := file.FlatFindChild(lambda, "statements")
-	if stmts == 0 {
-		return nil
-	}
-	// The last statement in the lambda is the returned value. If it's a
-	// constructor-looking call_expression (uppercase name) and not a
-	// saver-safe builtin, report.
-	var last uint32
-	for child := file.FlatFirstChild(stmts); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatIsNamed(child) {
-			last = child
-		}
-	}
-	if last == 0 || file.FlatType(last) != "call_expression" {
-		return nil
-	}
-	name := flatCallExpressionName(file, last)
-	if name == "" {
-		return nil
-	}
-	first := name[0]
-	if first < 'A' || first > 'Z' {
-		return nil
-	}
-	if _, safe := composeSaverSafeBuiltins[name]; safe {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"rememberSaveable { "+name+"() } with no `saver`/`stateSaver` falls back to AutoSaver, which only handles primitives and Parcelable/Serializable. If "+name+" isn't @Parcelize, pass an explicit saver; otherwise suppress this warning.",
-	)}
-}
-
 // ComposeSideEffectInCompositionRule flags direct assignments inside a
 // @Composable function body that aren't wrapped in a recognized effect
 // block (LaunchedEffect / SideEffect / DisposableEffect). Assignments
@@ -1007,46 +656,12 @@ type ComposeSideEffectInCompositionRule struct {
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeSideEffectInCompositionRule) Confidence() float64 { return 0.75 }
 
-func (r *ComposeSideEffectInCompositionRule) NodeTypes() []string {
-	return []string{"assignment"}
-}
 
 var composeEffectBlockCalls = map[string]struct{}{
 	"LaunchedEffect":   {},
 	"SideEffect":       {},
 	"DisposableEffect": {},
 }
-
-func (r *ComposeSideEffectInCompositionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	fn, ok := flatEnclosingFunction(file, idx)
-	if !ok || !flatHasAnnotationNamed(file, fn, "Composable") {
-		return nil
-	}
-	// Walk up from the assignment. If any enclosing lambda_literal is the
-	// trailing lambda of a recognized effect block call, the assignment is
-	// legal.
-	for cur, ok := file.FlatParent(idx); ok && cur != fn; cur, ok = file.FlatParent(cur) {
-		if file.FlatType(cur) != "lambda_literal" {
-			continue
-		}
-		// Is this lambda the trailing lambda of a call_expression named
-		// LaunchedEffect/SideEffect/DisposableEffect?
-		// Walk up from the lambda: lambda_literal -> annotated_lambda ->
-		// call_suffix -> call_expression (the outer call).
-		if owningCall, ok := composeLambdaOwningCall(file, cur); ok {
-			if _, effect := composeEffectBlockCalls[flatCallNameAny(file, owningCall)]; effect {
-				return nil
-			}
-		}
-	}
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"assignment inside a @Composable function body runs on every recomposition; wrap the mutation in LaunchedEffect / SideEffect / DisposableEffect so it only runs when intended.",
-	)}
-}
-
 // composeLambdaOwningCall returns the call_expression that a lambda_literal
 // is passed as a trailing lambda to, if any.
 func composeLambdaOwningCall(file *scanner.File, lambdaIdx uint32) (uint32, bool) {
@@ -1086,78 +701,6 @@ type ComposeModifierPassedThenChainedRule struct {
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeModifierPassedThenChainedRule) Confidence() float64 { return 0.75 }
-
-func (r *ComposeModifierPassedThenChainedRule) NodeTypes() []string {
-	return []string{"function_declaration"}
-}
-
-func (r *ComposeModifierPassedThenChainedRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !flatHasAnnotationNamed(file, idx, "Composable") {
-		return nil
-	}
-	if !composeHasModifierParameter(file, idx) {
-		return nil
-	}
-	body := file.FlatFindChild(idx, "function_body")
-	if body == 0 {
-		return nil
-	}
-
-	// Body references to `modifier` (the parameter) as a simple_identifier.
-	// If the author uses it anywhere we don't fire, even if they also start
-	// fresh chains elsewhere — that's a coverage tradeoff.
-	referenced := false
-	file.FlatWalkAllNodes(body, func(n uint32) {
-		if referenced {
-			return
-		}
-		if file.FlatType(n) != "simple_identifier" {
-			return
-		}
-		if !file.FlatNodeTextEquals(n, "modifier") {
-			return
-		}
-		// Skip navigation_suffix children — they'd be `.modifier` accessors,
-		// not references to the local.
-		parent, ok := file.FlatParent(n)
-		if !ok {
-			return
-		}
-		if file.FlatType(parent) == "navigation_suffix" {
-			return
-		}
-		referenced = true
-	})
-	if referenced {
-		return nil
-	}
-
-	// Find all fresh `Modifier.X(...)` chains (navigation_expression whose
-	// first named child is a simple_identifier "Modifier") and report them.
-	var findings []scanner.Finding
-	file.FlatWalkAllNodes(body, func(n uint32) {
-		if file.FlatType(n) != "navigation_expression" {
-			return
-		}
-		if file.FlatNamedChildCount(n) == 0 {
-			return
-		}
-		first := file.FlatNamedChild(n, 0)
-		if file.FlatType(first) != "simple_identifier" {
-			return
-		}
-		if !file.FlatNodeTextEquals(first, "Modifier") {
-			return
-		}
-		findings = append(findings, r.Finding(
-			file,
-			file.FlatRow(n)+1,
-			file.FlatCol(n)+1,
-			"this @Composable declares a `modifier: Modifier` parameter but the body starts a fresh `Modifier.X()` chain and never uses it; chain off the passed-in `modifier` instead so the caller's modifiers aren't dropped.",
-		))
-	})
-	return findings
-}
 
 // composeHasModifierParameter reports whether the given function_declaration
 // declares a parameter named exactly `modifier` of type `Modifier`.
@@ -1201,44 +744,6 @@ type ComposeDisposableEffectMissingDisposeRule struct {
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeDisposableEffectMissingDisposeRule) Confidence() float64 { return 0.75 }
 
-func (r *ComposeDisposableEffectMissingDisposeRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *ComposeDisposableEffectMissingDisposeRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if flatCallNameAny(file, idx) != "DisposableEffect" {
-		return nil
-	}
-	lambda := flatCallTrailingLambda(file, idx)
-	if lambda == 0 {
-		return nil
-	}
-	stmts := file.FlatFindChild(lambda, "statements")
-	if stmts == 0 {
-		return nil
-	}
-	// Find the last named child of the statements block. If it's a
-	// call_expression to onDispose, we're good; otherwise report.
-	var last uint32
-	for child := file.FlatFirstChild(stmts); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatIsNamed(child) {
-			last = child
-		}
-	}
-	if last == 0 {
-		return nil
-	}
-	if file.FlatType(last) == "call_expression" && flatCallNameAny(file, last) == "onDispose" {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"DisposableEffect body must end with onDispose { ... }; without it the resource registered in the block leaks when the composable leaves composition.",
-	)}
-}
-
 // ComposePreviewWithBackingStateRule flags `@Preview @Composable fun
 // FooPreview()` whose body calls a runtime state holder like
 // `hiltViewModel()`, `viewModel()`, or `collectAsState*()` — those won't
@@ -1262,40 +767,6 @@ var composeRuntimeStateHolderCalls = map[string]struct{}{
 // produce a false match. Classified per roadmap/17.
 func (r *ComposePreviewWithBackingStateRule) Confidence() float64 { return 0.75 }
 
-func (r *ComposePreviewWithBackingStateRule) NodeTypes() []string {
-	return []string{"function_declaration"}
-}
-
-func (r *ComposePreviewWithBackingStateRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !flatHasAnnotationNamed(file, idx, "Preview") {
-		return nil
-	}
-	if !flatHasAnnotationNamed(file, idx, "Composable") {
-		return nil
-	}
-	body := file.FlatFindChild(idx, "function_body")
-	if body == 0 {
-		return nil
-	}
-	var findings []scanner.Finding
-	file.FlatWalkAllNodes(body, func(n uint32) {
-		if file.FlatType(n) != "call_expression" {
-			return
-		}
-		name := flatCallExpressionName(file, n)
-		if _, ok := composeRuntimeStateHolderCalls[name]; !ok {
-			return
-		}
-		findings = append(findings, r.Finding(
-			file,
-			file.FlatRow(n)+1,
-			file.FlatCol(n)+1,
-			"@Preview body calls "+name+"() which depends on a runtime state holder; previews should render with fake/injected data so the Studio preview renderer can show them.",
-		))
-	})
-	return findings
-}
-
 // ComposeStatefulDefaultParameterRule flags `@Composable fun Foo(state:
 // MyState = MyState())` — the `MyState()` default allocates a fresh instance
 // on every recomposition, breaking state hoisting and silently dropping
@@ -1313,57 +784,6 @@ type ComposeStatefulDefaultParameterRule struct {
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeStatefulDefaultParameterRule) Confidence() float64 { return 0.75 }
 
-func (r *ComposeStatefulDefaultParameterRule) NodeTypes() []string {
-	return []string{"function_declaration"}
-}
-
-func (r *ComposeStatefulDefaultParameterRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !flatHasAnnotationNamed(file, idx, "Composable") {
-		return nil
-	}
-	params := file.FlatFindChild(idx, "function_value_parameters")
-	if params == 0 {
-		return nil
-	}
-	var findings []scanner.Finding
-	sawEquals := false
-	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
-		typ := file.FlatType(child)
-		switch typ {
-		case "=":
-			sawEquals = true
-			continue
-		case ",", "parameter", "(", ")":
-			sawEquals = false
-			continue
-		}
-		if !sawEquals {
-			continue
-		}
-		sawEquals = false
-		if typ != "call_expression" {
-			continue
-		}
-		name := flatCallExpressionName(file, child)
-		if name == "" {
-			continue
-		}
-		// Constructor-looking call: starts with an uppercase letter. Factories
-		// and `remember*` helpers start lowercase and are therefore excluded.
-		first := name[0]
-		if first < 'A' || first > 'Z' {
-			continue
-		}
-		findings = append(findings, r.Finding(
-			file,
-			file.FlatRow(child)+1,
-			file.FlatCol(child)+1,
-			"default `"+name+"()` on a @Composable parameter allocates a fresh instance every recomposition; use `remember { "+name+"() }` or a `remember"+name+"()` helper so the state persists across composes.",
-		))
-	}
-	return findings
-}
-
 // ComposeMutableStateInCompositionRule flags `val count = mutableStateOf(0)`
 // as a local property inside a @Composable function. Without a surrounding
 // `remember { }`, the state is reconstructed on every recomposition and
@@ -1378,47 +798,6 @@ type ComposeMutableStateInCompositionRule struct {
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeMutableStateInCompositionRule) Confidence() float64 { return 0.75 }
-
-func (r *ComposeMutableStateInCompositionRule) NodeTypes() []string {
-	return []string{"property_declaration"}
-}
-
-func (r *ComposeMutableStateInCompositionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Must live inside a @Composable function.
-	fn, ok := flatEnclosingFunction(file, idx)
-	if !ok || !flatHasAnnotationNamed(file, fn, "Composable") {
-		return nil
-	}
-	// Walk the property_declaration children looking for the pattern
-	// `= mutableStateOf(...)`. A `by` delegate yields a `property_delegate`
-	// child instead and is explicitly allowed.
-	sawEquals := false
-	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-		switch file.FlatType(child) {
-		case "=":
-			sawEquals = true
-			continue
-		case "property_delegate":
-			return nil
-		}
-		if !sawEquals {
-			continue
-		}
-		if file.FlatType(child) != "call_expression" {
-			continue
-		}
-		if flatCallExpressionName(file, child) != "mutableStateOf" {
-			return nil
-		}
-		return []scanner.Finding{r.Finding(
-			file,
-			file.FlatRow(child)+1,
-			file.FlatCol(child)+1,
-			"mutableStateOf() as a plain local in a @Composable creates a fresh state on every recomposition; wrap it in remember { mutableStateOf(...) } or use `by remember { mutableStateOf(...) }`.",
-		)}
-	}
-	return nil
-}
 
 // ComposeStringResourceInsideLambdaRule flags `stringResource(...)` calls
 // nested inside a callback-style named-argument lambda (e.g. `onClick = {
@@ -1435,34 +814,6 @@ type ComposeStringResourceInsideLambdaRule struct {
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeStringResourceInsideLambdaRule) Confidence() float64 { return 0.75 }
-
-func (r *ComposeStringResourceInsideLambdaRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *ComposeStringResourceInsideLambdaRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if flatCallExpressionName(file, idx) != "stringResource" {
-		return nil
-	}
-	label := composeEnclosingLambdaArgumentName(file, idx)
-	if label == "" {
-		return nil
-	}
-	// Treat any `on*` handler argument as a callback context. Compose
-	// composable lambdas (content parameters) are passed either positionally
-	// or via the trailing-lambda syntax, which the enclosing-lambda walker
-	// explicitly skips — so this heuristic only fires on named callback
-	// arguments.
-	if len(label) < 3 || label[0] != 'o' || label[1] != 'n' || label[2] < 'A' || label[2] > 'Z' {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"stringResource() is composition-only and will crash when invoked from a "+label+" callback; hoist the resource lookup above the lambda.",
-	)}
-}
 
 // ComposeMutableDefaultArgumentRule flags `@Composable fun Foo(items:
 // MutableList<X> = mutableListOf())` — the mutable default evaluates on each
@@ -1490,58 +841,6 @@ var composeMutableCollectionFactories = map[string]struct{}{
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeMutableDefaultArgumentRule) Confidence() float64 { return 0.75 }
 
-func (r *ComposeMutableDefaultArgumentRule) NodeTypes() []string {
-	return []string{"function_declaration"}
-}
-
-func (r *ComposeMutableDefaultArgumentRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !flatHasAnnotationNamed(file, idx, "Composable") {
-		return nil
-	}
-	params := file.FlatFindChild(idx, "function_value_parameters")
-	if params == 0 {
-		return nil
-	}
-
-	// In the tree-sitter Kotlin grammar, `function_value_parameters` children
-	// are a flat sequence: `parameter`, `=`, `<default_expr>`, `,`,
-	// `parameter`, `=`, `<default_expr>`, ... — the default value is a
-	// sibling of its parameter, not a child. Walk the sequence and flag any
-	// `call_expression` that follows an `=` and names a mutable collection
-	// factory.
-	var findings []scanner.Finding
-	sawEquals := false
-	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
-		typ := file.FlatType(child)
-		switch typ {
-		case "=":
-			sawEquals = true
-			continue
-		case ",", "parameter", "(", ")":
-			sawEquals = false
-			continue
-		}
-		if !sawEquals {
-			continue
-		}
-		sawEquals = false
-		if typ != "call_expression" {
-			continue
-		}
-		name := flatCallExpressionName(file, child)
-		if _, ok := composeMutableCollectionFactories[name]; !ok {
-			continue
-		}
-		findings = append(findings, r.Finding(
-			file,
-			file.FlatRow(child)+1,
-			file.FlatCol(child)+1,
-			"mutable collection default ("+name+"()) on a @Composable parameter re-evaluates each recomposition; use an immutable default like emptyList()/emptyMap() or hoist the collection to state.",
-		))
-	}
-	return findings
-}
-
 // ComposePreviewAnnotationMissingRule flags `@Composable fun FooPreview()`
 // whose name ends in "Preview" but which is missing the `@Preview`
 // annotation. Such functions almost always intend to render a preview in
@@ -1556,30 +855,3 @@ type ComposePreviewAnnotationMissingRule struct {
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
 func (r *ComposePreviewAnnotationMissingRule) Confidence() float64 { return 0.75 }
-
-func (r *ComposePreviewAnnotationMissingRule) NodeTypes() []string {
-	return []string{"function_declaration"}
-}
-
-func (r *ComposePreviewAnnotationMissingRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if !flatHasAnnotationNamed(file, idx, "Composable") {
-		return nil
-	}
-	if flatHasAnnotationNamed(file, idx, "Preview") {
-		return nil
-	}
-	nameNode := file.FlatFindChild(idx, "simple_identifier")
-	if nameNode == 0 {
-		return nil
-	}
-	name := file.FlatNodeText(nameNode)
-	if !strings.HasSuffix(name, "Preview") {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"@Composable function named "+name+" is missing @Preview; add @Preview so Android Studio renders it in the preview pane.",
-	)}
-}

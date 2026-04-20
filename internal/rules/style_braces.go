@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // BracesOnIfStatementsRule enforces braces on if statements.
@@ -19,14 +20,12 @@ type BracesOnIfStatementsRule struct {
 // roadmap/17.
 func (r *BracesOnIfStatementsRule) Confidence() float64 { return 0.75 }
 
-func (r *BracesOnIfStatementsRule) NodeTypes() []string { return []string{"if_expression"} }
-
-func (r *BracesOnIfStatementsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *BracesOnIfStatementsRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 
 	body := file.FlatFindChild(idx, "control_structure_body")
 	if body == 0 {
-		return nil
+		return
 	}
 
 	// Check consistent mode first — it needs to see the whole chain
@@ -45,16 +44,17 @@ func (r *BracesOnIfStatementsRule) CheckFlatNode(idx uint32, file *scanner.File)
 		}
 	}
 	if mode == "consistent" {
-		return r.checkConsistentIfFlat(idx, file)
+		r.checkConsistentIfFlat(ctx)
+		return
 	}
 	if mode == "necessary" {
-		return nil
+		return
 	}
 
 	bodyText := file.FlatNodeText(body)
 	trimmed := strings.TrimSpace(bodyText)
 	if strings.HasPrefix(trimmed, "{") {
-		return nil // already has braces
+		return // already has braces
 	}
 
 	msg := "Multi-line if statement should use braces."
@@ -68,15 +68,15 @@ func (r *BracesOnIfStatementsRule) CheckFlatNode(idx uint32, file *scanner.File)
 		EndByte:     int(file.FlatEndByte(body)),
 		Replacement: "{\n" + strings.TrimSpace(file.FlatNodeText(body)) + "\n}",
 	}
-	findings = append(findings, f)
-	return findings
+	ctx.Emit(f)
 }
 
 // checkConsistentIf checks if all branches in an if/else chain have consistent braces.
-func (r *BracesOnIfStatementsRule) checkConsistentIfFlat(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *BracesOnIfStatementsRule) checkConsistentIfFlat(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	// Skip if this is an else-if (let the root if handle the chain)
 	if p, ok := file.FlatParent(idx); ok && file.FlatType(p) == "control_structure_body" {
-		return nil
+		return
 	}
 
 	// Collect all branches
@@ -101,7 +101,7 @@ func (r *BracesOnIfStatementsRule) checkConsistentIfFlat(idx uint32, file *scann
 	}
 
 	if len(branches) < 2 {
-		return nil
+		return
 	}
 
 	hasBraces := 0
@@ -111,19 +111,16 @@ func (r *BracesOnIfStatementsRule) checkConsistentIfFlat(idx uint32, file *scann
 		}
 	}
 	if hasBraces == 0 || hasBraces == len(branches) {
-		return nil // all consistent
+		return // all consistent
 	}
 
 	// Mixed — flag those without braces
-	var findings []scanner.Finding
 	for _, b := range branches {
 		if !b.hasBrace {
-			f := r.Finding(file, file.FlatRow(b.body)+1, 1,
-				"Inconsistent braces: some branches have braces and some don't.")
-			findings = append(findings, f)
+			ctx.Emit(r.Finding(file, file.FlatRow(b.body)+1, 1,
+				"Inconsistent braces: some branches have braces and some don't."))
 		}
 	}
-	return findings
 }
 
 // BracesOnWhenStatementsRule enforces braces on when branches.
@@ -139,12 +136,12 @@ type BracesOnWhenStatementsRule struct {
 // roadmap/17.
 func (r *BracesOnWhenStatementsRule) Confidence() float64 { return 0.75 }
 
-func (r *BracesOnWhenStatementsRule) NodeTypes() []string { return []string{"when_entry"} }
+func (r *BracesOnWhenStatementsRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 
-func (r *BracesOnWhenStatementsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	body := file.FlatFindChild(idx, "control_structure_body")
 	if body == 0 {
-		return nil
+		return
 	}
 
 	startLine := file.FlatRow(idx)
@@ -162,15 +159,16 @@ func (r *BracesOnWhenStatementsRule) CheckFlatNode(idx uint32, file *scanner.Fil
 		}
 	}
 	if mode == "consistent" {
-		return r.checkConsistentWhenFlat(idx, file)
+		r.checkConsistentWhenFlat(ctx)
+		return
 	}
 	if mode == "necessary" {
-		return nil
+		return
 	}
 
 	bodyText := strings.TrimSpace(file.FlatNodeText(body))
 	if strings.HasPrefix(bodyText, "{") {
-		return nil // already has braces
+		return // already has braces
 	}
 
 	msg := "Multi-line when branch should use braces."
@@ -185,21 +183,22 @@ func (r *BracesOnWhenStatementsRule) CheckFlatNode(idx uint32, file *scanner.Fil
 		EndByte:     int(file.FlatEndByte(body)),
 		Replacement: "{\n" + strings.TrimSpace(raw) + "\n}",
 	}
-	return []scanner.Finding{f}
+	ctx.Emit(f)
 }
 
 // checkConsistentWhen checks if all when entries have consistent braces.
-func (r *BracesOnWhenStatementsRule) checkConsistentWhenFlat(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *BracesOnWhenStatementsRule) checkConsistentWhenFlat(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	// node is a when_entry. Find the parent when_expression.
 	parent, ok := file.FlatParent(idx)
 	if !ok || file.FlatType(parent) != "when_expression" {
-		return nil
+		return
 	}
 	// Only process from the first when_entry to avoid duplicates
 	for child := file.FlatFirstChild(parent); child != 0; child = file.FlatNextSib(child) {
 		if file.FlatType(child) == "when_entry" {
 			if child != idx {
-				return nil // not the first entry
+				return // not the first entry
 			}
 			break
 		}
@@ -221,7 +220,7 @@ func (r *BracesOnWhenStatementsRule) checkConsistentWhenFlat(idx uint32, file *s
 	}
 
 	if len(entries) < 2 {
-		return nil
+		return
 	}
 	hasBraces := 0
 	for _, e := range entries {
@@ -230,17 +229,15 @@ func (r *BracesOnWhenStatementsRule) checkConsistentWhenFlat(idx uint32, file *s
 		}
 	}
 	if hasBraces == 0 || hasBraces == len(entries) {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for _, e := range entries {
 		if !e.hasBrace {
-			findings = append(findings, r.Finding(file, file.FlatRow(e.body)+1, 1,
+			ctx.Emit(r.Finding(file, file.FlatRow(e.body)+1, 1,
 				"Inconsistent braces: some when entries have braces and some don't."))
 		}
 	}
-	return findings
 }
 
 // MandatoryBracesLoopsRule requires braces in for/while/do-while loops.
@@ -254,14 +251,12 @@ type MandatoryBracesLoopsRule struct {
 // roadmap/17.
 func (r *MandatoryBracesLoopsRule) Confidence() float64 { return 0.75 }
 
-func (r *MandatoryBracesLoopsRule) NodeTypes() []string {
-	return []string{"for_statement", "while_statement", "do_while_statement"}
-}
+func (r *MandatoryBracesLoopsRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 
-func (r *MandatoryBracesLoopsRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
 	body := file.FlatFindChild(idx, "control_structure_body")
 	if body == 0 {
-		return nil
+		return
 	}
 	bodyText := strings.TrimSpace(file.FlatNodeText(body))
 	if !strings.HasPrefix(bodyText, "{") {
@@ -274,7 +269,7 @@ func (r *MandatoryBracesLoopsRule) CheckFlatNode(idx uint32, file *scanner.File)
 			EndByte:     int(file.FlatEndByte(body)),
 			Replacement: "{\n" + strings.TrimSpace(raw) + "\n}",
 		}
-		return []scanner.Finding{f}
+		ctx.Emit(f)
+		return
 	}
-	return nil
 }

@@ -3,6 +3,7 @@ package rules
 import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/rules/registry"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // RegistryApplyResult is the result of ApplyConfigViaRegistry for a single
@@ -51,11 +52,11 @@ type RegistryApplyResult struct {
 // the production path over in phase 3C.
 func ApplyConfigViaRegistry(cfg *config.Config) []RegistryApplyResult {
 	adapter := NewConfigAdapter(cfg)
-	results := make([]RegistryApplyResult, 0, len(Registry))
+	results := make([]RegistryApplyResult, 0, len(v2.Registry))
 
-	for _, r := range Registry {
-		name := r.Name()
-		concrete := Unwrap(r)
+	for _, r := range v2.Registry {
+		name := r.ID
+		concrete := r.OriginalV1
 
 		mp, ok := concrete.(registry.MetaProvider)
 		if !ok {

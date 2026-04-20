@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -20,29 +21,6 @@ type MultilineLambdaItParameterRule struct {
 // Classified per roadmap/17.
 func (r *MultilineLambdaItParameterRule) Confidence() float64 { return 0.75 }
 
-func (r *MultilineLambdaItParameterRule) NodeTypes() []string { return []string{"lambda_literal"} }
-
-func (r *MultilineLambdaItParameterRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	startLine := file.FlatRow(idx)
-	bodyText := file.FlatNodeText(idx)
-	endLine := startLine + strings.Count(bodyText, "\n")
-	if startLine == endLine {
-		return nil // single-line lambda, ok
-	}
-	// Check if the lambda uses 'it' without explicit parameter
-	// Has explicit parameters (contains ->)?
-	if strings.Contains(bodyText, "->") {
-		return nil
-	}
-	if strings.Contains(bodyText, " it.") || strings.Contains(bodyText, " it ") ||
-		strings.Contains(bodyText, "(it)") || strings.Contains(bodyText, "\tit.") ||
-		strings.Contains(bodyText, "\nit.") || strings.Contains(bodyText, "{it") {
-		return []scanner.Finding{r.Finding(file, int(startLine)+1, 1,
-			"Multiline lambda should have an explicit parameter instead of 'it'.")}
-	}
-	return nil
-}
-
 // MultilineRawStringIndentationRule checks raw string indentation.
 type MultilineRawStringIndentationRule struct {
 	LineBase
@@ -56,8 +34,8 @@ type MultilineRawStringIndentationRule struct {
 // Classified per roadmap/17.
 func (r *MultilineRawStringIndentationRule) Confidence() float64 { return 0.75 }
 
-func (r *MultilineRawStringIndentationRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *MultilineRawStringIndentationRule) check(ctx *v2.Context) {
+	file := ctx.File
 	content := string(file.Content)
 	idx := 0
 	for {
@@ -84,12 +62,11 @@ func (r *MultilineRawStringIndentationRule) CheckLines(file *scanner.File) []sca
 		}
 		if strings.Contains(raw, "\n") && !strings.Contains(raw, "trimIndent()") && !strings.Contains(raw, "trimMargin()") && !strings.Contains(trailing, "trimIndent()") && !strings.Contains(trailing, "trimMargin()") {
 			line := strings.Count(content[:start], "\n") + 1
-			findings = append(findings, r.Finding(file, line, 1,
+			ctx.Emit(r.Finding(file, line, 1,
 				"Multiline raw string should use trimIndent() or trimMargin()."))
 		}
 		idx = end + 3
 	}
-	return findings
 }
 
 // TrimMultilineRawStringRule detects raw strings missing trimIndent/trimMargin.
@@ -104,8 +81,8 @@ type TrimMultilineRawStringRule struct {
 // Classified per roadmap/17.
 func (r *TrimMultilineRawStringRule) Confidence() float64 { return 0.75 }
 
-func (r *TrimMultilineRawStringRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *TrimMultilineRawStringRule) check(ctx *v2.Context) {
+	file := ctx.File
 	content := string(file.Content)
 	idx := 0
 	for {
@@ -137,11 +114,10 @@ func (r *TrimMultilineRawStringRule) CheckLines(file *scanner.File) []scanner.Fi
 				EndByte:     end + 3,
 				Replacement: ".trimIndent()",
 			}
-			findings = append(findings, f)
+			ctx.Emit(f)
 		}
 		idx = end + 3
 	}
-	return findings
 }
 
 // StringShouldBeRawStringRule detects strings with many escape characters.
@@ -157,21 +133,6 @@ var escapeCountRe = regexp.MustCompile(`\\[nrt"\\]`)
 // expressions; the suggested rewrite's readability is a style call.
 // Classified per roadmap/17.
 func (r *StringShouldBeRawStringRule) Confidence() float64 { return 0.75 }
-
-func (r *StringShouldBeRawStringRule) NodeTypes() []string { return []string{"string_literal"} }
-
-func (r *StringShouldBeRawStringRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if strings.HasPrefix(text, "\"\"\"") {
-		return nil // already raw
-	}
-	count := len(escapeCountRe.FindAllString(text, -1))
-	if count > r.MaxEscapes {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-			fmt.Sprintf("String contains %d escape characters. Consider using a raw string.", count))}
-	}
-	return nil
-}
 
 // CanBeNonNullableRule detects nullable types that are never assigned null.
 // Handles two cases:
@@ -195,36 +156,23 @@ func (r *CanBeNonNullableRule) SetResolver(res typeinfer.TypeResolver) {}
 // fallback is a conservative heuristic. Classified per roadmap/17.
 func (r *CanBeNonNullableRule) Confidence() float64 { return 0.75 }
 
-func (r *CanBeNonNullableRule) NodeTypes() []string {
-	return []string{"property_declaration", "function_declaration"}
-}
-
-func (r *CanBeNonNullableRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	switch file.FlatType(idx) {
-	case "property_declaration":
-		return r.checkPropertyFlat(idx, file)
-	case "function_declaration":
-		return r.checkFunctionParamsFlat(idx, file)
-	}
-	return nil
-}
-
-func (r *CanBeNonNullableRule) checkPropertyFlat(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *CanBeNonNullableRule) checkPropertyFlat(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	text := file.FlatNodeText(idx)
 	if !strings.Contains(text, "?") {
-		return nil
+		return
 	}
 
 	if file.FlatFindChild(idx, "property_delegate") != 0 {
-		return nil
+		return
 	}
 
 	if nextSib, ok := file.FlatNextSibling(idx); ok && file.FlatType(nextSib) == "setter" {
-		return nil
+		return
 	}
 	if nextSib, ok := file.FlatNextSibling(idx); ok && file.FlatType(nextSib) == "getter" {
 		if nextNext, ok := file.FlatNextSibling(nextSib); ok && file.FlatType(nextNext) == "setter" {
-			return nil
+			return
 		}
 	}
 
@@ -249,11 +197,11 @@ func (r *CanBeNonNullableRule) checkPropertyFlat(idx uint32, file *scanner.File)
 		}
 	}
 	if !hasNullable {
-		return nil
+		return
 	}
 
 	if file.FlatFindChild(idx, "=") == 0 {
-		return nil
+		return
 	}
 
 	var initExpr uint32
@@ -271,7 +219,7 @@ func (r *CanBeNonNullableRule) checkPropertyFlat(idx uint32, file *scanner.File)
 	}
 	if initExpr != 0 {
 		if strings.TrimSpace(file.FlatNodeText(initExpr)) == "null" {
-			return nil
+			return
 		}
 	}
 
@@ -295,12 +243,12 @@ func (r *CanBeNonNullableRule) checkPropertyFlat(idx uint32, file *scanner.File)
 	if isVar && propName != "" {
 		scope, ok := file.FlatParent(idx)
 		if ok && r.hasNullAssignmentInScopeFlat(file, scope, idx, propName) {
-			return nil
+			return
 		}
 	}
 
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-		"Property type can be non-nullable since it is initialized with a non-null value and never assigned null.")}
+	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
+		"Property type can be non-nullable since it is initialized with a non-null value and never assigned null."))
 }
 
 func (r *CanBeNonNullableRule) hasNullAssignmentInScopeFlat(file *scanner.File, scope, declNode uint32, propName string) bool {
@@ -329,23 +277,23 @@ func (r *CanBeNonNullableRule) hasNullAssignmentInScopeFlat(file *scanner.File, 
 	return assignedNull
 }
 
-func (r *CanBeNonNullableRule) checkFunctionParamsFlat(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *CanBeNonNullableRule) checkFunctionParamsFlat(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	if file.FlatHasModifier(idx, "override") || file.FlatHasModifier(idx, "open") || file.FlatHasModifier(idx, "abstract") {
-		return nil
+		return
 	}
 
 	body := file.FlatFindChild(idx, "function_body")
 	if body == 0 {
-		return nil
+		return
 	}
 	bodyText := file.FlatNodeText(body)
 
 	params := file.FlatFindChild(idx, "function_value_parameters")
 	if params == 0 {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for i := 0; i < file.FlatNamedChildCount(params); i++ {
 		param := file.FlatNamedChild(params, i)
 		if param == 0 || file.FlatType(param) != "parameter" {
@@ -384,11 +332,10 @@ func (r *CanBeNonNullableRule) checkFunctionParamsFlat(idx uint32, file *scanner
 		})
 
 		if usageCount > 0 && allNonNullAsserted {
-			findings = append(findings, r.Finding(file, file.FlatRow(param)+1, 1,
+			ctx.Emit(r.Finding(file, file.FlatRow(param)+1, 1,
 				fmt.Sprintf("Parameter '%s' can be non-nullable since every usage applies non-null assertion (!!).", paramName)))
 		}
 	}
-	return findings
 }
 
 // DoubleNegativeExpressionRule detects `!isNotEmpty()` etc.
@@ -402,39 +349,7 @@ type DoubleNegativeExpressionRule struct {
 // Classified per roadmap/17.
 func (r *DoubleNegativeExpressionRule) Confidence() float64 { return 0.75 }
 
-func (r *DoubleNegativeExpressionRule) NodeTypes() []string { return []string{"prefix_expression"} }
-
 var doubleNegFixRe = regexp.MustCompile(`!(\w*\.\s*)is(Not|Non)(\w+)\(\)`)
-
-func (r *DoubleNegativeExpressionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	sub := doubleNegFixRe.FindStringSubmatch(text)
-	if sub == nil {
-		return nil
-	}
-	// sub[1] = "obj." prefix, sub[2] = "Not" or "Non", sub[3] = rest like "Empty", "Blank"
-	var positive string
-	switch sub[3] {
-	case "Empty":
-		positive = sub[1] + "isEmpty()"
-	case "Blank":
-		positive = sub[1] + "isBlank()"
-	case "Null":
-		positive = sub[1] + "isNull()"
-	default:
-		positive = sub[1] + "is" + sub[3] + "()"
-	}
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Double negative expression. Simplify by using the positive variant.")
-	loc := doubleNegFixRe.FindStringIndex(text)
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(idx)) + loc[0],
-		EndByte:     int(file.FlatStartByte(idx)) + loc[1],
-		Replacement: positive,
-	}
-	return []scanner.Finding{f}
-}
 
 // DoubleNegativeLambdaRule detects `filterNot { !it }`, `none { }`, `takeUnless { }`.
 type DoubleNegativeLambdaRule struct {
@@ -448,23 +363,8 @@ type DoubleNegativeLambdaRule struct {
 // Classified per roadmap/17.
 func (r *DoubleNegativeLambdaRule) Confidence() float64 { return 0.75 }
 
-func (r *DoubleNegativeLambdaRule) NodeTypes() []string { return []string{"call_expression"} }
-
 var filterNotNegRe = regexp.MustCompile(`\.filterNot\s*\{[^}]*![^}]*\}`)
 var noneNegRe = regexp.MustCompile(`\.none\s*\{[^}]*![^}]*\}`)
-
-func (r *DoubleNegativeLambdaRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if filterNotNegRe.MatchString(text) {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-			"Double negative in '.filterNot { !... }'. Use '.filter { ... }' instead.")}
-	}
-	if noneNegRe.MatchString(text) {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-			"Double negative in '.none { !... }'. Use '.all { ... }' instead.")}
-	}
-	return nil
-}
 
 // NullableBooleanCheckRule detects `x == true` on Boolean?.
 type NullableBooleanCheckRule struct {
@@ -477,48 +377,6 @@ type NullableBooleanCheckRule struct {
 // Classified per roadmap/17.
 func (r *NullableBooleanCheckRule) Confidence() float64 { return 0.75 }
 
-func (r *NullableBooleanCheckRule) NodeTypes() []string { return []string{"equality_expression"} }
-
-func (r *NullableBooleanCheckRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// equality_expression children: left, operator (== or !=), right
-	if file.FlatChildCount(idx) < 3 {
-		return nil
-	}
-	left := file.FlatChild(idx, 0)
-	op := file.FlatChild(idx, 1)
-	right := file.FlatChild(idx, file.FlatChildCount(idx)-1)
-	if left == 0 || op == 0 || right == 0 {
-		return nil
-	}
-	opText := file.FlatNodeText(op)
-	// Check if one operand is a boolean literal (true or false)
-	var boolLit, otherNode uint32
-	if file.FlatType(right) == "boolean_literal" {
-		boolLit = right
-		otherNode = left
-	} else if file.FlatType(left) == "boolean_literal" {
-		boolLit = left
-		otherNode = right
-	} else {
-		return nil
-	}
-	boolVal := file.FlatNodeText(boolLit)
-	otherText := file.FlatNodeText(otherNode)
-	msg := fmt.Sprintf("Nullable boolean check '%s %s %s'. Consider using '%s ?: false' or safe call.",
-		otherText, opText, boolVal, otherText)
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
-	// Auto-fix: `x == true` -> `x ?: false`, `x != false` -> `x ?: false`
-	if (opText == "==" && boolVal == "true") || (opText == "!=" && boolVal == "false") {
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   int(file.FlatStartByte(idx)),
-			EndByte:     int(file.FlatEndByte(idx)),
-			Replacement: otherText + " ?: false",
-		}
-	}
-	return []scanner.Finding{f}
-}
-
 // RangeUntilInsteadOfRangeToRule detects `until` usage that could use `..<`.
 type RangeUntilInsteadOfRangeToRule struct {
 	FlatDispatchBase
@@ -529,35 +387,6 @@ type RangeUntilInsteadOfRangeToRule struct {
 // expressions; the suggested rewrite's readability is a style call.
 // Classified per roadmap/17.
 func (r *RangeUntilInsteadOfRangeToRule) Confidence() float64 { return 0.75 }
-
-func (r *RangeUntilInsteadOfRangeToRule) NodeTypes() []string { return []string{"infix_expression"} }
-
-func (r *RangeUntilInsteadOfRangeToRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// infix_expression: left simple_identifier right
-	if file.FlatChildCount(idx) < 3 {
-		return nil
-	}
-	op := file.FlatChild(idx, 1)
-	if op == 0 || !file.FlatNodeTextEquals(op, "until") {
-		return nil
-	}
-	left := file.FlatChild(idx, 0)
-	right := file.FlatChild(idx, 2)
-	if left == 0 || right == 0 {
-		return nil
-	}
-	leftText := file.FlatNodeText(left)
-	rightText := file.FlatNodeText(right)
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Use '..<' range operator instead of 'until'.")
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(idx)),
-		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: leftText + "..<" + rightText,
-	}
-	return []scanner.Finding{f}
-}
 
 // DestructuringDeclarationWithTooManyEntriesRule limits destructuring entries.
 type DestructuringDeclarationWithTooManyEntriesRule struct {
@@ -571,24 +400,3 @@ type DestructuringDeclarationWithTooManyEntriesRule struct {
 // Classified per roadmap/17.
 func (r *DestructuringDeclarationWithTooManyEntriesRule) Confidence() float64 { return 0.75 }
 
-func (r *DestructuringDeclarationWithTooManyEntriesRule) NodeTypes() []string {
-	return []string{"multi_variable_declaration"}
-}
-
-func (r *DestructuringDeclarationWithTooManyEntriesRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	count := 0
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		if file.FlatType(file.FlatChild(idx, i)) == "variable_declaration" {
-			count++
-		}
-	}
-	if count > r.MaxEntries {
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Destructuring declaration has %d entries, max allowed is %d.", count, r.MaxEntries))}
-	}
-	return nil
-}
-
-func (r *DestructuringDeclarationWithTooManyEntriesRule) Check(file *scanner.File) []scanner.Finding {
-	return nil
-}

@@ -19,40 +19,6 @@ type ContentProviderQueryWithSelectionInterpolationRule struct {
 // roadmap/17.
 func (r *ContentProviderQueryWithSelectionInterpolationRule) Confidence() float64 { return 0.75 }
 
-func (r *ContentProviderQueryWithSelectionInterpolationRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *ContentProviderQueryWithSelectionInterpolationRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if flatCallExpressionName(file, idx) != "query" {
-		return nil
-	}
-
-	_, args := flatCallExpressionParts(file, idx)
-	if args == 0 {
-		return nil
-	}
-
-	selectionArg := flatNamedValueArgument(file, args, "selection")
-	if selectionArg == 0 {
-		selectionArg = flatPositionalValueArgument(file, args, 2)
-	}
-	if selectionArg == 0 || !flatContainsStringInterpolation(file, selectionArg) {
-		return nil
-	}
-
-	if !isLikelyContentResolverQueryFlat(file, idx, args) {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(selectionArg)+1,
-		file.FlatCol(selectionArg)+1,
-		"Interpolated ContentResolver selection string. Use selectionArgs placeholders instead.",
-	)}
-}
-
 // HardcodedBearerTokenRule detects bearer authorization strings that embed a
 // long token literal directly in source.
 type HardcodedBearerTokenRule struct {
@@ -72,52 +38,10 @@ type HardcodedGcpServiceAccountRule struct {
 // roadmap/17.
 func (r *HardcodedGcpServiceAccountRule) Confidence() float64 { return 0.75 }
 
-func (r *HardcodedGcpServiceAccountRule) NodeTypes() []string {
-	return []string{"string_literal"}
-}
-
-func (r *HardcodedGcpServiceAccountRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	lowerPath := strings.ToLower(file.Path)
-	if strings.HasSuffix(lowerPath, ".pem") || strings.HasSuffix(lowerPath, ".json") {
-		return nil
-	}
-
-	text := file.FlatNodeText(idx)
-	body, ok := kotlinStringLiteralBody(text)
-	if !ok || !looksLikeHardcodedGcpServiceAccount(body) {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"Hardcoded GCP service account credential literal. Load it from a file or secret storage instead of embedding it in source.",
-	)}
-}
-
 // Confidence reports a tier-2 (medium) base confidence. Security rule. Detection pattern-matches known-insecure API shapes and
 // argument literals without confirming the receiver type. Classified per
 // roadmap/17.
 func (r *HardcodedBearerTokenRule) Confidence() float64 { return 0.75 }
-
-func (r *HardcodedBearerTokenRule) NodeTypes() []string {
-	return []string{"string_literal"}
-}
-
-func (r *HardcodedBearerTokenRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if _, ok := extractHardcodedBearerToken(text); !ok {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		"Hardcoded bearer token literal. Load the token from config or secret storage instead of embedding it in source.",
-	)}
-}
 
 func extractHardcodedBearerToken(text string) (string, bool) {
 	body, ok := kotlinStringLiteralBody(text)
@@ -220,57 +144,6 @@ type FileFromUntrustedPathRule struct {
 // argument literals without confirming the receiver type. Classified per
 // roadmap/17.
 func (r *FileFromUntrustedPathRule) Confidence() float64 { return 0.75 }
-
-func (r *FileFromUntrustedPathRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *FileFromUntrustedPathRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if flatCallExpressionName(file, idx) != "File" {
-		return nil
-	}
-
-	fn, ok := flatEnclosingFunction(file, idx)
-	if !ok {
-		return nil
-	}
-	fnName := strings.ToLower(extractIdentifierFlat(file, fn))
-	if !isRiskyFileFromPathFunction(fnName) {
-		return nil
-	}
-
-	_, args := flatCallExpressionParts(file, idx)
-	if args == 0 {
-		return nil
-	}
-
-	parentArg := flatPositionalValueArgument(file, args, 0)
-	childArg := flatPositionalValueArgument(file, args, 1)
-	if parentArg == 0 || childArg == 0 {
-		return nil
-	}
-
-	parentExpr := valueArgumentExpressionTextFlat(file, parentArg)
-	childExpr := valueArgumentExpressionTextFlat(file, childArg)
-	if childExpr == "" {
-		return nil
-	}
-
-	if isStringLiteralExpr(childExpr) {
-		if !strings.Contains(childExpr, "..") {
-			return nil
-		}
-	} else if hasCanonicalPathContainmentGuardFlat(file, fn, parentExpr) {
-		return nil
-	}
-
-	return []scanner.Finding{r.Finding(
-		file,
-		file.FlatRow(childArg)+1,
-		file.FlatCol(childArg)+1,
-		"File child path comes from untrusted input in extraction/download code. Reject '..' segments or enforce canonical-path containment before writing.",
-	)}
-}
 
 func isLikelyContentResolverQueryFlat(file *scanner.File, callExpr, args uint32) bool {
 	receiver := strings.ToLower(flatReceiverNameFromCall(file, callExpr))

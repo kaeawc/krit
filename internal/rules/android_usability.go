@@ -10,10 +10,10 @@ package rules
 import (
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // =====================================================================
@@ -37,9 +37,6 @@ type NewApiRule struct {
 // Classified per roadmap/17.
 func (r *NewApiRule) Confidence() float64 { return 0.75 }
 
-func (r *NewApiRule) NodeTypes() []string {
-	return []string{"call_expression", "simple_identifier", "user_type"}
-}
 
 // newApiTable maps method/class names to their introduction API level.
 var newApiTable = map[string]int{
@@ -63,29 +60,6 @@ var newApiTable = map[string]int{
 	"MediaBrowserServiceCompat":  21,
 }
 
-func (r *NewApiRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	// Skip imports and comments
-	line := file.FlatRow(idx)
-	if line < len(file.Lines) {
-		trimmed := strings.TrimSpace(file.Lines[line])
-		if scanner.IsCommentLine(file.Lines[line]) || strings.HasPrefix(trimmed, "import ") {
-			return nil
-		}
-		// Skip guarded lines
-		if strings.Contains(file.Lines[line], "@RequiresApi") || strings.Contains(file.Lines[line], "@TargetApi") ||
-			strings.Contains(file.Lines[line], "Build.VERSION.SDK_INT") {
-			return nil
-		}
-	}
-	for api, level := range newApiTable {
-		if strings.Contains(text, api) {
-			return []scanner.Finding{r.Finding(file, line+1, 1,
-				api+" requires API "+strconv.Itoa(level)+"; verify that the call is guarded or the project minSdk is at least "+strconv.Itoa(level)+".")}
-		}
-	}
-	return nil
-}
 
 // InlinedApiRule detects usage of constants inlined from newer APIs using a
 // static lookup table. Guarded blocks are skipped.
@@ -102,9 +76,6 @@ type InlinedApiRule struct {
 // Classified per roadmap/17.
 func (r *InlinedApiRule) Confidence() float64 { return 0.75 }
 
-func (r *InlinedApiRule) NodeTypes() []string {
-	return []string{"simple_identifier", "navigation_expression"}
-}
 
 // inlinedApiEntry pairs a constant pattern with its introduction API level.
 type inlinedApiEntry struct {
@@ -134,27 +105,6 @@ var inlinedApiTable = []inlinedApiEntry{
 	{"FEATURE_NFC", 9},
 }
 
-func (r *InlinedApiRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	line := file.FlatRow(idx)
-	if line < len(file.Lines) {
-		trimmed := strings.TrimSpace(file.Lines[line])
-		if scanner.IsCommentLine(file.Lines[line]) || strings.HasPrefix(trimmed, "import ") {
-			return nil
-		}
-		if strings.Contains(file.Lines[line], "@RequiresApi") || strings.Contains(file.Lines[line], "@TargetApi") ||
-			strings.Contains(file.Lines[line], "Build.VERSION.SDK_INT") {
-			return nil
-		}
-	}
-	for _, entry := range inlinedApiTable {
-		if strings.Contains(text, entry.Pattern) {
-			return []scanner.Finding{r.Finding(file, line+1, 1,
-				"Constant "+entry.Pattern+" is inlined from API "+strconv.Itoa(entry.Level)+"; the value may be available at runtime but the constant was introduced in API "+strconv.Itoa(entry.Level)+".")}
-		}
-	}
-	return nil
-}
 
 // OverrideRule detects methods that need `override` for correct behavior
 // across API levels. Currently checks for `fun onBackPressed()` without
@@ -180,7 +130,8 @@ var overrideMethods = []string{
 // Classified per roadmap/17.
 func (r *OverrideRule) Confidence() float64 { return 0.75 }
 
-func (r *OverrideRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *OverrideRule) check(ctx *v2.Context) {
+	file := ctx.File
 	// Quick scan: does this file contain an Activity or Fragment subclass?
 	content := strings.Join(file.Lines, "\n")
 	isActivityOrFragment := false
@@ -192,10 +143,9 @@ func (r *OverrideRule) CheckLines(file *scanner.File) []scanner.Finding {
 		}
 	}
 	if !isActivityOrFragment {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
 		if scanner.IsCommentLine(line) {
@@ -203,13 +153,12 @@ func (r *OverrideRule) CheckLines(file *scanner.File) []scanner.Finding {
 		}
 		for _, method := range overrideMethods {
 			if strings.Contains(trimmed, method) && !strings.Contains(trimmed, "override") {
-				findings = append(findings, r.Finding(file, i+1, 1,
+				ctx.Emit(r.Finding(file, i+1, 1,
 					method+") should be declared with `override` in Activity/Fragment subclasses."))
 				break
 			}
 		}
 	}
-	return findings
 }
 
 // AssertRule is defined in android_correctness.go with CheckLines implementation.
@@ -234,19 +183,18 @@ var unusedResPatternRe = regexp.MustCompile(`R\.(string|drawable|layout|color|di
 // Classified per roadmap/17.
 func (r *UnusedResourcesRule) Confidence() float64 { return 0.75 }
 
-func (r *UnusedResourcesRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *UnusedResourcesRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if scanner.IsCommentLine(line) {
 			continue
 		}
 		matches := unusedResPatternRe.FindStringSubmatch(line)
 		if matches != nil {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				fmt.Sprintf("Resource 'R.%s.%s' uses a test/temp naming pattern and may be unused.", matches[1], matches[2])))
 		}
 	}
-	return findings
 }
 
 // InconsistentArraysRule → InconsistentArraysResourceRule (android_resource.go)

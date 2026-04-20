@@ -21,11 +21,11 @@ import (
 	"github.com/kaeawc/krit/internal/store"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/experiment"
-	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
-	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/perf"
+	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/schema"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -55,9 +55,6 @@ func resolvedStore(storeDirFlag *string) *store.FileStore {
 }
 
 func main() {
-	// Bridge any v2 rules into the v1 Registry before anything reads it.
-	rules.RegisterV2Rules()
-
 	baselineAuditVerb := len(os.Args) > 1 && os.Args[1] == "baseline-audit"
 	harvestVerb := len(os.Args) > 1 && os.Args[1] == "harvest"
 	renameVerb := len(os.Args) > 1 && os.Args[1] == "rename"
@@ -325,7 +322,7 @@ potential-bugs:
 		// Version
 		fmt.Printf("  krit version: %s\n", version)
 		// Rules
-		fmt.Printf("  rules: %d registered (%d active by default)\n", len(rules.Registry), countActive(rules.Registry))
+		fmt.Printf("  rules: %d registered (%d active by default)\n", len(v2rules.Registry), countActiveV2(v2rules.Registry))
 		// Config
 		configFound := false
 		for _, name := range []string{"krit.yml", ".krit.yml"} {
@@ -434,15 +431,15 @@ potential-bugs:
 		fixable := 0
 		active := 0
 		stubs := 0
-		for _, r := range rules.Registry {
+		for _, r := range v2rules.Registry {
 			markers := ""
-			if rules.IsDefaultActive(r.Name()) {
+			if rules.IsDefaultActive(r.ID) {
 				markers += "A"
 				active++
 			} else {
 				markers += " "
 			}
-			implemented := rules.IsImplemented(r)
+			implemented := rules.IsImplementedV2(r)
 			if !implemented {
 				stubs++
 			}
@@ -450,36 +447,35 @@ potential-bugs:
 			if !implemented {
 				stubMarker = " (stub)"
 			}
-			if fr, ok := r.(rules.FixableRule); ok && fr.IsFixable() {
+			if fixLvl, isFixable := rules.GetV2FixLevel(r); isFixable {
 				markers += "F"
 				fixable++
 				if *verboseFlag {
-					level := rules.GetFixLevel(fr)
-					fmt.Printf("  %s %-40s [%-15s] %s (fix: %s, precision: %s)%s\n", markers, r.Name(), r.RuleSet(), r.Severity(), level, rules.RulePrecision(r), stubMarker)
-					if desc := r.Description(); desc != "" {
-						fmt.Printf("    %s\n", desc)
+					fmt.Printf("  %s %-40s [%-15s] %s (fix: %s, precision: %s)%s\n", markers, r.ID, r.Category, string(r.Sev), fixLvl, rules.V2RulePrecision(r), stubMarker)
+					if r.Description != "" {
+						fmt.Printf("    %s\n", r.Description)
 					}
 				} else {
-					fmt.Printf("  %s %-40s [%-15s] %s%s\n", markers, r.Name(), r.RuleSet(), r.Severity(), stubMarker)
+					fmt.Printf("  %s %-40s [%-15s] %s%s\n", markers, r.ID, r.Category, string(r.Sev), stubMarker)
 				}
 			} else {
 				markers += " "
 				if *verboseFlag {
-					fmt.Printf("  %s %-40s [%-15s] %s (precision: %s)%s\n", markers, r.Name(), r.RuleSet(), r.Severity(), rules.RulePrecision(r), stubMarker)
-					if desc := r.Description(); desc != "" {
-						fmt.Printf("    %s\n", desc)
+					fmt.Printf("  %s %-40s [%-15s] %s (precision: %s)%s\n", markers, r.ID, r.Category, string(r.Sev), rules.V2RulePrecision(r), stubMarker)
+					if r.Description != "" {
+						fmt.Printf("    %s\n", r.Description)
 					}
 				} else {
-					fmt.Printf("  %s %-40s [%-15s] %s%s\n", markers, r.Name(), r.RuleSet(), r.Severity(), stubMarker)
+					fmt.Printf("  %s %-40s [%-15s] %s%s\n", markers, r.ID, r.Category, string(r.Sev), stubMarker)
 				}
 			}
 		}
-		implemented := len(rules.Registry) - stubs
+		implemented := len(v2rules.Registry) - stubs
 		if stubs > 0 {
-			fmt.Printf("\nTotal: %d rules (%d implemented, %d stubs, %d active by default, %d fixable)\n", len(rules.Registry), implemented, stubs, active, fixable)
+			fmt.Printf("\nTotal: %d rules (%d implemented, %d stubs, %d active by default, %d fixable)\n", len(v2rules.Registry), implemented, stubs, active, fixable)
 			fmt.Println("A=active by default, F=fixable, (stub)=placeholder without implementation. Use -v for fix levels, --all-rules to enable all.")
 		} else {
-			fmt.Printf("\nTotal: %d rules (%d active by default, %d fixable)\n", len(rules.Registry), active, fixable)
+			fmt.Printf("\nTotal: %d rules (%d active by default, %d fixable)\n", len(v2rules.Registry), active, fixable)
 			fmt.Println("A=active by default, F=fixable. Use -v for fix levels, --all-rules to enable all.")
 		}
 		os.Exit(0)
@@ -643,17 +639,8 @@ potential-bugs:
 		}
 	}
 
-	// Filter rules by active status + CLI overrides
-	var activeRules []rules.Rule
-	for _, r := range rules.Registry {
-		name := r.Name()
-		if disabledSet[name] {
-			continue // explicitly disabled via --disable-rules
-		}
-		if enabledSet[name] || *allRulesFlag || rules.IsDefaultActive(name) {
-			activeRules = append(activeRules, r)
-		}
-	}
+	// Filter rules by active status + CLI overrides (native v2 path).
+	activeRules := rules.ActiveRulesV2(disabledSet, enabledSet, *allRulesFlag)
 
 	// Create type resolver unless disabled
 	var resolver typeinfer.TypeResolver
@@ -705,18 +692,18 @@ potential-bugs:
 	useCache := !*noCacheFlag
 	{
 		oracleIdxInput := pipeline.IndexInput{
-			// ParseResult is intentionally zero here: IndexPhase runs
+			// ParseResult carries only ActiveRules here: IndexPhase runs
 			// in oracle-only mode below (SkipModules + SkipAndroid +
 			// SkipResolverIndex) so it doesn't need KotlinFiles. Paths
 			// and ActiveRules are threaded via the OracleScanPaths and
-			// ActiveRulesV1 knobs instead.
+			// ParseResult.ActiveRules knobs instead.
+			ParseResult:     pipeline.ParseResult{ActiveRules: activeRules},
 			Logger:          nil, // oracle logs directly to stderr, matching pre-refactor
 			Tracker:         tracker,
 			OracleEnabled:   resolver != nil && !*noTypeOracleFlag,
 			BaseResolver:    resolver,
 			OracleScanPaths: flag.Args(),
 			KotlinFilePaths: files,
-			ActiveRulesV1:   activeRules,
 			InputTypesPath:  *inputTypesFlag,
 			NoCacheOracle:   *noCacheOracleFlag,
 			NoOracleFilter:  *noOracleFilterFlag,
@@ -759,7 +746,7 @@ potential-bugs:
 	// Stats come from a throwaway dispatcher so the verbose banner can
 	// report per-family rule counts before the phase runs. Construction
 	// is side-effect free (beyond classifying rules by capability).
-	dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, legacyCount := rules.NewDispatcher(activeRules, resolver).Stats()
+	dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, legacyCount := rules.NewDispatcherV2(activeRules, resolver).Stats()
 
 	if *verboseFlag {
 		fmt.Fprintf(os.Stderr, "verbose: Found %d Kotlin files\n", len(files))
@@ -772,7 +759,7 @@ potential-bugs:
 			len(activeRules), *jobsFlag, dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, legacyCount)
 	}
 
-	androidDeps := pipeline.CollectAndroidDependencies(activeRules)
+	androidDeps := pipeline.CollectAndroidDependenciesV2(activeRules)
 	androidProviders := pipeline.NewAndroidProjectProviders(androidProject, androidDeps, *jobsFlag)
 
 	// Cache load + per-file lookup moved into the IndexPhase call above.
@@ -805,12 +792,11 @@ potential-bugs:
 	}
 	parsedFiles := parseResult.KotlinFiles
 	_ = parseResult.ParseErrors
+	parseResult.ActiveRules = activeRules
 
 	hasTypeAwareRule := false
-	for _, rule := range activeRules {
-		if _, ok := rule.(interface {
-			SetResolver(resolver typeinfer.TypeResolver)
-		}); ok {
+	for _, r := range activeRules {
+		if r != nil && r.Needs.Has(v2rules.NeedsResolver) {
 			hasTypeAwareRule = true
 			break
 		}
@@ -857,7 +843,6 @@ potential-bugs:
 		RuleHash:               ruleHash,
 		CacheFilePath:          cacheFilePath,
 		CacheStats:             cacheStats,
-		ActiveRulesV1:          activeRules,
 		Logger:                 verboseLogger,
 		Tracker:                tracker,
 		Jobs:                   *jobsFlag,
@@ -888,25 +873,21 @@ potential-bugs:
 	var codeIndex *scanner.CodeIndex
 	hasIndexBackedCrossFileRule := false
 	hasParsedFilesRule := false
-	for _, rule := range activeRules {
-		if _, ok := rule.(interface {
-			CheckParsedFiles(files []*scanner.File) []scanner.Finding
-		}); ok {
+	for _, r := range activeRules {
+		if r == nil {
+			continue
+		}
+		if r.Needs.Has(v2rules.NeedsParsedFiles) {
 			hasParsedFilesRule = true
 			continue
 		}
-		if _, ok := rule.(interface {
-			CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding
-		}); ok {
+		if r.Needs.Has(v2rules.NeedsCrossFile) {
 			hasIndexBackedCrossFileRule = true
 		}
 	}
 	hasModuleAwareRule := false
-	for _, rule := range activeRules {
-		if _, ok := rule.(interface {
-			SetModuleIndex(pmi *module.PerModuleIndex)
-			CheckModuleAware() []scanner.Finding
-		}); ok {
+	for _, r := range activeRules {
+		if r != nil && r.Needs.Has(v2rules.NeedsModuleIndex) {
 			hasModuleAwareRule = true
 			break
 		}
@@ -934,7 +915,6 @@ potential-bugs:
 		SkipOracle:             true,
 		SkipCache:              true,
 		Verbose:                *verboseFlag,
-		ActiveRulesV1:          activeRules,
 		BuildCodeIndex:         hasIndexBackedCrossFileRule,
 		CrossFileParentTracker: crossTracker,
 		CrossFileJobsFlag:      *jobsFlag,
@@ -962,7 +942,7 @@ potential-bugs:
 	// same way it covers per-file ones (phase-pipeline acceptance #3).
 	dispatchForCross := dispatchResult
 	dispatchForCross.IndexResult = indexResult2
-	dispatchForCross.IndexResult.ActiveRulesV1 = activeRules
+	dispatchForCross.IndexResult.ActiveRules = activeRules
 	dispatchForCross.IndexResult.Logger = verboseLogger
 	dispatchForCross.IndexResult.Tracker = tracker
 	dispatchForCross.IndexResult.CrossFileParentTracker = crossTracker
@@ -990,7 +970,7 @@ potential-bugs:
 	// Project-level Android analysis: manifest/resource/Gradle/icon files.
 	androidStart := time.Now()
 	androidTracker := tracker.Serial("androidProjectAnalysis")
-	androidDispatcher := rules.NewDispatcher(activeRules, resolver)
+	androidDispatcher := rules.NewDispatcherV2(activeRules, resolver)
 	androidRes, err := (pipeline.AndroidPhase{}).Run(context.Background(), pipeline.AndroidInput{
 		Project:     androidProject,
 		ActiveRules: activeRules,
@@ -1286,6 +1266,7 @@ potential-bugs:
 						ParseResult: pipeline.ParseResult{
 							KotlinFiles: parsedFiles,
 							Paths:       paths,
+							ActiveRules: activeRules,
 						},
 					},
 					Findings: *allColumns,
@@ -1302,7 +1283,6 @@ potential-bugs:
 		CacheStats:       cacheStats,
 		WarningsAsErrors: warningsAsErrors,
 		MinConfidence:    *minConfidenceFlag,
-		ActiveRulesV1:    activeRules,
 	})
 	if outErr != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", outErr)
@@ -1322,14 +1302,19 @@ potential-bugs:
 	}
 }
 
-func filterFixesByLevelColumns(columns *scanner.FindingColumns, registry []rules.Rule, maxLevel rules.FixLevel) (fixableCount, strippedByLevel int) {
+func filterFixesByLevelColumns(columns *scanner.FindingColumns, registry []*v2rules.Rule, maxLevel rules.FixLevel) (fixableCount, strippedByLevel int) {
 	if columns == nil {
 		return 0, 0
 	}
 
 	ruleLevels := make(map[string]rules.FixLevel, len(registry))
 	for _, r := range registry {
-		ruleLevels[r.Name()] = rules.GetFixLevel(r)
+		if r == nil {
+			continue
+		}
+		if lvl, ok := rules.GetV2FixLevel(r); ok {
+			ruleLevels[r.ID] = lvl
+		}
 	}
 
 	strippedByLevel = columns.StripTextFixes(func(row int) bool {
@@ -1523,11 +1508,10 @@ func phaseWorkerCount(phase string, maxWorkers, workItems int) int {
 
 
 
-func countActive(registry []rules.Rule) int {
-	inactive := rules.DefaultInactive
+func countActiveV2(registry []*v2rules.Rule) int {
 	count := 0
 	for _, r := range registry {
-		if !inactive[r.Name()] {
+		if rules.IsDefaultActive(r.ID) {
 			count++
 		}
 	}

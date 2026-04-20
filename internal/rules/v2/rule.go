@@ -135,7 +135,10 @@ type Rule struct {
 	Oracle *OracleFilter
 
 	// Check is the rule's analysis function. It receives a Context
-	// populated according to the rule's Needs bitfield.
+	// populated according to the rule's Needs bitfield. Rules must report
+	// findings by calling ctx.Emit or ctx.EmitAt — never by returning
+	// []scanner.Finding. Returning a slice is a v1 pattern handled only
+	// by the v2shim bridge and will be removed once all rules are migrated.
 	Check func(*Context)
 
 	// SetResolverHook is an optional callback that forwards the v1
@@ -193,10 +196,6 @@ type Context struct {
 	Node *scanner.FlatNode // nil for line-pass rules
 	Idx  uint32            // flat tree index of Node (0 for line-pass rules)
 
-	// Finding output — rules may append findings here (legacy path) or
-	// call Emit/EmitAt which route to Collector when it is set.
-	Findings []scanner.Finding
-
 	// Rule is the rule whose Check is currently executing. Populated by
 	// the dispatcher before invoking Check so Emit can stamp
 	// Rule/RuleSet/Severity/Confidence defaults without the rule body
@@ -209,10 +208,8 @@ type Context struct {
 	// 0.50 legacy).
 	DefaultConfidence float64
 
-	// Collector, when non-nil, receives findings written via Emit/EmitAt
-	// directly in columnar form, bypassing the Findings slice. Rules
-	// that still mutate Findings work; the dispatcher drains the slice
-	// into Collector after Check returns.
+	// Collector receives findings written via Emit/EmitAt in columnar form.
+	// Must be set before Check is called.
 	Collector *scanner.FindingCollector
 
 	// Populated only when the rule declares NeedsResolver:
@@ -239,16 +236,11 @@ type Context struct {
 	GradleConfig  *android.BuildConfig
 }
 
-// Emit reports a finding. When Collector is set the finding is stamped
-// and written directly into the columnar collector; otherwise it falls
-// back to appending to Findings (legacy rule-return path).
+// Emit reports a finding. The finding is stamped with rule metadata and
+// written to the Collector.
 func (c *Context) Emit(f scanner.Finding) {
 	c.stamp(&f)
-	if c.Collector != nil {
-		c.Collector.Append(f)
-		return
-	}
-	c.Findings = append(c.Findings, f)
+	c.Collector.Append(f)
 }
 
 // EmitAt is a convenience for emitting a finding at a specific location.

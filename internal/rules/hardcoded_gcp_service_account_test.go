@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -22,10 +23,11 @@ func runRuleByNameOnPath(t *testing.T, ruleName, filename, code string) []scanne
 		t.Fatal(err)
 	}
 
-	for _, r := range rules.Registry {
-		if r.Name() == ruleName {
-			d := rules.NewDispatcher([]rules.Rule{r})
-			return d.Run(file)
+	for _, r := range v2rules.Registry {
+		if r.ID == ruleName {
+			d := rules.NewDispatcherV2([]*v2rules.Rule{r})
+			cols := d.Run(file)
+			return cols.Findings()
 		}
 	}
 

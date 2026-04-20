@@ -18,7 +18,7 @@ func (r *AssertEqualsArgumentOrderRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        &registry.OracleFilter{},
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *AssertNullableWithNotNullAssertionRule) Meta() registry.RuleDescriptor 
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *AssertTrueOnComparisonRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *MixedAssertionLibrariesRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        &registry.OracleFilter{},
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *MockWithoutVerifyRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *RelaxedMockUsedForValueClassRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *RunBlockingInTestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *RunTestWithDelayRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *RunTestWithThreadSleepRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -144,7 +144,7 @@ func (r *SharedMutableStateInObjectRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -158,7 +158,7 @@ func (r *SpyOnDataClassRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.6,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -172,7 +172,7 @@ func (r *TestDispatcherNotInjectedRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *TestFunctionReturnValueRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -200,7 +200,7 @@ func (r *TestInheritanceDepthRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.6,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -214,7 +214,7 @@ func (r *TestNameContainsUnderscoreRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.6,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -228,7 +228,7 @@ func (r *TestWithOnlyTodoRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -242,7 +242,7 @@ func (r *TestWithoutAssertionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
 
@@ -256,6 +256,6 @@ func (r *VerifyWithoutMockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.6,
 		Oracle:        nil,
-		SourceHash:    "67847756eab30fbc",
+		SourceHash:    "1d5b273ea601c6b8",
 	}
 }

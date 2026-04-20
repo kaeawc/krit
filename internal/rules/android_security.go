@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // Additional category constants not in android.go
@@ -31,15 +32,14 @@ type AddJavascriptInterfaceRule struct{ AndroidRule }
 // Classified per roadmap/17.
 func (r *AddJavascriptInterfaceRule) Confidence() float64 { return 0.75 }
 
-func (r *AddJavascriptInterfaceRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *AddJavascriptInterfaceRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if strings.Contains(line, "addJavascriptInterface(") || strings.Contains(line, "addJavascriptInterface (") {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"addJavascriptInterface called. This can introduce XSS vulnerabilities on older Android versions."))
 		}
 	}
-	return findings
 }
 
 
@@ -56,19 +56,18 @@ var getInstanceRe = regexp.MustCompile(`Cipher\.getInstance\s*\(\s*"([^"]*)"`)
 // Classified per roadmap/17.
 func (r *GetInstanceRule) Confidence() float64 { return 0.75 }
 
-func (r *GetInstanceRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *GetInstanceRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		matches := getInstanceRe.FindStringSubmatch(line)
 		if matches != nil {
 			algo := strings.ToUpper(matches[1])
 			if strings.Contains(algo, "ECB") || strings.HasPrefix(algo, "DES") {
-				findings = append(findings, r.Finding(file, i+1, 1,
+				ctx.Emit(r.Finding(file, i+1, 1,
 					"Cipher.getInstance uses insecure algorithm. Avoid ECB mode and DES."))
 			}
 		}
 	}
-	return findings
 }
 
 
@@ -85,18 +84,17 @@ var easterEggRe = regexp.MustCompile(`(?i)\b(easter\s*egg|cheat\s*code|secret\s*
 // Classified per roadmap/17.
 func (r *EasterEggRule) Confidence() float64 { return 0.75 }
 
-func (r *EasterEggRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *EasterEggRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		// Only check comments
 		if scanner.IsCommentLine(line) {
 			if easterEggRe.MatchString(line) {
-				findings = append(findings, r.Finding(file, i+1, 1,
+				ctx.Emit(r.Finding(file, i+1, 1,
 					"Code contains easter egg / hidden feature reference. Review for security implications."))
 			}
 		}
 	}
-	return findings
 }
 
 
@@ -115,21 +113,20 @@ var permissionEnforcementRe = regexp.MustCompile(`(?i)enforceCallingPermission|e
 // Classified per roadmap/17.
 func (r *ExportedContentProviderRule) Confidence() float64 { return 0.75 }
 
-func (r *ExportedContentProviderRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *ExportedContentProviderRule) check(ctx *v2.Context) {
+	file := ctx.File
 	// Skip if the file has any permission enforcement calls
 	for _, line := range file.Lines {
 		if permissionEnforcementRe.MatchString(line) {
-			return nil
+			return
 		}
 	}
-	var findings []scanner.Finding
 	for i, line := range file.Lines {
 		if contentProviderRe.MatchString(line) {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"ContentProvider subclass may be exported without permission. Ensure permissions are enforced."))
 		}
 	}
-	return findings
 }
 
 
@@ -146,15 +143,14 @@ var broadcastReceiverRe = regexp.MustCompile(`:\s*BroadcastReceiver\s*\(`)
 // Classified per roadmap/17.
 func (r *ExportedReceiverRule) Confidence() float64 { return 0.75 }
 
-func (r *ExportedReceiverRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *ExportedReceiverRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if broadcastReceiverRe.MatchString(line) {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"BroadcastReceiver subclass may be exported without permission. Ensure permissions are enforced."))
 		}
 	}
-	return findings
 }
 
 
@@ -171,15 +167,14 @@ var grantUriRe = regexp.MustCompile(`\bgrantUriPermission[s]?\b`)
 // Classified per roadmap/17.
 func (r *GrantAllUrisRule) Confidence() float64 { return 0.75 }
 
-func (r *GrantAllUrisRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *GrantAllUrisRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if grantUriRe.MatchString(line) {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"Overly broad URI permission grant. Consider restricting to specific URIs."))
 		}
 	}
-	return findings
 }
 
 
@@ -197,8 +192,8 @@ var randomInstantiationRe = regexp.MustCompile(`\bjava\.util\.Random\s*\(|(?:^|[
 // Classified per roadmap/17.
 func (r *SecureRandomRule) Confidence() float64 { return 0.75 }
 
-func (r *SecureRandomRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *SecureRandomRule) check(ctx *v2.Context) {
+	file := ctx.File
 	hasInsecureImport := false
 	for _, line := range file.Lines {
 		if secureRandomImportRe.MatchString(line) {
@@ -213,7 +208,7 @@ func (r *SecureRandomRule) CheckLines(file *scanner.File) []scanner.Finding {
 		}
 		// Detect direct java.util.Random usage
 		if strings.Contains(line, "java.util.Random(") {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"Using java.util.Random. Use java.security.SecureRandom for security-sensitive operations."))
 			continue
 		}
@@ -221,11 +216,10 @@ func (r *SecureRandomRule) CheckLines(file *scanner.File) []scanner.Finding {
 		if hasInsecureImport && strings.Contains(line, "Random(") &&
 			!strings.Contains(line, "SecureRandom") &&
 			!strings.Contains(line, "ThreadLocalRandom") {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"Using java.util.Random. Use java.security.SecureRandom for security-sensitive operations."))
 		}
 	}
-	return findings
 }
 
 
@@ -240,8 +234,8 @@ type TrustedServerRule struct{ AndroidRule }
 // Classified per roadmap/17.
 func (r *TrustedServerRule) Confidence() float64 { return 0.75 }
 
-func (r *TrustedServerRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *TrustedServerRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		// Detect common trust-all patterns
 		if strings.Contains(line, "TrustAllCertificates") ||
@@ -249,11 +243,10 @@ func (r *TrustedServerRule) CheckLines(file *scanner.File) []scanner.Finding {
 			strings.Contains(line, "ALLOW_ALL_HOSTNAME_VERIFIER") ||
 			strings.Contains(line, "trustAllCerts") ||
 			strings.Contains(line, "X509TrustManager") && strings.Contains(line, "object") {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"Trusting all certificates or hostnames is insecure. Use proper certificate validation."))
 		}
 	}
-	return findings
 }
 
 
@@ -268,15 +261,14 @@ type WorldReadableFilesRule struct{ AndroidRule }
 // Classified per roadmap/17.
 func (r *WorldReadableFilesRule) Confidence() float64 { return 0.75 }
 
-func (r *WorldReadableFilesRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *WorldReadableFilesRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if strings.Contains(line, "MODE_WORLD_READABLE") {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"MODE_WORLD_READABLE is insecure. Use more restrictive file permissions."))
 		}
 	}
-	return findings
 }
 
 
@@ -291,15 +283,14 @@ type WorldWriteableFilesRule struct{ AndroidRule }
 // Classified per roadmap/17.
 func (r *WorldWriteableFilesRule) Confidence() float64 { return 0.75 }
 
-func (r *WorldWriteableFilesRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *WorldWriteableFilesRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if strings.Contains(line, "MODE_WORLD_WRITEABLE") || strings.Contains(line, "MODE_WORLD_WRITABLE") {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"MODE_WORLD_WRITEABLE is insecure. Use more restrictive file permissions."))
 		}
 	}
-	return findings
 }
 
 
@@ -320,8 +311,8 @@ var drawAllocRe = regexp.MustCompile(`\b(?:Paint|Rect|RectF|Path|Matrix|LinearGr
 // Classified per roadmap/17.
 func (r *DrawAllocationRule) Confidence() float64 { return 0.75 }
 
-func (r *DrawAllocationRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *DrawAllocationRule) check(ctx *v2.Context) {
+	file := ctx.File
 	inDraw := false
 	braceDepth := 0
 	drawStartDepth := 0
@@ -342,7 +333,7 @@ func (r *DrawAllocationRule) CheckLines(file *scanner.File) []scanner.Finding {
 
 		if inDraw {
 			if drawAllocRe.MatchString(trimmed) && !strings.HasPrefix(trimmed, "//") {
-				findings = append(findings, r.Finding(file, i+1, 1,
+				ctx.Emit(r.Finding(file, i+1, 1,
 					"Allocation in drawing code. Move allocations out of onDraw() for better performance."))
 			}
 			if braceDepth <= drawStartDepth {
@@ -350,7 +341,6 @@ func (r *DrawAllocationRule) CheckLines(file *scanner.File) []scanner.Finding {
 			}
 		}
 	}
-	return findings
 }
 
 
@@ -367,8 +357,8 @@ var fieldGetterCallRe = regexp.MustCompile(`\.get[A-Z]\w*\(`)
 // Classified per roadmap/17.
 func (r *FieldGetterRule) Confidence() float64 { return 0.75 }
 
-func (r *FieldGetterRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *FieldGetterRule) check(ctx *v2.Context) {
+	file := ctx.File
 	inLoop := false
 	braceDepth := 0
 	loopStartDepth := 0
@@ -384,7 +374,7 @@ func (r *FieldGetterRule) CheckLines(file *scanner.File) []scanner.Finding {
 		braceDepth += strings.Count(line, "{") - strings.Count(line, "}")
 		if inLoop {
 			if fieldGetterCallRe.MatchString(line) && !strings.HasPrefix(trimmed, "//") {
-				findings = append(findings, r.Finding(file, i+1, 1,
+				ctx.Emit(r.Finding(file, i+1, 1,
 					"Getter call inside loop. Use direct field access for better performance."))
 			}
 			if braceDepth <= loopStartDepth {
@@ -392,7 +382,6 @@ func (r *FieldGetterRule) CheckLines(file *scanner.File) []scanner.Finding {
 			}
 		}
 	}
-	return findings
 }
 
 
@@ -407,15 +396,14 @@ type FloatMathRule struct{ AndroidRule }
 // Classified per roadmap/17.
 func (r *FloatMathRule) Confidence() float64 { return 0.75 }
 
-func (r *FloatMathRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *FloatMathRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if strings.Contains(line, "FloatMath.") {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"FloatMath is deprecated. Use kotlin.math or java.lang.Math instead."))
 		}
 	}
-	return findings
 }
 
 
@@ -433,20 +421,19 @@ var handlerInnerRe = regexp.MustCompile(`\binner\s+class\s+\w+`)
 // Classified per roadmap/17.
 func (r *HandlerLeakRule) Confidence() float64 { return 0.75 }
 
-func (r *HandlerLeakRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *HandlerLeakRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		if handlerClassRe.MatchString(line) && handlerInnerRe.MatchString(line) {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"This Handler class should be static or leaks might occur. Use a WeakReference to the outer class."))
 		}
 		// Also detect anonymous Handler() object expressions
 		if strings.Contains(line, "object : Handler(") {
-			findings = append(findings, r.Finding(file, i+1, 1,
+			ctx.Emit(r.Finding(file, i+1, 1,
 				"Anonymous Handler may leak the enclosing class. Use a static inner class with a WeakReference."))
 		}
 	}
-	return findings
 }
 
 
@@ -469,8 +456,8 @@ var recycleTypes = []string{
 // Classified per roadmap/17.
 func (r *RecycleRule) Confidence() float64 { return 0.75 }
 
-func (r *RecycleRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *RecycleRule) check(ctx *v2.Context) {
+	file := ctx.File
 	fullContent := strings.Join(file.Lines, "\n")
 
 	for i, line := range file.Lines {
@@ -482,7 +469,7 @@ func (r *RecycleRule) CheckLines(file *scanner.File) []scanner.Finding {
 			if strings.Contains(line, target) {
 				// Check if recycle() or close() appears in the same function scope
 				if !strings.Contains(fullContent, "recycle()") && !strings.Contains(fullContent, ".close()") {
-					findings = append(findings, r.Finding(file, i+1, 1,
+					ctx.Emit(r.Finding(file, i+1, 1,
 						"Resource obtained but recycle()/close() not found. Ensure the resource is properly released."))
 				}
 			}
@@ -492,13 +479,12 @@ func (r *RecycleRule) CheckLines(file *scanner.File) []scanner.Finding {
 			if strings.Contains(line, typ) && (strings.Contains(line, "val ") || strings.Contains(line, "var ")) {
 				if !strings.Contains(fullContent, ".recycle()") && !strings.Contains(fullContent, ".close()") &&
 					!strings.Contains(fullContent, ".use {") && !strings.Contains(fullContent, ".use{") {
-					findings = append(findings, r.Finding(file, i+1, 1,
+					ctx.Emit(r.Finding(file, i+1, 1,
 						typ+" acquired but no recycle()/close()/use{} found. Ensure the resource is properly released."))
 				}
 			}
 		}
 	}
-	return findings
 }
 
 
@@ -514,13 +500,14 @@ type ByteOrderMarkRule struct{ AndroidRule }
 // of the file content. No heuristic path.
 func (r *ByteOrderMarkRule) Confidence() float64 { return 0.95 }
 
-func (r *ByteOrderMarkRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *ByteOrderMarkRule) check(ctx *v2.Context) {
+	file := ctx.File
 	// BOM is the first 3 bytes: EF BB BF (UTF-8 BOM)
 	if len(file.Content) >= 3 &&
 		file.Content[0] == 0xEF && file.Content[1] == 0xBB && file.Content[2] == 0xBF {
-		return []scanner.Finding{r.Finding(file, 1, 1,
-			"File contains a UTF-8 byte order mark (BOM). Remove the BOM for consistency.")}
+		ctx.Emit(r.Finding(file, 1, 1,
+			"File contains a UTF-8 byte order mark (BOM). Remove the BOM for consistency."))
+		return
 	}
-	return nil
 }
 

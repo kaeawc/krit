@@ -3,6 +3,7 @@ package rules
 import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/rules/registry"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ApplyConfig applies YAML configuration to all registered rules.
@@ -32,45 +33,49 @@ func ApplyConfig(cfg *config.Config) {
 
 	adapter := NewConfigAdapter(cfg)
 
-	for _, r := range Registry {
-		ruleSet := r.RuleSet()
-		ruleName := r.Name()
+	for _, r := range v2.Registry {
+		ruleName := r.ID
+		ruleSetName := r.Category
 
 		// Per-rule excludes (detekt-compatible file exclusion globs)
 		// apply to every rule regardless of whether the rule publishes
 		// Meta() — the exclusion map is consulted at dispatch time.
-		if excludes := cfg.GetStringList(ruleSet, ruleName, "excludes"); excludes != nil {
+		if excludes := cfg.GetStringList(ruleSetName, ruleName, "excludes"); excludes != nil {
 			SetRuleExcludes(ruleName, excludes)
 		}
 
-		meta, ok := MetaForRule(r)
+		meta, ok := MetaForV2Rule(r)
 		if !ok {
 			// Alias registration — primary ID is handled on its own
 			// Registry pass. Only honor ruleset/rule active overrides.
-			applyAliasActiveOverride(cfg, ruleSet, ruleName)
+			applyAliasActiveOverride(cfg, ruleSetName, ruleName)
 			continue
 		}
 
-		// If Unwrap yielded the concrete rule struct (a MetaProvider), use
-		// the full ApplyConfig path so option Apply closures can mutate
-		// it. Otherwise fall back to ApplyConfigActiveOnly — options
-		// cannot target a missing pointer.
-		concrete := Unwrap(r)
-		if _, hasMeta := concrete.(registry.MetaProvider); !hasMeta {
+		if meta.ID != ruleName {
+			// Alias registration — skip; primary ID handles full config.
+			applyAliasActiveOverride(cfg, ruleSetName, ruleName)
+			continue
+		}
+
+		// Use the concrete original-v1 struct when available so option
+		// Apply closures can mutate the live rule fields. Fall back to
+		// active-only when no concrete pointer is available.
+		concrete := r.OriginalV1
+		if _, hasMeta := concrete.(registry.MetaProvider); hasMeta {
+			active := registry.ApplyConfig(concrete, meta, adapter)
+			if active {
+				delete(DefaultInactive, ruleName)
+			} else {
+				DefaultInactive[ruleName] = true
+			}
+		} else {
 			active := registry.ApplyConfigActiveOnly(meta, adapter)
 			if active {
 				delete(DefaultInactive, ruleName)
 			} else {
 				DefaultInactive[ruleName] = true
 			}
-			continue
-		}
-
-		active := registry.ApplyConfig(concrete, meta, adapter)
-		if active {
-			delete(DefaultInactive, ruleName)
-		} else {
-			DefaultInactive[ruleName] = true
 		}
 	}
 }

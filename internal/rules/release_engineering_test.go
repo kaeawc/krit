@@ -8,6 +8,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/rules"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -283,15 +284,15 @@ func runConventionPluginDeadCodeRule(t *testing.T, projectDir string) []scanner.
 		t.Fatalf("expected modules to be discovered in %s", projectDir)
 	}
 
-	rule := &rules.ConventionPluginDeadCodeRule{
-		BaseRule: rules.BaseRule{
-			RuleName:    "ConventionPluginDeadCode",
-			RuleSetName: "release-engineering",
-			Sev:         "info",
-		},
+	registered := buildRuleIndex()["ConventionPluginDeadCode"]
+	if registered == nil {
+		t.Fatal("ConventionPluginDeadCode rule not registered")
 	}
-	rule.SetModuleIndex(&module.PerModuleIndex{Graph: graph})
-	return rule.CheckModuleAware()
+	pmi := &module.PerModuleIndex{Graph: graph}
+	ctx := &v2.Context{ModuleIndex: pmi, Collector: scanner.NewFindingCollector(0)}
+	registered.Check(ctx)
+	_ = rules.ConventionPluginDeadCodeRule{} // keep import used
+	return v2.ContextFindings(ctx)
 }
 
 func writeModuleFile(t *testing.T, path string, content string) {

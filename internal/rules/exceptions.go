@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/kaeawc/krit/internal/experiment"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -30,26 +31,6 @@ var unexpectedThrowFunctions = map[string]bool{
 // roadmap/17.
 func (r *ExceptionRaisedInUnexpectedLocationRule) Confidence() float64 { return 0.75 }
 
-func (r *ExceptionRaisedInUnexpectedLocationRule) NodeTypes() []string {
-	return []string{"function_declaration"}
-}
-
-func (r *ExceptionRaisedInUnexpectedLocationRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	name := extractIdentifierFlat(file, idx)
-	if !unexpectedThrowFunctions[name] {
-		return nil
-	}
-	var findings []scanner.Finding
-	walkThrowExpressionsFlat(file, idx, func(throwNode uint32) {
-		findings = append(findings, r.Finding(file, file.FlatRow(throwNode)+1, file.FlatCol(throwNode)+1,
-			fmt.Sprintf("Exception thrown inside '%s()'. This method should not throw exceptions.", name)))
-	})
-	return findings
-}
-
-func (r *ExceptionRaisedInUnexpectedLocationRule) Check(file *scanner.File) []scanner.Finding {
-	return nil
-}
 
 // InstanceOfCheckForExceptionRule detects `is SomeException` inside catch blocks.
 type InstanceOfCheckForExceptionRule struct {
@@ -64,45 +45,6 @@ var isExceptionRe = regexp.MustCompile(`\bis\s+\w*Exception\w*`)
 // roadmap/17.
 func (r *InstanceOfCheckForExceptionRule) Confidence() float64 { return 0.75 }
 
-func (r *InstanceOfCheckForExceptionRule) NodeTypes() []string { return []string{"catch_block"} }
-
-func (r *InstanceOfCheckForExceptionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	catchVarName := extractCaughtVarNameFlat(file, idx)
-	if catchVarName == "" {
-		return nil
-	}
-	skipWhenDispatch := experiment.Enabled("instance-of-check-skip-when-dispatch")
-
-	var findings []scanner.Finding
-	// tree-sitter Kotlin uses "check_expression" for `is` checks (e.g., `e is IOException`)
-	for _, nodeType := range []string{"is_expression", "type_check", "check_expression"} {
-		file.FlatWalkNodes(idx, nodeType, func(isNode uint32) {
-			text := file.FlatNodeText(isNode)
-			if !isExceptionRe.MatchString(text) {
-				return
-			}
-			// Only flag if the LHS of the is-check is the caught variable directly
-			// (not a property like e.cause). The LHS is the first child.
-			if file.FlatChildCount(isNode) < 1 {
-				return
-			}
-			lhs := file.FlatNodeText(file.FlatChild(isNode, 0))
-			if strings.TrimSpace(lhs) != catchVarName {
-				return
-			}
-			// Skip when the `is` check is inside `when (<catchVar>) { is X -> }`
-			// — Kotlin's when-is dispatch on the caught variable is the
-			// idiomatic way to handle related exception types with shared
-			// handlers.
-			if skipWhenDispatch && isInsideWhenDispatchOnCatchVarFlat(file, isNode, catchVarName) {
-				return
-			}
-			findings = append(findings, r.Finding(file, file.FlatRow(isNode)+1, file.FlatCol(isNode)+1,
-				"Instance-of check for exception type inside catch block. Use specific catch clauses instead."))
-		})
-	}
-	return findings
-}
 
 func isInsideWhenDispatchOnCatchVarFlat(file *scanner.File, isNode uint32, caughtVar string) bool {
 	for p, ok := file.FlatParent(isNode); ok; p, ok = file.FlatParent(p) {
@@ -143,15 +85,6 @@ type NotImplementedDeclarationRule struct {
 // roadmap/17.
 func (r *NotImplementedDeclarationRule) Confidence() float64 { return 0.75 }
 
-func (r *NotImplementedDeclarationRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *NotImplementedDeclarationRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if flatCallExpressionName(file, idx) != "TODO" {
-		return nil
-	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"TODO() call found. Replace with an actual implementation.")}
-}
 
 // RethrowCaughtExceptionRule detects catch { throw e } where e is the caught variable.
 type RethrowCaughtExceptionRule struct {
@@ -164,39 +97,6 @@ type RethrowCaughtExceptionRule struct {
 // roadmap/17.
 func (r *RethrowCaughtExceptionRule) Confidence() float64 { return 0.75 }
 
-func (r *RethrowCaughtExceptionRule) NodeTypes() []string { return []string{"catch_block"} }
-
-func (r *RethrowCaughtExceptionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	caughtVar := extractCaughtVarNameFlat(file, idx)
-	if caughtVar == "" {
-		return nil
-	}
-	// Find the catch body (statements_block)
-	body := file.FlatFindChild(idx, "statements")
-	if body == 0 {
-		return nil
-	}
-	// Check if the only statement is throw <caughtVar>
-	stmtCount := 0
-	var onlyThrow uint32
-	for i := 0; i < file.FlatChildCount(body); i++ {
-		child := file.FlatChild(body, i)
-		if file.FlatType(child) == "jump_expression" && strings.HasPrefix(file.FlatNodeText(child), "throw") {
-			onlyThrow = child
-			stmtCount++
-		} else if t := file.FlatType(child); t != "line_comment" && t != "multiline_comment" && t != "{" && t != "}" {
-			stmtCount++
-		}
-	}
-	if stmtCount == 1 && onlyThrow != 0 {
-		throwText := strings.TrimSpace(file.FlatNodeText(onlyThrow))
-		if throwText == "throw "+caughtVar || throwText == "throw "+caughtVar+";" {
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-				fmt.Sprintf("Caught exception '%s' is immediately rethrown. Remove the catch block or add handling logic.", caughtVar))}
-		}
-	}
-	return nil
-}
 
 // ReturnFromFinallyRule detects return statements inside finally blocks.
 type ReturnFromFinallyRule struct {
@@ -210,33 +110,6 @@ type ReturnFromFinallyRule struct {
 // roadmap/17.
 func (r *ReturnFromFinallyRule) Confidence() float64 { return 0.75 }
 
-func (r *ReturnFromFinallyRule) NodeTypes() []string { return []string{"finally_block"} }
-
-func (r *ReturnFromFinallyRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
-	file.FlatWalkNodes(idx, "jump_expression", func(jumpNode uint32) {
-		text := file.FlatNodeText(jumpNode)
-		if strings.HasPrefix(text, "return") {
-			f := r.Finding(file, file.FlatRow(jumpNode)+1, file.FlatCol(jumpNode)+1,
-				"Return from finally block. This can swallow exceptions from try/catch.")
-			// Fix: remove the return statement line (byte-mode for precision)
-			lineIdx := file.FlatRow(jumpNode)
-			lineStart := file.LineOffset(lineIdx)
-			lineEnd := lineStart + len(file.Lines[lineIdx]) + 1
-			if lineEnd > len(file.Content) {
-				lineEnd = len(file.Content)
-			}
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   lineStart,
-				EndByte:     lineEnd,
-				Replacement: "",
-			}
-			findings = append(findings, f)
-		}
-	})
-	return findings
-}
 
 // SwallowedExceptionRule detects catch blocks that either never use the exception
 // variable or that throw a new exception without passing the original as the cause.
@@ -306,129 +179,9 @@ type SwallowedExceptionRule struct {
 // roadmap/17.
 func (r *SwallowedExceptionRule) Confidence() float64 { return 0.75 }
 
-func (r *SwallowedExceptionRule) NodeTypes() []string { return []string{"catch_block"} }
 
-func (r *SwallowedExceptionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	if isTestFile(file.Path) {
-		return nil
-	}
-	caughtVar := extractCaughtVarNameFlat(file, idx)
-	if caughtVar == "" || caughtVar == "_" {
-		return nil
-	}
-	// Skip if the exception variable name matches the allowed regex
-	if r.AllowedExceptionNameRegex != nil && r.AllowedExceptionNameRegex.MatchString(caughtVar) {
-		return nil
-	}
-	// Skip if the caught exception type is in the ignored list (case-insensitive substring match like detekt)
-	if len(r.IgnoredExceptionTypes) > 0 {
-		caughtType := extractCaughtTypeNameFlat(file, idx)
-		if caughtType != "" {
-			lowerType := strings.ToLower(caughtType)
-			for _, ignored := range r.IgnoredExceptionTypes {
-				if strings.Contains(lowerType, strings.ToLower(ignored)) {
-					return nil
-				}
-			}
-		}
-	}
-	catchText := file.FlatNodeText(idx)
-	// Remove the catch(...) header to get only the body
-	bodyStart := strings.Index(catchText, "{")
-	if bodyStart < 0 {
-		return nil
-	}
-	body := catchText[bodyStart+1:]
-	// Dedup with EmptyCatchBlock: if the body is literally empty, the
-	// other rule already reports this and will offer a fix. Don't
-	// double-report the same issue.
-	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(body), "}"))
-	if inner == "" {
-		return nil
-	}
-
-	// If the catch is part of a try expression (value is used), the specific
-	// exception type itself IS the handling — the catch branch returns a
-	// semantic fallback value based on which exception was thrown.
-	if isCatchPartOfTryExpressionFlat(file, idx) {
-		return nil
-	}
-	// EOFException is the standard end-of-stream sentinel — catching it to
-	// return null/break/continue is idiomatic.
-	caughtType := extractCaughtTypeNameFlat(file, idx)
-	if caughtType == "EOFException" {
-		return nil
-	}
-	// Check if the caught variable is referenced in the body at all
-	varRe := regexp.MustCompile(`\b` + regexp.QuoteMeta(caughtVar) + `\b`)
-	if !varRe.MatchString(body) {
-		// If the catch body contains a comment (single-line `//` or block `/* */`)
-		// explaining why the exception is swallowed, treat as intentional.
-		bodyStripped := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(body, "{"), "}"))
-		if strings.HasPrefix(bodyStripped, "//") || strings.HasPrefix(bodyStripped, "/*") {
-			// Body starts with a comment — likely intentional swallow.
-			// Also check if the ONLY content after stripping comments is empty
-			// (i.e., comment-only body).
-			noComments := stripCommentsFromBody(bodyStripped)
-			if strings.TrimSpace(noComments) == "" {
-				return nil
-			}
-		}
-		// If the catch body contains a Log.* call, treat the logging as
-		// handling even if `e` isn't passed — many projects intentionally
-		// log a static message without the stack trace.
-		if swallowedExceptionLogCallRe.MatchString(body) {
-			return nil
-		}
-		// Opt-in broader logging patterns: top-level warn()/error() helpers,
-		// Timber, slf4j loggers, etc. Many projects use a static logger
-		// object imported at the top of the file.
-		if experiment.Enabled("swallowed-exception-broader-logging") &&
-			swallowedExceptionBroadLogCallRe.MatchString(body) {
-			return nil
-		}
-		// UI notification APIs (Toast, Snackbar, AlertDialog) count as
-		// handling — the exception is communicated to the user.
-		if swallowedExceptionUICallRe.MatchString(body) {
-			return nil
-		}
-		// Catch body that is a `return` with a value (including `return null`)
-		// is handling — the exception is being translated to a domain value.
-		trimmedBody := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(body, ""), "}"))
-		if strings.HasPrefix(trimmedBody, "return ") ||
-			strings.HasPrefix(trimmedBody, "return\n") ||
-			trimmedBody == "return" {
-			return nil
-		}
-		// Catch body that assigns to a variable counts as state handling.
-		if swallowedExceptionAssignmentRe.MatchString(body) {
-			return nil
-		}
-		// Catch body that calls a handler-like function with names such as
-		// `toastOn*`, `showError`, `handle*`, `report*`, `recoverFrom*` —
-		// the exception is handled via a named recovery routine even if
-		// `e` isn't passed explicitly.
-		if swallowedExceptionHandlerCallRe.MatchString(body) {
-			return nil
-		}
-		// Exception is completely unused
-		return r.makeUnusedFindingFlat(idx, file, caughtVar)
-	}
-
-	// Exception is referenced — check if it's swallowed in throw expressions.
-	// "Swallowed" means every throw that references the variable only uses
-	// e.message, e.toString(), e.localizedMessage (or variable aliases of those)
-	// without passing the exception itself as a constructor argument.
-	if isExceptionSwallowedInThrows(body, caughtVar) {
-		f := r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Exception '%s' is caught but not passed as a cause. Pass it directly to preserve the stack trace.", caughtVar))
-		return []scanner.Finding{f}
-	}
-
-	return nil
-}
-
-func (r *SwallowedExceptionRule) makeUnusedFindingFlat(idx uint32, file *scanner.File, caughtVar string) []scanner.Finding {
+func (r *SwallowedExceptionRule) makeUnusedFindingFlat(ctx *v2.Context, caughtVar string) {
+	idx, file := ctx.Idx, ctx.File
 	f := r.Finding(file, file.FlatRow(idx)+1, 1,
 		fmt.Sprintf("Exception '%s' is caught but never used. Either log/handle it or rethrow.", caughtVar))
 	endByte := int(file.FlatEndByte(idx))
@@ -450,7 +203,7 @@ func (r *SwallowedExceptionRule) makeUnusedFindingFlat(idx uint32, file *scanner
 			Replacement: insertion + "}",
 		}
 	}
-	return []scanner.Finding{f}
+	ctx.Emit(f)
 }
 
 // isExceptionSwallowedInThrows checks whether there is at least one throw
@@ -562,30 +315,6 @@ type ThrowingExceptionFromFinallyRule struct {
 // roadmap/17.
 func (r *ThrowingExceptionFromFinallyRule) Confidence() float64 { return 0.75 }
 
-func (r *ThrowingExceptionFromFinallyRule) NodeTypes() []string { return []string{"finally_block"} }
-
-func (r *ThrowingExceptionFromFinallyRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
-	walkThrowExpressionsFlat(file, idx, func(throwNode uint32) {
-		f := r.Finding(file, file.FlatRow(throwNode)+1, file.FlatCol(throwNode)+1,
-			"Exception thrown inside finally block. This can swallow exceptions from try/catch.")
-		// Fix: delete the throw statement line (byte-mode for precision)
-		lineIdx := file.FlatRow(throwNode)
-		lineStart := file.LineOffset(lineIdx)
-		lineEnd := lineStart + len(file.Lines[lineIdx]) + 1
-		if lineEnd > len(file.Content) {
-			lineEnd = len(file.Content)
-		}
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   lineStart,
-			EndByte:     lineEnd,
-			Replacement: "",
-		}
-		findings = append(findings, f)
-	})
-	return findings
-}
 
 // ThrowingExceptionsWithoutMessageOrCauseRule detects throw Exception() with no args.
 // Uses tree-sitter dispatch to find call_expression nodes, then checks if the parent
@@ -616,80 +345,6 @@ var defaultExceptionsRequiringMessage = map[string]bool{
 // roadmap/17.
 func (r *ThrowingExceptionsWithoutMessageOrCauseRule) Confidence() float64 { return 0.75 }
 
-func (r *ThrowingExceptionsWithoutMessageOrCauseRule) NodeTypes() []string {
-	return []string{"call_expression"}
-}
-
-func (r *ThrowingExceptionsWithoutMessageOrCauseRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Must be inside a throw — check parent or previous sibling for jump_expression
-	isThrow := false
-	parent, ok := file.FlatParent(idx)
-	if ok {
-		if file.FlatType(parent) == "jump_expression" {
-			text := file.FlatNodeText(parent)
-			isThrow = strings.HasPrefix(strings.TrimSpace(text), "throw")
-		}
-		// Tree-sitter may also put throw as a sibling in statements.
-		// Walk backwards from idx — linear in the nearest-preceding
-		// distance rather than quadratic in sibling index.
-		if file.FlatType(parent) == "statements" {
-			for prev, ok := file.FlatPrevSibling(idx); ok; prev, ok = file.FlatPrevSibling(prev) {
-				if file.FlatType(prev) != "jump_expression" {
-					continue
-				}
-				text := file.FlatNodeText(prev)
-				if strings.HasPrefix(strings.TrimSpace(text), "throw") {
-					isThrow = true
-					break
-				}
-			}
-		}
-	}
-	if !isThrow {
-		return nil
-	}
-
-	// Get the exception type name (first child = simple_identifier or navigation_expression)
-	exName := ""
-	if file.FlatChildCount(idx) > 0 {
-		first := file.FlatChild(idx, 0)
-		if file.FlatType(first) == "simple_identifier" {
-			exName = file.FlatNodeText(first)
-		}
-	}
-	if exName == "" {
-		return nil
-	}
-
-	// Check against allowlist
-	exceptionSet := r.exceptionAllowlist()
-	if !experiment.Enabled("exceptions-allowlist-cache") && len(r.Exceptions) > 0 {
-		exceptionSet = make(map[string]bool, len(r.Exceptions))
-		for _, e := range r.Exceptions {
-			exceptionSet[e] = true
-		}
-	}
-	if !exceptionSet[exName] {
-		return nil
-	}
-
-	// Check if the call has no arguments
-	argCount := throwingExceptionArgCountFlat(file, idx)
-	if argCount < 0 {
-		return nil
-	}
-	if argCount > 0 {
-		return nil // has arguments — ok
-	}
-
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1,
-		file.FlatCol(idx)+1,
-		fmt.Sprintf("Exception '%s' thrown without a message or cause. Provide a descriptive message.", exName))}
-}
-
-func (r *ThrowingExceptionsWithoutMessageOrCauseRule) Check(file *scanner.File) []scanner.Finding {
-	return nil
-}
 
 func (r *ThrowingExceptionsWithoutMessageOrCauseRule) exceptionAllowlist() map[string]bool {
 	if !experiment.Enabled("exceptions-allowlist-cache") || len(r.Exceptions) == 0 {
@@ -751,69 +406,6 @@ type ThrowingNewInstanceOfSameExceptionRule struct {
 // roadmap/17.
 func (r *ThrowingNewInstanceOfSameExceptionRule) Confidence() float64 { return 0.75 }
 
-func (r *ThrowingNewInstanceOfSameExceptionRule) NodeTypes() []string { return []string{"catch_block"} }
-
-func (r *ThrowingNewInstanceOfSameExceptionRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	caughtType := extractCaughtTypeNameFlat(file, idx)
-	if caughtType == "" {
-		return nil
-	}
-	// Extract the caught variable name so we can detect the enrichment pattern
-	// `throw X(..., caughtVar, ...)` which is a legitimate rethrow that adds
-	// context.
-	caughtVar := ""
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		c := file.FlatChild(idx, i)
-		if file.FlatType(c) == "simple_identifier" {
-			caughtVar = file.FlatNodeText(c)
-			break
-		}
-	}
-	var findings []scanner.Finding
-	walkThrowExpressionsFlat(file, idx, func(throwNode uint32) {
-		throwText := file.FlatNodeText(throwNode)
-		// Check for throw SameType(...)
-		pattern := fmt.Sprintf(`throw\s+%s\s*\(`, regexp.QuoteMeta(caughtType))
-		matched, err := regexp.MatchString(pattern, throwText)
-		if err != nil {
-			matched = strings.Contains(throwText, "throw "+caughtType+"(")
-		}
-		if !matched {
-			return
-		}
-		// Skip when the new instance is created with the caught variable PLUS
-		// additional arguments (enrichment pattern: wrap original as cause and
-		// add a descriptive message). A bare `throw X(e)` with only the caught
-		// var is still a pointless rethrow — it should just be `throw e`.
-		if caughtVar != "" {
-			parenIdx := strings.Index(throwText, "(")
-			if parenIdx >= 0 {
-				argsText := strings.TrimSpace(throwText[parenIdx+1:])
-				// Find matching closing paren position
-				closeIdx := strings.LastIndex(argsText, ")")
-				if closeIdx >= 0 {
-					argsText = strings.TrimSpace(argsText[:closeIdx])
-					// Strip simple comma-separated args and check contents.
-					// If the args contain both the caught var AND at least one
-					// other non-trivial arg (comma-separated), skip.
-					if strings.Contains(argsText, ",") {
-						argPattern := fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(caughtVar))
-						if m, _ := regexp.MatchString(argPattern, argsText); m {
-							return
-						}
-					}
-				}
-			}
-		}
-		findings = append(findings, r.Finding(file, file.FlatRow(throwNode)+1, file.FlatCol(throwNode)+1,
-			fmt.Sprintf("New instance of '%s' thrown inside catch block that already catches it. Simply rethrow the original.", caughtType)))
-	})
-	return findings
-}
-
-func (r *ThrowingNewInstanceOfSameExceptionRule) Check(file *scanner.File) []scanner.Finding {
-	return nil
-}
 
 // ThrowingExceptionInMainRule detects throw in main function.
 type ThrowingExceptionInMainRule struct {
@@ -826,20 +418,6 @@ type ThrowingExceptionInMainRule struct {
 // roadmap/17.
 func (r *ThrowingExceptionInMainRule) Confidence() float64 { return 0.75 }
 
-func (r *ThrowingExceptionInMainRule) NodeTypes() []string { return []string{"function_declaration"} }
-
-func (r *ThrowingExceptionInMainRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	name := extractIdentifierFlat(file, idx)
-	if name != "main" {
-		return nil
-	}
-	var findings []scanner.Finding
-	walkThrowExpressionsFlat(file, idx, func(throwNode uint32) {
-		findings = append(findings, r.Finding(file, file.FlatRow(throwNode)+1, file.FlatCol(throwNode)+1,
-			"Exception thrown in main(). Handle exceptions gracefully instead."))
-	})
-	return findings
-}
 
 // ErrorUsageWithThrowableRule detects error(throwable) calls.
 type ErrorUsageWithThrowableRule struct {
@@ -847,34 +425,11 @@ type ErrorUsageWithThrowableRule struct {
 	BaseRule
 }
 
-var errorThrowableRe = regexp.MustCompile(`\berror\s*\(\s*\w+\s*\)`)
-
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
 func (r *ErrorUsageWithThrowableRule) Confidence() float64 { return 0.75 }
 
-func (r *ErrorUsageWithThrowableRule) NodeTypes() []string { return []string{"call_expression"} }
-
-func (r *ErrorUsageWithThrowableRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if !strings.HasPrefix(text, "error(") {
-		return nil
-	}
-	// Check if the argument variable name suggests a throwable
-	argText := text[6 : len(text)-1] // strip error( and )
-	argText = strings.TrimSpace(argText)
-	lower := strings.ToLower(argText)
-	if strings.Contains(lower, "exception") || strings.Contains(lower, "throwable") ||
-		strings.Contains(lower, "error") || lower == "e" || lower == "ex" || lower == "err" || lower == "t" {
-		// Make sure the argument is not a string literal
-		if !strings.HasPrefix(argText, "\"") {
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				fmt.Sprintf("error(%s) passes a Throwable. Use throw instead, or pass the message string.", argText))}
-		}
-	}
-	return nil
-}
 
 // ObjectExtendsThrowableRule detects object : Exception/Throwable/Error.
 type ObjectExtendsThrowableRule struct {
@@ -894,45 +449,6 @@ var throwableBaseTypes = []string{"Throwable", "Exception", "Error", "RuntimeExc
 	"IllegalStateException", "IllegalArgumentException", "IOException",
 	"UnsupportedOperationException"}
 
-func (r *ObjectExtendsThrowableRule) NodeTypes() []string { return []string{"object_declaration"} }
-
-func (r *ObjectExtendsThrowableRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	name := extractIdentifierFlat(file, idx)
-
-	// With resolver: use ClassHierarchy to verify the object's supertype is actually Throwable/Exception
-	if r.resolver != nil {
-		info := r.resolver.ClassHierarchy(name)
-		if info != nil {
-			throwableSet := map[string]bool{
-				"Throwable": true, "Exception": true, "Error": true, "RuntimeException": true,
-				"kotlin.Throwable": true, "java.lang.Throwable": true,
-				"java.lang.Exception": true, "java.lang.Error": true,
-				"java.lang.RuntimeException": true,
-			}
-			for _, st := range info.Supertypes {
-				simpleParts := strings.Split(st, ".")
-				simpleName := simpleParts[len(simpleParts)-1]
-				if throwableSet[st] || throwableSet[simpleName] {
-					return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Object '%s' extends '%s'. Objects that extend Throwable are singletons and lose stack trace information.", name, simpleName))}
-				}
-			}
-			// Hierarchy known but no Throwable supertype — not a match
-			return nil
-		}
-		// Hierarchy not known — fall through to text heuristic
-	}
-
-	// Fallback: text-based heuristic
-	text := file.FlatNodeText(idx)
-	for _, t := range throwableBaseTypes {
-		if strings.Contains(text, ": "+t) || strings.Contains(text, ":"+t+"(") || strings.Contains(text, ": "+t+"(") {
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-				fmt.Sprintf("Object '%s' extends '%s'. Objects that extend Throwable are singletons and lose stack trace information.", name, t))}
-		}
-	}
-	return nil
-}
 
 func walkThrowExpressionsFlat(file *scanner.File, idx uint32, fn func(throwNode uint32)) {
 	file.FlatWalkNodes(idx, "jump_expression", func(n uint32) {

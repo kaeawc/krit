@@ -6,6 +6,7 @@ import (
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // RunStats captures where per-file rule execution time is spent.
@@ -40,67 +41,52 @@ func (e DispatchError) Error() string {
 // See v2.Rule.Needs for the canonical classification.
 
 // Dispatcher is a thin wrapper around V2Dispatcher. All per-file execution
-// delegates to the v2 engine; the v1 family slices have been removed as
-// dead code now that WrapAllAsV2 handles classification internally.
+// delegates to the v2 engine.
 type Dispatcher struct {
 	v2           *V2Dispatcher
 	typeResolver typeinfer.TypeResolver
-	// activeRules is retained so V2Rules() (in v2dispatch.go) can rebuild
-	// its cached V2Index from the original rule list.
-	activeRules []Rule
 }
 
-// NewDispatcher creates a dispatcher from the given rules.
-// An optional TypeResolver enables type-aware analysis for rules with a SetResolver method.
-func NewDispatcher(activeRules []Rule, resolver ...typeinfer.TypeResolver) *Dispatcher {
+// NewDispatcherV2 creates a dispatcher directly from v2 rules, skipping
+// the WrapAllAsV2 roundtrip. This is the preferred constructor now that
+// all rules are native v2.
+func NewDispatcherV2(activeRules []*v2.Rule, resolver ...typeinfer.TypeResolver) *Dispatcher {
 	var res typeinfer.TypeResolver
 	if len(resolver) > 0 && resolver[0] != nil {
 		res = resolver[0]
 	}
-
-	// Set the resolver on any rule that declares a SetResolver method.
 	if res != nil {
 		for _, r := range activeRules {
-			if ta, ok := r.(interface {
-				SetResolver(resolver typeinfer.TypeResolver)
-			}); ok {
-				ta.SetResolver(res)
+			if r != nil && r.Needs.Has(v2.NeedsResolver) && r.SetResolverHook != nil {
+				r.SetResolverHook(res)
 			}
 		}
 	}
-
-	v2rules := WrapAllAsV2(activeRules)
 	var d *V2Dispatcher
 	if res != nil {
-		d = NewV2Dispatcher(v2rules, res)
+		d = NewV2Dispatcher(activeRules, res)
 	} else {
-		d = NewV2Dispatcher(v2rules)
+		d = NewV2Dispatcher(activeRules)
 	}
-
-	return &Dispatcher{
-		v2:           d,
-		typeResolver: res,
-		activeRules:  activeRules,
-	}
+	return &Dispatcher{v2: d, typeResolver: res}
 }
 
 // Run executes all rules on a file using single-pass dispatch.
 // Delegates to the v2 engine.
-func (d *Dispatcher) Run(file *scanner.File) []scanner.Finding {
+func (d *Dispatcher) Run(file *scanner.File) scanner.FindingColumns {
 	return d.v2.Run(file)
 }
 
 // RunWithStats executes all rules on a file and returns findings plus timing.
 // Delegates to the v2 engine.
-func (d *Dispatcher) RunWithStats(file *scanner.File) ([]scanner.Finding, RunStats) {
+func (d *Dispatcher) RunWithStats(file *scanner.File) (scanner.FindingColumns, RunStats) {
 	return d.v2.RunWithStats(file)
 }
 
 // RunColumnsWithStats executes all rules on a file using single-pass dispatch
 // and returns filtered findings in columnar form plus execution stats.
 func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingColumns, RunStats) {
-	findings, stats := d.v2.RunWithStats(file)
-	return scanner.CollectFindings(findings), stats
+	return d.v2.RunColumnsWithStats(file)
 }
 
 // Stats returns counts for logging.
@@ -110,54 +96,21 @@ func (d *Dispatcher) Stats() (dispatched, aggregate, lineRules, crossFile, modul
 
 // RunGradle runs all registered Gradle rules against a single parsed
 // Gradle build script. See V2Dispatcher.RunGradle.
-func (d *Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) []scanner.Finding {
+func (d *Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) scanner.FindingColumns {
 	return d.v2.RunGradle(file, cfg)
 }
 
 // RunManifest runs all registered manifest rules against a parsed
 // AndroidManifest.xml. manifest must be a *Manifest; typed as interface{}
 // to avoid import cycles in the v2 dispatcher.
-func (d *Dispatcher) RunManifest(file *scanner.File, manifest *Manifest) []scanner.Finding {
+func (d *Dispatcher) RunManifest(file *scanner.File, manifest *Manifest) scanner.FindingColumns {
 	return d.v2.RunManifest(file, manifest)
 }
 
 // RunResource runs all registered resource rules against a merged
 // ResourceIndex for a res/ directory.
-func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) []scanner.Finding {
+func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) scanner.FindingColumns {
 	return d.v2.RunResource(file, idx)
 }
 
-// setDefaultConfidence sets the Confidence field on findings that don't already have one.
-func setDefaultConfidence(findings []scanner.Finding, confidence float64) {
-	for i := range findings {
-		if findings[i].Confidence == 0 {
-			findings[i].Confidence = confidence
-		}
-	}
-}
 
-// setRuleConfidence applies a rule's declared base confidence to any
-// findings that have not set their own, falling back to the rule-type
-// default when the rule does not declare a Confidence() float64 method.
-func setRuleConfidence(findings []scanner.Finding, r Rule, fallback float64) {
-	ApplyRuleConfidence(findings, r, fallback)
-}
-
-// ApplyRuleConfidence is the exported version of setRuleConfidence
-// used by call sites outside the dispatcher (cmd/krit for cross-file
-// and module-aware rule execution). Per-finding overrides still win
-// — the rule's base confidence is only applied to findings whose
-// Confidence field is zero.
-//
-// fallback should be the same per-family default the dispatcher
-// uses: 0.95 for cross-file/module-aware rules (AST-level accuracy
-// when the index is correct), or the appropriate default for the
-// rule family. Rules that want to advertise a lower confidence
-// declare a Confidence() float64 method.
-func ApplyRuleConfidence(findings []scanner.Finding, r Rule, fallback float64) {
-	confidence := ConfidenceOf(r)
-	if confidence == 0 {
-		confidence = fallback
-	}
-	setDefaultConfidence(findings, confidence)
-}

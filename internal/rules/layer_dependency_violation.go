@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/kaeawc/krit/internal/arch"
-	"github.com/kaeawc/krit/internal/module"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -15,10 +15,7 @@ import (
 type LayerDependencyViolationRule struct {
 	BaseRule
 	LayerConfig *arch.LayerConfig
-	pmi         *module.PerModuleIndex
 }
-
-func (r *LayerDependencyViolationRule) Check(_ *scanner.File) []scanner.Finding { return nil }
 
 // Confidence is 0.95 — given a well-defined layer matrix, the check is
 // a deterministic graph walk. False positives only occur from misconfigured
@@ -29,27 +26,19 @@ func (r *LayerDependencyViolationRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	return ModuleAwareNeeds{NeedsDependencies: true}
 }
 
-func (r *LayerDependencyViolationRule) SetModuleIndex(pmi *module.PerModuleIndex) {
-	r.pmi = pmi
-}
-
-func (r *LayerDependencyViolationRule) CheckModuleAware() []scanner.Finding {
-	if r.pmi == nil || r.pmi.Graph == nil || r.LayerConfig == nil {
-		return nil
+func (r *LayerDependencyViolationRule) check(ctx *v2.Context) {
+	pmi := ctx.ModuleIndex
+	if pmi == nil || pmi.Graph == nil || r.LayerConfig == nil {
+		return
 	}
 
-	violations := arch.ValidateLayers(r.LayerConfig, r.pmi.Graph)
-	if len(violations) == 0 {
-		return nil
-	}
-
-	var findings []scanner.Finding
+	violations := arch.ValidateLayers(r.LayerConfig, pmi.Graph)
 	for _, v := range violations {
-		mod, ok := r.pmi.Graph.Modules[v.SourceModule]
+		mod, ok := pmi.Graph.Modules[v.SourceModule]
 		if !ok {
 			continue
 		}
-		findings = append(findings, scanner.Finding{
+		ctx.Emit(scanner.Finding{
 			File:     filepath.Join(mod.Dir, "build.gradle.kts"),
 			Line:     1,
 			Col:      1,
@@ -60,5 +49,4 @@ func (r *LayerDependencyViolationRule) CheckModuleAware() []scanner.Finding {
 				v.SourceModule, v.SourceLayer, v.TargetModule, v.TargetLayer, v.SourceLayer, v.TargetLayer),
 		})
 	}
-	return findings
 }

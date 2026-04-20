@@ -1,12 +1,10 @@
 package rules
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 	"sync"
 
-	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -23,29 +21,7 @@ type WildcardImportRule struct {
 // entries. Classified per roadmap/17.
 func (r *WildcardImportRule) Confidence() float64 { return 0.75 }
 
-func (r *WildcardImportRule) NodeTypes() []string { return []string{"import_header"} }
 
-func (r *WildcardImportRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Skip test files and test-fixture Kotlin sources. Fixtures routinely
-	// use wildcard imports of an API surface being tested (e.g. KSP's
-	// integration-tests copy Kotlin files that `import foo.bar.*`).
-	if isTestFile(file.Path) {
-		return nil
-	}
-	text := file.FlatNodeText(idx)
-	if strings.Contains(text, ".*") {
-		imp := strings.TrimPrefix(strings.TrimSpace(text), "import ")
-		// Skip imports matching exclude list
-		for _, excl := range r.ExcludeImports {
-			if strings.Contains(imp, excl) {
-				return nil
-			}
-		}
-		return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Wildcard import '%s' should be replaced with explicit imports.", imp))}
-	}
-	return nil
-}
 
 // ForbiddenCommentRule detects TODO:, FIXME:, STOPSHIP: markers.
 type ForbiddenCommentRule struct {
@@ -63,28 +39,7 @@ var defaultForbiddenCommentMarkers = []string{"TODO:", "FIXME:", "STOPSHIP:"}
 // entries. Classified per roadmap/17.
 func (r *ForbiddenCommentRule) Confidence() float64 { return 0.75 }
 
-func (r *ForbiddenCommentRule) NodeTypes() []string {
-	return []string{"line_comment", "multiline_comment"}
-}
 
-func (r *ForbiddenCommentRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	markers := r.Comments
-	if len(markers) == 0 {
-		markers = defaultForbiddenCommentMarkers
-	}
-	for _, marker := range markers {
-		if strings.Contains(text, marker) {
-			// If the comment matches the allowed pattern, skip it
-			if r.AllowedPatterns != nil && r.AllowedPatterns.MatchString(text) {
-				continue
-			}
-			return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-				fmt.Sprintf("Forbidden comment marker '%s' found.", marker))}
-		}
-	}
-	return nil
-}
 
 // ForbiddenVoidRule detects Void type usage.
 type ForbiddenVoidRule struct {
@@ -100,7 +55,6 @@ type ForbiddenVoidRule struct {
 // entries. Classified per roadmap/17.
 func (r *ForbiddenVoidRule) Confidence() float64 { return 0.75 }
 
-func (r *ForbiddenVoidRule) NodeTypes() []string { return []string{"user_type"} }
 
 // javaInteropGenericTypes are Java generic types where Void is the canonical
 // way to say "no result" and Unit is not substitutable.
@@ -120,56 +74,6 @@ var javaInteropGenericTypes = map[string]bool{
 	"Completable":       true,
 }
 
-func (r *ForbiddenVoidRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if text != "Void" {
-		return nil
-	}
-	// Skip when used as a type argument to a Java-interop generic type.
-	// Walk up the AST: user_type -> type_arguments -> user_type (the outer generic)
-	inFunctionParam := false
-	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-		if file.FlatType(p) == "type_arguments" {
-			if outer, ok := file.FlatParent(p); ok {
-				outerText := file.FlatNodeText(outer)
-				// Extract the outer type name (up to the first '<')
-				if idx := strings.Index(outerText, "<"); idx >= 0 {
-					outerName := strings.TrimSpace(outerText[:idx])
-					if dotIdx := strings.LastIndex(outerName, "."); dotIdx >= 0 {
-						outerName = outerName[dotIdx+1:]
-					}
-					if javaInteropGenericTypes[outerName] {
-						return nil
-					}
-				}
-			}
-		}
-		// Detect function parameters — if Void is used as a parameter type in
-		// an override function (override fun doInBackground(vararg params: Void?)),
-		// it's required by the Java generic contract.
-		if file.FlatType(p) == "parameter" || file.FlatType(p) == "value_parameter" || file.FlatType(p) == "function_value_parameter" {
-			inFunctionParam = true
-		}
-		if file.FlatType(p) == "function_declaration" {
-			if inFunctionParam && file.FlatHasModifier(p, "override") {
-				return nil
-			}
-			break
-		}
-		if file.FlatType(p) == "class_declaration" {
-			break
-		}
-	}
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Use 'Unit' instead of 'Void' in Kotlin.")
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(idx)),
-		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: "Unit",
-	}
-	return []scanner.Finding{f}
-}
 
 // ForbiddenImportRule detects banned import patterns.
 type ForbiddenImportRule struct {
@@ -191,51 +95,7 @@ var defaultForbiddenImports = []string{
 // entries. Classified per roadmap/17.
 func (r *ForbiddenImportRule) Confidence() float64 { return 0.75 }
 
-func (r *ForbiddenImportRule) NodeTypes() []string { return []string{"import_header"} }
 
-func (r *ForbiddenImportRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	imp := strings.TrimPrefix(strings.TrimSpace(text), "import ")
-	// Merge Patterns and ForbiddenImports
-	patterns := r.Patterns
-	if len(r.ForbiddenImports) > 0 {
-		patterns = r.ForbiddenImports
-	}
-	for _, p := range patterns {
-		if strings.Contains(imp, p) {
-			// Check allowed imports
-			allowed := false
-			for _, a := range r.AllowedImports {
-				if strings.Contains(imp, a) {
-					allowed = true
-					break
-				}
-			}
-			if allowed {
-				continue
-			}
-			f := r.Finding(file, file.FlatRow(idx)+1, 1,
-				fmt.Sprintf("Forbidden import '%s'.", strings.TrimSpace(imp)))
-			// Compute byte range to remove import line including trailing newline
-			impEnd := int(file.FlatEndByte(idx))
-			if impEnd < len(file.Content) && file.Content[impEnd] == '\n' {
-				impEnd++
-			}
-			impStart := int(file.FlatStartByte(idx))
-			for impStart > 0 && file.Content[impStart-1] != '\n' {
-				impStart--
-			}
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   impStart,
-				EndByte:     impEnd,
-				Replacement: "",
-			}
-			return []scanner.Finding{f}
-		}
-	}
-	return nil
-}
 
 // ForbiddenEntry pairs a forbidden value with an optional reason.
 type ForbiddenEntry struct {
@@ -258,40 +118,7 @@ var defaultForbiddenMethods = []string{"print(", "println("}
 // entries. Classified per roadmap/17.
 func (r *ForbiddenMethodCallRule) Confidence() float64 { return 0.75 }
 
-func (r *ForbiddenMethodCallRule) NodeTypes() []string { return []string{"call_expression"} }
 
-func (r *ForbiddenMethodCallRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	funcName := flatCallExpressionName(file, idx)
-	if funcName == "" {
-		return nil
-	}
-	for _, m := range r.Methods {
-		// m is e.g. "print(" or "println(" — compare against funcName
-		methodName := strings.TrimSuffix(m, "(")
-		if funcName == methodName {
-			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				fmt.Sprintf("Forbidden method call '%s'.", methodName))
-			// Auto-fix: remove the call statement using AST node byte offsets
-			startByte := int(file.FlatStartByte(idx))
-			endByte := int(file.FlatEndByte(idx))
-			// Expand to cover the full line (leading whitespace + trailing newline)
-			for startByte > 0 && file.Content[startByte-1] != '\n' {
-				startByte--
-			}
-			if endByte < len(file.Content) && file.Content[endByte] == '\n' {
-				endByte++
-			}
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   startByte,
-				EndByte:     endByte,
-				Replacement: "",
-			}
-			return []scanner.Finding{f}
-		}
-	}
-	return nil
-}
 
 // ForbiddenAnnotationRule detects annotations that should not be used.
 type ForbiddenAnnotationRule struct {
@@ -308,34 +135,7 @@ var defaultForbiddenAnnotations = []string{"SuppressWarnings"}
 // entries. Classified per roadmap/17.
 func (r *ForbiddenAnnotationRule) Confidence() float64 { return 0.75 }
 
-func (r *ForbiddenAnnotationRule) NodeTypes() []string { return []string{"annotation"} }
 
-func (r *ForbiddenAnnotationRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	for _, ann := range r.Annotations {
-		if strings.Contains(text, ann) {
-			f := r.Finding(file, file.FlatRow(idx)+1, 1,
-				fmt.Sprintf("Forbidden annotation '%s'.", ann))
-			// Compute byte range to remove annotation line including trailing newline
-			annStart := int(file.FlatStartByte(idx))
-			for annStart > 0 && file.Content[annStart-1] != '\n' {
-				annStart--
-			}
-			annEnd := int(file.FlatEndByte(idx))
-			if annEnd < len(file.Content) && file.Content[annEnd] == '\n' {
-				annEnd++
-			}
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   annStart,
-				EndByte:     annEnd,
-				Replacement: "",
-			}
-			return []scanner.Finding{f}
-		}
-	}
-	return nil
-}
 
 // ForbiddenNamedParamRule detects named parameters in certain function calls.
 type ForbiddenNamedParamRule struct {
@@ -350,27 +150,7 @@ type ForbiddenNamedParamRule struct {
 // entries. Classified per roadmap/17.
 func (r *ForbiddenNamedParamRule) Confidence() float64 { return 0.75 }
 
-func (r *ForbiddenNamedParamRule) NodeTypes() []string { return []string{"call_expression"} }
 
-func (r *ForbiddenNamedParamRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	funcName := flatCallExpressionName(file, idx)
-	for _, method := range r.Methods {
-		if funcName == method {
-			_, args := flatCallExpressionParts(file, idx)
-			if args == 0 {
-				return nil
-			}
-			for i := 0; i < file.FlatChildCount(args); i++ {
-				arg := file.FlatChild(args, i)
-				if file.FlatType(arg) == "value_argument" && flatHasValueArgumentLabel(file, arg) {
-					return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-						fmt.Sprintf("Named arguments should not be used in '%s' calls.", method))}
-				}
-			}
-		}
-	}
-	return nil
-}
 
 // ForbiddenOptInRule detects @OptIn annotations.
 type ForbiddenOptInRule struct {
@@ -385,45 +165,7 @@ type ForbiddenOptInRule struct {
 // entries. Classified per roadmap/17.
 func (r *ForbiddenOptInRule) Confidence() float64 { return 0.75 }
 
-func (r *ForbiddenOptInRule) NodeTypes() []string { return []string{"annotation"} }
 
-func (r *ForbiddenOptInRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if strings.Contains(text, "OptIn") {
-		// If marker classes are specified, only flag those
-		if len(r.MarkerClasses) > 0 {
-			found := false
-			for _, mc := range r.MarkerClasses {
-				if strings.Contains(text, mc) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return nil
-			}
-		}
-		f := r.Finding(file, file.FlatRow(idx)+1, 1,
-			"@OptIn annotation found. Consider removing or handling the experimental API differently.")
-		// Compute byte range to remove annotation line including trailing newline
-		optInStart := int(file.FlatStartByte(idx))
-		for optInStart > 0 && file.Content[optInStart-1] != '\n' {
-			optInStart--
-		}
-		optInEnd := int(file.FlatEndByte(idx))
-		if optInEnd < len(file.Content) && file.Content[optInEnd] == '\n' {
-			optInEnd++
-		}
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   optInStart,
-			EndByte:     optInEnd,
-			Replacement: "",
-		}
-		return []scanner.Finding{f}
-	}
-	return nil
-}
 
 // ForbiddenSuppressRule detects @Suppress annotations.
 type ForbiddenSuppressRule struct {
@@ -438,45 +180,7 @@ type ForbiddenSuppressRule struct {
 // entries. Classified per roadmap/17.
 func (r *ForbiddenSuppressRule) Confidence() float64 { return 0.75 }
 
-func (r *ForbiddenSuppressRule) NodeTypes() []string { return []string{"annotation"} }
 
-func (r *ForbiddenSuppressRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	text := file.FlatNodeText(idx)
-	if strings.Contains(text, "Suppress") {
-		// If specific rules are configured, only flag those
-		if len(r.Rules) > 0 {
-			found := false
-			for _, rule := range r.Rules {
-				if strings.Contains(text, rule) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return nil
-			}
-		}
-		f := r.Finding(file, file.FlatRow(idx)+1, 1,
-			"@Suppress annotation found. Consider fixing the underlying issue.")
-		// Compute byte range to remove annotation line including trailing newline
-		suppressStart := int(file.FlatStartByte(idx))
-		for suppressStart > 0 && file.Content[suppressStart-1] != '\n' {
-			suppressStart--
-		}
-		suppressEnd := int(file.FlatEndByte(idx))
-		if suppressEnd < len(file.Content) && file.Content[suppressEnd] == '\n' {
-			suppressEnd++
-		}
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   suppressStart,
-			EndByte:     suppressEnd,
-			Replacement: "",
-		}
-		return []scanner.Finding{f}
-	}
-	return nil
-}
 
 // MagicNumberRule detects literal numbers in code.
 type MagicNumberRule struct {
@@ -521,9 +225,6 @@ func (r *MagicNumberRule) ignoredNumberSet() map[string]bool {
 	return r.ignoredNumbersMap
 }
 
-func (r *MagicNumberRule) NodeTypes() []string {
-	return []string{"integer_literal", "real_literal", "long_literal", "hex_literal"}
-}
 
 // Confidence reports a tier-2 (medium) base confidence. MagicNumber is
 // structurally accurate but highly context-dependent: whether a
@@ -543,345 +244,6 @@ var magicNumberLiteralTypes = map[string]bool{
 	"hex_literal":     true,
 }
 
-func (r *MagicNumberRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Skip database migration files — they contain frozen-in-time constants
-	// that reflect historical DB schema values and should not be extracted.
-	if strings.Contains(file.Path, "/database/helpers/migration/") ||
-		strings.Contains(file.Path, "\\database\\helpers\\migration\\") {
-		return nil
-	}
-	// Skip test source sets (including benchmark/canary macrobenchmark variants).
-	// Test-data sizing, timeouts, and iteration counts are legitimate literals.
-	if isTestFile(file.Path) {
-		return nil
-	}
-	// Skip Android debug/dev source sets. Debug-only scaffolding (dropdown
-	// defaults, mock-data sizes, dev-menu thresholds) is throwaway tooling,
-	// not production constants to extract.
-	if strings.Contains(file.Path, "/src/debug/") ||
-		strings.Contains(file.Path, "/src/dev/") ||
-		strings.Contains(file.Path, "/src/internal/") {
-		return nil
-	}
-	// Skip if parent is also a literal type we dispatch on — avoids double-counting
-	// e.g. 200L produces long_literal containing integer_literal at the same position.
-	if p, ok := file.FlatParent(idx); ok && magicNumberLiteralTypes[file.FlatType(p)] {
-		return nil
-	}
-
-	text := file.FlatNodeText(idx)
-	// Numeric literals written with underscore separators
-	// (e.g., 25_000L, 1_000_000) have explicit author-intended grouping;
-	// these aren't magic numbers, the author already made the value legible.
-	if strings.Contains(text, "_") {
-		return nil
-	}
-	// Strip suffixes for comparison against ignore list
-	clean := strings.TrimRight(text, "fFdDlLuU")
-	clean = strings.ReplaceAll(clean, "_", "")
-	if r.ignoredNumberSet()[clean] {
-		return nil
-	}
-
-	var ancestorCtx *magicNumberAncestorContext
-	if experiment.Enabled("magic-number-ancestor-scan") {
-		ancestorCtx = buildMagicNumberAncestorContext(file, idx)
-	}
-
-	// --- Unconditional skips (detekt behaviour) ---
-
-	// Skip numbers that are the expression-body of a function: fun maxSize() = 100
-	// In tree-sitter, this is integer_literal inside function_body which starts with "="
-	if p, ok := file.FlatParent(idx); ok && file.FlatType(p) == "function_body" {
-		bodyText := file.FlatNodeText(p)
-		if strings.HasPrefix(strings.TrimSpace(bodyText), "=") {
-			return nil
-		}
-	}
-
-	// Skip: fun foo(): Int { return 42 } — number inside a jump_expression (return)
-	if p, ok := file.FlatParent(idx); ok && file.FlatType(p) == "jump_expression" {
-		pText := file.FlatNodeText(p)
-		if strings.HasPrefix(strings.TrimSpace(pText), "return") {
-			return nil
-		}
-	}
-
-	// Skip default parameter values in functions: fun foo(x: Int = 5000)
-	// Tree-sitter puts the literal as a sibling of `parameter` inside `function_value_parameters`.
-	if file.FlatHasAncestorOfType(idx, "function_value_parameters") {
-		return nil
-	}
-	// Skip default parameter values in constructors: class Foo(val x: Int = 42)
-	if file.FlatHasAncestorOfType(idx, "class_parameter") {
-		return nil
-	}
-
-	// Skip literals inside enum entry constructor arguments:
-	// `enum class Foo(val id: Int) { A(1), B(2) }` — the literals are the
-	// enum constant definitions, equivalent to named constants.
-	if file.FlatHasAncestorOfType(idx, "enum_entry") {
-		return nil
-	}
-	// Skip literals that are the direct value of a when branch mapping an
-	// enum/constant to discrete numeric values — this is a lookup-table
-	// idiom, not a magic number. Example: `SIZE.LARGE -> 0.8f`.
-	if isWhenBranchValue(file, idx) {
-		return nil
-	}
-	// Skip literals inside array/list index access: `parts[1]`, `bytes[3]`.
-	// These are positional indices, not magic numbers.
-	if p, ok := file.FlatParent(idx); ok && file.FlatType(p) == "indexing_suffix" {
-		return nil
-	}
-	// Skip literals that are the RHS of a `.size` / `.length` / `.count`
-	// equality/comparison. These are intrinsic collection-cardinality
-	// checks (e.g. `parts.size == 7`, `daysEnabled.size == 7`), not
-	// extractable constants.
-	if isSizeCardinalityComparison(file, idx) {
-		return nil
-	}
-	// Skip regex-group accessor arguments: `matcher.group(3)`,
-	// `match.groupValues[1]`, etc. Regex capture indices are intrinsic
-	// to the pattern.
-	if experiment.Enabled("magic-number-skip-regex-group-indices") &&
-		isInsideRegexGroupAccessor(file, idx) {
-		return nil
-	}
-	// Skip SDK_INT comparisons: `Build.VERSION.SDK_INT < 24`, etc.
-	// API-level literals are semantic constants.
-	if isNearSdkIntComparison(file, idx) {
-		return nil
-	}
-	// Skip literals inside SDK-version annotations: @RequiresApi(26),
-	// @TargetApi(31), @ChecksSdkIntAtLeast(N), @RequiresExtension(N).
-	if isInsideSdkAnnotation(file, idx) {
-		return nil
-	}
-	// Skip literals that are the RHS of an ALL_CAPS named constant
-	// declaration (e.g., `private val MAX_SIZE = 1024`). Flagging these
-	// defeats the "extract to named constant" guidance.
-	if isInsideAllCapsConstantDecl(file, idx) {
-		return nil
-	}
-	// Skip literals inside database migration methods (`onUpgrade`,
-	// `onDowngrade`, `onCreate`) where version comparisons reference
-	// historical schema versions.
-	if isInsideDbMigrationMethod(file, idx) {
-		return nil
-	}
-	// Skip literals inside crypto/KDF calls — output lengths, key sizes
-	// are dictated by the algorithm, not arbitrary.
-	if magicNumberInsideNamedMethodCall(file, idx, cryptoMethods, ancestorCtx) {
-		return nil
-	}
-	// Skip hex literals (0x...) — hex notation is already self-documenting
-	// as a color/mask/byte pattern.
-	if strings.HasPrefix(text, "0x") || strings.HasPrefix(text, "0X") {
-		return nil
-	}
-	// Skip Bitmap/collection/cache builder constructors.
-	if magicNumberInsideNamedMethodCall(file, idx, bitmapBuilderMethods, ancestorCtx) {
-		return nil
-	}
-	// Skip HTTP status comparisons: `x.status == 200`, `code >= 500`.
-	if isHttpStatusComparison(file, idx) {
-		return nil
-	}
-	// Skip literals inside Compose `Color(...)` calls — component values
-	// 0f-1f are semantic color channels, not magic numbers.
-	if magicNumberInsideComposeCall(file, idx, "Color", ancestorCtx) {
-		return nil
-	}
-	// Skip literals inside Compose/Canvas/Path/animator DSL methods where
-	// raw coordinates are inherent to the API.
-	if magicNumberInsideGeometryDslCall(file, idx, ancestorCtx) {
-		return nil
-	}
-	// Skip literals inside coordinate/size constructors like `PointF(x, y)`
-	// or setters like `point.set(x, y)`.
-	if magicNumberInsideNamedMethodCall(file, idx, coordinateConstructors, ancestorCtx) {
-		return nil
-	}
-	// Skip literals inside dimension/animation DSL calls.
-	if magicNumberInsideNamedMethodCall(file, idx, dimensionConversionMethods, ancestorCtx) ||
-		magicNumberInsideNamedMethodCall(file, idx, animationMethods, ancestorCtx) {
-		return nil
-	}
-	// Skip literals inside range expressions / IntRange constants
-	// (e.g., `0x0000..0x024F` Unicode ranges).
-	if file.FlatHasAncestorOfType(idx, "range_expression") {
-		return nil
-	}
-	// Skip literals that are part of a `to` infix expression used in a
-	// collection builder (mapOf lookup tables, version maps).
-	if isInsideToInfixMap(file, idx) {
-		return nil
-	}
-	// Skip literals inside preview/sample/fake/mock/stub functions — these
-	// are scaffolding for UI tooling, not production constants.
-	if isInsidePreviewOrSampleFunctionFlat(file, idx) {
-		return nil
-	}
-	// Skip literals that are the duration argument of a call whose sibling
-	// is a `TimeUnit.X` reference (e.g., `Single.timer(200, TimeUnit.MILLISECONDS)`).
-	if magicNumberDurationLiteralWithTimeUnit(file, idx, ancestorCtx) {
-		return nil
-	}
-	// Skip literals that are arguments to java.math / java.time builder
-	// calls where the literal is documentational (BigDecimal.valueOf(3),
-	// Instant.ofEpochMilli(0), Duration.ofSeconds(30), etc.).
-	if magicNumberInsideNamedMethodCall(file, idx, jvmBuilderMethods, ancestorCtx) {
-		return nil
-	}
-	// Skip literals inside primitive-array builders `byteArrayOf(1, 2, 3)` —
-	// these are data payloads (test fixtures, magic bytes, handshake
-	// sequences), never meaningful constants to extract.
-	if magicNumberInsideNamedMethodCall(file, idx, primitiveArrayBuilders, ancestorCtx) {
-		return nil
-	}
-	// Skip HTTP status code literals inside exception constructor calls
-	// (e.g., `NonSuccessfulResponseCodeException(404)`). The exception
-	// type name together with the known HTTP status range is
-	// self-documenting.
-	if isHttpStatusExceptionArg(file, idx) {
-		return nil
-	}
-	// Skip literals that are the RHS of an assignment to a semantic UI /
-	// animation / layout property — the property name itself documents
-	// the value (`duration = 250`, `textSize = 14f`, `elevation = 4f`).
-	if isSemanticPropertyAssignment(file, idx) {
-		return nil
-	}
-
-	// --- Configurable skips ---
-
-	// Skip numbers inside functions with ignored annotations
-	if len(r.IgnoreAnnotated) > 0 {
-		for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-			if file.FlatType(p) == "function_declaration" {
-				fnText := file.FlatNodeText(p)
-				if HasIgnoredAnnotation(fnText, r.IgnoreAnnotated) {
-					return nil
-				}
-				break
-			}
-		}
-	}
-
-	line := file.Lines[file.FlatRow(idx)]
-	trimmed := strings.TrimSpace(line)
-
-	// Skip const declarations
-	if r.IgnoreConstantDeclaration && strings.Contains(trimmed, "const val") {
-		return nil
-	}
-
-	// Skip companion object properties (respects config flag)
-	if r.IgnoreCompanionObjectPropertyDeclaration && file.FlatHasAncestorOfType(idx, "companion_object") {
-		return nil
-	}
-
-	// Skip numbers inside hashCode functions
-	if r.IgnoreHashCodeFunction {
-		for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-			if file.FlatType(p) == "function_declaration" {
-				if extractIdentifierFlat(file, p) == "hashCode" {
-					return nil
-				}
-				break
-			}
-		}
-	}
-
-	// Skip numbers inside annotation arguments
-	if r.IgnoreAnnotation && file.FlatHasAncestorOfType(idx, "annotation") {
-		return nil
-	}
-
-	// Skip named arguments: foo(bar = 42)
-	if r.IgnoreNamedArgument && file.FlatHasAncestorOfType(idx, "value_argument") {
-		for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-			if file.FlatType(p) == "value_argument" {
-				argText := file.FlatNodeText(p)
-				if strings.Contains(argText, "=") {
-					return nil
-				}
-				break
-			}
-		}
-	}
-
-	// Skip numbers inside enum entries
-	if r.IgnoreEnums && file.FlatHasAncestorOfType(idx, "enum_entry") {
-		return nil
-	}
-
-	// Skip numbers in range expressions (.. operator)
-	if r.IgnoreRanges {
-		if file.FlatHasAncestorOfType(idx, "range_expression") {
-			return nil
-		}
-		// Also check for infix range functions: downTo, until, step
-		if r.isPartOfInfixRange(file, idx) {
-			return nil
-		}
-	}
-
-	// Skip property declarations (val x = 42) — non-local only
-	if r.IgnorePropertyDeclaration {
-		if file.FlatHasAncestorOfType(idx, "property_declaration") &&
-			!r.isLocalProperty(file, idx) {
-			return nil
-		}
-	}
-
-	// Skip local variable declarations (val x = 42 inside a function body)
-	if r.IgnoreLocalVariableDeclaration {
-		if file.FlatHasAncestorOfType(idx, "property_declaration") &&
-			r.isLocalProperty(file, idx) {
-			return nil
-		}
-	}
-
-	// Skip extension function receivers: 100.toLong(), 24.hours, etc.
-	if r.IgnoreExtensionFunctions {
-		if p, ok := file.FlatParent(idx); ok && file.FlatType(p) == "navigation_expression" {
-			return nil
-		}
-		// Also check for call_expression with dot: 100.toString()
-		if p, ok := file.FlatParent(idx); ok && file.FlatType(p) == "call_expression" {
-			return nil
-		}
-	}
-
-	// Skip color literals: hex numbers inside Color() calls or in color-named properties
-	if r.IgnoreColorLiterals && strings.HasPrefix(text, "0x") {
-		if strings.Contains(line, "Color(") {
-			return nil
-		}
-		lowerLine := strings.ToLower(trimmed)
-		if strings.Contains(lowerLine, "color") || strings.Contains(lowerLine, "background") ||
-			strings.Contains(lowerLine, "tint") || strings.Contains(lowerLine, "palette") {
-			return nil
-		}
-	}
-
-	// Skip Compose dimension units: N.dp, N.sp, N.px, N.em
-	if r.IgnoreComposeUnits {
-		endByte := int(file.FlatEndByte(idx))
-		if endByte+3 <= len(file.Content) {
-			after := string(file.Content[endByte:min(endByte+4, len(file.Content))])
-			if strings.HasPrefix(after, ".dp") || strings.HasPrefix(after, ".sp") ||
-				strings.HasPrefix(after, ".px") || strings.HasPrefix(after, ".em") {
-				return nil
-			}
-		}
-	}
-
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		fmt.Sprintf("Magic number '%s'. Consider extracting it to a named constant.", text))}
-}
 
 type magicNumberAncestorContext struct {
 	nearestCallName  string

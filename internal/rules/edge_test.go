@@ -8,6 +8,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 	sitter "github.com/smacker/go-tree-sitter"
@@ -31,10 +32,11 @@ func parseInline(t *testing.T, code string) *scanner.File {
 func runRuleByName(t *testing.T, ruleName string, code string) []scanner.Finding {
 	t.Helper()
 	file := parseInline(t, code)
-	for _, r := range rules.Registry {
-		if r.Name() == ruleName {
-			d := rules.NewDispatcher([]rules.Rule{r})
-			return d.Run(file)
+	for _, r := range v2rules.Registry {
+		if r.ID == ruleName {
+			d := rules.NewDispatcherV2([]*v2rules.Rule{r})
+			cols := d.Run(file)
+			return cols.Findings()
 		}
 	}
 	t.Fatalf("rule %q not found in registry", ruleName)
@@ -421,14 +423,15 @@ class Foo {
         val y: String? = null
     }
 }`)
-	var allRules []rules.Rule
-	for _, r := range rules.Registry {
-		if rules.IsDefaultActive(r.Name()) {
+	var allRules []*v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if rules.IsDefaultActive(r.ID) {
 			allRules = append(allRules, r)
 		}
 	}
-	d := rules.NewDispatcher(allRules)
-	findings := d.Run(file)
+	d := rules.NewDispatcherV2(allRules)
+	findingCols := d.Run(file)
+	findings := findingCols.Findings()
 
 	for _, f := range findings {
 		if f.Line >= 3 { // inside the @Suppress("all") class
@@ -603,10 +606,11 @@ func parseInlineWithName(t *testing.T, filename string, code string) *scanner.Fi
 func runMatchingDeclarationName(t *testing.T, filename string, code string) []scanner.Finding {
 	t.Helper()
 	file := parseInlineWithName(t, filename, code)
-	for _, r := range rules.Registry {
-		if r.Name() == "MatchingDeclarationName" {
-			d := rules.NewDispatcher([]rules.Rule{r})
-			return d.Run(file)
+	for _, r := range v2rules.Registry {
+		if r.ID == "MatchingDeclarationName" {
+			d := rules.NewDispatcherV2([]*v2rules.Rule{r})
+			cols := d.Run(file)
+			return cols.Findings()
 		}
 	}
 	t.Fatal("MatchingDeclarationName rule not found in registry")
@@ -880,9 +884,9 @@ func runRuleWithOracle(t *testing.T, code string, filePath string, diags []oracl
 	}
 	composite := oracle.NewCompositeResolver(fake, &stubResolver{})
 
-	var rule rules.Rule
-	for _, r := range rules.Registry {
-		if r.Name() == "UnreachableCode" {
+	var rule *v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if r.ID == "UnreachableCode" {
 			rule = r
 			break
 		}
@@ -891,8 +895,9 @@ func runRuleWithOracle(t *testing.T, code string, filePath string, diags []oracl
 		t.Fatal("UnreachableCode rule not found")
 	}
 
-	d := rules.NewDispatcher([]rules.Rule{rule}, composite)
-	return d.Run(f)
+	d := rules.NewDispatcherV2([]*v2rules.Rule{rule}, composite)
+	cols := d.Run(f)
+	return cols.Findings()
 }
 
 func TestUnreachableCode_OracleDiagnostic_UNREACHABLE_CODE(t *testing.T) {

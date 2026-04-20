@@ -4,13 +4,14 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 func TestAndroidDependencyMetadata(t *testing.T) {
 	check := func(name string, want rules.AndroidDataDependency) {
 		t.Helper()
 		rule := findRegisteredRule(t, name)
-		if got := rules.AndroidDependenciesOf(rule); got != want {
+		if got := rules.AndroidDataDependency(rule.AndroidDeps); got != want {
 			t.Fatalf("rule %q dependencies = %v, want %v", name, got, want)
 		}
 	}
@@ -29,10 +30,10 @@ func TestAndroidDependencyMetadata(t *testing.T) {
 	check("UseValueOf", rules.AndroidDepNone)
 }
 
-func findRegisteredRule(t *testing.T, name string) rules.Rule {
+func findRegisteredRule(t *testing.T, name string) *v2rules.Rule {
 	t.Helper()
-	for _, r := range rules.Registry {
-		if r.Name() == name {
+	for _, r := range v2rules.Registry {
+		if r.ID == name {
 			return r
 		}
 	}

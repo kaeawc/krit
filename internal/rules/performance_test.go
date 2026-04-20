@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -14,10 +15,11 @@ import (
 func runPerformanceRuleWithResolver(t *testing.T, ruleName string, code string, resolver typeinfer.TypeResolver) []scanner.Finding {
 	t.Helper()
 	file := parseInline(t, code)
-	for _, r := range rules.Registry {
-		if r.Name() == ruleName {
-			dispatcher := rules.NewDispatcher([]rules.Rule{r}, resolver)
-			return dispatcher.Run(file)
+	for _, r := range v2rules.Registry {
+		if r.ID == ruleName {
+			dispatcher := rules.NewDispatcherV2([]*v2rules.Rule{r}, resolver)
+			cols := dispatcher.Run(file)
+			return cols.Findings()
 		}
 	}
 	t.Fatalf("rule %q not found in registry", ruleName)
@@ -117,9 +119,9 @@ func BenchmarkUnnecessaryTemporaryInstantiation_NoMatch(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	var rule rules.Rule
-	for _, r := range rules.Registry {
-		if r.Name() == "UnnecessaryTemporaryInstantiation" {
+	var rule *v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if r.ID == "UnnecessaryTemporaryInstantiation" {
 			rule = r
 			break
 		}
@@ -128,7 +130,7 @@ func BenchmarkUnnecessaryTemporaryInstantiation_NoMatch(b *testing.B) {
 		b.Fatal("rule not found")
 	}
 
-	dispatcher := rules.NewDispatcher([]rules.Rule{rule})
+	dispatcher := rules.NewDispatcherV2([]*v2rules.Rule{rule})
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = dispatcher.Run(file)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/kaeawc/krit/internal/arch"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -23,14 +24,14 @@ type PublicToInternalLeakyAbstractionRule struct {
 // look similar. Medium confidence keeps reviewers honest.
 func (r *PublicToInternalLeakyAbstractionRule) Confidence() float64 { return 0.70 }
 
-func (r *PublicToInternalLeakyAbstractionRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *PublicToInternalLeakyAbstractionRule) check(ctx *v2.Context) {
+	file := ctx.File
 	leaks := arch.DetectLeakyAbstractions(file.Lines, r.Threshold)
 	if len(leaks) == 0 {
-		return nil
+		return
 	}
-	findings := make([]scanner.Finding, 0, len(leaks))
 	for _, l := range leaks {
-		findings = append(findings, scanner.Finding{
+		ctx.Emit(scanner.Finding{
 			File:     file.Path,
 			Line:     l.Line,
 			Col:      1,
@@ -41,5 +42,4 @@ func (r *PublicToInternalLeakyAbstractionRule) CheckLines(file *scanner.File) []
 				l.ClassName, l.DelegatingMethods, l.TotalMethods, l.WrappedType),
 		})
 	}
-	return findings
 }

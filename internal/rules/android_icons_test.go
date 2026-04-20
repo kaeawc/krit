@@ -100,7 +100,9 @@ func TestCheckIconDensities_MissingVariants(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconDensities(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconDensities(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected findings for missing density variants")
 	}
@@ -117,7 +119,9 @@ func TestCheckIconDensities_MissingVariants(t *testing.T) {
 }
 
 func TestCheckIconDensities_NilIndex(t *testing.T) {
-	findings := CheckIconDensities(nil)
+	c := scanner.NewFindingCollector(0)
+	CheckIconDensities(nil, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for nil index, got %d", len(findings))
 	}
@@ -145,7 +149,9 @@ func TestCheckIconDipSize_WrongRatio(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconDipSize(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconDipSize(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected findings for wrong DPI ratio")
 	}
@@ -176,7 +182,9 @@ func TestCheckIconDipSize_CorrectRatio(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconDipSize(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconDipSize(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for correct ratios, got %d: %v", len(findings), findings)
 	}
@@ -198,7 +206,9 @@ func TestCheckIconDuplicates_IdenticalFiles(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconDuplicates(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconDuplicates(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected findings for duplicate icons")
 	}
@@ -228,7 +238,9 @@ func TestCheckIconDuplicates_DifferentFiles(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconDuplicates(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconDuplicates(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for different icons, got %d", len(findings))
 	}
@@ -248,7 +260,9 @@ func TestCheckGifUsage(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckGifUsage(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckGifUsage(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -269,7 +283,9 @@ func TestCheckGifUsage_NoPNG(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckGifUsage(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckGifUsage(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for PNG-only resources, got %d", len(findings))
 	}
@@ -287,7 +303,9 @@ func TestCheckConvertToWebp_LargePNG(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckConvertToWebp(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckConvertToWebp(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected finding for large PNG")
 	}
@@ -324,7 +342,9 @@ func TestCheckConvertToWebp_SmallPNG(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckConvertToWebp(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckConvertToWebp(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for small PNG, got %d", len(findings))
 	}
@@ -346,7 +366,9 @@ func TestCheckIconMissingDensityFolder(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconMissingDensityFolder(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconMissingDensityFolder(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected findings for missing density folders")
 	}
@@ -378,7 +400,9 @@ func TestCheckIconMissingDensityFolder_AllPresent(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconMissingDensityFolder(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconMissingDensityFolder(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings when all required densities present, got %d", len(findings))
 	}
@@ -408,7 +432,9 @@ func TestCheckIconExpectedSize_Correct(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconExpectedSize(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconExpectedSize(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for correct launcher sizes, got %d: %v", len(findings), findings)
 	}
@@ -428,7 +454,9 @@ func TestCheckIconExpectedSize_Wrong(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconExpectedSize(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconExpectedSize(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -451,7 +479,9 @@ func TestCheckIconExpectedSize_NonLauncherIgnored(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconExpectedSize(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconExpectedSize(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for non-launcher icon, got %d", len(findings))
 	}
@@ -471,7 +501,9 @@ func TestRunAllIconChecks(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := RunAllIconChecks(idx)
+	c := scanner.NewFindingCollector(0)
+	RunAllIconChecks(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected some findings from RunAllIconChecks")
 	}
@@ -489,7 +521,9 @@ func TestRunAllIconChecks(t *testing.T) {
 }
 
 func TestRunAllIconChecks_NilIndex(t *testing.T) {
-	findings := RunAllIconChecks(nil)
+	c := scanner.NewFindingCollector(0)
+	RunAllIconChecks(nil, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for nil index, got %d", len(findings))
 	}
@@ -514,7 +548,9 @@ func TestCheckIconExtension_Mismatch(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconExtension(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconExtension(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected finding for extension mismatch")
 	}
@@ -535,14 +571,18 @@ func TestCheckIconExtension_Match(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconExtension(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconExtension(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings when extension matches content, got %d", len(findings))
 	}
 }
 
 func TestCheckIconExtension_NilIndex(t *testing.T) {
-	findings := CheckIconExtension(nil)
+	c := scanner.NewFindingCollector(0)
+	CheckIconExtension(nil, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for nil index, got %d", len(findings))
 	}
@@ -562,7 +602,9 @@ func TestCheckIconLocation_LauncherInDrawable(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconLocation(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconLocation(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected finding for launcher icon in drawable folder")
 	}
@@ -583,7 +625,9 @@ func TestCheckIconLocation_LauncherInMipmap(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconLocation(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconLocation(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for launcher in mipmap, got %d", len(findings))
 	}
@@ -601,14 +645,18 @@ func TestCheckIconLocation_NonLauncherInDrawable(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconLocation(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconLocation(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for non-launcher icon in drawable, got %d", len(findings))
 	}
 }
 
 func TestCheckIconLocation_NilIndex(t *testing.T) {
-	findings := CheckIconLocation(nil)
+	c := scanner.NewFindingCollector(0)
+	CheckIconLocation(nil, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for nil index, got %d", len(findings))
 	}
@@ -635,7 +683,9 @@ func TestCheckIconMixedNinePatch_Mixed(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconMixedNinePatch(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconMixedNinePatch(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected finding for mixed nine-patch variants")
 	}
@@ -665,14 +715,18 @@ func TestCheckIconMixedNinePatch_AllNinePatch(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconMixedNinePatch(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconMixedNinePatch(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings when all variants are nine-patch, got %d", len(findings))
 	}
 }
 
 func TestCheckIconMixedNinePatch_NilIndex(t *testing.T) {
-	findings := CheckIconMixedNinePatch(nil)
+	c := scanner.NewFindingCollector(0)
+	CheckIconMixedNinePatch(nil, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for nil index, got %d", len(findings))
 	}
@@ -705,7 +759,9 @@ func TestCheckIconXmlAndPng_Mixed(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconXmlAndPng(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconXmlAndPng(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected finding for XML + raster conflict")
 	}
@@ -735,14 +791,18 @@ func TestCheckIconXmlAndPng_OnlyPng(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconXmlAndPng(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconXmlAndPng(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for PNG-only resources, got %d", len(findings))
 	}
 }
 
 func TestCheckIconXmlAndPng_NilIndex(t *testing.T) {
-	findings := CheckIconXmlAndPng(nil)
+	c := scanner.NewFindingCollector(0)
+	CheckIconXmlAndPng(nil, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for nil index, got %d", len(findings))
 	}
@@ -768,7 +828,9 @@ func TestCheckIconNoDpi_Conflict(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconNoDpi(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconNoDpi(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected findings for icon in both nodpi and density folder")
 	}
@@ -797,7 +859,9 @@ func TestCheckIconNoDpi_OnlyNodpi(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconNoDpi(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconNoDpi(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for nodpi-only icon, got %d", len(findings))
 	}
@@ -820,14 +884,18 @@ func TestCheckIconNoDpi_NoDpiDifferentName(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconNoDpi(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconNoDpi(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for different names, got %d", len(findings))
 	}
 }
 
 func TestCheckIconNoDpi_NilIndex(t *testing.T) {
-	findings := CheckIconNoDpi(nil)
+	c := scanner.NewFindingCollector(0)
+	CheckIconNoDpi(nil, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for nil index, got %d", len(findings))
 	}
@@ -852,7 +920,9 @@ func TestCheckIconDuplicatesConfig_IdenticalAcrossConfigs(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconDuplicatesConfig(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconDuplicatesConfig(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected findings for identical icons across config folders")
 	}
@@ -879,7 +949,9 @@ func TestCheckIconDuplicatesConfig_DifferentAcrossConfigs(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconDuplicatesConfig(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconDuplicatesConfig(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for different icons across configs, got %d", len(findings))
 	}
@@ -898,14 +970,18 @@ func TestCheckIconDuplicatesConfig_SingleConfig(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	findings := CheckIconDuplicatesConfig(idx)
+	c := scanner.NewFindingCollector(0)
+	CheckIconDuplicatesConfig(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for single config folder, got %d", len(findings))
 	}
 }
 
 func TestCheckIconDuplicatesConfig_NilIndex(t *testing.T) {
-	findings := CheckIconDuplicatesConfig(nil)
+	c := scanner.NewFindingCollector(0)
+	CheckIconDuplicatesConfig(nil, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for nil index, got %d", len(findings))
 	}

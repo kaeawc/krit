@@ -20,7 +20,6 @@ import (
 // package-level CheckIcon* function rather than implementing it themselves.
 type IconResourceBase struct{}
 
-func (IconResourceBase) Check(*scanner.File) []scanner.Finding { return nil }
 func (IconResourceBase) AndroidDependencies() AndroidDataDependency {
 	return AndroidDepIcons
 }
@@ -116,9 +115,9 @@ var expectedLauncherSizes = map[string]int{
 }
 
 // CheckIconDensities reports icons that exist in some densities but not others.
-func CheckIconDensities(idx *android.IconIndex) []scanner.Finding {
+func CheckIconDensities(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
-		return nil
+		return
 	}
 	byName := idx.IconsByName()
 	var findings []scanner.Finding
@@ -155,13 +154,13 @@ func CheckIconDensities(idx *android.IconIndex) []scanner.Finding {
 		}
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].Message < findings[j].Message })
-	return findings
+	c.AppendAll(findings)
 }
 
 // CheckIconDipSize reports icons whose dimensions don't match expected DPI ratios.
-func CheckIconDipSize(idx *android.IconIndex) []scanner.Finding {
+func CheckIconDipSize(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
-		return nil
+		return
 	}
 	byName := idx.IconsByName()
 	var findings []scanner.Finding
@@ -210,13 +209,13 @@ func CheckIconDipSize(idx *android.IconIndex) []scanner.Finding {
 		}
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].File < findings[j].File })
-	return findings
+	c.AppendAll(findings)
 }
 
 // CheckIconDuplicates reports icons that are identical across densities (same hash).
-func CheckIconDuplicates(idx *android.IconIndex) []scanner.Finding {
+func CheckIconDuplicates(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
-		return nil
+		return
 	}
 	byName := idx.IconsByName()
 	var findings []scanner.Finding
@@ -254,18 +253,17 @@ func CheckIconDuplicates(idx *android.IconIndex) []scanner.Finding {
 		}
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].Message < findings[j].Message })
-	return findings
+	c.AppendAll(findings)
 }
 
 // CheckGifUsage reports any GIF files in the resource directories.
-func CheckGifUsage(idx *android.IconIndex) []scanner.Finding {
+func CheckGifUsage(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, ic := range idx.Icons {
 		if ic.Format == "gif" {
-			findings = append(findings, scanner.Finding{
+			c.Append(scanner.Finding{
 				File:     ic.Path,
 				Line:     1,
 				Col:      1,
@@ -283,18 +281,16 @@ func CheckGifUsage(idx *android.IconIndex) []scanner.Finding {
 			})
 		}
 	}
-	return findings
 }
 
 // CheckConvertToWebp reports large PNG files that could be converted to WebP.
-func CheckConvertToWebp(idx *android.IconIndex) []scanner.Finding {
+func CheckConvertToWebp(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, ic := range idx.Icons {
 		if ic.Format == "png" && ic.Size >= webpThresholdBytes {
-			findings = append(findings, scanner.Finding{
+			c.Append(scanner.Finding{
 				File:     ic.Path,
 				Line:     1,
 				Col:      1,
@@ -313,20 +309,18 @@ func CheckConvertToWebp(idx *android.IconIndex) []scanner.Finding {
 			})
 		}
 	}
-	return findings
 }
 
 // CheckIconMissingDensityFolder reports when standard density folders are missing entirely.
 // It requires that at least one drawable-* or mipmap-* folder exists.
-func CheckIconMissingDensityFolder(idx *android.IconIndex) []scanner.Finding {
+func CheckIconMissingDensityFolder(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil || len(idx.Densities) == 0 {
-		return nil
+		return
 	}
 
 	// Required densities if any density folder exists
 	required := []string{"mdpi", "hdpi", "xhdpi", "xxhdpi"}
 
-	var findings []scanner.Finding
 	var samplePath string
 	for _, icons := range idx.Densities {
 		if len(icons) > 0 {
@@ -337,7 +331,7 @@ func CheckIconMissingDensityFolder(idx *android.IconIndex) []scanner.Finding {
 
 	for _, d := range required {
 		if _, exists := idx.Densities[d]; !exists {
-			findings = append(findings, scanner.Finding{
+			c.Append(scanner.Finding{
 				File:     samplePath,
 				Line:     1,
 				Col:      1,
@@ -348,15 +342,13 @@ func CheckIconMissingDensityFolder(idx *android.IconIndex) []scanner.Finding {
 			})
 		}
 	}
-	return findings
 }
 
 // CheckIconExpectedSize reports launcher icons that are not at the expected size for their density.
-func CheckIconExpectedSize(idx *android.IconIndex) []scanner.Finding {
+func CheckIconExpectedSize(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 
 	for _, ic := range idx.Icons {
 		if ic.Width == 0 || ic.Height == 0 {
@@ -379,7 +371,7 @@ func CheckIconExpectedSize(idx *android.IconIndex) []scanner.Finding {
 		}
 
 		if ic.Width != expected || ic.Height != expected {
-			findings = append(findings, scanner.Finding{
+			c.Append(scanner.Finding{
 				File:     ic.Path,
 				Line:     1,
 				Col:      1,
@@ -398,22 +390,20 @@ func CheckIconExpectedSize(idx *android.IconIndex) []scanner.Finding {
 			})
 		}
 	}
-	return findings
 }
 
 // CheckIconExtension reports icon files where the file extension doesn't match the detected content format.
-func CheckIconExtension(idx *android.IconIndex) []scanner.Finding {
+func CheckIconExtension(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, ic := range idx.Icons {
 		extFmt := ic.ExtensionFormat()
 		if extFmt == "" || ic.Format == "" {
 			continue
 		}
 		if extFmt != ic.Format {
-			findings = append(findings, scanner.Finding{
+			c.Append(scanner.Finding{
 				File:     ic.Path,
 				Line:     1,
 				Col:      1,
@@ -425,21 +415,19 @@ func CheckIconExtension(idx *android.IconIndex) []scanner.Finding {
 			})
 		}
 	}
-	return findings
 }
 
 // CheckIconLocation reports launcher icons placed in drawable-* folders instead of mipmap-*.
-func CheckIconLocation(idx *android.IconIndex) []scanner.Finding {
+func CheckIconLocation(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
-		return nil
+		return
 	}
-	var findings []scanner.Finding
 	for _, ic := range idx.Icons {
 		if !strings.HasPrefix(ic.Name, "ic_launcher") {
 			continue
 		}
 		if strings.Contains(ic.Path, "drawable") {
-			findings = append(findings, scanner.Finding{
+			c.Append(scanner.Finding{
 				File:     ic.Path,
 				Line:     1,
 				Col:      1,
@@ -451,13 +439,12 @@ func CheckIconLocation(idx *android.IconIndex) []scanner.Finding {
 			})
 		}
 	}
-	return findings
 }
 
 // CheckIconMixedNinePatch reports icons that have a mix of nine-patch (.9.png) and non-nine-patch variants.
-func CheckIconMixedNinePatch(idx *android.IconIndex) []scanner.Finding {
+func CheckIconMixedNinePatch(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
-		return nil
+		return
 	}
 	byName := idx.IconsByName()
 	var findings []scanner.Finding
@@ -493,13 +480,13 @@ func CheckIconMixedNinePatch(idx *android.IconIndex) []scanner.Finding {
 		}
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].Message < findings[j].Message })
-	return findings
+	c.AppendAll(findings)
 }
 
 // CheckIconXmlAndPng reports resources that exist as both XML vector and raster (PNG/JPG/WebP) formats.
-func CheckIconXmlAndPng(idx *android.IconIndex) []scanner.Finding {
+func CheckIconXmlAndPng(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
-		return nil
+		return
 	}
 	byName := idx.IconsByName()
 	var findings []scanner.Finding
@@ -536,20 +523,20 @@ func CheckIconXmlAndPng(idx *android.IconIndex) []scanner.Finding {
 		}
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].Message < findings[j].Message })
-	return findings
+	c.AppendAll(findings)
 }
 
 // CheckIconNoDpi reports icons that appear in both drawable-nodpi and a
 // density-specific folder. An icon in nodpi should not also exist in a
 // density-specific folder, as the density variant will shadow the nodpi one.
-func CheckIconNoDpi(idx *android.IconIndex) []scanner.Finding {
+func CheckIconNoDpi(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
-		return nil
+		return
 	}
 	// Get nodpi icons
 	nodpiIcons := idx.Densities["nodpi"]
 	if len(nodpiIcons) == 0 {
-		return nil
+		return
 	}
 	nodpiNames := make(map[string]*android.IconFile)
 	for _, ic := range nodpiIcons {
@@ -579,15 +566,15 @@ func CheckIconNoDpi(idx *android.IconIndex) []scanner.Finding {
 		}
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].Message < findings[j].Message })
-	return findings
+	c.AppendAll(findings)
 }
 
 // CheckIconDuplicatesConfig reports identical icons across different
 // configuration folders (e.g., drawable-en and drawable-fr). Icons with the
 // same hash in different config folders are wasteful duplicates.
-func CheckIconDuplicatesConfig(idx *android.IconIndex) []scanner.Finding {
+func CheckIconDuplicatesConfig(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
-		return nil
+		return
 	}
 	byName := idx.ConfigIconsByName()
 	var findings []scanner.Finding
@@ -625,7 +612,7 @@ func CheckIconDuplicatesConfig(idx *android.IconIndex) []scanner.Finding {
 		}
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].Message < findings[j].Message })
-	return findings
+	c.AppendAll(findings)
 }
 
 // actionBarIconPrefixes identifies action bar / notification icons by name prefix.
@@ -634,9 +621,9 @@ var actionBarIconPrefixes = []string{"ic_action_", "ic_menu_", "ic_notification_
 // CheckIconColors checks that action bar icons use primarily white/gray colors
 // as recommended by Material Design guidelines. Samples pixels from the image
 // and flags if too many are non-white/gray/transparent.
-func CheckIconColors(idx *android.IconIndex) []scanner.Finding {
+func CheckIconColors(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
-		return nil
+		return
 	}
 	var findings []scanner.Finding
 	for _, ic := range idx.Icons {
@@ -712,15 +699,15 @@ func CheckIconColors(idx *android.IconIndex) []scanner.Finding {
 		}
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].File < findings[j].File })
-	return findings
+	c.AppendAll(findings)
 }
 
 // CheckIconLauncherShape checks launcher icon PNGs for transparent corners,
 // which may indicate a non-adaptive icon format. Adaptive icons should fill
 // the entire canvas without transparent corners.
-func CheckIconLauncherShape(idx *android.IconIndex) []scanner.Finding {
+func CheckIconLauncherShape(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
-		return nil
+		return
 	}
 	var findings []scanner.Finding
 	for _, ic := range idx.Icons {
@@ -764,8 +751,8 @@ func CheckIconLauncherShape(idx *android.IconIndex) []scanner.Finding {
 		}
 
 		transparentCorners := 0
-		for _, c := range corners {
-			_, _, _, a := img.At(c[0], c[1]).RGBA()
+		for _, corner := range corners {
+			_, _, _, a := img.At(corner[0], corner[1]).RGBA()
 			if a>>8 < 50 {
 				transparentCorners++
 			}
@@ -786,26 +773,24 @@ func CheckIconLauncherShape(idx *android.IconIndex) []scanner.Finding {
 		}
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].File < findings[j].File })
-	return findings
+	c.AppendAll(findings)
 }
 
-// RunAllIconChecks runs all icon lint checks against the given IconIndex and returns combined findings.
-func RunAllIconChecks(idx *android.IconIndex) []scanner.Finding {
-	var all []scanner.Finding
-	all = append(all, CheckIconDensities(idx)...)
-	all = append(all, CheckIconDipSize(idx)...)
-	all = append(all, CheckIconDuplicates(idx)...)
-	all = append(all, CheckGifUsage(idx)...)
-	all = append(all, CheckConvertToWebp(idx)...)
-	all = append(all, CheckIconMissingDensityFolder(idx)...)
-	all = append(all, CheckIconExpectedSize(idx)...)
-	all = append(all, CheckIconExtension(idx)...)
-	all = append(all, CheckIconLocation(idx)...)
-	all = append(all, CheckIconMixedNinePatch(idx)...)
-	all = append(all, CheckIconXmlAndPng(idx)...)
-	all = append(all, CheckIconNoDpi(idx)...)
-	all = append(all, CheckIconDuplicatesConfig(idx)...)
-	all = append(all, CheckIconColors(idx)...)
-	all = append(all, CheckIconLauncherShape(idx)...)
-	return all
+// RunAllIconChecks runs all icon lint checks against the given IconIndex and appends findings into c.
+func RunAllIconChecks(idx *android.IconIndex, c *scanner.FindingCollector) {
+	CheckIconDensities(idx, c)
+	CheckIconDipSize(idx, c)
+	CheckIconDuplicates(idx, c)
+	CheckGifUsage(idx, c)
+	CheckConvertToWebp(idx, c)
+	CheckIconMissingDensityFolder(idx, c)
+	CheckIconExpectedSize(idx, c)
+	CheckIconExtension(idx, c)
+	CheckIconLocation(idx, c)
+	CheckIconMixedNinePatch(idx, c)
+	CheckIconXmlAndPng(idx, c)
+	CheckIconNoDpi(idx, c)
+	CheckIconDuplicatesConfig(idx, c)
+	CheckIconColors(idx, c)
+	CheckIconLauncherShape(idx, c)
 }

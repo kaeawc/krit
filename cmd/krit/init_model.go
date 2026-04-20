@@ -16,6 +16,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/onboarding"
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------- bubbletea model types -------------------------------------------
@@ -169,7 +170,7 @@ type ruleExplorerItem struct {
 	name    string
 	ruleset string
 	count   int        // finding count from the selected profile's scan
-	ruleRef rules.Rule // back-reference for DescriptionOf; may be nil
+	ruleRef *v2rules.Rule // back-reference for description; may be nil
 }
 
 func newInitModel(opts onboarding.ScanOptions, reg *onboarding.Registry, target, preset string, acceptAll bool) initModel {

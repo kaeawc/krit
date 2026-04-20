@@ -18,7 +18,7 @@ func (r *CognitiveComplexMethodRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedComplexity",
@@ -44,7 +44,7 @@ func (r *ComplexConditionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedConditions",
@@ -70,7 +70,7 @@ func (r *ComplexInterfaceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedDefinitions",
@@ -114,7 +114,7 @@ func (r *CyclomaticComplexMethodRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        &registry.OracleFilter{},
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedComplexity",
@@ -185,7 +185,7 @@ func (r *LabeledExpressionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoredLabels",
@@ -210,7 +210,7 @@ func (r *LargeClassRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedLines",
@@ -234,7 +234,7 @@ func (r *LongMethodRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        &registry.OracleFilter{},
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedLines",
@@ -258,7 +258,7 @@ func (r *LongParameterListRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedConstructorParameters",
@@ -320,7 +320,7 @@ func (r *MethodOverloadingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedOverloads",
@@ -346,7 +346,7 @@ func (r *NamedArgumentsRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedArguments",
@@ -372,7 +372,7 @@ func (r *NestedBlockDepthRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedDepth",
@@ -396,7 +396,7 @@ func (r *NestedScopeFunctionsRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedDepth",
@@ -431,7 +431,7 @@ func (r *ReplaceSafeCallChainWithRunRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 	}
 }
 
@@ -445,7 +445,7 @@ func (r *StringLiteralDuplicationRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedDuplications",
@@ -498,7 +498,7 @@ func (r *TooManyFunctionsRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d757be60a5207b65",
+		SourceHash:    "cd1c4831738cfd00",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedFunctionsPerClass",

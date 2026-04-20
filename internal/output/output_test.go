@@ -10,18 +10,9 @@ import (
 
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/perf"
-	"github.com/kaeawc/krit/internal/rules"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
-
-type testFixableOutputRule struct {
-	rules.BaseRule
-	level rules.FixLevel
-}
-
-func (r *testFixableOutputRule) Check(_ *scanner.File) []scanner.Finding { return nil }
-func (r *testFixableOutputRule) IsFixable() bool                         { return true }
-func (r *testFixableOutputRule) FixLevel() rules.FixLevel                { return r.level }
 
 func testColumnFormatterFindings() []scanner.Finding {
 	return []scanner.Finding{
@@ -251,11 +242,8 @@ func TestFormatJSONColumns_MatchesFormatJSON(t *testing.T) {
 		},
 	}
 
-	activeRules := []rules.Rule{
-		&testFixableOutputRule{
-			BaseRule: rules.BaseRule{RuleName: "FixableIndent", RuleSetName: "style", Sev: "warning"},
-			level:    rules.FixIdiomatic,
-		},
+	activeRules := []*v2.Rule{
+		{ID: "FixableIndent", Category: "style", Sev: v2.SeverityWarning, Fix: v2.FixIdiomatic},
 	}
 	perfTimings := []perf.TimingEntry{{Name: "scan", DurationMs: 42}}
 	cacheStats := &cache.CacheStats{HitRate: 0.5, Cached: 1, Total: 2}

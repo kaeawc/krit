@@ -18,7 +18,7 @@ func (r *AppCompatResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cb230c5efbf14fde",
+		SourceHash:    "092fb2718d43392a",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *CutPasteIdResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cb230c5efbf14fde",
+		SourceHash:    "092fb2718d43392a",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *DuplicateIdsResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cb230c5efbf14fde",
+		SourceHash:    "092fb2718d43392a",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *DuplicateIncludedIdsResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cb230c5efbf14fde",
+		SourceHash:    "092fb2718d43392a",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *IllegalResourceRefResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cb230c5efbf14fde",
+		SourceHash:    "092fb2718d43392a",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *InvalidIdResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cb230c5efbf14fde",
+		SourceHash:    "092fb2718d43392a",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *InvalidResourceFolderResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cb230c5efbf14fde",
+		SourceHash:    "092fb2718d43392a",
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *MissingIdResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cb230c5efbf14fde",
+		SourceHash:    "092fb2718d43392a",
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *MissingPrefixResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cb230c5efbf14fde",
+		SourceHash:    "092fb2718d43392a",
 	}
 }
 
@@ -144,7 +144,7 @@ func (r *NamespaceTypoResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cb230c5efbf14fde",
+		SourceHash:    "092fb2718d43392a",
 	}
 }
 
@@ -158,7 +158,7 @@ func (r *ResAutoResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cb230c5efbf14fde",
+		SourceHash:    "092fb2718d43392a",
 	}
 }
 
@@ -172,7 +172,7 @@ func (r *UnusedNamespaceResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cb230c5efbf14fde",
+		SourceHash:    "092fb2718d43392a",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *WrongCaseResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cb230c5efbf14fde",
+		SourceHash:    "092fb2718d43392a",
 	}
 }
 
@@ -200,6 +200,6 @@ func (r *WrongFolderResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cb230c5efbf14fde",
+		SourceHash:    "092fb2718d43392a",
 	}
 }

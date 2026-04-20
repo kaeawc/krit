@@ -9,6 +9,7 @@ import (
 	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -23,8 +24,6 @@ type UnnecessaryNotNullCheckRule struct {
 // around nullable expressions and has a heuristic fallback when the
 // resolver is absent. Classified per roadmap/17.
 func (r *UnnecessaryNotNullCheckRule) Confidence() float64 { return 0.75 }
-
-func (r *UnnecessaryNotNullCheckRule) NodeTypes() []string { return []string{"equality_expression"} }
 
 var unnecessaryNullCheckRe = regexp.MustCompile(`\bval\s+(\w+)\s*:\s*([A-Z]\w+)\s*=`)
 
@@ -116,13 +115,14 @@ func isExplicitNullableDeclaration(file *scanner.File, name string) bool {
 	return false
 }
 
-func (r *UnnecessaryNotNullCheckRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *UnnecessaryNotNullCheckRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	text := file.FlatNodeText(idx)
 	// Check for "name != null" or "name == null" patterns
 	isNotNull := strings.Contains(text, "!= null")
 	isEqNull := strings.Contains(text, "== null")
 	if !isNotNull && !isEqNull {
-		return nil
+		return
 	}
 	// Extract the variable name from the comparison
 	var varName string
@@ -134,7 +134,7 @@ func (r *UnnecessaryNotNullCheckRule) CheckFlatNode(idx uint32, file *scanner.Fi
 		varName = strings.TrimSpace(parts[0])
 	}
 	if varName == "" {
-		return nil
+		return
 	}
 	// Check if varName is declared as a non-nullable val in this file
 	nonNullable := false
@@ -147,7 +147,7 @@ func (r *UnnecessaryNotNullCheckRule) CheckFlatNode(idx uint32, file *scanner.Fi
 		}
 	}
 	if !nonNullable {
-		return nil
+		return
 	}
 	replacement := "true"
 	if isEqNull {
@@ -161,7 +161,7 @@ func (r *UnnecessaryNotNullCheckRule) CheckFlatNode(idx uint32, file *scanner.Fi
 		EndByte:     int(file.FlatEndByte(idx)),
 		Replacement: replacement,
 	}
-	return []scanner.Finding{f}
+	ctx.Emit(f)
 }
 
 // ---------------------------------------------------------------------------
@@ -180,12 +180,11 @@ func (r *UnnecessaryNotNullOperatorRule) SetResolver(res typeinfer.TypeResolver)
 // conservative but noisy. Classified per roadmap/17.
 func (r *UnnecessaryNotNullOperatorRule) Confidence() float64 { return 0.75 }
 
-func (r *UnnecessaryNotNullOperatorRule) NodeTypes() []string { return []string{"postfix_expression"} }
-
-func (r *UnnecessaryNotNullOperatorRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *UnnecessaryNotNullOperatorRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	text := file.FlatNodeText(idx)
 	if !strings.HasSuffix(text, "!!") {
-		return nil
+		return
 	}
 
 	// Extract the receiver name (everything before !!)
@@ -194,7 +193,7 @@ func (r *UnnecessaryNotNullOperatorRule) CheckFlatNode(idx uint32, file *scanner
 
 	// Skip idiomatic Android/Java platform API patterns where !! is required.
 	if isIdiomaticNullAssertionReceiver(receiver, file) {
-		return nil
+		return
 	}
 
 	// Only resolve simple identifiers — dotted member accesses cannot be
@@ -202,7 +201,7 @@ func (r *UnnecessaryNotNullOperatorRule) CheckFlatNode(idx uint32, file *scanner
 	if !strings.Contains(receiver, ".") {
 		name := strings.TrimSpace(receiver)
 		if name == "this" && nullableThisFromLambdaReceiverCallFlat(file, idx, r.resolver) {
-			return nil
+			return
 		}
 
 		// Skip if the name refers to a mutable `var` property/field.
@@ -210,26 +209,26 @@ func (r *UnnecessaryNotNullOperatorRule) CheckFlatNode(idx uint32, file *scanner
 		// change between the null check and the access), so !! is required
 		// even after a null check.
 		if isMutableVarProperty(file, name) {
-			return nil
+			return
 		}
 		// Skip if the declaration's initializer contains an `else null`
 		// tail or a `?.let` chain — a conservative resolver may widen
 		// these to non-null incorrectly.
 		if hasBranchNullInitializer(file, name) {
-			return nil
+			return
 		}
 		// Skip framework-inherited nullable properties (e.g. RecyclerView.adapter,
 		// DialogFragment.dialog, View.parent) when not shadowed by a local decl.
 		if isFrameworkNullableProperty(name) {
-			return nil
+			return
 		}
 		// Skip local vals initialized from a member access the resolver can't
 		// prove non-null (e.g. `val attachment = mediaItem.attachment`).
 		if hasMemberAccessInitializer(file, name) {
-			return nil
+			return
 		}
 		if hasNullableGenericParamBoundFlat(file, idx, name) {
-			return nil
+			return
 		}
 
 		// Use type resolver with position-aware smart cast lookup
@@ -237,17 +236,18 @@ func (r *UnnecessaryNotNullOperatorRule) CheckFlatNode(idx uint32, file *scanner
 			resolved := r.resolver.ResolveByNameFlat(name, idx, file)
 			if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
 				if resolved.Kind == typeinfer.TypeGeneric {
-					return nil
+					return
 				}
 				if resolved.IsNullable() {
-					return nil // Actually nullable — !! is needed
+					return // Actually nullable — !! is needed
 				}
 				// Known non-null — flag it
 				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					fmt.Sprintf("Unnecessary not-null assertion (!!) on non-nullable '%s'.", name))
 				bangStart := int(file.FlatEndByte(idx)) - 2
 				f.Fix = &scanner.Fix{ByteMode: true, StartByte: bangStart, EndByte: int(file.FlatEndByte(idx)), Replacement: ""}
-				return []scanner.Finding{f}
+				ctx.Emit(f)
+				return
 			}
 		}
 
@@ -259,12 +259,12 @@ func (r *UnnecessaryNotNullOperatorRule) CheckFlatNode(idx uint32, file *scanner
 						fmt.Sprintf("Unnecessary not-null assertion (!!) on non-nullable val '%s'.", name))
 					bangStart := int(file.FlatEndByte(idx)) - 2
 					f.Fix = &scanner.Fix{ByteMode: true, StartByte: bangStart, EndByte: int(file.FlatEndByte(idx)), Replacement: ""}
-					return []scanner.Finding{f}
+					ctx.Emit(f)
+					return
 				}
 			}
 		}
 	}
-	return nil
 }
 
 // hasBranchNullInitializer returns true if the given name is declared in
@@ -452,23 +452,22 @@ func (r *UnnecessarySafeCallRule) SetResolver(res typeinfer.TypeResolver) { r.re
 // name-based heuristic. Classified per roadmap/17.
 func (r *UnnecessarySafeCallRule) Confidence() float64 { return 0.75 }
 
-func (r *UnnecessarySafeCallRule) NodeTypes() []string { return []string{"navigation_expression"} }
-
-func (r *UnnecessarySafeCallRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *UnnecessarySafeCallRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	text := file.FlatNodeText(idx)
 	if !strings.Contains(text, "?.") {
-		return nil
+		return
 	}
 
 	// The navigation_expression has children: receiver, navigation_suffix
 	// The ?. operator is in the navigation_suffix
 	if file.FlatChildCount(idx) < 2 {
-		return nil
+		return
 	}
 
 	receiver := file.FlatChild(idx, 0)
 	if receiver == 0 {
-		return nil
+		return
 	}
 
 	// Extract receiver name
@@ -476,18 +475,18 @@ func (r *UnnecessarySafeCallRule) CheckFlatNode(idx uint32, file *scanner.File) 
 	// If receiver itself uses safe calls, the expression is nullable —
 	// the downstream ?. is justified.
 	if strings.Contains(receiverText, "?.") {
-		return nil
+		return
 	}
 
 	// Only resolve simple identifiers — dotted member accesses cannot be
 	// reliably resolved by bare name lookup (risk of name collision).
 	if strings.Contains(receiverText, ".") {
-		return nil
+		return
 	}
 
 	name := strings.TrimSpace(receiverText)
 	if name == "" {
-		return nil
+		return
 	}
 	structural := experiment.Enabled("unnecessary-safe-call-structural")
 	var localSummary *safeCallLocalSummary
@@ -499,14 +498,14 @@ func (r *UnnecessarySafeCallRule) CheckFlatNode(idx uint32, file *scanner.File) 
 	// nullable receiver type (extension function on nullable type). In that
 	// case `this` is nullable and the safe call is justified.
 	if name == "this" && unnecessarySafeCallNullableReceiverFlat(file, idx, structural) {
-		return nil
+		return
 	}
 
 	// If the receiver is a simple identifier that matches a parameter of the
 	// enclosing (override) function whose type is nullable, the safe call is
 	// justified — framework methods often pass nullable parameters.
 	if unnecessarySafeCallNullableFunctionParamFlat(file, idx, name) {
-		return nil
+		return
 	}
 
 	// Skip if the name refers to a mutable var property — Kotlin does not
@@ -514,33 +513,33 @@ func (r *UnnecessarySafeCallRule) CheckFlatNode(idx uint32, file *scanner.File) 
 	// the null check and the access.
 	if localSummary != nil {
 		if localSummary.mutableVar[name] || localSummary.explicitNullable[name] || localSummary.branchNullInitializer[name] || localSummary.memberAccessInitializer[name] {
-			return nil
+			return
 		}
 	} else if isMutableVarProperty(file, name) {
-		return nil
+		return
 	}
 
 	// Skip if the name is declared as an explicitly-nullable `val name: T?`.
 	if localSummary == nil && isExplicitNullableDeclaration(file, name) {
-		return nil
+		return
 	}
 	// Skip if the declaration has a branch-nullable initializer like
 	// `if (...) X else null` or `?.let { ... }` — a conservative resolver
 	// widens these incorrectly to non-null.
 	if localSummary == nil && hasBranchNullInitializer(file, name) {
-		return nil
+		return
 	}
 	// Skip framework-inherited nullable properties (RecyclerView.adapter,
 	// DialogFragment.dialog, View.parent, etc.) when not shadowed by a
 	// local declaration in this file.
 	if isFrameworkNullableProperty(name) {
-		return nil
+		return
 	}
 	// Skip local vals initialized from a member access the resolver can't
 	// prove non-null (e.g. `val attachment = mediaItem.attachment`). A bare
 	// name resolver widens the local val to the non-null path incorrectly.
 	if localSummary == nil && hasMemberAccessInitializer(file, name) {
-		return nil
+		return
 	}
 
 	// Use type resolver with position-aware smart cast lookup
@@ -548,7 +547,7 @@ func (r *UnnecessarySafeCallRule) CheckFlatNode(idx uint32, file *scanner.File) 
 		resolved := r.resolver.ResolveByNameFlat(name, idx, file)
 		if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
 			if resolved.IsNullable() {
-				return nil // Actually nullable — safe call is needed
+				return // Actually nullable — safe call is needed
 			}
 			// Known non-null (possibly via smart cast) — flag
 			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -559,7 +558,8 @@ func (r *UnnecessarySafeCallRule) CheckFlatNode(idx uint32, file *scanner.File) 
 				start := int(file.FlatStartByte(idx))
 				f.Fix = &scanner.Fix{ByteMode: true, StartByte: start + qIdx, EndByte: start + qIdx + 2, Replacement: "."}
 			}
-			return []scanner.Finding{f}
+			ctx.Emit(f)
+			return
 		}
 	}
 
@@ -572,9 +572,8 @@ func (r *UnnecessarySafeCallRule) CheckFlatNode(idx uint32, file *scanner.File) 
 			start := int(file.FlatStartByte(idx))
 			f.Fix = &scanner.Fix{ByteMode: true, StartByte: start + qIdx, EndByte: start + qIdx + 2, Replacement: "."}
 		}
-		return []scanner.Finding{f}
+		ctx.Emit(f)
 	}
-	return nil
 }
 
 type safeCallLocalSummary struct {
@@ -889,8 +888,8 @@ func (r *NullCheckOnMutablePropertyRule) SetResolver(res typeinfer.TypeResolver)
 // uses declaration patterns. Classified per roadmap/17.
 func (r *NullCheckOnMutablePropertyRule) Confidence() float64 { return 0.75 }
 
-func (r *NullCheckOnMutablePropertyRule) CheckLines(file *scanner.File) []scanner.Finding {
-	var findings []scanner.Finding
+func (r *NullCheckOnMutablePropertyRule) check(ctx *v2.Context) {
+	file := ctx.File
 	// Collect var property names
 	varProps := make(map[string]bool)
 	for _, line := range file.Lines {
@@ -904,7 +903,7 @@ func (r *NullCheckOnMutablePropertyRule) CheckLines(file *scanner.File) []scanne
 		}
 	}
 	if len(varProps) == 0 {
-		return nil
+		return
 	}
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
@@ -924,14 +923,13 @@ func (r *NullCheckOnMutablePropertyRule) CheckLines(file *scanner.File) []scanne
 							continue // property is not nullable, skip
 						}
 					}
-					findings = append(findings, r.Finding(file, i+1, 1,
+					ctx.Emit(r.Finding(file, i+1, 1,
 						fmt.Sprintf("Null check on mutable property '%s'. The value may change between the check and the use.", prop)))
 					break
 				}
 			}
 		}
 	}
-	return findings
 }
 
 // ---------------------------------------------------------------------------
@@ -950,25 +948,24 @@ func (r *NullableToStringCallRule) SetResolver(res typeinfer.TypeResolver) { r.r
 // common null-returning APIs. Classified per roadmap/17.
 func (r *NullableToStringCallRule) Confidence() float64 { return 0.75 }
 
-func (r *NullableToStringCallRule) NodeTypes() []string { return []string{"call_expression"} }
-
 var nullableToStringRe = regexp.MustCompile(`\?\s*\.\s*toString\(\)`)
 var nullableToStringReceiverRe = regexp.MustCompile(`(\w+)\?\s*\.\s*toString\(\)`)
 
-func (r *NullableToStringCallRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
+func (r *NullableToStringCallRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
 	text := file.FlatNodeText(idx)
 	if !nullableToStringRe.MatchString(text) {
-		return nil
+		return
 	}
 	// If resolver is available, check if receiver is actually nullable
 	if r.resolver != nil {
 		if m := nullableToStringReceiverRe.FindStringSubmatch(text); m != nil {
 			resolved := r.resolver.ResolveByNameFlat(m[1], idx, file)
 			if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
-				return nil // known non-null, skip
+				return // known non-null, skip
 			}
 		}
 	}
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Calling toString() on a nullable type. Use '\\.toString()' with safe call or string templates instead.")}
+	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"Calling toString() on a nullable type. Use '\\.toString()' with safe call or string templates instead."))
 }

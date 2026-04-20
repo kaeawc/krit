@@ -6,8 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/android"
-	"github.com/kaeawc/krit/internal/scanner"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 const (
@@ -32,7 +31,8 @@ type CopyrightYearOutdatedRule struct {
 // negatives. Classified per roadmap/17.
 func (r *CopyrightYearOutdatedRule) Confidence() float64 { return 0.75 }
 
-func (r *CopyrightYearOutdatedRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *CopyrightYearOutdatedRule) check(ctx *v2.Context) {
+	file := ctx.File
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
@@ -49,17 +49,17 @@ func (r *CopyrightYearOutdatedRule) CheckLines(file *scanner.File) []scanner.Fin
 
 		year := matchedCopyrightYear(line, match)
 		if year >= r.RecentYearCutoff {
-			return nil
+			return
 		}
 
-		return []scanner.Finding{r.Finding(
+		ctx.Emit(r.Finding(
 			file,
 			i+1,
 			match[2]+1,
 			fmt.Sprintf("Copyright year %d looks outdated for files changed after %d.", year, r.RecentYearCutoff-1),
-		)}
+		))
+		return
 	}
-	return nil
 }
 
 func isHeaderCommentLine(trimmed string) bool {
@@ -93,22 +93,23 @@ type MissingSpdxIdentifierRule struct {
 // negatives. Classified per roadmap/17.
 func (r *MissingSpdxIdentifierRule) Confidence() float64 { return 0.75 }
 
-func (r *MissingSpdxIdentifierRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *MissingSpdxIdentifierRule) check(ctx *v2.Context) {
+	file := ctx.File
 	commentLines, startLine := leadingHeaderComment(file.Lines)
 	if len(commentLines) == 0 {
-		return nil
+		return
 	}
 	for _, line := range commentLines {
 		if strings.Contains(line, r.RequiredPrefix) {
-			return nil
+			return
 		}
 	}
-	return []scanner.Finding{r.Finding(
+	ctx.Emit(r.Finding(
 		file,
 		startLine,
 		1,
 		fmt.Sprintf("File header comment is missing `%s <id>`.", r.RequiredPrefix),
-	)}
+	))
 }
 
 func leadingHeaderComment(lines []string) ([]string, int) {
@@ -163,12 +164,12 @@ var embeddedDependencyLicenseRegistry = map[string]string{
 // negatives. Classified per roadmap/17.
 func (r *DependencyLicenseUnknownRule) Confidence() float64 { return 0.75 }
 
-func (r *DependencyLicenseUnknownRule) CheckGradle(path string, content string, cfg *android.BuildConfig) []scanner.Finding {
+func (r *DependencyLicenseUnknownRule) check(ctx *v2.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	if !r.RequireVerification || cfg == nil {
-		return nil
+		return
 	}
 
-	var findings []scanner.Finding
 	for _, dep := range cfg.Dependencies {
 		if dep.Group == "" || dep.Name == "" {
 			continue
@@ -189,9 +190,7 @@ func (r *DependencyLicenseUnknownRule) CheckGradle(path string, content string, 
 			line = 1
 		}
 
-		findings = append(findings, gradleFinding(path, line, r.BaseRule,
+		ctx.Emit(gradleFinding(path, line, r.BaseRule,
 			fmt.Sprintf("Dependency %s is not present in the embedded license registry; add a registry entry or disable license verification for this project.", coord)))
 	}
-
-	return findings
 }

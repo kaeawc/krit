@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -21,7 +22,8 @@ type GodClassOrModuleRule struct {
 // threshold is a project-sensitive heuristic. Classified per roadmap/17.
 func (r *GodClassOrModuleRule) Confidence() float64 { return 0.75 }
 
-func (r *GodClassOrModuleRule) CheckLines(file *scanner.File) []scanner.Finding {
+func (r *GodClassOrModuleRule) check(ctx *v2.Context) {
+	file := ctx.File
 	packages := make(map[string]struct{})
 	firstImportLine := 0
 
@@ -52,11 +54,11 @@ func (r *GodClassOrModuleRule) CheckLines(file *scanner.File) []scanner.Finding 
 	}
 
 	if len(packages) <= r.AllowedDistinctPackages {
-		return nil
+		return
 	}
 
 	msg := fmt.Sprintf("Module imports from %d distinct packages; consider splitting responsibilities or narrowing dependencies.", len(packages))
-	return []scanner.Finding{r.Finding(file, firstImportLine, 1, msg)}
+	ctx.Emit(r.Finding(file, firstImportLine, 1, msg))
 }
 
 // FanInFanOutHotspotRule reports class-like declarations with unusually high
@@ -72,13 +74,9 @@ type FanInFanOutHotspotRule struct {
 // threshold is a project-sensitive heuristic. Classified per roadmap/17.
 func (r *FanInFanOutHotspotRule) Confidence() float64 { return 0.75 }
 
-func (r *FanInFanOutHotspotRule) Check(file *scanner.File) []scanner.Finding {
-	return nil
-}
-
-func (r *FanInFanOutHotspotRule) CheckCrossFile(index *scanner.CodeIndex) []scanner.Finding {
+func (r *FanInFanOutHotspotRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
 	stats := index.ClassLikeFanInStats(r.IgnoreCommentReferences)
-	findings := make([]scanner.Finding, 0, len(stats))
 	for _, stat := range stats {
 		if stat.FanIn < r.AllowedFanIn {
 			break
@@ -97,7 +95,7 @@ func (r *FanInFanOutHotspotRule) CheckCrossFile(index *scanner.CodeIndex) []scan
 		}
 		msg += "; consider splitting responsibilities or narrowing its API surface."
 
-		findings = append(findings, scanner.Finding{
+		ctx.Emit(scanner.Finding{
 			File:     stat.Symbol.File,
 			Line:     stat.Symbol.Line,
 			Col:      1,
@@ -107,7 +105,6 @@ func (r *FanInFanOutHotspotRule) CheckCrossFile(index *scanner.CodeIndex) []scan
 			Message:  msg,
 		})
 	}
-	return findings
 }
 
 func formatFanInExamples(files []string) string {

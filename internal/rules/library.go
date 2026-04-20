@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
@@ -19,24 +18,6 @@ type ForbiddenPublicDataClassRule struct {
 // per roadmap/17.
 func (r *ForbiddenPublicDataClassRule) Confidence() float64 { return 0.75 }
 
-func (r *ForbiddenPublicDataClassRule) NodeTypes() []string { return []string{"class_declaration"} }
-
-func (r *ForbiddenPublicDataClassRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Must have data modifier
-	if !file.FlatHasModifier(idx, "data") {
-		return nil
-	}
-	// Must be public: no private, internal, or protected modifier
-	if file.FlatHasModifier(idx, "private") ||
-		file.FlatHasModifier(idx, "internal") ||
-		file.FlatHasModifier(idx, "protected") {
-		return nil
-	}
-	name := extractIdentifierFlat(file, idx)
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-		fmt.Sprintf("Public data class '%s' exposes its properties as part of the API. Consider using a regular class.", name))}
-}
-
 // LibraryEntitiesShouldNotBePublicRule detects public top-level classes, functions,
 // and properties that could be internal in library code.
 type LibraryEntitiesShouldNotBePublicRule struct {
@@ -48,32 +29,6 @@ type LibraryEntitiesShouldNotBePublicRule struct {
 // and API shapes without confirming the actual import target. Classified
 // per roadmap/17.
 func (r *LibraryEntitiesShouldNotBePublicRule) Confidence() float64 { return 0.75 }
-
-func (r *LibraryEntitiesShouldNotBePublicRule) NodeTypes() []string {
-	return []string{"class_declaration", "function_declaration", "property_declaration"}
-}
-
-func (r *LibraryEntitiesShouldNotBePublicRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Only flag top-level declarations
-	parent, ok := file.FlatParent(idx)
-	if !ok || file.FlatType(parent) != "source_file" {
-		return nil
-	}
-	// Must be public (default visibility): no private, internal, or protected modifier
-	if file.FlatHasModifier(idx, "private") ||
-		file.FlatHasModifier(idx, "internal") ||
-		file.FlatHasModifier(idx, "protected") {
-		return nil
-	}
-	// Skip if annotated with @PublishedApi
-	if hasAnnotationFlat(file, idx, "PublishedApi") {
-		return nil
-	}
-	name := extractIdentifierFlat(file, idx)
-	kind := strings.TrimSuffix(file.FlatType(idx), "_declaration")
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-		fmt.Sprintf("Public %s '%s' could be made internal in library code.", kind, name))}
-}
 
 // LibraryCodeMustSpecifyReturnTypeRule detects public functions and properties
 // without explicit return types. In libraries, implicit return types are part of
@@ -87,32 +42,6 @@ type LibraryCodeMustSpecifyReturnTypeRule struct {
 // and API shapes without confirming the actual import target. Classified
 // per roadmap/17.
 func (r *LibraryCodeMustSpecifyReturnTypeRule) Confidence() float64 { return 0.75 }
-
-func (r *LibraryCodeMustSpecifyReturnTypeRule) NodeTypes() []string {
-	return []string{"function_declaration", "property_declaration"}
-}
-
-func (r *LibraryCodeMustSpecifyReturnTypeRule) CheckFlatNode(idx uint32, file *scanner.File) []scanner.Finding {
-	// Only flag top-level declarations (public by default)
-	parent, ok := file.FlatParent(idx)
-	if !ok || file.FlatType(parent) != "source_file" {
-		return nil
-	}
-	// Must be public: no private, internal, or protected modifier
-	if file.FlatHasModifier(idx, "private") ||
-		file.FlatHasModifier(idx, "internal") ||
-		file.FlatHasModifier(idx, "protected") {
-		return nil
-	}
-	// Check for explicit type annotation (colon followed by a type node)
-	if hasExplicitTypeFlat(file, idx) {
-		return nil
-	}
-	name := extractIdentifierFlat(file, idx)
-	kind := strings.TrimSuffix(file.FlatType(idx), "_declaration")
-	return []scanner.Finding{r.Finding(file, file.FlatRow(idx)+1, 1,
-		fmt.Sprintf("Public %s '%s' has no explicit return type. Add an explicit type to the public API.", kind, name))}
-}
 
 // hasExplicitType checks whether a function_declaration or property_declaration
 // has an explicit type annotation by looking for a ":" token followed by a type node.

@@ -853,7 +853,7 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *v2.Context) {
 		lengths = append(lengths, L)
 	}
 
-	matched := make(map[string]struct{})
+	sc := newVftScanner(namesByLen, lengths)
 	for _, file := range index.Files {
 		if isTestFile(file.Path) {
 			continue
@@ -866,19 +866,17 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *v2.Context) {
 				continue
 			}
 
-			for k := range matched {
-				delete(matched, k)
-			}
-			scanBoundaries(line, '(', lengths, namesByLen, matched)
-			scanBoundaries(line, ' ', lengths, namesByLen, matched)
-			if len(matched) == 0 {
+			sc.reset()
+			sc.scan(line, '(')
+			sc.scan(line, ' ')
+			if len(sc.matched) == 0 {
 				continue
 			}
 			trimmed := strings.TrimSpace(line)
 			if strings.HasPrefix(trimmed, "fun ") || strings.HasPrefix(trimmed, "internal ") || strings.HasPrefix(trimmed, "private ") {
 				continue
 			}
-			for name := range matched {
+			for name := range sc.matched {
 				col := strings.Index(line, name)
 				ctx.Emit(scanner.Finding{
 					File:       file.Path,
@@ -895,11 +893,33 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *v2.Context) {
 	}
 }
 
-// scanBoundaries finds each occurrence of `boundary` in `line` and, for each
-// bucketed name-length, checks whether the preceding bytes form a known name.
-// IndexByte is SIMD-accelerated, which matters because `(` and ` ` are sparse
-// in code compared to the full character range.
-func scanBoundaries(line string, boundary byte, lengths []int, namesByLen map[int]map[string]struct{}, matched map[string]struct{}) {
+// vftScanner holds the read-only name dictionary (bucketed by length) and a
+// reusable match set for a single pass over a file's lines. reset() clears
+// matches between lines without reallocating the map.
+type vftScanner struct {
+	namesByLen map[int]map[string]struct{}
+	lengths    []int
+	matched    map[string]struct{}
+}
+
+func newVftScanner(namesByLen map[int]map[string]struct{}, lengths []int) *vftScanner {
+	return &vftScanner{
+		namesByLen: namesByLen,
+		lengths:    lengths,
+		matched:    make(map[string]struct{}),
+	}
+}
+
+func (s *vftScanner) reset() {
+	for k := range s.matched {
+		delete(s.matched, k)
+	}
+}
+
+// scan records all names that appear immediately before any `boundary` byte in
+// the line. Uses SIMD-accelerated IndexByte to skip to each boundary because
+// `(` and ` ` are sparse relative to the full byte range.
+func (s *vftScanner) scan(line string, boundary byte) {
 	start := 0
 	for start < len(line) {
 		rel := strings.IndexByte(line[start:], boundary)
@@ -913,13 +933,13 @@ func scanBoundaries(line string, boundary byte, lengths []int, namesByLen map[in
 			start = pos + 1
 			continue
 		}
-		for _, L := range lengths {
+		for _, L := range s.lengths {
 			if pos < L {
 				continue
 			}
 			cand := line[pos-L : pos]
-			if _, ok := namesByLen[L][cand]; ok {
-				matched[cand] = struct{}{}
+			if _, ok := s.namesByLen[L][cand]; ok {
+				s.matched[cand] = struct{}{}
 			}
 		}
 		start = pos + 1

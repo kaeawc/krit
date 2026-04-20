@@ -19,7 +19,9 @@ type Target struct {
 }
 
 type Result struct {
-	Finding   scanner.Finding
+	Rule      string
+	Line      int
+	Col       int
 	NodeType  string
 	StartLine int
 	EndLine   int
@@ -88,7 +90,9 @@ func ExtractFixture(target Target, ruleName string) (Result, error) {
 	}
 
 	return Result{
-		Finding:   match,
+		Rule:      match.Rule,
+		Line:      match.Line,
+		Col:       match.Col,
 		NodeType:  file.FlatType(node),
 		StartLine: file.FlatRow(node) + 1,
 		EndLine:   lineForByteOffset(file, int(file.FlatEndByte(node)-1)),

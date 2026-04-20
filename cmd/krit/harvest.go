@@ -70,9 +70,9 @@ func runHarvestCommand(cmd harvestCommand) int {
 	}
 
 	fmt.Printf("Harvested %s from %s:%d to %s (%s lines %d-%d)\n",
-		result.Finding.Rule,
+		result.Rule,
 		target.Path,
-		result.Finding.Line,
+		result.Line,
 		cmd.Out,
 		result.NodeType,
 		result.StartLine,

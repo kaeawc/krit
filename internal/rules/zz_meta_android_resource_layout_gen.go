@@ -17,7 +17,6 @@ func (r *AdapterViewChildrenResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "66e59b5adab50aa5",
 	}
 }
@@ -31,7 +30,6 @@ func (r *IncludeLayoutParamResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "66e59b5adab50aa5",
 	}
 }
@@ -45,7 +43,6 @@ func (r *InconsistentLayoutResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "66e59b5adab50aa5",
 	}
 }
@@ -59,7 +56,6 @@ func (r *NestedScrollingResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "66e59b5adab50aa5",
 	}
 }
@@ -73,7 +69,6 @@ func (r *OrientationResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "66e59b5adab50aa5",
 	}
 }
@@ -87,7 +82,6 @@ func (r *RequiredSizeResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "66e59b5adab50aa5",
 	}
 }
@@ -101,7 +95,6 @@ func (r *ScrollViewCountResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "66e59b5adab50aa5",
 	}
 }
@@ -115,7 +108,6 @@ func (r *ScrollViewSizeResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "66e59b5adab50aa5",
 	}
 }
@@ -129,7 +121,6 @@ func (r *TooDeepLayoutResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "66e59b5adab50aa5",
 	}
 }
@@ -143,7 +134,6 @@ func (r *TooManyViewsResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "66e59b5adab50aa5",
 	}
 }
@@ -157,7 +147,6 @@ func (r *UseCompoundDrawablesResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "66e59b5adab50aa5",
 	}
 }
@@ -171,7 +160,6 @@ func (r *UselessLeafResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "66e59b5adab50aa5",
 	}
 }
@@ -185,7 +173,6 @@ func (r *UselessParentResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "66e59b5adab50aa5",
 	}
 }

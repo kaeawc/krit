@@ -17,7 +17,6 @@ func (r *PackageNamingConventionDriftRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "446e9e236d6228e7",
 	}
 }

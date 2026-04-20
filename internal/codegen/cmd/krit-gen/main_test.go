@@ -217,7 +217,6 @@ func TestRun_EmitsFixtureInventory(t *testing.T) {
 		`registry.OptBool`,
 		`registry.OptRegex`,
 		`"[A-Z][a-zA-Z0-9]*"`,
-		`&registry.OracleFilter{}`, // treeSitterOnlyFilter
 		`// TODO(krit-gen): schema missing for FakeField`,
 		`value.(*regexp.Regexp)`,
 		`value.(int)`,
@@ -246,7 +245,6 @@ func TestRun_EmitsFixtureInventory(t *testing.T) {
 	other := string(otherData)
 	for _, s := range []string{
 		`func (r *OracleFakeRule) Meta() registry.RuleDescriptor`,
-		`&registry.OracleFilter{AllFiles: true}`,
 		`registry.OptStringList`,
 		`[]string(nil)`,
 		`value.([]string)`,

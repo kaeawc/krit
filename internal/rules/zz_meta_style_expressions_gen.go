@@ -17,7 +17,6 @@ func (r *CollapsibleIfStatementsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "b95575831ae70abf",
 	}
 }
@@ -31,7 +30,6 @@ func (r *ExplicitItLambdaMultipleParametersRule) Meta() registry.RuleDescriptor 
 		DefaultActive: true,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "b95575831ae70abf",
 	}
 }
@@ -45,7 +43,6 @@ func (r *ExplicitItLambdaParameterRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "b95575831ae70abf",
 	}
 }
@@ -59,7 +56,6 @@ func (r *ExpressionBodySyntaxRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "b95575831ae70abf",
 		Options: []registry.ConfigOption{
 			{
@@ -84,7 +80,6 @@ func (r *FunctionOnlyReturningConstantRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "b95575831ae70abf",
 		Options: []registry.ConfigOption{
 			{
@@ -127,7 +122,6 @@ func (r *LoopWithTooManyJumpStatementsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "b95575831ae70abf",
 		Options: []registry.ConfigOption{
 			{
@@ -153,7 +147,6 @@ func (r *MayBeConstantRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "b95575831ae70abf",
 	}
 }
@@ -167,7 +160,6 @@ func (r *ModifierOrderRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "b95575831ae70abf",
 	}
 }
@@ -181,7 +173,6 @@ func (r *ReturnCountRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "b95575831ae70abf",
 		Options: []registry.ConfigOption{
 			{
@@ -239,7 +230,6 @@ func (r *SafeCastRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "b95575831ae70abf",
 	}
 }
@@ -253,7 +243,6 @@ func (r *ThrowsCountRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "b95575831ae70abf",
 		Options: []registry.ConfigOption{
 			{
@@ -286,7 +275,6 @@ func (r *VarCouldBeValRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "b95575831ae70abf",
 		Options: []registry.ConfigOption{
 			{

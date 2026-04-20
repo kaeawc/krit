@@ -22,7 +22,6 @@ func (r *ForbiddenAnnotationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
@@ -47,7 +46,6 @@ func (r *ForbiddenCommentRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
@@ -81,7 +79,6 @@ func (r *ForbiddenMethodCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
@@ -106,7 +103,6 @@ func (r *ForbiddenNamedParamRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
@@ -131,7 +127,6 @@ func (r *ForbiddenOptInRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
@@ -156,7 +151,6 @@ func (r *ForbiddenSuppressRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
@@ -179,7 +173,6 @@ func (r *ForbiddenVoidRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
@@ -213,7 +206,6 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
@@ -349,7 +341,6 @@ func (r *WildcardImportRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{

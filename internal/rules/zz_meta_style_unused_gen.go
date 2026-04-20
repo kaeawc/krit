@@ -21,7 +21,6 @@ func (r *UnusedImportRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "ce9b6d2d81cbdb6b",
 	}
 }
@@ -35,7 +34,6 @@ func (r *UnusedParameterRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "ce9b6d2d81cbdb6b",
 		Options: []registry.ConfigOption{
 			{
@@ -60,7 +58,6 @@ func (r *UnusedPrivateClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "ce9b6d2d81cbdb6b",
 	}
 }
@@ -74,7 +71,6 @@ func (r *UnusedPrivateFunctionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "ce9b6d2d81cbdb6b",
 		Options: []registry.ConfigOption{
 			{
@@ -99,7 +95,6 @@ func (r *UnusedPrivateMemberRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "ce9b6d2d81cbdb6b",
 		Options: []registry.ConfigOption{
 			{
@@ -133,7 +128,6 @@ func (r *UnusedPrivatePropertyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "ce9b6d2d81cbdb6b",
 		Options: []registry.ConfigOption{
 			{
@@ -158,7 +152,6 @@ func (r *UnusedVariableRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "ce9b6d2d81cbdb6b",
 		Options: []registry.ConfigOption{
 			{

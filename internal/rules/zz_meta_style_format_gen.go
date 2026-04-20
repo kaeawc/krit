@@ -17,7 +17,6 @@ func (r *CascadingCallWrappingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7a321ff07ffcbbc6",
 		Options: []registry.ConfigOption{
 			{
@@ -42,7 +41,6 @@ func (r *EqualsOnSignatureLineRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7a321ff07ffcbbc6",
 	}
 }
@@ -56,7 +54,6 @@ func (r *MaxChainedCallsOnSameLineRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7a321ff07ffcbbc6",
 		Options: []registry.ConfigOption{
 			{
@@ -82,7 +79,6 @@ func (r *MaxLineLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "7a321ff07ffcbbc6",
 		Options: []registry.ConfigOption{
 			{
@@ -142,7 +138,6 @@ func (r *NewLineAtEndOfFileRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "7a321ff07ffcbbc6",
 	}
 }
@@ -156,7 +151,6 @@ func (r *NoTabsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "7a321ff07ffcbbc6",
 	}
 }
@@ -170,7 +164,6 @@ func (r *SpacingAfterPackageAndImportsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "7a321ff07ffcbbc6",
 	}
 }
@@ -184,7 +177,6 @@ func (r *TrailingWhitespaceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		Oracle:        nil,
 		SourceHash:    "7a321ff07ffcbbc6",
 	}
 }
@@ -198,7 +190,6 @@ func (r *UnderscoresInNumericLiteralsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7a321ff07ffcbbc6",
 		Options: []registry.ConfigOption{
 			{

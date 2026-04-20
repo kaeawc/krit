@@ -17,7 +17,6 @@ func (r *BracesOnIfStatementsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "bb0f970afcdc08e7",
 		Options: []registry.ConfigOption{
 			{
@@ -51,7 +50,6 @@ func (r *BracesOnWhenStatementsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "bb0f970afcdc08e7",
 		Options: []registry.ConfigOption{
 			{
@@ -85,7 +83,6 @@ func (r *MandatoryBracesLoopsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "bb0f970afcdc08e7",
 	}
 }

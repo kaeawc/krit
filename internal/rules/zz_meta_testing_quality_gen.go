@@ -17,7 +17,6 @@ func (r *AssertEqualsArgumentOrderRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        &registry.OracleFilter{},
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -31,7 +30,6 @@ func (r *AssertNullableWithNotNullAssertionRule) Meta() registry.RuleDescriptor 
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -45,7 +43,6 @@ func (r *AssertTrueOnComparisonRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -59,7 +56,6 @@ func (r *MixedAssertionLibrariesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        &registry.OracleFilter{},
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -73,7 +69,6 @@ func (r *MockWithoutVerifyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -87,7 +82,6 @@ func (r *RelaxedMockUsedForValueClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -101,7 +95,6 @@ func (r *RunBlockingInTestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -115,7 +108,6 @@ func (r *RunTestWithDelayRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -129,7 +121,6 @@ func (r *RunTestWithThreadSleepRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -143,7 +134,6 @@ func (r *SharedMutableStateInObjectRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -157,7 +147,6 @@ func (r *SpyOnDataClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.6,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -171,7 +160,6 @@ func (r *TestDispatcherNotInjectedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -185,7 +173,6 @@ func (r *TestFunctionReturnValueRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -199,7 +186,6 @@ func (r *TestInheritanceDepthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.6,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -213,7 +199,6 @@ func (r *TestNameContainsUnderscoreRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.6,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -227,7 +212,6 @@ func (r *TestWithOnlyTodoRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -241,7 +225,6 @@ func (r *TestWithoutAssertionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }
@@ -255,7 +238,6 @@ func (r *VerifyWithoutMockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.6,
-		Oracle:        nil,
 		SourceHash:    "1d5b273ea601c6b8",
 	}
 }

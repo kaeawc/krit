@@ -17,7 +17,6 @@ func (r *ConvertToWebpRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
@@ -31,7 +30,6 @@ func (r *GifUsageRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
@@ -45,7 +43,6 @@ func (r *IconDensitiesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
@@ -59,7 +56,6 @@ func (r *IconDipSizeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
@@ -73,7 +69,6 @@ func (r *IconDuplicatesConfigRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
@@ -87,7 +82,6 @@ func (r *IconDuplicatesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
@@ -101,7 +95,6 @@ func (r *IconExpectedSizeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
@@ -115,7 +108,6 @@ func (r *IconMissingDensityFolderRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
@@ -129,7 +121,6 @@ func (r *IconNoDpiRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }

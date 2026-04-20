@@ -17,7 +17,6 @@ func (r *BufferedReadWithoutBufferRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -31,7 +30,6 @@ func (r *ComposePainterResourceInLoopRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -45,7 +43,6 @@ func (r *ComposeRememberInListRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -59,7 +56,6 @@ func (r *CursorLoopWithColumnIndexInLoopRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -73,7 +69,6 @@ func (r *DatabaseQueryOnMainThreadRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -87,7 +82,6 @@ func (r *HttpClientNotReusedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -101,7 +95,6 @@ func (r *ImageLoadedAtFullSizeInListRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -115,7 +108,6 @@ func (r *ImageLoaderNoMemoryCacheRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -129,7 +121,6 @@ func (r *LazyColumnInsideColumnRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -143,7 +134,6 @@ func (r *OkHttpCallExecuteSyncRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -157,7 +147,6 @@ func (r *OkHttpClientCreatedPerCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -171,7 +160,6 @@ func (r *PeriodicWorkRequestLessThan15MinRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -185,7 +173,6 @@ func (r *RecyclerAdapterStableIdsDefaultRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -199,7 +186,6 @@ func (r *RecyclerAdapterWithoutDiffUtilRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -213,7 +199,6 @@ func (r *RecyclerViewInLazyColumnRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -227,7 +212,6 @@ func (r *RetrofitCreateInHotPathRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -241,7 +225,6 @@ func (r *RoomLoadsAllWhereFirstUsedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -255,7 +238,6 @@ func (r *WorkManagerNoBackoffRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }
@@ -269,7 +251,6 @@ func (r *WorkManagerUniquePolicyKeepButReplaceIntendedRule) Meta() registry.Rule
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "0bc6216c9c22b356",
 	}
 }

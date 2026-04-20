@@ -21,7 +21,6 @@ func (r *PrintStackTraceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "22e7a271f77e2d8d",
 	}
 }
@@ -35,7 +34,6 @@ func (r *TooGenericExceptionCaughtRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "22e7a271f77e2d8d",
 		Options: []registry.ConfigOption{
 			{
@@ -69,7 +67,6 @@ func (r *TooGenericExceptionThrownRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "22e7a271f77e2d8d",
 		Options: []registry.ConfigOption{
 			{
@@ -94,7 +91,6 @@ func (r *UnreachableCatchBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "22e7a271f77e2d8d",
 	}
 }
@@ -108,7 +104,6 @@ func (r *UnreachableCodeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "22e7a271f77e2d8d",
 	}
 }

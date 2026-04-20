@@ -494,13 +494,11 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 					fmt.Fprintf(os.Stderr, "verbose: Running krit-types (%d source dirs)...\n", len(sourceDirs))
 				}
 				// Pre-scan step: compute the subset of files any enabled
-				// rule has declared (via OracleFilter) it actually needs
-				// oracle access on. Files where no filter matches are
-				// tree-sitter-sufficient and can be dropped from the
-				// krit-types analyze loop. Unclassified rules fall
-				// through to AllFiles: true, so this is a no-op until
-				// a meaningful fraction of rules has been audited. Guard
-				// with -no-oracle-filter for diagnostics / baseline
+				// rule has declared (via NeedsOracle + OracleFilter) it
+				// actually needs oracle access on. Rules that do NOT
+				// declare NeedsOracle are skipped entirely — only rules
+				// that opted in contribute to the union. Guard with
+				// -no-oracle-filter for diagnostics / baseline
 				// reproduction.
 				var filterListPath string
 				if !in.NoOracleFilter {

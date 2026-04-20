@@ -26,7 +26,6 @@ func (r *ForbiddenImportRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedImports",

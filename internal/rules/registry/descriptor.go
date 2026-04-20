@@ -42,10 +42,6 @@ type RuleDescriptor struct {
 	// Confidence is the base confidence tier (0 = use family default).
 	Confidence float64
 
-	// Oracle declares when the rule needs oracle type information.
-	// nil means the conservative default (always needed).
-	Oracle *OracleFilter
-
 	// Options are the configurable fields the rule exposes via YAML.
 	Options []ConfigOption
 
@@ -135,13 +131,6 @@ func (t OptionType) String() string {
 	default:
 		return "unknown"
 	}
-}
-
-// OracleFilter mirrors the v1/v2 oracle filter shape without importing
-// either package. The rules layer converts between the two representations.
-type OracleFilter struct {
-	Identifiers []string
-	AllFiles    bool
 }
 
 // MetaProvider is the interface rules satisfy once they've been migrated

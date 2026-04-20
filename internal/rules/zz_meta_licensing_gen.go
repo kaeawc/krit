@@ -17,7 +17,6 @@ func (r *CopyrightYearOutdatedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "bad69a04671933e4",
 	}
 }
@@ -31,7 +30,6 @@ func (r *DependencyLicenseUnknownRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "bad69a04671933e4",
 		Options: []registry.ConfigOption{
 			{
@@ -56,7 +54,6 @@ func (r *MissingSpdxIdentifierRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "bad69a04671933e4",
 	}
 }

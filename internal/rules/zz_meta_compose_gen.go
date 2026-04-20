@@ -17,7 +17,6 @@ func (r *ComposeColumnRowInScrollableRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -31,7 +30,6 @@ func (r *ComposeDerivedStateMisuseRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -45,7 +43,6 @@ func (r *ComposeDisposableEffectMissingDisposeRule) Meta() registry.RuleDescript
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -59,7 +56,6 @@ func (r *ComposeLambdaCapturesUnstableStateRule) Meta() registry.RuleDescriptor 
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -73,7 +69,6 @@ func (r *ComposeLaunchedEffectWithoutKeysRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -87,7 +82,6 @@ func (r *ComposeModifierBackgroundAfterClipRule) Meta() registry.RuleDescriptor 
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -101,7 +95,6 @@ func (r *ComposeModifierClickableBeforePaddingRule) Meta() registry.RuleDescript
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -115,7 +108,6 @@ func (r *ComposeModifierFillAfterSizeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -129,7 +121,6 @@ func (r *ComposeModifierPassedThenChainedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -143,7 +134,6 @@ func (r *ComposeMutableDefaultArgumentRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -157,7 +147,6 @@ func (r *ComposeMutableStateInCompositionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -171,7 +160,6 @@ func (r *ComposePreviewAnnotationMissingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -185,7 +173,6 @@ func (r *ComposePreviewWithBackingStateRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -199,7 +186,6 @@ func (r *ComposeRememberSaveableNonParcelableRule) Meta() registry.RuleDescripto
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -213,7 +199,6 @@ func (r *ComposeRememberWithoutKeyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -227,7 +212,6 @@ func (r *ComposeSideEffectInCompositionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -241,7 +225,6 @@ func (r *ComposeStatefulDefaultParameterRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -255,7 +238,6 @@ func (r *ComposeStringResourceInsideLambdaRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }
@@ -269,7 +251,6 @@ func (r *ComposeUnstableParameterRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "19adc8ff8fbc771d",
 	}
 }

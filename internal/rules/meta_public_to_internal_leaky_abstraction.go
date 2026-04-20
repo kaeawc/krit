@@ -25,7 +25,6 @@ func (r *PublicToInternalLeakyAbstractionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.7,
-		Oracle:        nil,
 		Options: []registry.ConfigOption{
 			{
 				Name:        "thresholdPercent",

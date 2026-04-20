@@ -17,7 +17,6 @@ func (r *CompileSdkMismatchAcrossModulesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "398d291cb59434d4",
 	}
 }

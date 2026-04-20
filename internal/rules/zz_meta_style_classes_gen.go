@@ -17,7 +17,6 @@ func (r *AbstractClassCanBeConcreteClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7df9852acab0d752",
 	}
 }
@@ -31,7 +30,6 @@ func (r *AbstractClassCanBeInterfaceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7df9852acab0d752",
 	}
 }
@@ -45,7 +43,6 @@ func (r *ClassOrderingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7df9852acab0d752",
 	}
 }
@@ -59,7 +56,6 @@ func (r *DataClassContainsFunctionsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7df9852acab0d752",
 		Options: []registry.ConfigOption{
 			{
@@ -84,7 +80,6 @@ func (r *DataClassShouldBeImmutableRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7df9852acab0d752",
 	}
 }
@@ -98,7 +93,6 @@ func (r *NestedClassesVisibilityRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7df9852acab0d752",
 	}
 }
@@ -112,7 +106,6 @@ func (r *ObjectLiteralToLambdaRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7df9852acab0d752",
 	}
 }
@@ -126,7 +119,6 @@ func (r *OptionalAbstractKeywordRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7df9852acab0d752",
 	}
 }
@@ -140,7 +132,6 @@ func (r *ProtectedMemberInFinalClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7df9852acab0d752",
 	}
 }
@@ -154,7 +145,6 @@ func (r *SerialVersionUIDInSerializableClassRule) Meta() registry.RuleDescriptor
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7df9852acab0d752",
 	}
 }
@@ -168,7 +158,6 @@ func (r *UtilityClassWithPublicConstructorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "7df9852acab0d752",
 	}
 }

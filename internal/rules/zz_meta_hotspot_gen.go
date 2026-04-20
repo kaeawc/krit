@@ -17,7 +17,6 @@ func (r *FanInFanOutHotspotRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "1dbc3f449cc54df5",
 		Options: []registry.ConfigOption{
 			{
@@ -52,7 +51,6 @@ func (r *GodClassOrModuleRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "1dbc3f449cc54df5",
 	}
 }

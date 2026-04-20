@@ -17,7 +17,6 @@ func (r *ModuleDeadCodeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Oracle:        nil,
 		SourceHash:    "d7ef618252c097f8",
 	}
 }

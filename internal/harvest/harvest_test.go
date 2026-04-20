@@ -32,11 +32,11 @@ func TestExtractFixture_MagicNumber(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExtractFixture returned error: %v", err)
 	}
-	if result.Finding.Rule != "MagicNumber" {
-		t.Fatalf("expected MagicNumber finding, got %s", result.Finding.Rule)
+	if result.Rule != "MagicNumber" {
+		t.Fatalf("expected MagicNumber finding, got %s", result.Rule)
 	}
-	if result.Finding.Line != 4 {
-		t.Fatalf("expected line 4 finding, got %d", result.Finding.Line)
+	if result.Line != 4 {
+		t.Fatalf("expected line 4 finding, got %d", result.Line)
 	}
 	if !strings.Contains(string(result.Content), "42") {
 		t.Fatalf("expected extracted content to contain 42, got %q", string(result.Content))

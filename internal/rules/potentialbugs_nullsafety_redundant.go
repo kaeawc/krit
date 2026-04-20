@@ -170,10 +170,8 @@ func (r *UnnecessaryNotNullCheckRule) check(ctx *v2.Context) {
 type UnnecessaryNotNullOperatorRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *UnnecessaryNotNullOperatorRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — flags !! on a
 // non-null type; relies on resolver for nullability. Heuristic fallback is
@@ -200,7 +198,7 @@ func (r *UnnecessaryNotNullOperatorRule) check(ctx *v2.Context) {
 	// reliably resolved by bare name lookup (risk of name collision).
 	if !strings.Contains(receiver, ".") {
 		name := strings.TrimSpace(receiver)
-		if name == "this" && nullableThisFromLambdaReceiverCallFlat(file, idx, r.resolver) {
+		if name == "this" && nullableThisFromLambdaReceiverCallFlat(file, idx, ctx.Resolver) {
 			return
 		}
 
@@ -232,8 +230,8 @@ func (r *UnnecessaryNotNullOperatorRule) check(ctx *v2.Context) {
 		}
 
 		// Use type resolver with position-aware smart cast lookup
-		if r.resolver != nil {
-			resolved := r.resolver.ResolveByNameFlat(name, idx, file)
+		if ctx.Resolver != nil {
+			resolved := ctx.Resolver.ResolveByNameFlat(name, idx, file)
 			if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
 				if resolved.Kind == typeinfer.TypeGeneric {
 					return
@@ -440,12 +438,10 @@ func splitTopLevelCommaParts(s string) []string {
 type UnnecessarySafeCallRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver        typeinfer.TypeResolver
 	nonNullableVals sync.Map
 	localSummaries  sync.Map
 }
 
-func (r *UnnecessarySafeCallRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — flags ?. on a
 // non-null receiver; needs resolver for nullability, falls back to
@@ -543,8 +539,8 @@ func (r *UnnecessarySafeCallRule) check(ctx *v2.Context) {
 	}
 
 	// Use type resolver with position-aware smart cast lookup
-	if r.resolver != nil {
-		resolved := r.resolver.ResolveByNameFlat(name, idx, file)
+	if ctx.Resolver != nil {
+		resolved := ctx.Resolver.ResolveByNameFlat(name, idx, file)
 		if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
 			if resolved.IsNullable() {
 				return // Actually nullable — safe call is needed
@@ -876,12 +872,8 @@ func (r *UnnecessarySafeCallRule) nonNullableValNames(file *scanner.File) map[st
 type NullCheckOnMutablePropertyRule struct {
 	LineBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *NullCheckOnMutablePropertyRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-}
 
 // Confidence reports a tier-2 (medium) base confidence — distinguishing
 // val vs var requires type resolution of the receiver. Heuristic fallback
@@ -911,12 +903,12 @@ func (r *NullCheckOnMutablePropertyRule) check(ctx *v2.Context) {
 			for prop := range varProps {
 				if strings.Contains(trimmed, prop+" != null") || strings.Contains(trimmed, prop+" == null") {
 					// If resolver is available, verify property is actually nullable
-					if r.resolver != nil {
+					if ctx.Resolver != nil {
 						offset := file.LineOffset(i) + strings.Index(line, prop)
 						var resolved *typeinfer.ResolvedType
 						if offset >= 0 {
 							if propIdx, ok := file.FlatNamedDescendantForByteRange(uint32(offset), uint32(offset+len(prop))); ok {
-								resolved = r.resolver.ResolveByNameFlat(prop, propIdx, file)
+								resolved = ctx.Resolver.ResolveByNameFlat(prop, propIdx, file)
 							}
 						}
 						if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
@@ -938,10 +930,8 @@ func (r *NullCheckOnMutablePropertyRule) check(ctx *v2.Context) {
 type NullableToStringCallRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *NullableToStringCallRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — needs resolver
 // to know whether the receiver is nullable; heuristic fallback matches
@@ -958,9 +948,9 @@ func (r *NullableToStringCallRule) check(ctx *v2.Context) {
 		return
 	}
 	// If resolver is available, check if receiver is actually nullable
-	if r.resolver != nil {
+	if ctx.Resolver != nil {
 		if m := nullableToStringReceiverRe.FindStringSubmatch(text); m != nil {
-			resolved := r.resolver.ResolveByNameFlat(m[1], idx, file)
+			resolved := ctx.Resolver.ResolveByNameFlat(m[1], idx, file)
 			if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
 				return // known non-null, skip
 			}

@@ -13,12 +13,8 @@ import (
 type AbstractClassCanBeConcreteClassRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *AbstractClassCanBeConcreteClassRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-}
 
 // Confidence reports a tier-2 (medium) base confidence — classifying
 // abstractness requires knowing all concrete method bodies;
@@ -43,12 +39,8 @@ func (r *AbstractClassCanBeInterfaceRule) Confidence() float64 { return 0.75 }
 type DataClassShouldBeImmutableRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *DataClassShouldBeImmutableRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-}
 
 // Confidence reports a tier-2 (medium) base confidence — detecting
 // mutable properties in data classes needs type-aware var detection;
@@ -79,12 +71,8 @@ func (r *DataClassContainsFunctionsRule) Confidence() float64 { return 0.75 }
 type ProtectedMemberInFinalClassRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *ProtectedMemberInFinalClassRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-}
 
 // Confidence reports a tier-2 (medium) base confidence — flags protected
 // members on non-open classes; class-openness detection depends on declared
@@ -167,12 +155,8 @@ func (r *ClassOrderingRule) Confidence() float64 { return 0.75 }
 type ObjectLiteralToLambdaRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *ObjectLiteralToLambdaRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-}
 
 // Confidence reports a tier-2 (medium) base confidence. SAM
 // conversion eligibility depends on whether the supertype is a
@@ -315,12 +299,8 @@ func objectBodyContainsBareThisFlat(file *scanner.File, node uint32) bool {
 type SerialVersionUIDInSerializableClassRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *SerialVersionUIDInSerializableClassRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-}
 
 // Confidence reports a tier-2 (medium) base confidence — Serializable
 // detection uses supertype names; without resolver, falls back to matching
@@ -339,12 +319,12 @@ func flatDirectChildrenOfType(file *scanner.File, idx uint32, nodeType string) [
 }
 
 // checksSerializable walks the class hierarchy to find java.io.Serializable.
-func (r *SerialVersionUIDInSerializableClassRule) checksSerializable(info *typeinfer.ClassInfo) bool {
+func checksSerializable(resolver typeinfer.TypeResolver, info *typeinfer.ClassInfo) bool {
 	visited := make(map[string]bool)
-	return r.checksSerializableRec(info, visited)
+	return checksSerializableRec(resolver, info, visited)
 }
 
-func (r *SerialVersionUIDInSerializableClassRule) checksSerializableRec(info *typeinfer.ClassInfo, visited map[string]bool) bool {
+func checksSerializableRec(resolver typeinfer.TypeResolver, info *typeinfer.ClassInfo, visited map[string]bool) bool {
 	if visited[info.FQN] || visited[info.Name] {
 		return false
 	}
@@ -358,11 +338,11 @@ func (r *SerialVersionUIDInSerializableClassRule) checksSerializableRec(info *ty
 		// Check transitively
 		parts := strings.Split(st, ".")
 		stName := parts[len(parts)-1]
-		stInfo := r.resolver.ClassHierarchy(stName)
+		stInfo := resolver.ClassHierarchy(stName)
 		if stInfo == nil {
-			stInfo = r.resolver.ClassHierarchy(st)
+			stInfo = resolver.ClassHierarchy(st)
 		}
-		if stInfo != nil && r.checksSerializableRec(stInfo, visited) {
+		if stInfo != nil && checksSerializableRec(resolver, stInfo, visited) {
 			return true
 		}
 	}

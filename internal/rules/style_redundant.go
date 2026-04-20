@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // RedundantVisibilityModifierRule detects explicit `public` keyword.
@@ -37,12 +36,8 @@ func (r *RedundantConstructorKeywordRule) Confidence() float64 { return 0.75 }
 type RedundantExplicitTypeRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *RedundantExplicitTypeRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-}
 
 // Confidence reports a tier-2 (medium) base confidence — inferring
 // whether the type annotation is necessary requires the resolver; fallback
@@ -285,10 +280,8 @@ func isKotlinKeyword(s string) bool {
 type UselessCallOnNotNullRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *UselessCallOnNotNullRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — flags ?-safe
 // calls on provably non-null receivers; resolver-dependent. Classified per

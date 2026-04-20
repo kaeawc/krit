@@ -22,7 +22,7 @@ func (r *PrintStackTraceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "3df26a7c592eac75",
+		SourceHash:    "22e7a271f77e2d8d",
 	}
 }
 
@@ -36,7 +36,7 @@ func (r *TooGenericExceptionCaughtRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "3df26a7c592eac75",
+		SourceHash:    "22e7a271f77e2d8d",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedExceptionNameRegex",
@@ -70,7 +70,7 @@ func (r *TooGenericExceptionThrownRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "3df26a7c592eac75",
+		SourceHash:    "22e7a271f77e2d8d",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "exceptionNames",
@@ -95,7 +95,7 @@ func (r *UnreachableCatchBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "3df26a7c592eac75",
+		SourceHash:    "22e7a271f77e2d8d",
 	}
 }
 
@@ -109,6 +109,6 @@ func (r *UnreachableCodeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "3df26a7c592eac75",
+		SourceHash:    "22e7a271f77e2d8d",
 	}
 }

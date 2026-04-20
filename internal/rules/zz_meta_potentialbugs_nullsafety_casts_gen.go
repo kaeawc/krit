@@ -18,7 +18,7 @@ func (r *CastNullableToNonNullableTypeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "db5b4308e774c891",
+		SourceHash:    "54563577f3175131",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *CastToNullableTypeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "db5b4308e774c891",
+		SourceHash:    "54563577f3175131",
 	}
 }
 
@@ -46,6 +46,6 @@ func (r *UnsafeCastRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        &registry.OracleFilter{Identifiers: []string{" as "}},
-		SourceHash:    "db5b4308e774c891",
+		SourceHash:    "54563577f3175131",
 	}
 }

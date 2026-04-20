@@ -20,6 +20,7 @@ import (
 	"unicode"
 
 	"github.com/kaeawc/krit/internal/experiment"
+	"github.com/kaeawc/krit/internal/oracle"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -5978,10 +5979,13 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
-			Needs:           v2.NeedsResolver,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				var oracleLookup oracle.Lookup
+				if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+					oracleLookup = cr.Oracle()
+				}
 				if !hasSuspendModifierFlat(file, idx) {
 					return
 				}
@@ -6012,10 +6016,10 @@ func registerAllRules() {
 						return
 					}
 					resolved := false
-					if r.oracleLookup != nil {
+					if oracleLookup != nil {
 						line := file.FlatRow(callIdx) + 1
 						col := file.FlatCol(callIdx) + 1
-						if ct := r.oracleLookup.LookupCallTarget(file.Path, line, col); ct != "" {
+						if ct := oracleLookup.LookupCallTarget(file.Path, line, col); ct != "" {
 							resolved = true
 							if knownSuspendFQNs[ct] {
 								hasSuspendCall = true
@@ -6038,8 +6042,8 @@ func registerAllRules() {
 							return
 						}
 					}
-					if r.resolver != nil {
-						resolvedType := r.resolver.ResolveFlatNode(callIdx, file)
+					if ctx.Resolver != nil {
+						resolvedType := ctx.Resolver.ResolveFlatNode(callIdx, file)
 						if resolvedType.Kind != typeinfer.TypeUnknown {
 							resolved = true
 							callName := resolvedType.Name
@@ -6051,7 +6055,7 @@ func registerAllRules() {
 						funcIdent := file.FlatFindChild(callIdx, "simple_identifier")
 						if funcIdent != 0 {
 							funcName := file.FlatNodeText(funcIdent)
-							resolvedByName := r.resolver.ResolveByNameFlat(funcName, funcIdent, file)
+							resolvedByName := ctx.Resolver.ResolveByNameFlat(funcName, funcIdent, file)
 							if resolvedByName != nil && resolvedByName.Kind != typeinfer.TypeUnknown {
 								resolved = true
 								if strings.Contains(resolvedByName.FQN, "kotlinx.coroutines") {
@@ -6247,8 +6251,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"catch_block"}, Confidence: 0.75, OriginalV1: r,
-			Needs:           v2.NeedsResolver,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				caughtType := extractCaughtTypeNameFlat(file, idx)
@@ -6258,8 +6261,8 @@ func registerAllRules() {
 				catchesCancellation := false
 				if caughtType == "CancellationException" {
 					catchesCancellation = true
-				} else if r.resolver != nil {
-					catchesCancellation = r.resolver.IsExceptionSubtype("CancellationException", caughtType)
+				} else if ctx.Resolver != nil {
+					catchesCancellation = ctx.Resolver.IsExceptionSubtype("CancellationException", caughtType)
 				} else {
 					catchesCancellation = typeinfer.IsSubtypeOfException("CancellationException", caughtType)
 				}
@@ -8082,11 +8085,12 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"object_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := extractIdentifierFlat(file, idx)
-				if r.resolver != nil {
-					info := r.resolver.ClassHierarchy(name)
+				if ctx.Resolver != nil {
+					info := ctx.Resolver.ClassHierarchy(name)
 					if info != nil {
 						throwableSet := map[string]bool{
 							"Throwable": true, "Exception": true, "Error": true, "RuntimeException": true,
@@ -9015,6 +9019,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"user_type"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				ident := file.FlatFindChild(idx, "type_identifier")
@@ -9026,9 +9031,9 @@ func registerAllRules() {
 					return
 				}
 				text := file.FlatNodeText(typeArgs)
-				if r.resolver != nil {
+				if ctx.Resolver != nil {
 					argName := simpleTypeReferenceName(text)
-					fqn := r.resolver.ResolveImport(argName, file)
+					fqn := ctx.Resolver.ResolveImport(argName, file)
 					if fqn != "" {
 						if replacement, ok := primitiveFQNToReplacement[fqn]; ok {
 							f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -9105,6 +9110,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				count := 0
@@ -9131,8 +9137,8 @@ func registerAllRules() {
 				if rootReceiver == 0 {
 					return
 				}
-				if r.resolver != nil {
-					resolved := flatResolveByName(file, r.resolver, rootReceiver)
+				if ctx.Resolver != nil {
+					resolved := flatResolveByName(file, ctx.Resolver, rootReceiver)
 					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
 						if resolvedTypeMatches(resolved, sequenceExcludedTypes) {
 							return
@@ -9375,6 +9381,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -9384,9 +9391,9 @@ func registerAllRules() {
 				}
 				target := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(parts[1]), "?"))
 				expr := strings.TrimSpace(parts[0])
-				if r.resolver != nil && file.FlatChildCount(idx) >= 2 {
-					exprType := flatResolveByName(file, r.resolver, file.FlatChild(idx, 0))
-					targetType := flatResolveByName(file, r.resolver, file.FlatChild(idx, file.FlatChildCount(idx)-1))
+				if ctx.Resolver != nil && file.FlatChildCount(idx) >= 2 {
+					exprType := flatResolveByName(file, ctx.Resolver, file.FlatChild(idx, 0))
+					targetType := flatResolveByName(file, ctx.Resolver, file.FlatChild(idx, file.FlatChildCount(idx)-1))
 					if exprType != nil && targetType != nil &&
 						exprType.Kind != typeinfer.TypeUnknown && targetType.Kind != typeinfer.TypeUnknown {
 						if exprType.FQN == targetType.FQN {
@@ -9489,9 +9496,8 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"catch_block"}, Confidence: 0.75, OriginalV1: r,
-			Needs:           v2.NeedsResolver,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check:           r.checkNode,
+			Needs: v2.NeedsResolver,
+			Check: r.checkNode,
 		})
 	}
 	{
@@ -9507,9 +9513,8 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"try_expression"}, Confidence: 0.75, OriginalV1: r,
-			Needs:           v2.NeedsResolver,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check:           r.checkFlatNode,
+			Needs: v2.NeedsResolver,
+			Check: r.checkFlatNode,
 		})
 	}
 	{
@@ -9517,9 +9522,8 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"statements"}, Confidence: 0.75, OriginalV1: r,
-			Needs:           v2.NeedsResolver,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check:           r.checkNode,
+			Needs: v2.NeedsResolver,
+			Check: r.checkNode,
 		})
 	}
 
@@ -9822,8 +9826,13 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "navigation_expression", "user_type"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				var oracleLookup oracle.Lookup
+				if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+					oracleLookup = cr.Oracle()
+				}
 				line := file.FlatRow(idx) + 1
 				col := file.FlatCol(idx) + 1
 				nodeType := file.FlatType(idx)
@@ -9853,10 +9862,10 @@ func registerAllRules() {
 				}
 
 				// 1. Oracle-based check: look up call target annotations
-				if r.oracleLookup != nil {
-					callTarget := r.oracleLookup.LookupCallTarget(file.Path, line, col)
+				if oracleLookup != nil {
+					callTarget := oracleLookup.LookupCallTarget(file.Path, line, col)
 					if callTarget != "" {
-						annotations := r.oracleLookup.LookupAnnotations(callTarget)
+						annotations := oracleLookup.LookupAnnotations(callTarget)
 						for _, ann := range annotations {
 							if ann == "kotlin.Deprecated" || ann == "java.lang.Deprecated" {
 								ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -9971,8 +9980,13 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				var oracleLookup oracle.Lookup
+				if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+					oracleLookup = cr.Oracle()
+				}
 				funcName := flatCallExpressionName(file, idx)
 				if funcName == "" {
 					return
@@ -9984,7 +9998,7 @@ func registerAllRules() {
 
 				// Without oracle annotation metadata, only known functional operations can
 				// produce a finding in the current heuristics.
-				if r.oracleLookup == nil && !isKnownFunctionalOp {
+				if oracleLookup == nil && !isKnownFunctionalOp {
 					return
 				}
 
@@ -9994,10 +10008,10 @@ func registerAllRules() {
 				}
 
 				// Oracle-based annotation check
-				if r.oracleLookup != nil {
-					callTarget := r.oracleLookup.LookupCallTarget(file.Path, line, col)
+				if oracleLookup != nil {
+					callTarget := oracleLookup.LookupCallTarget(file.Path, line, col)
 					if callTarget != "" {
-						annotations := r.oracleLookup.LookupAnnotations(callTarget)
+						annotations := oracleLookup.LookupAnnotations(callTarget)
 						if hasCheckReturnAnnotation(annotations, r.ReturnValueAnnotations) &&
 							!hasIgnoreReturnAnnotation(annotations, r.IgnoreReturnValueAnnotations) {
 							ctx.EmitAt(line, col,
@@ -10160,8 +10174,7 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75,
 			Needs: v2.NeedsResolver, OriginalV1: r,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check:           r.check,
+			Check: r.check,
 		})
 	}
 	{
@@ -10170,8 +10183,7 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check:           r.check,
+			Check: r.check,
 		})
 	}
 
@@ -10182,8 +10194,7 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check:           r.check,
+			Check: r.check,
 		})
 	}
 	{
@@ -10192,8 +10203,7 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check:           r.check,
+			Check: r.check,
 		})
 	}
 	{
@@ -10220,8 +10230,7 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check:           r.check,
+			Check: r.check,
 		})
 	}
 	{
@@ -10230,8 +10239,7 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check:           r.check,
+			Check: r.check,
 		})
 	}
 	{
@@ -10248,8 +10256,7 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75,
 			Needs: v2.NeedsResolver, OriginalV1: r,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
-			Check:           r.check,
+			Check: r.check,
 		})
 	}
 
@@ -10497,6 +10504,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -10534,12 +10542,12 @@ func registerAllRules() {
 						return
 					}
 				}
-				if r.resolver != nil && file.FlatChildCount(idx) >= 3 {
+				if ctx.Resolver != nil && file.FlatChildCount(idx) >= 3 {
 					leftIdx := file.FlatChild(idx, 0)
 					rightIdx := file.FlatChild(idx, file.FlatChildCount(idx)-1)
 					if leftIdx != 0 && rightIdx != 0 {
-						leftType := r.resolver.ResolveFlatNode(leftIdx, file)
-						rightType := r.resolver.ResolveFlatNode(rightIdx, file)
+						leftType := ctx.Resolver.ResolveFlatNode(leftIdx, file)
+						rightType := ctx.Resolver.ResolveFlatNode(rightIdx, file)
 						leftKnown := leftType != nil && leftType.Kind != typeinfer.TypeUnknown
 						rightKnown := rightType != nil && rightType.Kind != typeinfer.TypeUnknown
 						if leftKnown || rightKnown {
@@ -10582,6 +10590,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -10596,14 +10605,14 @@ func registerAllRules() {
 				if varDecl == 0 {
 					return
 				}
-				if r.resolver != nil {
+				if ctx.Resolver != nil {
 					for j := 0; j < file.FlatChildCount(varDecl); j++ {
 						gc := file.FlatChild(varDecl, j)
 						if gc == 0 {
 							continue
 						}
 						if file.FlatType(gc) == "user_type" || file.FlatType(gc) == "nullable_type" {
-							resolved := r.resolver.ResolveFlatNode(gc, file)
+							resolved := ctx.Resolver.ResolveFlatNode(gc, file)
 							if resolved.Kind != typeinfer.TypeUnknown && resolved.IsMutable() {
 								f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 									"Variable with mutable collection type creates double mutability. Use val with a mutable collection or var with an immutable collection.")
@@ -10783,13 +10792,14 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
 				if !strings.HasSuffix(text, ".toString()") && !strings.Contains(text, ".toString()") {
 					return
 				}
-				if r.resolver != nil {
+				if ctx.Resolver != nil {
 					navExpr := file.FlatFindChild(idx, "navigation_expression")
 					if navExpr != 0 && file.FlatChildCount(navExpr) >= 1 {
 						receiver := file.FlatChild(navExpr, 0)
@@ -10799,7 +10809,7 @@ func registerAllRules() {
 							if dotIdx := strings.LastIndex(simpleName, "."); dotIdx >= 0 {
 								simpleName = simpleName[dotIdx+1:]
 							}
-							resolved := r.resolver.ResolveByNameFlat(simpleName, idx, file)
+							resolved := ctx.Resolver.ResolveByNameFlat(simpleName, idx, file)
 							if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
 								if resolved.Name == "CharArray" || resolved.FQN == "kotlin.CharArray" {
 									r.reportCharArrayFlat(ctx, text)
@@ -10821,6 +10831,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -10829,10 +10840,10 @@ func registerAllRules() {
 					return
 				}
 				targetType := m[1]
-				if r.resolver != nil {
+				if ctx.Resolver != nil {
 					sourceIdx := file.FlatChild(idx, 0)
 					if sourceIdx != 0 {
-						sourceType := r.resolver.ResolveFlatNode(sourceIdx, file)
+						sourceType := ctx.Resolver.ResolveFlatNode(sourceIdx, file)
 						if sourceType.Kind != typeinfer.TypeUnknown {
 							expectedImmutable := ""
 							for immutable, mutable := range immutableToMutableMap {
@@ -10842,7 +10853,7 @@ func registerAllRules() {
 								}
 							}
 							if expectedImmutable != "" && sourceType.Name != expectedImmutable {
-								info := r.resolver.ClassHierarchy(sourceType.Name)
+								info := ctx.Resolver.ClassHierarchy(sourceType.Name)
 								if info != nil {
 									isCollectionSupertype := false
 									for _, st := range info.Supertypes {
@@ -10884,6 +10895,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				body := file.FlatFindChild(idx, "function_body")
@@ -10916,8 +10928,8 @@ func registerAllRules() {
 				if funcName == "" {
 					return
 				}
-				if r.resolver != nil {
-					resolved := r.resolver.ResolveByNameFlat(funcName, idx, file)
+				if ctx.Resolver != nil {
+					resolved := ctx.Resolver.ResolveByNameFlat(funcName, idx, file)
 					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown &&
 						(resolved.Kind == typeinfer.TypeUnit || resolved.Name == "Unit" || resolved.FQN == "kotlin.Unit") {
 						return
@@ -10943,13 +10955,14 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"when_expression"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
 				if !whenElseRe.MatchString(text) {
 					return
 				}
-				if r.resolver != nil {
+				if ctx.Resolver != nil {
 					coveredTypes := make(map[string]bool)
 					var subjectTypeName string
 					file.FlatForEachChild(idx, func(entry uint32) {
@@ -10966,14 +10979,14 @@ func registerAllRules() {
 					})
 					if len(coveredTypes) > 0 {
 						for typeName := range coveredTypes {
-							info := r.resolver.ClassHierarchy(typeName)
+							info := ctx.Resolver.ClassHierarchy(typeName)
 							if info != nil && len(info.Supertypes) > 0 {
 								for _, st := range info.Supertypes {
 									parts := strings.Split(st, ".")
 									simpleName := parts[len(parts)-1]
-									variants := r.resolver.SealedVariants(simpleName)
+									variants := ctx.Resolver.SealedVariants(simpleName)
 									if len(variants) == 0 {
-										variants = r.resolver.SealedVariants(st)
+										variants = ctx.Resolver.SealedVariants(st)
 									}
 									if len(variants) > 0 {
 										subjectTypeName = simpleName
@@ -12501,6 +12514,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !file.FlatHasModifier(idx, "abstract") {
@@ -12546,11 +12560,11 @@ func registerAllRules() {
 						}
 					}
 					if hasSupertype {
-						if r.resolver == nil {
+						if ctx.Resolver == nil {
 							return
 						}
 						name := extractIdentifierFlat(file, idx)
-						info := r.resolver.ClassHierarchy(name)
+						info := ctx.Resolver.ClassHierarchy(name)
 						if info == nil || len(info.Supertypes) == 0 {
 							return
 						}
@@ -12567,9 +12581,9 @@ func registerAllRules() {
 						for _, st := range info.Supertypes {
 							parts := strings.Split(st, ".")
 							stName := parts[len(parts)-1]
-							stInfo := r.resolver.ClassHierarchy(stName)
+							stInfo := ctx.Resolver.ClassHierarchy(stName)
 							if stInfo == nil {
-								stInfo = r.resolver.ClassHierarchy(st)
+								stInfo = ctx.Resolver.ClassHierarchy(st)
 							}
 							if stInfo == nil {
 								allResolved = false
@@ -12722,6 +12736,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !file.FlatHasModifier(idx, "data") {
@@ -12744,11 +12759,11 @@ func registerAllRules() {
 						}
 						ctx.Emit(f)
 					}
-					if r.resolver != nil && strings.HasPrefix(strings.TrimSpace(text), "val ") {
+					if ctx.Resolver != nil && strings.HasPrefix(strings.TrimSpace(text), "val ") {
 						for i := 0; i < file.FlatChildCount(child); i++ {
 							typeChild := file.FlatChild(child, i)
 							if t := file.FlatType(typeChild); t == "user_type" || t == "nullable_type" {
-								resolved := r.resolver.ResolveFlatNode(typeChild, file)
+								resolved := ctx.Resolver.ResolveFlatNode(typeChild, file)
 								if resolved.Kind != typeinfer.TypeUnknown && mutableCollectionTypes[resolved.Name] {
 									ctx.EmitAt(file.FlatRow(child)+1, 1,
 										fmt.Sprintf("Data class property uses mutable type '%s'. Use an immutable collection type for true immutability.", resolved.Name))
@@ -12788,15 +12803,16 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatHasModifier(idx, "open") || file.FlatHasModifier(idx, "abstract") || file.FlatHasModifier(idx, "sealed") {
 					return
 				}
-				if r.resolver != nil {
+				if ctx.Resolver != nil {
 					name := extractIdentifierFlat(file, idx)
 					if name != "" {
-						info := r.resolver.ClassHierarchy(name)
+						info := ctx.Resolver.ClassHierarchy(name)
 						if info != nil && info.IsOpen {
 							return
 						}
@@ -13077,6 +13093,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"object_literal"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				delegations := flatDirectChildrenOfType(file, idx, "delegation_specifier")
@@ -13118,7 +13135,7 @@ func registerAllRules() {
 				if funBody != 0 && objectBodyContainsBareThisFlat(file, funBody) {
 					return
 				}
-				if supertypeName != "" && !isSAMConvertible(supertypeName, file, r.resolver) {
+				if supertypeName != "" && !isSAMConvertible(supertypeName, file, ctx.Resolver) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,
@@ -13131,6 +13148,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatFindChild(idx, "enum") != 0 {
@@ -13155,9 +13173,9 @@ func registerAllRules() {
 						implementsSerializable = true
 						break
 					}
-					if r.resolver != nil {
-						if info := r.resolver.ClassHierarchy(supertypeName); info != nil {
-							if r.checksSerializable(info) {
+					if ctx.Resolver != nil {
+						if info := ctx.Resolver.ClassHierarchy(supertypeName); info != nil {
+							if checksSerializable(ctx.Resolver, info) {
 								implementsSerializable = true
 								break
 							}
@@ -13942,8 +13960,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"property_declaration", "function_declaration"}, Confidence: 0.75, OriginalV1: r,
-			Needs:           v2.NeedsResolver,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				switch ctx.File.FlatType(ctx.Idx) {
 				case "property_declaration":
@@ -14962,15 +14979,14 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				argText, suffixText, ok := flatNonNullCheckText(file, idx, "check")
 				if !ok {
 					return
 				}
-				if r.resolver != nil {
-					resolved := r.resolver.ResolveByNameFlat(argText, idx, file)
+				if ctx.Resolver != nil {
+					resolved := ctx.Resolver.ResolveByNameFlat(argText, idx, file)
 					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
 						return
 					}
@@ -14997,15 +15013,14 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				argText, suffixText, ok := flatNonNullCheckText(file, idx, "require")
 				if !ok {
 					return
 				}
-				if r.resolver != nil {
-					resolved := r.resolver.ResolveByNameFlat(argText, idx, file)
+				if ctx.Resolver != nil {
+					resolved := ctx.Resolver.ResolveByNameFlat(argText, idx, file)
 					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
 						return
 					}
@@ -15056,7 +15071,6 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"disjunction_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
 			Needs: v2.NeedsResolver, OriginalV1: r,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				compact := strings.ReplaceAll(file.FlatNodeText(idx), " ", "")
@@ -15118,8 +15132,8 @@ func registerAllRules() {
 						break
 					}
 				}
-				if r.resolver != nil {
-					resolved := r.resolver.ResolveByNameFlat(nullVar, idx, file)
+				if ctx.Resolver != nil {
+					resolved := ctx.Resolver.ResolveByNameFlat(nullVar, idx, file)
 					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
 						return
 					}
@@ -15818,10 +15832,8 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Needs: v2.NeedsResolver, OriginalV1: r,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				r.resolver = ctx.Resolver
 				// Must have both an explicit type annotation and an initializer
 				var typeNode uint32
 				var initExpr uint32
@@ -15852,9 +15864,9 @@ func registerAllRules() {
 					return
 				}
 				// --- Resolver-based matching (preferred) ---
-				if r.resolver != nil {
-					declaredType := r.resolver.ResolveFlatNode(typeNode, file)
-					inferredType := r.resolver.ResolveFlatNode(initExpr, file)
+				if ctx.Resolver != nil {
+					declaredType := ctx.Resolver.ResolveFlatNode(typeNode, file)
+					inferredType := ctx.Resolver.ResolveFlatNode(initExpr, file)
 					if declaredType.Kind != typeinfer.TypeUnknown && inferredType.Kind != typeinfer.TypeUnknown {
 						match := false
 						if declaredType.FQN != "" && inferredType.FQN != "" {
@@ -16206,10 +16218,8 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Needs: v2.NeedsResolver, OriginalV1: r,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				r.resolver = ctx.Resolver
 				if file.FlatType(idx) != "call_expression" {
 					return
 				}
@@ -16240,8 +16250,8 @@ func registerAllRules() {
 							if strings.Contains(recText, "?.") {
 								return
 							}
-							if !nonNull && r.resolver != nil {
-								resolved := r.resolver.ResolveFlatNode(receiverNode, file)
+							if !nonNull && ctx.Resolver != nil {
+								resolved := ctx.Resolver.ResolveFlatNode(receiverNode, file)
 								if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
 									validTypes := orEmptyValidTypes
 									if methodName == "isNullOrEmpty" || methodName == "isNullOrBlank" {
@@ -16286,7 +16296,7 @@ func registerAllRules() {
 						}
 					}
 				}
-				if args != 0 && r.resolver != nil {
+				if args != 0 && ctx.Resolver != nil {
 					calleeName := flatCallExpressionName(file, idx)
 					replacementName, ok := ofNotNullReplacements[calleeName]
 					if !ok {
@@ -16310,7 +16320,7 @@ func registerAllRules() {
 							allNonNull = false
 							break
 						}
-						resolved := r.resolver.ResolveFlatNode(expr, file)
+						resolved := ctx.Resolver.ResolveFlatNode(expr, file)
 						if resolved == nil || resolved.Kind == typeinfer.TypeUnknown || resolved.IsNullable() {
 							allNonNull = false
 							break
@@ -16505,8 +16515,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.95, OriginalV1: r,
-			Needs:           v2.NeedsResolver,
-			SetResolverHook: func(res typeinfer.TypeResolver) { r.SetResolver(res) },
+			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				navExpr, _ := flatCallExpressionParts(file, idx)

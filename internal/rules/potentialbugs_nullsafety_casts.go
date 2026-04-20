@@ -18,10 +18,8 @@ import (
 type UnsafeCastRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *UnsafeCastRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence. Without the
 // resolver this rule flags every bare `as` cast and then removes the
@@ -166,9 +164,9 @@ func (r *UnsafeCastRule) check(ctx *v2.Context) {
 
 	// 1. Resolver-based check: the expression type already matches the target
 	//    (e.g., via is-check smart cast or declaration type).
-	if r.resolver != nil && file.FlatChildCount(idx) >= 2 {
-		exprType := r.resolver.ResolveFlatNode(file.FlatChild(idx, 0), file)
-		targetType := r.resolver.ResolveFlatNode(file.FlatChild(idx, file.FlatChildCount(idx)-1), file)
+	if ctx.Resolver != nil && file.FlatChildCount(idx) >= 2 {
+		exprType := ctx.Resolver.ResolveFlatNode(file.FlatChild(idx, 0), file)
+		targetType := ctx.Resolver.ResolveFlatNode(file.FlatChild(idx, file.FlatChildCount(idx)-1), file)
 		if exprType != nil && targetType != nil &&
 			exprType.Kind != typeinfer.TypeUnknown && targetType.Kind != typeinfer.TypeUnknown {
 			if exprType.FQN == targetType.FQN || exprType.IsSubtypeOf(targetType.FQN) ||
@@ -494,12 +492,8 @@ func isInsideWhenBranchWithStringSubjectFlat(file *scanner.File, idx uint32) boo
 type CastNullableToNonNullableTypeRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *CastNullableToNonNullableTypeRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-}
 
 // Confidence reports a tier-2 (medium) base confidence — needs the
 // resolver to decide whether the source expression is nullable; without it,
@@ -524,8 +518,8 @@ func (r *CastNullableToNonNullableTypeRule) check(ctx *v2.Context) {
 	rhs := strings.TrimSpace(parts[1])
 	if (strings.HasSuffix(lhs, "?") || strings.HasSuffix(lhs, "!!") || strings.HasSuffix(lhs, ")")) && !strings.HasSuffix(rhs, "?") {
 		// If resolver is available, check if source expression is actually nullable
-		if r.resolver != nil && file.FlatChildCount(idx) >= 2 {
-			isNull := r.resolver.IsNullableFlat(file.FlatChild(idx, 0), file)
+		if ctx.Resolver != nil && file.FlatChildCount(idx) >= 2 {
+			isNull := ctx.Resolver.IsNullableFlat(file.FlatChild(idx, 0), file)
 			if isNull != nil && !*isNull {
 				return // source is known non-null, cast is safe
 			}

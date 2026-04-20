@@ -18,7 +18,7 @@ func (r *ArrayPrimitiveRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6cc6004a613b130c",
+		SourceHash:    "6846d726ff52cb30",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *BitmapDecodeWithoutOptionsRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6cc6004a613b130c",
+		SourceHash:    "6846d726ff52cb30",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *CouldBeSequenceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6cc6004a613b130c",
+		SourceHash:    "6846d726ff52cb30",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedOperations",
@@ -72,7 +72,7 @@ func (r *ForEachOnRangeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6cc6004a613b130c",
+		SourceHash:    "6846d726ff52cb30",
 	}
 }
 
@@ -86,7 +86,7 @@ func (r *SpreadOperatorRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6cc6004a613b130c",
+		SourceHash:    "6846d726ff52cb30",
 	}
 }
 
@@ -100,7 +100,7 @@ func (r *UnnecessaryInitOnArrayRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6cc6004a613b130c",
+		SourceHash:    "6846d726ff52cb30",
 	}
 }
 
@@ -114,7 +114,7 @@ func (r *UnnecessaryPartOfBinaryExpressionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6cc6004a613b130c",
+		SourceHash:    "6846d726ff52cb30",
 	}
 }
 
@@ -128,7 +128,7 @@ func (r *UnnecessaryTemporaryInstantiationRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6cc6004a613b130c",
+		SourceHash:    "6846d726ff52cb30",
 	}
 }
 
@@ -142,6 +142,6 @@ func (r *UnnecessaryTypeCastingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6cc6004a613b130c",
+		SourceHash:    "6846d726ff52cb30",
 	}
 }

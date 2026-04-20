@@ -47,12 +47,10 @@ var asyncBoundaryBaseClasses = map[string]bool{
 type TooGenericExceptionCaughtRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver                  typeinfer.TypeResolver
 	ExceptionNames            []string       // configurable list of generic exception types
 	AllowedExceptionNameRegex *regexp.Regexp // exception var names matching this are allowed
 }
 
-func (r *TooGenericExceptionCaughtRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — matches on
 // exception-type names; with the resolver it can respect custom
@@ -161,9 +159,9 @@ func (r *TooGenericExceptionCaughtRule) checkNode(ctx *v2.Context) {
 	}
 
 	// With resolver, check if the caught type is a known subtype of a generic exception
-	if r.resolver != nil {
+	if ctx.Resolver != nil {
 		for _, generic := range exNames {
-			if r.resolver.IsExceptionSubtype(generic, caughtType) {
+			if ctx.Resolver.IsExceptionSubtype(generic, caughtType) {
 				// generic IS-A caughtType means caughtType is more general
 				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
 					fmt.Sprintf("Caught too-generic exception type '%s' (catches subtypes like '%s').", caughtType, generic)))
@@ -308,11 +306,9 @@ func isCatchPartOfTryExpressionFlat(file *scanner.File, catchNode uint32) bool {
 type TooGenericExceptionThrownRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver       typeinfer.TypeResolver
 	ExceptionNames []string // configurable list of generic exception types
 }
 
-func (r *TooGenericExceptionThrownRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — matches on
 // thrown-exception names; name-only fallback false-positives on
@@ -386,8 +382,8 @@ func (r *TooGenericExceptionThrownRule) check(ctx *v2.Context) {
 			}
 			// With resolver, check if the thrown type resolves to a known generic exception
 			// (e.g., imported under an alias). Do NOT flag subtypes — only the generic types themselves.
-			if r.resolver != nil {
-				info := r.resolver.ClassHierarchy(thrownType)
+			if ctx.Resolver != nil {
+				info := ctx.Resolver.ClassHierarchy(thrownType)
 				if info != nil && nameSet[info.Name] {
 					ctx.Emit(r.Finding(file, i+1, 1,
 						fmt.Sprintf("Too-generic exception type '%s' thrown.", info.Name)))
@@ -403,10 +399,8 @@ func (r *TooGenericExceptionThrownRule) check(ctx *v2.Context) {
 type UnreachableCatchBlockRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *UnreachableCatchBlockRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — catch-block
 // reachability depends on the thrown-type hierarchy from the resolver;
@@ -446,8 +440,8 @@ func (r *UnreachableCatchBlockRule) checkFlatNode(ctx *v2.Context) {
 					fmt.Sprintf("Duplicate catch block for '%s'.", childType)))
 				continue
 			}
-			if r.resolver != nil {
-				if r.resolver.IsExceptionSubtype(childType, parentType) {
+			if ctx.Resolver != nil {
+				if ctx.Resolver.IsExceptionSubtype(childType, parentType) {
 					ctx.Emit(r.Finding(file, childLine, 1,
 						fmt.Sprintf("Catch block for '%s' is unreachable because '%s' is caught above.", childType, parentType)))
 				}
@@ -496,8 +490,6 @@ func extractCatchTypeFlat(file *scanner.File, catchNode uint32) string {
 type UnreachableCodeRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver     typeinfer.TypeResolver
-	oracleLookup oracle.Lookup
 }
 
 // oracleDiagnosticFactories lists the Kotlin compiler diagnostic factory names
@@ -507,12 +499,6 @@ var oracleDiagnosticFactories = map[string]bool{
 	"USELESS_ELVIS":    true,
 }
 
-func (r *UnreachableCodeRule) SetResolver(res typeinfer.TypeResolver) {
-	r.resolver = res
-	if cr, ok := res.(*oracle.CompositeResolver); ok {
-		r.oracleLookup = cr.Oracle()
-	}
-}
 
 // Confidence reports a tier-2 (medium) base confidence. When the
 // oracle provides compiler diagnostics the rule is authoritative
@@ -536,8 +522,12 @@ var nothingReturningFuncs = map[string]bool{
 func (r *UnreachableCodeRule) checkNode(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
 	// If oracle has compiler diagnostics for this file, use those (authoritative, no false positives).
-	if r.oracleLookup != nil {
-		diags := r.oracleLookup.LookupDiagnostics(file.Path)
+	var oracleLookup oracle.Lookup
+	if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+		oracleLookup = cr.Oracle()
+	}
+	if oracleLookup != nil {
+		diags := oracleLookup.LookupDiagnostics(file.Path)
 		if len(diags) > 0 {
 			r.checkWithDiagnosticsFlat(ctx, diags)
 			return
@@ -640,7 +630,7 @@ func (r *UnreachableCodeRule) checkNode(ctx *v2.Context) {
 			jumpLine = file.FlatRow(child) + 1
 		}
 		// Detect exhaustive when expressions (all branches terminate)
-		if !foundJump && file.FlatType(child) == "when_expression" && whenIsExhaustiveAndTerminatesFlat(file, child, r.resolver) {
+		if !foundJump && file.FlatType(child) == "when_expression" && whenIsExhaustiveAndTerminatesFlat(file, child, ctx.Resolver) {
 			foundJump = true
 			jumpLine = file.FlatRow(child) + 1
 		}

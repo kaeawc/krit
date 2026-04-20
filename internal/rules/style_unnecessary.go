@@ -190,10 +190,8 @@ type UnnecessaryLetRule struct {
 type UnnecessaryFilterRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *UnnecessaryFilterRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // filterReceiverTypes are stdlib collection types for which filter+terminal can be simplified.
 var filterReceiverTypes = map[string]bool{

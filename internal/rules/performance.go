@@ -34,10 +34,8 @@ func (r *BitmapDecodeWithoutOptionsRule) Confidence() float64 { return 0.75 }
 type ArrayPrimitiveRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *ArrayPrimitiveRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — detects
 // Array<Int>/Array<Long> that should be IntArray/LongArray; needs resolver
@@ -113,10 +111,8 @@ type CouldBeSequenceRule struct {
 	FlatDispatchBase
 	BaseRule
 	AllowedOperations int
-	resolver          typeinfer.TypeResolver
 }
 
-func (r *CouldBeSequenceRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — detects long
 // collection chains that should use asSequence(); chain-length heuristic is
@@ -619,10 +615,8 @@ func tempInstantiationFirstArgumentFlat(file *scanner.File, call uint32) string 
 type UnnecessaryTypeCastingRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *UnnecessaryTypeCastingRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — flags casts
 // that are no-ops; needs the resolver to confirm the source type matches

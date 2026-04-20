@@ -380,7 +380,6 @@ func isInsideContainsKeyFilterChainFlat(file *scanner.File, idx uint32, receiver
 type UnsafeCallOnNullableTypeRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Potential-bugs null safety rule. Detection leans on structural patterns
@@ -388,7 +387,6 @@ type UnsafeCallOnNullableTypeRule struct {
 // resolver is absent. Classified per roadmap/17.
 func (r *UnsafeCallOnNullableTypeRule) Confidence() float64 { return 0.75 }
 
-func (r *UnsafeCallOnNullableTypeRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -479,8 +477,8 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 
 	// If resolver is available, check if the receiver is known non-null.
 	// If so, suppress the finding — it's not actually unsafe.
-	if r.resolver != nil && file.FlatChildCount(idx) >= 1 {
-		isNull := r.resolver.IsNullableFlat(file.FlatChild(idx, 0), file)
+	if ctx.Resolver != nil && file.FlatChildCount(idx) >= 1 {
+		isNull := ctx.Resolver.IsNullableFlat(file.FlatChild(idx, 0), file)
 		if isNull != nil && !*isNull {
 			return // receiver is known non-null, !! is safe
 		}
@@ -860,10 +858,8 @@ func isCompilerLookupReceiver(receiver string) bool {
 type MapGetWithNotNullAssertionRule struct {
 	FlatDispatchBase
 	BaseRule
-	resolver typeinfer.TypeResolver
 }
 
-func (r *MapGetWithNotNullAssertionRule) SetResolver(res typeinfer.TypeResolver) { r.resolver = res }
 
 // Confidence reports a tier-2 (medium) base confidence — tree-sitter
 // structural check; resolver confirms the receiver is Map but falls back to
@@ -907,7 +903,7 @@ func (r *MapGetWithNotNullAssertionRule) check(ctx *v2.Context) {
 		}
 	}
 	// If resolver is available, verify the receiver is actually a Map type
-	if r.resolver != nil {
+	if ctx.Resolver != nil {
 		var receiverName string
 		if m := mapBracketBangRe.FindStringSubmatch(text); m != nil {
 			receiverName = m[1]
@@ -919,7 +915,7 @@ func (r *MapGetWithNotNullAssertionRule) check(ctx *v2.Context) {
 			if dotIdx := strings.LastIndex(simpleName, "."); dotIdx >= 0 {
 				simpleName = simpleName[dotIdx+1:]
 			}
-			resolved := r.resolver.ResolveByNameFlat(simpleName, idx, file)
+			resolved := ctx.Resolver.ResolveByNameFlat(simpleName, idx, file)
 			if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
 				isMap := resolved.Name == "Map" || resolved.Name == "MutableMap" ||
 					resolved.Name == "HashMap" || resolved.Name == "LinkedHashMap" ||

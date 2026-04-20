@@ -18,7 +18,7 @@ func (r *DeprecationRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        &registry.OracleFilter{AllFiles: true},
-		SourceHash:    "f437c0f2cf1aac11",
+		SourceHash:    "537d654b52993629",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeImportStatements",
@@ -43,7 +43,7 @@ func (r *HasPlatformTypeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "f437c0f2cf1aac11",
+		SourceHash:    "537d654b52993629",
 	}
 }
 
@@ -57,7 +57,7 @@ func (r *IgnoredReturnValueRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "f437c0f2cf1aac11",
+		SourceHash:    "537d654b52993629",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoreFunctionCall",
@@ -118,7 +118,7 @@ func (r *ImplicitDefaultLocaleRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "f437c0f2cf1aac11",
+		SourceHash:    "537d654b52993629",
 	}
 }
 
@@ -132,6 +132,6 @@ func (r *LocaleDefaultForCurrencyRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "f437c0f2cf1aac11",
+		SourceHash:    "537d654b52993629",
 	}
 }

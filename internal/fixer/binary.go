@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -167,7 +168,7 @@ func applyBinaryFixPartitions(
 			errors = append(errors, fmt.Errorf("mkdir %s: %w", dir, err))
 			continue
 		}
-		if err := os.WriteFile(bf.TargetPath, bf.Content, 0644); err != nil {
+		if err := fsutil.WriteFileAtomic(bf.TargetPath, bf.Content, 0644); err != nil {
 			errors = append(errors, fmt.Errorf("create %s: %w", bf.TargetPath, err))
 		} else {
 			applied++

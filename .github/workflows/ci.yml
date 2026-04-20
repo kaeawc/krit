@@ -24,6 +24,9 @@ jobs:
       - name: Vet
         run: make vet
 
+      - name: Lint rules (capability-declaration gate)
+        run: make lint-rules
+
       - name: Test
         run: make test
 

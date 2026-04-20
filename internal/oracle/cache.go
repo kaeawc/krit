@@ -23,11 +23,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
 
+	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/store"
 )
 
@@ -74,20 +76,16 @@ type CacheClosure struct {
 // it doesn't exist.
 func CacheDir(repoDir string) (string, error) {
 	dir := filepath.Join(repoDir, ".krit", "types-cache")
-	if err := os.MkdirAll(filepath.Join(dir, "entries"), 0o755); err != nil {
+	vd := cacheutil.VersionedDir{
+		Root:       dir,
+		EntriesDir: "entries",
+		Tokens:     []cacheutil.SchemaToken{{Name: "version", Value: fmt.Sprintf("%d", CacheVersion)}},
+	}
+	entriesDir, err := vd.Open()
+	if err != nil {
 		return "", fmt.Errorf("create cache dir: %w", err)
 	}
-	// Bump-proof the cache: if a `version` file is present and disagrees
-	// with CacheVersion, nuke the entries subtree. Missing file is fine
-	// (first run).
-	vPath := filepath.Join(dir, "version")
-	if b, err := os.ReadFile(vPath); err == nil {
-		if string(b) != fmt.Sprintf("%d", CacheVersion) {
-			_ = os.RemoveAll(filepath.Join(dir, "entries"))
-			_ = os.MkdirAll(filepath.Join(dir, "entries"), 0o755)
-		}
-	}
-	_ = os.WriteFile(vPath, []byte(fmt.Sprintf("%d", CacheVersion)), 0o644)
+	_ = entriesDir // callers use filepath.Join(dir, "entries") via entryPath
 	return dir, nil
 }
 
@@ -108,26 +106,14 @@ func FindRepoDir(scanPaths []string) string {
 // Used both as the cache key and as the building block for closure
 // fingerprints.
 func ContentHash(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return hashutil.HashFile(path)
 }
 
 // entryPath returns the disk path for a given content hash inside cacheDir.
 // Format: entries/{hash[:2]}/{hash[2:]}.json — two-level sharding so no
 // single directory grows past ~256 shards even in huge repos.
 func entryPath(cacheDir, hash string) string {
-	if len(hash) < 3 {
-		return filepath.Join(cacheDir, "entries", "_", hash+".json")
-	}
-	return filepath.Join(cacheDir, "entries", hash[:2], hash[2:]+".json")
+	return cacheutil.ShardedEntryPath(filepath.Join(cacheDir, "entries"), hash, ".json")
 }
 
 // LoadEntry reads and parses a cache entry. Returns (nil, nil) if the
@@ -166,8 +152,7 @@ func closureFingerprint(depPaths []string, hashCache map[string]string) (string,
 		// A file with no source deps still needs a deterministic
 		// fingerprint; hash the empty string's hash so the field is
 		// populated and "no deps" is distinguishable from "uninitialized".
-		empty := sha256.Sum256(nil)
-		return hex.EncodeToString(empty[:]), nil
+		return hashutil.HashHex(nil), nil
 	}
 	perDep := make([]string, 0, len(depPaths))
 	for _, p := range depPaths {
@@ -270,32 +255,16 @@ func IndexCacheHashes(cacheDir string) map[string]bool {
 // process crashes mid-write.
 func WriteEntry(cacheDir string, entry *CacheEntry) error {
 	entry.V = CacheVersion
-	dir := filepath.Dir(entryPath(cacheDir, entry.ContentHash))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dir, err)
+	target := entryPath(cacheDir, entry.ContentHash)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(target), err)
 	}
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("marshal cache entry: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, ".entry-*.tmp")
-	if err != nil {
-		return fmt.Errorf("tempfile: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("write tempfile: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("close tempfile: %w", err)
-	}
-	target := entryPath(cacheDir, entry.ContentHash)
-	if err := os.Rename(tmpName, target); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("rename %s -> %s: %w", tmpName, target, err)
+	if err := fsutil.WriteFileAtomic(target, data, 0o644); err != nil {
+		return fmt.Errorf("write entry: %w", err)
 	}
 	return nil
 }
@@ -551,7 +520,7 @@ func WriteFreshEntries(
 // keys.  It encodes CacheVersion so that a version bump automatically
 // produces a different key prefix, invalidating all prior oracle entries.
 func oracleVersionHash() [16]byte {
-	h := sha256.Sum256([]byte(fmt.Sprintf("oracle-v%d", CacheVersion)))
+	h := hashutil.HashBytes([]byte(fmt.Sprintf("oracle-v%d", CacheVersion)))
 	var out [16]byte
 	copy(out[:], h[:])
 	return out
@@ -734,4 +703,31 @@ func CacheStats(cacheDir string) (count int, bytes int64, err error) {
 		return nil
 	})
 	return count, bytes, err
+}
+
+// oracleCacheEntry implements cacheutil.Registered for the oracle cache.
+type oracleCacheEntry struct {
+	repoDir string
+}
+
+func (o *oracleCacheEntry) Name() string { return "oracle-cache" }
+func (o *oracleCacheEntry) Clear() error {
+	if o.repoDir == "" {
+		return nil
+	}
+	dir := filepath.Join(o.repoDir, ".krit", "types-cache")
+	return os.RemoveAll(dir)
+}
+
+var registeredOracleCache = &oracleCacheEntry{}
+
+// SetOracleCacheRepoDir sets the repo directory used by the registered
+// oracle-cache entry when cacheutil.ClearAll() is called. Stub for Phase 2
+// wiring from main.go.
+func SetOracleCacheRepoDir(dir string) {
+	registeredOracleCache.repoDir = dir
+}
+
+func init() {
+	cacheutil.Register(registeredOracleCache)
 }

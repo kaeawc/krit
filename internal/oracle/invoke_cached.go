@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/store"
 )
 
@@ -524,23 +525,8 @@ func writeOracleJSON(path string, data *OracleData) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
 	}
-	// Atomic-rename write so a crashed run can't leave a torn oracle.
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".oracle-*.tmp")
-	if err != nil {
-		return fmt.Errorf("tempfile: %w", err)
-	}
-	if _, err := tmp.Write(b); err != nil {
-		tmp.Close()
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
+	if err := fsutil.WriteFileAtomic(path, b, 0o644); err != nil {
+		return fmt.Errorf("write oracle json: %w", err)
 	}
 	return nil
 }

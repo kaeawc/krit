@@ -18,7 +18,7 @@ func (r *UseAnyOrNoneInsteadOfFindRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "218e085d80b440af",
+		SourceHash:    "851b853394f07bc9",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *UseCheckNotNullRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "218e085d80b440af",
+		SourceHash:    "851b853394f07bc9",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *UseCheckOrErrorRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "218e085d80b440af",
+		SourceHash:    "851b853394f07bc9",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *UseEmptyCounterpartRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "218e085d80b440af",
+		SourceHash:    "851b853394f07bc9",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *UseIsNullOrEmptyRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "218e085d80b440af",
+		SourceHash:    "851b853394f07bc9",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *UseOrEmptyRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "218e085d80b440af",
+		SourceHash:    "851b853394f07bc9",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *UseRequireNotNullRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "218e085d80b440af",
+		SourceHash:    "851b853394f07bc9",
 	}
 }
 
@@ -116,6 +116,6 @@ func (r *UseRequireRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "218e085d80b440af",
+		SourceHash:    "851b853394f07bc9",
 	}
 }

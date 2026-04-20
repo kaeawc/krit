@@ -18,7 +18,7 @@ func (r *AllowBackupManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ed77b6516de045dc",
+		SourceHash:    "308ef41e0553a93d",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *BackupRulesRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ed77b6516de045dc",
+		SourceHash:    "308ef41e0553a93d",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *CleartextTrafficRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ed77b6516de045dc",
+		SourceHash:    "308ef41e0553a93d",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *DebuggableManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ed77b6516de045dc",
+		SourceHash:    "308ef41e0553a93d",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *ExportedPreferenceActivityManifestRule) Meta() registry.RuleDescriptor 
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ed77b6516de045dc",
+		SourceHash:    "308ef41e0553a93d",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *ExportedServiceManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ed77b6516de045dc",
+		SourceHash:    "308ef41e0553a93d",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *ExportedWithoutPermissionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ed77b6516de045dc",
+		SourceHash:    "308ef41e0553a93d",
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *InsecureBaseConfigurationManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ed77b6516de045dc",
+		SourceHash:    "308ef41e0553a93d",
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *MissingExportedFlagRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ed77b6516de045dc",
+		SourceHash:    "308ef41e0553a93d",
 	}
 }
 
@@ -144,7 +144,7 @@ func (r *ProtectedPermissionsManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ed77b6516de045dc",
+		SourceHash:    "308ef41e0553a93d",
 	}
 }
 
@@ -158,7 +158,7 @@ func (r *ServiceExportedManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ed77b6516de045dc",
+		SourceHash:    "308ef41e0553a93d",
 	}
 }
 
@@ -172,7 +172,7 @@ func (r *UnprotectedSMSBroadcastReceiverManifestRule) Meta() registry.RuleDescri
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ed77b6516de045dc",
+		SourceHash:    "308ef41e0553a93d",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *UnsafeProtectedBroadcastReceiverManifestRule) Meta() registry.RuleDescr
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ed77b6516de045dc",
+		SourceHash:    "308ef41e0553a93d",
 	}
 }
 
@@ -200,6 +200,6 @@ func (r *UseCheckPermissionManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ed77b6516de045dc",
+		SourceHash:    "308ef41e0553a93d",
 	}
 }

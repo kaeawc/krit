@@ -18,7 +18,7 @@ func (r *AppIndexingErrorManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "4f224d4abffa87ac",
+		SourceHash:    "67c14099b8c9b31e",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *AppIndexingWarningManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "4f224d4abffa87ac",
+		SourceHash:    "67c14099b8c9b31e",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *DeviceAdminManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "4f224d4abffa87ac",
+		SourceHash:    "67c14099b8c9b31e",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *FullBackupContentManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "4f224d4abffa87ac",
+		SourceHash:    "67c14099b8c9b31e",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *GoogleAppIndexingDeepLinkErrorManifestRule) Meta() registry.RuleDescrip
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "4f224d4abffa87ac",
+		SourceHash:    "67c14099b8c9b31e",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *GoogleAppIndexingWarningManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "4f224d4abffa87ac",
+		SourceHash:    "67c14099b8c9b31e",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *MissingLeanbackLauncherManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "4f224d4abffa87ac",
+		SourceHash:    "67c14099b8c9b31e",
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *MissingLeanbackSupportManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "4f224d4abffa87ac",
+		SourceHash:    "67c14099b8c9b31e",
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *MissingRegisteredManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "4f224d4abffa87ac",
+		SourceHash:    "67c14099b8c9b31e",
 	}
 }
 
@@ -144,7 +144,7 @@ func (r *PermissionImpliesUnsupportedHardwareManifestRule) Meta() registry.RuleD
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "4f224d4abffa87ac",
+		SourceHash:    "67c14099b8c9b31e",
 	}
 }
 
@@ -158,7 +158,7 @@ func (r *RtlCompatManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "4f224d4abffa87ac",
+		SourceHash:    "67c14099b8c9b31e",
 	}
 }
 
@@ -172,7 +172,7 @@ func (r *RtlEnabledManifestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "4f224d4abffa87ac",
+		SourceHash:    "67c14099b8c9b31e",
 	}
 }
 
@@ -186,6 +186,6 @@ func (r *UnsupportedChromeOsHardwareManifestRule) Meta() registry.RuleDescriptor
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "4f224d4abffa87ac",
+		SourceHash:    "67c14099b8c9b31e",
 	}
 }

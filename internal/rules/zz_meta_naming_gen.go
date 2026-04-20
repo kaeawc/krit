@@ -22,7 +22,7 @@ func (r *BooleanPropertyNamingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedPattern",
@@ -47,7 +47,7 @@ func (r *ClassNamingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        &registry.OracleFilter{},
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "classPattern",
@@ -72,7 +72,7 @@ func (r *ConstructorParameterNamingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeClassPattern",
@@ -115,7 +115,7 @@ func (r *EnumNamingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "enumEntryPattern",
@@ -138,7 +138,7 @@ func (r *ForbiddenClassNameRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "forbiddenName",
@@ -163,7 +163,7 @@ func (r *FunctionNameMaxLengthRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "maximumFunctionNameLength",
@@ -189,7 +189,7 @@ func (r *FunctionNameMinLengthRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "minimumFunctionNameLength",
@@ -215,7 +215,7 @@ func (r *FunctionNamingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        &registry.OracleFilter{},
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeClassPattern",
@@ -258,7 +258,7 @@ func (r *FunctionParameterNamingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeClassPattern",
@@ -292,7 +292,7 @@ func (r *InvalidPackageDeclarationRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "requireRootInDeclaration",
@@ -326,7 +326,7 @@ func (r *LambdaParameterNamingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "parameterPattern",
@@ -351,7 +351,7 @@ func (r *MatchingDeclarationNameRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "multiplatformTargets",
@@ -385,7 +385,7 @@ func (r *MemberNameEqualsClassNameRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoreOverridden",
@@ -410,7 +410,7 @@ func (r *NoNameShadowingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 	}
 }
 
@@ -424,7 +424,7 @@ func (r *NonBooleanPropertyPrefixedWithIsRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 	}
 }
 
@@ -438,7 +438,7 @@ func (r *ObjectPropertyNamingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "constantPattern",
@@ -481,7 +481,7 @@ func (r *PackageNamingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "packagePattern",
@@ -506,7 +506,7 @@ func (r *TopLevelPropertyNamingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "constantPattern",
@@ -549,7 +549,7 @@ func (r *VariableMaxLengthRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "maximumVariableNameLength",
@@ -573,7 +573,7 @@ func (r *VariableMinLengthRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "minimumVariableNameLength",
@@ -597,7 +597,7 @@ func (r *VariableNamingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e8726129418fd6ad",
+		SourceHash:    "4027cdddaaa2bc36",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeClassPattern",

@@ -18,7 +18,7 @@ func (r *AlwaysShowActionResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6ca3a16e1bff55dc",
+		SourceHash:    "48694de8ad70c922",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *DisableBaselineAlignmentResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6ca3a16e1bff55dc",
+		SourceHash:    "48694de8ad70c922",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *InOrMmUsageResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6ca3a16e1bff55dc",
+		SourceHash:    "48694de8ad70c922",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *InefficientWeightResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6ca3a16e1bff55dc",
+		SourceHash:    "48694de8ad70c922",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *MergeRootFrameResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6ca3a16e1bff55dc",
+		SourceHash:    "48694de8ad70c922",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *NegativeMarginResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6ca3a16e1bff55dc",
+		SourceHash:    "48694de8ad70c922",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *NestedWeightsResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6ca3a16e1bff55dc",
+		SourceHash:    "48694de8ad70c922",
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *ObsoleteLayoutParamsResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6ca3a16e1bff55dc",
+		SourceHash:    "48694de8ad70c922",
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *OverdrawResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6ca3a16e1bff55dc",
+		SourceHash:    "48694de8ad70c922",
 	}
 }
 
@@ -144,7 +144,7 @@ func (r *PxUsageResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6ca3a16e1bff55dc",
+		SourceHash:    "48694de8ad70c922",
 	}
 }
 
@@ -158,7 +158,7 @@ func (r *SmallSpResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6ca3a16e1bff55dc",
+		SourceHash:    "48694de8ad70c922",
 	}
 }
 
@@ -172,7 +172,7 @@ func (r *SpUsageResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6ca3a16e1bff55dc",
+		SourceHash:    "48694de8ad70c922",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *StateListReachableResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "6ca3a16e1bff55dc",
+		SourceHash:    "48694de8ad70c922",
 	}
 }
 
@@ -200,6 +200,6 @@ func (r *Suspicious0dpResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0,
 		Oracle:        nil,
-		SourceHash:    "6ca3a16e1bff55dc",
+		SourceHash:    "48694de8ad70c922",
 	}
 }

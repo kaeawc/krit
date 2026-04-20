@@ -18,7 +18,7 @@ func (r *AnalyticsCallWithoutConsentGateRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cf10f1a721f4545c",
+		SourceHash:    "629321b0d48538f4",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *AnalyticsEventWithPiiParamNameRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cf10f1a721f4545c",
+		SourceHash:    "629321b0d48538f4",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *AnalyticsUserIdFromPiiRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cf10f1a721f4545c",
+		SourceHash:    "629321b0d48538f4",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *CrashlyticsCustomKeyWithPiiRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cf10f1a721f4545c",
+		SourceHash:    "629321b0d48538f4",
 	}
 }
 
@@ -74,6 +74,6 @@ func (r *FirebaseRemoteConfigDefaultsWithPiiRule) Meta() registry.RuleDescriptor
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "cf10f1a721f4545c",
+		SourceHash:    "629321b0d48538f4",
 	}
 }

@@ -22,7 +22,7 @@ func (r *EmptyCatchBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        &registry.OracleFilter{},
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedExceptionNameRegex",
@@ -47,7 +47,7 @@ func (r *EmptyClassBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 	}
 }
 
@@ -61,7 +61,7 @@ func (r *EmptyDefaultConstructorRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 	}
 }
 
@@ -75,7 +75,7 @@ func (r *EmptyDoWhileBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 	}
 }
 
@@ -89,7 +89,7 @@ func (r *EmptyElseBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 	}
 }
 
@@ -103,7 +103,7 @@ func (r *EmptyFinallyBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 	}
 }
 
@@ -117,7 +117,7 @@ func (r *EmptyForBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 	}
 }
 
@@ -131,7 +131,7 @@ func (r *EmptyFunctionBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoreOverridden",
@@ -156,7 +156,7 @@ func (r *EmptyIfBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 	}
 }
 
@@ -170,7 +170,7 @@ func (r *EmptyInitBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 	}
 }
 
@@ -184,7 +184,7 @@ func (r *EmptyKotlinFileRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 	}
 }
 
@@ -198,7 +198,7 @@ func (r *EmptySecondaryConstructorRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 	}
 }
 
@@ -212,7 +212,7 @@ func (r *EmptyTryBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 	}
 }
 
@@ -226,7 +226,7 @@ func (r *EmptyWhenBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 	}
 }
 
@@ -240,6 +240,6 @@ func (r *EmptyWhileBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "f4f2354714718d77",
+		SourceHash:    "b1d62054987b8776",
 	}
 }

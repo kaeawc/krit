@@ -18,7 +18,7 @@ func (r *FanInFanOutHotspotRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "452d7455abf36d91",
+		SourceHash:    "1dbc3f449cc54df5",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedFanIn",
@@ -53,6 +53,6 @@ func (r *GodClassOrModuleRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "452d7455abf36d91",
+		SourceHash:    "1dbc3f449cc54df5",
 	}
 }

@@ -18,7 +18,7 @@ func (r *MapGetWithNotNullAssertionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "2402dc147b6493e5",
+		SourceHash:    "76933a062a4e9b7f",
 	}
 }
 
@@ -32,6 +32,6 @@ func (r *UnsafeCallOnNullableTypeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "2402dc147b6493e5",
+		SourceHash:    "76933a062a4e9b7f",
 	}
 }

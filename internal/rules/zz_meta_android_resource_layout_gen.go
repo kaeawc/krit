@@ -18,7 +18,7 @@ func (r *AdapterViewChildrenResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "1730ca44a96d4fb4",
+		SourceHash:    "66e59b5adab50aa5",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *IncludeLayoutParamResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "1730ca44a96d4fb4",
+		SourceHash:    "66e59b5adab50aa5",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *InconsistentLayoutResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "1730ca44a96d4fb4",
+		SourceHash:    "66e59b5adab50aa5",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *NestedScrollingResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "1730ca44a96d4fb4",
+		SourceHash:    "66e59b5adab50aa5",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *OrientationResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "1730ca44a96d4fb4",
+		SourceHash:    "66e59b5adab50aa5",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *RequiredSizeResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "1730ca44a96d4fb4",
+		SourceHash:    "66e59b5adab50aa5",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *ScrollViewCountResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "1730ca44a96d4fb4",
+		SourceHash:    "66e59b5adab50aa5",
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *ScrollViewSizeResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "1730ca44a96d4fb4",
+		SourceHash:    "66e59b5adab50aa5",
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *TooDeepLayoutResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "1730ca44a96d4fb4",
+		SourceHash:    "66e59b5adab50aa5",
 	}
 }
 
@@ -144,7 +144,7 @@ func (r *TooManyViewsResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "1730ca44a96d4fb4",
+		SourceHash:    "66e59b5adab50aa5",
 	}
 }
 
@@ -158,7 +158,7 @@ func (r *UseCompoundDrawablesResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "1730ca44a96d4fb4",
+		SourceHash:    "66e59b5adab50aa5",
 	}
 }
 
@@ -172,7 +172,7 @@ func (r *UselessLeafResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "1730ca44a96d4fb4",
+		SourceHash:    "66e59b5adab50aa5",
 	}
 }
 
@@ -186,6 +186,6 @@ func (r *UselessParentResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "1730ca44a96d4fb4",
+		SourceHash:    "66e59b5adab50aa5",
 	}
 }

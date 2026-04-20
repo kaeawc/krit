@@ -18,7 +18,7 @@ func (r *ExtraTextResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *GoogleApiKeyInResourcesRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *ImpliedQuantityResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *InconsistentArraysResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *LocaleConfigStaleResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *MissingQuantityResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *OnClickResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *StringFormatCountResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *StringFormatInvalidResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -144,7 +144,7 @@ func (r *StringFormatMatchesResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -158,7 +158,7 @@ func (r *StringFormatTrivialResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -172,7 +172,7 @@ func (r *StringNotLocalizableResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *TextFieldsResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -200,7 +200,7 @@ func (r *UnusedAttributeResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -214,7 +214,7 @@ func (r *UnusedQuantityResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -228,7 +228,7 @@ func (r *WebViewInScrollViewResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }
 
@@ -242,6 +242,6 @@ func (r *WrongRegionResourceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "44c7ba98f90b848c",
+		SourceHash:    "e8a9cd121678b6fd",
 	}
 }

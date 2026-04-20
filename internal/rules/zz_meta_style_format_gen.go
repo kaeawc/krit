@@ -18,7 +18,7 @@ func (r *CascadingCallWrappingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "e84ff3340ff42247",
+		SourceHash:    "7a321ff07ffcbbc6",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "includeElvis",
@@ -43,7 +43,7 @@ func (r *EqualsOnSignatureLineRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "e84ff3340ff42247",
+		SourceHash:    "7a321ff07ffcbbc6",
 	}
 }
 
@@ -57,7 +57,7 @@ func (r *MaxChainedCallsOnSameLineRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "e84ff3340ff42247",
+		SourceHash:    "7a321ff07ffcbbc6",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "maxChainedCalls",
@@ -83,7 +83,7 @@ func (r *MaxLineLengthRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e84ff3340ff42247",
+		SourceHash:    "7a321ff07ffcbbc6",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeCommentStatements",
@@ -143,7 +143,7 @@ func (r *NewLineAtEndOfFileRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e84ff3340ff42247",
+		SourceHash:    "7a321ff07ffcbbc6",
 	}
 }
 
@@ -157,7 +157,7 @@ func (r *NoTabsRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e84ff3340ff42247",
+		SourceHash:    "7a321ff07ffcbbc6",
 	}
 }
 
@@ -171,7 +171,7 @@ func (r *SpacingAfterPackageAndImportsRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e84ff3340ff42247",
+		SourceHash:    "7a321ff07ffcbbc6",
 	}
 }
 
@@ -185,7 +185,7 @@ func (r *TrailingWhitespaceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "e84ff3340ff42247",
+		SourceHash:    "7a321ff07ffcbbc6",
 	}
 }
 
@@ -199,7 +199,7 @@ func (r *UnderscoresInNumericLiteralsRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "e84ff3340ff42247",
+		SourceHash:    "7a321ff07ffcbbc6",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "acceptableLength",

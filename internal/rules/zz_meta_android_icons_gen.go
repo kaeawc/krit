@@ -18,7 +18,7 @@ func (r *ConvertToWebpRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b0572e86c2a92757",
+		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *GifUsageRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b0572e86c2a92757",
+		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *IconDensitiesRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b0572e86c2a92757",
+		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *IconDipSizeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b0572e86c2a92757",
+		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *IconDuplicatesConfigRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b0572e86c2a92757",
+		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *IconDuplicatesRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b0572e86c2a92757",
+		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *IconExpectedSizeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b0572e86c2a92757",
+		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *IconMissingDensityFolderRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b0572e86c2a92757",
+		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }
 
@@ -130,6 +130,6 @@ func (r *IconNoDpiRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b0572e86c2a92757",
+		SourceHash:    "8a94f9f4ae5dafb2",
 	}
 }

@@ -23,7 +23,7 @@ func (r *ForbiddenAnnotationRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d271075b99ba81b6",
+		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "annotations",
@@ -48,7 +48,7 @@ func (r *ForbiddenCommentRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d271075b99ba81b6",
+		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedPatterns",
@@ -82,7 +82,7 @@ func (r *ForbiddenMethodCallRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d271075b99ba81b6",
+		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "methods",
@@ -107,7 +107,7 @@ func (r *ForbiddenNamedParamRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d271075b99ba81b6",
+		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "methods",
@@ -132,7 +132,7 @@ func (r *ForbiddenOptInRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d271075b99ba81b6",
+		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "markerClasses",
@@ -157,7 +157,7 @@ func (r *ForbiddenSuppressRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d271075b99ba81b6",
+		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "rules",
@@ -180,7 +180,7 @@ func (r *ForbiddenVoidRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d271075b99ba81b6",
+		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoreOverridden",
@@ -214,7 +214,7 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d271075b99ba81b6",
+		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoreAnnotated",
@@ -350,7 +350,7 @@ func (r *WildcardImportRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "d271075b99ba81b6",
+		SourceHash:    "5e0e9e7b3f497f6e",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeImports",

@@ -18,7 +18,7 @@ func (r *AnvilContributesBindingWithoutScopeRule) Meta() registry.RuleDescriptor
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b999b906e9b3dfef",
+		SourceHash:    "1b2f23a2d9cd9376",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *AnvilMergeComponentEmptyScopeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        &registry.OracleFilter{},
-		SourceHash:    "b999b906e9b3dfef",
+		SourceHash:    "1b2f23a2d9cd9376",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *BindsMismatchedArityRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        &registry.OracleFilter{},
-		SourceHash:    "b999b906e9b3dfef",
+		SourceHash:    "1b2f23a2d9cd9376",
 	}
 }
 
@@ -60,6 +60,6 @@ func (r *HiltEntryPointOnNonInterfaceRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b999b906e9b3dfef",
+		SourceHash:    "1b2f23a2d9cd9376",
 	}
 }

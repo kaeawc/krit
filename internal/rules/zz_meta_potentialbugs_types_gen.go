@@ -18,7 +18,7 @@ func (r *AvoidReferentialEqualityRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "abf810e545d2761a",
+		SourceHash:    "a2690c4d4ffd36ee",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "forbiddenTypePatterns",
@@ -43,7 +43,7 @@ func (r *CharArrayToStringCallRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "abf810e545d2761a",
+		SourceHash:    "a2690c4d4ffd36ee",
 	}
 }
 
@@ -57,7 +57,7 @@ func (r *DontDowncastCollectionTypesRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "abf810e545d2761a",
+		SourceHash:    "a2690c4d4ffd36ee",
 	}
 }
 
@@ -71,7 +71,7 @@ func (r *DoubleMutabilityForCollectionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "abf810e545d2761a",
+		SourceHash:    "a2690c4d4ffd36ee",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "mutableTypes",
@@ -96,7 +96,7 @@ func (r *ElseCaseInsteadOfExhaustiveWhenRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "abf810e545d2761a",
+		SourceHash:    "a2690c4d4ffd36ee",
 	}
 }
 
@@ -110,7 +110,7 @@ func (r *EqualsAlwaysReturnsTrueOrFalseRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "abf810e545d2761a",
+		SourceHash:    "a2690c4d4ffd36ee",
 	}
 }
 
@@ -124,7 +124,7 @@ func (r *EqualsWithHashCodeExistRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "abf810e545d2761a",
+		SourceHash:    "a2690c4d4ffd36ee",
 	}
 }
 
@@ -138,7 +138,7 @@ func (r *ImplicitUnitReturnTypeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "abf810e545d2761a",
+		SourceHash:    "a2690c4d4ffd36ee",
 	}
 }
 
@@ -152,6 +152,6 @@ func (r *WrongEqualsTypeParameterRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "abf810e545d2761a",
+		SourceHash:    "a2690c4d4ffd36ee",
 	}
 }

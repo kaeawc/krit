@@ -18,7 +18,7 @@ func (r *CanBeNonNullableRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ac361325c2523eba",
+		SourceHash:    "027c3f963393e58e",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *DestructuringDeclarationWithTooManyEntriesRule) Meta() registry.RuleDes
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ac361325c2523eba",
+		SourceHash:    "027c3f963393e58e",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "maxDestructuringEntries",
@@ -58,7 +58,7 @@ func (r *DoubleNegativeExpressionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ac361325c2523eba",
+		SourceHash:    "027c3f963393e58e",
 	}
 }
 
@@ -72,7 +72,7 @@ func (r *DoubleNegativeLambdaRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ac361325c2523eba",
+		SourceHash:    "027c3f963393e58e",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "negativeFunctions",
@@ -97,7 +97,7 @@ func (r *MultilineLambdaItParameterRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ac361325c2523eba",
+		SourceHash:    "027c3f963393e58e",
 	}
 }
 
@@ -111,7 +111,7 @@ func (r *MultilineRawStringIndentationRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ac361325c2523eba",
+		SourceHash:    "027c3f963393e58e",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "indentSize",
@@ -145,7 +145,7 @@ func (r *NullableBooleanCheckRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ac361325c2523eba",
+		SourceHash:    "027c3f963393e58e",
 	}
 }
 
@@ -159,7 +159,7 @@ func (r *RangeUntilInsteadOfRangeToRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ac361325c2523eba",
+		SourceHash:    "027c3f963393e58e",
 	}
 }
 
@@ -173,7 +173,7 @@ func (r *StringShouldBeRawStringRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ac361325c2523eba",
+		SourceHash:    "027c3f963393e58e",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "maxEscapedCharacterCount",
@@ -199,7 +199,7 @@ func (r *TrimMultilineRawStringRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "ac361325c2523eba",
+		SourceHash:    "027c3f963393e58e",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "trimmingMethods",

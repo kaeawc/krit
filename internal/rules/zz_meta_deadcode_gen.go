@@ -18,6 +18,6 @@ func (r *DeadCodeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "447dcbff3eadc18d",
+		SourceHash:    "5bade39c54c91e25",
 	}
 }

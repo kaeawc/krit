@@ -22,7 +22,7 @@ func (r *ExitOutsideMainRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "7c76c1d88fbd3879",
+		SourceHash:    "87fab398a05eece4",
 	}
 }
 
@@ -36,7 +36,7 @@ func (r *ExplicitGarbageCollectionCallRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "7c76c1d88fbd3879",
+		SourceHash:    "87fab398a05eece4",
 	}
 }
 
@@ -50,7 +50,7 @@ func (r *InvalidRangeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "7c76c1d88fbd3879",
+		SourceHash:    "87fab398a05eece4",
 	}
 }
 
@@ -64,7 +64,7 @@ func (r *IteratorHasNextCallsNextMethodRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "7c76c1d88fbd3879",
+		SourceHash:    "87fab398a05eece4",
 	}
 }
 
@@ -78,7 +78,7 @@ func (r *IteratorNotThrowingNoSuchElementExceptionRule) Meta() registry.RuleDesc
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "7c76c1d88fbd3879",
+		SourceHash:    "87fab398a05eece4",
 	}
 }
 
@@ -92,7 +92,7 @@ func (r *LateinitUsageRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "7c76c1d88fbd3879",
+		SourceHash:    "87fab398a05eece4",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoreOnClassesPattern",
@@ -117,7 +117,7 @@ func (r *MissingPackageDeclarationRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "7c76c1d88fbd3879",
+		SourceHash:    "87fab398a05eece4",
 	}
 }
 
@@ -131,7 +131,7 @@ func (r *MissingSuperCallRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "semantic",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "7c76c1d88fbd3879",
+		SourceHash:    "87fab398a05eece4",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "mustInvokeSuperAnnotations",
@@ -156,6 +156,6 @@ func (r *MissingUseCallRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "7c76c1d88fbd3879",
+		SourceHash:    "87fab398a05eece4",
 	}
 }

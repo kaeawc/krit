@@ -153,6 +153,20 @@ def _parse_go_value(raw: str) -> Any:
 
 # ---------- balanced scanning ----------
 
+def _skip_rune_literal(src: str, i: int) -> int:
+    """Advance past a Go rune literal starting at src[i] == "'".
+    Returns the index just after the closing quote, or i+1 if malformed."""
+    j = i + 1
+    while j < len(src):
+        if src[j] == "\\" and j + 1 < len(src):
+            j += 2
+            continue
+        if src[j] == "'":
+            return j + 1
+        j += 1
+    return i + 1
+
+
 def _balance_parens(src: str, start: int) -> int:
     """Return index just after the matching close paren for the open at start."""
     depth = 0
@@ -171,6 +185,13 @@ def _balance_parens(src: str, start: int) -> int:
         if c in ('"', '`'):
             in_str = c
             i += 1
+            continue
+        if c == "'":
+            i = _skip_rune_literal(src, i)
+            continue
+        if c == "/" and i + 1 < len(src) and src[i + 1] == "/":
+            nl = src.find("\n", i)
+            i = len(src) if nl < 0 else nl
             continue
         if c == "(":
             depth += 1
@@ -200,6 +221,13 @@ def _balance_braces(src: str, start: int) -> int:
         if c in ('"', '`'):
             in_str = c
             i += 1
+            continue
+        if c == "'":
+            i = _skip_rune_literal(src, i)
+            continue
+        if c == "/" and i + 1 < len(src) and src[i + 1] == "/":
+            nl = src.find("\n", i)
+            i = len(src) if nl < 0 else nl
             continue
         if c == "{":
             depth += 1
@@ -651,6 +679,33 @@ def parse_init_registrations(rules_files: list[Path], consts: dict[str, str]) ->
                         _extract_base_rule(entry, fields, consts)
                         regs.append(entry)
                         continue
+
+                # Case C2: v2.Register(&v2.Rule{..., OriginalV1: r, ...}) —
+                # post-FindingRepresentationUnification shape. The actual
+                # rule struct was declared earlier as `r := &FooRule{...}`
+                # and the v2.Rule wrapper references it via OriginalV1.
+                if kind == "v2.Register":
+                    rule_struct_m = re.match(
+                        r'\s*&v2\.Rule\s*\{', call_src
+                    )
+                    if rule_struct_m:
+                        # Find OriginalV1: <varname> inside the v2.Rule literal.
+                        orig_m = re.search(
+                            r'OriginalV1\s*:\s*([A-Za-z_]\w*)', call_src
+                        )
+                        if orig_m:
+                            var_ref = orig_m.group(1)
+                            best = None
+                            for sd in struct_decls:
+                                if sd["var"] == var_ref and sd["end"] < anchor_start:
+                                    best = sd
+                            if best:
+                                entry["registration_kind"] = "WrapAsV2"
+                                entry["struct_type"] = best["struct_name"]
+                                entry["struct_fields"] = best["fields"]
+                                _extract_base_rule(entry, best["fields"], consts)
+                                regs.append(entry)
+                                continue
 
                 # Case D: v2.Register(existingVar) without WrapAsV2.
                 id_m = re.match(r'\s*([A-Za-z_]\w*)\s*$', call_src)

@@ -18,7 +18,7 @@ func (r *AllProjectsBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *BuildConfigDebugInLibraryRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *BuildConfigDebugInvertedRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *CommentedOutCodeBlockRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *CommentedOutImportRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.9,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *ConventionPluginDeadCodeRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *DebugToastInProductionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.85,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *GradleBuildContainsTodoRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *HardcodedEnvironmentNameRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -144,7 +144,7 @@ func (r *HardcodedLocalhostUrlRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.85,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -158,7 +158,7 @@ func (r *HardcodedLogTagRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.8,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -172,7 +172,7 @@ func (r *MergeConflictMarkerLeftoverRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.99,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *NonAsciiIdentifierRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -200,7 +200,7 @@ func (r *OpenForTestingCallerInNonTestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -214,7 +214,7 @@ func (r *PrintStackTraceInProductionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.85,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -228,7 +228,7 @@ func (r *PrintlnInProductionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.85,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -242,7 +242,7 @@ func (r *TestFixtureAccessedFromProductionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.8,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -256,7 +256,7 @@ func (r *TestOnlyImportInProductionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.9,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -270,7 +270,7 @@ func (r *TimberTreeNotPlantedRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }
 
@@ -284,6 +284,6 @@ func (r *VisibleForTestingCallerInNonTestRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.8,
 		Oracle:        nil,
-		SourceHash:    "b7ecb7c3bfea8b24",
+		SourceHash:    "42610600e996515d",
 	}
 }

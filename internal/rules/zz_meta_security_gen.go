@@ -18,7 +18,7 @@ func (r *ContentProviderQueryWithSelectionInterpolationRule) Meta() registry.Rul
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        &registry.OracleFilter{},
-		SourceHash:    "64595a030e42142e",
+		SourceHash:    "33dc351661fdd235",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *FileFromUntrustedPathRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "64595a030e42142e",
+		SourceHash:    "33dc351661fdd235",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *HardcodedBearerTokenRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        &registry.OracleFilter{},
-		SourceHash:    "64595a030e42142e",
+		SourceHash:    "33dc351661fdd235",
 	}
 }
 
@@ -60,6 +60,6 @@ func (r *HardcodedGcpServiceAccountRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "64595a030e42142e",
+		SourceHash:    "33dc351661fdd235",
 	}
 }

@@ -18,6 +18,6 @@ func (r *CompileSdkMismatchAcrossModulesRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "0936d0dd19e29477",
+		SourceHash:    "398d291cb59434d4",
 	}
 }

@@ -18,7 +18,7 @@ func (r *AssertRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -32,7 +32,7 @@ func (r *CheckResultRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *CommitPrefEditsRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *CommitTransactionRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -74,7 +74,7 @@ func (r *DefaultLocaleRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *NestedScrollingRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -102,7 +102,7 @@ func (r *RegisteredRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *SQLiteStringRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *ScrollViewCountRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -144,7 +144,7 @@ func (r *SetTextI18nRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -158,7 +158,7 @@ func (r *ShiftFlagsRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -172,7 +172,7 @@ func (r *SimpleDateFormatRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *StopShipRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -200,7 +200,7 @@ func (r *UniqueConstantsRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -214,7 +214,7 @@ func (r *WrongCallRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }
 
@@ -228,6 +228,6 @@ func (r *WrongThreadRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.75,
 		Oracle:        nil,
-		SourceHash:    "fc36b0fdb1f4eb3f",
+		SourceHash:    "2c6f80af47b4d469",
 	}
 }

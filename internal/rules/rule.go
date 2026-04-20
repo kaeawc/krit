@@ -9,70 +9,15 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// OracleFilter declares when a rule needs oracle type information.
+// Oracle-need declaration moved to the v2.Capabilities bitfield
+// (v2.NeedsOracle) and v2.Rule.Oracle. Rules that do not declare
+// NeedsOracle are never fed to the oracle's file-selection pass, so
+// the old opt-out default (AllFiles: true for unaudited rules) is
+// gone. See roadmap/clusters/core-infra/oracle-filter-inversion.md.
 //
-// The oracle (krit-types.jar) is an expensive whole-corpus analysis step.
-// Many rules only query the oracle when a file contains a specific
-// keyword or identifier — for those files we can skip oracle analysis
-// entirely. OracleFilter lets each rule declare that condition so krit
-// can compute the union of "files any enabled rule cares about" and
-// pass that subset to the oracle instead of all .kt files.
-//
-// Semantics:
-//
-//   - nil OracleFilter on a rule means krit has not classified this rule
-//     yet. The safe default applied by GetOracleFilter is AllFiles: true
-//     (conservative — always feed the file to the oracle). This preserves
-//     correctness for the 220 unaudited rules.
-//
-//   - AllFiles: true means this rule always wants the oracle. Used by
-//     rules that do whole-file or flow-sensitive analysis and cannot be
-//     narrowed by a content check.
-//
-//   - A non-empty Identifiers slice means the rule only needs the oracle
-//     when at least one of the listed identifiers appears anywhere in the
-//     file's raw bytes (substring match). Use this for rules whose early
-//     bail-out is gated on a specific keyword or API name (e.g. "suspend",
-//     "as ", "GlobalScope").
-//
-//   - An empty OracleFilter{} (both Identifiers nil and AllFiles false)
-//     means the rule never needs the oracle (tree-sitter only). Use this
-//     for purely syntactic rules.
-//
-// The correctness invariant is: if a file is NOT in the union of filter
-// matches, then no enabled rule will query the oracle on that file. A
-// rule's filter is CORRECT if and only if every oracle-path code branch
-// inside the rule is gated on the presence of one of the declared
-// identifiers (or the AllFiles flag).
-type OracleFilter struct {
-	// Identifiers is a list of raw byte substrings whose presence in the
-	// file content indicates this rule may query the oracle. Matching uses
-	// bytes.Contains — the substring check is cheap and conservative:
-	// false positives waste some oracle work but false negatives lose
-	// findings. Keep the substrings distinctive enough to avoid accidental
-	// matches (e.g. "runBlocking" rather than "run").
-	Identifiers []string
-
-	// AllFiles = true means this rule always needs the oracle, regardless
-	// of file content. When any enabled rule sets this, the filter result
-	// is the full file set and CollectOracleFiles returns nil to short-
-	// circuit filtering (no benefit).
-	AllFiles bool
-}
-
-// NeverNeedsOracle returns true when a filter declares the rule is purely
-// tree-sitter and will never consult the oracle.
-func (f *OracleFilter) NeverNeedsOracle() bool {
-	if f == nil {
-		return false
-	}
-	return !f.AllFiles && len(f.Identifiers) == 0
-}
-
-// Rules that want to declare an oracle filter or base confidence do so
-// structurally by adding `OracleFilter() *OracleFilter` or
-// `Confidence() float64` methods. GetOracleFilter / ConfidenceOf
-// type-assert to anonymous interfaces at the call site.
+// Rules still carry a per-rule base confidence via the
+// `Confidence() float64` method. ConfidenceOf type-asserts to an
+// anonymous interface at the call site.
 //
 // Tier conventions for Confidence():
 //

@@ -100,3 +100,14 @@ func ApplyBinaryFixesBatch(findings []scanner.Finding, dryRun bool, searchDirs .
 	}
 	return applyBinaryFixesBatchRaw(fixes, dryRun, searchDirs...)
 }
+
+// Slice-taking key/meta extractors for deduplicateFixesReverse. Exercised
+// only from the fixer_test.go suite's generic dedup tests.
+
+func findingByteEnd(f scanner.Finding) int   { return f.Fix.EndByte }
+func findingByteStart(f scanner.Finding) int { return f.Fix.StartByte }
+func findingLineEnd(f scanner.Finding) int   { return f.Fix.EndLine }
+func findingLineStart(f scanner.Finding) int { return f.Fix.StartLine }
+func findingDropped(f scanner.Finding) DroppedFix {
+	return DroppedFix{Rule: f.Rule, File: f.File, Line: f.Line}
+}

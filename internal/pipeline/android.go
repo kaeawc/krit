@@ -552,14 +552,6 @@ func ConvertManifestForRules(m *android.ConvertedManifest) *rules.Manifest {
 	return rm
 }
 
-// RunActiveIconChecks runs all active icon rules and returns the
-// aggregated findings. Exposed for callers that don't want the columns
-// form.
-func RunActiveIconChecks(idx *android.IconIndex, activeNames map[string]bool) []scanner.Finding {
-	columns := runActiveIconChecksColumns(idx, activeNames)
-	return columns.Findings()
-}
-
 func runActiveIconChecksColumns(idx *android.IconIndex, activeNames map[string]bool) scanner.FindingColumns {
 	collector := scanner.NewFindingCollector(8)
 	if activeNames["IconDensities"] {

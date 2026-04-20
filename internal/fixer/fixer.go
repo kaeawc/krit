@@ -265,14 +265,6 @@ func deduplicateFixesReverse[T any](fixes []T, endKey, startKey func(T) int, met
 	return result, dropped
 }
 
-func findingByteEnd(f scanner.Finding) int    { return f.Fix.EndByte }
-func findingByteStart(f scanner.Finding) int  { return f.Fix.StartByte }
-func findingLineEnd(f scanner.Finding) int    { return f.Fix.EndLine }
-func findingLineStart(f scanner.Finding) int  { return f.Fix.StartLine }
-func findingDropped(f scanner.Finding) DroppedFix {
-	return DroppedFix{Rule: f.Rule, File: f.File, Line: f.Line}
-}
-
 func textFixRowByteEnd(f textFixRow) int   { return f.fix.EndByte }
 func textFixRowByteStart(f textFixRow) int { return f.fix.StartByte }
 func textFixRowLineEnd(f textFixRow) int   { return f.fix.EndLine }

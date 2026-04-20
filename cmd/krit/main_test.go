@@ -279,7 +279,8 @@ func TestRunActiveIconChecksColumnsMatchesUnderlyingRules(t *testing.T) {
 	if !reflect.DeepEqual(got, normalizedWant) {
 		t.Fatalf("icon columns mismatch:\nwant: %#v\ngot:  %#v", normalizedWant, got)
 	}
-	if wrapper := pipeline.RunActiveIconChecks(idx, activeNames); !reflect.DeepEqual(wrapper, normalizedWant) {
+	wrapperCols := pipeline.RunActiveIconChecksColumns(idx, activeNames)
+	if wrapper := wrapperCols.Findings(); !reflect.DeepEqual(wrapper, normalizedWant) {
 		t.Fatalf("icon wrapper mismatch:\nwant: %#v\ngot:  %#v", normalizedWant, wrapper)
 	}
 }

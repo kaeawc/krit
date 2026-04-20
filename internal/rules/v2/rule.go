@@ -135,10 +135,8 @@ type Rule struct {
 	Oracle *OracleFilter
 
 	// Check is the rule's analysis function. It receives a Context
-	// populated according to the rule's Needs bitfield. Rules must report
-	// findings by calling ctx.Emit or ctx.EmitAt — never by returning
-	// []scanner.Finding. Returning a slice is a v1 pattern handled only
-	// by the v2shim bridge and will be removed once all rules are migrated.
+	// populated according to the rule's Needs bitfield. Rules report
+	// findings by calling ctx.Emit or ctx.EmitAt.
 	Check func(*Context)
 
 	// AndroidDeps carries the AndroidDataDependency bitfield (stored as
@@ -172,7 +170,7 @@ type Aggregate struct {
 	// fields in its adapter).
 	Collect func(ctx *Context)
 	// Finalize is invoked after the walk completes for a file. It
-	// should append any findings to ctx.Findings.
+	// should report findings via ctx.Emit / ctx.EmitAt.
 	Finalize func(ctx *Context)
 	// Reset clears any per-file state. Called before Collect for the
 	// next file.

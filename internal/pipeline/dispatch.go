@@ -46,6 +46,15 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	// nil resolver gracefully.
 	dispatcher := rules.NewDispatcherV2(in.ActiveRules, in.Resolver)
 
+	// Emit --verbose diagnostics naming any active rule whose declared
+	// capability (NeedsResolver / NeedsOracle) is not satisfied by the
+	// dispatcher wiring. No-op when in.Logger is nil. Emitted once per
+	// run at dispatcher startup (sync.Once inside the dispatcher), not
+	// per-file — avoids log volume explosion in the hot loop.
+	if in.Logger != nil {
+		dispatcher.ReportMissingCapabilities(in.Oracle != nil, in.Logger)
+	}
+
 	workers := d.Workers
 	if workers <= 0 {
 		workers = in.Jobs

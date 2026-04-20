@@ -71,6 +71,11 @@ type V2Dispatcher struct {
 	flatTypeIndexSize int
 	mu                sync.RWMutex
 
+	// reportOnce guards ReportMissingCapabilities so repeat calls on the
+	// same dispatcher (e.g. a shared instance across CLI + LSP) emit the
+	// diagnostic log only once per run.
+	reportOnce sync.Once
+
 	// languageExcluded caches, per scanner.Language, the set of rule IDs
 	// that do NOT apply to that language. Rules are static after
 	// construction so the map per language is computed once and reused
@@ -502,6 +507,43 @@ func (d *V2Dispatcher) Stats() (dispatched, aggregate, lineRules, crossFile, mod
 	}
 	dispatched += len(d.allNodeRules)
 	return dispatched, 0, len(d.lineRules), len(d.crossFileRules), len(d.moduleAwareRules), len(d.legacyRules)
+}
+
+// ReportMissingCapabilities emits one diagnostic line per rule whose
+// declared capabilities cannot be satisfied by the dispatcher's current
+// wiring: NeedsResolver without a resolver, or NeedsOracle when the
+// caller indicates no oracle is configured.
+//
+// The log format is:
+//
+//	verbose: skipped rule <ID>: NeedsResolver declared but no resolver configured
+//	verbose: skipped rule <ID>: NeedsOracle declared but no oracle configured
+//
+// A sync.Once guard inside the dispatcher ensures that even if multiple
+// callers share the instance (CLI + LSP), the diagnostic is emitted at
+// most once per run. Non-verbose paths pass a nil logger and stay silent.
+func (d *V2Dispatcher) ReportMissingCapabilities(oracleAvailable bool, logger func(format string, args ...any)) {
+	if logger == nil {
+		return
+	}
+	d.reportOnce.Do(func() {
+		missingResolver := d.typeResolver == nil
+		missingOracle := !oracleAvailable
+		if !missingResolver && !missingOracle {
+			return
+		}
+		for _, r := range d.collectAllRules() {
+			if r == nil {
+				continue
+			}
+			if missingResolver && r.Needs.Has(v2.NeedsResolver) {
+				logger("verbose: skipped rule %s: NeedsResolver declared but no resolver configured\n", r.ID)
+			}
+			if missingOracle && r.Needs.Has(v2.NeedsOracle) {
+				logger("verbose: skipped rule %s: NeedsOracle declared but no oracle configured\n", r.ID)
+			}
+		}
+	})
 }
 
 // GradleRules returns the Gradle rules stored on this dispatcher. The

@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -321,3 +322,100 @@ func TestV2Dispatcher_Stats(t *testing.T) {
 		t.Errorf("dispatched=%d unexpected", dispatched)
 	}
 }
+
+// --- ReportMissingCapabilities verbose diagnostics ---------------------------
+
+// TestV2Dispatcher_ReportMissingCapabilities_ResolverMissing verifies the
+// dispatcher logs a per-rule diagnostic when a rule declares NeedsResolver
+// but no resolver is configured, and stays silent for satisfied capabilities.
+func TestV2Dispatcher_ReportMissingCapabilities_ResolverMissing(t *testing.T) {
+	needsResolver := v2.FakeRule("V2MissingResolver", v2.WithNeeds(v2.NeedsResolver))
+	noNeeds := v2.FakeRule("V2NoNeeds")
+	d := NewV2Dispatcher([]*v2.Rule{needsResolver, noNeeds})
+
+	var buf strings.Builder
+	logger := func(format string, args ...any) {
+		fmt.Fprintf(&buf, format, args...)
+	}
+
+	// Oracle is available → only the resolver warning should fire.
+	d.ReportMissingCapabilities(true, logger)
+
+	out := buf.String()
+	if !strings.Contains(out, "skipped rule V2MissingResolver: NeedsResolver declared but no resolver configured") {
+		t.Errorf("expected resolver diagnostic, got: %q", out)
+	}
+	if strings.Contains(out, "V2NoNeeds") {
+		t.Errorf("rule without NeedsResolver should not be logged: %q", out)
+	}
+	if strings.Contains(out, "NeedsOracle") {
+		t.Errorf("oracle warning must not fire when oracle is available: %q", out)
+	}
+
+	// Second call is a no-op (sync.Once dedup).
+	before := buf.Len()
+	d.ReportMissingCapabilities(true, logger)
+	if buf.Len() != before {
+		t.Errorf("ReportMissingCapabilities should emit at most once per run")
+	}
+}
+
+// TestV2Dispatcher_ReportMissingCapabilities_OracleMissing verifies the
+// dispatcher logs a per-rule diagnostic when a rule declares NeedsOracle
+// but the caller reports oracle unavailable.
+func TestV2Dispatcher_ReportMissingCapabilities_OracleMissing(t *testing.T) {
+	needsOracle := v2.FakeRule("V2MissingOracle", v2.WithNeeds(v2.NeedsOracle))
+	d := NewV2Dispatcher([]*v2.Rule{needsOracle}, &capsStubResolver{})
+
+	var buf strings.Builder
+	logger := func(format string, args ...any) {
+		fmt.Fprintf(&buf, format, args...)
+	}
+
+	d.ReportMissingCapabilities(false, logger)
+
+	out := buf.String()
+	if !strings.Contains(out, "skipped rule V2MissingOracle: NeedsOracle declared but no oracle configured") {
+		t.Errorf("expected oracle diagnostic, got: %q", out)
+	}
+}
+
+// TestV2Dispatcher_ReportMissingCapabilities_AllSatisfied verifies the
+// non-verbose / fully-wired path emits nothing.
+func TestV2Dispatcher_ReportMissingCapabilities_AllSatisfied(t *testing.T) {
+	needsBoth := v2.FakeRule("V2Both", v2.WithNeeds(v2.NeedsResolver|v2.NeedsOracle))
+	d := NewV2Dispatcher([]*v2.Rule{needsBoth}, &capsStubResolver{})
+
+	var buf strings.Builder
+	logger := func(format string, args ...any) {
+		fmt.Fprintf(&buf, format, args...)
+	}
+	d.ReportMissingCapabilities(true, logger)
+	if buf.Len() != 0 {
+		t.Errorf("expected no output when resolver + oracle are wired, got: %q", buf.String())
+	}
+
+	// Nil logger is always a no-op.
+	d2 := NewV2Dispatcher([]*v2.Rule{needsBoth})
+	d2.ReportMissingCapabilities(false, nil)
+}
+
+// capsStubResolver is a zero-behaviour TypeResolver used to produce a
+// non-nil resolver for ReportMissingCapabilities tests.
+type capsStubResolver struct{}
+
+func (*capsStubResolver) ResolveFlatNode(uint32, *scanner.File) *typeinfer.ResolvedType {
+	return nil
+}
+func (*capsStubResolver) ResolveByNameFlat(string, uint32, *scanner.File) *typeinfer.ResolvedType {
+	return nil
+}
+func (*capsStubResolver) ResolveImport(string, *scanner.File) string    { return "" }
+func (*capsStubResolver) IsNullableFlat(uint32, *scanner.File) *bool    { return nil }
+func (*capsStubResolver) ClassHierarchy(string) *typeinfer.ClassInfo    { return nil }
+func (*capsStubResolver) SealedVariants(string) []string                { return nil }
+func (*capsStubResolver) EnumEntries(string) []string                   { return nil }
+func (*capsStubResolver) AnnotationValueFlat(uint32, *scanner.File, string, string) string {
+	return ""
+}
+func (*capsStubResolver) IsExceptionSubtype(string, string) bool { return false }

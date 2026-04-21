@@ -115,6 +115,79 @@ fun greet(name: String?) {
 	}
 }
 
+func TestUnsafeCallOnNullableType_NegativeNonNullIfGuard(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+fun greet(name: String?) {
+    if (name != null) {
+        val len = name!!.length
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for structurally guarded local parameter, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCallOnNullableType_NegativeEarlyReturnNullGuard(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+fun greet(name: String?) {
+    if (name == null) return
+    val len = name!!.length
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for early-return null guard, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCallOnNullableType_NegativeThisQualifiedPropertyGuard(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+class Greeter(private val name: String?) {
+    fun greet() {
+        if (this.name != null) {
+            val len = name!!.length
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for this-qualified property guard, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCallOnNullableType_PositivePrefixOnlyGuard(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+data class User(val name: String?)
+fun greet(user: User?) {
+    if (user != null) {
+        val len = user.name!!.length
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding when only receiver prefix is guarded")
+	}
+}
+
+func TestUnsafeCallOnNullableType_PositiveFunctionCallGuard(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+fun nextName(): String? = null
+fun greet() {
+    if (nextName() != null) {
+        val len = nextName()!!.length
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for repeated function call null guard")
+	}
+}
+
 func TestUnsafeCallOnNullableType_NegativeKspQualifiedName(t *testing.T) {
 	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
 package test

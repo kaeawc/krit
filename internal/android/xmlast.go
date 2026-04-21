@@ -69,6 +69,11 @@ func (n *XMLNode) ChildrenByTag(tag string) []*XMLNode {
 }
 
 func ParseXMLAST(data []byte) (*XMLNode, error) {
+	pc := activeXMLParseCache.Load()
+	if cached, ok := pc.Load(data); ok {
+		return cached, nil
+	}
+
 	parser := xmlParserPool.Get().(*sitter.Parser)
 	defer xmlParserPool.Put(parser)
 
@@ -86,7 +91,12 @@ func ParseXMLAST(data []byte) (*XMLNode, error) {
 		if child == nil || child.Type() != "element" {
 			continue
 		}
-		return buildXMLNode(child, data)
+		built, err := buildXMLNode(child, data)
+		if err != nil {
+			return nil, err
+		}
+		_ = pc.Save(data, built)
+		return built, nil
 	}
 
 	return nil, fmt.Errorf("no root xml element found")

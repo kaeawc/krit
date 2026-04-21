@@ -1,7 +1,6 @@
 package hashutil
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"os"
 	"sync"
@@ -41,12 +40,13 @@ func NewMemo() *Memo {
 	return &Memo{entries: make(map[string]memoEntry)}
 }
 
-// HashFile returns the lowercase hex SHA-256 of the file at path. The
-// returned digest is memoized against the file's (size, mtime); a later
-// call for the same unchanged file hits the cache. If provider is non-nil
-// and a hash actually needs to be computed, it is invoked to obtain the
-// bytes instead of re-reading from disk — useful for callers that already
-// have the file content in memory (e.g. the parse / cross-file caches).
+// HashFile returns the lowercase hex digest of the file at path using
+// the active ContentHasher. The returned digest is memoized against the
+// file's (size, mtime); a later call for the same unchanged file hits
+// the cache. If provider is non-nil and a hash actually needs to be
+// computed, it is invoked to obtain the bytes instead of re-reading
+// from disk — useful for callers that already have the file content in
+// memory (e.g. the parse / cross-file caches).
 //
 // A nil *Memo falls through to an unmemoized hash.
 func (m *Memo) HashFile(path string, provider func() ([]byte, error)) (string, error) {
@@ -86,7 +86,7 @@ func (m *Memo) HashFile(path string, provider func() ([]byte, error)) (string, e
 		if perr != nil {
 			return "", perr
 		}
-		raw = sha256.Sum256(b)
+		raw = activeHasher.Sum(b)
 		hx = hex.EncodeToString(raw[:])
 	} else {
 		hx, err = HashFile(path)
@@ -113,7 +113,7 @@ func (m *Memo) HashFileRaw(path string, provider func() ([]byte, error)) ([32]by
 			if err != nil {
 				return [32]byte{}, err
 			}
-			return sha256.Sum256(b), nil
+			return activeHasher.Sum(b), nil
 		}
 		hx, err := HashFile(path)
 		if err != nil {
@@ -150,7 +150,7 @@ func (m *Memo) HashFileRaw(path string, provider func() ([]byte, error)) ([32]by
 		if perr != nil {
 			return [32]byte{}, perr
 		}
-		raw = sha256.Sum256(b)
+		raw = activeHasher.Sum(b)
 		hx = hex.EncodeToString(raw[:])
 	} else {
 		hx, err = HashFile(path)
@@ -169,11 +169,12 @@ func (m *Memo) HashFileRaw(path string, provider func() ([]byte, error)) ([32]by
 	return raw, nil
 }
 
-// HashContent returns the hex SHA-256 of content and, if path is non-empty
-// and a stat succeeds, memoizes the result so subsequent HashFile(path)
-// calls within this Memo return the same digest without re-reading or
-// re-hashing. Use this from callers that already hold the file bytes
-// (e.g. after reading once into memory for parsing).
+// HashContent returns the hex digest of content under the active
+// ContentHasher and, if path is non-empty and a stat succeeds, memoizes
+// the result so subsequent HashFile(path) calls within this Memo return
+// the same digest without re-reading or re-hashing. Use this from
+// callers that already hold the file bytes (e.g. after reading once
+// into memory for parsing).
 func (m *Memo) HashContent(path string, content []byte) string {
 	hx := HashHex(content)
 	if m == nil || path == "" {
@@ -235,8 +236,8 @@ var defaultMemo = NewMemo()
 
 // Default returns the process-scoped shared Memo. Subsystems that need to
 // cooperate on file hashing should use Default() rather than instantiating
-// a private Memo, so all redundant SHA-256 computations within a single
-// run collapse to one per unique file.
+// a private Memo, so all redundant content-hash computations within a
+// single run collapse to one per unique file.
 func Default() *Memo { return defaultMemo }
 
 // ResetDefault clears the shared Memo. The CLI calls this at the start of

@@ -3,7 +3,7 @@ package oracle
 // On-disk incremental cache for the krit-types oracle.
 //
 // Each source .kt file's analysis result is stored as a content-addressable
-// JSON entry keyed by SHA-256 of its bytes. Each entry carries a "closure"
+// JSON entry keyed by the content hash of its bytes. Each entry carries a "closure"
 // of the file's direct source-dependency paths plus a fingerprint computed
 // by hashing the current on-disk contents of those deps. A cache lookup is
 // a HIT only if (a) the content hash matches (b) every dep path still
@@ -19,7 +19,6 @@ package oracle
 // roadmap doc at roadmap/clusters/performance-infra/oracle-file-hash-cache.md.
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -36,7 +35,7 @@ import (
 // CacheVersion is bumped whenever the on-disk entry layout changes in a
 // way that invalidates previously-written entries. A version mismatch on
 // read is treated as a miss and the offending entry is deleted.
-const CacheVersion = 1
+const CacheVersion = 2
 
 // CacheEntry is one file's cached oracle analysis. The JSON field names
 // are intentionally short because there can be tens of thousands of these
@@ -79,7 +78,10 @@ func CacheDir(repoDir string) (string, error) {
 	vd := cacheutil.VersionedDir{
 		Root:       dir,
 		EntriesDir: "entries",
-		Tokens:     []cacheutil.SchemaToken{{Name: "version", Value: fmt.Sprintf("%d", CacheVersion)}},
+		Tokens: []cacheutil.SchemaToken{
+			{Name: "version", Value: fmt.Sprintf("%d", CacheVersion)},
+			{Name: "hash", Value: hashutil.HasherName()},
+		},
 	}
 	if _, err := vd.Open(); err != nil {
 		return "", fmt.Errorf("create cache dir: %w", err)
@@ -100,11 +102,11 @@ func FindRepoDir(scanPaths []string) string {
 	return p
 }
 
-// ContentHash returns sha256(content) of the file at path in lowercase hex.
-// Used both as the cache key and as the building block for closure
+// ContentHash returns the content hash of the file at path in lowercase
+// hex. Used both as the cache key and as the building block for closure
 // fingerprints. Routed through the process-scoped hashutil.Memo so the
 // same file hashed by multiple cache subsystems within one run only
-// pays the SHA-256 cost once.
+// pays the hash cost once.
 func ContentHash(path string) (string, error) {
 	return hashutil.Default().HashFile(path, nil)
 }
@@ -174,7 +176,7 @@ func closureFingerprint(depPaths []string, hashCache map[string]string) (string,
 		perDep = append(perDep, h)
 	}
 	sort.Strings(perDep)
-	h := sha256.New()
+	h := hashutil.Hasher().New()
 	for _, p := range perDep {
 		_, _ = h.Write([]byte(p))
 		_, _ = h.Write([]byte{0})

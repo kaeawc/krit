@@ -56,7 +56,7 @@ func TestBuildIndexFromData(t *testing.T) {
 	}
 }
 
-func TestBuildCodeIndexWithBloom_PreGroupedMatchesLazy(t *testing.T) {
+func TestBuildCodeIndexWithBloom_DirectAggregationMatchesLazy(t *testing.T) {
 	symbols := []Symbol{
 		{Name: "helperFunc", Kind: "function", Visibility: "public", File: "a.kt", Line: 10},
 		{Name: "HelperClass", Kind: "class", Visibility: "internal", File: "b.kt", Line: 2},

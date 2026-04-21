@@ -3,11 +3,9 @@ package scanner
 import (
 	"bufio"
 	"bytes"
-	"cmp"
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 
@@ -592,96 +590,77 @@ func (idx *CodeIndex) buildReferenceLookups(addToBloom bool) {
 		return
 	}
 
-	refs := make([]Reference, len(idx.References))
-	copy(refs, idx.References)
-	slices.SortFunc(refs, func(a, b Reference) int {
-		if c := cmp.Compare(a.Name, b.Name); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.File, b.File)
-	})
+	estimatedNames := estimateUniqueReferenceNames(len(idx.References))
+	nameToAgg := make(map[string]int, estimatedNames)
+	aggs := make([]referenceAggregate, 0, estimatedNames)
 
-	uniqueNames := 0
-	for i, ref := range refs {
-		if i == 0 || ref.Name != refs[i-1].Name {
-			uniqueNames++
+	for _, ref := range idx.References {
+		aggIdx, ok := nameToAgg[ref.Name]
+		if !ok {
+			aggIdx = len(aggs)
+			nameToAgg[ref.Name] = aggIdx
+			aggs = append(aggs, referenceAggregate{name: ref.Name})
 		}
+		aggs[aggIdx].add(ref)
 	}
-	idx.refCountByName = make(map[string]int, uniqueNames)
-	idx.refFilesByName = make(map[string]map[string]bool, uniqueNames)
-	idx.nonCommentRefFilesByName = make(map[string]map[string]bool, uniqueNames)
-	idx.nonCommentRefCountByNameFile = make(map[string]map[string]int, uniqueNames)
 
-	for nameStart := 0; nameStart < len(refs); {
-		name := refs[nameStart].Name
-		nameEnd := nameStart + 1
-		for nameEnd < len(refs) && refs[nameEnd].Name == name {
-			nameEnd++
-		}
+	idx.refCountByName = make(map[string]int, len(aggs))
+	idx.refFilesByName = make(map[string]map[string]bool, len(aggs))
+	idx.nonCommentRefFilesByName = make(map[string]map[string]bool, len(aggs))
+	idx.nonCommentRefCountByNameFile = make(map[string]map[string]int, len(aggs))
 
-		fileCount, nonCommentFileCount := countReferenceFiles(refs[nameStart:nameEnd])
-
-		files := make(map[string]bool, fileCount)
-		var nonCommentFiles map[string]bool
-		var nonCommentCounts map[string]int
-		if nonCommentFileCount > 0 {
-			nonCommentFiles = make(map[string]bool, nonCommentFileCount)
-			nonCommentCounts = make(map[string]int, nonCommentFileCount)
-		}
-
-		for fileStart := nameStart; fileStart < nameEnd; {
-			file := refs[fileStart].File
-			fileEnd := fileStart + 1
-			nonCommentCount := 0
-			if !refs[fileStart].InComment {
-				nonCommentCount++
-			}
-			for fileEnd < nameEnd && refs[fileEnd].File == file {
-				if !refs[fileEnd].InComment {
-					nonCommentCount++
-				}
-				fileEnd++
-			}
-
-			files[file] = true
-			if nonCommentCount > 0 {
-				nonCommentFiles[file] = true
-				nonCommentCounts[file] = nonCommentCount
-			}
-			fileStart = fileEnd
-		}
-
-		idx.refCountByName[name] = nameEnd - nameStart
-		idx.refFilesByName[name] = files
-		if nonCommentFileCount > 0 {
-			idx.nonCommentRefFilesByName[name] = nonCommentFiles
-			idx.nonCommentRefCountByNameFile[name] = nonCommentCounts
+	for i := range aggs {
+		agg := &aggs[i]
+		idx.refCountByName[agg.name] = agg.count
+		idx.refFilesByName[agg.name] = agg.files
+		if len(agg.nonCommentFiles) > 0 {
+			idx.nonCommentRefFilesByName[agg.name] = agg.nonCommentFiles
+			idx.nonCommentRefCountByNameFile[agg.name] = agg.nonCommentCounts
 		}
 		if addToBloom {
-			idx.refBloom.AddString(name)
+			idx.refBloom.AddString(agg.name)
 		}
-		nameStart = nameEnd
 	}
 }
 
-func countReferenceFiles(refs []Reference) (files int, nonCommentFiles int) {
-	for fileStart := 0; fileStart < len(refs); {
-		file := refs[fileStart].File
-		files++
-		fileEnd := fileStart + 1
-		hasNonComment := !refs[fileStart].InComment
-		for fileEnd < len(refs) && refs[fileEnd].File == file {
-			if !refs[fileEnd].InComment {
-				hasNonComment = true
-			}
-			fileEnd++
-		}
-		if hasNonComment {
-			nonCommentFiles++
-		}
-		fileStart = fileEnd
+type referenceAggregate struct {
+	name             string
+	count            int
+	files            map[string]bool
+	nonCommentFiles  map[string]bool
+	nonCommentCounts map[string]int
+}
+
+func (a *referenceAggregate) add(ref Reference) {
+	a.count++
+	if a.files == nil {
+		a.files = make(map[string]bool, 1)
 	}
-	return files, nonCommentFiles
+	a.files[ref.File] = true
+
+	if ref.InComment {
+		return
+	}
+	if a.nonCommentFiles == nil {
+		a.nonCommentFiles = make(map[string]bool, 1)
+		a.nonCommentCounts = make(map[string]int, 1)
+	}
+	a.nonCommentFiles[ref.File] = true
+	a.nonCommentCounts[ref.File]++
+}
+
+func estimateUniqueReferenceNames(refCount int) int {
+	if refCount <= 1024 {
+		return refCount
+	}
+	estimated := refCount / 16
+	if estimated < 1024 {
+		return 1024
+	}
+	if estimated > 262144 {
+		return 262144
+	}
+	return estimated
 }
 
 // ReferenceCount returns how many times a name is referenced across all files.

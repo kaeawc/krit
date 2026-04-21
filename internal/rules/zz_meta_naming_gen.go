@@ -21,7 +21,7 @@ func (r *BooleanPropertyNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedPattern",
@@ -45,7 +45,7 @@ func (r *ClassNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "classPattern",
@@ -69,7 +69,7 @@ func (r *ConstructorParameterNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeClassPattern",
@@ -111,7 +111,7 @@ func (r *EnumNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "enumEntryPattern",
@@ -133,7 +133,7 @@ func (r *ForbiddenClassNameRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "forbiddenName",
@@ -157,7 +157,7 @@ func (r *FunctionNameMaxLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "maximumFunctionNameLength",
@@ -182,7 +182,7 @@ func (r *FunctionNameMinLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "minimumFunctionNameLength",
@@ -207,7 +207,7 @@ func (r *FunctionNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeClassPattern",
@@ -249,7 +249,7 @@ func (r *FunctionParameterNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeClassPattern",
@@ -282,7 +282,7 @@ func (r *InvalidPackageDeclarationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "requireRootInDeclaration",
@@ -315,7 +315,7 @@ func (r *LambdaParameterNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "parameterPattern",
@@ -339,7 +339,7 @@ func (r *MatchingDeclarationNameRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "multiplatformTargets",
@@ -372,7 +372,7 @@ func (r *MemberNameEqualsClassNameRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoreOverridden",
@@ -396,7 +396,7 @@ func (r *NoNameShadowingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 	}
 }
 
@@ -409,7 +409,7 @@ func (r *NonBooleanPropertyPrefixedWithIsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 	}
 }
 
@@ -422,7 +422,7 @@ func (r *ObjectPropertyNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "constantPattern",
@@ -464,7 +464,7 @@ func (r *PackageNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "packagePattern",
@@ -488,7 +488,7 @@ func (r *TopLevelPropertyNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "constantPattern",
@@ -530,7 +530,7 @@ func (r *VariableMaxLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "maximumVariableNameLength",
@@ -553,7 +553,7 @@ func (r *VariableMinLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "minimumVariableNameLength",
@@ -576,7 +576,7 @@ func (r *VariableNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4027cdddaaa2bc36",
+		SourceHash:    "6c0a3d19497401ba",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeClassPattern",

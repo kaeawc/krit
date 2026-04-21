@@ -17,7 +17,7 @@ func (r *ComposeColumnRowInScrollableRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *ComposeDerivedStateMisuseRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *ComposeDisposableEffectMissingDisposeRule) Meta() registry.RuleDescript
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *ComposeLambdaCapturesUnstableStateRule) Meta() registry.RuleDescriptor 
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *ComposeLaunchedEffectWithoutKeysRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *ComposeModifierBackgroundAfterClipRule) Meta() registry.RuleDescriptor 
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *ComposeModifierClickableBeforePaddingRule) Meta() registry.RuleDescript
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *ComposeModifierFillAfterSizeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -121,7 +121,7 @@ func (r *ComposeModifierPassedThenChainedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -134,7 +134,7 @@ func (r *ComposeMutableDefaultArgumentRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -147,7 +147,7 @@ func (r *ComposeMutableStateInCompositionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -160,7 +160,7 @@ func (r *ComposePreviewAnnotationMissingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -173,7 +173,7 @@ func (r *ComposePreviewWithBackingStateRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *ComposeRememberSaveableNonParcelableRule) Meta() registry.RuleDescripto
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -199,7 +199,7 @@ func (r *ComposeRememberWithoutKeyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -212,7 +212,7 @@ func (r *ComposeSideEffectInCompositionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -225,7 +225,7 @@ func (r *ComposeStatefulDefaultParameterRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -238,7 +238,7 @@ func (r *ComposeStringResourceInsideLambdaRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }
 
@@ -251,6 +251,6 @@ func (r *ComposeUnstableParameterRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "19adc8ff8fbc771d",
+		SourceHash:    "91ca5cab756222c8",
 	}
 }

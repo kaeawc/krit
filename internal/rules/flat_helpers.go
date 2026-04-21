@@ -21,7 +21,7 @@ func flatCallExpressionParts(file *scanner.File, idx uint32) (navExpr uint32, ar
 			args = child
 		case "call_suffix":
 			if args == 0 {
-				args = file.FlatFindChild(child, "value_arguments")
+				args, _ = file.FlatFindChild(child, "value_arguments")
 			}
 		}
 	}
@@ -100,7 +100,7 @@ func flatCallTrailingLambda(file *scanner.File, idx uint32) uint32 {
 		for sub := file.FlatFirstChild(child); sub != 0; sub = file.FlatNextSib(sub) {
 			switch file.FlatType(sub) {
 			case "annotated_lambda":
-				if lit := file.FlatFindChild(sub, "lambda_literal"); lit != 0 {
+				if lit, ok := file.FlatFindChild(sub, "lambda_literal"); ok {
 					return lit
 				}
 			case "lambda_literal":
@@ -122,13 +122,13 @@ func flatCallKeyArguments(file *scanner.File, idx uint32) uint32 {
 	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
 		switch file.FlatType(child) {
 		case "call_suffix":
-			if va := file.FlatFindChild(child, "value_arguments"); va != 0 {
+			if va, ok := file.FlatFindChild(child, "value_arguments"); ok {
 				return va
 			}
 		case "call_expression":
 			// Trailing-lambda idiom: the args live on the nested inner call.
-			if suffix := file.FlatFindChild(child, "call_suffix"); suffix != 0 {
-				if va := file.FlatFindChild(suffix, "value_arguments"); va != 0 {
+			if suffix, ok := file.FlatFindChild(child, "call_suffix"); ok {
+				if va, ok := file.FlatFindChild(suffix, "value_arguments"); ok {
 					return va
 				}
 			}
@@ -143,7 +143,7 @@ func flatFunctionParameterNames(file *scanner.File, funcDecl uint32) []string {
 	if file == nil || file.FlatType(funcDecl) != "function_declaration" {
 		return nil
 	}
-	params := file.FlatFindChild(funcDecl, "function_value_parameters")
+	params, _ := file.FlatFindChild(funcDecl, "function_value_parameters")
 	if params == 0 {
 		return nil
 	}
@@ -152,7 +152,7 @@ func flatFunctionParameterNames(file *scanner.File, funcDecl uint32) []string {
 		if file.FlatType(child) != "parameter" {
 			continue
 		}
-		if ident := file.FlatFindChild(child, "simple_identifier"); ident != 0 {
+		if ident, ok := file.FlatFindChild(child, "simple_identifier"); ok {
 			names = append(names, file.FlatNodeString(ident, nil))
 		}
 	}
@@ -302,13 +302,13 @@ func flatCallSuffixLambdaNode(file *scanner.File, suffix uint32) uint32 {
 	if file == nil || suffix == 0 {
 		return 0
 	}
-	if lambda := file.FlatFindChild(suffix, "annotated_lambda"); lambda != 0 {
-		if lit := file.FlatFindChild(lambda, "lambda_literal"); lit != 0 {
+	if lambda, ok := file.FlatFindChild(suffix, "annotated_lambda"); ok {
+		if lit, ok := file.FlatFindChild(lambda, "lambda_literal"); ok {
 			return lit
 		}
 		return lambda
 	}
-	if lambda := file.FlatFindChild(suffix, "lambda_literal"); lambda != 0 {
+	if lambda, ok := file.FlatFindChild(suffix, "lambda_literal"); ok {
 		return lambda
 	}
 	return 0
@@ -318,7 +318,7 @@ func flatCallSuffixHasArgs(file *scanner.File, suffix uint32) bool {
 	if file == nil || suffix == 0 {
 		return false
 	}
-	args := file.FlatFindChild(suffix, "value_arguments")
+	args, _ := file.FlatFindChild(suffix, "value_arguments")
 	return args != 0 && file.FlatNamedChildCount(args) > 0
 }
 
@@ -326,7 +326,7 @@ func flatCallSuffixValueArgs(file *scanner.File, suffix uint32) uint32 {
 	if file == nil || suffix == 0 {
 		return 0
 	}
-	if args := file.FlatFindChild(suffix, "value_arguments"); args != 0 {
+	if args, ok := file.FlatFindChild(suffix, "value_arguments"); ok {
 		return args
 	}
 	return 0

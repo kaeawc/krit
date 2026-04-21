@@ -17,7 +17,7 @@ func (r *AnvilContributesBindingWithoutScopeRule) Meta() registry.RuleDescriptor
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1b2f23a2d9cd9376",
+		SourceHash:    "d844f0c3ff90c64c",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *AnvilMergeComponentEmptyScopeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1b2f23a2d9cd9376",
+		SourceHash:    "d844f0c3ff90c64c",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *BindsMismatchedArityRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1b2f23a2d9cd9376",
+		SourceHash:    "d844f0c3ff90c64c",
 	}
 }
 
@@ -56,6 +56,6 @@ func (r *HiltEntryPointOnNonInterfaceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1b2f23a2d9cd9376",
+		SourceHash:    "d844f0c3ff90c64c",
 	}
 }

@@ -3908,9 +3908,9 @@ func registerAllRules() {
 					if !boxedPrimitiveConstructors[typeName] {
 						return
 					}
-					suffix := file.FlatFindChild(idx, "call_suffix")
+					suffix, _ := file.FlatFindChild(idx, "call_suffix")
 					if suffix != 0 {
-						args := file.FlatFindChild(suffix, "value_arguments")
+						args, _ := file.FlatFindChild(suffix, "value_arguments")
 						if args != 0 {
 							argCount := 0
 							for i := 0; i < file.FlatChildCount(args); i++ {
@@ -4872,7 +4872,7 @@ func registerAllRules() {
 				if !file.FlatHasChildOfType(idx, "interface") {
 					return
 				}
-				body := file.FlatFindChild(idx, "class_body")
+				body, _ := file.FlatFindChild(idx, "class_body")
 				if body == 0 {
 					return
 				}
@@ -4999,11 +4999,11 @@ func registerAllRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				args := file.FlatFindChild(idx, "value_arguments")
+				args, _ := file.FlatFindChild(idx, "value_arguments")
 				if args == 0 {
-					callSuffix := file.FlatFindChild(idx, "call_suffix")
+					callSuffix, _ := file.FlatFindChild(idx, "call_suffix")
 					if callSuffix != 0 {
-						args = file.FlatFindChild(callSuffix, "value_arguments")
+						args, _ = file.FlatFindChild(callSuffix, "value_arguments")
 					}
 				}
 				if args == 0 {
@@ -5203,19 +5203,19 @@ func registerAllRules() {
 				if call == 0 || file.FlatType(call) != "call_expression" {
 					return
 				}
-				nameNode := file.FlatFindChild(call, "simple_identifier")
+				nameNode, _ := file.FlatFindChild(call, "simple_identifier")
 				if nameNode == 0 {
 					return
 				}
-				callSuffix := file.FlatFindChild(idx, "call_suffix")
+				callSuffix, _ := file.FlatFindChild(idx, "call_suffix")
 				if callSuffix == 0 {
 					return
 				}
-				annotatedLambda := file.FlatFindChild(callSuffix, "annotated_lambda")
+				annotatedLambda, _ := file.FlatFindChild(callSuffix, "annotated_lambda")
 				if annotatedLambda == 0 {
 					return
 				}
-				lambda := file.FlatFindChild(annotatedLambda, "lambda_literal")
+				lambda, _ := file.FlatFindChild(annotatedLambda, "lambda_literal")
 				if lambda == 0 {
 					return
 				}
@@ -5365,7 +5365,7 @@ func registerAllRules() {
 				if flatHasAnnotationNamed(file, idx, "Preview") {
 					return
 				}
-				nameNode := file.FlatFindChild(idx, "simple_identifier")
+				nameNode, _ := file.FlatFindChild(idx, "simple_identifier")
 				if nameNode == 0 {
 					return
 				}
@@ -5388,7 +5388,7 @@ func registerAllRules() {
 				if !flatHasAnnotationNamed(file, idx, "Composable") {
 					return
 				}
-				params := file.FlatFindChild(idx, "function_value_parameters")
+				params, _ := file.FlatFindChild(idx, "function_value_parameters")
 				if params == 0 {
 					return
 				}
@@ -5550,7 +5550,7 @@ func registerAllRules() {
 				if !flatHasAnnotationNamed(file, idx, "Composable") {
 					return
 				}
-				params := file.FlatFindChild(idx, "function_value_parameters")
+				params, _ := file.FlatFindChild(idx, "function_value_parameters")
 				if params == 0 {
 					return
 				}
@@ -5599,7 +5599,7 @@ func registerAllRules() {
 				if !flatHasAnnotationNamed(file, idx, "Composable") {
 					return
 				}
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -5631,7 +5631,7 @@ func registerAllRules() {
 				if lambda == 0 {
 					return
 				}
-				stmts := file.FlatFindChild(lambda, "statements")
+				stmts, _ := file.FlatFindChild(lambda, "statements")
 				if stmts == 0 {
 					return
 				}
@@ -5665,7 +5665,7 @@ func registerAllRules() {
 				if !composeHasModifierParameter(file, idx) {
 					return
 				}
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -5748,7 +5748,7 @@ func registerAllRules() {
 				if !flatHasAnnotationNamed(file, idx, "Composable") {
 					return
 				}
-				params := file.FlatFindChild(idx, "function_value_parameters")
+				params, _ := file.FlatFindChild(idx, "function_value_parameters")
 				if params == 0 {
 					return
 				}
@@ -5756,11 +5756,11 @@ func registerAllRules() {
 					if file.FlatType(child) != "parameter" {
 						continue
 					}
-					typeNode := file.FlatFindChild(child, "user_type")
+					typeNode, _ := file.FlatFindChild(child, "user_type")
 					if typeNode == 0 {
 						continue
 					}
-					typeIdent := file.FlatFindChild(typeNode, "type_identifier")
+					typeIdent, _ := file.FlatFindChild(typeNode, "type_identifier")
 					if typeIdent == 0 {
 						continue
 					}
@@ -5769,7 +5769,7 @@ func registerAllRules() {
 						continue
 					}
 					paramName := ""
-					if idNode := file.FlatFindChild(child, "simple_identifier"); idNode != 0 {
+					if idNode, ok := file.FlatFindChild(child, "simple_identifier"); ok {
 						paramName = file.FlatNodeText(idNode)
 					}
 					ctx.EmitAt(file.FlatRow(child)+1, file.FlatCol(child)+1,
@@ -5810,7 +5810,7 @@ func registerAllRules() {
 				if lambda == 0 {
 					return
 				}
-				stmts := file.FlatFindChild(lambda, "statements")
+				stmts, _ := file.FlatFindChild(lambda, "statements")
 				if stmts == 0 {
 					return
 				}
@@ -6006,7 +6006,7 @@ func registerAllRules() {
 						break
 					}
 				}
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -6053,7 +6053,7 @@ func registerAllRules() {
 								return
 							}
 						}
-						funcIdent := file.FlatFindChild(callIdx, "simple_identifier")
+						funcIdent, _ := file.FlatFindChild(callIdx, "simple_identifier")
 						if funcIdent != 0 {
 							funcName := file.FlatNodeText(funcIdent)
 							resolvedByName := ctx.Resolver.ResolveByNameFlat(funcName, funcIdent, file)
@@ -6427,7 +6427,7 @@ func registerAllRules() {
 				if iterableName == "" {
 					return
 				}
-				body := file.FlatFindChild(idx, "control_structure_body")
+				body, _ := file.FlatFindChild(idx, "control_structure_body")
 				if body == 0 {
 					return
 				}
@@ -6824,7 +6824,7 @@ func registerAllRules() {
 				if lambda == 0 {
 					return
 				}
-				stmts := file.FlatFindChild(lambda, "statements")
+				stmts, _ := file.FlatFindChild(lambda, "statements")
 				if stmts == 0 {
 					return
 				}
@@ -6990,7 +6990,7 @@ func registerAllRules() {
 				if !hasAnnotationFlat(file, idx, "Dao") {
 					return
 				}
-				body := file.FlatFindChild(idx, "class_body")
+				body, _ := file.FlatFindChild(idx, "class_body")
 				if body == 0 {
 					return
 				}
@@ -7115,7 +7115,7 @@ func registerAllRules() {
 					return
 				}
 				paramCount := 0
-				if params := file.FlatFindChild(idx, "function_value_parameters"); params != 0 {
+				if params, ok := file.FlatFindChild(idx, "function_value_parameters"); ok {
 					walkFunctionParametersFlat(file, params, func(_ uint32) {
 						paramCount++
 					})
@@ -7229,7 +7229,7 @@ func registerAllRules() {
 				if file.FlatHasModifier(idx, "annotation") {
 					return
 				}
-				ctor := file.FlatFindChild(idx, "primary_constructor")
+				ctor, _ := file.FlatFindChild(idx, "primary_constructor")
 				if ctor == 0 {
 					return
 				}
@@ -7245,7 +7245,7 @@ func registerAllRules() {
 					file.FlatHasModifier(ctor, "public") {
 					return
 				}
-				if mods := file.FlatFindChild(ctor, "modifiers"); mods != 0 && file.FlatFindChild(mods, "annotation") != 0 {
+				if mods, ok := file.FlatFindChild(ctor, "modifiers"); ok && file.FlatHasChildOfType(mods, "annotation") {
 					return
 				}
 				f := r.Finding(file, file.FlatRow(ctor)+1, 1,
@@ -7364,7 +7364,7 @@ func registerAllRules() {
 			NodeTypes: []string{"for_statement"}, Confidence: 0.95, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				body := file.FlatFindChild(idx, "control_structure_body")
+				body, _ := file.FlatFindChild(idx, "control_structure_body")
 				if body == 0 {
 					return
 				}
@@ -7424,7 +7424,7 @@ func registerAllRules() {
 					}
 					break
 				}
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -7757,7 +7757,7 @@ func registerAllRules() {
 				if caughtVar == "" {
 					return
 				}
-				body := file.FlatFindChild(idx, "statements")
+				body, _ := file.FlatFindChild(idx, "statements")
 				if body == 0 {
 					return
 				}
@@ -8543,7 +8543,7 @@ func registerAllRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				paramsNode := file.FlatFindChild(idx, "function_value_parameters")
+				paramsNode, _ := file.FlatFindChild(idx, "function_value_parameters")
 				if paramsNode == 0 {
 					return
 				}
@@ -8567,7 +8567,7 @@ func registerAllRules() {
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var pkg string
-				idNode := file.FlatFindChild(idx, "identifier")
+				idNode, _ := file.FlatFindChild(idx, "identifier")
 				if idNode != 0 {
 					pkg = strings.TrimSpace(file.FlatNodeText(idNode))
 				} else {
@@ -8597,7 +8597,7 @@ func registerAllRules() {
 			NodeTypes: []string{"lambda_literal"}, Confidence: 0.95, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				paramsNode := file.FlatFindChild(idx, "lambda_parameters")
+				paramsNode, _ := file.FlatFindChild(idx, "lambda_parameters")
 				if paramsNode == 0 {
 					return
 				}
@@ -8734,7 +8734,7 @@ func registerAllRules() {
 				if className == "" {
 					return
 				}
-				classBody := file.FlatFindChild(idx, "class_body")
+				classBody, _ := file.FlatFindChild(idx, "class_body")
 				if classBody == 0 {
 					return
 				}
@@ -8799,7 +8799,7 @@ func registerAllRules() {
 			NodeTypes: []string{"object_declaration", "companion_object"}, Confidence: 0.95, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				classBody := file.FlatFindChild(idx, "class_body")
+				classBody, _ := file.FlatFindChild(idx, "class_body")
 				if classBody == 0 {
 					return
 				}
@@ -9023,8 +9023,8 @@ func registerAllRules() {
 			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				ident := file.FlatFindChild(idx, "type_identifier")
-				typeArgs := file.FlatFindChild(idx, "type_arguments")
+				ident, _ := file.FlatFindChild(idx, "type_identifier")
+				typeArgs, _ := file.FlatFindChild(idx, "type_arguments")
 				if ident == 0 || typeArgs == 0 {
 					return
 				}
@@ -9341,7 +9341,7 @@ func registerAllRules() {
 				if flatCallExpressionName(file, idx) != "toString" {
 					return
 				}
-				nav := file.FlatFindChild(idx, "navigation_expression")
+				nav, _ := file.FlatFindChild(idx, "navigation_expression")
 				if nav == 0 {
 					return
 				}
@@ -9353,7 +9353,7 @@ func registerAllRules() {
 				if !tempInstantiationMethods[method] {
 					return
 				}
-				innerNav := file.FlatFindChild(innerCall, "navigation_expression")
+				innerNav, _ := file.FlatFindChild(innerCall, "navigation_expression")
 				if innerNav == 0 {
 					return
 				}
@@ -9639,7 +9639,7 @@ func registerAllRules() {
 				if name != "hasNext" {
 					return
 				}
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -9673,7 +9673,7 @@ func registerAllRules() {
 				if !enclosingImplementsIteratorFlat(file, idx) {
 					return
 				}
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -9736,7 +9736,7 @@ func registerAllRules() {
 				if name == "" {
 					return
 				}
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -9942,7 +9942,7 @@ func registerAllRules() {
 					return
 				}
 
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -9956,7 +9956,7 @@ func registerAllRules() {
 					return
 				}
 
-				params := file.FlatFindChild(idx, "function_value_parameters")
+				params, _ := file.FlatFindChild(idx, "function_value_parameters")
 				bodyStart := file.FlatStartByte(body)
 				hasReturnType := false
 				file.FlatForEachChild(idx, func(child uint32) {
@@ -10382,7 +10382,7 @@ func registerAllRules() {
 			NodeTypes: []string{"for_statement", "while_statement", "do_while_statement"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				body := file.FlatFindChild(idx, "statements")
+				body, _ := file.FlatFindChild(idx, "statements")
 				if body == 0 {
 					for i := 0; i < file.FlatChildCount(idx); i++ {
 						child := file.FlatChild(idx, i)
@@ -10626,7 +10626,7 @@ func registerAllRules() {
 					return
 				}
 				mutableTypes := r.configuredMutableTypes()
-				varDecl := file.FlatFindChild(idx, "variable_declaration")
+				varDecl, _ := file.FlatFindChild(idx, "variable_declaration")
 				if varDecl == 0 {
 					return
 				}
@@ -10700,7 +10700,7 @@ func registerAllRules() {
 				if !file.FlatHasModifier(idx, "override") {
 					return
 				}
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -10742,7 +10742,7 @@ func registerAllRules() {
 			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				body := file.FlatFindChild(idx, "class_body")
+				body, _ := file.FlatFindChild(idx, "class_body")
 				if body == 0 {
 					return
 				}
@@ -10825,7 +10825,7 @@ func registerAllRules() {
 					return
 				}
 				if ctx.Resolver != nil {
-					navExpr := file.FlatFindChild(idx, "navigation_expression")
+					navExpr, _ := file.FlatFindChild(idx, "navigation_expression")
 					if navExpr != 0 && file.FlatChildCount(navExpr) >= 1 {
 						receiver := file.FlatChild(navExpr, 0)
 						if receiver != 0 {
@@ -10923,7 +10923,7 @@ func registerAllRules() {
 			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -11831,7 +11831,7 @@ func registerAllRules() {
 				} else if !strings.Contains(condText, "moveToNext") {
 					return
 				}
-				body := file.FlatFindChild(idx, "statements")
+				body, _ := file.FlatFindChild(idx, "statements")
 				if body == 0 {
 					for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
 						if file.FlatType(child) == "control_structure_body" {
@@ -12550,8 +12550,8 @@ func registerAllRules() {
 						return
 					}
 				}
-				mods := file.FlatFindChild(idx, "modifiers")
-				body := file.FlatFindChild(idx, "class_body")
+				mods, _ := file.FlatFindChild(idx, "modifiers")
+				body, _ := file.FlatFindChild(idx, "class_body")
 				if mods == 0 || body == 0 {
 					return
 				}
@@ -12667,17 +12667,17 @@ func registerAllRules() {
 					if file.FlatType(child) != "delegation_specifier" {
 						continue
 					}
-					if file.FlatFindChild(child, "constructor_invocation") != 0 {
+					if file.FlatHasChildOfType(child, "constructor_invocation") {
 						return
 					}
 				}
-				if ctor := file.FlatFindChild(idx, "primary_constructor"); ctor != 0 {
+				if ctor, ok := file.FlatFindChild(idx, "primary_constructor"); ok {
 					paramsText := file.FlatNodeText(ctor)
 					if strings.Contains(paramsText, "val ") || strings.Contains(paramsText, "var ") {
 						return
 					}
 				}
-				body := file.FlatFindChild(idx, "class_body")
+				body, _ := file.FlatFindChild(idx, "class_body")
 				if body == 0 {
 					return
 				}
@@ -12767,7 +12767,7 @@ func registerAllRules() {
 				if !file.FlatHasModifier(idx, "data") {
 					return
 				}
-				ctor := file.FlatFindChild(idx, "primary_constructor")
+				ctor, _ := file.FlatFindChild(idx, "primary_constructor")
 				if ctor == 0 {
 					return
 				}
@@ -12811,7 +12811,7 @@ func registerAllRules() {
 				if !file.FlatHasModifier(idx, "data") {
 					return
 				}
-				body := file.FlatFindChild(idx, "class_body")
+				body, _ := file.FlatFindChild(idx, "class_body")
 				if body == 0 {
 					return
 				}
@@ -12843,7 +12843,7 @@ func registerAllRules() {
 						}
 					}
 				}
-				body := file.FlatFindChild(idx, "class_body")
+				body, _ := file.FlatFindChild(idx, "class_body")
 				if body == 0 {
 					return
 				}
@@ -12878,13 +12878,13 @@ func registerAllRules() {
 				if !ok || file.FlatType(parent) != "source_file" {
 					return
 				}
-				if file.FlatFindChild(idx, "interface") != 0 {
+				if file.FlatHasChildOfType(idx, "interface") {
 					return
 				}
 				if !file.FlatHasModifier(idx, "internal") {
 					return
 				}
-				body := file.FlatFindChild(idx, "class_body")
+				body, _ := file.FlatFindChild(idx, "class_body")
 				if body == 0 {
 					return
 				}
@@ -12936,7 +12936,7 @@ func registerAllRules() {
 					strings.Contains(prefix, "enum ") {
 					return
 				}
-				body := file.FlatFindChild(idx, "class_body")
+				body, _ := file.FlatFindChild(idx, "class_body")
 				if body == 0 {
 					return
 				}
@@ -12954,7 +12954,7 @@ func registerAllRules() {
 				if !hasFunctions || hasNonStaticMember {
 					return
 				}
-				ctor := file.FlatFindChild(idx, "primary_constructor")
+				ctor, _ := file.FlatFindChild(idx, "primary_constructor")
 				if ctor != 0 {
 					if file.FlatHasModifier(ctor, "private") {
 						return
@@ -12985,7 +12985,7 @@ func registerAllRules() {
 						}
 					}
 				} else {
-					body2 := file.FlatFindChild(idx, "class_body")
+					body2, _ := file.FlatFindChild(idx, "class_body")
 					if body2 != 0 {
 						insertAt := int(file.FlatStartByte(body2))
 						for insertAt > 0 && (file.Content[insertAt-1] == ' ' || file.Content[insertAt-1] == '\t') {
@@ -13012,10 +13012,10 @@ func registerAllRules() {
 			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if file.FlatFindChild(idx, "interface") == 0 {
+				if !file.FlatHasChildOfType(idx, "interface") {
 					return
 				}
-				body := file.FlatFindChild(idx, "class_body")
+				body, _ := file.FlatFindChild(idx, "class_body")
 				if body == 0 {
 					return
 				}
@@ -13049,7 +13049,7 @@ func registerAllRules() {
 						strings.HasPrefix(memberText, "interface ") {
 						continue
 					}
-					mods := file.FlatFindChild(member, "modifiers")
+					mods, _ := file.FlatFindChild(member, "modifiers")
 					if mods == 0 || !file.FlatHasModifier(member, "abstract") {
 						continue
 					}
@@ -13130,7 +13130,7 @@ func registerAllRules() {
 					return
 				}
 				supertypeName := extractSupertypeNameFlat(file, delegations[0])
-				body := file.FlatFindChild(idx, "class_body")
+				body, _ := file.FlatFindChild(idx, "class_body")
 				if body == 0 {
 					return
 				}
@@ -13156,7 +13156,7 @@ func registerAllRules() {
 				if !file.FlatHasModifier(singleFun, "override") {
 					return
 				}
-				funBody := file.FlatFindChild(singleFun, "function_body")
+				funBody, _ := file.FlatFindChild(singleFun, "function_body")
 				if funBody != 0 && objectBodyContainsBareThisFlat(file, funBody) {
 					return
 				}
@@ -13176,7 +13176,7 @@ func registerAllRules() {
 			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if file.FlatFindChild(idx, "enum") != 0 {
+				if file.FlatHasChildOfType(idx, "enum") {
 					return
 				}
 				text := file.FlatNodeText(idx)
@@ -13224,7 +13224,7 @@ func registerAllRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -13357,7 +13357,7 @@ func registerAllRules() {
 				if strings.Contains(text, "else") {
 					return
 				}
-				body := file.FlatFindChild(idx, "control_structure_body")
+				body, _ := file.FlatFindChild(idx, "control_structure_body")
 				if body == 0 {
 					return
 				}
@@ -13387,7 +13387,7 @@ func registerAllRules() {
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, 1,
 					"Collapsible if statements: these nested ifs can be merged with '&&'.")
-				outerCond := file.FlatFindChild(idx, "parenthesized_expression")
+				outerCond, _ := file.FlatFindChild(idx, "parenthesized_expression")
 				if outerCond == 0 {
 					for ci := 0; ci < file.FlatChildCount(idx); ci++ {
 						ch := file.FlatChild(idx, ci)
@@ -13410,8 +13410,8 @@ func registerAllRules() {
 					if strings.HasPrefix(outerCondText, "(") && strings.HasSuffix(outerCondText, ")") {
 						outerCondText = outerCondText[1 : len(outerCondText)-1]
 					}
-					innerCondNode := file.FlatFindChild(innerIf, "parenthesized_expression")
-					innerBody := file.FlatFindChild(innerIf, "control_structure_body")
+					innerCondNode, _ := file.FlatFindChild(innerIf, "parenthesized_expression")
+					innerBody, _ := file.FlatFindChild(innerIf, "control_structure_body")
 					if innerCondNode != 0 && innerBody != 0 {
 						innerCondText := file.FlatNodeText(innerCondNode)
 						if strings.HasPrefix(innerCondText, "(") && strings.HasSuffix(innerCondText, ")") {
@@ -13539,7 +13539,7 @@ func registerAllRules() {
 				if file.FlatHasModifier(idx, "lateinit") {
 					return
 				}
-				if file.FlatFindChild(idx, "property_delegate") != 0 {
+				if file.FlatHasChildOfType(idx, "property_delegate") {
 					return
 				}
 				if hasFrameworkAnnotationFlat(file, idx) {
@@ -13631,7 +13631,7 @@ func registerAllRules() {
 				if isConstant(init) {
 					f := r.Finding(file, file.FlatRow(idx)+1, 1,
 						"Property may be declared as 'const val'.")
-					mods := file.FlatFindChild(idx, "modifiers")
+					mods, _ := file.FlatFindChild(idx, "modifiers")
 					if mods != 0 {
 						modsText := file.FlatNodeText(mods)
 						f.Fix = &scanner.Fix{
@@ -13721,7 +13721,7 @@ func registerAllRules() {
 						"ContributesTo", "ContributesSubcomponent"}) {
 					return
 				}
-				params := file.FlatFindChild(idx, "function_value_parameters")
+				params, _ := file.FlatFindChild(idx, "function_value_parameters")
 				if params != 0 {
 					paramText := file.FlatNodeText(params)
 					if len(strings.TrimSpace(strings.Trim(paramText, "()"))) > 0 {
@@ -13744,7 +13744,7 @@ func registerAllRules() {
 						break
 					}
 				}
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -13817,7 +13817,7 @@ func registerAllRules() {
 			NodeTypes: []string{"lambda_literal"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				paramsNode := file.FlatFindChild(idx, "lambda_parameters")
+				paramsNode, _ := file.FlatFindChild(idx, "lambda_parameters")
 				if paramsNode == 0 {
 					return
 				}
@@ -13837,12 +13837,12 @@ func registerAllRules() {
 				if file.FlatType(param) == "simple_identifier" {
 					name = file.FlatNodeText(param)
 				} else {
-					id := file.FlatFindChild(param, "simple_identifier")
+					id, _ := file.FlatFindChild(param, "simple_identifier")
 					if id != 0 {
 						name = file.FlatNodeText(id)
 					}
-					if file.FlatFindChild(param, "user_type") != 0 || file.FlatFindChild(param, "nullable_type") != 0 ||
-						file.FlatFindChild(param, "function_type") != 0 {
+					if file.FlatHasChildOfType(param, "user_type") || file.FlatHasChildOfType(param, "nullable_type") ||
+						file.FlatHasChildOfType(param, "function_type") {
 						hasType = true
 					}
 				}
@@ -13882,7 +13882,7 @@ func registerAllRules() {
 			NodeTypes: []string{"lambda_literal"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				paramsNode := file.FlatFindChild(idx, "lambda_parameters")
+				paramsNode, _ := file.FlatFindChild(idx, "lambda_parameters")
 				if paramsNode == 0 {
 					return
 				}
@@ -13894,7 +13894,7 @@ func registerAllRules() {
 					case "simple_identifier":
 						name = file.FlatNodeText(child)
 					case "variable_declaration":
-						id := file.FlatFindChild(child, "simple_identifier")
+						id, _ := file.FlatFindChild(child, "simple_identifier")
 						if id != 0 {
 							name = file.FlatNodeText(id)
 						}
@@ -15264,7 +15264,7 @@ func registerAllRules() {
 				if file.FlatType(callSideIdx) != "call_expression" {
 					return
 				}
-				nav := file.FlatFindChild(callSideIdx, "navigation_expression")
+				nav, _ := file.FlatFindChild(callSideIdx, "navigation_expression")
 				if nav == 0 {
 					return
 				}
@@ -15275,7 +15275,7 @@ func registerAllRules() {
 				if !anyOrNoneFindFuncs[funcName] {
 					return
 				}
-				callSuffix := file.FlatFindChild(callSideIdx, "call_suffix")
+				callSuffix, _ := file.FlatFindChild(callSideIdx, "call_suffix")
 				if callSuffix == 0 {
 					return
 				}
@@ -15321,7 +15321,7 @@ func registerAllRules() {
 				if !ok {
 					return
 				}
-				suffix := file.FlatFindChild(idx, "call_suffix")
+				suffix, _ := file.FlatFindChild(idx, "call_suffix")
 				if suffix == 0 {
 					return
 				}
@@ -15437,8 +15437,8 @@ func registerAllRules() {
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
 				if name == "flatMap" && selectorName == "size" && chainEnd != 0 {
-					if lambdaSuffix := file.FlatFindChild(idx, "call_suffix"); lambdaSuffix != 0 {
-						if lambdaNode := file.FlatFindChild(lambdaSuffix, "annotated_lambda"); lambdaNode != 0 {
+					if lambdaSuffix, ok := file.FlatFindChild(idx, "call_suffix"); ok {
+						if lambdaNode, ok := file.FlatFindChild(lambdaSuffix, "annotated_lambda"); ok {
 							body := strings.TrimSpace(file.FlatNodeText(lambdaNode))
 							if len(body) >= 2 && body[0] == '{' && body[len(body)-1] == '}' {
 								body = strings.TrimSpace(body[1 : len(body)-1])
@@ -15491,7 +15491,7 @@ func registerAllRules() {
 				if file.FlatHasModifier(idx, "data") || file.FlatHasModifier(idx, "abstract") || file.FlatHasModifier(idx, "open") || file.FlatHasModifier(idx, "sealed") || file.FlatHasModifier(idx, "enum") || file.FlatHasModifier(idx, "annotation") {
 					return
 				}
-				ctor := file.FlatFindChild(idx, "primary_constructor")
+				ctor, _ := file.FlatFindChild(idx, "primary_constructor")
 				if ctor == 0 {
 					return
 				}
@@ -15505,7 +15505,7 @@ func registerAllRules() {
 				if paramCount == 0 {
 					return
 				}
-				body := file.FlatFindChild(idx, "class_body")
+				body, _ := file.FlatFindChild(idx, "class_body")
 				if body != 0 {
 					for i := 0; i < file.FlatChildCount(body); i++ {
 						if file.FlatType(file.FlatChild(body, i)) == "function_declaration" {
@@ -15651,8 +15651,8 @@ func registerAllRules() {
 					return
 				}
 				argsNode := uint32(0)
-				if callSuffix := file.FlatFindChild(idx, "call_suffix"); callSuffix != 0 {
-					argsNode = file.FlatFindChild(callSuffix, "value_arguments")
+				if callSuffix, ok := file.FlatFindChild(idx, "call_suffix"); ok {
+					argsNode, _ = file.FlatFindChild(callSuffix, "value_arguments")
 				}
 				if argsNode == 0 {
 					return
@@ -15818,11 +15818,11 @@ func registerAllRules() {
 			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				ctor := file.FlatFindChild(idx, "primary_constructor")
+				ctor, _ := file.FlatFindChild(idx, "primary_constructor")
 				if ctor == 0 {
 					return
 				}
-				if file.FlatFindChild(ctor, "modifiers") != 0 {
+				if file.FlatHasChildOfType(ctor, "modifiers") {
 					return
 				}
 				// Check whether the constructor text contains the explicit "constructor" keyword.
@@ -15839,7 +15839,7 @@ func registerAllRules() {
 					startByte--
 				}
 				// Find the parameter list (class_parameters) inside the constructor node.
-				paramList := file.FlatFindChild(ctor, "class_parameters")
+				paramList, _ := file.FlatFindChild(ctor, "class_parameters")
 				if paramList != 0 {
 					f.Fix = &scanner.Fix{
 						ByteMode:    true,
@@ -15935,7 +15935,7 @@ func registerAllRules() {
 					}
 				case "call_expression":
 					// val x: Foo = Foo(...) — constructor call matches type name
-					callee := file.FlatFindChild(initExpr, "simple_identifier")
+					callee, _ := file.FlatFindChild(initExpr, "simple_identifier")
 					if callee != 0 && file.FlatNodeTextEquals(callee, typeText) {
 						matched = true
 					}
@@ -16102,8 +16102,8 @@ func registerAllRules() {
 			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				mods := file.FlatFindChild(idx, "modifiers")
-				body := file.FlatFindChild(idx, "class_body")
+				mods, _ := file.FlatFindChild(idx, "modifiers")
+				body, _ := file.FlatFindChild(idx, "class_body")
 				if mods == 0 || body == 0 {
 					return
 				}
@@ -16169,7 +16169,7 @@ func registerAllRules() {
 					}
 				}
 				// 2. Check for `return Unit` statements inside the function body using compiled query.
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body != 0 {
 					file.FlatWalkNodes(body, "jump_expression", func(jump uint32) {
 						if file.FlatChildCount(jump) < 2 {
@@ -16382,7 +16382,7 @@ func registerAllRules() {
 				if navExpr == 0 {
 					return
 				}
-				suffix := file.FlatFindChild(idx, "call_suffix")
+				suffix, _ := file.FlatFindChild(idx, "call_suffix")
 				if suffix == 0 {
 					return
 				}
@@ -16400,7 +16400,7 @@ func registerAllRules() {
 				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"Redundant '.map { it }' \u2014 this is a no-op.")
 				if child := flatLastChildOfType(file, navExpr, "navigation_suffix"); child != 0 {
-					if file.FlatNodeText(file.FlatFindChild(child, "simple_identifier")) == "map" {
+					if file.FlatChildTextOrEmpty(child, "simple_identifier") == "map" {
 						f.Fix = &scanner.Fix{
 							ByteMode:    true,
 							StartByte:   int(file.FlatStartByte(child)),
@@ -16423,7 +16423,7 @@ func registerAllRules() {
 				if flatCallExpressionName(file, idx) != "apply" {
 					return
 				}
-				suffix := file.FlatFindChild(idx, "call_suffix")
+				suffix, _ := file.FlatFindChild(idx, "call_suffix")
 				if suffix == 0 {
 					return
 				}
@@ -16474,12 +16474,12 @@ func registerAllRules() {
 				if navSuffix == 0 {
 					return
 				}
-				funcIdent := file.FlatFindChild(navSuffix, "simple_identifier")
+				funcIdent, _ := file.FlatFindChild(navSuffix, "simple_identifier")
 				if funcIdent == 0 || !file.FlatNodeTextEquals(funcIdent, "let") {
 					return
 				}
 				isSafeCall := strings.Contains(file.FlatNodeText(navSuffix), "?.")
-				suffix := file.FlatFindChild(idx, "call_suffix")
+				suffix, _ := file.FlatFindChild(idx, "call_suffix")
 				if suffix == 0 {
 					return
 				}
@@ -16558,7 +16558,7 @@ func registerAllRules() {
 				if flatLastChildOfType(file, navExpr, "navigation_suffix") == 0 {
 					return
 				}
-				callSuffix := file.FlatFindChild(idx, "call_suffix")
+				callSuffix, _ := file.FlatFindChild(idx, "call_suffix")
 				if callSuffix == 0 {
 					return
 				}
@@ -16618,7 +16618,7 @@ func registerAllRules() {
 				default:
 					return
 				}
-				suffix := file.FlatFindChild(idx, "call_suffix")
+				suffix, _ := file.FlatFindChild(idx, "call_suffix")
 				if suffix == 0 {
 					return
 				}
@@ -16634,11 +16634,13 @@ func registerAllRules() {
 					if flatCallExpressionName(file, filterCall) != "filter" {
 						return
 					}
-					predText := flatAnyLambdaFullText(file, file.FlatFindChild(filterCall, "call_suffix"))
+					callSuffix, _ := file.FlatFindChild(filterCall, "call_suffix")
+					predText := flatAnyLambdaFullText(file, callSuffix)
 					if predText == "" {
 						return
 					}
-					receiverNode := file.FlatNamedChild(file.FlatFindChild(filterCall, "navigation_expression"), 0)
+					navExprChild, _ := file.FlatFindChild(filterCall, "navigation_expression")
+					receiverNode := file.FlatNamedChild(navExprChild, 0)
 					if receiverNode == 0 {
 						return
 					}
@@ -16708,11 +16710,11 @@ func registerAllRules() {
 				if flatCallSuffixLambdaNode(file, outerSuffix) == 0 {
 					return
 				}
-				innerSuffix := file.FlatFindChild(innerCall, "call_suffix")
+				innerSuffix, _ := file.FlatFindChild(innerCall, "call_suffix")
 				if innerSuffix == 0 {
 					return
 				}
-				args := file.FlatFindChild(innerSuffix, "value_arguments")
+				args, _ := file.FlatFindChild(innerSuffix, "value_arguments")
 				if args == 0 {
 					return
 				}
@@ -16807,7 +16809,7 @@ func registerAllRules() {
 					innerReceiver := file.FlatNamedChild(navExpr, 0)
 					innerReceiverText := file.FlatNodeText(innerReceiver)
 					if unnRevReverseFuncs[outerMethod] {
-						sortCallSuffix := file.FlatFindChild(receiverCall, "call_suffix")
+						sortCallSuffix, _ := file.FlatFindChild(receiverCall, "call_suffix")
 						suffixText := "()"
 						if sortCallSuffix != 0 {
 							suffixText = file.FlatNodeText(sortCallSuffix)
@@ -16819,7 +16821,7 @@ func registerAllRules() {
 							Replacement: innerReceiverText + "." + replacement + suffixText,
 						}
 					} else {
-						outerSuffix := file.FlatFindChild(idx, "call_suffix")
+						outerSuffix, _ := file.FlatFindChild(idx, "call_suffix")
 						suffixText := "()"
 						if outerSuffix != 0 {
 							suffixText = file.FlatNodeText(outerSuffix)
@@ -17171,7 +17173,7 @@ func registerAllRules() {
 				if !file.FlatHasModifier(idx, "private") {
 					return
 				}
-				mods := file.FlatFindChild(idx, "modifiers")
+				mods, _ := file.FlatFindChild(idx, "modifiers")
 				modsText := ""
 				if mods != 0 {
 					modsText = file.FlatNodeText(mods)
@@ -17331,7 +17333,7 @@ func registerAllRules() {
 				if !testingQualityIsTestFunction(file, idx) {
 					return
 				}
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -17342,11 +17344,11 @@ func registerAllRules() {
 					if file.FlatType(n) != "property_declaration" {
 						return
 					}
-					varDecl := file.FlatFindChild(n, "variable_declaration")
+					varDecl, _ := file.FlatFindChild(n, "variable_declaration")
 					if varDecl == 0 {
 						return
 					}
-					ident := file.FlatFindChild(varDecl, "simple_identifier")
+					ident, _ := file.FlatFindChild(varDecl, "simple_identifier")
 					if ident == 0 {
 						return
 					}
@@ -17501,7 +17503,7 @@ func registerAllRules() {
 				if !testingQualityIsTestFunction(file, idx) {
 					return
 				}
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -17540,7 +17542,7 @@ func registerAllRules() {
 				if flatHasAnnotationNamed(file, idx, "Ignore") || flatHasAnnotationNamed(file, idx, "Disabled") {
 					return
 				}
-				body := file.FlatFindChild(idx, "function_body")
+				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
@@ -17645,7 +17647,7 @@ func registerAllRules() {
 				if !testingQualityIsTestFile(file) {
 					return
 				}
-				delegation := file.FlatFindChild(idx, "delegation_specifier")
+				delegation, _ := file.FlatFindChild(idx, "delegation_specifier")
 				if delegation == 0 {
 					return
 				}
@@ -17759,7 +17761,7 @@ func registerAllRules() {
 				if !ok {
 					return
 				}
-				body := file.FlatFindChild(fn, "function_body")
+				body, _ := file.FlatFindChild(fn, "function_body")
 				if body == 0 {
 					return
 				}
@@ -17768,11 +17770,11 @@ func registerAllRules() {
 					if file.FlatType(n) != "property_declaration" {
 						return
 					}
-					varDecl := file.FlatFindChild(n, "variable_declaration")
+					varDecl, _ := file.FlatFindChild(n, "variable_declaration")
 					if varDecl == 0 {
 						return
 					}
-					ident := file.FlatFindChild(varDecl, "simple_identifier")
+					ident, _ := file.FlatFindChild(varDecl, "simple_identifier")
 					if ident == 0 {
 						return
 					}

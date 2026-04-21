@@ -796,7 +796,7 @@ func whenIsExhaustiveAndTerminatesFlat(file *scanner.File, idx uint32, resolver 
 		}
 
 		// Check if the body of this entry terminates
-		body := file.FlatFindChild(child, "control_structure_body")
+		body, _ := file.FlatFindChild(child, "control_structure_body")
 		if body == 0 {
 			// Could be a single expression entry — check the last child
 			var lastChild uint32

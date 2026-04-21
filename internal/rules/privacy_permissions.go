@@ -42,10 +42,10 @@ func privacyDelegationSupertypeNameFlat(file *scanner.File, idx uint32) string {
 	if file == nil || idx == 0 {
 		return ""
 	}
-	ut := file.FlatFindChild(idx, "user_type")
+	ut, _ := file.FlatFindChild(idx, "user_type")
 	if ut == 0 {
-		if call := file.FlatFindChild(idx, "constructor_invocation"); call != 0 {
-			ut = file.FlatFindChild(call, "user_type")
+		if call, ok := file.FlatFindChild(idx, "constructor_invocation"); ok {
+			ut, _ = file.FlatFindChild(call, "user_type")
 		}
 	}
 	if ut == 0 {
@@ -63,7 +63,7 @@ func privacyDelegationSupertypeNameFlat(file *scanner.File, idx uint32) string {
 }
 
 func privacyHasPrecedingConsentUpdateCallFlat(file *scanner.File, fn, target uint32) bool {
-	body := file.FlatFindChild(fn, "function_body")
+	body, _ := file.FlatFindChild(fn, "function_body")
 	if body == 0 {
 		return false
 	}

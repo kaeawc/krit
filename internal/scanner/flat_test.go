@@ -137,9 +137,9 @@ abstract class Example {
 	}
 
 	modsNode := FindChild(classNode, "modifiers")
-	modsIdx := FlatFindChild(flat, classIdx, "modifiers")
-	if modsNode == nil || modsIdx == 0 {
-		t.Fatalf("expected modifiers child in both trees, got node=%v idx=%d", modsNode != nil, modsIdx)
+	modsIdx, modsOk := FlatFindChild(flat, classIdx, "modifiers")
+	if modsNode == nil || !modsOk {
+		t.Fatalf("expected modifiers child in both trees, got node=%v ok=%v", modsNode != nil, modsOk)
 	}
 	if FlatNodeText(flat, modsIdx, content) != NodeText(modsNode, content) {
 		t.Errorf("expected modifier text %q, got %q", NodeText(modsNode, content), FlatNodeText(flat, modsIdx, content))
@@ -170,8 +170,8 @@ abstract class Example {
 		t.Fatal("expected class_declaration index")
 	}
 
-	modsIdx := FlatFindChild(flat, classIdx, "modifiers")
-	if modsIdx == 0 {
+	modsIdx, ok := FlatFindChild(flat, classIdx, "modifiers")
+	if !ok {
 		t.Fatal("expected modifiers child")
 	}
 
@@ -204,8 +204,8 @@ abstract class Example {
 		t.Fatal("expected class_declaration index")
 	}
 
-	modsIdx := FlatFindChild(flat, classIdx, "modifiers")
-	if modsIdx == 0 {
+	modsIdx, ok := FlatFindChild(flat, classIdx, "modifiers")
+	if !ok {
 		t.Fatal("expected modifiers child")
 	}
 

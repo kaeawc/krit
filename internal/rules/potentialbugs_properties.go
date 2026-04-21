@@ -128,11 +128,11 @@ func propertyDeclarationNameFlat(file *scanner.File, idx uint32) string {
 	if file == nil || idx == 0 {
 		return ""
 	}
-	varDecl := file.FlatFindChild(idx, "variable_declaration")
+	varDecl, _ := file.FlatFindChild(idx, "variable_declaration")
 	if varDecl == 0 {
 		return ""
 	}
-	ident := file.FlatFindChild(varDecl, "simple_identifier")
+	ident, _ := file.FlatFindChild(varDecl, "simple_identifier")
 	if ident == 0 {
 		return ""
 	}

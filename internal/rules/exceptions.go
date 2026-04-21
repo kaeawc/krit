@@ -367,11 +367,11 @@ func (r *ThrowingExceptionsWithoutMessageOrCauseRule) exceptionAllowlist() map[s
 
 func throwingExceptionArgCountFlat(file *scanner.File, idx uint32) int {
 	if !experiment.Enabled("exceptions-throw-fastpath") {
-		callSuffix := file.FlatFindChild(idx, "call_suffix")
+		callSuffix, _ := file.FlatFindChild(idx, "call_suffix")
 		if callSuffix == 0 {
 			return -1
 		}
-		valueArgs := file.FlatFindChild(callSuffix, "value_arguments")
+		valueArgs, _ := file.FlatFindChild(callSuffix, "value_arguments")
 		if valueArgs == 0 {
 			return -1
 		}
@@ -383,11 +383,11 @@ func throwingExceptionArgCountFlat(file *scanner.File, idx uint32) int {
 		}
 		return argCount
 	}
-	callSuffix := file.FlatFindChild(idx, "call_suffix")
+	callSuffix, _ := file.FlatFindChild(idx, "call_suffix")
 	if callSuffix == 0 {
 		return -1
 	}
-	argList := file.FlatFindChild(callSuffix, "value_arguments")
+	argList, _ := file.FlatFindChild(callSuffix, "value_arguments")
 	if argList == 0 {
 		return -1
 	}

@@ -168,7 +168,7 @@ var androidLifecycleMethods = map[string]bool{
 }
 
 func isDSLBuilderBodyFlat(idx uint32, file *scanner.File) bool {
-	body := file.FlatFindChild(idx, "function_body")
+	body, _ := file.FlatFindChild(idx, "function_body")
 	if body == 0 {
 		return false
 	}
@@ -176,7 +176,7 @@ func isDSLBuilderBodyFlat(idx uint32, file *scanner.File) bool {
 	if strings.HasPrefix(bodyText, "=") {
 		return strings.Contains(bodyText, "{") && strings.HasSuffix(bodyText, "}")
 	}
-	stmts := file.FlatFindChild(body, "statements")
+	stmts, _ := file.FlatFindChild(body, "statements")
 	if stmts == 0 {
 		return false
 	}
@@ -195,7 +195,7 @@ func isDSLBuilderBodyFlat(idx uint32, file *scanner.File) bool {
 	if file.FlatType(checkNode) != "call_expression" {
 		return false
 	}
-	suffix := file.FlatFindChild(checkNode, "call_suffix")
+	suffix, _ := file.FlatFindChild(checkNode, "call_suffix")
 	if suffix == 0 {
 		return false
 	}
@@ -429,7 +429,7 @@ func (r *CyclomaticComplexMethodRule) Confidence() float64 { return 0.75 }
 
 
 func isPureBooleanPredicateFlat(file *scanner.File, fn uint32) bool {
-	body := file.FlatFindChild(fn, "function_body")
+	body, _ := file.FlatFindChild(fn, "function_body")
 	if body == 0 {
 		return false
 	}
@@ -443,7 +443,7 @@ func isPureBooleanPredicateFlat(file *scanner.File, fn uint32) bool {
 		}
 		return false
 	}
-	stmts := file.FlatFindChild(body, "statements")
+	stmts, _ := file.FlatFindChild(body, "statements")
 	if stmts == 0 || file.FlatNamedChildCount(stmts) != 1 {
 		return false
 	}
@@ -479,7 +479,7 @@ func isSimpleWhenEntryFlat(file *scanner.File, entry uint32) bool {
 	for i := 0; i < file.FlatChildCount(entry); i++ {
 		child := file.FlatChild(entry, i)
 		if file.FlatType(child) == "control_structure_body" {
-			stmts := file.FlatFindChild(child, "statements")
+			stmts, _ := file.FlatFindChild(child, "statements")
 			if stmts == 0 {
 				return true
 			}
@@ -704,7 +704,7 @@ func (r *MethodOverloadingRule) checkScopeFlat(ctx *v2.Context, node uint32) {
 			}
 		}
 	case "class_declaration":
-		body := file.FlatFindChild(node, "class_body")
+		body, _ := file.FlatFindChild(node, "class_body")
 		if body == 0 {
 			return
 		}
@@ -891,7 +891,7 @@ func (r *TooManyFunctionsRule) shouldCountFunctionFlat(fnNode uint32, file *scan
 		return false
 	}
 	if r.IgnoreDeprecated {
-		if mods := file.FlatFindChild(fnNode, "modifiers"); mods != 0 && strings.Contains(file.FlatNodeText(mods), "Deprecated") {
+		if mods, ok := file.FlatFindChild(fnNode, "modifiers"); ok && strings.Contains(file.FlatNodeText(mods), "Deprecated") {
 			return false
 		}
 	}
@@ -900,7 +900,7 @@ func (r *TooManyFunctionsRule) shouldCountFunctionFlat(fnNode uint32, file *scan
 
 
 func (r *TooManyFunctionsRule) countFunctionsInClassFlat(cls uint32, file *scanner.File) int {
-	body := file.FlatFindChild(cls, "class_body")
+	body, _ := file.FlatFindChild(cls, "class_body")
 	if body == 0 {
 		return 0
 	}

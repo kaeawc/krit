@@ -170,27 +170,31 @@ func FlatWalkNodes(tree *FlatTree, nodeType string, fn func(uint32)) {
 }
 
 // FlatFindChild finds the first direct child with the given type.
-// It returns 0 when no matching child exists.
-func FlatFindChild(tree *FlatTree, parent uint32, childType string) uint32 {
+// The second return reports whether a matching child was found; when false,
+// the first return is 0 and must not be used as a node index. Before this
+// returned a bare uint32 and conflated "not found" with "node 0" (the
+// source_file root), which silently produced whole-file source reads when
+// the result was passed to FlatNodeText.
+func FlatFindChild(tree *FlatTree, parent uint32, childType string) (uint32, bool) {
 	if tree == nil || int(parent) >= len(tree.Nodes) {
-		return 0
+		return 0, false
 	}
 	typeID, ok := lookupNodeType(childType)
 	if !ok {
-		return 0
+		return 0, false
 	}
 	for child := tree.Nodes[parent].FirstChild; child != 0; child = tree.Nodes[child].NextSib {
 		if tree.Nodes[child].Type == typeID {
-			return child
+			return child, true
 		}
 	}
-	return 0
+	return 0, false
 }
 
 // FlatHasModifier checks whether a flattened declaration has the given modifier.
 func FlatHasModifier(tree *FlatTree, idx uint32, content []byte, modifier string) bool {
-	mods := FlatFindChild(tree, idx, "modifiers")
-	if mods == 0 {
+	mods, ok := FlatFindChild(tree, idx, "modifiers")
+	if !ok {
 		return false
 	}
 	for child := tree.Nodes[mods].FirstChild; child != 0; child = tree.Nodes[child].NextSib {
@@ -222,8 +226,28 @@ func (f *File) FlatNodeString(idx uint32, pool *StringPool) string {
 	return FlatNodeString(f.FlatTree, idx, f.Content, pool)
 }
 
-func (f *File) FlatFindChild(parent uint32, childType string) uint32 {
+func (f *File) FlatFindChild(parent uint32, childType string) (uint32, bool) {
 	return FlatFindChild(f.FlatTree, parent, childType)
+}
+
+// FlatChildTextOrEmpty returns the text of the first child of the given type,
+// or "" if no such child exists. Replaces the sentinel-zero pattern where
+// FlatNodeText(FlatFindChild(...)) silently returned the entire file source.
+func (f *File) FlatChildTextOrEmpty(parent uint32, childType string) string {
+	idx, ok := f.FlatFindChild(parent, childType)
+	if !ok {
+		return ""
+	}
+	return f.FlatNodeText(idx)
+}
+
+// FlatChildBytesOrNil mirrors FlatChildTextOrEmpty for the []byte form.
+func (f *File) FlatChildBytesOrNil(parent uint32, childType string) []byte {
+	idx, ok := f.FlatFindChild(parent, childType)
+	if !ok {
+		return nil
+	}
+	return f.FlatNodeBytes(idx)
 }
 
 func (f *File) FlatHasModifier(idx uint32, modifier string) bool {
@@ -292,7 +316,8 @@ func (f *File) FlatForEachChild(parent uint32, fn func(uint32)) {
 }
 
 func (f *File) FlatHasChildOfType(parent uint32, childType string) bool {
-	return f.FlatFindChild(parent, childType) != 0
+	_, ok := f.FlatFindChild(parent, childType)
+	return ok
 }
 
 func (f *File) FlatParent(idx uint32) (uint32, bool) {
@@ -424,8 +449,8 @@ func (f *File) FlatCountNodes(root uint32, nodeType string) int {
 }
 
 func (f *File) FlatFindModifierNode(idx uint32, modifier string) uint32 {
-	mods := f.FlatFindChild(idx, "modifiers")
-	if mods == 0 {
+	mods, ok := f.FlatFindChild(idx, "modifiers")
+	if !ok {
 		return 0
 	}
 	var found uint32

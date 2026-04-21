@@ -75,7 +75,12 @@ func (crossFileShardsRegistered) Stats() cacheutil.CacheStats {
 // version is versioned independently of CrossFileCacheVersion so a
 // shard-layout bump does not force a monolithic rebuild, and vice
 // versa.
-const crossFileShardVersion = 2
+// v3: force rebuild after FlatFindChild sentinel-collision fix. Pre-fix
+// shards contain Symbol.Name values corrupted to the entire file source
+// whenever the property/function/class name lookup missed the direct
+// simple_identifier child (measured at 49% of symbols on Signal-Android,
+// 74% of shard disk bytes).
+const crossFileShardVersion = 3
 
 // crossFileShardsSubdir holds sharded, per-file index contributions
 // under {CrossFileCacheDir}/{crossFileShardsSubdir}/{hash[:2]}/{hash[2:]}.gob.

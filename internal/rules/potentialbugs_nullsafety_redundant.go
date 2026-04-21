@@ -322,7 +322,7 @@ func hasNullableGenericParamBoundFlat(file *scanner.File, idx uint32, name strin
 		if localMatch || extractIdentifierFlat(file, prop) != name {
 			return
 		}
-		varDecl := file.FlatFindChild(prop, "variable_declaration")
+		varDecl, _ := file.FlatFindChild(prop, "variable_declaration")
 		if varDecl == 0 {
 			return
 		}
@@ -752,7 +752,7 @@ func unnecessarySafeCallNullableReceiverFlat(file *scanner.File, idx uint32, str
 				}
 				if t := file.FlatType(child); t == "receiver_type" || t == "nullable_type" {
 					text := strings.TrimSpace(file.FlatNodeText(child))
-					return strings.HasSuffix(text, "?") || file.FlatFindChild(child, "nullable_type") != 0
+					return strings.HasSuffix(text, "?") || file.FlatHasChildOfType(child, "nullable_type")
 				}
 			}
 			continue
@@ -765,7 +765,7 @@ func unnecessarySafeCallNullableReceiverFlat(file *scanner.File, idx uint32, str
 				if strings.HasSuffix(recText, "?") {
 					return true
 				}
-				if file.FlatFindChild(child, "nullable_type") != 0 {
+				if file.FlatHasChildOfType(child, "nullable_type") {
 					return true
 				}
 			case "nullable_type":
@@ -808,7 +808,7 @@ func getterNullableReceiverFlat(file *scanner.File, getter uint32, structural bo
 				child := file.FlatNamedChild(candidate, j)
 				if t := file.FlatType(child); t == "receiver_type" || t == "nullable_type" {
 					text := strings.TrimSpace(file.FlatNodeText(child))
-					return strings.HasSuffix(text, "?") || file.FlatFindChild(child, "nullable_type") != 0
+					return strings.HasSuffix(text, "?") || file.FlatHasChildOfType(child, "nullable_type")
 				}
 			}
 		} else {
@@ -817,7 +817,7 @@ func getterNullableReceiverFlat(file *scanner.File, getter uint32, structural bo
 				switch file.FlatType(child) {
 				case "receiver_type":
 					recText := strings.TrimSpace(file.FlatNodeText(child))
-					if strings.HasSuffix(recText, "?") || file.FlatFindChild(child, "nullable_type") != 0 {
+					if strings.HasSuffix(recText, "?") || file.FlatHasChildOfType(child, "nullable_type") {
 						return true
 					}
 				case "nullable_type":
@@ -892,7 +892,7 @@ func unnecessarySafeCallNullableFunctionParamFlat(file *scanner.File, idx uint32
 		if file.FlatType(p) != "function_declaration" {
 			continue
 		}
-		params := file.FlatFindChild(p, "function_value_parameters")
+		params, _ := file.FlatFindChild(p, "function_value_parameters")
 		if params == 0 {
 			return false
 		}

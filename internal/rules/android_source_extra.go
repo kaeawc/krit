@@ -108,7 +108,7 @@ func declarationHeaderText(file *scanner.File, idx uint32) string {
 		return ""
 	}
 	end := int(file.FlatEndByte(idx))
-	if body := file.FlatFindChild(idx, "class_body"); body != 0 {
+	if body, ok := file.FlatFindChild(idx, "class_body"); ok {
 		end = int(file.FlatStartByte(body))
 	}
 	start := int(file.FlatStartByte(idx))
@@ -128,10 +128,10 @@ func containsAny(text string, needles []string) bool {
 }
 
 func viewConstructorSupertypeNameFlat(file *scanner.File, deleg uint32) string {
-	ut := file.FlatFindChild(deleg, "user_type")
+	ut, _ := file.FlatFindChild(deleg, "user_type")
 	if ut == 0 {
-		if ci := file.FlatFindChild(deleg, "constructor_invocation"); ci != 0 {
-			ut = file.FlatFindChild(ci, "user_type")
+		if ci, ok := file.FlatFindChild(deleg, "constructor_invocation"); ok {
+			ut, _ = file.FlatFindChild(ci, "user_type")
 		}
 	}
 	if ut == 0 {

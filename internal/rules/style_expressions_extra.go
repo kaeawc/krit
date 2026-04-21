@@ -163,7 +163,7 @@ func (r *CanBeNonNullableRule) checkPropertyFlat(ctx *v2.Context) {
 		return
 	}
 
-	if file.FlatFindChild(idx, "property_delegate") != 0 {
+	if file.FlatHasChildOfType(idx, "property_delegate") {
 		return
 	}
 
@@ -200,7 +200,7 @@ func (r *CanBeNonNullableRule) checkPropertyFlat(ctx *v2.Context) {
 		return
 	}
 
-	if file.FlatFindChild(idx, "=") == 0 {
+	if !file.FlatHasChildOfType(idx, "=") {
 		return
 	}
 
@@ -283,13 +283,13 @@ func (r *CanBeNonNullableRule) checkFunctionParamsFlat(ctx *v2.Context) {
 		return
 	}
 
-	body := file.FlatFindChild(idx, "function_body")
+	body, _ := file.FlatFindChild(idx, "function_body")
 	if body == 0 {
 		return
 	}
 	bodyText := file.FlatNodeText(body)
 
-	params := file.FlatFindChild(idx, "function_value_parameters")
+	params, _ := file.FlatFindChild(idx, "function_value_parameters")
 	if params == 0 {
 		return
 	}
@@ -299,7 +299,7 @@ func (r *CanBeNonNullableRule) checkFunctionParamsFlat(ctx *v2.Context) {
 		if param == 0 || file.FlatType(param) != "parameter" {
 			continue
 		}
-		if file.FlatFindChild(param, "nullable_type") == 0 {
+		if !file.FlatHasChildOfType(param, "nullable_type") {
 			continue
 		}
 

@@ -237,7 +237,7 @@ func flatWhenSubjectNameByIdx(file *scanner.File, whenIdx uint32) string {
 			return ""
 		}
 	}
-	subject := file.FlatFindChild(whenIdx, "when_subject")
+	subject, _ := file.FlatFindChild(whenIdx, "when_subject")
 	if subject == 0 {
 		return ""
 	}
@@ -252,7 +252,7 @@ func flatWhenEntryTargetType(file *scanner.File, entryIdx uint32, it *ImportTabl
 	if file == nil || file.FlatTree == nil || entryIdx == 0 {
 		return nil
 	}
-	cond := file.FlatFindChild(entryIdx, "when_condition")
+	cond, _ := file.FlatFindChild(entryIdx, "when_condition")
 	if cond == 0 {
 		return nil
 	}

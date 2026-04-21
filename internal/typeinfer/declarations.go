@@ -61,7 +61,7 @@ func (r *defaultResolver) indexPropertyFlat(propIdx uint32, file *scanner.File, 
 		return
 	}
 
-	if varDecl := file.FlatFindChild(propIdx, "variable_declaration"); varDecl != 0 {
+	if varDecl, ok := file.FlatFindChild(propIdx, "variable_declaration"); ok {
 		if varName := flatMemberName(file, varDecl); varName != "" {
 			scope.Declare(varName, r.resolvePropertyTypeFlat(propIdx, file, it))
 			return
@@ -428,7 +428,7 @@ func flatMemberName(file *scanner.File, idx uint32) string {
 	}
 	switch file.FlatType(idx) {
 	case "property_declaration":
-		if varDecl := file.FlatFindChild(idx, "variable_declaration"); varDecl != 0 {
+		if varDecl, ok := file.FlatFindChild(idx, "variable_declaration"); ok {
 			return flatMemberName(file, varDecl)
 		}
 	case "variable_declaration", "function_declaration", "class_declaration", "object_declaration":

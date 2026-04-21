@@ -24,7 +24,7 @@ func (r *PackageNamingConventionDriftRule) Confidence() float64 { return 0.95 }
 
 
 func packageHeaderNameFlat(file *scanner.File, idx uint32) string {
-	if idNode := file.FlatFindChild(idx, "identifier"); idNode != 0 {
+	if idNode, ok := file.FlatFindChild(idx, "identifier"); ok {
 		return strings.TrimSpace(file.FlatNodeText(idNode))
 	}
 

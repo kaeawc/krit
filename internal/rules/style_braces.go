@@ -23,7 +23,7 @@ func (r *BracesOnIfStatementsRule) Confidence() float64 { return 0.75 }
 func (r *BracesOnIfStatementsRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
 
-	body := file.FlatFindChild(idx, "control_structure_body")
+	body, _ := file.FlatFindChild(idx, "control_structure_body")
 	if body == 0 {
 		return
 	}
@@ -139,7 +139,7 @@ func (r *BracesOnWhenStatementsRule) Confidence() float64 { return 0.75 }
 func (r *BracesOnWhenStatementsRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
 
-	body := file.FlatFindChild(idx, "control_structure_body")
+	body, _ := file.FlatFindChild(idx, "control_structure_body")
 	if body == 0 {
 		return
 	}
@@ -211,7 +211,7 @@ func (r *BracesOnWhenStatementsRule) checkConsistentWhenFlat(ctx *v2.Context) {
 	var entries []entryInfo
 	for child := file.FlatFirstChild(parent); child != 0; child = file.FlatNextSib(child) {
 		if file.FlatType(child) == "when_entry" {
-			body := file.FlatFindChild(child, "control_structure_body")
+			body, _ := file.FlatFindChild(child, "control_structure_body")
 			if body != 0 {
 				text := strings.TrimSpace(file.FlatNodeText(body))
 				entries = append(entries, entryInfo{body: body, hasBrace: strings.HasPrefix(text, "{")})
@@ -254,7 +254,7 @@ func (r *MandatoryBracesLoopsRule) Confidence() float64 { return 0.75 }
 func (r *MandatoryBracesLoopsRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
 
-	body := file.FlatFindChild(idx, "control_structure_body")
+	body, _ := file.FlatFindChild(idx, "control_structure_body")
 	if body == 0 {
 		return
 	}

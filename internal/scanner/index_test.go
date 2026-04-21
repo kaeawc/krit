@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -173,6 +174,64 @@ func TestBloomFilterBasics(t *testing.T) {
 	if got := idx.CountNonCommentRefsInFile("myFunc", "b.kt"); got != 1 {
 		t.Errorf("CountNonCommentRefsInFile(myFunc, b.kt) = %d, want 1", got)
 	}
+}
+
+// TestCollectDeclarationsFlat_PropertyNameNotFileSource is a regression test
+// for the FlatFindChild sentinel-collision bug (issue #348). Before the fix,
+// `FlatNodeText(FlatFindChild(propIdx, "simple_identifier"))` returned the
+// entire file source when the direct simple_identifier child was missing
+// (Kotlin puts property names under a variable_declaration), which bloated
+// the cross-file shards to 3–4x their correct size and broke name-based
+// lookups for ~49% of symbols on Signal-scale repos.
+func TestCollectDeclarationsFlat_PropertyNameNotFileSource(t *testing.T) {
+	src := []byte(`package demo
+
+val x = 1
+val y: String = "hi"
+class Holder { val z = 2 }
+`)
+	parser := GetKotlinParser()
+	defer PutKotlinParser(parser)
+	tree, err := parser.ParseCtx(context.Background(), nil, src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	file := NewParsedFile("demo.kt", src, tree)
+
+	var symbols []Symbol
+	collectDeclarationsFlat(file, &symbols)
+
+	byName := map[string]Symbol{}
+	for _, s := range symbols {
+		byName[s.Name] = s
+		if len(s.Name) > 64 {
+			t.Errorf("symbol %q kind=%s has oversized Name (%d bytes) — sentinel-collision regression",
+				truncate(s.Name, 80), s.Kind, len(s.Name))
+		}
+		if s.Name == string(src) {
+			t.Errorf("symbol kind=%s Name == entire file source — sentinel-collision regression", s.Kind)
+		}
+	}
+	for _, want := range []string{"x", "y", "Holder"} {
+		if _, ok := byName[want]; !ok {
+			t.Errorf("missing symbol %q in %+v", want, symbolNames(symbols))
+		}
+	}
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
+
+func symbolNames(syms []Symbol) []string {
+	out := make([]string, 0, len(syms))
+	for _, s := range syms {
+		out = append(out, s.Name+":"+s.Kind)
+	}
+	return out
 }
 
 // writeTempKt writes a .kt file in dir and returns its path.

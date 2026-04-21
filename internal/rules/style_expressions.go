@@ -106,11 +106,11 @@ func collectGuardClauseJumpsFlat(fn uint32, file *scanner.File) map[int]bool {
 	if fn == 0 || file == nil {
 		return result
 	}
-	body := file.FlatFindChild(fn, "function_body")
+	body, _ := file.FlatFindChild(fn, "function_body")
 	if body == 0 {
 		return result
 	}
-	container := file.FlatFindChild(body, "statements")
+	container, _ := file.FlatFindChild(body, "statements")
 	if container == 0 {
 		container = body
 	}
@@ -172,11 +172,11 @@ func collectWhenDispatchJumpsFlat(fn uint32, file *scanner.File) map[int]bool {
 	if fn == 0 || file == nil {
 		return result
 	}
-	body := file.FlatFindChild(fn, "function_body")
+	body, _ := file.FlatFindChild(fn, "function_body")
 	if body == 0 {
 		return result
 	}
-	container := file.FlatFindChild(body, "statements")
+	container, _ := file.FlatFindChild(body, "statements")
 	if container == 0 {
 		container = body
 	}
@@ -508,7 +508,7 @@ var frameworkAnnotationNames = map[string]bool{
 }
 
 func hasFrameworkAnnotationFlat(file *scanner.File, idx uint32) bool {
-	mods := file.FlatFindChild(idx, "modifiers")
+	mods, _ := file.FlatFindChild(idx, "modifiers")
 	if mods == 0 {
 		return false
 	}

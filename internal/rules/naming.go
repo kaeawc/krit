@@ -78,7 +78,7 @@ func isTopLevelFunctionFlat(file *scanner.File, idx uint32) bool {
 }
 
 func functionHasExpressionBodyReturningCallFlat(file *scanner.File, idx uint32) bool {
-	body := file.FlatFindChild(idx, "function_body")
+	body, _ := file.FlatFindChild(idx, "function_body")
 	if body == 0 {
 		return false
 	}
@@ -455,7 +455,7 @@ func (r *NoNameShadowingRule) walkScopeFlat(node uint32, ctx *shadowScanCtx, vis
 				// Skip these entirely — the real parser would produce a
 				// primary_constructor, not an outer-scope declaration.
 				if childType == "property_declaration" {
-					if ut := file.FlatFindChild(child, "user_type"); ut != 0 {
+					if ut, ok := file.FlatFindChild(child, "user_type"); ok {
 						if file.FlatNodeTextEquals(ut, "constructor") {
 							skipNextLambdaAsClassBody = true
 							continue
@@ -463,7 +463,7 @@ func (r *NoNameShadowingRule) walkScopeFlat(node uint32, ctx *shadowScanCtx, vis
 					}
 				}
 				// Check for destructuring (multi_variable_declaration child)
-				multi := file.FlatFindChild(child, "multi_variable_declaration")
+				multi, _ := file.FlatFindChild(child, "multi_variable_declaration")
 				if multi != 0 {
 					// Destructured: extract all component names, skip initializer scan.
 					for j := 0; j < file.FlatChildCount(multi); j++ {

@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,6 +108,47 @@ func BenchmarkParseFile_WithPool(b *testing.B) {
 		_, err := ParseFile(path)
 		if err != nil {
 			b.Fatal(err)
+		}
+	}
+}
+
+func benchmarkSyntheticIndexFiles(b *testing.B, count int) []*File {
+	b.Helper()
+	dir := b.TempDir()
+	files := make([]*File, 0, count)
+	for i := 0; i < count; i++ {
+		content := fmt.Sprintf(`package bench
+
+class Bench%d {
+    fun method%d(): Int {
+        return shared%d()
+    }
+}
+
+fun shared%d(): Int = %d
+`, i, i, (i+1)%count, i, i)
+		path := filepath.Join(dir, fmt.Sprintf("Bench%d.kt", i))
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			b.Fatalf("write %s: %v", path, err)
+		}
+		file, err := ParseFile(path)
+		if err != nil {
+			b.Fatalf("ParseFile(%s): %v", path, err)
+		}
+		files = append(files, file)
+	}
+	return files
+}
+
+func BenchmarkCollectIndexDataSharded_16Workers(b *testing.B) {
+	files := benchmarkSyntheticIndexFiles(b, 1000)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		symbols, refs, bf := collectIndexDataSharded("", files, nil, nil, 16, nil)
+		if len(symbols) == 0 || len(refs) == 0 || bf == nil {
+			b.Fatalf("collectIndexDataSharded returned %d symbols, %d refs, bloom nil=%v", len(symbols), len(refs), bf == nil)
 		}
 	}
 }

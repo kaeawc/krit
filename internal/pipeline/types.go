@@ -322,6 +322,11 @@ type OutputInput struct {
 	// Intended for --perf consumers that want to see every on-disk
 	// cache's hit rate in one place.
 	Caches []cacheutil.NamedCacheStats
+	// CacheBudget, when non-nil, is the aggregate slice-of-cap view
+	// derived from Caches + the global cap constant. Emitted under the
+	// top-level "cacheBudget" JSON key so --perf consumers can see which
+	// registered cache is eating which fraction of the cap.
+	CacheBudget *cacheutil.BudgetReport
 	// WarningsAsErrors, when true, promotes warning-severity findings
 	// to errors before format dispatch.
 	WarningsAsErrors bool

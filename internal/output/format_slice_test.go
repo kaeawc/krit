@@ -36,5 +36,5 @@ func FormatJSON(w io.Writer, findings []scanner.Finding, version string,
 	experiments []string,
 	cacheStats *cache.CacheStats) error {
 	columns := scanner.CollectFindings(findings)
-	return FormatJSONColumns(w, &columns, version, fileCount, ruleCount, start, perfTimings, activeRules, experiments, cacheStats, nil)
+	return FormatJSONColumns(w, &columns, version, fileCount, ruleCount, start, perfTimings, activeRules, experiments, cacheStats, nil, nil)
 }

@@ -254,7 +254,7 @@ func TestFormatJSONColumns_MatchesFormatJSON(t *testing.T) {
 
 	columns := scanner.CollectFindings(findings)
 	var columnBuf bytes.Buffer
-	FormatJSONColumns(&columnBuf, &columns, "1.2.3", 2, 5, start, perfTimings, activeRules, []string{"exp-a"}, cacheStats, nil)
+	FormatJSONColumns(&columnBuf, &columns, "1.2.3", 2, 5, start, perfTimings, activeRules, []string{"exp-a"}, cacheStats, nil, nil)
 
 	var want any
 	if err := json.Unmarshal(sliceBuf.Bytes(), &want); err != nil {
@@ -998,7 +998,7 @@ func TestColumnFormattersMatchSliceFormatters(t *testing.T) {
 		var want bytes.Buffer
 		var got bytes.Buffer
 		FormatJSON(&want, findings, "1.0.0", 3, 7, start, nil, nil, []string{"exp-a"}, nil)
-		FormatJSONColumns(&got, &columns, "1.0.0", 3, 7, start, nil, nil, []string{"exp-a"}, nil, nil)
+		FormatJSONColumns(&got, &columns, "1.0.0", 3, 7, start, nil, nil, []string{"exp-a"}, nil, nil, nil)
 
 		var wantReport JSONReport
 		var gotReport JSONReport

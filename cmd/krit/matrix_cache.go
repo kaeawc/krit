@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -64,7 +63,7 @@ var matrixCacheExcludeDirs = map[string]bool{
 // Any change to the krit binary, target source tree(s), baseline
 // experiment flags, or relevant CLI flags produces a new key.
 func computeMatrixBaselineCacheKey(exe string, baselineEnabled []string, flagArgs []string, targets []string) (string, error) {
-	h := sha256.New()
+	h := hashutil.Hasher().New()
 
 	// 1. Absolute, sorted target paths.
 	absTargets := make([]string, 0, len(targets))
@@ -151,7 +150,7 @@ func hashGitTree(target string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	h := sha256.New()
+	h := hashutil.Hasher().New()
 	h.Write(revOut)
 	h.Write([]byte{0})
 	h.Write(statOut)
@@ -159,7 +158,7 @@ func hashGitTree(target string) (string, bool) {
 }
 
 func hashFilesystemTree(target string) (string, error) {
-	h := sha256.New()
+	h := hashutil.Hasher().New()
 	err := filepath.Walk(target, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			// Tolerate individual stat errors — skip and keep walking.

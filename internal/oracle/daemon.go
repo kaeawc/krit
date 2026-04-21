@@ -694,7 +694,7 @@ func daemonPortPath(sourcesHash string) string {
 	return filepath.Join(dir, sourcesHash+".port")
 }
 
-// hashSources returns the 16-hex-char sha256 prefix of the
+// hashSources returns the 16-hex-char content-hash prefix of the
 // sorted, newline-joined sourceDirs list. Deterministic across
 // platforms — the sort makes the order of sourceDirs irrelevant to
 // the hash, so "sourcesA\nsourcesB" and "sourcesB\nsourcesA" are the

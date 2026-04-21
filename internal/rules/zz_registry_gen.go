@@ -820,11 +820,10 @@ func registerAllRules() {
 		r := &RegisteredRule{AndroidRule: alcRule("Registered", "Class is not registered in the manifest", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Needs: v2.NeedsResolver, TypeInfo: v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				componentType := androidComponentType(text)
+				componentType, confidence := androidComponentType(file, idx, ctx.Resolver)
 				if componentType == "" {
 					return
 				}
@@ -832,7 +831,12 @@ func registerAllRules() {
 				if className == "" {
 					className = "This class"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, formatRegisteredMsg(className, componentType))
+				ctx.Emit(scanner.Finding{
+					Line:       file.FlatRow(idx) + 1,
+					Col:        1,
+					Message:    formatRegisteredMsg(className, componentType),
+					Confidence: confidence,
+				})
 			},
 		})
 	}

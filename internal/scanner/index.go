@@ -907,10 +907,22 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 }
 
 func collectReferencesFlat(file *File, refs *[]Reference) {
+	simpleID, hasSimpleID := lookupNodeType("simple_identifier")
+	typeID, hasTypeID := lookupNodeType("type_identifier")
+	if !hasSimpleID && !hasTypeID {
+		return
+	}
+	commentTypes := make([]uint16, 0, 2)
+	if lineCommentID, ok := lookupNodeType("line_comment"); ok {
+		commentTypes = append(commentTypes, lineCommentID)
+	}
+	if multilineCommentID, ok := lookupNodeType("multiline_comment"); ok {
+		commentTypes = append(commentTypes, multilineCommentID)
+	}
+
 	file.FlatWalkAllNodes(0, func(idx uint32) {
-		nodeType := file.FlatType(idx)
-		inComment := nodeType == "line_comment" || nodeType == "multiline_comment" || file.FlatHasAncestorOfType(idx, "line_comment") || file.FlatHasAncestorOfType(idx, "multiline_comment")
-		if nodeType != "simple_identifier" && nodeType != "type_identifier" {
+		nodeType := file.FlatTree.Nodes[idx].Type
+		if (!hasSimpleID || nodeType != simpleID) && (!hasTypeID || nodeType != typeID) {
 			return
 		}
 		name := file.FlatNodeText(idx)
@@ -921,7 +933,7 @@ func collectReferencesFlat(file *File, refs *[]Reference) {
 			Name:      name,
 			File:      file.Path,
 			Line:      file.FlatRow(idx) + 1,
-			InComment: inComment,
+			InComment: file.FlatHasAnyAncestorOfType(idx, commentTypes...),
 		})
 	})
 }

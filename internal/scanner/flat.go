@@ -406,6 +406,21 @@ func (f *File) FlatHasAncestorOfType(idx uint32, ancestorType string) bool {
 	return false
 }
 
+func (f *File) FlatHasAnyAncestorOfType(idx uint32, ancestorTypes ...uint16) bool {
+	if f == nil || f.FlatTree == nil || len(ancestorTypes) == 0 {
+		return false
+	}
+	for current, ok := f.FlatParent(idx); ok; current, ok = f.FlatParent(current) {
+		currentType := f.FlatTree.Nodes[current].Type
+		for _, ancestorType := range ancestorTypes {
+			if currentType == ancestorType {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (f *File) FlatWalkNodes(root uint32, nodeType string, fn func(uint32)) {
 	if f == nil || f.FlatTree == nil || fn == nil || int(root) >= len(f.FlatTree.Nodes) {
 		return

@@ -1,8 +1,6 @@
 package scanner
 
 import (
-	"bytes"
-	"encoding/gob"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
@@ -136,30 +135,31 @@ func TestParseCache_GrammarVersionMismatch(t *testing.T) {
 		t.Fatalf("seed parse: %v", err)
 	}
 
-	// Mutate the stored entry's GrammarVer to something else and
-	// verify the next Load treats it as a miss.
+	// Mutate the grammar-version sidecar to simulate a tree-sitter bump.
+	// Re-opening the cache should nuke stale entries before any load path
+	// can serve them.
 	hash := hashutil.HashHex([]byte(src))
 	entryPath := pc.entryPath(hash)
-
 	data, err := os.ReadFile(entryPath)
 	if err != nil {
 		t.Fatalf("read entry: %v", err)
 	}
-	var entry parseCacheEntry
-	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&entry); err != nil {
-		t.Fatalf("decode entry: %v", err)
+	if !cacheutil.IsZstdFrame(data) {
+		t.Fatalf("parse cache entry is not zstd-framed: %x", data[:min(4, len(data))])
 	}
-	entry.GrammarVer = "smacker/go-tree-sitter@BOGUS"
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(&entry); err != nil {
-		t.Fatalf("re-encode entry: %v", err)
-	}
-	if err := os.WriteFile(entryPath, buf.Bytes(), 0o644); err != nil {
-		t.Fatalf("rewrite entry: %v", err)
+	if err := os.WriteFile(filepath.Join(pc.Dir(), "grammar-version"), []byte("smacker/go-tree-sitter@BOGUS"), 0o644); err != nil {
+		t.Fatalf("rewrite grammar-version sidecar: %v", err)
 	}
 
-	if _, ok := pc.Load("", []byte(src)); ok {
+	pc2, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache after sidecar edit: %v", err)
+	}
+	if _, ok := pc2.Load("", []byte(src)); ok {
 		t.Fatal("expected miss after grammar-version mismatch")
+	}
+	if _, err := os.Stat(entryPath); !os.IsNotExist(err) {
+		t.Fatalf("expected stale entry removed after sidecar mismatch, stat err=%v", err)
 	}
 }
 
@@ -314,7 +314,7 @@ func TestParseCache_LRUEvictsUnderCap(t *testing.T) {
 	// Target: ~2.7× entry size. Low-water (0.80 * cap) lands at ~2.16e
 	// so exactly one entry evicts when a third is written — avoiding
 	// the double-evict that happens when target falls below 2e.
-	capBytes := entrySize*27/10
+	capBytes := entrySize * 27 / 10
 
 	repo := t.TempDir()
 	pc, err := NewParseCacheWithCap(repo, capBytes)
@@ -367,7 +367,7 @@ func TestParseCache_LRUHotEntrySurvivesEviction(t *testing.T) {
 	// Target: ~2.7× entry size. Low-water (0.80 * cap) lands at ~2.16e
 	// so exactly one entry evicts when a third is written — avoiding
 	// the double-evict that happens when target falls below 2e.
-	capBytes := entrySize*27/10
+	capBytes := entrySize * 27 / 10
 
 	repo := t.TempDir()
 	pc, err := NewParseCacheWithCap(repo, capBytes)

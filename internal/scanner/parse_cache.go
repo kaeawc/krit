@@ -2,16 +2,14 @@ package scanner
 
 // On-disk cache of tree-sitter FlatTree results keyed by
 // hashutil(file_content). Invalidation is implicit: the content hash
-// changes with any byte of the file, and the grammar version stored on
-// each entry makes a tree-sitter grammar bump nuke every entry it ever
+// changes with any byte of the file, and per-language grammar-version
+// sidecars make a tree-sitter grammar bump nuke every entry it ever
 // wrote. Kotlin and Java live in sibling per-language subdirs so a
 // tree-sitter-java bump doesn't evict cached Kotlin trees (and vice
-// versa). The on-disk entry payload is language-agnostic — FlatNode
+// versa). The zstd-wrapped gob payload is language-agnostic — FlatNode
 // is the same shape for every tree-sitter grammar.
 
 import (
-	"bytes"
-	"encoding/gob"
 	"errors"
 	"fmt"
 	"io"
@@ -31,8 +29,8 @@ import (
 )
 
 const (
-	parseCacheVersion    uint32 = 3
-	parseCacheVersionStr        = "3"
+	parseCacheVersion    uint32 = 4
+	parseCacheVersionStr        = "4"
 
 	// Files below this threshold parse in under a millisecond; the gob
 	// serialization + filesystem round-trip dominates the savings.
@@ -50,18 +48,14 @@ const (
 	parseCacheLRULock   = "lru.lock"
 )
 
-// parseCacheEntry is the on-disk gob payload. NodeTypeTable maps the
+// parseCacheEntry is the compressed on-disk gob payload. NodeTypeTable maps the
 // entry's local FlatNode.Type indices back to node-type strings so a
 // reader can re-intern them into its own global NodeTypeTable — crucial
 // because the type table grows lazily and a fresh process's global
-// indices won't match the writer's. Language is stored so a corrupted
-// cross-language shard (e.g. a caller mistakenly feeding a Java hash
-// into the Kotlin loader) is caught before the tree is handed back.
+// indices won't match the writer's. Version, grammar, content hash, and
+// language live in the owning sidecar/path rather than being duplicated
+// in every entry.
 type parseCacheEntry struct {
-	Version       uint32
-	GrammarVer    string
-	ContentHash   string
-	Language      uint8
 	NodeTypeTable []string
 	Nodes         []FlatNode
 }
@@ -325,7 +319,7 @@ func (lc *langCache) loadByHash(hash string) (*FlatTree, bool) {
 	defer f.Close()
 
 	var entry parseCacheEntry
-	if err := gob.NewDecoder(f).Decode(&entry); err != nil {
+	if err := cacheutil.DecodeZstdGob(f, &entry); err != nil {
 		// Corrupt entry: drop it so we don't keep re-reading a doomed
 		// payload on every run.
 		_ = os.Remove(path)
@@ -334,13 +328,6 @@ func (lc *langCache) loadByHash(hash string) (*FlatTree, bool) {
 		}
 		lc.misses.Add(1)
 		lc.evictions.Add(1)
-		return nil, false
-	}
-	if entry.Version != parseCacheVersion ||
-		entry.GrammarVer != lc.grammarVer ||
-		entry.ContentHash != hash ||
-		entry.Language != uint8(lc.language) {
-		lc.misses.Add(1)
 		return nil, false
 	}
 
@@ -414,10 +401,6 @@ func (lc *langCache) saveEntry(hash string, tree *FlatTree) error {
 		return fmt.Errorf("create cache shard dir: %w", err)
 	}
 	entry := parseCacheEntry{
-		Version:       parseCacheVersion,
-		GrammarVer:    lc.grammarVer,
-		ContentHash:   hash,
-		Language:      uint8(lc.language),
 		NodeTypeTable: local,
 		Nodes:         cloned,
 	}
@@ -425,14 +408,14 @@ func (lc *langCache) saveEntry(hash string, tree *FlatTree) error {
 	// Encode into a buffer first so we know the byte size before
 	// touching disk: the LRU bookkeeping needs the final on-disk size
 	// without a post-write stat round-trip.
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(entry); err != nil {
+	blob, err := cacheutil.EncodeZstdGob(entry)
+	if err != nil {
 		return fmt.Errorf("encode cache entry: %w", err)
 	}
-	size := int64(buf.Len())
+	size := int64(len(blob))
 
 	if err := fsutil.WriteFileAtomicStream(target, 0o644, func(w io.Writer) error {
-		_, werr := w.Write(buf.Bytes())
+		_, werr := w.Write(blob)
 		return werr
 	}); err != nil {
 		return err
@@ -611,8 +594,10 @@ func init() {
 
 type parseCacheRegistered struct{}
 
-func (parseCacheRegistered) Name() string                           { return parseCacheDirName }
-func (parseCacheRegistered) Clear(ctx cacheutil.ClearContext) error { return ClearParseCache(ctx.RepoDir) }
+func (parseCacheRegistered) Name() string { return parseCacheDirName }
+func (parseCacheRegistered) Clear(ctx cacheutil.ClearContext) error {
+	return ClearParseCache(ctx.RepoDir)
+}
 func (parseCacheRegistered) Stats() cacheutil.CacheStats {
 	return activeParseCache.Load().Stats()
 }

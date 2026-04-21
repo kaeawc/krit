@@ -2,17 +2,15 @@ package android
 
 // On-disk cache of tree-sitter XML parse results keyed by
 // hashutil(file_content). Invalidation is implicit: the content hash
-// changes with any byte of the file, and the grammar version stored on
-// each entry makes a tree-sitter-xml bump nuke every entry it ever
-// wrote. Parallels internal/scanner/parse_cache.go for Kotlin/Java but
-// targets the *XMLNode tree produced by ParseXMLAST (rather than the
-// FlatNode preorder) because every downstream consumer (layout view
-// tree, manifest flattening) works directly off XMLNode — caching the
-// semantic shape avoids re-running buildXMLNode on a warm hit.
+// changes with any byte of the file, and the grammar-version sidecar
+// makes a tree-sitter-xml bump nuke every entry it ever wrote.
+// Parallels internal/scanner/parse_cache.go for Kotlin/Java but targets
+// the *XMLNode tree produced by ParseXMLAST (rather than the FlatNode
+// preorder) because every downstream consumer (layout view tree,
+// manifest flattening) works directly off XMLNode — caching the semantic
+// shape avoids re-running buildXMLNode on a warm hit.
 
 import (
-	"bytes"
-	"encoding/gob"
 	"errors"
 	"fmt"
 	"io"
@@ -30,8 +28,8 @@ import (
 )
 
 const (
-	xmlParseCacheVersion    uint32 = 1
-	xmlParseCacheVersionStr        = "1"
+	xmlParseCacheVersion    uint32 = 2
+	xmlParseCacheVersionStr        = "2"
 
 	// Most layout XML files in Android repos run 500B–8KB. A 512-byte
 	// floor skips the tiniest drawables / shape files where gob encode
@@ -46,26 +44,14 @@ const (
 	xmlParseCacheExt      = ".gob"
 	xmlParseCacheLRUIndex = "lru-index.gob"
 	xmlParseCacheLRULock  = "lru.lock"
-
-	// xmlCacheLanguage is the Language byte stored on every entry so
-	// a corrupted shared-directory scenario (a caller feeding an XML
-	// hash into the Kotlin or Java loader, or vice versa) is rejected
-	// at load time. Chosen to match scanner.LangXML's value (2) without
-	// forcing a cross-package import dependency.
-	xmlCacheLanguage uint8 = 2
 )
 
-// xmlParseCacheEntry is the on-disk gob payload. The XMLNode tree is
-// stored directly — all fields are exported and gob handles the
-// recursive Children slice natively. No node-type table is needed
-// because XMLNode carries strings (Tag, Attr.Name/Value) rather than
-// interned indices.
+// xmlParseCacheEntry is the compressed on-disk gob payload. The XMLNode
+// tree is stored directly — all fields are exported and gob handles the
+// recursive Children slice natively. Version, grammar, content hash, and
+// language live in sidecars/path rather than being duplicated per entry.
 type xmlParseCacheEntry struct {
-	Version     uint32
-	GrammarVer  string
-	ContentHash string
-	Language    uint8
-	Root        *XMLNode
+	Root *XMLNode
 }
 
 // XMLParseCache persists ParseXMLAST results keyed by content hash.
@@ -199,7 +185,7 @@ func (pc *XMLParseCache) loadByHash(hash string) (*XMLNode, bool) {
 	defer f.Close()
 
 	var entry xmlParseCacheEntry
-	if err := gob.NewDecoder(f).Decode(&entry); err != nil {
+	if err := cacheutil.DecodeZstdGob(f, &entry); err != nil {
 		_ = os.Remove(path)
 		if pc.lru != nil {
 			pc.lru.Forget(hash)
@@ -208,10 +194,7 @@ func (pc *XMLParseCache) loadByHash(hash string) (*XMLNode, bool) {
 		pc.evictions.Add(1)
 		return nil, false
 	}
-	if entry.Version != xmlParseCacheVersion ||
-		entry.GrammarVer != pc.grammarVer ||
-		entry.ContentHash != hash ||
-		entry.Language != xmlCacheLanguage {
+	if entry.Root == nil {
 		pc.misses.Add(1)
 		return nil, false
 	}
@@ -241,22 +224,16 @@ func (pc *XMLParseCache) saveEntry(hash string, root *XMLNode) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("create xml cache shard dir: %w", err)
 	}
-	entry := xmlParseCacheEntry{
-		Version:     xmlParseCacheVersion,
-		GrammarVer:  pc.grammarVer,
-		ContentHash: hash,
-		Language:    xmlCacheLanguage,
-		Root:        root,
-	}
+	entry := xmlParseCacheEntry{Root: root}
 
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(entry); err != nil {
+	blob, err := cacheutil.EncodeZstdGob(entry)
+	if err != nil {
 		return fmt.Errorf("encode xml cache entry: %w", err)
 	}
-	size := int64(buf.Len())
+	size := int64(len(blob))
 
 	if err := fsutil.WriteFileAtomicStream(target, 0o644, func(w io.Writer) error {
-		_, werr := w.Write(buf.Bytes())
+		_, werr := w.Write(blob)
 		return werr
 	}); err != nil {
 		return err

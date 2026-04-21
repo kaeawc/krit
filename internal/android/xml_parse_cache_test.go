@@ -1,8 +1,6 @@
 package android
 
 import (
-	"bytes"
-	"encoding/gob"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -149,27 +147,17 @@ func TestXMLParseCache_GrammarMismatchForcesMiss(t *testing.T) {
 		t.Fatalf("expected cache entry at %s: %v", entryPath, err)
 	}
 
-	// Simulate a grammar-version mismatch by rewriting the entry with a
-	// different GrammarVer token — the loader must refuse it without
-	// falling back to the payload content.
-	var entry xmlParseCacheEntry
-	f, err := os.Open(entryPath)
+	// Simulate a grammar-version mismatch by rewriting the sidecar. A
+	// fresh cache open must clear the stale entry before serving it.
+	dataOnDisk, err := os.ReadFile(entryPath)
 	if err != nil {
-		t.Fatalf("open entry: %v", err)
+		t.Fatalf("read entry: %v", err)
 	}
-	if err := gob.NewDecoder(f).Decode(&entry); err != nil {
-		f.Close()
-		t.Fatalf("decode entry: %v", err)
+	if !cacheutil.IsZstdFrame(dataOnDisk) {
+		t.Fatalf("xml parse cache entry is not zstd-framed: %x", dataOnDisk[:min(4, len(dataOnDisk))])
 	}
-	f.Close()
-
-	entry.GrammarVer = "bogus#xml:0"
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(entry); err != nil {
-		t.Fatalf("encode: %v", err)
-	}
-	if err := os.WriteFile(entryPath, buf.Bytes(), 0o644); err != nil {
-		t.Fatalf("rewrite: %v", err)
+	if err := os.WriteFile(filepath.Join(pc.Dir(), "grammar-version"), []byte("bogus#xml:0"), 0o644); err != nil {
+		t.Fatalf("rewrite grammar-version sidecar: %v", err)
 	}
 
 	// Reset counters by installing a fresh cache pointing at the same
@@ -186,9 +174,12 @@ func TestXMLParseCache_GrammarMismatchForcesMiss(t *testing.T) {
 	if pc2.Stats().Misses != 1 {
 		t.Fatalf("expected 1 miss, got %+v", pc2.Stats())
 	}
+	if _, err := os.Stat(entryPath); !os.IsNotExist(err) {
+		t.Fatalf("expected stale XML entry removed after sidecar mismatch, stat err=%v", err)
+	}
 }
 
-func TestXMLParseCache_CrossLanguageGuard(t *testing.T) {
+func TestXMLParseCache_NilRootPayloadMisses(t *testing.T) {
 	repo := t.TempDir()
 	pc, err := NewXMLParseCache(repo)
 	if err != nil {
@@ -197,36 +188,25 @@ func TestXMLParseCache_CrossLanguageGuard(t *testing.T) {
 	defer pc.Close()
 
 	data := largeManifest()
-	root, err := ParseXMLAST(data)
-	if err != nil {
-		t.Fatalf("seed parse: %v", err)
-	}
 
-	// Force-save with a mismatched Language byte (simulates a Kotlin or
-	// Java hash accidentally addressed to the XML loader). The load
-	// path must refuse it.
+	// Force-save a structurally invalid but decodable entry. The load
+	// path must refuse it instead of returning (nil, true).
 	hash := hashutil.Default().HashContent("", data)
-	entry := xmlParseCacheEntry{
-		Version:     xmlParseCacheVersion,
-		GrammarVer:  pc.grammarVer,
-		ContentHash: hash,
-		Language:    99, // not xmlCacheLanguage
-		Root:        root,
-	}
+	entry := xmlParseCacheEntry{}
 	entryPath := pc.entryPath(hash)
 	if err := os.MkdirAll(filepath.Dir(entryPath), 0o755); err != nil {
 		t.Fatalf("mkdir shard: %v", err)
 	}
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(entry); err != nil {
+	blob, err := cacheutil.EncodeZstdGob(entry)
+	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	if err := os.WriteFile(entryPath, buf.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(entryPath, blob, 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
 	if _, ok := pc.Load(data); ok {
-		t.Fatal("expected language mismatch to miss")
+		t.Fatal("expected nil-root payload to miss")
 	}
 }
 

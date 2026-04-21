@@ -1,7 +1,6 @@
 package scanner
 
 import (
-	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -79,7 +78,10 @@ func recordCrossFileDisk(paths crossFileCachePaths, entries int) {
 // v5: force rebuild after the FlatFindChild sentinel-collision fix (see
 // crossFileShardVersion v3). The monolithic payload mirrors the shard
 // data and is similarly corrupted pre-fix.
-const CrossFileCacheVersion = 5
+// v6: zstd-wrap the monolithic gob payload. The shards were already
+// compressed; this keeps the fallback/full-index cache from dominating
+// .krit size on small-to-medium projects.
+const CrossFileCacheVersion = 6
 
 // bloomLibraryVersion is the pinned bits-and-blooms/bloom/v3 version.
 // It is mixed into the cross-file fingerprint so a library upgrade
@@ -668,7 +670,7 @@ func LoadCrossFileCacheIndex(dir, wantFingerprint string) (*CodeIndex, bool) {
 		return nil, false
 	}
 	var packed cachePayload
-	if err := decodeGob(paths.Symbols, &packed); err != nil {
+	if err := decodeZstdGob(paths.Symbols, &packed); err != nil {
 		crossFileMisses.Add(1)
 		return nil, false
 	}
@@ -708,8 +710,13 @@ func SaveCrossFileCacheIndex(dir, fingerprint string, meta CrossFileCacheMeta, i
 	meta.ReferenceCount = len(idx.References)
 
 	packed := packPayloadWithIndex(idx)
+	blob, err := cacheutil.EncodeZstdGob(packed)
+	if err != nil {
+		return fmt.Errorf("encode cross-file cache payload: %w", err)
+	}
 	if err := fsutil.WriteFileAtomicStream(paths.Symbols, 0o644, func(w io.Writer) error {
-		return gob.NewEncoder(w).Encode(packed)
+		_, werr := w.Write(blob)
+		return werr
 	}); err != nil {
 		return fmt.Errorf("write cross-file cache payload: %w", err)
 	}
@@ -750,7 +757,7 @@ func LoadCrossFileCache(dir, wantFingerprint string) ([]Symbol, []Reference, boo
 		return nil, nil, false
 	}
 	var packed cachePayload
-	if err := decodeGob(paths.Symbols, &packed); err != nil {
+	if err := decodeZstdGob(paths.Symbols, &packed); err != nil {
 		crossFileMisses.Add(1)
 		return nil, nil, false
 	}
@@ -789,8 +796,13 @@ func SaveCrossFileCache(dir, fingerprint string, meta CrossFileCacheMeta, symbol
 	meta.ReferenceCount = len(refs)
 
 	packed := packPayload(symbols, refs)
+	blob, err := cacheutil.EncodeZstdGob(packed)
+	if err != nil {
+		return fmt.Errorf("encode cross-file cache symbols: %w", err)
+	}
 	if err := fsutil.WriteFileAtomicStream(paths.Symbols, 0o644, func(w io.Writer) error {
-		return gob.NewEncoder(w).Encode(packed)
+		_, werr := w.Write(blob)
+		return werr
 	}); err != nil {
 		return fmt.Errorf("write cross-file cache symbols: %w", err)
 	}
@@ -816,12 +828,11 @@ func ClearCrossFileCache(dir string) error {
 	return os.RemoveAll(dir)
 }
 
-func decodeGob(path string, v any) error {
+func decodeZstdGob(path string, v any) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	return gob.NewDecoder(f).Decode(v)
+	return cacheutil.DecodeZstdGob(f, v)
 }
-

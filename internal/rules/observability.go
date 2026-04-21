@@ -56,25 +56,25 @@ func logLevelGuardTrailingLambdaMessageFlat(file *scanner.File, call uint32) uin
 		return 0
 	}
 
-	suffix := file.FlatFindChild(call, "call_suffix")
+	suffix, _ := file.FlatFindChild(call, "call_suffix")
 	if suffix == 0 {
 		return 0
 	}
 
-	lambda := file.FlatFindChild(suffix, "annotated_lambda")
+	lambda, _ := file.FlatFindChild(suffix, "annotated_lambda")
 	if lambda != 0 {
-		if lit := file.FlatFindChild(lambda, "lambda_literal"); lit != 0 {
+		if lit, ok := file.FlatFindChild(lambda, "lambda_literal"); ok {
 			lambda = lit
 		}
 	}
 	if lambda == 0 {
-		lambda = file.FlatFindChild(suffix, "lambda_literal")
+		lambda, _ = file.FlatFindChild(suffix, "lambda_literal")
 	}
 	if lambda == 0 {
 		return 0
 	}
 
-	statements := file.FlatFindChild(lambda, "statements")
+	statements, _ := file.FlatFindChild(lambda, "statements")
 	if statements == 0 || file.FlatNamedChildCount(statements) == 0 {
 		return 0
 	}
@@ -160,7 +160,7 @@ func receiverHasKnownLoggerTypeFlat(file *scanner.File, idx uint32, receiver str
 }
 
 func receiverHasKnownLoggerTypeInParametersFlat(file *scanner.File, function uint32, receiver string) bool {
-	params := file.FlatFindChild(function, "function_value_parameters")
+	params, _ := file.FlatFindChild(function, "function_value_parameters")
 	if params == 0 {
 		return false
 	}
@@ -193,7 +193,7 @@ func receiverHasKnownLoggerTypeInPropertiesFlat(file *scanner.File, container ui
 }
 
 func receiverHasKnownLoggerTypeInClassParametersFlat(file *scanner.File, classDecl uint32, receiver string) bool {
-	ctor := file.FlatFindChild(classDecl, "primary_constructor")
+	ctor, _ := file.FlatFindChild(classDecl, "primary_constructor")
 	if ctor == 0 {
 		return false
 	}
@@ -226,7 +226,7 @@ func explicitTypeTextFlat(file *scanner.File, node uint32) string {
 		return text
 	}
 
-	if child := file.FlatFindChild(node, "variable_declaration"); child != 0 {
+	if child, ok := file.FlatFindChild(node, "variable_declaration"); ok {
 		return directExplicitTypeTextFlat(file, child)
 	}
 
@@ -629,7 +629,7 @@ func whenEntryBodyFlatObs(file *scanner.File, node uint32) uint32 {
 		return 0
 	}
 
-	if body := file.FlatFindChild(node, "control_structure_body"); body != 0 {
+	if body, ok := file.FlatFindChild(node, "control_structure_body"); ok {
 		return body
 	}
 
@@ -746,7 +746,7 @@ func isEarlyExitFlat(file *scanner.File, node uint32) bool {
 			strings.HasPrefix(text, "break") ||
 			strings.HasPrefix(text, "continue")
 	case "control_structure_body":
-		stmts := file.FlatFindChild(node, "statements")
+		stmts, _ := file.FlatFindChild(node, "statements")
 		if stmts != 0 {
 			return isEarlyExitFlat(file, stmts)
 		}
@@ -976,18 +976,18 @@ func coroutineBuilderPartsFlat(file *scanner.File, idx uint32) (name string, arg
 		return "", 0, 0
 	}
 
-	callSuffix := file.FlatFindChild(idx, "call_suffix")
+	callSuffix, _ := file.FlatFindChild(idx, "call_suffix")
 	if callSuffix == 0 {
 		return name, args, 0
 	}
-	annotatedLambda := file.FlatFindChild(callSuffix, "annotated_lambda")
+	annotatedLambda, _ := file.FlatFindChild(callSuffix, "annotated_lambda")
 	if annotatedLambda != 0 {
-		lambda = file.FlatFindChild(annotatedLambda, "lambda_literal")
+		lambda, _ = file.FlatFindChild(annotatedLambda, "lambda_literal")
 		if lambda != 0 {
 			return name, args, lambda
 		}
 	}
-	lambda = file.FlatFindChild(callSuffix, "lambda_literal")
+	lambda, _ = file.FlatFindChild(callSuffix, "lambda_literal")
 	if lambda != 0 {
 		return name, args, lambda
 	}

@@ -446,7 +446,7 @@ func isInsidePreviewOrSampleFunctionFlat(file *scanner.File, idx uint32) bool {
 			return true
 		}
 		// Also check for @Preview / @SignalPreview annotation.
-		mods := file.FlatFindChild(p, "modifiers")
+		mods, _ := file.FlatFindChild(p, "modifiers")
 		if mods != 0 {
 			modText := file.FlatNodeText(mods)
 			if strings.Contains(modText, "@Preview") || strings.Contains(modText, "@SignalPreview") ||

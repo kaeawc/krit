@@ -75,7 +75,7 @@ func extractDeprecatedInfoFlat(file *scanner.File, idx uint32) *deprecationInfo 
 	if file == nil || idx == 0 {
 		return nil
 	}
-	mods := file.FlatFindChild(idx, "modifiers")
+	mods, _ := file.FlatFindChild(idx, "modifiers")
 	if mods == 0 {
 		return nil
 	}

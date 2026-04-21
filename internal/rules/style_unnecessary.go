@@ -16,12 +16,12 @@ func flatTrailingLambdaParts(file *scanner.File, suffix uint32) (lambda, params,
 		return 0, 0, 0
 	}
 	if file.FlatType(lambda) == "annotated_lambda" {
-		if lit := file.FlatFindChild(lambda, "lambda_literal"); lit != 0 {
+		if lit, ok := file.FlatFindChild(lambda, "lambda_literal"); ok {
 			lambda = lit
 		}
 	}
-	params = file.FlatFindChild(lambda, "lambda_parameters")
-	stmts = file.FlatFindChild(lambda, "statements")
+	params, _ = file.FlatFindChild(lambda, "lambda_parameters")
+	stmts, _ = file.FlatFindChild(lambda, "statements")
 	return lambda, params, stmts
 }
 
@@ -107,7 +107,7 @@ func flatApplyBodyReferencesThis(file *scanner.File, stmts uint32) bool {
 }
 
 func flatFilterPredicateText(file *scanner.File, filterCall uint32) string {
-	suffix := file.FlatFindChild(filterCall, "call_suffix")
+	suffix, _ := file.FlatFindChild(filterCall, "call_suffix")
 	if suffix == 0 {
 		return ""
 	}

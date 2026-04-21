@@ -21,7 +21,7 @@ func (r *ExitOutsideMainRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "87fab398a05eece4",
+		SourceHash:    "790d7c11f392f951",
 	}
 }
 
@@ -34,7 +34,7 @@ func (r *ExplicitGarbageCollectionCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "87fab398a05eece4",
+		SourceHash:    "790d7c11f392f951",
 	}
 }
 
@@ -47,7 +47,7 @@ func (r *InvalidRangeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "87fab398a05eece4",
+		SourceHash:    "790d7c11f392f951",
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *IteratorHasNextCallsNextMethodRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "87fab398a05eece4",
+		SourceHash:    "790d7c11f392f951",
 	}
 }
 
@@ -73,7 +73,7 @@ func (r *IteratorNotThrowingNoSuchElementExceptionRule) Meta() registry.RuleDesc
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "87fab398a05eece4",
+		SourceHash:    "790d7c11f392f951",
 	}
 }
 
@@ -86,7 +86,7 @@ func (r *LateinitUsageRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "87fab398a05eece4",
+		SourceHash:    "790d7c11f392f951",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoreOnClassesPattern",
@@ -110,7 +110,7 @@ func (r *MissingPackageDeclarationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		SourceHash:    "87fab398a05eece4",
+		SourceHash:    "790d7c11f392f951",
 	}
 }
 
@@ -123,7 +123,7 @@ func (r *MissingSuperCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "87fab398a05eece4",
+		SourceHash:    "790d7c11f392f951",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "mustInvokeSuperAnnotations",
@@ -147,6 +147,6 @@ func (r *MissingUseCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "87fab398a05eece4",
+		SourceHash:    "790d7c11f392f951",
 	}
 }

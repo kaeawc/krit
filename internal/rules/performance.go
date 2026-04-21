@@ -344,27 +344,27 @@ func forEachOnRangeFixFlat(file *scanner.File, callNode, receiver uint32) *scann
 
 	rangeText := file.FlatNodeText(unwrapped)
 
-	callSuffix := file.FlatFindChild(callNode, "call_suffix")
+	callSuffix, _ := file.FlatFindChild(callNode, "call_suffix")
 	if callSuffix == 0 {
 		return nil
 	}
-	lambdaNode := file.FlatFindChild(callSuffix, "annotated_lambda")
+	lambdaNode, _ := file.FlatFindChild(callSuffix, "annotated_lambda")
 	if lambdaNode == 0 {
-		lambdaNode = file.FlatFindChild(callSuffix, "lambda_literal")
+		lambdaNode, _ = file.FlatFindChild(callSuffix, "lambda_literal")
 	}
 	if lambdaNode == 0 {
 		return nil
 	}
 	ll := lambdaNode
 	if file.FlatType(ll) == "annotated_lambda" {
-		ll = file.FlatFindChild(ll, "lambda_literal")
+		ll, _ = file.FlatFindChild(ll, "lambda_literal")
 	}
 	if ll == 0 {
 		return nil
 	}
 
 	iterVar := "i"
-	params := file.FlatFindChild(ll, "lambda_parameters")
+	params, _ := file.FlatFindChild(ll, "lambda_parameters")
 	if params != 0 {
 		for i := 0; i < file.FlatNamedChildCount(params); i++ {
 			param := file.FlatNamedChild(params, i)
@@ -381,7 +381,7 @@ func forEachOnRangeFixFlat(file *scanner.File, callNode, receiver uint32) *scann
 
 body:
 	bodyText := ""
-	statements := file.FlatFindChild(ll, "statements")
+	statements, _ := file.FlatFindChild(ll, "statements")
 	if statements != 0 {
 		bodyText = file.FlatNodeText(statements)
 	}
@@ -456,7 +456,7 @@ func isEnclosingVarargParamFlat(file *scanner.File, idx uint32, name string) boo
 		if file.FlatType(p) != "function_declaration" {
 			continue
 		}
-		params := file.FlatFindChild(p, "function_value_parameters")
+		params, _ := file.FlatFindChild(p, "function_value_parameters")
 		if params == 0 {
 			return false
 		}
@@ -594,11 +594,11 @@ func tempInstantiationTypeNameFlat(file *scanner.File, nav uint32) string {
 }
 
 func tempInstantiationFirstArgumentFlat(file *scanner.File, call uint32) string {
-	callSuffix := file.FlatFindChild(call, "call_suffix")
+	callSuffix, _ := file.FlatFindChild(call, "call_suffix")
 	if callSuffix == 0 {
 		return ""
 	}
-	valueArgs := file.FlatFindChild(callSuffix, "value_arguments")
+	valueArgs, _ := file.FlatFindChild(callSuffix, "value_arguments")
 	if valueArgs == 0 {
 		return ""
 	}

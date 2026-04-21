@@ -118,7 +118,7 @@ func anvilModifiersMayMatchFlat(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
 		return false
 	}
-	mods := file.FlatFindChild(idx, "modifiers")
+	mods, _ := file.FlatFindChild(idx, "modifiers")
 	if mods == 0 {
 		return false
 	}
@@ -233,7 +233,7 @@ func anvilContributedInterfaceScopesFlat(file *scanner.File) map[string]string {
 		return scopes
 	}
 	file.FlatWalkNodes(0, "class_declaration", func(idx uint32) {
-		if file.FlatFindChild(idx, "interface") == 0 {
+		if _, ok := file.FlatFindChild(idx, "interface"); !ok {
 			return
 		}
 		scope := anvilAnnotationScopeFlat(file, idx, "ContributesTo")
@@ -282,7 +282,7 @@ func findAnnotationTextFlat(file *scanner.File, idx uint32, annotationName strin
 	if file == nil || idx == 0 {
 		return ""
 	}
-	if mods := file.FlatFindChild(idx, "modifiers"); mods != 0 {
+	if mods, ok := file.FlatFindChild(idx, "modifiers"); ok {
 		if text := findAnnotationTextInFlatParent(file, mods, annotationName); text != "" {
 			return text
 		}

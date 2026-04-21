@@ -183,7 +183,7 @@ func flatHasAnnotationNamed(file *scanner.File, idx uint32, name string) bool {
 	if file == nil || idx == 0 {
 		return false
 	}
-	if mods := file.FlatFindChild(idx, "modifiers"); mods != 0 {
+	if mods, ok := file.FlatFindChild(idx, "modifiers"); ok {
 		for i := 0; i < file.FlatChildCount(mods); i++ {
 			child := file.FlatChild(mods, i)
 			t := file.FlatType(child)
@@ -212,7 +212,7 @@ func flatHasEntryPointAnnotation(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
 		return false
 	}
-	mods := file.FlatFindChild(idx, "modifiers")
+	mods, _ := file.FlatFindChild(idx, "modifiers")
 	if mods == 0 {
 		return false
 	}
@@ -244,7 +244,7 @@ func flatHasFrameworkAnnotation(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
 		return false
 	}
-	mods := file.FlatFindChild(idx, "modifiers")
+	mods, _ := file.FlatFindChild(idx, "modifiers")
 	if mods == 0 {
 		return false
 	}

@@ -112,7 +112,7 @@ func BuildGraph(files []*scanner.File, moduleGraph *module.ModuleGraph) *Graph {
 }
 
 func buildBindingSeedFlat(idx uint32, file *scanner.File, pkg string, imports map[string]string, modulePath string) (bindingSeed, bool) {
-	ctor := file.FlatFindChild(idx, "primary_constructor")
+	ctor, _ := file.FlatFindChild(idx, "primary_constructor")
 	if ctor == 0 || !hasAnnotationNamedFlat(file, ctor, "Inject") {
 		return bindingSeed{}, false
 	}
@@ -190,7 +190,9 @@ func annotationNamesFlat(file *scanner.File, idx uint32) []string {
 			}
 		})
 	}
-	addFrom(file.FlatFindChild(idx, "modifiers"))
+	if mods, ok := file.FlatFindChild(idx, "modifiers"); ok {
+		addFrom(mods)
+	}
 	for i := 0; i < file.FlatChildCount(idx); i++ {
 		child := file.FlatChild(idx, i)
 		if child != 0 && file.FlatType(child) == "annotation" {
@@ -203,7 +205,7 @@ func annotationNamesFlat(file *scanner.File, idx uint32) []string {
 }
 
 func packageNameFlat(file *scanner.File) string {
-	header := file.FlatFindChild(0, "package_header")
+	header, _ := file.FlatFindChild(0, "package_header")
 	if header == 0 {
 		return ""
 	}

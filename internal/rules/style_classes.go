@@ -171,7 +171,7 @@ func (r *ObjectLiteralToLambdaRule) Confidence() float64 { return 0.75 }
 // handling dotted names (e.g., "Foo.Bar") and generics (e.g., "Callable<Int>").
 // For dotted names like "MenuItem.OnActionExpandListener", returns the last segment.
 func extractSupertypeNameFlat(file *scanner.File, specNode uint32) string {
-	ut := file.FlatFindChild(specNode, "user_type")
+	ut, _ := file.FlatFindChild(specNode, "user_type")
 	if ut == 0 {
 		return ""
 	}

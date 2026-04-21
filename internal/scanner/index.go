@@ -590,7 +590,7 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 		nodeType := file.FlatType(idx)
 		switch nodeType {
 		case "function_declaration":
-			name := file.FlatNodeText(file.FlatFindChild(idx, "simple_identifier"))
+			name := file.FlatChildTextOrEmpty(idx, "simple_identifier")
 			if name == "" {
 				return
 			}
@@ -608,9 +608,9 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 			sym.IsTest = strings.Contains(file.FlatNodeText(idx), "@Test")
 			*symbols = append(*symbols, sym)
 		case "class_declaration":
-			name := file.FlatNodeText(file.FlatFindChild(idx, "type_identifier"))
+			name := file.FlatChildTextOrEmpty(idx, "type_identifier")
 			if name == "" {
-				name = file.FlatNodeText(file.FlatFindChild(idx, "simple_identifier"))
+				name = file.FlatChildTextOrEmpty(idx, "simple_identifier")
 			}
 			if name == "" {
 				return
@@ -630,9 +630,9 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 				EndByte:    int(file.FlatEndByte(idx)),
 			})
 		case "object_declaration":
-			name := file.FlatNodeText(file.FlatFindChild(idx, "type_identifier"))
+			name := file.FlatChildTextOrEmpty(idx, "type_identifier")
 			if name == "" {
-				name = file.FlatNodeText(file.FlatFindChild(idx, "simple_identifier"))
+				name = file.FlatChildTextOrEmpty(idx, "simple_identifier")
 			}
 			if name == "" {
 				return
@@ -656,11 +656,10 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 				!(parentType == "statements" && hasFlatAncestorType(file, parent, "class_body")) {
 				return
 			}
-			name := file.FlatNodeText(file.FlatFindChild(idx, "simple_identifier"))
+			name := file.FlatChildTextOrEmpty(idx, "simple_identifier")
 			if name == "" {
-				varDecl := file.FlatFindChild(idx, "variable_declaration")
-				if varDecl != 0 {
-					name = file.FlatNodeText(file.FlatFindChild(varDecl, "simple_identifier"))
+				if varDecl, ok := file.FlatFindChild(idx, "variable_declaration"); ok {
+					name = file.FlatChildTextOrEmpty(varDecl, "simple_identifier")
 				}
 			}
 			if name == "" || name == "_" {

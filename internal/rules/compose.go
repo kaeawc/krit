@@ -43,19 +43,19 @@ type ComposeDerivedStateMisuseRule struct {
 func (r *ComposeDerivedStateMisuseRule) Confidence() float64 { return 0.75 }
 
 func composeDerivedStateBodyFlat(file *scanner.File, idx uint32) uint32 {
-	callSuffix := file.FlatFindChild(idx, "call_suffix")
+	callSuffix, _ := file.FlatFindChild(idx, "call_suffix")
 	if callSuffix == 0 {
 		return 0
 	}
-	annotatedLambda := file.FlatFindChild(callSuffix, "annotated_lambda")
+	annotatedLambda, _ := file.FlatFindChild(callSuffix, "annotated_lambda")
 	if annotatedLambda == 0 {
 		return 0
 	}
-	lambda := file.FlatFindChild(annotatedLambda, "lambda_literal")
+	lambda, _ := file.FlatFindChild(annotatedLambda, "lambda_literal")
 	if lambda == 0 {
 		return 0
 	}
-	statements := file.FlatFindChild(lambda, "statements")
+	statements, _ := file.FlatFindChild(lambda, "statements")
 	if statements == 0 || file.FlatNamedChildCount(statements) != 1 {
 		return 0
 	}
@@ -68,7 +68,7 @@ func composeStateBindingsInScopeFlat(file *scanner.File, idx uint32) (map[string
 	stateHolders := make(map[string]bool)
 
 	if currentFn != 0 {
-		params := file.FlatFindChild(currentFn, "function_value_parameters")
+		params, _ := file.FlatFindChild(currentFn, "function_value_parameters")
 		if params != 0 {
 			for param := file.FlatFirstChild(params); param != 0; param = file.FlatNextSib(param) {
 				if !file.FlatIsNamed(param) || file.FlatType(param) != "parameter" {
@@ -98,7 +98,7 @@ func composeStateBindingsInScopeFlat(file *scanner.File, idx uint32) (map[string
 		if composePropertyHasStateTypeFlat(file, prop) || hasStateFactory {
 			stateHolders[name] = true
 		}
-		if file.FlatFindChild(prop, "property_delegate") != 0 && hasStateFactory {
+		if _, hasDelegate := file.FlatFindChild(prop, "property_delegate"); hasDelegate && hasStateFactory {
 			delegatedReads[name] = true
 		}
 	})
@@ -162,11 +162,11 @@ func composeNavigationReceiverFlat(file *scanner.File, node uint32) string {
 }
 
 func composePropertyNameFlat(file *scanner.File, node uint32) string {
-	varDecl := file.FlatFindChild(node, "variable_declaration")
+	varDecl, _ := file.FlatFindChild(node, "variable_declaration")
 	if varDecl == 0 {
 		return ""
 	}
-	ident := file.FlatFindChild(varDecl, "simple_identifier")
+	ident, _ := file.FlatFindChild(varDecl, "simple_identifier")
 	if ident == 0 {
 		return ""
 	}
@@ -174,7 +174,7 @@ func composePropertyNameFlat(file *scanner.File, node uint32) string {
 }
 
 func composeParameterNameFlat(file *scanner.File, node uint32) string {
-	ident := file.FlatFindChild(node, "simple_identifier")
+	ident, _ := file.FlatFindChild(node, "simple_identifier")
 	if ident == 0 {
 		return ""
 	}
@@ -182,7 +182,7 @@ func composeParameterNameFlat(file *scanner.File, node uint32) string {
 }
 
 func composePropertyHasStateTypeFlat(file *scanner.File, node uint32) bool {
-	varDecl := file.FlatFindChild(node, "variable_declaration")
+	varDecl, _ := file.FlatFindChild(node, "variable_declaration")
 	if varDecl == 0 {
 		return false
 	}
@@ -194,7 +194,7 @@ func composeParameterHasStateTypeFlat(file *scanner.File, node uint32) bool {
 }
 
 func composeNodeHasStateTypeFlat(file *scanner.File, node uint32) bool {
-	userType := file.FlatFindChild(node, "user_type")
+	userType, _ := file.FlatFindChild(node, "user_type")
 	if userType == 0 {
 		return false
 	}
@@ -335,7 +335,7 @@ func composeLambdaBelongsToCallFlat(file *scanner.File, node uint32, callNames .
 }
 
 func composeLambdaParameterNamesFlat(file *scanner.File, node uint32) []string {
-	params := file.FlatFindChild(node, "lambda_parameters")
+	params, _ := file.FlatFindChild(node, "lambda_parameters")
 	if params == 0 {
 		return nil
 	}
@@ -345,7 +345,7 @@ func composeLambdaParameterNamesFlat(file *scanner.File, node uint32) []string {
 		if !file.FlatIsNamed(param) || file.FlatType(param) != "variable_declaration" {
 			continue
 		}
-		name := file.FlatFindChild(param, "simple_identifier")
+		name, _ := file.FlatFindChild(param, "simple_identifier")
 		if name != 0 {
 			names = append(names, file.FlatNodeString(name, nil))
 		}
@@ -705,7 +705,7 @@ func (r *ComposeModifierPassedThenChainedRule) Confidence() float64 { return 0.7
 // composeHasModifierParameter reports whether the given function_declaration
 // declares a parameter named exactly `modifier` of type `Modifier`.
 func composeHasModifierParameter(file *scanner.File, funcDecl uint32) bool {
-	params := file.FlatFindChild(funcDecl, "function_value_parameters")
+	params, _ := file.FlatFindChild(funcDecl, "function_value_parameters")
 	if params == 0 {
 		return false
 	}
@@ -713,15 +713,15 @@ func composeHasModifierParameter(file *scanner.File, funcDecl uint32) bool {
 		if file.FlatType(child) != "parameter" {
 			continue
 		}
-		nameNode := file.FlatFindChild(child, "simple_identifier")
+		nameNode, _ := file.FlatFindChild(child, "simple_identifier")
 		if nameNode == 0 || !file.FlatNodeTextEquals(nameNode, "modifier") {
 			continue
 		}
-		typeNode := file.FlatFindChild(child, "user_type")
+		typeNode, _ := file.FlatFindChild(child, "user_type")
 		if typeNode == 0 {
 			continue
 		}
-		if typeIdent := file.FlatFindChild(typeNode, "type_identifier"); typeIdent != 0 &&
+		if typeIdent, ok := file.FlatFindChild(typeNode, "type_identifier"); ok &&
 			file.FlatNodeTextEquals(typeIdent, "Modifier") {
 			return true
 		}

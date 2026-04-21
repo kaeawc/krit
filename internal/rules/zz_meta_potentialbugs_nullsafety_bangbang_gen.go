@@ -17,7 +17,7 @@ func (r *MapGetWithNotNullAssertionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "672314ed1540a689",
+		SourceHash:    "a3dd5095800f6c68",
 	}
 }
 
@@ -30,6 +30,6 @@ func (r *UnsafeCallOnNullableTypeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "672314ed1540a689",
+		SourceHash:    "a3dd5095800f6c68",
 	}
 }

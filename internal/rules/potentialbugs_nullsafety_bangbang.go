@@ -219,7 +219,7 @@ func isPostFilterSmartCastFlat(file *scanner.File, idx uint32, receiverText stri
 			}
 			chain = parent
 		}
-		navExpr := file.FlatFindChild(chain, "navigation_expression")
+		navExpr, _ := file.FlatFindChild(chain, "navigation_expression")
 		if navExpr == 0 {
 			continue
 		}
@@ -246,7 +246,7 @@ func isPostFilterSmartCastFlat(file *scanner.File, idx uint32, receiverText stri
 				return false
 			}
 			if file.FlatType(recv) == "call_expression" {
-				recvCallee := file.FlatFindChild(recv, "navigation_expression")
+				recvCallee, _ := file.FlatFindChild(recv, "navigation_expression")
 				if recvCallee != 0 {
 					last := flatNavigationExpressionLastIdentifier(file, recvCallee)
 					if last == "filter" || last == "filterKeys" || last == "filterValues" {
@@ -330,7 +330,7 @@ func isInsideContainsKeyFilterChainFlat(file *scanner.File, idx uint32, receiver
 	if transformCall == 0 {
 		return false
 	}
-	navExpr := file.FlatFindChild(transformCall, "navigation_expression")
+	navExpr, _ := file.FlatFindChild(transformCall, "navigation_expression")
 	if navExpr == 0 {
 		return false
 	}
@@ -353,7 +353,7 @@ func isInsideContainsKeyFilterChainFlat(file *scanner.File, idx uint32, receiver
 			return false
 		}
 		if file.FlatType(recv) == "call_expression" {
-			recvCallee := file.FlatFindChild(recv, "navigation_expression")
+			recvCallee, _ := file.FlatFindChild(recv, "navigation_expression")
 			if recvCallee != 0 {
 				last := flatNavigationExpressionLastIdentifier(file, recvCallee)
 				if last == "filter" || last == "filterKeys" || last == "filterValues" {

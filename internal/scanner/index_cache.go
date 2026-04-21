@@ -76,7 +76,10 @@ func recordCrossFileDisk(paths crossFileCachePaths, entries int) {
 // refFilesByName, nonCommentRefFilesByName,
 // nonCommentRefCountByNameFile) plus the serialized bloom filter so a
 // warm hit can skip the lookup-map rebuild phase entirely.
-const CrossFileCacheVersion = 4
+// v5: force rebuild after the FlatFindChild sentinel-collision fix (see
+// crossFileShardVersion v3). The monolithic payload mirrors the shard
+// data and is similarly corrupted pre-fix.
+const CrossFileCacheVersion = 5
 
 // bloomLibraryVersion is the pinned bits-and-blooms/bloom/v3 version.
 // It is mixed into the cross-file fingerprint so a library upgrade

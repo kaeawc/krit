@@ -707,7 +707,7 @@ func (r *defaultResolver) AnnotationValueFlat(idx uint32, file *scanner.File, an
 	for {
 		switch file.FlatType(current) {
 		case "class_declaration", "function_declaration", "property_declaration":
-			if mods := file.FlatFindChild(current, "modifiers"); mods != 0 {
+			if mods, ok := file.FlatFindChild(current, "modifiers"); ok {
 				if val := r.findAnnotationValueFlat(mods, file, annotationName, argName); val != "" {
 					return val
 				}
@@ -733,7 +733,7 @@ func (r *defaultResolver) findAnnotationValueFlat(modifiers uint32, file *scanne
 			continue
 		}
 
-		if argsNode := file.FlatFindChild(child, "value_arguments"); argsNode != 0 {
+		if argsNode, ok := file.FlatFindChild(child, "value_arguments"); ok {
 			for j := 0; j < file.FlatChildCount(argsNode); j++ {
 				arg := file.FlatChild(argsNode, j)
 				if file.FlatType(arg) != "value_argument" {

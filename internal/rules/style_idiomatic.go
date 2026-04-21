@@ -18,7 +18,7 @@ func flatNonNullCheckText(file *scanner.File, idx uint32, funcName string) (argT
 	if flatCallExpressionName(file, idx) != funcName {
 		return "", "", false
 	}
-	suffix := file.FlatFindChild(idx, "call_suffix")
+	suffix, _ := file.FlatFindChild(idx, "call_suffix")
 	if suffix == 0 {
 		return "", "", false
 	}
@@ -60,7 +60,7 @@ func flatThrowPattern(ctx *v2.Context, nodeType, nodeText string, exceptionType,
 	if file == nil || nodeType != "if_expression" {
 		return
 	}
-	if strings.Contains(nodeText, "else") && file.FlatFindChild(idx, "else") != 0 {
+	if strings.Contains(nodeText, "else") && file.FlatHasChildOfType(idx, "else") {
 		return
 	}
 	var condNode, bodyNode uint32

@@ -121,7 +121,7 @@ func privacyIfConditionText(file *scanner.File, ifNode uint32) string {
 }
 
 func privacyHasConsentEarlyReturn(file *scanner.File, fn, target uint32) bool {
-	body := file.FlatFindChild(fn, "function_body")
+	body, _ := file.FlatFindChild(fn, "function_body")
 	if body == 0 {
 		return false
 	}

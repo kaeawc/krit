@@ -304,7 +304,7 @@ func missingUseFlatNavEndsWithUse(file *scanner.File, nav uint32) bool {
 		if file.FlatType(child) != "navigation_suffix" {
 			continue
 		}
-		if ident := file.FlatFindChild(child, "simple_identifier"); ident != 0 && file.FlatNodeTextEquals(ident, "use") {
+		if ident, ok := file.FlatFindChild(child, "simple_identifier"); ok && file.FlatNodeTextEquals(ident, "use") {
 			return true
 		}
 	}

@@ -17,7 +17,7 @@ func (r *BracesOnIfStatementsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "bb0f970afcdc08e7",
+		SourceHash:    "2f842ea7cb184c99",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "multiLine",
@@ -50,7 +50,7 @@ func (r *BracesOnWhenStatementsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "bb0f970afcdc08e7",
+		SourceHash:    "2f842ea7cb184c99",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "multiLine",
@@ -83,6 +83,6 @@ func (r *MandatoryBracesLoopsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "bb0f970afcdc08e7",
+		SourceHash:    "2f842ea7cb184c99",
 	}
 }

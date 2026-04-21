@@ -91,8 +91,12 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 		return cachedIdx, true
 	}
 
-	// Miss → full build. Reuse the pre-loaded XML so we don't re-walk.
-	symbols, refs := collectIndexDataInternal(files, workers, tracker, xmlFiles, javaFiles...)
+	// Monolithic miss → shard-backed partial rebuild. Files whose
+	// per-file shard is still on disk reuse their cached contribution;
+	// only changed/new files run the fresh index path. Writes shards
+	// back so the next edit amortises, then persists the full
+	// monolithic cache (with lookups) for the warm-identical fast path.
+	symbols, refs := collectIndexDataSharded(cacheDir, files, javaFiles, xmlFiles, workers, tracker)
 	idx := BuildIndexFromDataWithTracker(symbols, refs, tracker)
 	idx.Files = append(idx.Files, files...)
 
@@ -140,6 +144,159 @@ func collectIndexData(files []*File, workers int, javaFiles ...*File) ([]Symbol,
 
 func collectIndexDataWithTracker(files []*File, workers int, tracker perf.Tracker, javaFiles ...*File) ([]Symbol, []Reference) {
 	return collectIndexDataInternal(files, workers, tracker, nil, javaFiles...)
+}
+
+// collectIndexDataSharded is the shard-aware collector. It threads the
+// per-file cache through the same concurrency pattern as
+// collectIndexDataInternal: for each Kotlin/Java/XML file it first
+// tries loadFileShard(cacheDir, path, contentHash); on hit the shard's
+// symbols+refs are appended; on miss the file is freshly indexed and
+// the result is written back via saveFileShard.
+//
+// cacheDir must be non-empty; callers that want a pure-rebuild path
+// should call collectIndexDataInternal directly.
+func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, xmlFiles []*xmlCacheFile, workers int, tracker perf.Tracker) ([]Symbol, []Reference) {
+	if workers < 1 {
+		workers = 1
+	}
+	var (
+		mu      sync.Mutex
+		wg      sync.WaitGroup
+		symbols []Symbol
+		refs    []Reference
+		sem     = make(chan struct{}, workers)
+	)
+
+	appendSyms := func(s []Symbol) {
+		if len(s) == 0 {
+			return
+		}
+		mu.Lock()
+		symbols = append(symbols, s...)
+		mu.Unlock()
+	}
+	appendRefs := func(r []Reference) {
+		if len(r) == 0 {
+			return
+		}
+		mu.Lock()
+		refs = append(refs, r...)
+		mu.Unlock()
+	}
+
+	runKotlin := func() {
+		for _, f := range files {
+			if f == nil {
+				continue
+			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(file *File) {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				hash := contentHashForFile(file.Path, file.Content)
+				if s, ok := loadFileShard(cacheDir, file.Path, hash); ok {
+					appendSyms(s.Symbols)
+					appendRefs(s.References)
+					return
+				}
+				syms, fileRefs := indexFile(file)
+				_ = saveFileShard(cacheDir, &fileShard{
+					Path:        file.Path,
+					ContentHash: hash,
+					Symbols:     syms,
+					References:  fileRefs,
+				})
+				appendSyms(syms)
+				appendRefs(fileRefs)
+			}(f)
+		}
+		wg.Wait()
+	}
+	if tracker != nil && tracker.IsEnabled() {
+		_ = tracker.Track("kotlinIndexCollection", func() error {
+			runKotlin()
+			return nil
+		})
+	} else {
+		runKotlin()
+	}
+
+	runJava := func() {
+		for _, jf := range javaFiles {
+			if jf == nil {
+				continue
+			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(file *File) {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				hash := contentHashForFile(file.Path, file.Content)
+				if s, ok := loadFileShard(cacheDir, file.Path, hash); ok {
+					appendRefs(s.References)
+					return
+				}
+				var javaRefs []Reference
+				collectJavaReferencesFlat(file, &javaRefs)
+				_ = saveFileShard(cacheDir, &fileShard{
+					Path:        file.Path,
+					ContentHash: hash,
+					References:  javaRefs,
+				})
+				appendRefs(javaRefs)
+			}(jf)
+		}
+		wg.Wait()
+	}
+	if tracker != nil && tracker.IsEnabled() {
+		_ = tracker.Track("javaReferenceCollection", func() error {
+			runJava()
+			return nil
+		})
+	} else {
+		runJava()
+	}
+
+	runXML := func() {
+		for _, xf := range xmlFiles {
+			if xf == nil {
+				continue
+			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(file *xmlCacheFile) {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				if s, ok := loadFileShard(cacheDir, file.Path, file.Hash); ok {
+					appendRefs(s.References)
+					return
+				}
+				var xmlRefs []Reference
+				appendXMLReferences(&xmlRefs, file.Path, file.Content)
+				_ = saveFileShard(cacheDir, &fileShard{
+					Path:        file.Path,
+					ContentHash: file.Hash,
+					References:  xmlRefs,
+				})
+				appendRefs(xmlRefs)
+			}(xf)
+		}
+		wg.Wait()
+	}
+	if tracker != nil && tracker.IsEnabled() {
+		_ = tracker.Track("xmlReferenceCollection", func() error {
+			runXML()
+			return nil
+		})
+	} else {
+		runXML()
+	}
+
+	return symbols, refs
 }
 
 // collectIndexDataInternal is the shared body. A non-nil preloadedXML
@@ -593,38 +750,58 @@ func loadXMLFilesForCache(ktFiles []*File) []*xmlCacheFile {
 		}
 	}
 
-	var out []*xmlCacheFile
-	for root := range roots {
-		filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				if info != nil && info.IsDir() {
-					base := info.Name()
-					if base == ".git" || base == "build" || base == "node_modules" ||
-						base == ".idea" || base == ".gradle" || base == "out" ||
-						base == ".kotlin" || base == "target" ||
-						base == "third-party" || base == "third_party" ||
-						base == "vendor" || base == "external" ||
-						strings.HasPrefix(base, "values") {
-						return filepath.SkipDir
+	// Walk each project root in its own goroutine. Roots are
+	// independent subtrees (one per Gradle module, typically) so the
+	// walks do not contend. Per-root results are appended under a
+	// single mutex.
+	var (
+		mu  sync.Mutex
+		wg  sync.WaitGroup
+		out []*xmlCacheFile
+	)
+	for r := range roots {
+		wg.Add(1)
+		go func(root string) {
+			defer wg.Done()
+			var local []*xmlCacheFile
+			filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() {
+					if info != nil && info.IsDir() {
+						base := info.Name()
+						if base == ".git" || base == "build" || base == "node_modules" ||
+							base == ".idea" || base == ".gradle" || base == "out" ||
+							base == ".kotlin" || base == "target" ||
+							base == "third-party" || base == "third_party" ||
+							base == "vendor" || base == "external" ||
+							strings.HasPrefix(base, "values") {
+							return filepath.SkipDir
+						}
 					}
+					return nil
 				}
+				if !isXMLReferenceCandidate(path) {
+					return nil
+				}
+				content, err := os.ReadFile(path)
+				if err != nil {
+					return nil
+				}
+				local = append(local, &xmlCacheFile{
+					Path:    path,
+					Content: content,
+					Hash:    contentHashForFile(path, content),
+				})
 				return nil
-			}
-			if !isXMLReferenceCandidate(path) {
-				return nil
-			}
-			content, err := os.ReadFile(path)
-			if err != nil {
-				return nil
-			}
-			out = append(out, &xmlCacheFile{
-				Path:    path,
-				Content: content,
-				Hash:    contentHashForFile(path, content),
 			})
-			return nil
-		})
+			if len(local) == 0 {
+				return
+			}
+			mu.Lock()
+			out = append(out, local...)
+			mu.Unlock()
+		}(r)
 	}
+	wg.Wait()
 	return out
 }
 

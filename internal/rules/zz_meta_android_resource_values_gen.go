@@ -17,7 +17,7 @@ func (r *ExtraTextResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *GoogleApiKeyInResourcesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *ImpliedQuantityResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *InconsistentArraysResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *LocaleConfigStaleResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *MissingQuantityResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *OnClickResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *StringFormatCountResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -121,7 +121,7 @@ func (r *StringFormatInvalidResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -134,7 +134,7 @@ func (r *StringFormatMatchesResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -147,7 +147,7 @@ func (r *StringFormatTrivialResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -160,7 +160,7 @@ func (r *StringNotLocalizableResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -173,7 +173,7 @@ func (r *TextFieldsResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *UnusedAttributeResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -199,7 +199,7 @@ func (r *UnusedQuantityResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -212,7 +212,7 @@ func (r *WebViewInScrollViewResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }
 
@@ -225,6 +225,6 @@ func (r *WrongRegionResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8a9cd121678b6fd",
+		SourceHash:    "4ad56b32aa338652",
 	}
 }

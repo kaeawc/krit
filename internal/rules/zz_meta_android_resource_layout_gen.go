@@ -17,7 +17,7 @@ func (r *AdapterViewChildrenResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "66e59b5adab50aa5",
+		SourceHash:    "9eaea9b87e0f2a7e",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *IncludeLayoutParamResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "66e59b5adab50aa5",
+		SourceHash:    "9eaea9b87e0f2a7e",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *InconsistentLayoutResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "66e59b5adab50aa5",
+		SourceHash:    "9eaea9b87e0f2a7e",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *NestedScrollingResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "66e59b5adab50aa5",
+		SourceHash:    "9eaea9b87e0f2a7e",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *OrientationResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "66e59b5adab50aa5",
+		SourceHash:    "9eaea9b87e0f2a7e",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *RequiredSizeResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "66e59b5adab50aa5",
+		SourceHash:    "9eaea9b87e0f2a7e",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *ScrollViewCountResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "66e59b5adab50aa5",
+		SourceHash:    "9eaea9b87e0f2a7e",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *ScrollViewSizeResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "66e59b5adab50aa5",
+		SourceHash:    "9eaea9b87e0f2a7e",
 	}
 }
 
@@ -121,7 +121,7 @@ func (r *TooDeepLayoutResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "66e59b5adab50aa5",
+		SourceHash:    "9eaea9b87e0f2a7e",
 	}
 }
 
@@ -134,7 +134,7 @@ func (r *TooManyViewsResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "66e59b5adab50aa5",
+		SourceHash:    "9eaea9b87e0f2a7e",
 	}
 }
 
@@ -147,7 +147,7 @@ func (r *UseCompoundDrawablesResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "66e59b5adab50aa5",
+		SourceHash:    "9eaea9b87e0f2a7e",
 	}
 }
 
@@ -160,7 +160,7 @@ func (r *UselessLeafResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "66e59b5adab50aa5",
+		SourceHash:    "9eaea9b87e0f2a7e",
 	}
 }
 
@@ -173,6 +173,6 @@ func (r *UselessParentResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "66e59b5adab50aa5",
+		SourceHash:    "9eaea9b87e0f2a7e",
 	}
 }

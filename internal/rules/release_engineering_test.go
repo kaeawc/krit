@@ -207,6 +207,195 @@ func TestConventionPluginDeadCode(t *testing.T) {
 	})
 }
 
+func TestVisibleForTestingCallerInNonTest(t *testing.T) {
+	t.Run("same owner call triggers", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+class Feature {
+    @VisibleForTesting
+    fun rebuildForTests() = Unit
+
+    fun render() {
+        rebuildForTests()
+    }
+}
+`,
+		})
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("qualified owner call triggers across files", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/TestHooks.kt": `package com.example
+
+object TestHooks {
+    @VisibleForTesting
+    fun resetForTests() = Unit
+}
+`,
+			"app/src/main/java/com/example/Production.kt": `package com.example
+
+fun production() {
+    TestHooks.resetForTests()
+}
+`,
+		})
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("unqualified cross-file call is skipped as unresolved", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/TestHooks.kt": `package com.example
+
+@VisibleForTesting
+fun resetForTests() = Unit
+`,
+			"app/src/main/java/com/example/Production.kt": `package com.example
+
+fun production() {
+    resetForTests()
+}
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("strings and comments do not trigger", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+class Feature {
+    @VisibleForTesting
+    fun rebuildForTests() = Unit
+
+    fun render() {
+        val text = "rebuildForTests()"
+        // rebuildForTests()
+        println(text)
+    }
+}
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("overload with incompatible arity is skipped", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+class Feature {
+    fun deleteMessage(id: Long): Boolean = deleteMessage(id)
+
+    @VisibleForTesting
+    fun deleteMessage(id: Long, threadId: Long, notify: Boolean = true): Boolean = true
+}
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("different same-file owner is skipped", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+class TestHooks {
+    @VisibleForTesting
+    fun reset() = Unit
+}
+
+class Production {
+    fun reset() = Unit
+
+    fun run() {
+        reset()
+    }
+}
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("top-level same-file call triggers", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+@VisibleForTesting
+fun resetForTests() = Unit
+
+fun production() {
+    resetForTests()
+}
+`,
+		})
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("test sources are skipped", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/TestHooks.kt": `package com.example
+
+object TestHooks {
+    @VisibleForTesting
+    fun resetForTests() = Unit
+}
+`,
+			"app/src/test/java/com/example/ProductionTest.kt": `package com.example
+
+fun productionTest() {
+    TestHooks.resetForTests()
+}
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func runVisibleForTestingCallerRule(t *testing.T, files map[string]string) []scanner.Finding {
+	t.Helper()
+	registered := buildRuleIndex()["VisibleForTestingCallerInNonTest"]
+	if registered == nil {
+		t.Fatal("VisibleForTestingCallerInNonTest rule not registered")
+	}
+
+	root := t.TempDir()
+	parsed := make([]*scanner.File, 0, len(files))
+	for rel, content := range files {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		writeModuleFile(t, path, content)
+		file, err := scanner.ParseFile(path)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", path, err)
+		}
+		parsed = append(parsed, file)
+	}
+
+	index := scanner.BuildIndex(parsed, 1)
+	ctx := &v2.Context{
+		Rule:      registered,
+		CodeIndex: index,
+		Collector: scanner.NewFindingCollector(0),
+	}
+	registered.Check(ctx)
+	return v2.ContextFindings(ctx)
+}
+
 func TestCommentedOutCodeBlock(t *testing.T) {
 	rule := buildRuleIndex()["CommentedOutCodeBlock"]
 	if rule == nil {

@@ -17,7 +17,7 @@ func (r *OptionalUnitRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "c8800bc62687933a",
+		SourceHash:    "aab5e30c0c2b6c27",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *RedundantConstructorKeywordRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "c8800bc62687933a",
+		SourceHash:    "aab5e30c0c2b6c27",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *RedundantExplicitTypeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "c8800bc62687933a",
+		SourceHash:    "aab5e30c0c2b6c27",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *RedundantVisibilityModifierRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "c8800bc62687933a",
+		SourceHash:    "aab5e30c0c2b6c27",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *UnnecessaryBackticksRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "c8800bc62687933a",
+		SourceHash:    "aab5e30c0c2b6c27",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *UnnecessaryInheritanceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "c8800bc62687933a",
+		SourceHash:    "aab5e30c0c2b6c27",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *UnnecessaryInnerClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "c8800bc62687933a",
+		SourceHash:    "aab5e30c0c2b6c27",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *UnnecessaryParenthesesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "c8800bc62687933a",
+		SourceHash:    "aab5e30c0c2b6c27",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowForUnclearPrecedence",
@@ -132,6 +132,6 @@ func (r *UselessCallOnNotNullRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "c8800bc62687933a",
+		SourceHash:    "aab5e30c0c2b6c27",
 	}
 }

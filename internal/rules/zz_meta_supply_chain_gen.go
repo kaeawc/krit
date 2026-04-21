@@ -17,6 +17,6 @@ func (r *CompileSdkMismatchAcrossModulesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "398d291cb59434d4",
+		SourceHash:    "0064a37d56845090",
 	}
 }

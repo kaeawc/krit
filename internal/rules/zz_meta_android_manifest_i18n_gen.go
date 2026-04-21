@@ -17,6 +17,6 @@ func (r *LocaleConfigMissingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "5f4595e1792534a9",
+		SourceHash:    "05d868213ca7e1b4",
 	}
 }

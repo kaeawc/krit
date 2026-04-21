@@ -17,7 +17,7 @@ func (r *DeprecationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7f227b655de5cb95",
+		SourceHash:    "8525f5274542e16f",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeImportStatements",
@@ -41,7 +41,7 @@ func (r *HasPlatformTypeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7f227b655de5cb95",
+		SourceHash:    "8525f5274542e16f",
 	}
 }
 
@@ -54,7 +54,7 @@ func (r *IgnoredReturnValueRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7f227b655de5cb95",
+		SourceHash:    "8525f5274542e16f",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoreFunctionCall",
@@ -114,7 +114,7 @@ func (r *ImplicitDefaultLocaleRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7f227b655de5cb95",
+		SourceHash:    "8525f5274542e16f",
 	}
 }
 
@@ -127,6 +127,6 @@ func (r *LocaleDefaultForCurrencyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7f227b655de5cb95",
+		SourceHash:    "8525f5274542e16f",
 	}
 }

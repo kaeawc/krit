@@ -17,7 +17,7 @@ func (r *AppCompatResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "092fb2718d43392a",
+		SourceHash:    "f2553f64895d1a20",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *CutPasteIdResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "092fb2718d43392a",
+		SourceHash:    "f2553f64895d1a20",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *DuplicateIdsResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "092fb2718d43392a",
+		SourceHash:    "f2553f64895d1a20",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *DuplicateIncludedIdsResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "092fb2718d43392a",
+		SourceHash:    "f2553f64895d1a20",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *IllegalResourceRefResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "092fb2718d43392a",
+		SourceHash:    "f2553f64895d1a20",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *InvalidIdResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "092fb2718d43392a",
+		SourceHash:    "f2553f64895d1a20",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *InvalidResourceFolderResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "092fb2718d43392a",
+		SourceHash:    "f2553f64895d1a20",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *MissingIdResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "092fb2718d43392a",
+		SourceHash:    "f2553f64895d1a20",
 	}
 }
 
@@ -121,7 +121,7 @@ func (r *MissingPrefixResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "092fb2718d43392a",
+		SourceHash:    "f2553f64895d1a20",
 	}
 }
 
@@ -134,7 +134,7 @@ func (r *NamespaceTypoResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "092fb2718d43392a",
+		SourceHash:    "f2553f64895d1a20",
 	}
 }
 
@@ -147,7 +147,7 @@ func (r *ResAutoResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "092fb2718d43392a",
+		SourceHash:    "f2553f64895d1a20",
 	}
 }
 
@@ -160,7 +160,7 @@ func (r *UnusedNamespaceResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "092fb2718d43392a",
+		SourceHash:    "f2553f64895d1a20",
 	}
 }
 
@@ -173,7 +173,7 @@ func (r *WrongCaseResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "092fb2718d43392a",
+		SourceHash:    "f2553f64895d1a20",
 	}
 }
 
@@ -186,6 +186,6 @@ func (r *WrongFolderResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "092fb2718d43392a",
+		SourceHash:    "f2553f64895d1a20",
 	}
 }

@@ -17,6 +17,6 @@ func (r *PackageNamingConventionDriftRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "549657ebbd017d07",
+		SourceHash:    "2d909badc01f02e1",
 	}
 }

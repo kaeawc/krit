@@ -799,6 +799,35 @@ func flatEnclosingClassName(file *scanner.File, idx uint32) string {
 	}
 }
 
+func flatEnclosingOwnerName(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 {
+		return ""
+	}
+	var owners []string
+	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "class_declaration", "object_declaration":
+			if name := flatOwnerDeclarationName(file, current); name != "" {
+				owners = append(owners, name)
+			}
+		}
+	}
+	for i, j := 0, len(owners)-1; i < j; i, j = i+1, j-1 {
+		owners[i], owners[j] = owners[j], owners[i]
+	}
+	return strings.Join(owners, ".")
+}
+
+func flatOwnerDeclarationName(file *scanner.File, idx uint32) string {
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "type_identifier", "simple_identifier":
+			return file.FlatNodeString(child, nil)
+		}
+	}
+	return ""
+}
+
 // VisibleForTestingCallerInNonTestRule flags calls to @VisibleForTesting
 // functions from non-test files.
 type VisibleForTestingCallerInNonTestRule struct {
@@ -812,155 +841,183 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *v2.Context) {
 		return
 	}
 
-	vftDecls := make(map[string]struct{})
+	targetsByName := make(map[string][]visibleForTestingTarget)
 	for _, file := range index.Files {
-		for i, line := range file.Lines {
-			if !strings.Contains(line, "@VisibleForTesting") {
-				continue
-			}
-			for j := i + 1; j < len(file.Lines); j++ {
-				nextLine := strings.TrimSpace(file.Lines[j])
-				if strings.HasPrefix(nextLine, "@") {
-					continue
-				}
-				if name := extractDeclName(nextLine); name != "" {
-					vftDecls[name] = struct{}{}
-				}
-				break
-			}
+		if file == nil || file.FlatTree == nil {
+			continue
 		}
+		file.FlatWalkAllNodes(0, func(idx uint32) {
+			if file.FlatType(idx) != "function_declaration" {
+				return
+			}
+			if !flatHasAnnotationNamed(file, idx, "VisibleForTesting") {
+				return
+			}
+			name := file.FlatChildTextOrEmpty(idx, "simple_identifier")
+			if name == "" {
+				return
+			}
+			targetsByName[name] = append(targetsByName[name], visibleForTestingTarget{
+				name:    name,
+				owner:   flatEnclosingOwnerName(file, idx),
+				file:    file.Path,
+				minArgs: flatFunctionMinArgumentCount(file, idx),
+				maxArgs: flatFunctionMaxArgumentCount(file, idx),
+			})
+		})
 	}
 
-	if len(vftDecls) == 0 {
+	if len(targetsByName) == 0 {
 		return
 	}
 
-	// Bucket by byte length so per-line lookup is O(line_len × #lengths) rather
-	// than O(line_len × #names) — a large Android repo has hundreds of names
-	// but only ~20 unique lengths.
-	namesByLen := make(map[int]map[string]struct{})
-	for name := range vftDecls {
-		L := len(name)
-		bucket := namesByLen[L]
-		if bucket == nil {
-			bucket = make(map[string]struct{})
-			namesByLen[L] = bucket
-		}
-		bucket[name] = struct{}{}
-	}
-	lengths := make([]int, 0, len(namesByLen))
-	for L := range namesByLen {
-		lengths = append(lengths, L)
-	}
-
-	sc := newVftScanner(namesByLen, lengths)
 	for _, file := range index.Files {
+		if file == nil || file.FlatTree == nil {
+			continue
+		}
 		if isTestFile(file.Path) {
 			continue
 		}
-		for i, line := range file.Lines {
-			if len(line) < 2 || !strings.ContainsAny(line, "( ") {
-				continue
+		file.FlatWalkAllNodes(0, func(idx uint32) {
+			if file.FlatType(idx) != "call_expression" {
+				return
 			}
-			if strings.Contains(line, "@VisibleForTesting") {
-				continue
+			target, confidence, ok := resolveVisibleForTestingCallTarget(file, idx, targetsByName)
+			if !ok {
+				return
 			}
+			ctx.Emit(scanner.Finding{
+				File:       file.Path,
+				Line:       file.FlatRow(idx) + 1,
+				Col:        file.FlatCol(idx) + 1,
+				RuleSet:    r.RuleSetName,
+				Rule:       r.RuleName,
+				Severity:   r.Sev,
+				Message:    fmt.Sprintf("@VisibleForTesting function %q called from non-test code.", target.name),
+				Confidence: confidence,
+			})
+		})
+	}
+}
 
-			sc.reset()
-			sc.scan(line, '(')
-			sc.scan(line, ' ')
-			if len(sc.matched) == 0 {
-				continue
-			}
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "fun ") || strings.HasPrefix(trimmed, "internal ") || strings.HasPrefix(trimmed, "private ") {
-				continue
-			}
-			for name := range sc.matched {
-				col := strings.Index(line, name)
-				ctx.Emit(scanner.Finding{
-					File:       file.Path,
-					Line:       i + 1,
-					Col:        col + 1,
-					RuleSet:    r.RuleSetName,
-					Rule:       r.RuleName,
-					Severity:   r.Sev,
-					Message:    fmt.Sprintf("@VisibleForTesting function %q called from non-test code.", name),
-					Confidence: 0.7,
-				})
-			}
+type visibleForTestingTarget struct {
+	name    string
+	owner   string
+	file    string
+	minArgs int
+	maxArgs int
+}
+
+func resolveVisibleForTestingCallTarget(file *scanner.File, call uint32, targetsByName map[string][]visibleForTestingTarget) (visibleForTestingTarget, float64, bool) {
+	name := flatCallExpressionName(file, call)
+	if name == "" {
+		return visibleForTestingTarget{}, 0, false
+	}
+	candidates := targetsByName[name]
+	if len(candidates) == 0 {
+		return visibleForTestingTarget{}, 0, false
+	}
+	argCount := flatCallArgumentCount(file, call)
+
+	receiver := flatReceiverNameFromCall(file, call)
+	if receiver != "" {
+		if target, ok := uniqueVisibleForTestingTarget(candidates, func(t visibleForTestingTarget) bool {
+			return visibleForTestingArityMatches(t, argCount) &&
+				(t.owner == receiver || strings.HasSuffix(t.owner, "."+receiver))
+		}); ok {
+			return target, 0.85, true
 		}
 	}
-}
 
-// vftScanner holds the read-only name dictionary (bucketed by length) and a
-// reusable match set for a single pass over a file's lines. reset() clears
-// matches between lines without reallocating the map.
-type vftScanner struct {
-	namesByLen map[int]map[string]struct{}
-	lengths    []int
-	matched    map[string]struct{}
-}
-
-func newVftScanner(namesByLen map[int]map[string]struct{}, lengths []int) *vftScanner {
-	return &vftScanner{
-		namesByLen: namesByLen,
-		lengths:    lengths,
-		matched:    make(map[string]struct{}),
-	}
-}
-
-func (s *vftScanner) reset() {
-	for k := range s.matched {
-		delete(s.matched, k)
-	}
-}
-
-// scan records all names that appear immediately before any `boundary` byte in
-// the line. Uses SIMD-accelerated IndexByte to skip to each boundary because
-// `(` and ` ` are sparse relative to the full byte range.
-func (s *vftScanner) scan(line string, boundary byte) {
-	start := 0
-	for start < len(line) {
-		rel := strings.IndexByte(line[start:], boundary)
-		if rel < 0 {
-			return
+	callOwner := flatEnclosingOwnerName(file, call)
+	if callOwner != "" {
+		if target, ok := uniqueVisibleForTestingTarget(candidates, func(t visibleForTestingTarget) bool {
+			return visibleForTestingArityMatches(t, argCount) && t.file == file.Path && t.owner == callOwner
+		}); ok {
+			return target, 0.90, true
 		}
-		pos := start + rel
-		// Names end in an identifier byte; if line[pos-1] isn't, skip the
-		// O(#lengths) bucket loop entirely.
-		if pos == 0 || !isIdentByte(line[pos-1]) {
-			start = pos + 1
+	}
+
+	if target, ok := uniqueVisibleForTestingTarget(candidates, func(t visibleForTestingTarget) bool {
+		return visibleForTestingArityMatches(t, argCount) && t.file == file.Path && t.owner == "" && callOwner == ""
+	}); ok {
+		return target, 0.80, true
+	}
+
+	return visibleForTestingTarget{}, 0, false
+}
+
+func visibleForTestingArityMatches(target visibleForTestingTarget, argCount int) bool {
+	return argCount >= target.minArgs && argCount <= target.maxArgs
+}
+
+func uniqueVisibleForTestingTarget(candidates []visibleForTestingTarget, match func(visibleForTestingTarget) bool) (visibleForTestingTarget, bool) {
+	var found visibleForTestingTarget
+	count := 0
+	for _, candidate := range candidates {
+		if !match(candidate) {
 			continue
 		}
-		for _, L := range s.lengths {
-			if pos < L {
-				continue
-			}
-			cand := line[pos-L : pos]
-			if _, ok := s.namesByLen[L][cand]; ok {
-				s.matched[cand] = struct{}{}
-			}
-		}
-		start = pos + 1
-	}
-}
-
-func isIdentByte(c byte) bool {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
-}
-
-func extractDeclName(line string) string {
-	for _, prefix := range []string{"fun ", "val ", "var ", "internal fun ", "internal val ", "internal var "} {
-		if idx := strings.Index(line, prefix); idx >= 0 {
-			rest := line[idx+len(prefix):]
-			end := strings.IndexAny(rest, "( :<")
-			if end > 0 {
-				return strings.TrimSpace(rest[:end])
-			}
+		found = candidate
+		count++
+		if count > 1 {
+			return visibleForTestingTarget{}, false
 		}
 	}
-	return ""
+	return found, count == 1
+}
+
+func flatFunctionMinArgumentCount(file *scanner.File, funcDecl uint32) int {
+	count := 0
+	params, ok := file.FlatFindChild(funcDecl, "function_value_parameters")
+	if !ok {
+		return 0
+	}
+	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "parameter" && !flatParameterHasDefaultValue(file, child) {
+			count++
+		}
+	}
+	return count
+}
+
+func flatFunctionMaxArgumentCount(file *scanner.File, funcDecl uint32) int {
+	count := 0
+	params, ok := file.FlatFindChild(funcDecl, "function_value_parameters")
+	if !ok {
+		return 0
+	}
+	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "parameter" {
+			count++
+		}
+	}
+	return count
+}
+
+func flatParameterHasDefaultValue(file *scanner.File, param uint32) bool {
+	for child := file.FlatFirstChild(param); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			return true
+		}
+	}
+	return false
+}
+
+func flatCallArgumentCount(file *scanner.File, call uint32) int {
+	count := 0
+	args := flatCallKeyArguments(file, call)
+	if args != 0 {
+		for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+			if file.FlatType(arg) == "value_argument" {
+				count++
+			}
+		}
+	}
+	if flatCallTrailingLambda(file, call) != 0 {
+		count++
+	}
+	return count
 }
 
 // OpenForTestingCallerInNonTestRule flags subclasses of @OpenForTesting

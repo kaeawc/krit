@@ -17,7 +17,7 @@ func (r *AlsoCouldBeApplyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "c0e1ed11b73f17ef",
+		SourceHash:    "153a043c3404be1a",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *EqualsNullCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "c0e1ed11b73f17ef",
+		SourceHash:    "153a043c3404be1a",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *ExplicitCollectionElementAccessMethodRule) Meta() registry.RuleDescript
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "c0e1ed11b73f17ef",
+		SourceHash:    "153a043c3404be1a",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *UseArrayLiteralsInAnnotationsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "c0e1ed11b73f17ef",
+		SourceHash:    "153a043c3404be1a",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *UseDataClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "c0e1ed11b73f17ef",
+		SourceHash:    "153a043c3404be1a",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowVars",
@@ -91,7 +91,7 @@ func (r *UseIfEmptyOrIfBlankRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "c0e1ed11b73f17ef",
+		SourceHash:    "153a043c3404be1a",
 	}
 }
 
@@ -104,7 +104,7 @@ func (r *UseIfInsteadOfWhenRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "c0e1ed11b73f17ef",
+		SourceHash:    "153a043c3404be1a",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoreWhenContainingVariableDeclaration",
@@ -128,7 +128,7 @@ func (r *UseLetRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "c0e1ed11b73f17ef",
+		SourceHash:    "153a043c3404be1a",
 	}
 }
 
@@ -141,6 +141,6 @@ func (r *UseSumOfInsteadOfFlatMapSizeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "c0e1ed11b73f17ef",
+		SourceHash:    "153a043c3404be1a",
 	}
 }

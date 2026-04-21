@@ -17,7 +17,7 @@ func (r *ContentDescriptionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "16f14510999efb93",
+		SourceHash:    "21dd7fd99d47a7b1",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *ExportedServiceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "16f14510999efb93",
+		SourceHash:    "21dd7fd99d47a7b1",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *HardcodedTextRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "16f14510999efb93",
+		SourceHash:    "21dd7fd99d47a7b1",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *LogDetectorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "16f14510999efb93",
+		SourceHash:    "21dd7fd99d47a7b1",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *ObsoleteLayoutParamsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "16f14510999efb93",
+		SourceHash:    "21dd7fd99d47a7b1",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *PrivateKeyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "16f14510999efb93",
+		SourceHash:    "21dd7fd99d47a7b1",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *SdCardPathRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "16f14510999efb93",
+		SourceHash:    "21dd7fd99d47a7b1",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *SetJavaScriptEnabledRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "16f14510999efb93",
+		SourceHash:    "21dd7fd99d47a7b1",
 	}
 }
 
@@ -121,7 +121,7 @@ func (r *ViewHolderRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "16f14510999efb93",
+		SourceHash:    "21dd7fd99d47a7b1",
 	}
 }
 
@@ -134,6 +134,6 @@ func (r *WakelockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "16f14510999efb93",
+		SourceHash:    "21dd7fd99d47a7b1",
 	}
 }

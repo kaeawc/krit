@@ -17,7 +17,7 @@ func (r *AdMobInitializedBeforeConsentRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "64c2ca90dd98e2ea",
+		SourceHash:    "94ee478225f781c2",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *BiometricAuthNotFallingBackToDeviceCredentialRule) Meta() registry.Rule
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "64c2ca90dd98e2ea",
+		SourceHash:    "94ee478225f781c2",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *ClipboardOnSensitiveInputTypeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "64c2ca90dd98e2ea",
+		SourceHash:    "94ee478225f781c2",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *ContactsAccessWithoutPermissionUiRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "64c2ca90dd98e2ea",
+		SourceHash:    "94ee478225f781c2",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *LocationBackgroundWithoutRationaleRule) Meta() registry.RuleDescriptor 
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "64c2ca90dd98e2ea",
+		SourceHash:    "94ee478225f781c2",
 	}
 }
 
@@ -82,6 +82,6 @@ func (r *ScreenshotNotBlockedOnLoginScreenRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "64c2ca90dd98e2ea",
+		SourceHash:    "94ee478225f781c2",
 	}
 }

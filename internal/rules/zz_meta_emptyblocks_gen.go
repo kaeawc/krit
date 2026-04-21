@@ -21,7 +21,7 @@ func (r *EmptyCatchBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedExceptionNameRegex",
@@ -45,7 +45,7 @@ func (r *EmptyClassBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 	}
 }
 
@@ -58,7 +58,7 @@ func (r *EmptyDefaultConstructorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 	}
 }
 
@@ -71,7 +71,7 @@ func (r *EmptyDoWhileBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 	}
 }
 
@@ -84,7 +84,7 @@ func (r *EmptyElseBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 	}
 }
 
@@ -97,7 +97,7 @@ func (r *EmptyFinallyBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 	}
 }
 
@@ -110,7 +110,7 @@ func (r *EmptyForBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 	}
 }
 
@@ -123,7 +123,7 @@ func (r *EmptyFunctionBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoreOverridden",
@@ -147,7 +147,7 @@ func (r *EmptyIfBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 	}
 }
 
@@ -160,7 +160,7 @@ func (r *EmptyInitBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 	}
 }
 
@@ -173,7 +173,7 @@ func (r *EmptyKotlinFileRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *EmptySecondaryConstructorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 	}
 }
 
@@ -199,7 +199,7 @@ func (r *EmptyTryBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 	}
 }
 
@@ -212,7 +212,7 @@ func (r *EmptyWhenBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 	}
 }
 
@@ -225,6 +225,6 @@ func (r *EmptyWhileBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		SourceHash:    "b1d62054987b8776",
+		SourceHash:    "79c625fe6f1eca0a",
 	}
 }

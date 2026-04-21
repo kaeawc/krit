@@ -17,7 +17,7 @@ func (r *CascadingCallWrappingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7a321ff07ffcbbc6",
+		SourceHash:    "2521879b8356e305",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "includeElvis",
@@ -41,7 +41,7 @@ func (r *EqualsOnSignatureLineRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "7a321ff07ffcbbc6",
+		SourceHash:    "2521879b8356e305",
 	}
 }
 
@@ -54,7 +54,7 @@ func (r *MaxChainedCallsOnSameLineRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7a321ff07ffcbbc6",
+		SourceHash:    "2521879b8356e305",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "maxChainedCalls",
@@ -79,7 +79,7 @@ func (r *MaxLineLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "7a321ff07ffcbbc6",
+		SourceHash:    "2521879b8356e305",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeCommentStatements",
@@ -138,7 +138,7 @@ func (r *NewLineAtEndOfFileRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		SourceHash:    "7a321ff07ffcbbc6",
+		SourceHash:    "2521879b8356e305",
 	}
 }
 
@@ -151,7 +151,7 @@ func (r *NoTabsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		SourceHash:    "7a321ff07ffcbbc6",
+		SourceHash:    "2521879b8356e305",
 	}
 }
 
@@ -164,7 +164,7 @@ func (r *SpacingAfterPackageAndImportsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		SourceHash:    "7a321ff07ffcbbc6",
+		SourceHash:    "2521879b8356e305",
 	}
 }
 
@@ -177,7 +177,7 @@ func (r *TrailingWhitespaceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		SourceHash:    "7a321ff07ffcbbc6",
+		SourceHash:    "2521879b8356e305",
 	}
 }
 
@@ -190,7 +190,7 @@ func (r *UnderscoresInNumericLiteralsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "7a321ff07ffcbbc6",
+		SourceHash:    "2521879b8356e305",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "acceptableLength",

@@ -17,6 +17,6 @@ func (r *DeadCodeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "5bade39c54c91e25",
+		SourceHash:    "e99f89be6ce1993e",
 	}
 }

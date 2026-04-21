@@ -17,7 +17,7 @@ func (r *FragmentConstructorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "3db6227a9c9a98b8",
+		SourceHash:    "22bdd474ede1d1b6",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *GetSignaturesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "3db6227a9c9a98b8",
+		SourceHash:    "22bdd474ede1d1b6",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *LogTagLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "3db6227a9c9a98b8",
+		SourceHash:    "22bdd474ede1d1b6",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *LogTagMismatchRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "3db6227a9c9a98b8",
+		SourceHash:    "22bdd474ede1d1b6",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *NonInternationalizedSmsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "3db6227a9c9a98b8",
+		SourceHash:    "22bdd474ede1d1b6",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *ServiceCastRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "3db6227a9c9a98b8",
+		SourceHash:    "22bdd474ede1d1b6",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *SparseArrayRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "3db6227a9c9a98b8",
+		SourceHash:    "22bdd474ede1d1b6",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *ToastRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "3db6227a9c9a98b8",
+		SourceHash:    "22bdd474ede1d1b6",
 	}
 }
 
@@ -121,6 +121,6 @@ func (r *UseValueOfRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "3db6227a9c9a98b8",
+		SourceHash:    "22bdd474ede1d1b6",
 	}
 }

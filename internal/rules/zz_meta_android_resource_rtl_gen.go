@@ -17,7 +17,7 @@ func (r *NotSiblingResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7b50edd564ad670a",
+		SourceHash:    "c382982c61cb1e9d",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *RelativeOverlapResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7b50edd564ad670a",
+		SourceHash:    "c382982c61cb1e9d",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *RtlHardcodedResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7b50edd564ad670a",
+		SourceHash:    "c382982c61cb1e9d",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *RtlSuperscriptResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7b50edd564ad670a",
+		SourceHash:    "c382982c61cb1e9d",
 	}
 }
 
@@ -69,6 +69,6 @@ func (r *RtlSymmetryResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7b50edd564ad670a",
+		SourceHash:    "c382982c61cb1e9d",
 	}
 }

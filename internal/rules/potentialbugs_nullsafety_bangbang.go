@@ -56,8 +56,10 @@ func isRequireFunctionBangBodyFlat(file *scanner.File, idx uint32) bool {
 	return true
 }
 
-func isGuardedNonNullFlat(file *scanner.File, idx uint32, receiverText string) bool {
-	base := strings.TrimSuffix(receiverText, ".")
+func isGuardedNonNullFlat(file *scanner.File, idx uint32, receiver uint32) bool {
+	if receiver == 0 {
+		return false
+	}
 	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
 		t := file.FlatType(current)
 		if t == "function_declaration" || t == "lambda_literal" {
@@ -99,19 +101,20 @@ func isGuardedNonNullFlat(file *scanner.File, idx uint32, receiverText string) b
 		if cond == 0 {
 			continue
 		}
-		condText := file.FlatNodeText(cond)
-		if thenBody == current && (guardMatches(condText, base) || guardMatches(condText, receiverText)) {
+		if thenBody == current && conditionTrueProvesNonNullFlat(file, cond, receiver, idx) {
 			return true
 		}
-		if elseBody == current && (nonNullElseGuardMatches(condText, base) || nonNullElseGuardMatches(condText, receiverText)) {
+		if elseBody == current && conditionFalseProvesNonNullFlat(file, cond, receiver, idx) {
 			return true
 		}
 	}
 	return false
 }
 
-func isEarlyReturnGuardedFlat(file *scanner.File, idx uint32, receiverText string) bool {
-	base := strings.TrimSuffix(receiverText, ".")
+func isEarlyReturnGuardedFlat(file *scanner.File, idx uint32, receiver uint32) bool {
+	if receiver == 0 {
+		return false
+	}
 	var anchor uint32
 	var statements uint32
 	child := idx
@@ -170,8 +173,7 @@ func isEarlyReturnGuardedFlat(file *scanner.File, idx uint32, receiverText strin
 		if !bodyAlwaysExitsFlat(file, thenBody) {
 			continue
 		}
-		condText := file.FlatNodeText(cond)
-		if earlyReturnGuardMatches(condText, base) || earlyReturnGuardMatches(condText, receiverText) {
+		if conditionFalseProvesNonNullFlat(file, cond, receiver, idx) {
 			return true
 		}
 	}
@@ -387,7 +389,6 @@ type UnsafeCallOnNullableTypeRule struct {
 // resolver is absent. Classified per roadmap/17.
 func (r *UnsafeCallOnNullableTypeRule) Confidence() float64 { return 0.75 }
 
-
 func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
 	text := file.FlatNodeText(idx)
@@ -452,12 +453,16 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	// safe-call chain) is proven non-null by an enclosing `if (x != null)`
 	// or `if (x?.y != null)` branch, the `!!` is a smart-cast workaround
 	// rather than an unsafe assertion.
-	if isGuardedNonNullFlat(file, idx, receiverText) {
+	receiverIdx := uint32(0)
+	if file.FlatChildCount(idx) >= 1 {
+		receiverIdx = file.FlatChild(idx, 0)
+	}
+	if isGuardedNonNullFlat(file, idx, receiverIdx) {
 		return
 	}
 	// Early-return guard: `if (x == null) return` earlier in the same block
 	// proves non-null for any subsequent `x!!` in the same statements scope.
-	if isEarlyReturnGuardedFlat(file, idx, receiverText) {
+	if isEarlyReturnGuardedFlat(file, idx, receiverIdx) {
 		return
 	}
 	// Post-filter smart cast: `.filter { it.x != null }.map { it.x!! }` —
@@ -557,115 +562,441 @@ func isDottedFieldChain(s string) bool {
 	return true
 }
 
-// earlyReturnGuardMatches checks for `chain == null` in cond text.
-func earlyReturnGuardMatches(condText, base string) bool {
-	if base == "" {
-		return false
-	}
-	norm := strings.Join(strings.Fields(condText), " ")
-	candidates := []string{base}
-	trimmed := base
-	for {
-		idx := strings.LastIndex(trimmed, ".")
-		if idx < 0 {
-			break
-		}
-		trimmed = trimmed[:idx]
-		if trimmed == "" {
-			break
-		}
-		candidates = append(candidates, trimmed)
-	}
-	for _, cand := range candidates {
-		if strings.Contains(norm, cand+" == null") {
-			return true
-		}
-		needle := cand + "?."
-		if i := strings.Index(norm, needle); i >= 0 {
-			rest := norm[i:]
-			if strings.Contains(rest, "== null") {
-				return true
-			}
+func conditionTrueProvesNonNullFlat(file *scanner.File, cond, receiver, useIdx uint32) bool {
+	cond = flatUnwrapParenExpr(file, cond)
+	switch file.FlatType(cond) {
+	case "equality_expression":
+		nonNull, _, ok := equalityNullFactsFlat(file, cond, receiver, useIdx)
+		return ok && nonNull
+	case "conjunction_expression":
+		return anyConditionOperandFlat(file, cond, func(child uint32) bool {
+			return conditionTrueProvesNonNullFlat(file, child, receiver, useIdx)
+		})
+	case "disjunction_expression":
+		return allConditionOperandsFlat(file, cond, func(child uint32) bool {
+			return conditionTrueProvesNonNullFlat(file, child, receiver, useIdx)
+		})
+	case "prefix_expression":
+		if prefixExpressionIsNotFlat(file, cond) {
+			return conditionFalseProvesNonNullFlat(file, flatLastNamedChild(file, cond), receiver, useIdx)
 		}
 	}
 	return false
 }
 
-// guardMatches returns true if condText contains a `chain != null` test
-// where chain is either the base or a prefix of it. Handles `x != null`,
-// `x?.y != null`, and conjunctions like `a != null && b != null`.
-func guardMatches(condText, base string) bool {
-	if base == "" {
-		return false
-	}
-	// Normalize whitespace
-	norm := strings.Join(strings.Fields(condText), " ")
-	// Accept exact match and any prefix up to a `.`
-	candidates := []string{base}
-	// Trim trailing ".field" components to widen the match.
-	trimmed := base
-	for {
-		idx := strings.LastIndex(trimmed, ".")
-		if idx < 0 {
-			break
-		}
-		trimmed = trimmed[:idx]
-		if trimmed == "" {
-			break
-		}
-		candidates = append(candidates, trimmed)
-	}
-	for _, cand := range candidates {
-		// `cand != null`
-		if strings.Contains(norm, cand+" != null") {
-			return true
-		}
-		// `cand?.x != null` — any suffix
-		needle := cand + "?."
-		if i := strings.Index(norm, needle); i >= 0 {
-			// Ensure `!= null` appears somewhere after the needle.
-			rest := norm[i:]
-			if strings.Contains(rest, "!= null") {
-				return true
-			}
+func conditionTrueProvesNullFlat(file *scanner.File, cond, receiver, useIdx uint32) bool {
+	cond = flatUnwrapParenExpr(file, cond)
+	switch file.FlatType(cond) {
+	case "equality_expression":
+		_, isNull, ok := equalityNullFactsFlat(file, cond, receiver, useIdx)
+		return ok && isNull
+	case "conjunction_expression":
+		return anyConditionOperandFlat(file, cond, func(child uint32) bool {
+			return conditionTrueProvesNullFlat(file, child, receiver, useIdx)
+		})
+	case "disjunction_expression":
+		return allConditionOperandsFlat(file, cond, func(child uint32) bool {
+			return conditionTrueProvesNullFlat(file, child, receiver, useIdx)
+		})
+	case "prefix_expression":
+		if prefixExpressionIsNotFlat(file, cond) {
+			return conditionFalseProvesNullFlat(file, flatLastNamedChild(file, cond), receiver, useIdx)
 		}
 	}
 	return false
 }
 
-func nonNullElseGuardMatches(condText, base string) bool {
-	if base == "" {
+func conditionFalseProvesNonNullFlat(file *scanner.File, cond, receiver, useIdx uint32) bool {
+	cond = flatUnwrapParenExpr(file, cond)
+	switch file.FlatType(cond) {
+	case "equality_expression":
+		_, isNull, ok := equalityNullFactsFlat(file, cond, receiver, useIdx)
+		return ok && isNull
+	case "call_expression":
+		return nullPredicateCallFalseProvesNonNullFlat(file, cond, receiver, useIdx)
+	case "disjunction_expression":
+		return anyConditionOperandFlat(file, cond, func(child uint32) bool {
+			return conditionFalseProvesNonNullFlat(file, child, receiver, useIdx)
+		})
+	case "conjunction_expression":
+		return allConditionOperandsFlat(file, cond, func(child uint32) bool {
+			return conditionFalseProvesNonNullFlat(file, child, receiver, useIdx)
+		})
+	case "prefix_expression":
+		if prefixExpressionIsNotFlat(file, cond) {
+			return conditionTrueProvesNonNullFlat(file, flatLastNamedChild(file, cond), receiver, useIdx)
+		}
+	}
+	return false
+}
+
+func conditionFalseProvesNullFlat(file *scanner.File, cond, receiver, useIdx uint32) bool {
+	cond = flatUnwrapParenExpr(file, cond)
+	switch file.FlatType(cond) {
+	case "equality_expression":
+		nonNull, _, ok := equalityNullFactsFlat(file, cond, receiver, useIdx)
+		return ok && nonNull
+	case "conjunction_expression":
+		return allConditionOperandsFlat(file, cond, func(child uint32) bool {
+			return conditionFalseProvesNullFlat(file, child, receiver, useIdx)
+		})
+	case "disjunction_expression":
+		return anyConditionOperandFlat(file, cond, func(child uint32) bool {
+			return conditionFalseProvesNullFlat(file, child, receiver, useIdx)
+		})
+	case "prefix_expression":
+		if prefixExpressionIsNotFlat(file, cond) {
+			return conditionTrueProvesNullFlat(file, flatLastNamedChild(file, cond), receiver, useIdx)
+		}
+	}
+	return false
+}
+
+func equalityNullFactsFlat(file *scanner.File, expr, receiver, useIdx uint32) (nonNull bool, isNull bool, ok bool) {
+	if file == nil || expr == 0 || file.FlatType(expr) != "equality_expression" || file.FlatChildCount(expr) < 3 {
+		return false, false, false
+	}
+	left := flatUnwrapParenExpr(file, file.FlatChild(expr, 0))
+	op := file.FlatChild(expr, 1)
+	right := flatUnwrapParenExpr(file, file.FlatChild(expr, 2))
+	if left == 0 || op == 0 || right == 0 {
+		return false, false, false
+	}
+
+	var candidate uint32
+	switch {
+	case flatIsNullLiteral(file, right):
+		candidate = left
+	case flatIsNullLiteral(file, left):
+		candidate = right
+	default:
+		return false, false, false
+	}
+	if !conditionReferenceMatchesReceiverFlat(file, candidate, receiver, useIdx) {
+		return false, false, false
+	}
+
+	switch strings.TrimSpace(file.FlatNodeText(op)) {
+	case "!=":
+		return true, false, true
+	case "==":
+		return false, true, true
+	default:
+		return false, false, false
+	}
+}
+
+func nullPredicateCallFalseProvesNonNullFlat(file *scanner.File, call, receiver, useIdx uint32) bool {
+	navExpr, args := flatCallExpressionParts(file, call)
+	if navExpr == 0 {
 		return false
 	}
-	norm := strings.Join(strings.Fields(condText), " ")
-	candidates := []string{base}
-	trimmed := base
-	for {
-		idx := strings.LastIndex(trimmed, ".")
-		if idx < 0 {
-			break
-		}
-		trimmed = trimmed[:idx]
-		if trimmed == "" {
-			break
-		}
-		candidates = append(candidates, trimmed)
+	path, ok := flatReferencePathFromExpr(file, navExpr)
+	if !ok || len(path.parts) == 0 {
+		return false
 	}
-	for _, cand := range candidates {
-		if strings.Contains(norm, "TextUtils.isEmpty("+cand+")") {
-			return true
+	callee := path.parts[len(path.parts)-1]
+	switch callee {
+	case "isNullOrEmpty", "isNullOrBlank":
+		if len(path.parts) < 2 {
+			return false
 		}
-		if strings.Contains(norm, cand+".isNullOrEmpty()") ||
-			strings.Contains(norm, cand+"?.isEmpty() == true") {
-			return true
+		receiverExpr := file.FlatNamedChild(navExpr, 0)
+		return conditionReferenceMatchesReceiverFlat(file, receiverExpr, receiver, useIdx)
+	case "isEmpty":
+		if len(path.parts) != 2 || path.parts[0] != "TextUtils" || args == 0 {
+			return false
 		}
-		if strings.Contains(norm, cand+" == null || "+cand+".isEmpty()") ||
-			strings.Contains(norm, cand+"== null || "+cand+".isEmpty()") ||
-			strings.Contains(norm, cand+" == null|| "+cand+".isEmpty()") {
+		firstArg := flatPositionalValueArgument(file, args, 0)
+		if firstArg == 0 {
+			return false
+		}
+		return conditionReferenceMatchesReceiverFlat(file, flatValueArgumentExpression(file, firstArg), receiver, useIdx)
+	default:
+		return false
+	}
+}
+
+func conditionReferenceMatchesReceiverFlat(file *scanner.File, candidate, receiver, useIdx uint32) bool {
+	candidate = flatUnwrapParenExpr(file, candidate)
+	receiver = flatUnwrapParenExpr(file, receiver)
+	candPath, candOK := flatReferencePathFromExpr(file, candidate)
+	recvPath, recvOK := flatReferencePathFromExpr(file, receiver)
+	if !candOK || !recvOK {
+		return false
+	}
+	if referencePathsMatchReceiverFlat(file, candPath, recvPath, useIdx) {
+		return true
+	}
+	candTrimmed, candHadThis := flatTrimLeadingThisPath(candPath)
+	recvTrimmed, recvHadThis := flatTrimLeadingThisPath(recvPath)
+	if !candHadThis && !recvHadThis {
+		return false
+	}
+	return referencePathsMatchReceiverFlat(file, candTrimmed, recvTrimmed, useIdx) &&
+		sameExplicitThisReferenceTargetFlat(file, candPath, recvPath, useIdx)
+}
+
+func referencePathsMatchReceiverFlat(file *scanner.File, candPath, recvPath flatReferencePath, useIdx uint32) bool {
+	if len(candPath.parts) != len(recvPath.parts) || len(candPath.parts) == 0 {
+		return false
+	}
+	for i := range candPath.parts {
+		if candPath.parts[i] != recvPath.parts[i] {
+			return false
+		}
+	}
+	if len(candPath.parts) == 1 {
+		return sameResolvableReferenceTargetFlat(file, candPath.nodes[0], recvPath.nodes[0])
+	}
+	return sameQualifiedReceiverTargetFlat(file, candPath.nodes[0], recvPath.nodes[0], useIdx)
+}
+
+type flatReferencePath struct {
+	parts []string
+	nodes []uint32
+	root  uint32
+}
+
+func flatReferencePathFromExpr(file *scanner.File, idx uint32) (flatReferencePath, bool) {
+	idx = flatUnwrapParenExpr(file, idx)
+	switch file.FlatType(idx) {
+	case "simple_identifier", "this_expression":
+		return flatReferencePath{parts: []string{file.FlatNodeText(idx)}, nodes: []uint32{idx}, root: idx}, true
+	case "navigation_expression":
+		var out flatReferencePath
+		for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+			if !file.FlatIsNamed(child) {
+				continue
+			}
+			switch file.FlatType(child) {
+			case "simple_identifier", "this_expression", "navigation_expression":
+				childPath, ok := flatReferencePathFromExpr(file, child)
+				if !ok {
+					return flatReferencePath{}, false
+				}
+				if out.root == 0 {
+					out.root = childPath.root
+				}
+				out.parts = append(out.parts, childPath.parts...)
+				out.nodes = append(out.nodes, childPath.nodes...)
+			case "navigation_suffix":
+				if flatCallSuffixValueArgs(file, child) != 0 {
+					return flatReferencePath{}, false
+				}
+				ident, ok := file.FlatFindChild(child, "simple_identifier")
+				if !ok || ident == 0 {
+					return flatReferencePath{}, false
+				}
+				out.parts = append(out.parts, file.FlatNodeText(ident))
+				out.nodes = append(out.nodes, ident)
+			default:
+				return flatReferencePath{}, false
+			}
+		}
+		return out, out.root != 0 && len(out.parts) > 0
+	default:
+		return flatReferencePath{}, false
+	}
+}
+
+func flatTrimLeadingThisPath(path flatReferencePath) (flatReferencePath, bool) {
+	if len(path.parts) < 2 || path.parts[0] != "this" {
+		return path, false
+	}
+	return flatReferencePath{
+		parts: path.parts[1:],
+		nodes: path.nodes[1:],
+		root:  path.nodes[1],
+	}, true
+}
+
+func sameExplicitThisReferenceTargetFlat(file *scanner.File, candPath, recvPath flatReferencePath, useIdx uint32) bool {
+	candTrimmed, candHadThis := flatTrimLeadingThisPath(candPath)
+	recvTrimmed, recvHadThis := flatTrimLeadingThisPath(recvPath)
+	if !candHadThis && !recvHadThis {
+		return false
+	}
+	if len(candTrimmed.parts) == 0 || len(recvTrimmed.parts) == 0 {
+		return false
+	}
+	if candHadThis && recvHadThis {
+		candClass, candOK := flatEnclosingAncestor(file, candPath.nodes[0], "class_declaration", "object_declaration")
+		recvClass, recvOK := flatEnclosingAncestor(file, recvPath.nodes[0], "class_declaration", "object_declaration")
+		return candOK && recvOK && candClass == recvClass
+	}
+	if candHadThis {
+		return explicitThisMemberMatchesReferenceFlat(file, candPath.nodes[0], candTrimmed.nodes[0], recvTrimmed.nodes[0], useIdx)
+	}
+	return explicitThisMemberMatchesReferenceFlat(file, recvPath.nodes[0], recvTrimmed.nodes[0], candTrimmed.nodes[0], useIdx)
+}
+
+func explicitThisMemberMatchesReferenceFlat(file *scanner.File, thisNode, memberNameNode, otherRoot uint32, useIdx uint32) bool {
+	classNode, ok := flatEnclosingAncestor(file, thisNode, "class_declaration", "object_declaration")
+	if !ok {
+		return false
+	}
+	useClass, ok := flatEnclosingAncestor(file, useIdx, "class_declaration", "object_declaration")
+	if !ok || useClass != classNode {
+		return false
+	}
+	memberDecl := classMemberDeclarationByNameFlat(file, classNode, file.FlatNodeText(memberNameNode))
+	if memberDecl == 0 {
+		return false
+	}
+	return resolveSimpleReferenceDeclarationFlat(file, otherRoot) == memberDecl
+}
+
+func classMemberDeclarationByNameFlat(file *scanner.File, classNode uint32, name string) uint32 {
+	var found uint32
+	file.FlatWalkAllNodes(classNode, func(candidate uint32) {
+		if found != 0 || extractIdentifierFlat(file, candidate) != name {
+			return
+		}
+		switch file.FlatType(candidate) {
+		case "property_declaration":
+			owner, ok := flatEnclosingAncestor(file, candidate, "class_declaration", "object_declaration")
+			if ok && owner == classNode {
+				found = candidate
+			}
+		case "class_parameter":
+			if parameterDeclaresPropertyFlat(file, candidate) {
+				found = candidate
+			}
+		}
+	})
+	return found
+}
+
+func parameterDeclaresPropertyFlat(file *scanner.File, param uint32) bool {
+	for child := file.FlatFirstChild(param); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "val" || file.FlatType(child) == "var" ||
+			file.FlatNodeTextEquals(child, "val") || file.FlatNodeTextEquals(child, "var") {
 			return true
 		}
 	}
 	return false
+}
+
+func sameResolvableReferenceTargetFlat(file *scanner.File, a, b uint32) bool {
+	if a == 0 || b == 0 || !file.FlatNodeTextEquals(a, file.FlatNodeText(b)) {
+		return false
+	}
+	declA := resolveSimpleReferenceDeclarationFlat(file, a)
+	declB := resolveSimpleReferenceDeclarationFlat(file, b)
+	if declA == 0 || declB == 0 {
+		return false
+	}
+	return declA == declB
+}
+
+func sameQualifiedReceiverTargetFlat(file *scanner.File, a, b, useIdx uint32) bool {
+	if a == 0 || b == 0 {
+		return false
+	}
+	if file.FlatNodeTextEquals(a, "this") && file.FlatNodeTextEquals(b, "this") {
+		classA, okA := flatEnclosingAncestor(file, a, "class_declaration", "object_declaration")
+		classB, okB := flatEnclosingAncestor(file, b, "class_declaration", "object_declaration")
+		return okA && okB && classA == classB
+	}
+	if sameResolvableReferenceTargetFlat(file, a, b) {
+		return true
+	}
+	ownerA, okA := flatEnclosingAncestor(file, a, "function_declaration", "lambda_literal", "property_declaration")
+	ownerB, okB := flatEnclosingAncestor(file, b, "function_declaration", "lambda_literal", "property_declaration")
+	ownerUse, okUse := flatEnclosingAncestor(file, useIdx, "function_declaration", "lambda_literal", "property_declaration")
+	return okA && okB && okUse && ownerA == ownerB && ownerA == ownerUse && file.FlatNodeTextEquals(a, file.FlatNodeText(b))
+}
+
+func resolveSimpleReferenceDeclarationFlat(file *scanner.File, ref uint32) uint32 {
+	if file == nil || ref == 0 {
+		return 0
+	}
+	name := file.FlatNodeText(ref)
+	if name == "" || name == "this" {
+		return 0
+	}
+	var bestLocal uint32
+	var bestMember uint32
+	file.FlatWalkAllNodes(0, func(candidate uint32) {
+		if candidate == 0 || candidate == ref {
+			return
+		}
+		switch file.FlatType(candidate) {
+		case "parameter", "class_parameter", "property_declaration":
+			if extractIdentifierFlat(file, candidate) != name || !declarationVisibleFromReferenceFlat(file, candidate, ref) {
+				return
+			}
+			if _, local := flatEnclosingAncestor(file, candidate, "function_declaration", "lambda_literal"); local {
+				if bestLocal == 0 || file.FlatStartByte(candidate) >= file.FlatStartByte(bestLocal) {
+					bestLocal = candidate
+				}
+				return
+			}
+			if bestMember == 0 || file.FlatStartByte(candidate) >= file.FlatStartByte(bestMember) {
+				bestMember = candidate
+			}
+		}
+	})
+	if bestLocal != 0 {
+		return bestLocal
+	}
+	return bestMember
+}
+
+func declarationVisibleFromReferenceFlat(file *scanner.File, decl, ref uint32) bool {
+	declLocalOwner, declLocal := flatEnclosingAncestor(file, decl, "function_declaration", "lambda_literal")
+	refLocalOwner, refLocal := flatEnclosingAncestor(file, ref, "function_declaration", "lambda_literal")
+	if declLocal {
+		return refLocal && declLocalOwner == refLocalOwner && file.FlatStartByte(decl) <= file.FlatStartByte(ref)
+	}
+
+	declClassOwner, declClass := flatEnclosingAncestor(file, decl, "class_declaration", "object_declaration")
+	refClassOwner, refClass := flatEnclosingAncestor(file, ref, "class_declaration", "object_declaration")
+	if declClass {
+		return refClass && declClassOwner == refClassOwner
+	}
+
+	return true
+}
+
+func flatIsNullLiteral(file *scanner.File, idx uint32) bool {
+	idx = flatUnwrapParenExpr(file, idx)
+	return idx != 0 && (file.FlatType(idx) == "null" || file.FlatNodeTextEquals(idx, "null"))
+}
+
+func prefixExpressionIsNotFlat(file *scanner.File, idx uint32) bool {
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) && file.FlatNodeTextEquals(child, "!") {
+			return true
+		}
+	}
+	return false
+}
+
+func anyConditionOperandFlat(file *scanner.File, idx uint32, predicate func(uint32) bool) bool {
+	for i := 0; i < file.FlatNamedChildCount(idx); i++ {
+		child := file.FlatNamedChild(idx, i)
+		if child != 0 && predicate(child) {
+			return true
+		}
+	}
+	return false
+}
+
+func allConditionOperandsFlat(file *scanner.File, idx uint32, predicate func(uint32) bool) bool {
+	seen := false
+	for i := 0; i < file.FlatNamedChildCount(idx); i++ {
+		child := file.FlatNamedChild(idx, i)
+		if child == 0 {
+			continue
+		}
+		seen = true
+		if !predicate(child) {
+			return false
+		}
+	}
+	return seen
 }
 
 // isIdiomaticNullAssertionReceiver returns true if the receiver text matches
@@ -860,7 +1191,6 @@ type MapGetWithNotNullAssertionRule struct {
 	BaseRule
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence — tree-sitter
 // structural check; resolver confirms the receiver is Map but falls back to
 // name-based assumption. Classified per roadmap/17.
@@ -955,4 +1285,3 @@ func (r *MapGetWithNotNullAssertionRule) check(ctx *v2.Context) {
 	}
 	ctx.Emit(f)
 }
-

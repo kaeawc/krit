@@ -288,8 +288,12 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 						if excludedRules[r.ID] {
 							continue
 						}
+						resolver, ok := d.resolveForRule(r)
+						if !ok {
+							continue
+						}
 						t := time.Now()
-						safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, d.typeResolver)
+						safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver)
 						elapsed := time.Since(t).Nanoseconds()
 						stats.DispatchRuleNs += elapsed
 						stats.DispatchRuleNsByRule[r.ID] += elapsed
@@ -300,8 +304,12 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 				if excludedRules[r.ID] {
 					continue
 				}
+				resolver, ok := d.resolveForRule(r)
+				if !ok {
+					continue
+				}
 				t := time.Now()
-				safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, d.typeResolver)
+				safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver)
 				elapsed := time.Since(t).Nanoseconds()
 				stats.DispatchRuleNs += elapsed
 				stats.DispatchRuleNsByRule[r.ID] += elapsed
@@ -316,6 +324,10 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 		if excludedRules[r.ID] {
 			continue
 		}
+		resolver, ok := d.resolveForRule(r)
+		if !ok {
+			continue
+		}
 		func() {
 			defer func() {
 				if rec := recover(); rec != nil {
@@ -324,7 +336,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 			}()
 			ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector}
 			if r.Needs.Has(v2.NeedsResolver) {
-				ctx.Resolver = d.typeResolver
+				ctx.Resolver = resolver
 			}
 			r.Check(ctx)
 		}()
@@ -337,6 +349,10 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 		if excludedRules[r.ID] {
 			continue
 		}
+		resolver, ok := d.resolveForRule(r)
+		if !ok {
+			continue
+		}
 		func() {
 			defer func() {
 				if rec := recover(); rec != nil {
@@ -345,7 +361,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 			}()
 			ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.50, Collector: collector}
 			if r.Needs.Has(v2.NeedsResolver) {
-				ctx.Resolver = d.typeResolver
+				ctx.Resolver = resolver
 			}
 			r.Check(ctx)
 		}()
@@ -406,6 +422,62 @@ func safeCheckV2NodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, fil
 }
 
 
+
+// fallbackAware is implemented by resolver wrappers (notably
+// *oracle.CompositeResolver) that layer an oracle on top of a source-
+// level resolver. When present, Fallback() returns just the source-level
+// backend — handed to rules that declared TypeInfo.PreferBackend =
+// PreferResolver so they skip the oracle IPC per call.
+type fallbackAware interface {
+	Fallback() typeinfer.TypeResolver
+}
+
+// resolveForRule returns the TypeResolver to populate in ctx.Resolver
+// for rule r, honoring r.TypeInfo.PreferBackend when both backends are
+// available. The second return is false when the rule should be skipped
+// (preferred backend unavailable AND TypeInfo.Required=false).
+//
+// The zero-value hint (PreferAny, Required=false) preserves the pre-
+// hint behaviour: whatever the caller handed NewV2Dispatcher is passed
+// through untouched. Rules that don't declare NeedsResolver never ask
+// this helper — their ctx.Resolver stays nil as before.
+func (d *V2Dispatcher) resolveForRule(r *v2.Rule) (typeinfer.TypeResolver, bool) {
+	base := d.typeResolver
+	hint := r.TypeInfo
+	switch hint.PreferBackend {
+	case v2.PreferResolver:
+		if fb, ok := base.(fallbackAware); ok {
+			// Composite is wired: hand out just the source-level leg.
+			return fb.Fallback(), true
+		}
+		// Base is nil or a bare source-level resolver. A non-nil
+		// non-composite resolver is itself a resolver, so it satisfies
+		// the preference. A nil base means no backend → respect
+		// Required: skip silently unless the rule opted into fall-
+		// through with Required=true.
+		if base != nil {
+			return base, true
+		}
+		if hint.Required {
+			return nil, true
+		}
+		return nil, false
+	case v2.PreferOracle:
+		if _, ok := base.(fallbackAware); ok {
+			// Composite present → oracle available.
+			return base, true
+		}
+		// No composite wired → oracle isn't available. Honor Required:
+		// true falls through to whatever base is (including nil);
+		// false skips the rule silently.
+		if hint.Required {
+			return base, true
+		}
+		return nil, false
+	default: // PreferAny
+		return base, true
+	}
+}
 
 func filePathOrEmpty(file *scanner.File) string {
 	if file == nil {
@@ -621,7 +693,9 @@ func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate f
 	collector := scanner.NewFindingCollector(0)
 	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector}
 	if r.Needs.Has(v2.NeedsResolver) {
-		ctx.Resolver = d.typeResolver
+		if resolver, ok := d.resolveForRule(r); ok {
+			ctx.Resolver = resolver
+		}
 	}
 	if populate != nil {
 		populate(ctx)

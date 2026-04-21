@@ -70,6 +70,58 @@ const (
 // individually. See roadmap/clusters/core-infra/type-resolution-service.md.
 const NeedsTypeInfo Capabilities = NeedsResolver | NeedsOracle
 
+// TypeInfoBackend is a per-rule hint telling the dispatcher which
+// type-information backend to prefer when both the in-process resolver
+// and the JVM oracle are wired. The zero value is PreferAny — rules
+// that do not care get the composite resolver (oracle-first) just as
+// they did before the hint was introduced.
+//
+// Decision matrix for rule authors:
+//
+//	PreferResolver — cheap source-level lookups: type-hierarchy only,
+//	  no FQN / no call-target. Examples: "does receiver extend
+//	  Throwable", sealed-subclass enumeration against project types.
+//	PreferOracle   — requires dependency metadata the in-process
+//	  resolver cannot see: full FQN resolution, call-target / overload
+//	  resolution, annotation-argument lookups against library types.
+//	PreferAny      — don't care / equally well served (default).
+type TypeInfoBackend uint8
+
+const (
+	// PreferAny leaves routing to the dispatcher — the composite
+	// resolver is wired and backends answer in oracle > source order.
+	PreferAny TypeInfoBackend = iota
+	// PreferResolver asks the dispatcher to wire the in-process
+	// source-level resolver only. Cheaper, avoids oracle IPC.
+	PreferResolver
+	// PreferOracle asks the dispatcher to route through the oracle-
+	// backed composite. Strictly equivalent to PreferAny when the
+	// composite is wired today; declared explicitly so rule authors
+	// can document intent and the linter can cross-check usage.
+	PreferOracle
+)
+
+// TypeInfoHint groups the per-rule type-information routing hints on
+// Rule. The zero value (PreferAny, Required=false) is backwards
+// compatible — existing rules see identical behaviour.
+type TypeInfoHint struct {
+	// PreferBackend names the backend the rule would rather use when
+	// the dispatcher has both wired.
+	PreferBackend TypeInfoBackend
+	// Required controls what happens when PreferBackend is set but
+	// the preferred backend is NOT available:
+	//
+	//   false (default): skip the rule silently — the rule author
+	//     asserts that running against the non-preferred backend
+	//     would produce wrong or misleading findings.
+	//   true           : fall through to whatever backend IS wired;
+	//     the preference was a perf hint, not a correctness lever.
+	//
+	// PreferAny ignores Required — any wired backend satisfies the
+	// rule.
+	Required bool
+}
+
 // Has reports whether c includes all bits in flag.
 func (c Capabilities) Has(flag Capabilities) bool {
 	return c&flag == flag
@@ -163,6 +215,12 @@ type Rule struct {
 
 	// Oracle filtering (nil = conservative AllFiles default)
 	Oracle *OracleFilter
+
+	// TypeInfo carries per-rule routing hints for type-information
+	// lookups. Zero value (PreferAny, Required=false) is backwards
+	// compatible — the dispatcher wires the composite resolver just
+	// as it did before the hint existed. See TypeInfoHint.
+	TypeInfo TypeInfoHint
 
 	// Check is the rule's analysis function. It receives a Context
 	// populated according to the rule's Needs bitfield. Rules report

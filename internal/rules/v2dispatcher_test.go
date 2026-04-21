@@ -411,6 +411,163 @@ func TestV2Dispatcher_ReportMissingCapabilities_AllSatisfied(t *testing.T) {
 	d2.ReportMissingCapabilities(false, nil)
 }
 
+// --- 8. TypeInfo.PreferBackend routing --------------------------------------
+
+// compositeStub simulates *oracle.CompositeResolver without the import
+// cycle: it exposes a Fallback() method so the dispatcher's
+// fallbackAware interface assertion succeeds, and answers everything
+// else as a pass-through.
+type compositeStub struct {
+	fallback typeinfer.TypeResolver
+}
+
+func (c *compositeStub) Fallback() typeinfer.TypeResolver { return c.fallback }
+
+func (c *compositeStub) ResolveFlatNode(uint32, *scanner.File) *typeinfer.ResolvedType {
+	return nil
+}
+func (c *compositeStub) ResolveByNameFlat(string, uint32, *scanner.File) *typeinfer.ResolvedType {
+	return nil
+}
+func (c *compositeStub) ResolveImport(string, *scanner.File) string    { return "" }
+func (c *compositeStub) IsNullableFlat(uint32, *scanner.File) *bool    { return nil }
+func (c *compositeStub) ClassHierarchy(string) *typeinfer.ClassInfo    { return nil }
+func (c *compositeStub) SealedVariants(string) []string                { return nil }
+func (c *compositeStub) EnumEntries(string) []string                   { return nil }
+func (c *compositeStub) AnnotationValueFlat(uint32, *scanner.File, string, string) string {
+	return ""
+}
+func (c *compositeStub) IsExceptionSubtype(string, string) bool { return false }
+
+// TestV2Dispatcher_TypeInfoPreferResolver verifies that a rule
+// declaring PreferResolver receives the composite's fallback — not the
+// composite itself — even when both backends are wired.
+func TestV2Dispatcher_TypeInfoPreferResolver(t *testing.T) {
+	file := writeKotlinFile(t, "fun foo() { bar() }", "PreferResolver.kt")
+
+	fallback := typeinfer.NewFakeResolver()
+	composite := &compositeStub{fallback: fallback}
+
+	var got typeinfer.TypeResolver
+	rule := v2.FakeRule("PreferResolverRule",
+		v2.WithNodeTypes("call_expression"),
+		v2.WithNeeds(v2.NeedsTypeInfo),
+		v2.WithCheck(func(ctx *v2.Context) {
+			got = ctx.Resolver
+		}),
+	)
+	rule.TypeInfo = v2.TypeInfoHint{PreferBackend: v2.PreferResolver}
+
+	d := NewV2Dispatcher([]*v2.Rule{rule}, composite)
+	_ = d.Run(file)
+
+	if got == nil {
+		t.Fatal("ctx.Resolver was nil — rule skipped unexpectedly")
+	}
+	if got != fallback {
+		t.Errorf("PreferResolver wired %T, want the fallback %T", got, fallback)
+	}
+}
+
+// TestV2Dispatcher_TypeInfoPreferOracle verifies a rule declaring
+// PreferOracle receives the composite resolver as-is.
+func TestV2Dispatcher_TypeInfoPreferOracle(t *testing.T) {
+	file := writeKotlinFile(t, "fun foo() { bar() }", "PreferOracle.kt")
+
+	composite := &compositeStub{fallback: typeinfer.NewFakeResolver()}
+
+	var got typeinfer.TypeResolver
+	rule := v2.FakeRule("PreferOracleRule",
+		v2.WithNodeTypes("call_expression"),
+		v2.WithNeeds(v2.NeedsTypeInfo),
+		v2.WithCheck(func(ctx *v2.Context) {
+			got = ctx.Resolver
+		}),
+	)
+	rule.TypeInfo = v2.TypeInfoHint{PreferBackend: v2.PreferOracle}
+
+	d := NewV2Dispatcher([]*v2.Rule{rule}, composite)
+	_ = d.Run(file)
+
+	if got != composite {
+		t.Errorf("PreferOracle wired %T, want composite %T", got, composite)
+	}
+}
+
+// TestV2Dispatcher_TypeInfoPreferAnyUnchanged verifies the zero-value
+// hint preserves the pre-hint behaviour: the dispatcher hands rules
+// whichever resolver the constructor was given.
+func TestV2Dispatcher_TypeInfoPreferAnyUnchanged(t *testing.T) {
+	file := writeKotlinFile(t, "fun foo() { bar() }", "PreferAny.kt")
+
+	composite := &compositeStub{fallback: typeinfer.NewFakeResolver()}
+
+	var got typeinfer.TypeResolver
+	rule := v2.FakeRule("PreferAnyRule",
+		v2.WithNodeTypes("call_expression"),
+		v2.WithNeeds(v2.NeedsTypeInfo),
+		v2.WithCheck(func(ctx *v2.Context) {
+			got = ctx.Resolver
+		}),
+	)
+	// TypeInfo left at zero value → PreferAny, Required=false.
+
+	d := NewV2Dispatcher([]*v2.Rule{rule}, composite)
+	_ = d.Run(file)
+
+	if got != composite {
+		t.Errorf("PreferAny wired %T, want composite %T", got, composite)
+	}
+}
+
+// TestV2Dispatcher_TypeInfoPreferOracleSkipsWhenUnavailable verifies
+// that a rule declaring PreferOracle with Required=false (default) is
+// skipped silently when the dispatcher has no composite resolver
+// (i.e. oracle is not wired).
+func TestV2Dispatcher_TypeInfoPreferOracleSkipsWhenUnavailable(t *testing.T) {
+	file := writeKotlinFile(t, "fun foo() { bar() }", "PreferOracleMissing.kt")
+
+	calls := 0
+	rule := v2.FakeRule("PreferOracleMissingRule",
+		v2.WithNodeTypes("call_expression"),
+		v2.WithNeeds(v2.NeedsTypeInfo),
+		v2.WithCheck(func(ctx *v2.Context) { calls++ }),
+	)
+	rule.TypeInfo = v2.TypeInfoHint{PreferBackend: v2.PreferOracle}
+
+	// Bare source-level resolver — no composite/Fallback() → oracle absent.
+	d := NewV2Dispatcher([]*v2.Rule{rule}, typeinfer.NewFakeResolver())
+	_ = d.Run(file)
+
+	if calls != 0 {
+		t.Errorf("PreferOracle rule ran %d times without oracle; expected skip", calls)
+	}
+}
+
+// TestV2Dispatcher_TypeInfoRequiredFallsThrough verifies Required=true
+// lets the rule fall through to whatever backend IS wired, even when
+// its preferred one is missing.
+func TestV2Dispatcher_TypeInfoRequiredFallsThrough(t *testing.T) {
+	file := writeKotlinFile(t, "fun foo() { bar() }", "RequiredFallthrough.kt")
+
+	source := typeinfer.NewFakeResolver()
+
+	var got typeinfer.TypeResolver
+	rule := v2.FakeRule("RequiredFallthroughRule",
+		v2.WithNodeTypes("call_expression"),
+		v2.WithNeeds(v2.NeedsTypeInfo),
+		v2.WithCheck(func(ctx *v2.Context) { got = ctx.Resolver }),
+	)
+	rule.TypeInfo = v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true}
+
+	d := NewV2Dispatcher([]*v2.Rule{rule}, source)
+	_ = d.Run(file)
+
+	if got != source {
+		t.Errorf("Required=true should fall through to the source resolver, got %T", got)
+	}
+}
+
 // capsStubResolver is a zero-behaviour TypeResolver used to produce a
 // non-nil resolver for ReportMissingCapabilities tests.
 type capsStubResolver struct{}

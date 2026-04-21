@@ -60,6 +60,61 @@ The individual `NeedsResolver` / `NeedsOracle` bits remain as the
 lower-level primitives and continue to work for existing rules, but
 new rules should prefer `NeedsTypeInfo`.
 
+### Backend preference hint
+
+`NeedsTypeInfo` is intentionally backend-agnostic, but two rules with
+the same declared capability can have very different cost profiles. A
+rule that only needs type-hierarchy lookups should ride on the in-
+process source-level resolver; a rule that depends on full FQN
+resolution or call-target / overload resolution should go through the
+oracle. The `v2.Rule.TypeInfo` field carries that preference:
+
+```go
+type TypeInfoBackend uint8
+const (
+    PreferAny      TypeInfoBackend = iota // default — wire whatever's configured
+    PreferResolver                         // source-level only (cheap)
+    PreferOracle                           // oracle-backed (full metadata)
+)
+
+type TypeInfoHint struct {
+    PreferBackend TypeInfoBackend
+    Required      bool // see below
+}
+```
+
+Decision matrix:
+
+| Lookup kind                              | Pick           |
+| ---------------------------------------- | -------------- |
+| Type-hierarchy (is-a, supertype chain)   | PreferResolver |
+| Sealed-variant / enum entries on source  | PreferResolver |
+| Nullability / source-local resolution    | PreferResolver |
+| FQN resolution (imports, dep types)      | PreferOracle   |
+| Call-target / overload resolution        | PreferOracle   |
+| Annotation-argument lookup on dep types  | PreferOracle   |
+
+When both backends are wired, the dispatcher hands a
+`PreferResolver` rule the composite's source-level fallback directly
+(skipping oracle IPC); a `PreferOracle` rule receives the composite
+unchanged. `PreferAny` — the zero value — preserves the pre-hint
+behaviour.
+
+`Required` controls the fallback behaviour when the preferred backend
+is **not** wired:
+
+- `Required: false` (default) — skip the rule silently. Use this when
+  the rule's findings would be wrong or misleading against the other
+  backend.
+- `Required: true` — fall through to whatever backend IS wired. Use
+  this when the preference is purely a perf hint and either backend
+  will produce correct answers.
+
+Because semantic equivalence of resolver and oracle answers is what
+lets this stay a perf knob, any drift between the two must be audited
+before a rule flips its preference — if they diverge, routing becomes
+a correctness lever and the rule likely belongs on `Required: false`.
+
 The dispatcher populates `ctx.Resolver` before calling the rule's
 `Check` function.
 

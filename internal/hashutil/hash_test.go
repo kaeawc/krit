@@ -7,12 +7,21 @@ import (
 	"testing"
 )
 
-func TestHashHexKnownVector(t *testing.T) {
-	// Canonical SHA-256 of "abc"
-	const want = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-	got := HashHex([]byte("abc"))
-	if got != want {
-		t.Errorf("HashHex(\"abc\") = %q, want %q", got, want)
+func TestHashHexDeterministic(t *testing.T) {
+	// The default (xxh3-256) is a dual-seed construction, not a
+	// standardized algorithm, so there's no external test vector to
+	// pin against. Assert self-consistency and non-trivial mixing
+	// instead.
+	a := HashHex([]byte("abc"))
+	b := HashHex([]byte("abc"))
+	if a != b {
+		t.Fatalf("HashHex non-deterministic: %q vs %q", a, b)
+	}
+	if len(a) != 64 {
+		t.Fatalf("HashHex(\"abc\") length = %d, want 64", len(a))
+	}
+	if HashHex([]byte("abc")) == HashHex([]byte("abd")) {
+		t.Fatal("HashHex collapses single-byte diff")
 	}
 }
 
@@ -48,5 +57,11 @@ func TestHashFileMissing(t *testing.T) {
 	}
 	if !os.IsNotExist(err) {
 		t.Errorf("expected os.IsNotExist(err) to be true, got err = %v", err)
+	}
+}
+
+func TestHasherNameDefault(t *testing.T) {
+	if got := HasherName(); got != "xxh3-256" {
+		t.Errorf("HasherName() = %q, want %q", got, "xxh3-256")
 	}
 }

@@ -2,12 +2,12 @@ package oracle
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/hex"
 	"os"
 	"path/filepath"
 	"sort"
 
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -140,7 +140,7 @@ func CollectOracleFiles(rules []OracleFilterRule, files []*scanner.File) OracleF
 // newline-joined sorted path list. 64 bits of collision space is
 // plenty for human-diffable fingerprints across narrowing scans.
 func fingerprintPaths(paths []string) string {
-	h := sha256.New()
+	h := hashutil.Hasher().New()
 	for _, p := range paths {
 		h.Write([]byte(p))
 		h.Write([]byte{'\n'})

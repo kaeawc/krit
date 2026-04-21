@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	parseCacheVersion    uint32 = 1
-	parseCacheVersionStr        = "1"
+	parseCacheVersion    uint32 = 2
+	parseCacheVersionStr        = "2"
 
 	// Files below this threshold parse in under a millisecond; the gob
 	// serialization + filesystem round-trip dominates the savings.
@@ -94,6 +94,7 @@ func NewParseCache(repoDir string) (*ParseCache, error) {
 		Tokens: []cacheutil.SchemaToken{
 			{Name: "version", Value: parseCacheVersionStr},
 			{Name: "grammar-version", Value: GrammarVersion()},
+			{Name: "hash", Value: hashutil.HasherName()},
 		},
 	}
 	if _, err := vd.Open(); err != nil {

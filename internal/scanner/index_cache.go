@@ -1,7 +1,6 @@
 package scanner
 
 import (
-	"crypto/sha256"
 	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
@@ -36,7 +35,7 @@ func (crossFileCacheRegistered) Clear(ctx cacheutil.ClearContext) error {
 // Every Reference previously serialized its File path in full (~100
 // bytes × millions of rows on Signal-scale repos); interning collapses
 // that to uint32 indexes and a de-duplicated string list.
-const CrossFileCacheVersion = 2
+const CrossFileCacheVersion = 3
 
 const crossFileCacheDirName = "cross-file-cache"
 
@@ -103,7 +102,7 @@ func computeCrossFileFingerprint(kotlinFiles, javaFiles []*File, xmlFiles []*xml
 		entries = append(entries, fingerprintEntry{Path: f.Path, Hash: f.Hash})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
-	h := sha256.New()
+	h := hashutil.Hasher().New()
 	for _, e := range entries {
 		_, _ = h.Write([]byte(e.Path))
 		_, _ = h.Write([]byte{':'})

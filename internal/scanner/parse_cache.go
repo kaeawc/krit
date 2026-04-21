@@ -27,6 +27,9 @@ const (
 
 	// Files below this threshold parse in under a millisecond; the gob
 	// serialization + filesystem round-trip dominates the savings.
+	// Confirmed by BenchmarkParseCacheSweep_* (issue #299): 1024 B is
+	// the knee where caching amortizes within ~10 runs. Lower thresholds
+	// need 20–40 runs to pay back the fsync cost.
 	parseCacheMinFileSize = 1024
 
 	parseCacheDirName = "parse-cache"

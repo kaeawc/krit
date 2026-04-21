@@ -40,6 +40,10 @@ editors/vscode/out/
 # Krit cache (generated during analysis)
 .krit-cache
 .krit/
+# …but keep the checked-in CI oracle fingerprint baseline (issue #333).
+!/.krit/
+/.krit/*
+!/.krit/oracle-fingerprints.json
 
 # Android lint catalog (fetched, not committed)
 android-lint-checks/

@@ -30,6 +30,9 @@ jobs:
       - name: Test
         run: make test
 
+      - name: Oracle filter fingerprint gate
+        run: python3 tools/oracle_fingerprint_check.py
+
       - name: Integration tests
         run: make integration
 

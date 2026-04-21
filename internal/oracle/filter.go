@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -142,6 +143,37 @@ func CollectOracleFiles(rules []OracleFilterRule, files []*scanner.File) OracleF
 func fingerprintPaths(paths []string) string {
 	h := hashutil.Hasher().New()
 	for _, p := range paths {
+		h.Write([]byte(p))
+		h.Write([]byte{'\n'})
+	}
+	return hex.EncodeToString(h.Sum(nil)[:8])
+}
+
+// StableFingerprint returns a fingerprint of paths that is invariant
+// under repository checkout location: each path is rewritten relative
+// to root (slash-normalised) before hashing. Paths outside root fall
+// back to their basename. An empty input returns the fingerprint of
+// the empty set (matches fingerprintPaths(nil)).
+//
+// The CI oracle-fingerprint gate uses this instead of the absolute-
+// path fingerprint emitted in perf output, since baseline files are
+// checked in and must match across every contributor's checkout.
+func StableFingerprint(paths []string, root string) string {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		absRoot = root
+	}
+	rels := make([]string, 0, len(paths))
+	for _, p := range paths {
+		rel, rerr := filepath.Rel(absRoot, p)
+		if rerr != nil || strings.HasPrefix(rel, "..") {
+			rel = filepath.Base(p)
+		}
+		rels = append(rels, filepath.ToSlash(rel))
+	}
+	sort.Strings(rels)
+	h := hashutil.Hasher().New()
+	for _, p := range rels {
 		h.Write([]byte(p))
 		h.Write([]byte{'\n'})
 	}

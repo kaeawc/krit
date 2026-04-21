@@ -165,6 +165,7 @@ func main() {
 	noCrossFileCacheFlag := flag.Bool("no-cross-file-cache", false, "Disable the on-disk cross-file index cache (forces a full crossFileAnalysis rebuild)")
 	daemonFlag := flag.Bool("daemon", false, "Use long-lived krit-types daemon instead of one-shot invocation")
 	noOracleFilterFlag := flag.Bool("no-oracle-filter", false, "Disable the rule-classification oracle filter (feeds every file to krit-types, matching the pre-filter baseline; used to validate findings-equivalence)")
+	oracleFilterFingerprintFlag := flag.Bool("oracle-filter-fingerprint", false, "Compute the oracle filter input-set fingerprint for the given paths and print JSON to stdout; exits without running rules. Used by the CI drift gate.")
 	fixBinaryFlag := flag.Bool("fix-binary", false, "Apply binary file fixes (image conversion, optimization, file operations)")
 	warningsAsErrorsFlag := flag.Bool("warnings-as-errors", false, "Treat warnings as errors (exit code 1)")
 	minConfidenceFlag := flag.Float64("min-confidence", 0, "Minimum confidence (0.0-1.0) for findings to be reported; 0 keeps all. Rules that don't set confidence are treated as 0 and dropped when this flag is > 0.")
@@ -693,6 +694,15 @@ potential-bugs:
 
 	// Filter rules by active status + CLI overrides (native v2 path).
 	activeRules := rules.ActiveRulesV2(disabledSet, enabledSet, *allRulesFlag)
+
+	// Handle --oracle-filter-fingerprint: compute and print the oracle
+	// filter input-set fingerprint, then exit. Runs independently of
+	// krit-types.jar availability so CI can diff fingerprints without
+	// needing a JVM. See issue #333 / tools/oracle_fingerprint_check.py.
+	if *oracleFilterFingerprintFlag {
+		code := runOracleFilterFingerprint(paths, files, activeRules, *allRulesFlag)
+		os.Exit(code)
+	}
 
 	// Create type resolver unless disabled
 	var resolver typeinfer.TypeResolver

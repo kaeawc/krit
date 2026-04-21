@@ -224,3 +224,40 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// TestStableFingerprint_InvariantUnderRootRelocation guards the CI
+// oracle-fingerprint gate (issue #333): the fingerprint of the same
+// relative path set must be identical regardless of where the repo
+// is checked out on disk.
+func TestStableFingerprint_InvariantUnderRootRelocation(t *testing.T) {
+	root1 := "/home/runner/work/krit/krit"
+	root2 := "/Users/jason/kaeawc/krit"
+	rel := []string{"playground/app/Main.kt", "playground/app/Util.kt"}
+
+	abs1 := make([]string, len(rel))
+	abs2 := make([]string, len(rel))
+	for i, r := range rel {
+		abs1[i] = filepath.Join(root1, r)
+		abs2[i] = filepath.Join(root2, r)
+	}
+
+	fp1 := StableFingerprint(abs1, root1)
+	fp2 := StableFingerprint(abs2, root2)
+	if fp1 != fp2 {
+		t.Fatalf("fingerprint differs across roots: %s vs %s", fp1, fp2)
+	}
+	if fp1 == "" {
+		t.Fatalf("fingerprint is empty")
+	}
+}
+
+// TestStableFingerprint_ChangesWhenSetChanges confirms a dropped or
+// added file moves the fingerprint — the CI gate depends on this.
+func TestStableFingerprint_ChangesWhenSetChanges(t *testing.T) {
+	root := "/tmp/x"
+	a := StableFingerprint([]string{"/tmp/x/a.kt", "/tmp/x/b.kt"}, root)
+	b := StableFingerprint([]string{"/tmp/x/a.kt"}, root)
+	if a == b {
+		t.Fatalf("fingerprint unchanged across different sets: %s", a)
+	}
+}

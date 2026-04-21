@@ -29,6 +29,7 @@ type JSONReport struct {
 	Caches      []cacheutil.NamedCacheStats `json:"caches,omitempty"`
 	CacheBudget *cacheutil.BudgetReport     `json:"cacheBudget,omitempty"`
 	PerfTiming  []perf.TimingEntry          `json:"perfTiming,omitempty"`
+	PerfRules   []rules.RuleExecutionStat   `json:"perfRuleStats,omitempty"`
 }
 
 // JSONFinding is a single finding in JSON output.
@@ -60,7 +61,8 @@ func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version str
 	experiments []string,
 	cacheStats *cache.CacheStats,
 	caches []cacheutil.NamedCacheStats,
-	cacheBudget *cacheutil.BudgetReport) error {
+	cacheBudget *cacheutil.BudgetReport,
+	perfRuleStats ...[]rules.RuleExecutionStat) error {
 
 	cols := normalizedFindingColumns(columns)
 
@@ -96,6 +98,7 @@ func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version str
 		Caches      []cacheutil.NamedCacheStats `json:"caches,omitempty"`
 		CacheBudget *cacheutil.BudgetReport     `json:"cacheBudget,omitempty"`
 		PerfTiming  []perf.TimingEntry          `json:"perfTiming,omitempty"`
+		PerfRules   []rules.RuleExecutionStat   `json:"perfRuleStats,omitempty"`
 	}{
 		Success:     cols.Len() == 0,
 		Version:     version,
@@ -114,6 +117,9 @@ func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version str
 		Caches:      caches,
 		CacheBudget: cacheBudget,
 		PerfTiming:  perfTimings,
+	}
+	if len(perfRuleStats) > 0 {
+		report.PerfRules = perfRuleStats[0]
 	}
 
 	enc := json.NewEncoder(w)

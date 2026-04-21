@@ -12,9 +12,12 @@ package rules
 // side-by-side.
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"runtime/pprof"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -22,6 +25,32 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
+
+var ruleProfileLabelsEnabled atomic.Bool
+
+// SetRuleProfileLabels enables pprof labels around individual rule callbacks.
+// It returns a restore function so tests or embedded callers can scope the
+// setting. The CLI enables this while --cpuprofile is active so pprof can rank
+// samples by krit_rule / krit_rule_family labels.
+func SetRuleProfileLabels(enabled bool) func() {
+	previous := ruleProfileLabelsEnabled.Swap(enabled)
+	return func() {
+		ruleProfileLabelsEnabled.Store(previous)
+	}
+}
+
+func runWithRuleProfileLabel(ruleID, family string, fn func()) {
+	if !ruleProfileLabelsEnabled.Load() {
+		fn()
+		return
+	}
+	pprof.Do(context.Background(), pprof.Labels(
+		"krit_rule", ruleID,
+		"krit_rule_family", family,
+	), func(context.Context) {
+		fn()
+	})
+}
 
 // V2Dispatcher runs per-file rule execution directly against v2.Rule
 // values. It classifies rules once in the constructor and keeps them
@@ -241,7 +270,6 @@ func (d *V2Dispatcher) RunWithStats(file *scanner.File) (scanner.FindingColumns,
 	return d.RunColumnsWithStats(file)
 }
 
-
 // RunColumnsWithStats runs all per-file rules emitting findings directly
 // into a FindingCollector, bypassing the intermediate []scanner.Finding
 // accumulation. Rules emit via ctx.Emit which routes straight to the
@@ -249,6 +277,7 @@ func (d *V2Dispatcher) RunWithStats(file *scanner.File) (scanner.FindingColumns,
 func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingColumns, RunStats) {
 	stats := RunStats{
 		DispatchRuleNsByRule: make(map[string]int64),
+		RuleStatsByRule:      make(map[string]RuleExecutionStat),
 	}
 	if file == nil {
 		return scanner.FindingColumns{}, stats
@@ -293,10 +322,13 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 							continue
 						}
 						t := time.Now()
-						safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver)
+						runWithRuleProfileLabel(r.ID, "dispatch", func() {
+							safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver)
+						})
 						elapsed := time.Since(t).Nanoseconds()
 						stats.DispatchRuleNs += elapsed
 						stats.DispatchRuleNsByRule[r.ID] += elapsed
+						stats.recordRule(r.ID, "dispatch", elapsed)
 					}
 				}
 			}
@@ -309,10 +341,13 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 					continue
 				}
 				t := time.Now()
-				safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver)
+				runWithRuleProfileLabel(r.ID, "dispatch", func() {
+					safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver)
+				})
 				elapsed := time.Since(t).Nanoseconds()
 				stats.DispatchRuleNs += elapsed
 				stats.DispatchRuleNsByRule[r.ID] += elapsed
+				stats.recordRule(r.ID, "dispatch", elapsed)
 			}
 		}
 	}
@@ -338,7 +373,11 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 			if r.Needs.Has(v2.NeedsResolver) {
 				ctx.Resolver = resolver
 			}
-			r.Check(ctx)
+			t := time.Now()
+			runWithRuleProfileLabel(r.ID, "line", func() {
+				r.Check(ctx)
+			})
+			stats.recordRule(r.ID, "line", time.Since(t).Nanoseconds())
 		}()
 	}
 	stats.LineRuleMs += time.Since(start).Milliseconds()
@@ -363,7 +402,11 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 			if r.Needs.Has(v2.NeedsResolver) {
 				ctx.Resolver = resolver
 			}
-			r.Check(ctx)
+			t := time.Now()
+			runWithRuleProfileLabel(r.ID, "legacy", func() {
+				r.Check(ctx)
+			})
+			stats.recordRule(r.ID, "legacy", time.Since(t).Nanoseconds())
 		}()
 	}
 	stats.LegacyRuleMs += time.Since(start).Milliseconds()
@@ -420,8 +463,6 @@ func safeCheckV2NodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, fil
 	}
 	r.Check(ctx)
 }
-
-
 
 // fallbackAware is implemented by resolver wrappers (notably
 // *oracle.CompositeResolver) that layer an oracle on top of a source-
@@ -735,4 +776,3 @@ func (d *V2Dispatcher) CrossFileRules() []*v2.Rule {
 func (d *V2Dispatcher) ModuleAwareRules() []*v2.Rule {
 	return d.moduleAwareRules
 }
-

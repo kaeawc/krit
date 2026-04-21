@@ -9523,8 +9523,13 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"statements"}, Confidence: 0.75, OriginalV1: r,
-			Needs:  v2.NeedsTypeInfo,
-			Oracle: &v2.OracleFilter{AllFiles: true},
+			Needs: v2.NeedsTypeInfo,
+			// Narrow by the four jump keywords the rule actually dispatches
+			// on. Without any jump keyword a file cannot produce an
+			// UNREACHABLE_CODE finding; USELESS_ELVIS diagnostics in files
+			// lacking all four keywords are a documented trade-off (see
+			// issue #306).
+			Oracle: &v2.OracleFilter{Identifiers: []string{"return", "throw", "break", "continue"}},
 			Check:  r.checkNode,
 		})
 	}
@@ -9828,8 +9833,13 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "navigation_expression", "user_type"}, Confidence: 0.75, OriginalV1: r,
-			Needs:  v2.NeedsTypeInfo,
-			Oracle: &v2.OracleFilter{AllFiles: true},
+			Needs: v2.NeedsTypeInfo,
+			// Narrow by the "Deprecated" token — captures @Deprecated,
+			// @kotlin.Deprecated, @java.lang.Deprecated, and any import
+			// header that aliases kotlin.Deprecated. Inherited deprecations
+			// from base types that live in files without the token are a
+			// documented trade-off (see issue #306).
+			Oracle: &v2.OracleFilter{Identifiers: []string{"Deprecated"}},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var oracleLookup oracle.Lookup
@@ -9983,8 +9993,15 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Needs:  v2.NeedsTypeInfo,
-			Oracle: &v2.OracleFilter{AllFiles: true},
+			Needs: v2.NeedsTypeInfo,
+			// Narrow by the @CheckReturnValue / @CheckResult tokens. The
+			// functional-ops path (map/filter/…) does not require the
+			// oracle — it fires on tree-sitter alone. The oracle is only
+			// consulted to resolve annotations on called symbols, which
+			// requires the annotation file to be in the oracle input set.
+			// Files lacking either token cannot contribute an oracle-only
+			// finding (see issue #306).
+			Oracle: &v2.OracleFilter{Identifiers: []string{"CheckReturnValue", "CheckResult"}},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var oracleLookup oracle.Lookup

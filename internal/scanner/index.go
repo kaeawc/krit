@@ -91,8 +91,9 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 		return cachedIdx, true
 	}
 
-	// Miss → full build. Reuse the pre-loaded XML so we don't re-walk.
-	symbols, refs := collectIndexDataInternal(files, workers, tracker, xmlFiles, javaFiles...)
+	// Monolithic miss → shard-backed partial rebuild so unchanged files
+	// reuse their cached contribution; only new/edited files run fresh.
+	symbols, refs := collectIndexDataSharded(cacheDir, files, javaFiles, xmlFiles, workers, tracker)
 	idx := BuildIndexFromDataWithTracker(symbols, refs, tracker)
 	idx.Files = append(idx.Files, files...)
 
@@ -140,6 +141,124 @@ func collectIndexData(files []*File, workers int, javaFiles ...*File) ([]Symbol,
 
 func collectIndexDataWithTracker(files []*File, workers int, tracker perf.Tracker, javaFiles ...*File) ([]Symbol, []Reference) {
 	return collectIndexDataInternal(files, workers, tracker, nil, javaFiles...)
+}
+
+// shardJob is one file's contribution task, uniform across Kotlin,
+// Java, and XML phases. fresh runs the fresh-index work when the
+// shard is absent; its outputs are then persisted as a shard.
+type shardJob struct {
+	Path        string
+	ContentHash string
+	Fresh       func() (syms []Symbol, refs []Reference)
+}
+
+// collectIndexDataSharded threads the per-file shard cache through
+// the same sem/wg worker pool that collectIndexDataInternal uses.
+// cacheDir must be non-empty; callers that want a pure-rebuild path
+// should call collectIndexDataInternal directly.
+func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, xmlFiles []*xmlCacheFile, workers int, tracker perf.Tracker) ([]Symbol, []Reference) {
+	if workers < 1 {
+		workers = 1
+	}
+	var (
+		mu      sync.Mutex
+		symbols []Symbol
+		refs    []Reference
+		sem     = make(chan struct{}, workers)
+	)
+
+	runPhase := func(label string, jobs []shardJob) {
+		run := func() {
+			var wg sync.WaitGroup
+			for _, j := range jobs {
+				wg.Add(1)
+				sem <- struct{}{}
+				go func(job shardJob) {
+					defer wg.Done()
+					defer func() { <-sem }()
+
+					var syms []Symbol
+					var fileRefs []Reference
+					if s, ok := loadFileShard(cacheDir, job.Path, job.ContentHash); ok {
+						syms, fileRefs = s.Symbols, s.References
+					} else {
+						syms, fileRefs = job.Fresh()
+						_ = saveFileShard(cacheDir, &fileShard{
+							Path:        job.Path,
+							ContentHash: job.ContentHash,
+							Symbols:     syms,
+							References:  fileRefs,
+						})
+					}
+					if len(syms) == 0 && len(fileRefs) == 0 {
+						return
+					}
+					mu.Lock()
+					symbols = append(symbols, syms...)
+					refs = append(refs, fileRefs...)
+					mu.Unlock()
+				}(j)
+			}
+			wg.Wait()
+		}
+		if tracker != nil && tracker.IsEnabled() {
+			_ = tracker.Track(label, func() error { run(); return nil })
+		} else {
+			run()
+		}
+	}
+
+	kotlinJobs := make([]shardJob, 0, len(files))
+	for _, f := range files {
+		if f == nil {
+			continue
+		}
+		file := f
+		kotlinJobs = append(kotlinJobs, shardJob{
+			Path:        file.Path,
+			ContentHash: contentHashForFile(file.Path, file.Content),
+			Fresh:       func() ([]Symbol, []Reference) { return indexFile(file) },
+		})
+	}
+	runPhase("kotlinIndexCollection", kotlinJobs)
+
+	javaJobs := make([]shardJob, 0, len(javaFiles))
+	for _, f := range javaFiles {
+		if f == nil {
+			continue
+		}
+		file := f
+		javaJobs = append(javaJobs, shardJob{
+			Path:        file.Path,
+			ContentHash: contentHashForFile(file.Path, file.Content),
+			Fresh: func() ([]Symbol, []Reference) {
+				var r []Reference
+				collectJavaReferencesFlat(file, &r)
+				return nil, r
+			},
+		})
+	}
+	runPhase("javaReferenceCollection", javaJobs)
+
+	xmlJobs := make([]shardJob, 0, len(xmlFiles))
+	for _, f := range xmlFiles {
+		if f == nil {
+			continue
+		}
+		file := f
+		xmlJobs = append(xmlJobs, shardJob{
+			Path:        file.Path,
+			ContentHash: file.Hash,
+			Fresh: func() ([]Symbol, []Reference) {
+				var r []Reference
+				appendXMLReferences(&r, file.Path, file.Content)
+				return nil, r
+			},
+		})
+	}
+	runPhase("xmlReferenceCollection", xmlJobs)
+
+	return symbols, refs
 }
 
 // collectIndexDataInternal is the shared body. A non-nil preloadedXML
@@ -593,38 +712,57 @@ func loadXMLFilesForCache(ktFiles []*File) []*xmlCacheFile {
 		}
 	}
 
-	var out []*xmlCacheFile
-	for root := range roots {
-		filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				if info != nil && info.IsDir() {
-					base := info.Name()
-					if base == ".git" || base == "build" || base == "node_modules" ||
-						base == ".idea" || base == ".gradle" || base == "out" ||
-						base == ".kotlin" || base == "target" ||
-						base == "third-party" || base == "third_party" ||
-						base == "vendor" || base == "external" ||
-						strings.HasPrefix(base, "values") {
-						return filepath.SkipDir
+	// Walk each project root in its own goroutine. Roots are
+	// independent subtrees (one per Gradle module, typically) so the
+	// walks do not contend. Per-root results are appended under a
+	// single mutex.
+	var (
+		mu  sync.Mutex
+		wg  sync.WaitGroup
+		out []*xmlCacheFile
+	)
+	for r := range roots {
+		wg.Add(1)
+		go func(root string) {
+			defer wg.Done()
+			var local []*xmlCacheFile
+			filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() {
+					if info != nil && info.IsDir() {
+						base := info.Name()
+						if base == ".git" || base == "build" || base == "node_modules" ||
+							base == ".idea" || base == ".gradle" || base == "out" ||
+							base == ".kotlin" || base == "target" ||
+							base == "third-party" || base == "third_party" ||
+							base == "vendor" || base == "external" ||
+							strings.HasPrefix(base, "values") {
+							return filepath.SkipDir
+						}
 					}
+					return nil
 				}
+				if !isXMLReferenceCandidate(path) {
+					return nil
+				}
+				content, err := os.ReadFile(path)
+				if err != nil {
+					return nil
+				}
+				local = append(local, &xmlCacheFile{
+					Path:    path,
+					Content: content,
+					Hash:    contentHashForFile(path, content),
+				})
 				return nil
-			}
-			if !isXMLReferenceCandidate(path) {
-				return nil
-			}
-			content, err := os.ReadFile(path)
-			if err != nil {
-				return nil
-			}
-			out = append(out, &xmlCacheFile{
-				Path:    path,
-				Content: content,
-				Hash:    contentHashForFile(path, content),
 			})
-			return nil
-		})
+			if len(local) > 0 {
+				mu.Lock()
+				out = append(out, local...)
+				mu.Unlock()
+			}
+		}(r)
 	}
+	wg.Wait()
 	return out
 }
 

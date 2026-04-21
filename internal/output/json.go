@@ -27,6 +27,7 @@ type JSONReport struct {
 	Summary     JSONSummary                 `json:"summary"`
 	Cache       *cache.CacheStats           `json:"cache,omitempty"`
 	Caches      []cacheutil.NamedCacheStats `json:"caches,omitempty"`
+	CacheBudget *cacheutil.BudgetReport     `json:"cacheBudget,omitempty"`
 	PerfTiming  []perf.TimingEntry          `json:"perfTiming,omitempty"`
 }
 
@@ -58,7 +59,8 @@ func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version str
 	perfTimings []perf.TimingEntry, activeRules []*v2.Rule,
 	experiments []string,
 	cacheStats *cache.CacheStats,
-	caches []cacheutil.NamedCacheStats) error {
+	caches []cacheutil.NamedCacheStats,
+	cacheBudget *cacheutil.BudgetReport) error {
 
 	cols := normalizedFindingColumns(columns)
 
@@ -92,6 +94,7 @@ func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version str
 		Summary     JSONSummary                 `json:"summary"`
 		Cache       *cache.CacheStats           `json:"cache,omitempty"`
 		Caches      []cacheutil.NamedCacheStats `json:"caches,omitempty"`
+		CacheBudget *cacheutil.BudgetReport     `json:"cacheBudget,omitempty"`
 		PerfTiming  []perf.TimingEntry          `json:"perfTiming,omitempty"`
 	}{
 		Success:     cols.Len() == 0,
@@ -107,9 +110,10 @@ func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version str
 			ByRule:    byRule,
 			Fixable:   fixableCount,
 		},
-		Cache:      cacheStats,
-		Caches:     caches,
-		PerfTiming: perfTimings,
+		Cache:       cacheStats,
+		Caches:      caches,
+		CacheBudget: cacheBudget,
+		PerfTiming:  perfTimings,
 	}
 
 	enc := json.NewEncoder(w)

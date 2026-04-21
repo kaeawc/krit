@@ -1322,11 +1322,14 @@ potential-bugs:
 	// Resolve perf timings for JSON output
 	var perfTimings []perf.TimingEntry
 	var cacheSnapshots []cacheutil.NamedCacheStats
+	var cacheBudget *cacheutil.BudgetReport
 	if *perfFlag && tracker.IsEnabled() {
 		perfTimings = tracker.GetTimings()
 	}
 	if *perfFlag {
 		cacheSnapshots = cacheutil.AllStats()
+		b := cacheutil.Budget(cacheutil.DefaultParseCacheCapBytes)
+		cacheBudget = &b
 	}
 
 	// --sample-rule short-circuits normal output: it prints a deterministic
@@ -1376,6 +1379,7 @@ potential-bugs:
 		PerfTimings:      perfTimings,
 		CacheStats:       cacheStats,
 		Caches:           cacheSnapshots,
+		CacheBudget:      cacheBudget,
 		WarningsAsErrors: warningsAsErrors,
 		MinConfidence:    *minConfidenceFlag,
 	})

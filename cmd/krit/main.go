@@ -148,6 +148,7 @@ func main() {
 	noCacheFlag := flag.Bool("no-cache", false, "Disable incremental analysis cache")
 	noParseCacheFlag := flag.Bool("no-parse-cache", false, "Disable the on-disk tree-sitter parse cache (forces re-parse of every file)")
 	parseCacheCapMBFlag := flag.Int("parse-cache-cap-mb", 0, "Size cap in MB for .krit/parse-cache/ (0 = use config or default 200; negative = unlimited)")
+	noResourceCacheFlag := flag.Bool("no-resource-cache", false, "Disable the on-disk Android values-XML ResourceIndex cache (forces re-parse of every values XML file)")
 	clearCacheFlag := flag.Bool("clear-cache", false, "Delete all on-disk caches (incremental, parse) and exit")
 	noMatrixCacheFlag := flag.Bool("no-matrix-cache", false, "Disable the experiment-matrix baseline cache (no read, no write)")
 	clearMatrixCacheFlag := flag.Bool("clear-matrix-cache", false, "Delete the experiment-matrix baseline cache and exit")
@@ -847,6 +848,16 @@ potential-bugs:
 		} else if *verboseFlag {
 			fmt.Fprintf(os.Stderr, "verbose: parse cache disabled: %v\n", pcErr)
 		}
+	}
+	if !*noResourceCacheFlag {
+		if rc, rcErr := android.NewResourceIndexCache(oracle.FindRepoDir(paths)); rcErr == nil {
+			android.SetActiveResourceIndexCache(rc)
+			defer func() { _ = rc.Close() }()
+		} else if *verboseFlag {
+			fmt.Fprintf(os.Stderr, "verbose: resource cache disabled: %v\n", rcErr)
+		}
+	} else {
+		android.SetActiveResourceIndexCache(nil)
 	}
 	parseResult, err := pipeline.ParsePhase{}.Run(context.Background(), pipeline.ParseInput{
 		Config:             cfg,

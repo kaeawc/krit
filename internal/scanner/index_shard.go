@@ -6,11 +6,62 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
+
+// Hot-path counters for the cross-file shards cache. Stats are a
+// running view of hits, misses, and bytes/entries observed this run
+// (loaded or newly written). Pre-existing shards that were never
+// touched in the run do not contribute — --verbose would probe the
+// disk to supplement.
+var (
+	shardsHits      atomic.Int64
+	shardsMisses    atomic.Int64
+	shardsLastWrite atomic.Int64
+	shardsBytes     atomic.Int64
+	shardsObserved  sync.Map // key -> struct{}: unique shard keys seen this run
+	shardsEntries   atomic.Int64
+)
+
+func observeShard(key string, size int64) {
+	if _, loaded := shardsObserved.LoadOrStore(key, struct{}{}); !loaded {
+		shardsEntries.Add(1)
+		shardsBytes.Add(size)
+	}
+}
+
+func init() {
+	cacheutil.Register(crossFileShardsRegistered{})
+}
+
+type crossFileShardsRegistered struct{}
+
+func (crossFileShardsRegistered) Name() string { return "cross-file-shards" }
+func (crossFileShardsRegistered) Clear(ctx cacheutil.ClearContext) error {
+	// Shards live under the cross-file cache dir, which the cross-file
+	// cache's Clear already removes wholesale. Reset counters so a
+	// subsequent Stats() call in the same process reflects the empty
+	// state.
+	shardsObserved = sync.Map{}
+	shardsEntries.Store(0)
+	shardsBytes.Store(0)
+	return nil
+}
+func (crossFileShardsRegistered) Stats() cacheutil.CacheStats {
+	return cacheutil.CacheStats{
+		Entries:       int(shardsEntries.Load()),
+		Bytes:         shardsBytes.Load(),
+		Hits:          shardsHits.Load(),
+		Misses:        shardsMisses.Load(),
+		LastWriteUnix: shardsLastWrite.Load(),
+	}
+}
 
 // crossFileShardVersion is bumped when the per-file shard payload shape
 // changes. A mismatch on load is treated as a miss.
@@ -62,16 +113,24 @@ func fileShardPath(cacheDir, key string) string {
 // Any other outcome is a silent miss.
 func loadFileShard(cacheDir, path, contentHash string) (*fileShard, bool) {
 	if cacheDir == "" {
+		shardsMisses.Add(1)
 		return nil, false
 	}
-	p := fileShardPath(cacheDir, shardKey(path, contentHash))
+	key := shardKey(path, contentHash)
+	p := fileShardPath(cacheDir, key)
 	var s fileShard
 	if err := decodeGob(p, &s); err != nil {
+		shardsMisses.Add(1)
 		return nil, false
 	}
 	if s.Version != crossFileShardVersion || s.Path != path || s.ContentHash != contentHash {
+		shardsMisses.Add(1)
 		return nil, false
 	}
+	if fi, err := os.Stat(p); err == nil {
+		observeShard(key, fi.Size())
+	}
+	shardsHits.Add(1)
 	return &s, true
 }
 
@@ -86,11 +145,19 @@ func saveFileShard(cacheDir string, s *fileShard) error {
 		return fmt.Errorf("nil shard")
 	}
 	s.Version = crossFileShardVersion
-	p := fileShardPath(cacheDir, shardKey(s.Path, s.ContentHash))
+	key := shardKey(s.Path, s.ContentHash)
+	p := fileShardPath(cacheDir, key)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return fmt.Errorf("mkdir shard dir: %w", err)
 	}
-	return fsutil.WriteFileAtomicStream(p, 0o644, func(w io.Writer) error {
+	if err := fsutil.WriteFileAtomicStream(p, 0o644, func(w io.Writer) error {
 		return gob.NewEncoder(w).Encode(s)
-	})
+	}); err != nil {
+		return err
+	}
+	shardsLastWrite.Store(time.Now().Unix())
+	if fi, err := os.Stat(p); err == nil {
+		observeShard(key, fi.Size())
+	}
+	return nil
 }

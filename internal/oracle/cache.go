@@ -25,12 +25,37 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync/atomic"
+	"time"
 
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/store"
 )
+
+// Hot-path counters for the on-disk oracle cache. Tracks hits/misses
+// across ClassifyFiles calls and writes through WriteFreshEntries. A
+// probe-once disk walk populates Entries/Bytes on first Stats() call
+// when a cache dir has been observed.
+var (
+	oracleCacheHits      atomic.Int64
+	oracleCacheMisses    atomic.Int64
+	oracleCacheWrites    atomic.Int64
+	oracleCacheLastWrite atomic.Int64
+	oracleCacheDirSeen   atomic.Pointer[string]
+	oracleCacheEntries   atomic.Int64
+	oracleCacheBytes     atomic.Int64
+	oracleCacheProbed    atomic.Bool
+)
+
+func recordOracleDir(cacheDir string) {
+	if cacheDir == "" {
+		return
+	}
+	c := cacheDir
+	oracleCacheDirSeen.Store(&c)
+}
 
 // CacheVersion is bumped whenever the on-disk entry layout changes in a
 // way that invalidates previously-written entries. A version mismatch on
@@ -268,6 +293,9 @@ func WriteEntry(cacheDir string, entry *CacheEntry) error {
 	if err := fsutil.WriteFileAtomic(target, data, 0o644); err != nil {
 		return fmt.Errorf("write entry: %w", err)
 	}
+	recordOracleDir(cacheDir)
+	oracleCacheWrites.Add(1)
+	oracleCacheLastWrite.Store(time.Now().Unix())
 	return nil
 }
 
@@ -289,8 +317,13 @@ func WriteEntry(cacheDir string, entry *CacheEntry) error {
 // for a content-identical but differently-named file). The `misses` slice
 // contains the subset of `paths` that need to be sent to krit-types.
 func ClassifyFiles(cacheDir string, paths []string) (hits []*CacheEntry, misses []string) {
+	recordOracleDir(cacheDir)
 	hits = make([]*CacheEntry, 0, len(paths))
 	misses = make([]string, 0)
+	defer func() {
+		oracleCacheHits.Add(int64(len(hits)))
+		oracleCacheMisses.Add(int64(len(misses)))
+	}()
 
 	// Pre-walk the entries directory to build an in-memory set of
 	// existing content hashes. Cheap directory walk (one Stat per entry
@@ -574,9 +607,14 @@ func ClassifyFilesWithStore(s *store.FileStore, cacheDir string, paths []string)
 	if s == nil {
 		return ClassifyFiles(cacheDir, paths)
 	}
+	recordOracleDir(cacheDir)
 	hits = make([]*CacheEntry, 0, len(paths))
 	misses = make([]string, 0)
 	hashCache := make(map[string]string, len(paths))
+	defer func() {
+		oracleCacheHits.Add(int64(len(hits)))
+		oracleCacheMisses.Add(int64(len(misses)))
+	}()
 
 	for _, p := range paths {
 		hash, err := ContentHash(p)
@@ -711,10 +749,34 @@ type oracleCacheEntry struct{}
 
 func (oracleCacheEntry) Name() string { return "oracle-cache" }
 func (oracleCacheEntry) Clear(ctx cacheutil.ClearContext) error {
+	oracleCacheEntries.Store(0)
+	oracleCacheBytes.Store(0)
+	oracleCacheProbed.Store(false)
 	if ctx.RepoDir == "" {
 		return nil
 	}
 	return os.RemoveAll(filepath.Join(ctx.RepoDir, ".krit", "types-cache"))
+}
+func (oracleCacheEntry) Stats() cacheutil.CacheStats {
+	// Probe disk lazily on first call so Entries/Bytes reflect pre-run
+	// state. Subsequent calls reuse the cached value; a full reprobe
+	// is reserved for an explicit Probe() path (not yet wired in).
+	if !oracleCacheProbed.Load() {
+		if dir := oracleCacheDirSeen.Load(); dir != nil && *dir != "" {
+			if count, bytes, err := CacheStats(*dir); err == nil {
+				oracleCacheEntries.Store(int64(count))
+				oracleCacheBytes.Store(bytes)
+			}
+		}
+		oracleCacheProbed.Store(true)
+	}
+	return cacheutil.CacheStats{
+		Entries:       int(oracleCacheEntries.Load()),
+		Bytes:         oracleCacheBytes.Load(),
+		Hits:          oracleCacheHits.Load(),
+		Misses:        oracleCacheMisses.Load(),
+		LastWriteUnix: oracleCacheLastWrite.Load(),
+	}
 }
 
 func init() {

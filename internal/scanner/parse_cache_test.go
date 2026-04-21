@@ -345,7 +345,7 @@ func TestParseCache_LRUEvictsUnderCap(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	stats := pc.Stats()
+	stats := pc.LRUStats()
 	if stats.Bytes > stats.Cap {
 		t.Fatalf("post-evict total %d exceeds cap %d", stats.Bytes, stats.Cap)
 	}

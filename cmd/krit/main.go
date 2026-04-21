@@ -841,11 +841,17 @@ potential-bugs:
 	var parseCache *scanner.ParseCache
 	if !*noParseCacheFlag {
 		capBytes := resolveParseCacheCap(*parseCacheCapMBFlag, cfg)
-		if pc, pcErr := scanner.NewParseCacheWithCap(oracle.FindRepoDir(paths), capBytes); pcErr == nil {
+		repoDir := oracle.FindRepoDir(paths)
+		if pc, pcErr := scanner.NewParseCacheWithCap(repoDir, capBytes); pcErr == nil {
 			parseCache = pc
 			defer func() { _ = parseCache.Close() }()
 		} else if *verboseFlag {
 			fmt.Fprintf(os.Stderr, "verbose: parse cache disabled: %v\n", pcErr)
+		}
+		if xmlPC, xmlErr := android.NewXMLParseCacheWithCap(repoDir, capBytes); xmlErr == nil {
+			defer func() { _ = xmlPC.Close() }()
+		} else if *verboseFlag {
+			fmt.Fprintf(os.Stderr, "verbose: xml parse cache disabled: %v\n", xmlErr)
 		}
 	}
 	parseResult, err := pipeline.ParsePhase{}.Run(context.Background(), pipeline.ParseInput{

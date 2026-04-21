@@ -30,9 +30,7 @@ package scanner
 // in this pack missed" - the same behavior as an empty pack.
 
 import (
-	"bytes"
 	"encoding/binary"
-	"encoding/gob"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -40,7 +38,31 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 )
+
+// Per-process zstd codec for shard blobs. Both encoder and decoder are
+// safe for concurrent EncodeAll / DecodeAll. Level=SpeedDefault (~3)
+// hits the documented ~5× ratio at ~1 GB/s decompress on M-class
+// silicon, well below disk-read amortisation.
+var (
+	shardZstdEncoder *zstd.Encoder
+	shardZstdDecoder *zstd.Decoder
+)
+
+func init() {
+	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
+	if err != nil {
+		panic(fmt.Sprintf("init shard zstd encoder: %v", err))
+	}
+	shardZstdEncoder = enc
+	dec, err := zstd.NewReader(nil)
+	if err != nil {
+		panic(fmt.Sprintf("init shard zstd decoder: %v", err))
+	}
+	shardZstdDecoder = dec
+}
 
 const (
 	packMagic    uint32 = 0x4b50414b // "KPAK"
@@ -363,15 +385,12 @@ func (ps *packStore) LoadShard(path, contentHash string) (*fileShard, bool) {
 		shardsMisses.Add(1)
 		return nil, false
 	}
-	s, err := decodeShardBlob(blob)
+	s, err := decodeShardBlob(blob, path)
 	if err != nil {
 		shardsMisses.Add(1)
 		return nil, false
 	}
-	if s.Version != crossFileShardVersion || s.Path != path || s.ContentHash != contentHash {
-		shardsMisses.Add(1)
-		return nil, false
-	}
+	s.ContentHash = contentHash
 	observeShard(key, int64(len(blob)))
 	shardsHits.Add(1)
 	return s, true
@@ -416,20 +435,22 @@ func (ps *packStore) sweepLegacyShardsDir() {
 	})
 }
 
-// encodeShardBlob / decodeShardBlob centralize the gob envelope so
-// the pack layer is orthogonal to the shard payload shape.
+// encodeShardBlob / decodeShardBlob centralize the columnar+zstd
+// envelope so the pack layer is orthogonal to the shard payload shape.
+//
+// Wire format (v6): zstd(shardPayload). shardPayload is the framed
+// columnar "KSHC" blob defined in index_shard_codec.go. Symbol.File /
+// Reference.File / fileShard.Path / fileShard.ContentHash are not
+// serialised — the pack key + LoadShard args already identify the
+// shard's (path, contentHash), and all rows in a shard share that path.
 func encodeShardBlob(s *fileShard) ([]byte, error) {
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(s); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return shardZstdEncoder.EncodeAll(encodeShardPayload(s), nil), nil
 }
 
-func decodeShardBlob(blob []byte) (*fileShard, error) {
-	var s fileShard
-	if err := gob.NewDecoder(bytes.NewReader(blob)).Decode(&s); err != nil {
+func decodeShardBlob(blob []byte, path string) (*fileShard, error) {
+	raw, err := shardZstdDecoder.DecodeAll(blob, nil)
+	if err != nil {
 		return nil, err
 	}
-	return &s, nil
+	return decodeShardPayload(raw, path)
 }

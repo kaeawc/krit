@@ -30,9 +30,7 @@ package scanner
 // in this pack missed" - the same behavior as an empty pack.
 
 import (
-	"bytes"
 	"encoding/binary"
-	"encoding/gob"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -387,15 +385,12 @@ func (ps *packStore) LoadShard(path, contentHash string) (*fileShard, bool) {
 		shardsMisses.Add(1)
 		return nil, false
 	}
-	s, err := decodeShardBlob(blob)
+	s, err := decodeShardBlob(blob, path)
 	if err != nil {
 		shardsMisses.Add(1)
 		return nil, false
 	}
-	if s.Version != crossFileShardVersion || s.Path != path || s.ContentHash != contentHash {
-		shardsMisses.Add(1)
-		return nil, false
-	}
+	s.ContentHash = contentHash
 	observeShard(key, int64(len(blob)))
 	shardsHits.Add(1)
 	return s, true
@@ -440,49 +435,22 @@ func (ps *packStore) sweepLegacyShardsDir() {
 	})
 }
 
-// encodeShardBlob / decodeShardBlob centralize the gob+zstd envelope so
-// the pack layer is orthogonal to the shard payload shape.
+// encodeShardBlob / decodeShardBlob centralize the columnar+zstd
+// envelope so the pack layer is orthogonal to the shard payload shape.
 //
-// Wire format (v5): zstd(gob(fileShard)). Symbol.File and
-// Reference.File are stripped before gob-encoding because every row
-// within a shard shares fileShard.Path; the loader re-hydrates them.
+// Wire format (v6): zstd(shardPayload). shardPayload is the framed
+// columnar "KSHC" blob defined in index_shard_codec.go. Symbol.File /
+// Reference.File / fileShard.Path / fileShard.ContentHash are not
+// serialised — the pack key + LoadShard args already identify the
+// shard's (path, contentHash), and all rows in a shard share that path.
 func encodeShardBlob(s *fileShard) ([]byte, error) {
-	stripped := *s
-	if len(s.Symbols) > 0 {
-		stripped.Symbols = make([]Symbol, len(s.Symbols))
-		copy(stripped.Symbols, s.Symbols)
-		for i := range stripped.Symbols {
-			stripped.Symbols[i].File = ""
-		}
-	}
-	if len(s.References) > 0 {
-		stripped.References = make([]Reference, len(s.References))
-		copy(stripped.References, s.References)
-		for i := range stripped.References {
-			stripped.References[i].File = ""
-		}
-	}
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(&stripped); err != nil {
-		return nil, err
-	}
-	return shardZstdEncoder.EncodeAll(buf.Bytes(), nil), nil
+	return shardZstdEncoder.EncodeAll(encodeShardPayload(s), nil), nil
 }
 
-func decodeShardBlob(blob []byte) (*fileShard, error) {
+func decodeShardBlob(blob []byte, path string) (*fileShard, error) {
 	raw, err := shardZstdDecoder.DecodeAll(blob, nil)
 	if err != nil {
 		return nil, err
 	}
-	var s fileShard
-	if err := gob.NewDecoder(bytes.NewReader(raw)).Decode(&s); err != nil {
-		return nil, err
-	}
-	for i := range s.Symbols {
-		s.Symbols[i].File = s.Path
-	}
-	for i := range s.References {
-		s.References[i].File = s.Path
-	}
-	return &s, nil
+	return decodeShardPayload(raw, path)
 }

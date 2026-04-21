@@ -83,7 +83,14 @@ func (crossFileShardsRegistered) Stats() cacheutil.CacheStats {
 // fileShard.Path on load). Cuts shard-payload disk bytes ~5× on
 // Signal-Android. Pre-v5 blobs are raw gob and the zstd magic check
 // rejects them as a per-key miss.
-const crossFileShardVersion = 5
+// v6: replaced gob with a framed columnar binary ("KSHC") containing
+// one intra-shard name table; gob's schema prefix and per-field tags
+// disappear and every identifier / kind / visibility string is stored
+// once. Path and ContentHash are no longer persisted (supplied by the
+// LoadShard args and already gated by the pack key). Bumps the outer
+// shard version because pre-v6 zstd blobs decode to gob, not to the
+// new framed payload.
+const crossFileShardVersion = 6
 
 // Per-shard bloom sizing. Every shard's bloom uses these exact
 // (m, k) parameters so they can be unioned with BloomFilter.Merge,

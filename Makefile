@@ -1,4 +1,4 @@
-.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression docs all install install-completions watch generate
+.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression oracle-fingerprint oracle-fingerprint-update docs all install install-completions watch generate
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
@@ -51,6 +51,15 @@ playground: build
 
 regression: build
 	bash scripts/regression-check.sh
+
+# Check that the oracle filter input-set fingerprint matches the
+# baseline committed in .krit/oracle-fingerprints.json. Fails on drift.
+# See issue #333. Update with `make oracle-fingerprint-update`.
+oracle-fingerprint: build
+	python3 tools/oracle_fingerprint_check.py
+
+oracle-fingerprint-update: build
+	python3 tools/oracle_fingerprint_check.py --update
 
 docs:
 	python3 scripts/github/deploy_pages.py serve

@@ -1,0 +1,37 @@
+{
+  "_comment": "Oracle filter input-set fingerprints per (repo, rule-set). Regenerate via `python3 tools/oracle_fingerprint_check.py --update`. See issue #333.",
+  "entries": [
+    {
+      "repo": "playground/kotlin-webservice",
+      "ruleSet": "default",
+      "fingerprint": "ddfde3219f52cead",
+      "markedFiles": 4,
+      "totalFiles": 9,
+      "allFiles": false
+    },
+    {
+      "repo": "playground/kotlin-webservice",
+      "ruleSet": "all-rules",
+      "fingerprint": "ddfde3219f52cead",
+      "markedFiles": 4,
+      "totalFiles": 9,
+      "allFiles": false
+    },
+    {
+      "repo": "playground/android-app",
+      "ruleSet": "default",
+      "fingerprint": "25edbf491adb517d",
+      "markedFiles": 6,
+      "totalFiles": 8,
+      "allFiles": false
+    },
+    {
+      "repo": "playground/android-app",
+      "ruleSet": "all-rules",
+      "fingerprint": "25edbf491adb517d",
+      "markedFiles": 6,
+      "totalFiles": 8,
+      "allFiles": false
+    }
+  ]
+}

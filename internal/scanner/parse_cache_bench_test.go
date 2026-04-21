@@ -15,8 +15,6 @@ package scanner
 //
 //   go test ./internal/scanner -bench=BenchmarkParseCacheSweep \
 //     -run=^$ -benchtime=200x -count=5
-//
-// See parseCacheMinFileSize in parse_cache.go.
 
 import (
 	"context"
@@ -25,6 +23,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/hashutil"
 )
 
 var parseCacheSweepSizes = []int{256, 512, 1024, 2048, 4096}
@@ -46,20 +46,21 @@ func buildKotlinSourceAtLeast(target int) string {
 
 func BenchmarkParseCacheSweep_ParseOnly(b *testing.B) {
 	for _, size := range parseCacheSweepSizes {
-		size := size
 		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
 			src := []byte(buildKotlinSourceAtLeast(size))
+			// Warm and hold a parser so per-iteration cost is parse +
+			// flatten, not pool churn — matches BenchmarkParseFile_WithPool.
+			parser := GetKotlinParser()
+			defer PutKotlinParser(parser)
 			b.SetBytes(int64(len(src)))
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				parser := GetKotlinParser()
 				tree, err := parser.ParseCtx(context.Background(), nil, src)
 				if err != nil {
 					b.Fatal(err)
 				}
 				_ = flattenTree(tree.RootNode())
-				PutKotlinParser(parser)
 			}
 		})
 	}
@@ -67,7 +68,6 @@ func BenchmarkParseCacheSweep_ParseOnly(b *testing.B) {
 
 func BenchmarkParseCacheSweep_CacheMiss(b *testing.B) {
 	for _, size := range parseCacheSweepSizes {
-		size := size
 		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
 			repo := b.TempDir()
 			pc, err := NewParseCache(repo)
@@ -79,29 +79,28 @@ func BenchmarkParseCacheSweep_CacheMiss(b *testing.B) {
 			if err := os.WriteFile(path, src, 0o644); err != nil {
 				b.Fatal(err)
 			}
+			hash := hashutil.HashHex(src)
+			parser := GetKotlinParser()
+			defer PutKotlinParser(parser)
 			b.SetBytes(int64(len(src)))
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				// Force every iteration to be a miss by clearing the
-				// entry dir. We measure parse + encode + write-atomic.
 				b.StopTimer()
 				if err := pc.Clear(); err != nil {
 					b.Fatal(err)
 				}
 				b.StartTimer()
 
-				parser := GetKotlinParser()
 				tree, err := parser.ParseCtx(context.Background(), nil, src)
 				if err != nil {
 					b.Fatal(err)
 				}
 				flat := flattenTree(tree.RootNode())
-				PutKotlinParser(parser)
 				// Bypass the size gate so small buckets still exercise
 				// the write path and we can see the cost we *would* pay
 				// if the threshold were lowered.
-				if err := pc.saveEntry(contentHashForBench(src), flat); err != nil {
+				if err := pc.saveEntry(hash, flat); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -111,7 +110,6 @@ func BenchmarkParseCacheSweep_CacheMiss(b *testing.B) {
 
 func BenchmarkParseCacheSweep_CacheHit(b *testing.B) {
 	for _, size := range parseCacheSweepSizes {
-		size := size
 		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
 			repo := b.TempDir()
 			pc, err := NewParseCache(repo)
@@ -119,7 +117,6 @@ func BenchmarkParseCacheSweep_CacheHit(b *testing.B) {
 				b.Fatalf("NewParseCache: %v", err)
 			}
 			src := []byte(buildKotlinSourceAtLeast(size))
-			// Seed the cache with a real parse result.
 			parser := GetKotlinParser()
 			tree, err := parser.ParseCtx(context.Background(), nil, src)
 			if err != nil {
@@ -127,7 +124,7 @@ func BenchmarkParseCacheSweep_CacheHit(b *testing.B) {
 			}
 			flat := flattenTree(tree.RootNode())
 			PutKotlinParser(parser)
-			hash := contentHashForBench(src)
+			hash := hashutil.HashHex(src)
 			if err := pc.saveEntry(hash, flat); err != nil {
 				b.Fatalf("seed: %v", err)
 			}
@@ -142,19 +139,4 @@ func BenchmarkParseCacheSweep_CacheHit(b *testing.B) {
 			}
 		})
 	}
-}
-
-func contentHashForBench(src []byte) string {
-	// Avoid a dependency on hashutil.Memo in the hot loop — the
-	// benchmark only needs a stable key.
-	return fmt.Sprintf("bench-%d-%x", len(src), simpleChecksum(src))
-}
-
-func simpleChecksum(b []byte) uint64 {
-	var h uint64 = 1469598103934665603
-	for _, c := range b {
-		h ^= uint64(c)
-		h *= 1099511628211
-	}
-	return h
 }

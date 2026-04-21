@@ -166,7 +166,7 @@ func (d *V2Dispatcher) buildFlatTypeIndex(rules []*v2.Rule) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	size := len(scanner.NodeTypeTable)
+	size := scanner.NodeTypeTableSize()
 	if size <= 0 {
 		size = 1
 	}
@@ -211,7 +211,7 @@ func (d *V2Dispatcher) ensureFlatTypeIndex(rules []*v2.Rule) [][]*v2.Rule {
 	builtSize := d.flatTypeIndexSize
 	d.mu.RUnlock()
 
-	needSize := len(scanner.NodeTypeTable)
+	needSize := scanner.NodeTypeTableSize()
 	if needSize <= 0 {
 		needSize = 1
 	}

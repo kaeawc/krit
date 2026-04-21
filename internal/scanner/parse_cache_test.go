@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/kaeawc/krit/internal/hashutil"
 )
@@ -284,6 +285,147 @@ func TestParseCache_NilIsSafe(t *testing.T) {
 	}
 	if pc.Dir() != "" {
 		t.Fatalf("nil Dir should be empty")
+	}
+}
+
+// measureEntrySize populates a temp cache with one entry from src and
+// returns its serialized gob size on disk.
+func measureEntrySize(t *testing.T, src string) int64 {
+	t.Helper()
+	repo := t.TempDir()
+	pc, err := NewParseCacheWithCap(repo, -1)
+	if err != nil {
+		t.Fatalf("measure NewParseCacheWithCap: %v", err)
+	}
+	p := writeKotlin(t, repo, "M.kt", src)
+	if _, err := ParseKotlinFileCached(p, pc); err != nil {
+		t.Fatalf("measure parse: %v", err)
+	}
+	return pc.Stats().Bytes
+}
+
+// TestParseCache_LRUEvictsUnderCap exercises the end-to-end flow:
+// a cap sized to hold roughly 2 entries forces eviction after the
+// third Save. The oldest entry must be removed; the newest must hit.
+func TestParseCache_LRUEvictsUnderCap(t *testing.T) {
+	entrySize := measureEntrySize(t, largeSource())
+	// Cap so that 2 entries fit but 3 do not; low-water at 0.80*cap
+	// drops the oldest entry when the third arrives.
+	// Target: ~2.7× entry size. Low-water (0.80 * cap) lands at ~2.16e
+	// so exactly one entry evicts when a third is written — avoiding
+	// the double-evict that happens when target falls below 2e.
+	capBytes := entrySize*27/10
+
+	repo := t.TempDir()
+	pc, err := NewParseCacheWithCap(repo, capBytes)
+	if err != nil {
+		t.Fatalf("NewParseCacheWithCap: %v", err)
+	}
+
+	srcA := largeSource()
+	srcB := largeSource() + "\nfun extra() = 1\n"
+	srcC := largeSource() + "\nfun extra2() = 2\n"
+	pathA := writeKotlin(t, repo, "A.kt", srcA)
+	pathB := writeKotlin(t, repo, "B.kt", srcB)
+	pathC := writeKotlin(t, repo, "C.kt", srcC)
+
+	if _, err := ParseKotlinFileCached(pathA, pc); err != nil {
+		t.Fatalf("parse A: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, err := ParseKotlinFileCached(pathB, pc); err != nil {
+		t.Fatalf("parse B: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, err := ParseKotlinFileCached(pathC, pc); err != nil {
+		t.Fatalf("parse C: %v", err)
+	}
+
+	if err := pc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	stats := pc.Stats()
+	if stats.Bytes > stats.Cap {
+		t.Fatalf("post-evict total %d exceeds cap %d", stats.Bytes, stats.Cap)
+	}
+
+	// A (oldest, never re-touched) should be a miss; C (newest) a hit.
+	if _, ok := pc.Load("", []byte(srcA)); ok {
+		t.Fatal("expected evicted entry A to be a cache miss")
+	}
+	if _, ok := pc.Load("", []byte(srcC)); !ok {
+		t.Fatal("expected newest entry C to still hit")
+	}
+}
+
+// TestParseCache_LRUHotEntrySurvivesEviction touches the first entry
+// before writing the third to ensure recency, not insertion order,
+// drives eviction.
+func TestParseCache_LRUHotEntrySurvivesEviction(t *testing.T) {
+	entrySize := measureEntrySize(t, largeSource())
+	// Target: ~2.7× entry size. Low-water (0.80 * cap) lands at ~2.16e
+	// so exactly one entry evicts when a third is written — avoiding
+	// the double-evict that happens when target falls below 2e.
+	capBytes := entrySize*27/10
+
+	repo := t.TempDir()
+	pc, err := NewParseCacheWithCap(repo, capBytes)
+	if err != nil {
+		t.Fatalf("NewParseCacheWithCap: %v", err)
+	}
+	srcA := largeSource()
+	srcB := largeSource() + "\nfun extra() = 1\n"
+	srcC := largeSource() + "\nfun extra2() = 2\n"
+	pathA := writeKotlin(t, repo, "A.kt", srcA)
+	pathB := writeKotlin(t, repo, "B.kt", srcB)
+	pathC := writeKotlin(t, repo, "C.kt", srcC)
+
+	if _, err := ParseKotlinFileCached(pathA, pc); err != nil {
+		t.Fatalf("parse A: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, err := ParseKotlinFileCached(pathB, pc); err != nil {
+		t.Fatalf("parse B: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+
+	// Touch A so it becomes the most-recently-accessed entry.
+	if _, ok := pc.Load("", []byte(srcA)); !ok {
+		t.Fatal("expected A to hit after recent write")
+	}
+	time.Sleep(5 * time.Millisecond)
+
+	if _, err := ParseKotlinFileCached(pathC, pc); err != nil {
+		t.Fatalf("parse C: %v", err)
+	}
+
+	// A was touched most recently → survives. B (untouched since
+	// initial Save) is the coldest and gets evicted first.
+	if _, ok := pc.Load("", []byte(srcA)); !ok {
+		t.Fatal("hot entry A should have survived eviction")
+	}
+	if _, ok := pc.Load("", []byte(srcB)); ok {
+		t.Fatal("coldest entry B should have been evicted")
+	}
+}
+
+func TestParseCache_UnlimitedCapNeverEvicts(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCacheWithCap(repo, -1) // disabled cap
+	if err != nil {
+		t.Fatalf("NewParseCacheWithCap: %v", err)
+	}
+	for i := 0; i < 10; i++ {
+		src := largeSource() + "\n// variant " + strconv.Itoa(i) + "\n"
+		path := writeKotlin(t, repo, "V"+strconv.Itoa(i)+".kt", src)
+		if _, err := ParseKotlinFileCached(path, pc); err != nil {
+			t.Fatalf("parse v%d: %v", i, err)
+		}
+	}
+	stats := pc.Stats()
+	if stats.Entries != 10 {
+		t.Fatalf("expected 10 entries with cap disabled, got %d", stats.Entries)
 	}
 }
 

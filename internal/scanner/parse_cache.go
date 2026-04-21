@@ -10,6 +10,7 @@ package scanner
 // is the same shape for every tree-sitter grammar.
 
 import (
+	"bytes"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -43,6 +44,8 @@ const (
 	parseCacheExt       = ".gob"
 	parseCacheKotlinDir = "kotlin"
 	parseCacheJavaDir   = "java"
+	parseCacheLRUIndex  = "lru-index.gob"
+	parseCacheLRULock   = "lru.lock"
 )
 
 // parseCacheEntry is the on-disk gob payload. NodeTypeTable maps the
@@ -64,6 +67,11 @@ type parseCacheEntry struct {
 // ParseCache persists FlatTree parse results keyed by content hash.
 // A nil *ParseCache is a valid disabled cache — every method is a
 // safe no-op.
+//
+// Each language holds its own LRU size cap; when a langCache's on-disk
+// total exceeds its CapBytes, Save evicts the least-recently-accessed
+// entries down to LowWaterFrac (80%) of the cap. Caps are per-language
+// so a huge Kotlin corpus doesn't starve the Java cache and vice versa.
 type ParseCache struct {
 	root   string
 	kotlin *langCache
@@ -77,6 +85,7 @@ type langCache struct {
 	dir        string // {root}/{lang}
 	grammarVer string
 	language   Language
+	lru        *cacheutil.SizeCapLRU
 }
 
 var (
@@ -142,8 +151,17 @@ func JavaGrammarVersion() string {
 // NewParseCache returns a ParseCache rooted at repoDir/.krit/parse-cache.
 // A schema-version, hash-algo, or grammar-version mismatch in the
 // existing metadata clears the affected language's entries subtree.
-// Kotlin and Java are versioned independently.
+// Kotlin and Java are versioned independently. The default per-language
+// size cap (cacheutil.DefaultParseCacheCapBytes) is applied.
 func NewParseCache(repoDir string) (*ParseCache, error) {
+	return NewParseCacheWithCap(repoDir, cacheutil.DefaultParseCacheCapBytes)
+}
+
+// NewParseCacheWithCap is NewParseCache with an explicit per-language
+// byte cap. capBytes <= 0 disables the cap (no eviction). The cap
+// applies to each language's subtree independently so a Kotlin-heavy
+// repo doesn't starve Java cached entries.
+func NewParseCacheWithCap(repoDir string, capBytes int64) (*ParseCache, error) {
 	if repoDir == "" {
 		return nil, errors.New("scanner: NewParseCache requires a non-empty repoDir")
 	}
@@ -157,18 +175,18 @@ func NewParseCache(repoDir string) (*ParseCache, error) {
 		_ = os.RemoveAll(legacyEntries)
 	}
 
-	kc, err := newLangCache(root, parseCacheKotlinDir, KotlinGrammarVersion(), LangKotlin)
+	kc, err := newLangCache(root, parseCacheKotlinDir, KotlinGrammarVersion(), LangKotlin, capBytes)
 	if err != nil {
 		return nil, err
 	}
-	jc, err := newLangCache(root, parseCacheJavaDir, JavaGrammarVersion(), LangJava)
+	jc, err := newLangCache(root, parseCacheJavaDir, JavaGrammarVersion(), LangJava, capBytes)
 	if err != nil {
 		return nil, err
 	}
 	return &ParseCache{root: root, kotlin: kc, java: jc}, nil
 }
 
-func newLangCache(root, sub, grammarVer string, lang Language) (*langCache, error) {
+func newLangCache(root, sub, grammarVer string, lang Language, capBytes int64) (*langCache, error) {
 	dir := filepath.Join(root, sub)
 	vd := cacheutil.VersionedDir{
 		Root:       dir,
@@ -179,10 +197,21 @@ func newLangCache(root, sub, grammarVer string, lang Language) (*langCache, erro
 			{Name: "hash", Value: hashutil.HasherName()},
 		},
 	}
-	if _, err := vd.Open(); err != nil {
+	entriesDir, err := vd.Open()
+	if err != nil {
 		return nil, fmt.Errorf("create parse cache dir (%s): %w", sub, err)
 	}
-	return &langCache{dir: dir, grammarVer: grammarVer, language: lang}, nil
+	lru := &cacheutil.SizeCapLRU{
+		EntriesRoot: entriesDir,
+		IndexPath:   filepath.Join(dir, parseCacheLRUIndex),
+		LockPath:    filepath.Join(dir, parseCacheLRULock),
+		Ext:         parseCacheExt,
+		CapBytes:    capBytes,
+	}
+	if err := lru.Open(); err != nil {
+		return nil, fmt.Errorf("open parse cache lru (%s): %w", sub, err)
+	}
+	return &langCache{dir: dir, grammarVer: grammarVer, language: lang, lru: lru}, nil
 }
 
 // Dir returns the Kotlin subtree root for the on-disk cache. Kept
@@ -287,6 +316,9 @@ func (lc *langCache) loadByHash(hash string) (*FlatTree, bool) {
 		// Corrupt entry: drop it so we don't keep re-reading a doomed
 		// payload on every run.
 		_ = os.Remove(path)
+		if lc.lru != nil {
+			lc.lru.Forget(hash)
+		}
 		return nil, false
 	}
 	if entry.Version != parseCacheVersion ||
@@ -296,6 +328,9 @@ func (lc *langCache) loadByHash(hash string) (*FlatTree, bool) {
 		return nil, false
 	}
 
+	if lc.lru != nil {
+		lc.lru.Touch(hash)
+	}
 	remapEntryNodes(entry.Nodes, entry.NodeTypeTable)
 	return &FlatTree{Nodes: entry.Nodes}, true
 }
@@ -369,9 +404,32 @@ func (lc *langCache) saveEntry(hash string, tree *FlatTree) error {
 		NodeTypeTable: local,
 		Nodes:         cloned,
 	}
-	return fsutil.WriteFileAtomicStream(target, 0o644, func(w io.Writer) error {
-		return gob.NewEncoder(w).Encode(entry)
-	})
+
+	// Encode into a buffer first so we know the byte size before
+	// touching disk: the LRU bookkeeping needs the final on-disk size
+	// without a post-write stat round-trip.
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(entry); err != nil {
+		return fmt.Errorf("encode cache entry: %w", err)
+	}
+	size := int64(buf.Len())
+
+	if err := fsutil.WriteFileAtomicStream(target, 0o644, func(w io.Writer) error {
+		_, werr := w.Write(buf.Bytes())
+		return werr
+	}); err != nil {
+		return err
+	}
+
+	if lc.lru != nil {
+		lc.lru.Record(hash, size)
+		if _, err := lc.lru.MaybeEvict(); err != nil {
+			// Eviction failure is non-fatal: the entry was written,
+			// the cap is just overshooting. Next run will retry.
+			return nil
+		}
+	}
+	return nil
 }
 
 // buildLocalTableAndNodes walks nodes, collects the set of global Type
@@ -428,7 +486,69 @@ func (lc *langCache) clear() error {
 	if err := os.RemoveAll(entries); err != nil {
 		return fmt.Errorf("clear parse cache: %w", err)
 	}
-	return os.MkdirAll(entries, 0o755)
+	if err := os.MkdirAll(entries, 0o755); err != nil {
+		return err
+	}
+	// Drop the sidecar index so it doesn't retain phantom entries.
+	_ = os.Remove(filepath.Join(lc.dir, parseCacheLRUIndex))
+	if lc.lru != nil {
+		cap := lc.lru.CapBytes
+		lc.lru = &cacheutil.SizeCapLRU{
+			EntriesRoot: entries,
+			IndexPath:   filepath.Join(lc.dir, parseCacheLRUIndex),
+			LockPath:    filepath.Join(lc.dir, parseCacheLRULock),
+			Ext:         parseCacheExt,
+			CapBytes:    cap,
+		}
+		_ = lc.lru.Open()
+	}
+	return nil
+}
+
+// Close flushes the per-language LRU sidecars. Safe to call multiple
+// times; a nil ParseCache Close is a no-op so callers can always defer
+// it.
+func (pc *ParseCache) Close() error {
+	if pc == nil {
+		return nil
+	}
+	var errs []error
+	if pc.kotlin != nil && pc.kotlin.lru != nil {
+		if err := pc.kotlin.lru.Flush(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if pc.java != nil && pc.java.lru != nil {
+		if err := pc.java.lru.Flush(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// Stats returns a combined LRU snapshot across both languages. Entries
+// and Bytes are summed; Cap reflects the per-language cap (both
+// languages share the same configured cap).
+func (pc *ParseCache) Stats() cacheutil.LRUStats {
+	if pc == nil {
+		return cacheutil.LRUStats{}
+	}
+	var out cacheutil.LRUStats
+	if pc.kotlin != nil && pc.kotlin.lru != nil {
+		s := pc.kotlin.lru.Stats()
+		out.Entries += s.Entries
+		out.Bytes += s.Bytes
+		out.Cap = s.Cap
+	}
+	if pc.java != nil && pc.java.lru != nil {
+		s := pc.java.lru.Stats()
+		out.Entries += s.Entries
+		out.Bytes += s.Bytes
+		if out.Cap == 0 {
+			out.Cap = s.Cap
+		}
+	}
+	return out
 }
 
 func init() {

@@ -70,6 +70,29 @@ func resolvedStore(storeDirFlag *string) *store.FileStore {
 	return store.New(dir)
 }
 
+// resolveParseCacheCap returns the parse cache size cap in bytes.
+// Precedence: CLI flag > krit.yml parseCache.maxSizeMB > default
+// (cacheutil.DefaultParseCacheCapBytes). A negative flag value disables
+// the cap (unlimited cache growth — discouraged but supported for
+// benchmarking).
+func resolveParseCacheCap(flagMB int, cfg *config.Config) int64 {
+	if flagMB < 0 {
+		return -1
+	}
+	if flagMB > 0 {
+		return int64(flagMB) * 1024 * 1024
+	}
+	if cfg != nil {
+		if mb := cfg.GetTopLevelInt("parseCache", "maxSizeMB", 0); mb != 0 {
+			if mb < 0 {
+				return -1
+			}
+			return int64(mb) * 1024 * 1024
+		}
+	}
+	return cacheutil.DefaultParseCacheCapBytes
+}
+
 func main() {
 	baselineAuditVerb := len(os.Args) > 1 && os.Args[1] == "baseline-audit"
 	harvestVerb := len(os.Args) > 1 && os.Args[1] == "harvest"
@@ -124,6 +147,7 @@ func main() {
 	versionFlag := flag.Bool("version", false, "Print version")
 	noCacheFlag := flag.Bool("no-cache", false, "Disable incremental analysis cache")
 	noParseCacheFlag := flag.Bool("no-parse-cache", false, "Disable the on-disk tree-sitter parse cache (forces re-parse of every file)")
+	parseCacheCapMBFlag := flag.Int("parse-cache-cap-mb", 0, "Size cap in MB for .krit/parse-cache/ (0 = use config or default 200; negative = unlimited)")
 	clearCacheFlag := flag.Bool("clear-cache", false, "Delete all on-disk caches (incremental, parse) and exit")
 	noMatrixCacheFlag := flag.Bool("no-matrix-cache", false, "Disable the experiment-matrix baseline cache (no read, no write)")
 	clearMatrixCacheFlag := flag.Bool("clear-matrix-cache", false, "Delete the experiment-matrix baseline cache and exit")
@@ -806,8 +830,10 @@ potential-bugs:
 	}
 	var parseCache *scanner.ParseCache
 	if !*noParseCacheFlag {
-		if pc, pcErr := scanner.NewParseCache(oracle.FindRepoDir(paths)); pcErr == nil {
+		capBytes := resolveParseCacheCap(*parseCacheCapMBFlag, cfg)
+		if pc, pcErr := scanner.NewParseCacheWithCap(oracle.FindRepoDir(paths), capBytes); pcErr == nil {
 			parseCache = pc
+			defer func() { _ = parseCache.Close() }()
 		} else if *verboseFlag {
 			fmt.Fprintf(os.Stderr, "verbose: parse cache disabled: %v\n", pcErr)
 		}

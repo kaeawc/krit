@@ -335,7 +335,7 @@ func TestContactsAccessWithoutPermissionUi(t *testing.T) {
 		findings := runRuleByName(t, "ContactsAccessWithoutPermissionUi", `
 package test
 
-class ContactsScreen(private val resolver: Any) {
+class ContactsScreen(private val resolver: ContentResolver) {
     private val requestContactsPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -362,7 +362,7 @@ class ContactsScreen(private val resolver: Any) {
 		findings := runRuleByName(t, "ContactsAccessWithoutPermissionUi", `
 package test
 
-class ContactsScreen(private val resolver: Any) {
+class ContactsScreen(private val resolver: ContentResolver) {
     private val requestContactsPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -373,6 +373,137 @@ class ContactsScreen(private val resolver: Any) {
 
     fun loadContacts() {
         requestContactsPermission.launch(Manifest.permission.READ_CONTACTS)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("allows contacts query when launcher uses same-file string constant", func(t *testing.T) {
+		findings := runRuleByName(t, "ContactsAccessWithoutPermissionUi", `
+package test
+
+private const val CONTACTS_PERMISSION = "android.permission.READ_CONTACTS"
+
+class ContactsScreen(private val resolver: ContentResolver) {
+    private val requestContactsPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            resolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null, null, null, null)
+        }
+    }
+
+    fun loadContacts() {
+        requestContactsPermission.launch(CONTACTS_PERMISSION)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("does not treat scope-wide READ_CONTACTS mention as permission path", func(t *testing.T) {
+		findings := runRuleByName(t, "ContactsAccessWithoutPermissionUi", `
+package test
+
+private const val UNUSED_CONTACTS_PERMISSION = Manifest.permission.READ_CONTACTS
+
+class ContactsScreen(private val resolver: ContentResolver) {
+    private val requestCalendarPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            resolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null, null, null, null)
+        }
+    }
+
+    fun loadContacts() {
+        requestCalendarPermission.launch(Manifest.permission.READ_CALENDAR)
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("does not treat unresolved READ_CONTACTS identifier as permission", func(t *testing.T) {
+		findings := runRuleByName(t, "ContactsAccessWithoutPermissionUi", `
+package test
+
+class ContactsScreen(private val resolver: ContentResolver) {
+    private val requestContactsPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            resolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null, null, null, null)
+        }
+    }
+
+    fun loadContacts(READ_CONTACTS: String) {
+        requestContactsPermission.launch(READ_CONTACTS)
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("does not treat unresolved wrapper call as permission", func(t *testing.T) {
+		findings := runRuleByName(t, "ContactsAccessWithoutPermissionUi", `
+package test
+
+class ContactsScreen(private val resolver: ContentResolver) {
+    private val requestContactsPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            resolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null, null, null, null)
+        }
+    }
+
+    fun loadContacts() {
+        requestContactsPermission.launch(selectPermission(Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALENDAR))
+    }
+
+    fun selectPermission(primary: String, fallback: String): String = fallback
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("does not resolve receiver type from nested declaration", func(t *testing.T) {
+		findings := runRuleByName(t, "ContactsAccessWithoutPermissionUi", `
+package test
+
+class ContactsScreen(private val resolver: Any) {
+    fun loadContacts() {
+        fun nested(resolver: ContentResolver) {}
+        resolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null, null, null, null)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("ignores unqualified local query function", func(t *testing.T) {
+		findings := runRuleByName(t, "ContactsAccessWithoutPermissionUi", `
+package test
+
+class ContactsScreen {
+    fun query(uri: Any, a: Any?, b: Any?, c: Any?, d: Any?) {}
+
+    fun loadContacts() {
+        query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null, null, null, null)
     }
 }
 `)

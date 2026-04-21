@@ -11293,6 +11293,9 @@ func registerAllRules() {
 				if flatCallExpressionName(file, idx) != "query" {
 					return
 				}
+				if !contactsQueryCallHasResolverTargetFlat(file, idx) {
+					return
+				}
 				_, args := flatCallExpressionParts(file, idx)
 				if args == 0 {
 					return

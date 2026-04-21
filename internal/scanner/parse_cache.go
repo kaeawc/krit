@@ -72,6 +72,7 @@ type ParseCache struct {
 	root   string
 	kotlin *langCache
 	java   *langCache
+	writer *cacheutil.AsyncWriter
 }
 
 // langCache is one per-language on-disk cache. Each language has its
@@ -252,6 +253,24 @@ func (pc *ParseCache) JavaDir() string {
 	return pc.java.dir
 }
 
+// SetAsyncWriter enables bounded background persistence for SaveAsync
+// and SaveJavaAsync. Passing nil restores synchronous behavior.
+func (pc *ParseCache) SetAsyncWriter(w *cacheutil.AsyncWriter) {
+	if pc == nil {
+		return
+	}
+	pc.writer = w
+}
+
+// AsyncStats returns the background writer counters when async
+// persistence is enabled.
+func (pc *ParseCache) AsyncStats() cacheutil.AsyncWriterStats {
+	if pc == nil || pc.writer == nil {
+		return cacheutil.AsyncWriterStats{}
+	}
+	return pc.writer.Stats()
+}
+
 // entryPath returns the sharded on-disk path for a Kotlin content hash.
 // Layout: kotlin/entries/{hash[:2]}/{hash[2:]}.gob — two-level sharding
 // so no single directory grows past 256 shards even on huge repos.
@@ -367,12 +386,32 @@ func (pc *ParseCache) Save(path string, content []byte, tree *FlatTree) error {
 	return pc.kotlin.save(path, content, tree)
 }
 
+// SaveAsync persists the Kotlin parse result using the configured
+// background writer when present. The content hash and FlatTree node
+// snapshot are captured before Submit returns so downstream cache users
+// still benefit from the shared hash memo and the job does not retain a
+// mutable caller-owned slice.
+func (pc *ParseCache) SaveAsync(path string, content []byte, tree *FlatTree) error {
+	if pc == nil || tree == nil {
+		return nil
+	}
+	return pc.kotlin.saveAsync(path, content, tree, pc.writer)
+}
+
 // SaveJava is the Java-language equivalent of Save.
 func (pc *ParseCache) SaveJava(path string, content []byte, tree *FlatTree) error {
 	if pc == nil || tree == nil {
 		return nil
 	}
 	return pc.java.save(path, content, tree)
+}
+
+// SaveJavaAsync is the Java-language equivalent of SaveAsync.
+func (pc *ParseCache) SaveJavaAsync(path string, content []byte, tree *FlatTree) error {
+	if pc == nil || tree == nil {
+		return nil
+	}
+	return pc.java.saveAsync(path, content, tree, pc.writer)
 }
 
 func (lc *langCache) save(path string, content []byte, tree *FlatTree) error {
@@ -385,6 +424,27 @@ func (lc *langCache) save(path string, content []byte, tree *FlatTree) error {
 	return lc.saveEntry(hashutil.Default().HashContent(path, content), tree)
 }
 
+func (lc *langCache) saveAsync(path string, content []byte, tree *FlatTree, writer *cacheutil.AsyncWriter) error {
+	if lc == nil || tree == nil {
+		return nil
+	}
+	if len(content) < parseCacheMinFileSize {
+		return nil
+	}
+	hash := hashutil.Default().HashContent(path, content)
+	if writer == nil {
+		return lc.saveEntry(hash, tree)
+	}
+	nodes := append([]FlatNode(nil), tree.Nodes...)
+	if writer.Submit(func() (int64, error) {
+		return lc.saveEntryFromOwnedNodes(hash, nodes)
+	}) {
+		return nil
+	}
+	_, err := lc.saveEntryFromOwnedNodes(hash, nodes)
+	return err
+}
+
 func (pc *ParseCache) saveEntry(hash string, tree *FlatTree) error {
 	return pc.kotlin.saveEntry(hash, tree)
 }
@@ -395,14 +455,23 @@ func (pc *ParseCache) saveJavaEntry(hash string, tree *FlatTree) error {
 
 func (lc *langCache) saveEntry(hash string, tree *FlatTree) error {
 	local, cloned := buildLocalTableAndNodes(tree.Nodes)
+	_, err := lc.writeEntry(hash, local, cloned)
+	return err
+}
 
+func (lc *langCache) saveEntryFromOwnedNodes(hash string, nodes []FlatNode) (int64, error) {
+	local := rewriteNodesToLocalTypes(nodes)
+	return lc.writeEntry(hash, local, nodes)
+}
+
+func (lc *langCache) writeEntry(hash string, local []string, nodes []FlatNode) (int64, error) {
 	target := lc.entryPath(hash)
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return fmt.Errorf("create cache shard dir: %w", err)
+		return 0, fmt.Errorf("create cache shard dir: %w", err)
 	}
 	entry := parseCacheEntry{
 		NodeTypeTable: local,
-		Nodes:         cloned,
+		Nodes:         nodes,
 	}
 
 	// Encode into a buffer first so we know the byte size before
@@ -410,7 +479,7 @@ func (lc *langCache) saveEntry(hash string, tree *FlatTree) error {
 	// without a post-write stat round-trip.
 	blob, err := cacheutil.EncodeZstdGob(entry)
 	if err != nil {
-		return fmt.Errorf("encode cache entry: %w", err)
+		return 0, fmt.Errorf("encode cache entry: %w", err)
 	}
 	size := int64(len(blob))
 
@@ -418,7 +487,7 @@ func (lc *langCache) saveEntry(hash string, tree *FlatTree) error {
 		_, werr := w.Write(blob)
 		return werr
 	}); err != nil {
-		return err
+		return 0, err
 	}
 
 	lc.lastWriteSec.Store(time.Now().Unix())
@@ -427,12 +496,12 @@ func (lc *langCache) saveEntry(hash string, tree *FlatTree) error {
 		if removed, err := lc.lru.MaybeEvict(); err != nil {
 			// Eviction failure is non-fatal: the entry was written,
 			// the cap is just overshooting. Next run will retry.
-			return nil
+			return size, nil
 		} else if removed > 0 {
 			lc.evictions.Add(int64(removed))
 		}
 	}
-	return nil
+	return size, nil
 }
 
 // buildLocalTableAndNodes walks nodes, collects the set of global Type
@@ -440,6 +509,12 @@ func (lc *langCache) saveEntry(hash string, tree *FlatTree) error {
 // plus a clone of the node slice with Type rewritten to indices into
 // that local table.
 func buildLocalTableAndNodes(nodes []FlatNode) ([]string, []FlatNode) {
+	cloned := make([]FlatNode, len(nodes))
+	copy(cloned, nodes)
+	return rewriteNodesToLocalTypes(cloned), cloned
+}
+
+func rewriteNodesToLocalTypes(nodes []FlatNode) []string {
 	var maxType uint16
 	for _, n := range nodes {
 		if n.Type > maxType {
@@ -450,19 +525,17 @@ func buildLocalTableAndNodes(nodes []FlatNode) ([]string, []FlatNode) {
 	// stored slots are offset by 1 and subtracted on read.
 	globalToLocal := make([]uint16, int(maxType)+1)
 	local := make([]string, 0, 32)
-	cloned := make([]FlatNode, len(nodes))
-	copy(cloned, nodes)
-	for i := range cloned {
-		g := cloned[i].Type
+	for i := range nodes {
+		g := nodes[i].Type
 		slot := globalToLocal[g]
 		if slot == 0 {
 			local = append(local, nodeTypeName(g))
 			slot = uint16(len(local))
 			globalToLocal[g] = slot
 		}
-		cloned[i].Type = slot - 1
+		nodes[i].Type = slot - 1
 	}
-	return local, cloned
+	return local
 }
 
 // Clear removes every cache entry across both languages. The version /
@@ -508,14 +581,28 @@ func (lc *langCache) clear() error {
 	return nil
 }
 
-// Close flushes the per-language LRU sidecars. Safe to call multiple
-// times; a nil ParseCache Close is a no-op so callers can always defer
-// it.
+// Flush waits for all accepted async write jobs to finish. Synchronous
+// caches have nothing to drain.
+func (pc *ParseCache) Flush() error {
+	if pc == nil || pc.writer == nil {
+		return nil
+	}
+	return pc.writer.Flush()
+}
+
+// Close flushes any async writes and the per-language LRU sidecars.
+// Safe to call multiple times; a nil ParseCache Close is a no-op so
+// callers can always invoke it.
 func (pc *ParseCache) Close() error {
 	if pc == nil {
 		return nil
 	}
 	var errs []error
+	if pc.writer != nil {
+		if err := pc.writer.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if pc.kotlin != nil && pc.kotlin.lru != nil {
 		if err := pc.kotlin.lru.Flush(); err != nil {
 			errs = append(errs, err)
@@ -578,6 +665,13 @@ func (pc *ParseCache) Stats() cacheutil.CacheStats {
 		if lw := lc.lastWriteSec.Load(); lw > out.LastWriteUnix {
 			out.LastWriteUnix = lw
 		}
+	}
+	if pc.writer != nil {
+		ws := pc.writer.Stats()
+		out.AsyncQueued = ws.Queued
+		out.AsyncCompleted = ws.Completed
+		out.AsyncFailed = ws.Failed
+		out.AsyncBytes = ws.Bytes
 	}
 	return out
 }

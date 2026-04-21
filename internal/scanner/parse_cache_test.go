@@ -124,6 +124,50 @@ func TestParseCache_HitAfterRestart(t *testing.T) {
 	}
 }
 
+func TestParseCache_AsyncSaveFlushVisibleAfterRestart(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache: %v", err)
+	}
+	pc.SetAsyncWriter(cacheutil.NewAsyncWriter(1, 8))
+
+	ktPath := writeKotlin(t, repo, "Async.kt", largeSource())
+	javaPath := writeJava(t, repo, "Async.java", largeJavaSource())
+
+	if _, err := ParseKotlinFileCached(ktPath, pc); err != nil {
+		t.Fatalf("parse kotlin: %v", err)
+	}
+	if _, err := ParseJavaFileCached(javaPath, pc); err != nil {
+		t.Fatalf("parse java: %v", err)
+	}
+	if err := pc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	fresh, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache fresh: %v", err)
+	}
+	defer fresh.Close()
+
+	ktContent, err := os.ReadFile(ktPath)
+	if err != nil {
+		t.Fatalf("read kotlin: %v", err)
+	}
+	if _, ok := fresh.Load(ktPath, ktContent); !ok {
+		t.Fatal("expected async Kotlin save to hit after flush")
+	}
+
+	javaContent, err := os.ReadFile(javaPath)
+	if err != nil {
+		t.Fatalf("read java: %v", err)
+	}
+	if _, ok := fresh.LoadJava(javaPath, javaContent); !ok {
+		t.Fatal("expected async Java save to hit after flush")
+	}
+}
+
 func TestParseCache_GrammarVersionMismatch(t *testing.T) {
 	repo := t.TempDir()
 	pc, err := NewParseCache(repo)

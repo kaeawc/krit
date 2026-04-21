@@ -93,6 +93,19 @@ func resolveParseCacheCap(flagMB int, cfg *config.Config) int64 {
 	return cacheutil.DefaultParseCacheCapBytes
 }
 
+func newParseCacheAsyncWriter(workers int) *cacheutil.AsyncWriter {
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
+	if workers > 4 {
+		workers = 4
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	return cacheutil.NewAsyncWriter(workers, workers*256)
+}
+
 func main() {
 	baselineAuditVerb := len(os.Args) > 1 && os.Args[1] == "baseline-audit"
 	harvestVerb := len(os.Args) > 1 && os.Args[1] == "harvest"
@@ -850,7 +863,7 @@ potential-bugs:
 		repoDir := oracle.FindRepoDir(paths)
 		if pc, pcErr := scanner.NewParseCacheWithCap(repoDir, capBytes); pcErr == nil {
 			parseCache = pc
-			defer func() { _ = parseCache.Close() }()
+			parseCache.SetAsyncWriter(newParseCacheAsyncWriter(parseWorkers))
 		} else if *verboseFlag {
 			fmt.Fprintf(os.Stderr, "verbose: parse cache disabled: %v\n", pcErr)
 		}
@@ -870,6 +883,27 @@ potential-bugs:
 	} else {
 		android.SetActiveResourceIndexCache(nil)
 	}
+	parseCacheFinished := false
+	finishParseCache := func() {
+		if parseCache == nil || parseCacheFinished {
+			return
+		}
+		parseCacheFinished = true
+		var closeErr error
+		bgTracker := tracker.Serial("cacheBackgroundFlush")
+		_ = bgTracker.Track("parseCacheFlush", func() error {
+			closeErr = parseCache.Close()
+			return closeErr
+		})
+		bgTracker.End()
+		if closeErr != nil && *verboseFlag {
+			fmt.Fprintf(os.Stderr, "verbose: parse cache flush: %v\n", closeErr)
+		}
+	}
+	exit := func(code int) {
+		finishParseCache()
+		os.Exit(code)
+	}
 	parseResult, err := pipeline.ParsePhase{}.Run(context.Background(), pipeline.ParseInput{
 		Config:             cfg,
 		Paths:              paths,
@@ -883,7 +917,7 @@ potential-bugs:
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(2)
+		exit(2)
 	}
 	parsedFiles := parseResult.KotlinFiles
 	_ = parseResult.ParseErrors
@@ -949,7 +983,7 @@ potential-bugs:
 	dispatchResult, err := (pipeline.DispatchPhase{Workers: ruleWorkers}).Run(context.Background(), dispatchIdx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(2)
+		exit(2)
 	}
 	var perfRuleStats []rules.RuleExecutionStat
 	if *perfRulesFlag {
@@ -1030,7 +1064,7 @@ potential-bugs:
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(2)
+		exit(2)
 	}
 	codeIndex = indexResult2.CodeIndex
 	parsedJavaFiles := indexResult2.JavaFiles
@@ -1055,7 +1089,7 @@ potential-bugs:
 	crossResult, err := (pipeline.CrossFilePhase{Workers: *jobsFlag}).Run(context.Background(), dispatchForCross)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(2)
+		exit(2)
 	}
 	if crossTracker != nil {
 		crossTracker.End()
@@ -1084,7 +1118,7 @@ potential-bugs:
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(2)
+		exit(2)
 	}
 	androidColumns := androidRes.Findings
 	androidTracker.End()
@@ -1110,26 +1144,26 @@ potential-bugs:
 	if *createBaselineFlag != "" {
 		if err := scanner.WriteBaselineColumns(*createBaselineFlag, allColumns, basePath); err != nil {
 			fmt.Fprintf(os.Stderr, "error: failed to write baseline: %v\n", err)
-			os.Exit(2)
+			exit(2)
 		}
 		if !*quietFlag {
 			fmt.Fprintf(os.Stderr, "info: Created baseline with %d issue(s) at %s\n", allColumns.Len(), *createBaselineFlag)
 		}
-		os.Exit(0)
+		exit(0)
 	}
 
 	if *baselineAuditFlag {
 		baselinePath, err := resolveBaselineAuditPath(*baselineFlag, paths)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(2)
+			exit(2)
 		}
 		baseline, err := scanner.LoadBaseline(baselinePath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: failed to load baseline: %v\n", err)
-			os.Exit(2)
+			exit(2)
 		}
-		os.Exit(runBaselineAuditColumns(allColumns, baseline, baselinePath, basePath, paths, effectiveFormat))
+		exit(runBaselineAuditColumns(allColumns, baseline, baselinePath, basePath, paths, effectiveFormat))
 	}
 
 	// Apply baseline filtering
@@ -1137,7 +1171,7 @@ potential-bugs:
 		baseline, err := scanner.LoadBaseline(*baselineFlag)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: failed to load baseline: %v\n", err)
-			os.Exit(2)
+			exit(2)
 		}
 		beforeCount := allColumns.Len()
 		filtered := scanner.FilterColumnsByBaseline(allColumns, baseline, basePath)
@@ -1167,7 +1201,7 @@ potential-bugs:
 	}
 
 	if *removeDeadCodeFlag {
-		os.Exit(runDeadCodeRemovalColumns(allColumns, effectiveFormat, *dryRunFlag, *fixSuffix))
+		exit(runDeadCodeRemovalColumns(allColumns, effectiveFormat, *dryRunFlag, *fixSuffix))
 	}
 
 	// Apply (or dry-run) fixes if requested via the Fixup pipeline phase.
@@ -1258,9 +1292,9 @@ potential-bugs:
 				if !*quietFlag {
 					fmt.Fprintf(os.Stderr, "info: %d unfixable issue(s) remain.\n", allColumns.Len()-fixableCount)
 				}
-				os.Exit(1)
+				exit(1)
 			}
-			os.Exit(0)
+			exit(0)
 		}
 	}
 
@@ -1270,12 +1304,14 @@ potential-bugs:
 		w, err = os.Create(*outputFlag)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(2)
+			exit(2)
 		}
 		defer w.Close()
 	} else {
 		w = os.Stdout
 	}
+
+	finishParseCache()
 
 	// Add total timing
 	// Record total wall-clock time
@@ -1365,14 +1401,14 @@ potential-bugs:
 	// sample of findings for the requested rule and exits with the sampler's
 	// own exit code.
 	if *sampleRuleFlag != "" {
-		os.Exit(runSampleFindingsColumns(allColumns, *sampleRuleFlag, *sampleCountFlag, *sampleContextFlag, basePath))
+		exit(runSampleFindingsColumns(allColumns, *sampleRuleFlag, *sampleCountFlag, *sampleContextFlag, basePath))
 	}
 	// --rule-audit short-circuits normal output: it prints a per-rule
 	// audit table and sample details, then exits. Passes the full set of
 	// scan paths so multi-target audits can partition findings per repo,
 	// and honors -f=json for scripting.
 	if *ruleAuditFlag {
-		os.Exit(runRuleAuditColumns(allColumns, ruleAuditOpts{
+		exit(runRuleAuditColumns(allColumns, ruleAuditOpts{
 			MinFindings:    *ruleAuditMinFlag,
 			DetailRules:    *ruleAuditDetailsFlag,
 			SamplesPerRule: *ruleAuditSamplesFlag,
@@ -1415,7 +1451,7 @@ potential-bugs:
 	})
 	if outErr != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", outErr)
-		os.Exit(2)
+		exit(2)
 	}
 	finalColumns := outRes.FinalFindings
 	allColumns = &finalColumns
@@ -1427,7 +1463,7 @@ potential-bugs:
 	}
 
 	if allColumns.Len() > 0 {
-		os.Exit(1)
+		exit(1)
 	}
 }
 

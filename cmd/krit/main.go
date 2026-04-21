@@ -19,7 +19,6 @@ import (
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/cacheutil"
-	"github.com/kaeawc/krit/internal/store"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/hashutil"
@@ -30,6 +29,7 @@ import (
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/schema"
+	"github.com/kaeawc/krit/internal/store"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -127,6 +127,7 @@ func main() {
 	flag.StringVar(formatFlag, "format", "json", "Alias for -f")
 	reportFlag := flag.String("report", "", "Report format: json, plain, sarif, checkstyle (alias for -f, takes precedence)")
 	perfFlag := flag.Bool("perf", false, "Include performance timing in output")
+	perfRulesFlag := flag.Bool("perf-rules", false, "Include per-rule execution ranking in JSON output and stderr table (implies --perf)")
 	cpuProfileFlag := flag.String("cpuprofile", "", "Write CPU profile to file")
 	memProfileFlag := flag.String("memprofile", "", "Write memory profile to file")
 	profileDispatchFlag := flag.Bool("profile-dispatch", false, "Debug: emit per-file dispatch timing distribution to stderr")
@@ -226,6 +227,9 @@ func main() {
 	flag.Parse()
 	if baselineAuditVerb {
 		*baselineAuditFlag = true
+	}
+	if *perfRulesFlag {
+		*perfFlag = true
 	}
 
 	// Scaffold mode: -new-experiment short-circuits the normal scan path.
@@ -648,6 +652,7 @@ potential-bugs:
 	// defer won't fire through os.Exit, so we manage the lifecycle manually.
 	var cpuProfileFile *os.File
 	if *cpuProfileFlag != "" {
+		rules.SetRuleProfileLabels(true)
 		f, err := os.Create(*cpuProfileFlag)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: could not create CPU profile: %v\n", err)
@@ -926,25 +931,32 @@ potential-bugs:
 	ruleStart := time.Now()
 	ruleWorkers := phaseWorkerCount("ruleExecution", *jobsFlag, len(parsedFiles))
 	dispatchIdx := pipeline.IndexResult{
-		ParseResult:            parseResult,
-		Resolver:               resolver,
-		CacheResult:            cacheResult,
-		Cache:                  analysisCache,
-		RuleHash:               ruleHash,
-		CacheFilePath:          cacheFilePath,
-		CacheStats:             cacheStats,
-		Logger:                 verboseLogger,
-		Tracker:                tracker,
-		Jobs:                   *jobsFlag,
-		ProfileDispatch:        *profileDispatchFlag,
-		Version:                version,
-		CacheScanPaths:         paths,
-		EmitPerFileStats:       true,
+		ParseResult:      parseResult,
+		Resolver:         resolver,
+		CacheResult:      cacheResult,
+		Cache:            analysisCache,
+		RuleHash:         ruleHash,
+		CacheFilePath:    cacheFilePath,
+		CacheStats:       cacheStats,
+		Logger:           verboseLogger,
+		Tracker:          tracker,
+		Jobs:             *jobsFlag,
+		ProfileDispatch:  *profileDispatchFlag,
+		Version:          version,
+		CacheScanPaths:   paths,
+		EmitPerFileStats: true,
 	}
 	dispatchResult, err := (pipeline.DispatchPhase{Workers: ruleWorkers}).Run(context.Background(), dispatchIdx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
+	}
+	var perfRuleStats []rules.RuleExecutionStat
+	if *perfRulesFlag {
+		perfRuleStats = rules.SortedRuleExecutionStats(dispatchResult.Stats)
+		if !*quietFlag {
+			reportRuleExecutionRanking(os.Stderr, perfRuleStats, 20)
+		}
 	}
 	allFindings := dispatchResult.Findings.Findings()
 	if *profileDispatchFlag && len(dispatchResult.FileTimings) > 0 {
@@ -1394,6 +1406,7 @@ potential-bugs:
 		Version:          version,
 		ExperimentNames:  experiment.Current().Names(),
 		PerfTimings:      perfTimings,
+		PerfRuleStats:    perfRuleStats,
 		CacheStats:       cacheStats,
 		Caches:           cacheSnapshots,
 		CacheBudget:      cacheBudget,
@@ -1439,7 +1452,22 @@ func filterFixesByLevelColumns(columns *scanner.FindingColumns, registry []*v2ru
 	return columns.CountTextFixes(), strippedByLevel
 }
 
-
+func reportRuleExecutionRanking(w *os.File, stats []rules.RuleExecutionStat, limit int) {
+	if len(stats) == 0 {
+		return
+	}
+	if limit <= 0 || limit > len(stats) {
+		limit = len(stats)
+	}
+	fmt.Fprintln(w, "=== rule execution ranking ===")
+	fmt.Fprintln(w, "rank  rule                              family    time(ms)  share   calls     avg(ns)")
+	for i := 0; i < limit; i++ {
+		stat := stats[i]
+		fmt.Fprintf(w, "%4d  %-32s  %-8s  %8.3f  %5.1f%%  %7d  %8d\n",
+			i+1, stat.Rule, stat.Family, stat.DurationMs, stat.SharePct, stat.Invocations, stat.AvgNs)
+	}
+	fmt.Fprintln(w, "=== end rule execution ranking ===")
+}
 
 // fileTiming is an alias for pipeline.FileTiming so profile-dispatch
 // reporting can stay in main.go while the phase owns the capture path.
@@ -1621,9 +1649,6 @@ func phaseWorkerCount(phase string, maxWorkers, workItems int) int {
 	return workers
 }
 
-
-
-
 func countActiveV2(registry []*v2rules.Rule) int {
 	count := 0
 	for _, r := range registry {
@@ -1661,4 +1686,3 @@ func getChangedFiles(ref string, scanPaths []string) (map[string]bool, error) {
 	}
 	return result, nil
 }
-

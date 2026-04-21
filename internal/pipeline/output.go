@@ -90,6 +90,7 @@ func (OutputPhase) Run(ctx context.Context, in OutputInput) (OutputResult, error
 			in.CacheStats,
 			in.Caches,
 			in.CacheBudget,
+			in.PerfRuleStats,
 		); err != nil {
 			return OutputResult{}, fmt.Errorf("format json: %w", err)
 		}

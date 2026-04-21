@@ -314,6 +314,9 @@ type OutputInput struct {
 	// PerfTimings, when non-nil, are forwarded into FormatJSONColumns
 	// so the JSON header includes a --perf timing summary.
 	PerfTimings []perf.TimingEntry
+	// PerfRuleStats, when non-nil, are forwarded into FormatJSONColumns
+	// so the JSON header includes the --perf-rules timing ranking.
+	PerfRuleStats []rules.RuleExecutionStat
 	// CacheStats, when non-nil, are forwarded into FormatJSONColumns so
 	// the JSON header includes cache hit/miss counters.
 	CacheStats *cache.CacheStats

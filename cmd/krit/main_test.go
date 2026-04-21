@@ -698,6 +698,31 @@ func TestPerfFlag(t *testing.T) {
 	}
 }
 
+func TestPerfRulesFlag_JSON(t *testing.T) {
+	dir := writeTempKt(t, "PerfRules.kt", "package test\n\nfun example() {\n    val x = 1\n}\n")
+
+	stdout, _, _ := runKrit(t, "--no-cache", "--no-type-inference", "--no-type-oracle", "-q", "-f", "json", "--perf-rules", dir)
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	perfData, ok := result["perfTiming"].([]interface{})
+	if !ok || len(perfData) == 0 {
+		t.Fatalf("expected --perf-rules to imply perfTiming, got: %v", result["perfTiming"])
+	}
+	ruleData, ok := result["perfRuleStats"].([]interface{})
+	if !ok || len(ruleData) == 0 {
+		t.Fatalf("expected perfRuleStats in JSON output, got: %v", result["perfRuleStats"])
+	}
+	first := ruleData[0].(map[string]interface{})
+	for _, key := range []string{"rule", "family", "invocations", "durationNs", "avgNs", "sharePct"} {
+		if _, ok := first[key]; !ok {
+			t.Fatalf("expected perfRuleStats row to include %q, got: %#v", key, first)
+		}
+	}
+}
+
 func TestListExperiments_JSON(t *testing.T) {
 	stdout, _, code := runKrit(t, "--list-experiments")
 	if code != 0 {

@@ -76,6 +76,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 		fileTimings []FileTiming
 		acc         = rules.RunStats{
 			DispatchRuleNsByRule: make(map[string]int64),
+			RuleStatsByRule:      make(map[string]rules.RuleExecutionStat),
 		}
 	)
 
@@ -198,6 +199,17 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 			}
 			topDispatchTracker.End()
 		}
+		if len(acc.RuleStatsByRule) > 0 {
+			topRules := rules.SortedRuleExecutionStats(acc)
+			if len(topRules) > 20 {
+				topRules = topRules[:20]
+			}
+			topRuleTracker := ruleTracker.Serial("topRuleExecution")
+			for _, tr := range topRules {
+				perf.AddEntry(topRuleTracker, tr.Rule, time.Duration(tr.DurationNs))
+			}
+			topRuleTracker.End()
+		}
 	}
 	if ruleTracker != nil {
 		ruleTracker.End()
@@ -257,7 +269,6 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	}, nil
 }
 
-
 // mergeStats folds src's counters into dst. Counter fields add, the
 // per-rule map merges by summing matching keys, and the error slice
 // appends. Matches the manual accumulation in cmd/krit/main.go:1039-1052.
@@ -276,6 +287,23 @@ func mergeStats(dst *rules.RunStats, src rules.RunStats) {
 		}
 		for name, dur := range src.DispatchRuleNsByRule {
 			dst.DispatchRuleNsByRule[name] += dur
+		}
+	}
+	if src.RuleStatsByRule != nil {
+		if dst.RuleStatsByRule == nil {
+			dst.RuleStatsByRule = make(map[string]rules.RuleExecutionStat, len(src.RuleStatsByRule))
+		}
+		for name, stat := range src.RuleStatsByRule {
+			existing := dst.RuleStatsByRule[name]
+			if existing.Rule == "" {
+				existing.Rule = stat.Rule
+			}
+			if existing.Family == "" {
+				existing.Family = stat.Family
+			}
+			existing.Invocations += stat.Invocations
+			existing.DurationNs += stat.DurationNs
+			dst.RuleStatsByRule[name] = existing
 		}
 	}
 	if len(src.Errors) > 0 {

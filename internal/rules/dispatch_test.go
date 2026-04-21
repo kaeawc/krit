@@ -90,6 +90,57 @@ func TestDispatcher_RunWithStats_TracksRuleBuckets(t *testing.T) {
 	if len(stats.DispatchRuleNsByRule) == 0 {
 		t.Fatal("expected per-rule dispatch timings")
 	}
+	stat := stats.RuleStatsByRule[rule.ID]
+	if stat.Rule != rule.ID || stat.Family != "dispatch" || stat.Invocations != 1 || stat.DurationNs <= 0 {
+		t.Fatalf("expected dispatch rule timing with one invocation, got %+v", stat)
+	}
+}
+
+func TestDispatcher_RunWithStats_TracksLineRuleInvocations(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Example.kt")
+	if err := os.WriteFile(path, []byte("fun example() = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	file, err := scanner.ParseFile(path)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	rule := v2.FakeRule("LineTiming",
+		v2.WithNeeds(v2.NeedsLinePass),
+		v2.WithCheck(func(ctx *v2.Context) {
+			ctx.EmitAt(1, 1, "line finding")
+		}),
+	)
+	dispatcher := NewDispatcherV2([]*v2.Rule{rule})
+	columns, stats := dispatcher.RunWithStats(file)
+	if columns.Len() != 1 {
+		t.Fatalf("expected one line-rule finding, got %d", columns.Len())
+	}
+	stat := stats.RuleStatsByRule[rule.ID]
+	if stat.Rule != rule.ID || stat.Family != "line" || stat.Invocations != 1 || stat.DurationNs <= 0 {
+		t.Fatalf("expected line rule timing with one invocation, got %+v", stat)
+	}
+}
+
+func TestSortedRuleExecutionStats_DerivesAveragesAndShare(t *testing.T) {
+	stats := RunStats{RuleStatsByRule: map[string]RuleExecutionStat{
+		"Slow": {Rule: "Slow", Family: "dispatch", Invocations: 2, DurationNs: 80},
+		"Fast": {Rule: "Fast", Family: "line", Invocations: 1, DurationNs: 20},
+	}}
+
+	got := SortedRuleExecutionStats(stats)
+	if len(got) != 2 {
+		t.Fatalf("expected two stats, got %d", len(got))
+	}
+	if got[0].Rule != "Slow" || got[0].AvgNs != 40 || got[0].SharePct != 80 {
+		t.Fatalf("unexpected slow stat: %+v", got[0])
+	}
+	if got[1].Rule != "Fast" || got[1].AvgNs != 20 || got[1].SharePct != 20 {
+		t.Fatalf("unexpected fast stat: %+v", got[1])
+	}
 }
 
 func TestDispatcher_FlatDispatchRuleRunsOnFlatTree(t *testing.T) {

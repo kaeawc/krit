@@ -85,6 +85,12 @@ func (c *CompositeResolver) ResolveImport(simpleName string, file *scanner.File)
 // LookupAnnotations, LookupCallTarget, etc. directly.
 func (c *CompositeResolver) Oracle() Lookup { return c.oracle }
 
+// Fallback returns the source-level TypeResolver wrapped by this
+// composite. The dispatcher hands this out as ctx.Resolver for rules
+// that declare TypeInfo.PreferBackend = PreferResolver so they avoid
+// the oracle IPC for every lookup.
+func (c *CompositeResolver) Fallback() typeinfer.TypeResolver { return c.fallback }
+
 func (c *CompositeResolver) IsNullableFlat(idx uint32, file *scanner.File) *bool {
 	return c.fallback.IsNullableFlat(idx, file)
 }

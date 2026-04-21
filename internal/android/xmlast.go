@@ -95,7 +95,7 @@ func ParseXMLAST(data []byte) (*XMLNode, error) {
 		if err != nil {
 			return nil, err
 		}
-		_ = pc.Save(data, built)
+		_ = pc.SaveAsync(data, built)
 		return built, nil
 	}
 

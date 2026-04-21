@@ -102,6 +102,9 @@ func TestResourceIndexCache_RoundTripFindingEquivalence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prime scan: %v", err)
 	}
+	if err := cache.Close(); err != nil {
+		t.Fatalf("Close after prime scan: %v", err)
+	}
 	if s := cache.Stats(); s.Hits != 0 || s.Misses != 1 {
 		t.Errorf("after prime: hits=%d misses=%d (want 0/1)", s.Hits, s.Misses)
 	}
@@ -205,6 +208,9 @@ func TestResourceIndexCache_InvalidatesOnFileChange(t *testing.T) {
 	if _, _, err := scanValuesDirIndexKinds(valuesDir, 2, ValuesScanAll); err != nil {
 		t.Fatalf("prime: %v", err)
 	}
+	if err := cache.Close(); err != nil {
+		t.Fatalf("Close after prime: %v", err)
+	}
 	if _, _, err := scanValuesDirIndexKinds(valuesDir, 2, ValuesScanAll); err != nil {
 		t.Fatalf("warm1: %v", err)
 	}
@@ -281,6 +287,41 @@ func TestResourceIndexCache_KindMaskInKey(t *testing.T) {
 	}
 }
 
+func TestResourceIndexCache_SaveAsyncFlushesClonedIndex(t *testing.T) {
+	valuesDir := writeSampleValuesDir(t)
+	repo := t.TempDir()
+	cache := withResourceCache(t, repo)
+
+	files, err := readValuesDirFiles(valuesDir, 2)
+	if err != nil {
+		t.Fatalf("readValuesDirFiles: %v", err)
+	}
+	fingerprint := computeValuesDirFingerprint(valuesDir, ValuesScanAll, files)
+	idx := newResourceIndex()
+	idx.Strings["hello"] = "Hello"
+	idx.Styles["Theme"] = &Style{Items: map[string]string{"colorPrimary": "@color/primary"}}
+
+	if err := cache.SaveAsync(fingerprint, ValuesScanAll, valuesDir, idx); err != nil {
+		t.Fatalf("SaveAsync: %v", err)
+	}
+	idx.Strings["hello"] = "MUTATED"
+	idx.Styles["Theme"].Items["colorPrimary"] = "@color/mutated"
+	if err := cache.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	got, ok := cache.Load(fingerprint, ValuesScanAll, valuesDir)
+	if !ok {
+		t.Fatal("expected flushed async cache hit")
+	}
+	if got.Strings["hello"] != "Hello" {
+		t.Fatalf("cached string = %q, want original clone", got.Strings["hello"])
+	}
+	if got.Styles["Theme"].Items["colorPrimary"] != "@color/primary" {
+		t.Fatalf("cached style item = %q, want original clone", got.Styles["Theme"].Items["colorPrimary"])
+	}
+}
+
 func TestResourceIndexCache_ResDirInKey(t *testing.T) {
 	repo := t.TempDir()
 	cache := withResourceCache(t, repo)
@@ -312,6 +353,9 @@ func TestResourceIndexCache_ClearWipesEntries(t *testing.T) {
 
 	if _, _, err := scanValuesDirIndexKinds(valuesDir, 2, ValuesScanAll); err != nil {
 		t.Fatal(err)
+	}
+	if err := cache.Close(); err != nil {
+		t.Fatalf("Close after prime: %v", err)
 	}
 	if s := cache.Stats(); s.Entries == 0 {
 		t.Fatalf("expected non-zero entries after prime, got %d", s.Entries)

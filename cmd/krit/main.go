@@ -858,6 +858,8 @@ potential-bugs:
 		}
 	}
 	var parseCache *scanner.ParseCache
+	var xmlParseCache *android.XMLParseCache
+	var resourceCache *android.ResourceIndexCache
 	if !*noParseCacheFlag {
 		capBytes := resolveParseCacheCap(*parseCacheCapMBFlag, cfg)
 		repoDir := oracle.FindRepoDir(paths)
@@ -868,40 +870,58 @@ potential-bugs:
 			fmt.Fprintf(os.Stderr, "verbose: parse cache disabled: %v\n", pcErr)
 		}
 		if xmlPC, xmlErr := android.NewXMLParseCacheWithCap(repoDir, capBytes); xmlErr == nil {
-			defer func() { _ = xmlPC.Close() }()
+			xmlParseCache = xmlPC
 		} else if *verboseFlag {
 			fmt.Fprintf(os.Stderr, "verbose: xml parse cache disabled: %v\n", xmlErr)
 		}
 	}
 	if !*noResourceCacheFlag {
 		if rc, rcErr := android.NewResourceIndexCache(oracle.FindRepoDir(paths)); rcErr == nil {
+			resourceCache = rc
 			android.SetActiveResourceIndexCache(rc)
-			defer func() { _ = rc.Close() }()
 		} else if *verboseFlag {
 			fmt.Fprintf(os.Stderr, "verbose: resource cache disabled: %v\n", rcErr)
 		}
 	} else {
 		android.SetActiveResourceIndexCache(nil)
 	}
-	parseCacheFinished := false
-	finishParseCache := func() {
-		if parseCache == nil || parseCacheFinished {
+	cachesClosed := false
+	closeCaches := func() {
+		if cachesClosed {
 			return
 		}
-		parseCacheFinished = true
-		var closeErr error
-		bgTracker := tracker.Serial("cacheBackgroundFlush")
-		_ = bgTracker.Track("parseCacheFlush", func() error {
-			closeErr = parseCache.Close()
-			return closeErr
-		})
-		bgTracker.End()
-		if closeErr != nil && *verboseFlag {
-			fmt.Fprintf(os.Stderr, "verbose: parse cache flush: %v\n", closeErr)
+		cachesClosed = true
+		if parseCache != nil || xmlParseCache != nil || resourceCache != nil {
+			cacheFlushTracker := tracker.Serial("cacheBackgroundFlush")
+			if parseCache != nil {
+				var closeErr error
+				_ = cacheFlushTracker.Track("parseCacheFlush", func() error {
+					closeErr = parseCache.Close()
+					return closeErr
+				})
+				if closeErr != nil && *verboseFlag {
+					fmt.Fprintf(os.Stderr, "verbose: parse cache flush failed: %v\n", closeErr)
+				}
+			}
+			if xmlParseCache != nil {
+				start := time.Now()
+				if err := xmlParseCache.Close(); err != nil && *verboseFlag {
+					fmt.Fprintf(os.Stderr, "verbose: xml parse cache flush failed: %v\n", err)
+				}
+				perf.AddEntry(cacheFlushTracker, "xmlParseCacheFlush", time.Since(start))
+			}
+			if resourceCache != nil {
+				start := time.Now()
+				if err := resourceCache.Close(); err != nil && *verboseFlag {
+					fmt.Fprintf(os.Stderr, "verbose: resource cache flush failed: %v\n", err)
+				}
+				perf.AddEntry(cacheFlushTracker, "resourceCacheFlush", time.Since(start))
+			}
+			cacheFlushTracker.End()
 		}
 	}
 	exit := func(code int) {
-		finishParseCache()
+		closeCaches()
 		os.Exit(code)
 	}
 	parseResult, err := pipeline.ParsePhase{}.Run(context.Background(), pipeline.ParseInput{
@@ -1298,6 +1318,8 @@ potential-bugs:
 		}
 	}
 
+	closeCaches()
+
 	// Output
 	var w *os.File
 	if *outputFlag != "" {
@@ -1311,7 +1333,7 @@ potential-bugs:
 		w = os.Stdout
 	}
 
-	finishParseCache()
+	closeCaches()
 
 	// Add total timing
 	// Record total wall-clock time

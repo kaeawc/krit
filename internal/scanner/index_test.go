@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/bits-and-blooms/bloom/v3"
@@ -323,6 +324,38 @@ class Holder { val z = 2 }
 			t.Errorf("missing symbol %q in %+v", want, symbolNames(symbols))
 		}
 	}
+}
+
+func TestCollectReferencesFlat_KDocReferenceInComment(t *testing.T) {
+	src := []byte("/**\n * See [DocumentedType] for details.\n */\n")
+	startOffset := strings.Index(string(src), "DocumentedType")
+	if startOffset < 0 {
+		t.Fatal("test source missing DocumentedType")
+	}
+	start := uint32(startOffset)
+	end := start + uint32(len("DocumentedType"))
+	file := &File{
+		Path:    "demo.kt",
+		Content: src,
+		FlatTree: &FlatTree{Nodes: []FlatNode{
+			{Type: internNodeType("source_file"), FirstChild: 1, ChildCount: 1, NamedCount: 1, Flags: flatNodeFlagNamed, EndByte: uint32(len(src))},
+			{Type: internNodeType("multiline_comment"), Parent: 0, FirstChild: 2, StartByte: 0, EndByte: uint32(len(src)), StartRow: 0, ChildCount: 1, NamedCount: 1, Flags: flatNodeFlagNamed},
+			{Type: internNodeType("simple_identifier"), Parent: 1, StartByte: start, EndByte: end, StartRow: 1, StartCol: 9, Flags: flatNodeFlagNamed},
+		}},
+	}
+
+	var refs []Reference
+	collectReferencesFlat(file, &refs)
+
+	for _, ref := range refs {
+		if ref.Name == "DocumentedType" {
+			if !ref.InComment {
+				t.Fatalf("DocumentedType reference InComment = false, want true")
+			}
+			return
+		}
+	}
+	t.Fatalf("missing DocumentedType reference in %+v", refs)
 }
 
 func truncate(s string, n int) string {

@@ -17,7 +17,7 @@ func (r *CastNullableToNonNullableTypeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "720f96db4e9a63c7",
+		SourceHash:    "20a129ae6f71a4cd",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *CastToNullableTypeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "720f96db4e9a63c7",
+		SourceHash:    "20a129ae6f71a4cd",
 	}
 }
 
@@ -43,6 +43,6 @@ func (r *UnsafeCastRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "720f96db4e9a63c7",
+		SourceHash:    "20a129ae6f71a4cd",
 	}
 }

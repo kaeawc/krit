@@ -606,44 +606,44 @@ func scanValuesDirIndex(dir string, maxWorkers int) (*ResourceIndex, ResourceSca
 }
 
 func scanValuesDirIndexKinds(dir string, maxWorkers int, kinds ValuesScanKind) (*ResourceIndex, ResourceScanStats, error) {
-	files, err := os.ReadDir(dir)
+	readStart := time.Now()
+	files, err := readValuesDirFiles(dir, maxWorkers)
 	if err != nil {
-		return nil, ResourceScanStats{}, fmt.Errorf("cannot read values dir %s: %w", dir, err)
+		return nil, ResourceScanStats{}, err
+	}
+	if len(files) == 0 {
+		return newResourceIndex(), ResourceScanStats{}, nil
+	}
+	readMs := time.Since(readStart).Milliseconds()
+
+	cache := ActiveResourceIndexCache()
+	var fingerprint string
+	if cache != nil {
+		fingerprint = computeValuesDirFingerprint(dir, kinds, files)
+		if cached, ok := cache.Load(fingerprint, kinds, dir); ok {
+			return cached, ResourceScanStats{ValuesReadMs: readMs}, nil
+		}
 	}
 
-	type valuesInput struct {
-		path string
-	}
 	type valuesResult struct {
 		index *ResourceIndex
 		stats ResourceScanStats
 		err   error
 	}
 
-	inputs := make([]valuesInput, 0, len(files))
-	for _, f := range files {
-		if f.IsDir() || !strings.HasSuffix(f.Name(), ".xml") {
-			continue
-		}
-		inputs = append(inputs, valuesInput{path: filepath.Join(dir, f.Name())})
-	}
-	if len(inputs) == 0 {
-		return newResourceIndex(), ResourceScanStats{}, nil
-	}
+	workers := clampWorkers(maxWorkers, len(files))
 
-	workers := clampWorkers(maxWorkers, len(inputs))
-
-	results := make([]valuesResult, len(inputs))
+	results := make([]valuesResult, len(files))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, workers)
-	for i, input := range inputs {
+	for i, input := range files {
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(i int, input valuesInput) {
+		go func(i int, input valuesDirFile) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			tmp := newResourceIndex()
-			stats, err := tmp.parseValuesFileKinds(input.path, kinds)
+			stats, err := tmp.parseValuesBytesKinds(input.path, input.content, kinds)
 			results[i] = valuesResult{index: tmp, stats: stats, err: err}
 		}(i, input)
 	}
@@ -651,14 +651,31 @@ func scanValuesDirIndexKinds(dir string, maxWorkers int, kinds ValuesScanKind) (
 
 	idx := newResourceIndex()
 	var total ResourceScanStats
+	total.ValuesReadMs += readMs
 	for i, result := range results {
 		if result.err != nil {
-			return nil, total, fmt.Errorf("parsing values %s: %w", inputs[i].path, result.err)
+			return nil, total, fmt.Errorf("parsing values %s: %w", files[i].path, result.err)
 		}
 		idx.mergeFrom(result.index)
 		total.add(result.stats)
 	}
+	if cache != nil {
+		_ = cache.Save(fingerprint, kinds, dir, idx)
+	}
 	return idx, total, nil
+}
+
+// parseValuesBytesKinds is parseValuesFileKinds but reuses
+// already-read bytes, so the cache fingerprint path does not force a
+// second os.ReadFile on a miss.
+func (idx *ResourceIndex) parseValuesBytesKinds(path string, data []byte, kinds ValuesScanKind) (ResourceScanStats, error) {
+	var stats ResourceScanStats
+	start := time.Now()
+	if err := idx.parseValuesXMLKinds(path, data, kinds); err != nil {
+		return stats, err
+	}
+	stats.ValuesParseMs += time.Since(start).Milliseconds()
+	return stats, nil
 }
 
 // scanDrawableDir records drawable resource names from a drawable directory.

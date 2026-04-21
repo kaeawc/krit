@@ -2,9 +2,12 @@ package pipeline
 
 import (
 	"context"
+	"runtime"
+	"sync"
 	"time"
 
 	"github.com/kaeawc/krit/internal/module"
+	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -80,40 +83,28 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 			if ruleTracker != nil {
 				ruleTracker = ruleTracker.Serial("crossRules")
 			}
-			for _, r := range in.ActiveRules {
-				if r == nil {
-					continue
-				}
+			serialRules, concurrentRules := splitConcurrentCrossRules(in.ActiveRules)
+			for _, r := range serialRules {
 				if err := ctx.Err(); err != nil {
 					return err
 				}
-				if r.Needs.Has(v2.NeedsParsedFiles) {
-					ruleID := r.ID
-					call := func() error {
-						rctx := &v2.Context{ParsedFiles: in.KotlinFiles, Collector: crossCollector, Rule: r, DefaultConfidence: 0.95}
-						r.Check(rctx)
-						return nil
-					}
-					if ruleTracker != nil {
-						_ = ruleTracker.Track(ruleID, call)
-					} else {
-						_ = call()
-					}
-					continue
+				ruleID := r.ID
+				call := func() error {
+					rctx := buildCrossRuleContext(r, codeIndex, in.KotlinFiles, crossCollector)
+					r.Check(rctx)
+					return nil
 				}
-				if r.Needs.Has(v2.NeedsCrossFile) {
-					ruleID := r.ID
-					call := func() error {
-						rctx := &v2.Context{CodeIndex: codeIndex, Collector: crossCollector, Rule: r, DefaultConfidence: 0.95}
-						r.Check(rctx)
-						return nil
-					}
-					if ruleTracker != nil {
-						_ = ruleTracker.Track(ruleID, call)
-					} else {
-						_ = call()
-					}
+				if ruleTracker != nil {
+					_ = ruleTracker.Track(ruleID, call)
+				} else {
+					_ = call()
 				}
+			}
+			if len(concurrentRules) > 0 {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				runConcurrentCrossRules(ctx, concurrentRules, codeIndex, in.KotlinFiles, crossCollector, p.Workers, ruleTracker)
 			}
 			if ruleTracker != nil {
 				ruleTracker.End()
@@ -247,6 +238,135 @@ func applySuppressionColumns(cols *scanner.FindingColumns, files []*scanner.File
 		}
 		return !file.Suppression.IsSuppressed(cols.RuleAt(row), cols.RuleSetAt(row), cols.LineAt(row))
 	})
+}
+
+// splitConcurrentCrossRules partitions ActiveRules into those that must
+// run serially on the shared collector and those that declared
+// NeedsConcurrent and can be executed in parallel with worker-local
+// collectors. Only NeedsParsedFiles / NeedsCrossFile rules are eligible
+// — other families are skipped at this phase boundary and returned in
+// neither slice. Ordering within each slice mirrors ActiveRules so the
+// zero-concurrent-rule case is byte-identical to the pre-change loop.
+func splitConcurrentCrossRules(active []*v2.Rule) (serial, concurrent []*v2.Rule) {
+	for _, r := range active {
+		if r == nil {
+			continue
+		}
+		if !r.Needs.Has(v2.NeedsParsedFiles) && !r.Needs.Has(v2.NeedsCrossFile) {
+			continue
+		}
+		if r.Needs.Has(v2.NeedsConcurrent) {
+			concurrent = append(concurrent, r)
+			continue
+		}
+		serial = append(serial, r)
+	}
+	return serial, concurrent
+}
+
+// buildCrossRuleContext produces a Context populated with the cross-file
+// inputs a rule declares it needs. Shared between the serial and
+// concurrent execution paths so both families see identical Context
+// shapes.
+func buildCrossRuleContext(r *v2.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, collector *scanner.FindingCollector) *v2.Context {
+	rctx := &v2.Context{Collector: collector, Rule: r, DefaultConfidence: 0.95}
+	if r.Needs.Has(v2.NeedsParsedFiles) {
+		rctx.ParsedFiles = parsedFiles
+	}
+	if r.Needs.Has(v2.NeedsCrossFile) {
+		rctx.CodeIndex = codeIndex
+	}
+	return rctx
+}
+
+// concurrentCrossRuleThreshold is the minimum number of NeedsConcurrent
+// rules required before the phase spins up parallel workers. Below this
+// threshold the goroutine / merge overhead outweighs the wall-time win,
+// so we fall back to serial execution on the shared collector.
+const concurrentCrossRuleThreshold = 2
+
+// runConcurrentCrossRules executes rules in parallel across worker
+// goroutines with per-worker collectors merged serially at the end. The
+// merge preserves each worker's relative finding order, and the phase
+// owner re-sorts the full columnar result by file/line before output
+// (see applySuppressionColumns + result.Findings path). Rule panics are
+// recovered per-rule so one broken rule does not take down the phase.
+func runConcurrentCrossRules(ctx context.Context, rules []*v2.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, dst *scanner.FindingCollector, workers int, tracker perf.Tracker) {
+	if len(rules) == 0 {
+		return
+	}
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
+	if workers > len(rules) {
+		workers = len(rules)
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	// Small rule-set threshold: overhead of goroutines + merge exceeds
+	// the win below ~2 concurrent rules.
+	if len(rules) < concurrentCrossRuleThreshold || workers == 1 {
+		for _, r := range rules {
+			if err := ctx.Err(); err != nil {
+				return
+			}
+			ruleID := r.ID
+			call := func() error {
+				runConcurrentCrossRule(r, codeIndex, parsedFiles, dst)
+				return nil
+			}
+			if tracker != nil {
+				_ = tracker.Track(ruleID, call)
+			} else {
+				_ = call()
+			}
+		}
+		return
+	}
+
+	locals := make([]*scanner.FindingCollector, workers)
+	for i := range locals {
+		locals[i] = scanner.NewFindingCollector(0)
+	}
+
+	jobs := make(chan int, len(rules))
+	for i := range rules {
+		jobs <- i
+	}
+	close(jobs)
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for w := 0; w < workers; w++ {
+		go func(workerID int) {
+			defer wg.Done()
+			local := locals[workerID]
+			for idx := range jobs {
+				if err := ctx.Err(); err != nil {
+					return
+				}
+				r := rules[idx]
+				runConcurrentCrossRule(r, codeIndex, parsedFiles, local)
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	// Merge serially in worker order so output is a deterministic
+	// function of rule set + worker count. Downstream sorting by
+	// file/line makes the final JSON row order independent of worker
+	// count, satisfying the issue's finding-equivalence requirement.
+	scanner.MergeCollectors(dst, locals...)
+}
+
+// runConcurrentCrossRule invokes a single rule's Check against a given
+// collector, recovering from panics the same way the serial path does.
+// Each caller hands its own collector so the goroutines never contend.
+func runConcurrentCrossRule(r *v2.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, local *scanner.FindingCollector) {
+	defer func() { _ = recover() }()
+	rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, local)
+	r.Check(rctx)
 }
 
 // Compile-time check.

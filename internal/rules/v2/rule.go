@@ -44,6 +44,19 @@ const (
 	// run tree-sitter-only and the JVM oracle is skipped entirely if no
 	// enabled rule declares this bit.
 	NeedsOracle
+	// NeedsConcurrent marks this rule as safe to execute in parallel
+	// across worker goroutines at a phase boundary. The dispatcher
+	// hands each concurrent rule its own Context carrying a worker-
+	// local FindingCollector; collectors are serially merged into the
+	// phase's output after all workers stop appending.
+	//
+	// Rules declaring this bit must not rely on package-level mutable
+	// state or shared maps. They read the phase's immutable inputs
+	// (CodeIndex, ParsedFiles, ModuleIndex) and emit only through
+	// ctx.Emit / ctx.EmitAt. Finding order is recovered by the phase
+	// owner after the merge (SortByFileLine), so worker interleavings
+	// do not affect JSON / SARIF output.
+	NeedsConcurrent
 )
 
 // NeedsTypeInfo is the unified type-information capability: rules

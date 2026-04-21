@@ -99,6 +99,22 @@ func TestCapabilities_NeedsTypeInfo(t *testing.T) {
 	}
 }
 
+func TestCapabilities_NeedsConcurrent(t *testing.T) {
+	// NeedsConcurrent is orthogonal to the routing bits: a concurrent
+	// cross-file rule still satisfies NeedsCrossFile, and a concurrent
+	// per-file rule still satisfies IsPerFile.
+	cross := NeedsCrossFile | NeedsConcurrent
+	if !cross.Has(NeedsCrossFile) {
+		t.Error("NeedsCrossFile|NeedsConcurrent should satisfy NeedsCrossFile")
+	}
+	if !cross.Has(NeedsConcurrent) {
+		t.Error("NeedsCrossFile|NeedsConcurrent should satisfy NeedsConcurrent")
+	}
+	if !(NeedsLinePass | NeedsConcurrent).IsPerFile() {
+		t.Error("NeedsConcurrent on a per-file rule must not flip IsPerFile")
+	}
+}
+
 func TestOracleFilter_NeverNeedsOracle(t *testing.T) {
 	tests := []struct {
 		name   string

@@ -6,6 +6,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/cache"
+	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
@@ -316,6 +317,11 @@ type OutputInput struct {
 	// CacheStats, when non-nil, are forwarded into FormatJSONColumns so
 	// the JSON header includes cache hit/miss counters.
 	CacheStats *cache.CacheStats
+	// Caches is the unified per-subsystem cache stats array from
+	// cacheutil.AllStats(), emitted under the top-level "caches" key.
+	// Intended for --perf consumers that want to see every on-disk
+	// cache's hit rate in one place.
+	Caches []cacheutil.NamedCacheStats
 	// WarningsAsErrors, when true, promotes warning-severity findings
 	// to errors before format dispatch.
 	WarningsAsErrors bool

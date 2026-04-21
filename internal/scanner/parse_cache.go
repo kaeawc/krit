@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/smacker/go-tree-sitter/java"
 	"github.com/smacker/go-tree-sitter/kotlin"
@@ -86,6 +88,14 @@ type langCache struct {
 	grammarVer string
 	language   Language
 	lru        *cacheutil.SizeCapLRU
+
+	// Hot-path counters maintained with atomic ops so Stats() is
+	// lock-free. Drift across process restarts is deliberately
+	// ignored — these measure this run only.
+	hits         atomic.Int64
+	misses       atomic.Int64
+	evictions    atomic.Int64
+	lastWriteSec atomic.Int64
 }
 
 var (
@@ -183,7 +193,9 @@ func NewParseCacheWithCap(repoDir string, capBytes int64) (*ParseCache, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ParseCache{root: root, kotlin: kc, java: jc}, nil
+	pc := &ParseCache{root: root, kotlin: kc, java: jc}
+	activeParseCache.Store(pc)
+	return pc, nil
 }
 
 func newLangCache(root, sub, grammarVer string, lang Language, capBytes int64) (*langCache, error) {
@@ -307,6 +319,7 @@ func (lc *langCache) loadByHash(hash string) (*FlatTree, bool) {
 	path := lc.entryPath(hash)
 	f, err := os.Open(path)
 	if err != nil {
+		lc.misses.Add(1)
 		return nil, false
 	}
 	defer f.Close()
@@ -319,12 +332,15 @@ func (lc *langCache) loadByHash(hash string) (*FlatTree, bool) {
 		if lc.lru != nil {
 			lc.lru.Forget(hash)
 		}
+		lc.misses.Add(1)
+		lc.evictions.Add(1)
 		return nil, false
 	}
 	if entry.Version != parseCacheVersion ||
 		entry.GrammarVer != lc.grammarVer ||
 		entry.ContentHash != hash ||
 		entry.Language != uint8(lc.language) {
+		lc.misses.Add(1)
 		return nil, false
 	}
 
@@ -332,6 +348,7 @@ func (lc *langCache) loadByHash(hash string) (*FlatTree, bool) {
 		lc.lru.Touch(hash)
 	}
 	remapEntryNodes(entry.Nodes, entry.NodeTypeTable)
+	lc.hits.Add(1)
 	return &FlatTree{Nodes: entry.Nodes}, true
 }
 
@@ -421,12 +438,15 @@ func (lc *langCache) saveEntry(hash string, tree *FlatTree) error {
 		return err
 	}
 
+	lc.lastWriteSec.Store(time.Now().Unix())
 	if lc.lru != nil {
 		lc.lru.Record(hash, size)
-		if _, err := lc.lru.MaybeEvict(); err != nil {
+		if removed, err := lc.lru.MaybeEvict(); err != nil {
 			// Eviction failure is non-fatal: the entry was written,
 			// the cap is just overshooting. Next run will retry.
 			return nil
+		} else if removed > 0 {
+			lc.evictions.Add(int64(removed))
 		}
 	}
 	return nil
@@ -526,10 +546,10 @@ func (pc *ParseCache) Close() error {
 	return errors.Join(errs...)
 }
 
-// Stats returns a combined LRU snapshot across both languages. Entries
-// and Bytes are summed; Cap reflects the per-language cap (both
-// languages share the same configured cap).
-func (pc *ParseCache) Stats() cacheutil.LRUStats {
+// LRUStats returns a combined LRU snapshot across both languages.
+// Entries and Bytes are summed; Cap reflects the per-language cap
+// (both languages share the same configured cap).
+func (pc *ParseCache) LRUStats() cacheutil.LRUStats {
 	if pc == nil {
 		return cacheutil.LRUStats{}
 	}
@@ -551,6 +571,40 @@ func (pc *ParseCache) Stats() cacheutil.LRUStats {
 	return out
 }
 
+// Stats returns a unified snapshot summed across both languages.
+// Counter fields are running totals for the current process; Entries
+// and Bytes come from the LRU sidecars (which themselves reflect disk
+// state at open time).
+func (pc *ParseCache) Stats() cacheutil.CacheStats {
+	if pc == nil {
+		return cacheutil.CacheStats{}
+	}
+	var out cacheutil.CacheStats
+	for _, lc := range []*langCache{pc.kotlin, pc.java} {
+		if lc == nil {
+			continue
+		}
+		if lc.lru != nil {
+			s := lc.lru.Stats()
+			out.Entries += s.Entries
+			out.Bytes += s.Bytes
+		}
+		out.Hits += lc.hits.Load()
+		out.Misses += lc.misses.Load()
+		out.Evictions += lc.evictions.Load()
+		if lw := lc.lastWriteSec.Load(); lw > out.LastWriteUnix {
+			out.LastWriteUnix = lw
+		}
+	}
+	return out
+}
+
+// activeParseCache is the most-recently-constructed ParseCache, so
+// the cacheutil.Registered stub can surface Stats() without plumbing
+// a handle through the CLI. Idempotent-by-Name replacement in the
+// registry takes care of the cold-start case.
+var activeParseCache atomic.Pointer[ParseCache]
+
 func init() {
 	cacheutil.Register(parseCacheRegistered{})
 }
@@ -559,6 +613,9 @@ type parseCacheRegistered struct{}
 
 func (parseCacheRegistered) Name() string                           { return parseCacheDirName }
 func (parseCacheRegistered) Clear(ctx cacheutil.ClearContext) error { return ClearParseCache(ctx.RepoDir) }
+func (parseCacheRegistered) Stats() cacheutil.CacheStats {
+	return activeParseCache.Load().Stats()
+}
 
 // ClearParseCache removes the parse-cache directory under repoDir.
 // Used by --clear-cache at the CLI boundary; a no-op when the cache

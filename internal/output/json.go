@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/cache"
+	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
@@ -16,16 +17,17 @@ import (
 
 // JSONReport is the top-level JSON output.
 type JSONReport struct {
-	Success     bool               `json:"success"`
-	Version     string             `json:"version"`
-	DurationMs  int64              `json:"durationMs"`
-	Files       int                `json:"files"`
-	Rules       int                `json:"rules"`
-	Experiments []string           `json:"experiments,omitempty"`
-	Findings    []JSONFinding      `json:"findings"`
-	Summary     JSONSummary        `json:"summary"`
-	Cache       *cache.CacheStats  `json:"cache,omitempty"`
-	PerfTiming  []perf.TimingEntry `json:"perfTiming,omitempty"`
+	Success     bool                        `json:"success"`
+	Version     string                      `json:"version"`
+	DurationMs  int64                       `json:"durationMs"`
+	Files       int                         `json:"files"`
+	Rules       int                         `json:"rules"`
+	Experiments []string                    `json:"experiments,omitempty"`
+	Findings    []JSONFinding               `json:"findings"`
+	Summary     JSONSummary                 `json:"summary"`
+	Cache       *cache.CacheStats           `json:"cache,omitempty"`
+	Caches      []cacheutil.NamedCacheStats `json:"caches,omitempty"`
+	PerfTiming  []perf.TimingEntry          `json:"perfTiming,omitempty"`
 }
 
 // JSONFinding is a single finding in JSON output.
@@ -55,7 +57,8 @@ func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version str
 	fileCount, ruleCount int, start time.Time,
 	perfTimings []perf.TimingEntry, activeRules []*v2.Rule,
 	experiments []string,
-	cacheStats *cache.CacheStats) error {
+	cacheStats *cache.CacheStats,
+	caches []cacheutil.NamedCacheStats) error {
 
 	cols := normalizedFindingColumns(columns)
 
@@ -79,16 +82,17 @@ func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version str
 	}
 
 	report := struct {
-		Success     bool               `json:"success"`
-		Version     string             `json:"version"`
-		DurationMs  int64              `json:"durationMs"`
-		Files       int                `json:"files"`
-		Rules       int                `json:"rules"`
-		Experiments []string           `json:"experiments,omitempty"`
-		Findings    json.RawMessage    `json:"findings"`
-		Summary     JSONSummary        `json:"summary"`
-		Cache       *cache.CacheStats  `json:"cache,omitempty"`
-		PerfTiming  []perf.TimingEntry `json:"perfTiming,omitempty"`
+		Success     bool                        `json:"success"`
+		Version     string                      `json:"version"`
+		DurationMs  int64                       `json:"durationMs"`
+		Files       int                         `json:"files"`
+		Rules       int                         `json:"rules"`
+		Experiments []string                    `json:"experiments,omitempty"`
+		Findings    json.RawMessage             `json:"findings"`
+		Summary     JSONSummary                 `json:"summary"`
+		Cache       *cache.CacheStats           `json:"cache,omitempty"`
+		Caches      []cacheutil.NamedCacheStats `json:"caches,omitempty"`
+		PerfTiming  []perf.TimingEntry          `json:"perfTiming,omitempty"`
 	}{
 		Success:     cols.Len() == 0,
 		Version:     version,
@@ -104,6 +108,7 @@ func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version str
 			Fixable:   fixableCount,
 		},
 		Cache:      cacheStats,
+		Caches:     caches,
 		PerfTiming: perfTimings,
 	}
 

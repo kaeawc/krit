@@ -9,12 +9,24 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
+)
+
+// Hot-path counters for the cross-file index cache. Populated on
+// Load/Save success; a fresh process starts at zero (drift across
+// restarts is deliberate).
+var (
+	crossFileHits      atomic.Int64
+	crossFileMisses    atomic.Int64
+	crossFileEntries   atomic.Int64
+	crossFileBytes     atomic.Int64
+	crossFileLastWrite atomic.Int64
 )
 
 func init() {
@@ -26,6 +38,30 @@ type crossFileCacheRegistered struct{}
 func (crossFileCacheRegistered) Name() string { return crossFileCacheDirName }
 func (crossFileCacheRegistered) Clear(ctx cacheutil.ClearContext) error {
 	return ClearCrossFileCache(CrossFileCacheDir(ctx.RepoDir))
+}
+func (crossFileCacheRegistered) Stats() cacheutil.CacheStats {
+	return cacheutil.CacheStats{
+		Entries:       int(crossFileEntries.Load()),
+		Bytes:         crossFileBytes.Load(),
+		Hits:          crossFileHits.Load(),
+		Misses:        crossFileMisses.Load(),
+		LastWriteUnix: crossFileLastWrite.Load(),
+	}
+}
+
+// recordCrossFileDisk updates the on-disk Entries/Bytes counters from
+// the meta + payload paths. Safe to call on any disk state; stat errors
+// zero-out the fields.
+func recordCrossFileDisk(paths crossFileCachePaths, entries int) {
+	var bytes int64
+	if fi, err := os.Stat(paths.Meta); err == nil {
+		bytes += fi.Size()
+	}
+	if fi, err := os.Stat(paths.Symbols); err == nil {
+		bytes += fi.Size()
+	}
+	crossFileBytes.Store(bytes)
+	crossFileEntries.Store(int64(entries))
 }
 
 // CrossFileCacheVersion is bumped whenever the on-disk layout or the
@@ -610,25 +646,40 @@ func (p cachePayload) unpackFull() (*CodeIndex, bool) {
 // never an error; callers fall back to BuildIndex.
 func LoadCrossFileCacheIndex(dir, wantFingerprint string) (*CodeIndex, bool) {
 	if dir == "" || wantFingerprint == "" {
+		crossFileMisses.Add(1)
 		return nil, false
 	}
 	paths := crossFileCacheFiles(dir)
 	metaBytes, err := os.ReadFile(paths.Meta)
 	if err != nil {
+		crossFileMisses.Add(1)
 		return nil, false
 	}
 	var meta CrossFileCacheMeta
 	if err := json.Unmarshal(metaBytes, &meta); err != nil {
+		crossFileMisses.Add(1)
 		return nil, false
 	}
 	if meta.Version != CrossFileCacheVersion || meta.Fingerprint != wantFingerprint {
+		crossFileMisses.Add(1)
 		return nil, false
 	}
 	var packed cachePayload
 	if err := decodeGob(paths.Symbols, &packed); err != nil {
+		crossFileMisses.Add(1)
 		return nil, false
 	}
-	return packed.unpackFull()
+	idx, ok := packed.unpackFull()
+	if !ok {
+		crossFileMisses.Add(1)
+		return nil, false
+	}
+	crossFileHits.Add(1)
+	recordCrossFileDisk(paths, meta.SymbolCount+meta.ReferenceCount)
+	if !meta.WrittenAt.IsZero() {
+		crossFileLastWrite.Store(meta.WrittenAt.Unix())
+	}
+	return idx, true
 }
 
 // SaveCrossFileCacheIndex persists a fully-built CodeIndex so warm
@@ -666,6 +717,8 @@ func SaveCrossFileCacheIndex(dir, fingerprint string, meta CrossFileCacheMeta, i
 	if err := fsutil.WriteFileAtomic(paths.Meta, metaBytes, 0644); err != nil {
 		return fmt.Errorf("write meta: %w", err)
 	}
+	recordCrossFileDisk(paths, meta.SymbolCount+meta.ReferenceCount)
+	crossFileLastWrite.Store(meta.WrittenAt.Unix())
 	return nil
 }
 
@@ -675,25 +728,40 @@ func SaveCrossFileCacheIndex(dir, fingerprint string, meta CrossFileCacheMeta, i
 // A miss is never an error; callers fall back to BuildIndex.
 func LoadCrossFileCache(dir, wantFingerprint string) ([]Symbol, []Reference, bool) {
 	if dir == "" || wantFingerprint == "" {
+		crossFileMisses.Add(1)
 		return nil, nil, false
 	}
 	paths := crossFileCacheFiles(dir)
 	metaBytes, err := os.ReadFile(paths.Meta)
 	if err != nil {
+		crossFileMisses.Add(1)
 		return nil, nil, false
 	}
 	var meta CrossFileCacheMeta
 	if err := json.Unmarshal(metaBytes, &meta); err != nil {
+		crossFileMisses.Add(1)
 		return nil, nil, false
 	}
 	if meta.Version != CrossFileCacheVersion || meta.Fingerprint != wantFingerprint {
+		crossFileMisses.Add(1)
 		return nil, nil, false
 	}
 	var packed cachePayload
 	if err := decodeGob(paths.Symbols, &packed); err != nil {
+		crossFileMisses.Add(1)
 		return nil, nil, false
 	}
-	return packed.unpack()
+	syms, refs, ok := packed.unpack()
+	if !ok {
+		crossFileMisses.Add(1)
+		return nil, nil, false
+	}
+	crossFileHits.Add(1)
+	recordCrossFileDisk(paths, meta.SymbolCount+meta.ReferenceCount)
+	if !meta.WrittenAt.IsZero() {
+		crossFileLastWrite.Store(meta.WrittenAt.Unix())
+	}
+	return syms, refs, true
 }
 
 // SaveCrossFileCache writes the symbols and references slices under the
@@ -730,6 +798,8 @@ func SaveCrossFileCache(dir, fingerprint string, meta CrossFileCacheMeta, symbol
 	if err := fsutil.WriteFileAtomic(paths.Meta, metaBytes, 0644); err != nil {
 		return fmt.Errorf("write meta: %w", err)
 	}
+	recordCrossFileDisk(paths, meta.SymbolCount+meta.ReferenceCount)
+	crossFileLastWrite.Store(meta.WrittenAt.Unix())
 	return nil
 }
 
@@ -738,6 +808,8 @@ func ClearCrossFileCache(dir string) error {
 	if dir == "" {
 		return nil
 	}
+	crossFileEntries.Store(0)
+	crossFileBytes.Store(0)
 	return os.RemoveAll(dir)
 }
 

@@ -221,7 +221,7 @@ func TestParseCache_SmallFileSkipsCache(t *testing.T) {
 	if _, err := ParseKotlinFileCached(path, pc); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	entries := filepath.Join(pc.dir, "entries")
+	entries := filepath.Join(pc.Dir(), "entries")
 	// Walk the shard dir: expect no .gob files.
 	_ = filepath.Walk(entries, func(p string, info os.FileInfo, werr error) error {
 		if werr != nil || info == nil || info.IsDir() {

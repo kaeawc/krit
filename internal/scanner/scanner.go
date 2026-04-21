@@ -358,9 +358,21 @@ func CollectJavaFiles(paths []string, excludes []string) ([]string, error) {
 
 // ParseJavaFile parses a Java file and returns a File with its AST.
 func ParseJavaFile(path string) (*File, error) {
+	return ParseJavaFileCached(path, nil)
+}
+
+// ParseJavaFileCached parses a Java file, consulting the parse cache
+// first when pc is non-nil. On a cache hit the tree-sitter parse and
+// flattenTree walk are both skipped. A nil pc behaves exactly like an
+// uncached parse.
+func ParseJavaFileCached(path string, pc *ParseCache) (*File, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
+	}
+
+	if tree, ok := pc.LoadJava(path, content); ok {
+		return newJavaFileFromFlatTree(path, content, tree), nil
 	}
 
 	parser := javaParserPool.Get().(*sitter.Parser)
@@ -376,18 +388,41 @@ func ParseJavaFile(path string) (*File, error) {
 		flatTree = flattenTree(tree.RootNode())
 	}
 
-	return &File{
+	file := &File{
 		Path:     internString(path),
 		Language: LangJava,
 		Content:  content,
 		Lines:    lines,
 		FlatTree: flatTree,
-	}, nil
+	}
+	if file.FlatTree != nil {
+		_ = pc.SaveJava(path, content, file.FlatTree)
+	}
+	return file, nil
+}
+
+func newJavaFileFromFlatTree(path string, content []byte, tree *FlatTree) *File {
+	return &File{
+		Path:     internString(path),
+		Language: LangJava,
+		Content:  content,
+		Lines:    strings.Split(string(content), "\n"),
+		FlatTree: tree,
+	}
 }
 
 // ScanJavaFiles parses all Java files in parallel (for reference indexing only).
 func ScanJavaFiles(paths []string, workers int) ([]*File, []error) {
 	return scanFilesParallel(paths, workers, ParseJavaFile)
+}
+
+// ScanJavaFilesCached is like ScanJavaFiles but routes every file through
+// ParseJavaFileCached so the on-disk parse cache is consulted (and
+// populated) on each file. A nil pc is a no-op cache.
+func ScanJavaFilesCached(paths []string, workers int, pc *ParseCache) ([]*File, []error) {
+	return scanFilesParallel(paths, workers, func(p string) (*File, error) {
+		return ParseJavaFileCached(p, pc)
+	})
 }
 
 type indexedPath struct {

@@ -543,6 +543,15 @@ func internNodeType(nodeType string) uint16 {
 	return idx
 }
 
+// NodeTypeTableSize returns the current size of the node type table via the
+// lock-free snapshot. Safe to call concurrently with internNodeType.
+func NodeTypeTableSize() int {
+	if p := nodeTypeSnapshot.Load(); p != nil {
+		return len(*p)
+	}
+	return 0
+}
+
 func lookupNodeType(nodeType string) (uint16, bool) {
 	nodeTypeMu.RLock()
 	defer nodeTypeMu.RUnlock()

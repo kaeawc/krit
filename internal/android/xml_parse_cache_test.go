@@ -60,6 +60,9 @@ func TestXMLParseCache_RoundTrip(t *testing.T) {
 	if pc.Stats().Hits != 0 {
 		t.Fatalf("expected 0 hits on cold parse, got %d", pc.Stats().Hits)
 	}
+	if err := pc.Close(); err != nil {
+		t.Fatalf("Close after cold parse: %v", err)
+	}
 
 	// Warm parse should hit.
 	cachedRoot, err := ParseXMLAST(data)
@@ -126,6 +129,41 @@ func TestXMLParseCache_SkipsSmallFiles(t *testing.T) {
 	}
 }
 
+func TestXMLParseCache_SaveAsyncFlushesClonedTree(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewXMLParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewXMLParseCache: %v", err)
+	}
+
+	data := largeManifest()
+	root := &XMLNode{
+		Tag: "manifest",
+		Attrs: []XMLAttribute{
+			{Name: "package", Value: "com.example"},
+		},
+		Children: []*XMLNode{
+			{Tag: "application", Attrs: []XMLAttribute{{Name: "android:name", Value: ".App"}}},
+		},
+	}
+	if err := pc.SaveAsync(data, root); err != nil {
+		t.Fatalf("SaveAsync: %v", err)
+	}
+	root.Tag = "mutated"
+	root.Children[0].Tag = "mutated-child"
+	if err := pc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	got, ok := pc.Load(data)
+	if !ok {
+		t.Fatal("expected flushed async cache hit")
+	}
+	if got.Tag != "manifest" || got.Children[0].Tag != "application" {
+		t.Fatalf("cached tree was not cloned before async write: %#v", got)
+	}
+}
+
 func TestXMLParseCache_GrammarMismatchForcesMiss(t *testing.T) {
 	repo := t.TempDir()
 	pc, err := NewXMLParseCache(repo)
@@ -139,6 +177,9 @@ func TestXMLParseCache_GrammarMismatchForcesMiss(t *testing.T) {
 	data := largeManifest()
 	if _, err := ParseXMLAST(data); err != nil {
 		t.Fatalf("ParseXMLAST: %v", err)
+	}
+	if err := pc.Close(); err != nil {
+		t.Fatalf("Close after parse: %v", err)
 	}
 
 	hash := hashutil.Default().HashContent("", data)
@@ -166,6 +207,7 @@ func TestXMLParseCache_GrammarMismatchForcesMiss(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewXMLParseCache: %v", err)
 	}
+	defer pc2.Close()
 	SetActiveXMLParseCache(pc2)
 
 	if _, ok := pc2.Load(data); ok {
@@ -224,16 +266,14 @@ func TestXMLParseCache_ClearViaRegistry(t *testing.T) {
 	if _, err := ParseXMLAST(data); err != nil {
 		t.Fatalf("ParseXMLAST: %v", err)
 	}
+	if err := pc.Close(); err != nil {
+		t.Fatalf("Close after parse: %v", err)
+	}
 
 	hash := hashutil.Default().HashContent("", data)
 	entryPath := pc.entryPath(hash)
 	if _, err := os.Stat(entryPath); err != nil {
 		t.Fatalf("expected cache entry at %s: %v", entryPath, err)
-	}
-
-	// Flush so the LRU sidecar hits disk before we wipe the dir.
-	if err := pc.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
 	}
 
 	if err := cacheutil.ClearAll(cacheutil.ClearContext{RepoDir: repo}); err != nil {

@@ -45,17 +45,17 @@ type ResourceIndex struct {
 	// typically for gettext/phrase-style translation interpolation, and
 	// format-specifier-validation rules should skip them.
 	StringsNonFormatted map[string]bool
-	StringsLocation     map[string]StringLocation     // string name -> file path and line
-	Colors              map[string]string             // color name -> value
-	Dimensions          map[string]string             // dimen name -> value
-	Styles              map[string]*Style             // style name -> style definition
-	Drawables           []string                      // drawable resource names
-	StringArrays        map[string][]string           // string-array name -> items
-	Plurals             map[string]map[string]string  // plural name -> quantity -> value
-	Integers            map[string]string             // integer name -> value
-	Booleans            map[string]string             // bool name -> value
-	IDs                 map[string]bool               // declared @+id names
-	ExtraTexts          []ExtraTextEntry              // stray text nodes in values files
+	StringsLocation     map[string]StringLocation    // string name -> file path and line
+	Colors              map[string]string            // color name -> value
+	Dimensions          map[string]string            // dimen name -> value
+	Styles              map[string]*Style            // style name -> style definition
+	Drawables           []string                     // drawable resource names
+	StringArrays        map[string][]string          // string-array name -> items
+	Plurals             map[string]map[string]string // plural name -> quantity -> value
+	Integers            map[string]string            // integer name -> value
+	Booleans            map[string]string            // bool name -> value
+	IDs                 map[string]bool              // declared @+id names
+	ExtraTexts          []ExtraTextEntry             // stray text nodes in values files
 }
 
 // StringLocation records where a <string> element was defined.
@@ -660,7 +660,7 @@ func scanValuesDirIndexKinds(dir string, maxWorkers int, kinds ValuesScanKind) (
 		total.add(result.stats)
 	}
 	if cache != nil {
-		_ = cache.Save(fingerprint, kinds, dir, idx)
+		_ = cache.SaveAsync(fingerprint, kinds, dir, idx)
 	}
 	return idx, total, nil
 }

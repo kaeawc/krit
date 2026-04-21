@@ -44,6 +44,9 @@ const (
 	xmlParseCacheExt      = ".gob"
 	xmlParseCacheLRUIndex = "lru-index.gob"
 	xmlParseCacheLRULock  = "lru.lock"
+
+	xmlParseCacheAsyncWorkers = 8
+	xmlParseCacheAsyncQueue   = 1024
 )
 
 // xmlParseCacheEntry is the compressed on-disk gob payload. The XMLNode
@@ -61,6 +64,8 @@ type XMLParseCache struct {
 	dir        string
 	grammarVer string
 	lru        *cacheutil.SizeCapLRU
+	writer     *cacheutil.AsyncWriter
+	dirs       sync.Map
 
 	hits         atomic.Int64
 	misses       atomic.Int64
@@ -143,7 +148,12 @@ func NewXMLParseCacheWithCap(repoDir string, capBytes int64) (*XMLParseCache, er
 	if err := lru.Open(); err != nil {
 		return nil, fmt.Errorf("open xml parse cache lru: %w", err)
 	}
-	pc := &XMLParseCache{dir: dir, grammarVer: grammar, lru: lru}
+	pc := &XMLParseCache{
+		dir:        dir,
+		grammarVer: grammar,
+		lru:        lru,
+		writer:     cacheutil.NewAsyncWriter(xmlParseCacheAsyncWorkers, xmlParseCacheAsyncQueue),
+	}
 	activeXMLParseCache.Store(pc)
 	return pc, nil
 }
@@ -219,9 +229,30 @@ func (pc *XMLParseCache) Save(content []byte, root *XMLNode) error {
 	return pc.saveEntry(hash, root)
 }
 
+// SaveAsync persists the parse result outside the caller's critical path when
+// the background writer has capacity. Hashing stays synchronous so cache keys
+// are stable before returning; the XML tree is cloned before queueing because
+// callers may keep using the returned node tree immediately.
+func (pc *XMLParseCache) SaveAsync(content []byte, root *XMLNode) error {
+	if pc == nil || root == nil {
+		return nil
+	}
+	if len(content) < xmlParseCacheMinFileSize {
+		return nil
+	}
+	hash := hashutil.Default().HashContent("", content)
+	rootCopy := cloneXMLNode(root)
+	if pc.writer != nil && pc.writer.Submit(func() (int64, error) {
+		return 0, pc.saveEntry(hash, rootCopy)
+	}) {
+		return nil
+	}
+	return pc.saveEntry(hash, root)
+}
+
 func (pc *XMLParseCache) saveEntry(hash string, root *XMLNode) error {
 	target := pc.entryPath(hash)
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := pc.ensureEntryDir(filepath.Dir(target)); err != nil {
 		return fmt.Errorf("create xml cache shard dir: %w", err)
 	}
 	entry := xmlParseCacheEntry{Root: root}
@@ -252,12 +283,46 @@ func (pc *XMLParseCache) saveEntry(hash string, root *XMLNode) error {
 	return nil
 }
 
+func (pc *XMLParseCache) ensureEntryDir(dir string) error {
+	if pc == nil {
+		return nil
+	}
+	if _, ok := pc.dirs.Load(dir); ok {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	pc.dirs.Store(dir, struct{}{})
+	return nil
+}
+
+func cloneXMLNode(n *XMLNode) *XMLNode {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	if len(n.Attrs) > 0 {
+		out.Attrs = append([]XMLAttribute(nil), n.Attrs...)
+	}
+	if len(n.Children) > 0 {
+		out.Children = make([]*XMLNode, len(n.Children))
+		for i, child := range n.Children {
+			out.Children[i] = cloneXMLNode(child)
+		}
+	}
+	return &out
+}
+
 // Clear removes every cache entry. The version / grammar-version
 // metadata files are left in place so a subsequent NewXMLParseCache
 // call does not see a schema mismatch.
 func (pc *XMLParseCache) Clear() error {
 	if pc == nil {
 		return nil
+	}
+	if pc.writer != nil {
+		_ = pc.writer.Close()
 	}
 	entries := filepath.Join(pc.dir, xmlParseCacheEntries)
 	if err := os.RemoveAll(entries); err != nil {
@@ -278,15 +343,27 @@ func (pc *XMLParseCache) Clear() error {
 		}
 		_ = pc.lru.Open()
 	}
+	pc.dirs = sync.Map{}
 	return nil
 }
 
-// Close flushes the LRU sidecar. Safe to call on a nil cache.
+// Close flushes async writes and the LRU sidecar. Safe to call on a nil cache.
 func (pc *XMLParseCache) Close() error {
-	if pc == nil || pc.lru == nil {
+	if pc == nil {
 		return nil
 	}
-	return pc.lru.Flush()
+	var errs []error
+	if pc.writer != nil {
+		if err := pc.writer.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if pc.lru != nil {
+		if err := pc.lru.Flush(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // LRUStats returns the current LRU snapshot.
@@ -365,6 +442,9 @@ func ClearXMLParseCache(repoDir string) error {
 		return nil
 	}
 	dir := filepath.Join(repoDir, ".krit", xmlParseCacheDirName, xmlParseCacheSubDir)
+	if pc := activeXMLParseCache.Load(); pc != nil && pc.dir == dir {
+		_ = pc.Close()
+	}
 	err := os.RemoveAll(dir)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("clear xml parse cache: %w", err)

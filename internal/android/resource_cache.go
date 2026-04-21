@@ -38,6 +38,9 @@ const (
 	resourceCacheExt     = ".gob"
 	resourceCacheLRUIdx  = "lru-index.gob"
 	resourceCacheLRULock = "lru.lock"
+
+	resourceCacheAsyncWorkers = 1
+	resourceCacheAsyncQueue   = 256
 )
 
 // DefaultResourceCacheCapBytes caps the on-disk footprint of the
@@ -60,6 +63,8 @@ type ResourceIndexCache struct {
 	root       string
 	entriesDir string
 	lru        *cacheutil.SizeCapLRU
+	writer     *cacheutil.AsyncWriter
+	dirs       sync.Map
 
 	hits         atomic.Int64
 	misses       atomic.Int64
@@ -103,7 +108,12 @@ func NewResourceIndexCacheWithCap(repoDir string, capBytes int64) (*ResourceInde
 	if err := lru.Open(); err != nil {
 		return nil, fmt.Errorf("open resource cache lru: %w", err)
 	}
-	c := &ResourceIndexCache{root: root, entriesDir: entriesDir, lru: lru}
+	c := &ResourceIndexCache{
+		root:       root,
+		entriesDir: entriesDir,
+		lru:        lru,
+		writer:     cacheutil.NewAsyncWriter(resourceCacheAsyncWorkers, resourceCacheAsyncQueue),
+	}
 	activeResourceCache.Store(c)
 	return c, nil
 }
@@ -165,7 +175,7 @@ func (c *ResourceIndexCache) Save(fingerprint string, kinds ValuesScanKind, resD
 		return nil
 	}
 	target := c.entryPath(fingerprint)
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := c.ensureEntryDir(filepath.Dir(target)); err != nil {
 		return fmt.Errorf("create resource cache shard dir: %w", err)
 	}
 	entry := resourceCacheEntry{Index: idx}
@@ -195,11 +205,148 @@ func (c *ResourceIndexCache) Save(fingerprint string, kinds ValuesScanKind, resD
 	return nil
 }
 
+// SaveAsync persists idx outside the caller's critical path when the
+// background writer has capacity. The ResourceIndex is cloned before queueing
+// so later merges or rule execution cannot race with gob encoding.
+func (c *ResourceIndexCache) SaveAsync(fingerprint string, kinds ValuesScanKind, resDir string, idx *ResourceIndex) error {
+	if c == nil || fingerprint == "" || idx == nil {
+		return nil
+	}
+	idxCopy := cloneResourceIndex(idx)
+	if c.writer != nil && c.writer.Submit(func() (int64, error) {
+		return 0, c.Save(fingerprint, kinds, resDir, idxCopy)
+	}) {
+		return nil
+	}
+	return c.Save(fingerprint, kinds, resDir, idx)
+}
+
+func (c *ResourceIndexCache) ensureEntryDir(dir string) error {
+	if c == nil {
+		return nil
+	}
+	if _, ok := c.dirs.Load(dir); ok {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	c.dirs.Store(dir, struct{}{})
+	return nil
+}
+
+func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
+	if idx == nil {
+		return nil
+	}
+	out := newResourceIndex()
+	for k, v := range idx.Layouts {
+		out.Layouts[k] = cloneLayout(v)
+	}
+	for name, configs := range idx.LayoutConfigs {
+		out.LayoutConfigs[name] = make(map[string]*Layout, len(configs))
+		for qualifier, layout := range configs {
+			out.LayoutConfigs[name][qualifier] = cloneLayout(layout)
+		}
+	}
+	for k, v := range idx.Strings {
+		out.Strings[k] = v
+	}
+	for k, v := range idx.StringsNonTranslate {
+		out.StringsNonTranslate[k] = v
+	}
+	for k, v := range idx.StringsNonFormatted {
+		out.StringsNonFormatted[k] = v
+	}
+	for k, v := range idx.StringsLocation {
+		out.StringsLocation[k] = v
+	}
+	for k, v := range idx.Colors {
+		out.Colors[k] = v
+	}
+	for k, v := range idx.Dimensions {
+		out.Dimensions[k] = v
+	}
+	for k, v := range idx.Styles {
+		out.Styles[k] = cloneStyle(v)
+	}
+	out.Drawables = append(out.Drawables, idx.Drawables...)
+	for k, v := range idx.StringArrays {
+		out.StringArrays[k] = append([]string(nil), v...)
+	}
+	for k, v := range idx.Plurals {
+		out.Plurals[k] = cloneStringMap(v)
+	}
+	for k, v := range idx.Integers {
+		out.Integers[k] = v
+	}
+	for k, v := range idx.Booleans {
+		out.Booleans[k] = v
+	}
+	for k, v := range idx.IDs {
+		out.IDs[k] = v
+	}
+	out.ExtraTexts = append(out.ExtraTexts, idx.ExtraTexts...)
+	return out
+}
+
+func cloneLayout(layout *Layout) *Layout {
+	if layout == nil {
+		return nil
+	}
+	out := *layout
+	out.RootView = cloneView(layout.RootView)
+	return &out
+}
+
+func cloneView(view *View) *View {
+	if view == nil {
+		return nil
+	}
+	out := *view
+	if len(view.Attributes) > 0 {
+		out.Attributes = make(map[string]string, len(view.Attributes))
+		for k, v := range view.Attributes {
+			out.Attributes[k] = v
+		}
+	}
+	if len(view.Children) > 0 {
+		out.Children = make([]*View, len(view.Children))
+		for i, child := range view.Children {
+			out.Children[i] = cloneView(child)
+		}
+	}
+	return &out
+}
+
+func cloneStyle(style *Style) *Style {
+	if style == nil {
+		return nil
+	}
+	out := *style
+	out.Items = cloneStringMap(style.Items)
+	return &out
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
 // Clear removes every cache entry. The sidecar schema tokens are left
 // in place so a subsequent Open does not see a mismatch.
 func (c *ResourceIndexCache) Clear() error {
 	if c == nil {
 		return nil
+	}
+	if c.writer != nil {
+		_ = c.writer.Close()
 	}
 	if err := os.RemoveAll(c.entriesDir); err != nil {
 		return fmt.Errorf("clear resource cache: %w", err)
@@ -219,15 +366,27 @@ func (c *ResourceIndexCache) Clear() error {
 		}
 		_ = c.lru.Open()
 	}
+	c.dirs = sync.Map{}
 	return nil
 }
 
-// Close flushes the LRU sidecar. Safe on a nil receiver.
+// Close flushes async writes and the LRU sidecar. Safe on a nil receiver.
 func (c *ResourceIndexCache) Close() error {
-	if c == nil || c.lru == nil {
+	if c == nil {
 		return nil
 	}
-	return c.lru.Flush()
+	var errs []error
+	if c.writer != nil {
+		if err := c.writer.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if c.lru != nil {
+		if err := c.lru.Flush(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // Stats returns a unified stats snapshot.
@@ -394,6 +553,9 @@ func ClearResourceIndexCache(repoDir string) error {
 		return nil
 	}
 	dir := filepath.Join(repoDir, ".krit", resourceCacheDirName)
+	if c := activeResourceCache.Load(); c != nil && c.root == dir {
+		_ = c.Close()
+	}
 	err := os.RemoveAll(dir)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("clear resource cache: %w", err)

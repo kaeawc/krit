@@ -9,6 +9,7 @@ import (
 	"github.com/kaeawc/krit/internal/rules"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // fixtureRoot returns the absolute path to tests/fixtures relative to the repo root.
@@ -40,6 +41,13 @@ func buildRuleIndex() map[string]*v2rules.Rule {
 // for correct single-pass behavior.
 func runRule(t *testing.T, rule *v2rules.Rule, file *scanner.File) []scanner.Finding {
 	t.Helper()
+	if rule.Needs.Has(v2rules.NeedsResolver) {
+		resolver := typeinfer.NewResolver()
+		resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+		dispatcher := rules.NewDispatcherV2([]*v2rules.Rule{rule}, resolver)
+		cols := dispatcher.Run(file)
+		return cols.Findings()
+	}
 	dispatcher := rules.NewDispatcherV2([]*v2rules.Rule{rule})
 	cols := dispatcher.Run(file)
 	return cols.Findings()

@@ -503,7 +503,7 @@ fun convert(obj: Any) {
 // --- UnnecessaryNotNullCheck ---
 
 func TestUnnecessaryNotNullCheck_Positive(t *testing.T) {
-	findings := runRuleByName(t, "UnnecessaryNotNullCheck", `
+	findings := runRuleByNameWithResolver(t, "UnnecessaryNotNullCheck", `
 package test
 fun check() {
     val name: String = "hello"
@@ -518,7 +518,7 @@ fun check() {
 }
 
 func TestUnnecessaryNotNullCheck_Negative(t *testing.T) {
-	findings := runRuleByName(t, "UnnecessaryNotNullCheck", `
+	findings := runRuleByNameWithResolver(t, "UnnecessaryNotNullCheck", `
 package test
 fun check() {
     val name: String? = null
@@ -529,6 +529,113 @@ fun check() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for null check on nullable val, got %d", len(findings))
+	}
+}
+
+func TestUnnecessaryNotNullCheck_PositiveResolvedCall(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnnecessaryNotNullCheck", `
+package test
+fun name(): String = "hello"
+fun check() {
+    if (name() == null) {
+        println("impossible")
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for null check on non-nullable call result, got none")
+	}
+}
+
+func TestUnnecessaryNotNullCheck_NegativeUnresolvedCall(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnnecessaryNotNullCheck", `
+package test
+fun check() {
+    if (missing() != null) {
+        println("unknown")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for unresolved call target, got %d", len(findings))
+	}
+}
+
+func TestUnnecessaryNotNullCheck_NegativeArbitraryExpression(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnnecessaryNotNullCheck", `
+package test
+fun check(name: String) {
+    if (name + "!" != null) {
+        println(name)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for arbitrary non-reference expression, got %d", len(findings))
+	}
+}
+
+func TestUnnecessaryNotNullCheck_PositiveQualifiedSameFileMember(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnnecessaryNotNullCheck", `
+package test
+class User {
+    val name: String = "Ada"
+}
+fun check(user: User) {
+    if (user.name != null) {
+        println(user.name)
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for non-nullable same-file member null check, got none")
+	}
+}
+
+func TestUnnecessaryNotNullCheck_NegativeNullableSameFileMember(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnnecessaryNotNullCheck", `
+package test
+class User {
+    val name: String? = null
+}
+fun check(user: User) {
+    if (user.name != null) {
+        println(user.name)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for nullable same-file member null check, got %d", len(findings))
+	}
+}
+
+func TestUnnecessaryNotNullCheck_NegativeUnresolvedConstructorCall(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnnecessaryNotNullCheck", `
+package test
+fun check() {
+    if (MissingType() != null) {
+        println("unknown")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for unresolved constructor-like call, got %d", len(findings))
+	}
+}
+
+func TestUnnecessaryNotNullCheck_NegativeQualifiedCallDoesNotMatchTopLevelFunction(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnnecessaryNotNullCheck", `
+package test
+class Api
+fun fetch(): String = "local"
+fun check(api: Api) {
+    if (api.fetch() != null) {
+        println("unknown receiver call")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for qualified call whose receiver target is unresolved, got %d", len(findings))
 	}
 }
 

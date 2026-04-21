@@ -11,6 +11,7 @@ import (
 	"github.com/kaeawc/krit/internal/rules"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 func TestFixableFixtures(t *testing.T) {
@@ -159,6 +160,11 @@ func runPerRuleFixableFixtures(t *testing.T, dir string) (int, error) {
 			// dispatcher handles all of those when given a singleton
 			// registry.
 			soloDispatcher := rules.NewDispatcherV2([]*v2rules.Rule{rule})
+			if rule.Needs.Has(v2rules.NeedsResolver) {
+				resolver := typeinfer.NewResolver()
+				resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+				soloDispatcher = rules.NewDispatcherV2([]*v2rules.Rule{rule}, resolver)
+			}
 			findingCols := soloDispatcher.Run(file)
 			findings := findingCols.Findings()
 

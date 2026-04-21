@@ -1,8 +1,15 @@
-package style
+package fixtures.positive.potentialbugs
 
-fun example() {
-    val x: String = "hello"
-    if (x != null) {
-        println(x)
+class UnnecessaryNotNullCheck {
+    private val observed = mutableListOf<String>()
+
+    fun name(seed: String): String = seed.trim()
+
+    fun check(value: String): Boolean {
+        if (value != null) {
+            observed += value
+        }
+
+        return name(value) == null
     }
 }

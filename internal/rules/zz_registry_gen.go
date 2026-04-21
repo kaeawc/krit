@@ -10244,6 +10244,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			Needs: v2.NeedsResolver,
 			Check: r.check,
 		})
 	}

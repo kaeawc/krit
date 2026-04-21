@@ -206,6 +206,199 @@ func init() {
 	}
 }
 
+func TestAnalyzeSource_FlagsMissingNeedsConcurrent_MergeCollectors(t *testing.T) {
+	// A rule body that calls scanner.MergeCollectors manages its own
+	// worker-local collectors and MUST declare NeedsConcurrent so the
+	// dispatcher routes it through the parallel cross-file path.
+	src := `package rules
+
+import (
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+func init() {
+	v2.Register(&v2.Rule{
+		ID:          "MergesSerially",
+		Description: "calls MergeCollectors without declaring NeedsConcurrent",
+		Needs:       v2.NeedsCrossFile,
+		Check: func(ctx *v2.Context) {
+			local := scanner.NewFindingCollector(0)
+			scanner.MergeCollectors(ctx.Collector, local)
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "merges.go", src)
+	if len(violations) != 1 {
+		t.Fatalf("want 1 violation, got %d: %v", len(violations), violations)
+	}
+	if violations[0].RuleID != "MergesSerially" {
+		t.Fatalf("want rule ID MergesSerially, got %q", violations[0].RuleID)
+	}
+	if !strings.Contains(violations[0].Message, "NeedsConcurrent") {
+		t.Fatalf("want NeedsConcurrent in message, got %q", violations[0].Message)
+	}
+}
+
+func TestAnalyzeSource_FlagsMissingNeedsConcurrent_Goroutine(t *testing.T) {
+	src := `package rules
+
+import v2 "github.com/kaeawc/krit/internal/rules/v2"
+
+func init() {
+	v2.Register(&v2.Rule{
+		ID:          "SpawnsGoroutine",
+		Description: "spawns a goroutine without declaring NeedsConcurrent",
+		Needs:       v2.NeedsCrossFile,
+		Check: func(ctx *v2.Context) {
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				ctx.EmitAt(1, 1, "hi")
+			}()
+			<-done
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "goroutine.go", src)
+	if len(violations) != 1 {
+		t.Fatalf("want 1 violation, got %d: %v", len(violations), violations)
+	}
+	if !strings.Contains(violations[0].Message, "NeedsConcurrent") {
+		t.Fatalf("want NeedsConcurrent in message, got %q", violations[0].Message)
+	}
+}
+
+func TestAnalyzeSource_FlagsMissingNeedsConcurrent_WaitGroup(t *testing.T) {
+	src := `package rules
+
+import (
+	"sync"
+
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
+)
+
+func init() {
+	v2.Register(&v2.Rule{
+		ID:          "UsesWaitGroup",
+		Description: "uses sync.WaitGroup without declaring NeedsConcurrent",
+		Needs:       v2.NeedsCrossFile,
+		Check: func(ctx *v2.Context) {
+			var wg sync.WaitGroup
+			wg.Wait()
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "waitgroup.go", src)
+	if len(violations) != 1 {
+		t.Fatalf("want 1 violation, got %d: %v", len(violations), violations)
+	}
+	if !strings.Contains(violations[0].Message, "NeedsConcurrent") {
+		t.Fatalf("want NeedsConcurrent in message, got %q", violations[0].Message)
+	}
+}
+
+func TestAnalyzeSource_FlagsDeclaredButUnusedNeedsConcurrent(t *testing.T) {
+	// NeedsConcurrent is declared but the body contains none of the
+	// concurrent-state signals — the declaration is a lie and must be
+	// removed (or the body must actually use the capability).
+	src := `package rules
+
+import v2 "github.com/kaeawc/krit/internal/rules/v2"
+
+func init() {
+	v2.Register(&v2.Rule{
+		ID:          "FalselyConcurrent",
+		Description: "declares NeedsConcurrent without using it",
+		Needs:       v2.NeedsCrossFile | v2.NeedsConcurrent,
+		Check: func(ctx *v2.Context) {
+			ctx.EmitAt(1, 1, "hi")
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "falseconcurrent.go", src)
+	if len(violations) != 1 {
+		t.Fatalf("want 1 violation, got %d: %v", len(violations), violations)
+	}
+	if !strings.Contains(violations[0].Message, "declares NeedsConcurrent") {
+		t.Fatalf("want declared-but-unused message, got %q", violations[0].Message)
+	}
+}
+
+func TestAnalyzeSource_AcceptsCorrectNeedsConcurrentDeclaration(t *testing.T) {
+	src := `package rules
+
+import (
+	"sync"
+
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+func init() {
+	v2.Register(&v2.Rule{
+		ID:          "HonestConcurrent",
+		Description: "declares NeedsConcurrent and actually uses it",
+		Needs:       v2.NeedsCrossFile | v2.NeedsConcurrent,
+		Check: func(ctx *v2.Context) {
+			var wg sync.WaitGroup
+			locals := []*scanner.FindingCollector{scanner.NewFindingCollector(0)}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				locals[0].Append(scanner.Finding{})
+			}()
+			wg.Wait()
+			scanner.MergeCollectors(ctx.Collector, locals...)
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "honest.go", src)
+	if len(violations) != 0 {
+		t.Fatalf("want 0 violations, got %d: %v", len(violations), violations)
+	}
+}
+
+func TestAnalyzeSource_ConcurrentSignalsFollowHelpers(t *testing.T) {
+	// The concurrent primitive lives inside a same-package helper; the
+	// linter must transitively reach it the same way it reaches
+	// ctx.Resolver through helpers.
+	src := `package rules
+
+import (
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+func mergeHelper(dst *scanner.FindingCollector) {
+	scanner.MergeCollectors(dst)
+}
+
+func init() {
+	v2.Register(&v2.Rule{
+		ID:          "HelperMerges",
+		Description: "delegates MergeCollectors call to an in-package helper",
+		Needs:       v2.NeedsCrossFile,
+		Check: func(ctx *v2.Context) {
+			mergeHelper(ctx.Collector)
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "helpermerges.go", src)
+	if len(violations) != 1 {
+		t.Fatalf("want 1 violation, got %d: %v", len(violations), violations)
+	}
+	if !strings.Contains(violations[0].Message, "NeedsConcurrent") {
+		t.Fatalf("want NeedsConcurrent in message, got %q", violations[0].Message)
+	}
+}
+
 func analyzeSource(t *testing.T, name, src string) []Violation {
 	t.Helper()
 	fset := token.NewFileSet()

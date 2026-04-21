@@ -174,6 +174,13 @@ type IndexInput struct {
 	// recomputes when Java files land. When zero, IndexPhase derives it
 	// from CrossFileJobsFlag + len(KotlinFiles).
 	CrossFileWorkers int
+	// ParseCache, when non-nil, is consulted during the Java parse step
+	// inside the javaIndexing tracker. Cache hits skip tree-sitter
+	// entirely; misses parse and populate the cache. Shared with the
+	// Kotlin parse loop in ParsePhase — Java entries live in a sibling
+	// subdir keyed on the Java grammar version, so a tree-sitter-java
+	// upgrade evicts Java entries without touching cached Kotlin trees.
+	ParseCache *scanner.ParseCache
 
 	// --- Module graph + PerModuleIndex knobs. Mirrors the pre-refactor
 	// moduleAwareAnalysis block in cmd/krit/main.go.
@@ -645,7 +652,7 @@ func (p IndexPhase) runCodeIndexBuild(in IndexInput, result *IndexResult) {
 		if len(javaFilePaths) > 0 {
 			crossWorkers = phaseWorkerCount("crossFileAnalysis", in.CrossFileJobsFlag, len(parsedFiles)+len(javaFilePaths))
 			var javaErrs []error
-			parsedJavaFiles, javaErrs = scanner.ScanJavaFiles(javaFilePaths, crossWorkers)
+			parsedJavaFiles, javaErrs = scanner.ScanJavaFilesCached(javaFilePaths, crossWorkers, in.ParseCache)
 			if len(javaErrs) > 0 && in.Verbose {
 				fmt.Fprintf(os.Stderr, "verbose: Java file parsing: %d errors\n", len(javaErrs))
 			}

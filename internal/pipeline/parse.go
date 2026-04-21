@@ -132,7 +132,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 			parseErrs = append(parseErrs, javaErr)
 		} else if len(javaPaths) > 0 {
 			var javaParseErrs []error
-			javaFiles, javaParseErrs = scanner.ScanJavaFiles(javaPaths, workers)
+			javaFiles, javaParseErrs = scanner.ScanJavaFilesCached(javaPaths, workers, in.ParseCache)
 			parseErrs = append(parseErrs, javaParseErrs...)
 		}
 	}

@@ -956,6 +956,7 @@ potential-bugs:
 		CrossFileParentTracker: crossTracker,
 		CrossFileJobsFlag:      *jobsFlag,
 		CrossFileCacheDir:      resolveCrossFileCacheDir(paths, *noCrossFileCacheFlag),
+		ParseCache:             parseCache,
 		BuildModuleIndex:       true,
 		ModuleParentTracker:    moduleTracker,
 		ModuleScanRoot:         scanRoot,

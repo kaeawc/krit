@@ -3,9 +3,11 @@ package scanner
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -192,12 +194,12 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 	// tolerate nil receivers to match the pre-pack fs-backend shape.
 	store := newPackStore(cacheDir)
 	var (
-		mu        sync.Mutex
-		symbols   []Symbol
-		refs      []Reference
-		aggBloom  *bloom.BloomFilter
-		bloomMu   sync.Mutex
-		sem       = make(chan struct{}, workers)
+		mu       sync.Mutex
+		symbols  []Symbol
+		refs     []Reference
+		aggBloom *bloom.BloomFilter
+		bloomMu  sync.Mutex
+		sem      = make(chan struct{}, workers)
 	)
 
 	mergeBloom := func(bf *bloom.BloomFilter) {
@@ -419,13 +421,9 @@ func buildCodeIndex(symbols []Symbol, refs []Reference) *CodeIndex {
 // short-circuits.
 func buildCodeIndexWithBloom(symbols []Symbol, refs []Reference, prebuilt *bloom.BloomFilter) *CodeIndex {
 	idx := &CodeIndex{
-		Symbols:                      symbols,
-		References:                   refs,
-		symbolsByName:                make(map[string][]Symbol),
-		refCountByName:               make(map[string]int),
-		refFilesByName:               make(map[string]map[string]bool),
-		nonCommentRefFilesByName:     make(map[string]map[string]bool),
-		nonCommentRefCountByNameFile: make(map[string]map[string]int),
+		Symbols:       symbols,
+		References:    refs,
+		symbolsByName: make(map[string][]Symbol),
 	}
 
 	if prebuilt != nil {
@@ -442,28 +440,110 @@ func buildCodeIndexWithBloom(symbols []Symbol, refs []Reference, prebuilt *bloom
 	for _, sym := range idx.Symbols {
 		idx.symbolsByName[sym.Name] = append(idx.symbolsByName[sym.Name], sym)
 	}
-	for _, ref := range idx.References {
-		idx.refCountByName[ref.Name]++
-		if idx.refFilesByName[ref.Name] == nil {
-			idx.refFilesByName[ref.Name] = make(map[string]bool)
-		}
-		idx.refFilesByName[ref.Name][ref.File] = true
-		if !ref.InComment {
-			if idx.nonCommentRefFilesByName[ref.Name] == nil {
-				idx.nonCommentRefFilesByName[ref.Name] = make(map[string]bool)
-			}
-			idx.nonCommentRefFilesByName[ref.Name][ref.File] = true
-			if idx.nonCommentRefCountByNameFile[ref.Name] == nil {
-				idx.nonCommentRefCountByNameFile[ref.Name] = make(map[string]int)
-			}
-			idx.nonCommentRefCountByNameFile[ref.Name][ref.File]++
-		}
-		if prebuilt == nil {
-			idx.refBloom.AddString(ref.Name)
-		}
-	}
+	idx.buildReferenceLookups(prebuilt == nil)
 
 	return idx
+}
+
+func (idx *CodeIndex) buildReferenceLookups(addToBloom bool) {
+	if len(idx.References) == 0 {
+		idx.refCountByName = make(map[string]int)
+		idx.refFilesByName = make(map[string]map[string]bool)
+		idx.nonCommentRefFilesByName = make(map[string]map[string]bool)
+		idx.nonCommentRefCountByNameFile = make(map[string]map[string]int)
+		return
+	}
+
+	refs := make([]Reference, len(idx.References))
+	copy(refs, idx.References)
+	slices.SortFunc(refs, func(a, b Reference) int {
+		if c := cmp.Compare(a.Name, b.Name); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.File, b.File)
+	})
+
+	uniqueNames := 0
+	for i, ref := range refs {
+		if i == 0 || ref.Name != refs[i-1].Name {
+			uniqueNames++
+		}
+	}
+	idx.refCountByName = make(map[string]int, uniqueNames)
+	idx.refFilesByName = make(map[string]map[string]bool, uniqueNames)
+	idx.nonCommentRefFilesByName = make(map[string]map[string]bool, uniqueNames)
+	idx.nonCommentRefCountByNameFile = make(map[string]map[string]int, uniqueNames)
+
+	for nameStart := 0; nameStart < len(refs); {
+		name := refs[nameStart].Name
+		nameEnd := nameStart + 1
+		for nameEnd < len(refs) && refs[nameEnd].Name == name {
+			nameEnd++
+		}
+
+		fileCount, nonCommentFileCount := countReferenceFiles(refs[nameStart:nameEnd])
+
+		files := make(map[string]bool, fileCount)
+		var nonCommentFiles map[string]bool
+		var nonCommentCounts map[string]int
+		if nonCommentFileCount > 0 {
+			nonCommentFiles = make(map[string]bool, nonCommentFileCount)
+			nonCommentCounts = make(map[string]int, nonCommentFileCount)
+		}
+
+		for fileStart := nameStart; fileStart < nameEnd; {
+			file := refs[fileStart].File
+			fileEnd := fileStart + 1
+			nonCommentCount := 0
+			if !refs[fileStart].InComment {
+				nonCommentCount++
+			}
+			for fileEnd < nameEnd && refs[fileEnd].File == file {
+				if !refs[fileEnd].InComment {
+					nonCommentCount++
+				}
+				fileEnd++
+			}
+
+			files[file] = true
+			if nonCommentCount > 0 {
+				nonCommentFiles[file] = true
+				nonCommentCounts[file] = nonCommentCount
+			}
+			fileStart = fileEnd
+		}
+
+		idx.refCountByName[name] = nameEnd - nameStart
+		idx.refFilesByName[name] = files
+		if nonCommentFileCount > 0 {
+			idx.nonCommentRefFilesByName[name] = nonCommentFiles
+			idx.nonCommentRefCountByNameFile[name] = nonCommentCounts
+		}
+		if addToBloom {
+			idx.refBloom.AddString(name)
+		}
+		nameStart = nameEnd
+	}
+}
+
+func countReferenceFiles(refs []Reference) (files int, nonCommentFiles int) {
+	for fileStart := 0; fileStart < len(refs); {
+		file := refs[fileStart].File
+		files++
+		fileEnd := fileStart + 1
+		hasNonComment := !refs[fileStart].InComment
+		for fileEnd < len(refs) && refs[fileEnd].File == file {
+			if !refs[fileEnd].InComment {
+				hasNonComment = true
+			}
+			fileEnd++
+		}
+		if hasNonComment {
+			nonCommentFiles++
+		}
+		fileStart = fileEnd
+	}
+	return files, nonCommentFiles
 }
 
 // ReferenceCount returns how many times a name is referenced across all files.

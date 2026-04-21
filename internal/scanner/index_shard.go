@@ -78,7 +78,12 @@ func (crossFileShardsRegistered) Stats() cacheutil.CacheStats {
 // v4: storage migrated from one .gob per shard (under "shards/") to
 // pack files under "packs-v1/". Payload shape is unchanged; the legacy
 // directory is swept on first scan.
-const crossFileShardVersion = 4
+// v5: in-pack blob is now zstd(gob(fileShard)) and Symbol.File /
+// Reference.File are stripped before encoding (re-hydrated from
+// fileShard.Path on load). Cuts shard-payload disk bytes ~5× on
+// Signal-Android. Pre-v5 blobs are raw gob and the zstd magic check
+// rejects them as a per-key miss.
+const crossFileShardVersion = 5
 
 // Per-shard bloom sizing. Every shard's bloom uses these exact
 // (m, k) parameters so they can be unioned with BloomFilter.Merge,

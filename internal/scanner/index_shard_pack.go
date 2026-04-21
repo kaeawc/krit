@@ -40,7 +40,31 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 )
+
+// Per-process zstd codec for shard blobs. Both encoder and decoder are
+// safe for concurrent EncodeAll / DecodeAll. Level=SpeedDefault (~3)
+// hits the documented ~5× ratio at ~1 GB/s decompress on M-class
+// silicon, well below disk-read amortisation.
+var (
+	shardZstdEncoder *zstd.Encoder
+	shardZstdDecoder *zstd.Decoder
+)
+
+func init() {
+	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
+	if err != nil {
+		panic(fmt.Sprintf("init shard zstd encoder: %v", err))
+	}
+	shardZstdEncoder = enc
+	dec, err := zstd.NewReader(nil)
+	if err != nil {
+		panic(fmt.Sprintf("init shard zstd decoder: %v", err))
+	}
+	shardZstdDecoder = dec
+}
 
 const (
 	packMagic    uint32 = 0x4b50414b // "KPAK"
@@ -416,20 +440,49 @@ func (ps *packStore) sweepLegacyShardsDir() {
 	})
 }
 
-// encodeShardBlob / decodeShardBlob centralize the gob envelope so
+// encodeShardBlob / decodeShardBlob centralize the gob+zstd envelope so
 // the pack layer is orthogonal to the shard payload shape.
+//
+// Wire format (v5): zstd(gob(fileShard)). Symbol.File and
+// Reference.File are stripped before gob-encoding because every row
+// within a shard shares fileShard.Path; the loader re-hydrates them.
 func encodeShardBlob(s *fileShard) ([]byte, error) {
+	stripped := *s
+	if len(s.Symbols) > 0 {
+		stripped.Symbols = make([]Symbol, len(s.Symbols))
+		copy(stripped.Symbols, s.Symbols)
+		for i := range stripped.Symbols {
+			stripped.Symbols[i].File = ""
+		}
+	}
+	if len(s.References) > 0 {
+		stripped.References = make([]Reference, len(s.References))
+		copy(stripped.References, s.References)
+		for i := range stripped.References {
+			stripped.References[i].File = ""
+		}
+	}
 	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(s); err != nil {
+	if err := gob.NewEncoder(&buf).Encode(&stripped); err != nil {
 		return nil, err
 	}
-	return buf.Bytes(), nil
+	return shardZstdEncoder.EncodeAll(buf.Bytes(), nil), nil
 }
 
 func decodeShardBlob(blob []byte) (*fileShard, error) {
-	var s fileShard
-	if err := gob.NewDecoder(bytes.NewReader(blob)).Decode(&s); err != nil {
+	raw, err := shardZstdDecoder.DecodeAll(blob, nil)
+	if err != nil {
 		return nil, err
+	}
+	var s fileShard
+	if err := gob.NewDecoder(bytes.NewReader(raw)).Decode(&s); err != nil {
+		return nil, err
+	}
+	for i := range s.Symbols {
+		s.Symbols[i].File = s.Path
+	}
+	for i := range s.References {
+		s.References[i].File = s.Path
 	}
 	return &s, nil
 }

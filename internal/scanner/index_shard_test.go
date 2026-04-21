@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"bytes"
+	"encoding/gob"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,6 +47,108 @@ func TestFileShardRoundTrip(t *testing.T) {
 	if len(got.References) != 2 {
 		t.Fatalf("refs round-trip mismatch: %+v", got.References)
 	}
+}
+
+// TestFileShardFileFieldRehydrated verifies the v5 wire format strips
+// Symbol.File / Reference.File before encoding and reconstructs them
+// from fileShard.Path on load. The on-disk savings depend on this
+// invariant — a regression that re-serialised File would undo Step 2
+// of issue #351 silently.
+func TestFileShardFileFieldRehydrated(t *testing.T) {
+	cacheDir := CrossFileCacheDir(t.TempDir())
+	store := newPackStore(cacheDir)
+
+	const path = "/abs/path/to/Foo.kt"
+	want := &fileShard{
+		Path:        path,
+		ContentHash: "h",
+		Symbols: []Symbol{
+			{Name: "Foo", Kind: "class", Visibility: "public", File: path, Line: 1},
+		},
+		References: []Reference{
+			{Name: "Bar", File: path, Line: 2},
+			{Name: "Baz", File: path, Line: 3, InComment: true},
+		},
+	}
+	if err := store.SaveShard(want); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	got, ok := store.LoadShard(path, "h")
+	if !ok {
+		t.Fatalf("expected hit")
+	}
+	for _, s := range got.Symbols {
+		if s.File != path {
+			t.Errorf("Symbol.File = %q, want %q (rehydrated from Path)", s.File, path)
+		}
+	}
+	for _, r := range got.References {
+		if r.File != path {
+			t.Errorf("Reference.File = %q, want %q (rehydrated from Path)", r.File, path)
+		}
+	}
+	if !got.References[1].InComment {
+		t.Errorf("InComment lost in round-trip")
+	}
+}
+
+// TestShardBlobIsZstdCompressed confirms the on-disk blob is zstd-framed
+// (magic 0x28B52FFD). A regression that wrote raw gob would silently
+// undo Step 1 of issue #351; the magic-byte check makes that loud.
+func TestShardBlobIsZstdCompressed(t *testing.T) {
+	s := &fileShard{
+		Path:        "a.kt",
+		ContentHash: "h",
+		References:  []Reference{{Name: "Foo", File: "a.kt", Line: 1}},
+	}
+	blob, err := encodeShardBlob(s)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if len(blob) < 4 {
+		t.Fatalf("blob too short: %d bytes", len(blob))
+	}
+	// zstd magic, little-endian: 28 B5 2F FD.
+	if blob[0] != 0x28 || blob[1] != 0xB5 || blob[2] != 0x2F || blob[3] != 0xFD {
+		t.Fatalf("blob not zstd-framed: %x", blob[:4])
+	}
+}
+
+// TestShardBlobShrinksOnRepetition is a smoke test that the
+// gob+zstd envelope actually compresses. A reference-heavy shard
+// with repeated names should shrink several-fold versus the same
+// payload encoded as plain gob.
+func TestShardBlobShrinksOnRepetition(t *testing.T) {
+	const n = 500
+	refs := make([]Reference, n)
+	for i := range refs {
+		// Two-name vocabulary so the wire form is dominated by
+		// near-zero-entropy structure that zstd should crush.
+		name := "Alpha"
+		if i%2 == 0 {
+			name = "Beta"
+		}
+		refs[i] = Reference{Name: name, File: "/abs/long/path/to/Source.kt", Line: i}
+	}
+	s := &fileShard{
+		Path:        "/abs/long/path/to/Source.kt",
+		ContentHash: "h",
+		References:  refs,
+	}
+	compressed, err := encodeShardBlob(s)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	var raw bytes.Buffer
+	if err := gob.NewEncoder(&raw).Encode(s); err != nil {
+		t.Fatalf("gob encode for baseline: %v", err)
+	}
+	if len(compressed)*3 >= raw.Len() {
+		t.Errorf("compression weak: zstd=%d gob=%d (want zstd*3 < gob)", len(compressed), raw.Len())
+	}
+	t.Logf("compressed=%d bytes, raw-gob=%d bytes (%.1fx)", len(compressed), raw.Len(),
+		float64(raw.Len())/float64(len(compressed)))
 }
 
 func TestFileShardContentHashMismatchIsMiss(t *testing.T) {

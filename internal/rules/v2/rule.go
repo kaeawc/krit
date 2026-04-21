@@ -43,15 +43,19 @@ const (
 	// NeedsOracle are never fed to the oracle's file selection — they
 	// run tree-sitter-only and the JVM oracle is skipped entirely if no
 	// enabled rule declares this bit.
-	//
-	// NeedsOracle is independent of NeedsResolver: NeedsResolver gives
-	// the rule a TypeResolver whose backend may be either the
-	// tree-sitter inferrer or the composite (oracle + inferrer)
-	// resolver. NeedsOracle declares that the rule's analysis actually
-	// depends on oracle-only APIs (LookupCallTarget, LookupAnnotations,
-	// LookupDiagnostics) and would lose findings without them.
 	NeedsOracle
 )
+
+// NeedsTypeInfo is the unified type-information capability: rules
+// declaring it ask the dispatcher both to populate ctx.Resolver AND
+// to include the rule in the oracle's file-selection pass. The
+// ChainedResolver behind ctx.Resolver picks the cheapest backend
+// (oracle > source-level) per call, so rule authors do not need to
+// know which one answers.
+//
+// Prefer NeedsTypeInfo over declaring NeedsResolver and NeedsOracle
+// individually. See roadmap/clusters/core-infra/type-resolution-service.md.
+const NeedsTypeInfo Capabilities = NeedsResolver | NeedsOracle
 
 // Has reports whether c includes all bits in flag.
 func (c Capabilities) Has(flag Capabilities) bool {

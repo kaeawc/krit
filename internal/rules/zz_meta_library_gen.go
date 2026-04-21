@@ -17,7 +17,7 @@ func (r *ForbiddenPublicDataClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "3eeb96f8ca4fff78",
+		SourceHash:    "0b65893c1bbfe059",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *LibraryCodeMustSpecifyReturnTypeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "3eeb96f8ca4fff78",
+		SourceHash:    "0b65893c1bbfe059",
 	}
 }
 
@@ -43,6 +43,6 @@ func (r *LibraryEntitiesShouldNotBePublicRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "3eeb96f8ca4fff78",
+		SourceHash:    "0b65893c1bbfe059",
 	}
 }

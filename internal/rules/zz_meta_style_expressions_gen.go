@@ -17,7 +17,7 @@ func (r *CollapsibleIfStatementsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "43a2cda6edbc313d",
+		SourceHash:    "6f5283010b34e469",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *ExplicitItLambdaMultipleParametersRule) Meta() registry.RuleDescriptor 
 		DefaultActive: true,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "43a2cda6edbc313d",
+		SourceHash:    "6f5283010b34e469",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *ExplicitItLambdaParameterRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "43a2cda6edbc313d",
+		SourceHash:    "6f5283010b34e469",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *ExpressionBodySyntaxRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "43a2cda6edbc313d",
+		SourceHash:    "6f5283010b34e469",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "includeLineWrapping",
@@ -80,7 +80,7 @@ func (r *FunctionOnlyReturningConstantRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "43a2cda6edbc313d",
+		SourceHash:    "6f5283010b34e469",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludedFunctions",
@@ -122,7 +122,7 @@ func (r *LoopWithTooManyJumpStatementsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "43a2cda6edbc313d",
+		SourceHash:    "6f5283010b34e469",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "maxJumpCount",
@@ -147,7 +147,7 @@ func (r *MayBeConstantRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "43a2cda6edbc313d",
+		SourceHash:    "6f5283010b34e469",
 	}
 }
 
@@ -160,7 +160,7 @@ func (r *ModifierOrderRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "43a2cda6edbc313d",
+		SourceHash:    "6f5283010b34e469",
 	}
 }
 
@@ -173,7 +173,7 @@ func (r *ReturnCountRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "43a2cda6edbc313d",
+		SourceHash:    "6f5283010b34e469",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeGuardClauses",
@@ -230,7 +230,7 @@ func (r *SafeCastRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "43a2cda6edbc313d",
+		SourceHash:    "6f5283010b34e469",
 	}
 }
 
@@ -243,7 +243,7 @@ func (r *ThrowsCountRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "43a2cda6edbc313d",
+		SourceHash:    "6f5283010b34e469",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "excludeGuardClauses",
@@ -275,7 +275,7 @@ func (r *VarCouldBeValRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "43a2cda6edbc313d",
+		SourceHash:    "6f5283010b34e469",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoreLateinitVar",

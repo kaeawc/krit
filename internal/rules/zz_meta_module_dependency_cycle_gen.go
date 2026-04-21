@@ -17,6 +17,6 @@ func (r *ModuleDependencyCycleRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "b3767364f08aed96",
+		SourceHash:    "1182a2a5a6b298eb",
 	}
 }

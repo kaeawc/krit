@@ -17,7 +17,7 @@ func (r *ArrayPrimitiveRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "6315b6e4e8c768e8",
+		SourceHash:    "b3d070c0083b2bc8",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *BitmapDecodeWithoutOptionsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "6315b6e4e8c768e8",
+		SourceHash:    "b3d070c0083b2bc8",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *CouldBeSequenceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "6315b6e4e8c768e8",
+		SourceHash:    "b3d070c0083b2bc8",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedOperations",
@@ -68,7 +68,7 @@ func (r *ForEachOnRangeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "6315b6e4e8c768e8",
+		SourceHash:    "b3d070c0083b2bc8",
 	}
 }
 
@@ -81,7 +81,7 @@ func (r *SpreadOperatorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "6315b6e4e8c768e8",
+		SourceHash:    "b3d070c0083b2bc8",
 	}
 }
 
@@ -94,7 +94,7 @@ func (r *UnnecessaryInitOnArrayRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "6315b6e4e8c768e8",
+		SourceHash:    "b3d070c0083b2bc8",
 	}
 }
 
@@ -107,7 +107,7 @@ func (r *UnnecessaryPartOfBinaryExpressionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "6315b6e4e8c768e8",
+		SourceHash:    "b3d070c0083b2bc8",
 	}
 }
 
@@ -120,7 +120,7 @@ func (r *UnnecessaryTemporaryInstantiationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "6315b6e4e8c768e8",
+		SourceHash:    "b3d070c0083b2bc8",
 	}
 }
 
@@ -133,6 +133,6 @@ func (r *UnnecessaryTypeCastingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "6315b6e4e8c768e8",
+		SourceHash:    "b3d070c0083b2bc8",
 	}
 }

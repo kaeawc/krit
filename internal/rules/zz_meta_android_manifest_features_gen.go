@@ -17,7 +17,7 @@ func (r *AppIndexingErrorManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "67c14099b8c9b31e",
+		SourceHash:    "b8aae28091d58d96",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *AppIndexingWarningManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "67c14099b8c9b31e",
+		SourceHash:    "b8aae28091d58d96",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *DeviceAdminManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "67c14099b8c9b31e",
+		SourceHash:    "b8aae28091d58d96",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *FullBackupContentManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "67c14099b8c9b31e",
+		SourceHash:    "b8aae28091d58d96",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *GoogleAppIndexingDeepLinkErrorManifestRule) Meta() registry.RuleDescrip
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "67c14099b8c9b31e",
+		SourceHash:    "b8aae28091d58d96",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *GoogleAppIndexingWarningManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "67c14099b8c9b31e",
+		SourceHash:    "b8aae28091d58d96",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *MissingLeanbackLauncherManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "67c14099b8c9b31e",
+		SourceHash:    "b8aae28091d58d96",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *MissingLeanbackSupportManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "67c14099b8c9b31e",
+		SourceHash:    "b8aae28091d58d96",
 	}
 }
 
@@ -121,7 +121,7 @@ func (r *MissingRegisteredManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "67c14099b8c9b31e",
+		SourceHash:    "b8aae28091d58d96",
 	}
 }
 
@@ -134,7 +134,7 @@ func (r *PermissionImpliesUnsupportedHardwareManifestRule) Meta() registry.RuleD
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "67c14099b8c9b31e",
+		SourceHash:    "b8aae28091d58d96",
 	}
 }
 
@@ -147,7 +147,7 @@ func (r *RtlCompatManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "67c14099b8c9b31e",
+		SourceHash:    "b8aae28091d58d96",
 	}
 }
 
@@ -160,7 +160,7 @@ func (r *RtlEnabledManifestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "67c14099b8c9b31e",
+		SourceHash:    "b8aae28091d58d96",
 	}
 }
 
@@ -173,6 +173,6 @@ func (r *UnsupportedChromeOsHardwareManifestRule) Meta() registry.RuleDescriptor
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "67c14099b8c9b31e",
+		SourceHash:    "b8aae28091d58d96",
 	}
 }

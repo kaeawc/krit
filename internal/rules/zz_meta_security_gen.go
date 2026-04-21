@@ -17,7 +17,7 @@ func (r *ContentProviderQueryWithSelectionInterpolationRule) Meta() registry.Rul
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "33dc351661fdd235",
+		SourceHash:    "029a1932a1100881",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *FileFromUntrustedPathRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "33dc351661fdd235",
+		SourceHash:    "029a1932a1100881",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *HardcodedBearerTokenRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "33dc351661fdd235",
+		SourceHash:    "029a1932a1100881",
 	}
 }
 
@@ -56,6 +56,6 @@ func (r *HardcodedGcpServiceAccountRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "33dc351661fdd235",
+		SourceHash:    "029a1932a1100881",
 	}
 }

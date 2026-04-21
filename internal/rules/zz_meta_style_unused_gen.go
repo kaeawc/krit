@@ -21,7 +21,7 @@ func (r *UnusedImportRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "0a30e5ce64734308",
+		SourceHash:    "51aac81c95779e19",
 	}
 }
 
@@ -34,7 +34,7 @@ func (r *UnusedParameterRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "0a30e5ce64734308",
+		SourceHash:    "51aac81c95779e19",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedNames",
@@ -58,7 +58,7 @@ func (r *UnusedPrivateClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "0a30e5ce64734308",
+		SourceHash:    "51aac81c95779e19",
 	}
 }
 
@@ -71,7 +71,7 @@ func (r *UnusedPrivateFunctionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "0a30e5ce64734308",
+		SourceHash:    "51aac81c95779e19",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedNames",
@@ -95,7 +95,7 @@ func (r *UnusedPrivateMemberRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "0a30e5ce64734308",
+		SourceHash:    "51aac81c95779e19",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedNames",
@@ -128,7 +128,7 @@ func (r *UnusedPrivatePropertyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "0a30e5ce64734308",
+		SourceHash:    "51aac81c95779e19",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedNames",
@@ -152,7 +152,7 @@ func (r *UnusedVariableRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "0a30e5ce64734308",
+		SourceHash:    "51aac81c95779e19",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedNames",

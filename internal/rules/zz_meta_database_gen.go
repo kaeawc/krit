@@ -17,7 +17,7 @@ func (r *DaoNotInterfaceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "d67382c415a0c063",
+		SourceHash:    "f33419fc6b9ce125",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *DaoWithoutAnnotationsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "d67382c415a0c063",
+		SourceHash:    "f33419fc6b9ce125",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *DatabaseInstanceRecreatedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "d67382c415a0c063",
+		SourceHash:    "f33419fc6b9ce125",
 	}
 }
 
@@ -56,6 +56,6 @@ func (r *JdbcPreparedStatementNotClosedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "d67382c415a0c063",
+		SourceHash:    "f33419fc6b9ce125",
 	}
 }

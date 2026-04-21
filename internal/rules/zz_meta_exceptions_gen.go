@@ -21,7 +21,7 @@ func (r *ErrorUsageWithThrowableRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7612023a9a27dc93",
+		SourceHash:    "c59fb55f6d38acfc",
 	}
 }
 
@@ -34,7 +34,7 @@ func (r *ExceptionRaisedInUnexpectedLocationRule) Meta() registry.RuleDescriptor
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7612023a9a27dc93",
+		SourceHash:    "c59fb55f6d38acfc",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "methodNames",
@@ -58,7 +58,7 @@ func (r *InstanceOfCheckForExceptionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7612023a9a27dc93",
+		SourceHash:    "c59fb55f6d38acfc",
 	}
 }
 
@@ -71,7 +71,7 @@ func (r *NotImplementedDeclarationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7612023a9a27dc93",
+		SourceHash:    "c59fb55f6d38acfc",
 	}
 }
 
@@ -84,7 +84,7 @@ func (r *ObjectExtendsThrowableRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7612023a9a27dc93",
+		SourceHash:    "c59fb55f6d38acfc",
 	}
 }
 
@@ -97,7 +97,7 @@ func (r *RethrowCaughtExceptionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7612023a9a27dc93",
+		SourceHash:    "c59fb55f6d38acfc",
 	}
 }
 
@@ -110,7 +110,7 @@ func (r *ReturnFromFinallyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "7612023a9a27dc93",
+		SourceHash:    "c59fb55f6d38acfc",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoreLabeled",
@@ -134,7 +134,7 @@ func (r *SwallowedExceptionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "7612023a9a27dc93",
+		SourceHash:    "c59fb55f6d38acfc",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedExceptionNameRegex",
@@ -167,7 +167,7 @@ func (r *ThrowingExceptionFromFinallyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "7612023a9a27dc93",
+		SourceHash:    "c59fb55f6d38acfc",
 	}
 }
 
@@ -180,7 +180,7 @@ func (r *ThrowingExceptionInMainRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7612023a9a27dc93",
+		SourceHash:    "c59fb55f6d38acfc",
 	}
 }
 
@@ -193,7 +193,7 @@ func (r *ThrowingExceptionsWithoutMessageOrCauseRule) Meta() registry.RuleDescri
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7612023a9a27dc93",
+		SourceHash:    "c59fb55f6d38acfc",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "exceptions",
@@ -217,6 +217,6 @@ func (r *ThrowingNewInstanceOfSameExceptionRule) Meta() registry.RuleDescriptor 
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "7612023a9a27dc93",
+		SourceHash:    "c59fb55f6d38acfc",
 	}
 }

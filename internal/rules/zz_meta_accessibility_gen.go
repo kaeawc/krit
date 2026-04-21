@@ -17,7 +17,7 @@ func (r *AnimatorDurationIgnoresScaleRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "b1d37cba05f93cab",
+		SourceHash:    "1366bcd83898cea6",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *ComposeClickableWithoutMinTouchTargetRule) Meta() registry.RuleDescript
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "b1d37cba05f93cab",
+		SourceHash:    "1366bcd83898cea6",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *ComposeDecorativeImageContentDescriptionRule) Meta() registry.RuleDescr
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "b1d37cba05f93cab",
+		SourceHash:    "1366bcd83898cea6",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *ComposeIconButtonMissingContentDescriptionRule) Meta() registry.RuleDes
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "b1d37cba05f93cab",
+		SourceHash:    "1366bcd83898cea6",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *ComposeRawTextLiteralRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "b1d37cba05f93cab",
+		SourceHash:    "1366bcd83898cea6",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *ComposeSemanticsMissingRoleRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "b1d37cba05f93cab",
+		SourceHash:    "1366bcd83898cea6",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *ComposeTextFieldMissingLabelRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "b1d37cba05f93cab",
+		SourceHash:    "1366bcd83898cea6",
 	}
 }
 
@@ -108,6 +108,6 @@ func (r *ToastForAccessibilityAnnouncementRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "b1d37cba05f93cab",
+		SourceHash:    "1366bcd83898cea6",
 	}
 }

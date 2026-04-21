@@ -17,7 +17,7 @@ func (r *NullCheckOnMutablePropertyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "89dc5c29fc88d821",
+		SourceHash:    "9456d56c0570c101",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *NullableToStringCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "89dc5c29fc88d821",
+		SourceHash:    "9456d56c0570c101",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *UnnecessaryNotNullCheckRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "89dc5c29fc88d821",
+		SourceHash:    "9456d56c0570c101",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *UnnecessaryNotNullOperatorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "89dc5c29fc88d821",
+		SourceHash:    "9456d56c0570c101",
 	}
 }
 
@@ -69,6 +69,6 @@ func (r *UnnecessarySafeCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "89dc5c29fc88d821",
+		SourceHash:    "9456d56c0570c101",
 	}
 }

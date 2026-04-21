@@ -17,7 +17,7 @@ func (r *CopyrightYearOutdatedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "bad69a04671933e4",
+		SourceHash:    "3c732ef2eef1bbd2",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *DependencyLicenseUnknownRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "bad69a04671933e4",
+		SourceHash:    "3c732ef2eef1bbd2",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "requireVerification",
@@ -54,6 +54,6 @@ func (r *MissingSpdxIdentifierRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "bad69a04671933e4",
+		SourceHash:    "3c732ef2eef1bbd2",
 	}
 }

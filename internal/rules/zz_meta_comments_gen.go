@@ -21,7 +21,7 @@ func (r *AbsentOrWrongFileLicenseRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		SourceHash:    "4b43136e8436b15f",
+		SourceHash:    "426faaba2ac47cee",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "licenseTemplate",
@@ -54,7 +54,7 @@ func (r *DeprecatedBlockTagRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4b43136e8436b15f",
+		SourceHash:    "426faaba2ac47cee",
 	}
 }
 
@@ -67,7 +67,7 @@ func (r *DocumentationOverPrivateFunctionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		SourceHash:    "4b43136e8436b15f",
+		SourceHash:    "426faaba2ac47cee",
 	}
 }
 
@@ -80,7 +80,7 @@ func (r *DocumentationOverPrivatePropertyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		SourceHash:    "4b43136e8436b15f",
+		SourceHash:    "426faaba2ac47cee",
 	}
 }
 
@@ -93,7 +93,7 @@ func (r *EndOfSentenceFormatRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4b43136e8436b15f",
+		SourceHash:    "426faaba2ac47cee",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "endOfSentenceFormat",
@@ -126,7 +126,7 @@ func (r *KDocReferencesNonPublicPropertyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4b43136e8436b15f",
+		SourceHash:    "426faaba2ac47cee",
 	}
 }
 
@@ -139,7 +139,7 @@ func (r *OutdatedDocumentationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4b43136e8436b15f",
+		SourceHash:    "426faaba2ac47cee",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "matchDeclarationsOrder",
@@ -172,7 +172,7 @@ func (r *UndocumentedPublicClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4b43136e8436b15f",
+		SourceHash:    "426faaba2ac47cee",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "searchInInnerClass",
@@ -223,7 +223,7 @@ func (r *UndocumentedPublicFunctionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4b43136e8436b15f",
+		SourceHash:    "426faaba2ac47cee",
 	}
 }
 
@@ -236,6 +236,6 @@ func (r *UndocumentedPublicPropertyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "4b43136e8436b15f",
+		SourceHash:    "426faaba2ac47cee",
 	}
 }

@@ -17,7 +17,7 @@ func (r *BufferedReadWithoutBufferRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *ComposePainterResourceInLoopRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *ComposeRememberInListRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *CursorLoopWithColumnIndexInLoopRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *DatabaseQueryOnMainThreadRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *HttpClientNotReusedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *ImageLoadedAtFullSizeInListRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *ImageLoaderNoMemoryCacheRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -121,7 +121,7 @@ func (r *LazyColumnInsideColumnRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -134,7 +134,7 @@ func (r *OkHttpCallExecuteSyncRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -147,7 +147,7 @@ func (r *OkHttpClientCreatedPerCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -160,7 +160,7 @@ func (r *PeriodicWorkRequestLessThan15MinRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -173,7 +173,7 @@ func (r *RecyclerAdapterStableIdsDefaultRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *RecyclerAdapterWithoutDiffUtilRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -199,7 +199,7 @@ func (r *RecyclerViewInLazyColumnRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -212,7 +212,7 @@ func (r *RetrofitCreateInHotPathRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -225,7 +225,7 @@ func (r *RoomLoadsAllWhereFirstUsedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -238,7 +238,7 @@ func (r *WorkManagerNoBackoffRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }
 
@@ -251,6 +251,6 @@ func (r *WorkManagerUniquePolicyKeepButReplaceIntendedRule) Meta() registry.Rule
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0bc6216c9c22b356",
+		SourceHash:    "cac2577b8e729c85",
 	}
 }

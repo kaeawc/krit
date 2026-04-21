@@ -17,7 +17,7 @@ func (r *AssertEqualsArgumentOrderRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *AssertNullableWithNotNullAssertionRule) Meta() registry.RuleDescriptor 
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *AssertTrueOnComparisonRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *MixedAssertionLibrariesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *MockWithoutVerifyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *RelaxedMockUsedForValueClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *RunBlockingInTestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *RunTestWithDelayRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -121,7 +121,7 @@ func (r *RunTestWithThreadSleepRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -134,7 +134,7 @@ func (r *SharedMutableStateInObjectRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -147,7 +147,7 @@ func (r *SpyOnDataClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.6,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -160,7 +160,7 @@ func (r *TestDispatcherNotInjectedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -173,7 +173,7 @@ func (r *TestFunctionReturnValueRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *TestInheritanceDepthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.6,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -199,7 +199,7 @@ func (r *TestNameContainsUnderscoreRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.6,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -212,7 +212,7 @@ func (r *TestWithOnlyTodoRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -225,7 +225,7 @@ func (r *TestWithoutAssertionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }
 
@@ -238,6 +238,6 @@ func (r *VerifyWithoutMockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.6,
-		SourceHash:    "1d5b273ea601c6b8",
+		SourceHash:    "ae8b76ecc3eafc1e",
 	}
 }

@@ -1,10 +1,13 @@
 package scanner
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/bits-and-blooms/bloom/v3"
 )
 
 func TestFileShardRoundTrip(t *testing.T) {
@@ -137,12 +140,18 @@ func TestBuildIndexCachedShardFallbackEquivalent(t *testing.T) {
 	}
 
 	// Call the shard collector directly — avoids dragging in XML walk.
-	gotSyms, gotRefs := collectIndexDataSharded(cacheDir, []*File{fa, fb}, nil, nil, 2, nil)
+	gotSyms, gotRefs, gotBloom := collectIndexDataSharded(cacheDir, []*File{fa, fb}, nil, nil, 2, nil)
 	if len(gotSyms) != 2 || len(gotRefs) != 2 {
 		t.Fatalf("sharded collect: got %d syms / %d refs, want 2/2", len(gotSyms), len(gotRefs))
 	}
+	if gotBloom == nil {
+		t.Fatalf("expected unioned bloom, got nil")
+	}
+	if !gotBloom.TestString("A") || !gotBloom.TestString("B") {
+		t.Fatalf("unioned bloom missing A or B")
+	}
 
-	idx := BuildIndexFromData(gotSyms, gotRefs)
+	idx := BuildIndexFromDataWithBloom(gotSyms, gotRefs, gotBloom, nil)
 	if idx.ReferenceCount("A") != 1 || idx.ReferenceCount("B") != 1 {
 		t.Fatalf("ReferenceCount mismatch: A=%d B=%d", idx.ReferenceCount("A"), idx.ReferenceCount("B"))
 	}
@@ -151,6 +160,224 @@ func TestBuildIndexCachedShardFallbackEquivalent(t *testing.T) {
 	}
 	if !idx.IsReferencedOutsideFile("B", fb.Path) {
 		t.Fatalf("expected B referenced outside b.kt")
+	}
+	if !idx.MayHaveReference("A") || !idx.MayHaveReference("B") {
+		t.Fatalf("index bloom missing A or B after adopting prebuilt")
+	}
+}
+
+// TestFileShardBloomRoundTrip checks that a shard persisted with a
+// bloom reloads with the same MayContain answers as the original.
+func TestFileShardBloomRoundTrip(t *testing.T) {
+	cacheDir := CrossFileCacheDir(t.TempDir())
+
+	refs := []Reference{
+		{Name: "Alpha", File: "a.kt", Line: 1},
+		{Name: "Beta", File: "a.kt", Line: 2},
+		{Name: "Gamma", File: "a.kt", Line: 3},
+	}
+	bf := buildShardBloomFromRefs(refs)
+	encoded, err := encodeShardBloom(bf)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if len(encoded) == 0 {
+		t.Fatalf("expected non-empty encoded bloom")
+	}
+
+	if err := saveFileShard(cacheDir, &fileShard{
+		Path:        "a.kt",
+		ContentHash: "h",
+		References:  refs,
+		Bloom:       encoded,
+	}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	got, ok := loadFileShard(cacheDir, "a.kt", "h")
+	if !ok {
+		t.Fatalf("expected shard hit")
+	}
+	loaded, err := decodeShardBloom(got.Bloom)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if loaded == nil {
+		t.Fatalf("decoded bloom is nil")
+	}
+
+	for _, name := range []string{"Alpha", "Beta", "Gamma"} {
+		if !loaded.TestString(name) {
+			t.Errorf("decoded bloom missing %q", name)
+		}
+		if bf.TestString(name) != loaded.TestString(name) {
+			t.Errorf("bloom answer diverged for %q", name)
+		}
+	}
+}
+
+// TestEncodeShardBloomNilIsEmpty ensures that an empty shard encodes
+// to nothing so empty-reference files don't waste disk.
+func TestEncodeShardBloomNilIsEmpty(t *testing.T) {
+	data, err := encodeShardBloom(nil)
+	if err != nil {
+		t.Fatalf("encode nil: %v", err)
+	}
+	if data != nil {
+		t.Fatalf("encode(nil) = %d bytes, want nil", len(data))
+	}
+	bf, err := decodeShardBloom(nil)
+	if err != nil {
+		t.Fatalf("decode nil: %v", err)
+	}
+	if bf != nil {
+		t.Fatalf("decode(nil) returned non-nil bloom")
+	}
+}
+
+// TestShardBloomUnionEqualsDirectAdd checks that unioning per-shard
+// blooms produces identical MayContain answers to adding every name
+// to a single aggregate bloom directly. This is the correctness
+// property the warm-load path relies on.
+func TestShardBloomUnionEqualsDirectAdd(t *testing.T) {
+	shardRefs := [][]Reference{
+		{{Name: "Foo"}, {Name: "Bar"}},
+		{{Name: "Baz"}, {Name: "Qux"}},
+		{{Name: "Foo"}, {Name: "Quux"}}, // overlap with shard 0
+	}
+
+	// Union path: build per-shard, merge.
+	union := newShardBloom()
+	for _, refs := range shardRefs {
+		sb := buildShardBloomFromRefs(refs)
+		if sb == nil {
+			continue
+		}
+		if err := union.Merge(sb); err != nil {
+			t.Fatalf("merge: %v", err)
+		}
+	}
+
+	// Direct path: one bloom, AddString everything.
+	direct := newShardBloom()
+	for _, refs := range shardRefs {
+		for _, r := range refs {
+			direct.AddString(r.Name)
+		}
+	}
+
+	for _, name := range []string{"Foo", "Bar", "Baz", "Qux", "Quux", "Missing", "NotThere"} {
+		if union.TestString(name) != direct.TestString(name) {
+			t.Errorf("union/direct diverged for %q: union=%v direct=%v",
+				name, union.TestString(name), direct.TestString(name))
+		}
+	}
+}
+
+// TestCollectIndexDataShardedUnionBloomCoversRefs end-to-ends the
+// shard-path bloom: on a shard-cache-hit rebuild, every ref name the
+// collector returns must be TestString-positive on the unioned bloom.
+func TestCollectIndexDataShardedUnionBloomCoversRefs(t *testing.T) {
+	cacheDir := CrossFileCacheDir(t.TempDir())
+
+	fa := &File{Path: "/tmp/a.kt", Content: []byte("ignored")}
+	fb := &File{Path: "/tmp/b.kt", Content: []byte("ignored")}
+	ha := contentHashForFile(fa.Path, fa.Content)
+	hb := contentHashForFile(fb.Path, fb.Content)
+
+	refsA := []Reference{{Name: "Foo", File: fa.Path, Line: 1}, {Name: "Bar", File: fa.Path, Line: 2}}
+	refsB := []Reference{{Name: "Baz", File: fb.Path, Line: 1}}
+
+	// Simulate writes from a previous run: shards with per-shard blooms.
+	for _, s := range []*fileShard{
+		{Path: fa.Path, ContentHash: ha, References: refsA},
+		{Path: fb.Path, ContentHash: hb, References: refsB},
+	} {
+		enc, err := encodeShardBloom(buildShardBloomFromRefs(s.References))
+		if err != nil {
+			t.Fatalf("encode shard %s: %v", s.Path, err)
+		}
+		s.Bloom = enc
+		if err := saveFileShard(cacheDir, s); err != nil {
+			t.Fatalf("save shard %s: %v", s.Path, err)
+		}
+	}
+
+	_, refs, bf := collectIndexDataSharded(cacheDir, []*File{fa, fb}, nil, nil, 2, nil)
+	if bf == nil {
+		t.Fatalf("expected non-nil unioned bloom")
+	}
+	for _, r := range refs {
+		if !bf.TestString(r.Name) {
+			t.Errorf("unioned bloom missing ref %q", r.Name)
+		}
+	}
+	for _, name := range []string{"Foo", "Bar", "Baz"} {
+		if !bf.TestString(name) {
+			t.Errorf("unioned bloom missing %q", name)
+		}
+	}
+}
+
+// TestShardBloomVersionMismatchRejected guards against a future
+// (m, k) change slipping into a shard without a version bump.
+func TestShardBloomVersionMismatchRejected(t *testing.T) {
+	// Build a bloom at a non-matching capacity; decodeShardBloom must
+	// reject it so stale (m,k) shards don't corrupt the aggregate.
+	different, err := encodeShardBloom(func() *bloom.BloomFilter {
+		return bloom.NewWithEstimates(shardBloomCapacity+1, shardBloomFPR)
+	}())
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if _, err := decodeShardBloom(different); err == nil {
+		t.Fatalf("expected decode error on mismatched (m,k)")
+	}
+}
+
+// TestShardBloomUnionFPRSmallScale sanity-checks that the union bloom
+// does not overflow to ~100% FPR at a realistic shard count. Signal
+// scale is ~5500 shards with ~500K unique names; this test uses
+// smaller numbers that still exercise the same math.
+func TestShardBloomUnionFPRSmallScale(t *testing.T) {
+	const shards = 500
+	const refsPerShard = 200
+	const totalPresent = shards * refsPerShard
+
+	union := newShardBloom()
+	for s := 0; s < shards; s++ {
+		refs := make([]Reference, refsPerShard)
+		for i := 0; i < refsPerShard; i++ {
+			refs[i] = Reference{Name: fmt.Sprintf("sym-%d-%d", s, i)}
+		}
+		sb := buildShardBloomFromRefs(refs)
+		if err := union.Merge(sb); err != nil {
+			t.Fatalf("merge: %v", err)
+		}
+	}
+
+	// Every inserted name must TestString-positive.
+	for s := 0; s < shards; s += 50 {
+		for i := 0; i < refsPerShard; i += 25 {
+			if !union.TestString(fmt.Sprintf("sym-%d-%d", s, i)) {
+				t.Errorf("false negative for sym-%d-%d", s, i)
+			}
+		}
+	}
+
+	// Probe never-inserted names; with 100K items in a 1M-cap bloom,
+	// FPR should be comfortably under 1%.
+	const probes = 10000
+	falsePos := 0
+	for i := 0; i < probes; i++ {
+		if union.TestString(fmt.Sprintf("nope-%d", i)) {
+			falsePos++
+		}
+	}
+	fpr := float64(falsePos) / float64(probes)
+	t.Logf("union bloom: %d items stored, observed FPR = %.4f (probes=%d)", totalPresent, fpr, probes)
+	if fpr > 0.05 {
+		t.Errorf("union FPR = %.4f exceeds 5%% budget", fpr)
 	}
 }
 

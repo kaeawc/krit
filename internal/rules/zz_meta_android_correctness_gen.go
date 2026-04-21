@@ -17,7 +17,7 @@ func (r *AssertRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *CheckResultRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *CommitPrefEditsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *CommitTransactionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *DefaultLocaleRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *NestedScrollingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *RegisteredRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *SQLiteStringRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -121,7 +121,7 @@ func (r *ScrollViewCountRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -134,7 +134,7 @@ func (r *SetTextI18nRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -147,7 +147,7 @@ func (r *ShiftFlagsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -160,7 +160,7 @@ func (r *SimpleDateFormatRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -173,7 +173,7 @@ func (r *StopShipRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *UniqueConstantsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -199,7 +199,7 @@ func (r *WrongCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }
 
@@ -212,6 +212,6 @@ func (r *WrongThreadRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "cf9b0ff88c0b62ca",
+		SourceHash:    "8c7fe112712eb56a",
 	}
 }

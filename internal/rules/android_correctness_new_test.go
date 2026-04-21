@@ -11,7 +11,9 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // =====================================================================
@@ -172,6 +174,72 @@ class MyHelper : ViewModel() {
 }`)
 	if len(findings) != 0 {
 		t.Errorf("expected no finding for non-component class, got %d", len(findings))
+	}
+}
+
+func TestRegistered_FollowsSameFileSupertype(t *testing.T) {
+	findings := runRuleByName(t, "Registered", `
+package test
+abstract class BaseActivity : AppCompatActivity() {
+}
+class DetailActivity : BaseActivity() {
+}`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding for concrete same-file Activity subclass, got %d", len(findings))
+	}
+	if !strings.Contains(findings[0].Message, "DetailActivity") {
+		t.Errorf("expected DetailActivity in message, got: %s", findings[0].Message)
+	}
+}
+
+func TestRegistered_UsesResolverHierarchy(t *testing.T) {
+	file := parseInline(t, `
+package test
+class DetailActivity : BaseScreen() {
+}`)
+	resolver := typeinfer.NewFakeResolver()
+	resolver.Classes["BaseScreen"] = &typeinfer.ClassInfo{
+		Name:       "BaseScreen",
+		FQN:        "test.BaseScreen",
+		Supertypes: []string{"android.app.Activity"},
+	}
+
+	var target *v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if r.ID == "Registered" {
+			target = r
+			break
+		}
+	}
+	if target == nil {
+		t.Fatal("Registered rule not found")
+	}
+	cols := rules.NewDispatcherV2([]*v2rules.Rule{target}, resolver).Run(file)
+	findings := cols.Findings()
+	if len(findings) != 1 {
+		t.Fatalf("expected one resolver-backed finding, got %d", len(findings))
+	}
+}
+
+func TestRegistered_LocalActivityClassDoesNotShadowFramework(t *testing.T) {
+	findings := runRuleByName(t, "Registered", `
+package test
+open class Activity
+class MyActivity : Activity() {
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no finding for local Activity class, got %d", len(findings))
+	}
+}
+
+func TestRegistered_IgnoresComponentTextInsideClassBody(t *testing.T) {
+	findings := runRuleByName(t, "Registered", `
+package test
+class MyHelper {
+    val sample = ": Activity("
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no finding for component-looking string literal, got %d", len(findings))
 	}
 }
 

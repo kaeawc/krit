@@ -1,6 +1,6 @@
 package test
 
-class ContactsScreen(private val resolver: Any) {
+class ContactsScreen(private val resolver: ContentResolver) {
     private val requestContactsPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->

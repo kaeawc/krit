@@ -12,12 +12,16 @@ import (
 // reserved for Probe() (not yet uniformly implemented) triggered by
 // --verbose.
 type CacheStats struct {
-	Entries       int   `json:"entries"`
-	Bytes         int64 `json:"bytes"`
-	Hits          int64 `json:"hits"`
-	Misses        int64 `json:"misses"`
-	Evictions     int64 `json:"evictions"`
-	LastWriteUnix int64 `json:"lastWriteUnix,omitempty"`
+	Entries        int   `json:"entries"`
+	Bytes          int64 `json:"bytes"`
+	Hits           int64 `json:"hits"`
+	Misses         int64 `json:"misses"`
+	Evictions      int64 `json:"evictions"`
+	LastWriteUnix  int64 `json:"lastWriteUnix,omitempty"`
+	AsyncQueued    int64 `json:"asyncQueued,omitempty"`
+	AsyncCompleted int64 `json:"asyncCompleted,omitempty"`
+	AsyncFailed    int64 `json:"asyncFailed,omitempty"`
+	AsyncBytes     int64 `json:"asyncBytes,omitempty"`
 }
 
 // StatsProvider is an optional extension to Registered. A Registered

@@ -194,7 +194,7 @@ func ParseKotlinFileCached(path string, pc *ParseCache) (*File, error) {
 
 	file := NewParsedFile(path, content, tree)
 	if file.FlatTree != nil {
-		_ = pc.Save(path, content, file.FlatTree)
+		_ = pc.SaveAsync(path, content, file.FlatTree)
 	}
 	return file, nil
 }
@@ -396,7 +396,7 @@ func ParseJavaFileCached(path string, pc *ParseCache) (*File, error) {
 		FlatTree: flatTree,
 	}
 	if file.FlatTree != nil {
-		_ = pc.SaveJava(path, content, file.FlatTree)
+		_ = pc.SaveJavaAsync(path, content, file.FlatTree)
 	}
 	return file, nil
 }

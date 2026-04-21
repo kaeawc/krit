@@ -91,11 +91,8 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 		return cachedIdx, true
 	}
 
-	// Monolithic miss → shard-backed partial rebuild. Files whose
-	// per-file shard is still on disk reuse their cached contribution;
-	// only changed/new files run the fresh index path. Writes shards
-	// back so the next edit amortises, then persists the full
-	// monolithic cache (with lookups) for the warm-identical fast path.
+	// Monolithic miss → shard-backed partial rebuild so unchanged files
+	// reuse their cached contribution; only new/edited files run fresh.
 	symbols, refs := collectIndexDataSharded(cacheDir, files, javaFiles, xmlFiles, workers, tracker)
 	idx := BuildIndexFromDataWithTracker(symbols, refs, tracker)
 	idx.Files = append(idx.Files, files...)
@@ -146,13 +143,17 @@ func collectIndexDataWithTracker(files []*File, workers int, tracker perf.Tracke
 	return collectIndexDataInternal(files, workers, tracker, nil, javaFiles...)
 }
 
-// collectIndexDataSharded is the shard-aware collector. It threads the
-// per-file cache through the same concurrency pattern as
-// collectIndexDataInternal: for each Kotlin/Java/XML file it first
-// tries loadFileShard(cacheDir, path, contentHash); on hit the shard's
-// symbols+refs are appended; on miss the file is freshly indexed and
-// the result is written back via saveFileShard.
-//
+// shardJob is one file's contribution task, uniform across Kotlin,
+// Java, and XML phases. fresh runs the fresh-index work when the
+// shard is absent; its outputs are then persisted as a shard.
+type shardJob struct {
+	Path        string
+	ContentHash string
+	Fresh       func() (syms []Symbol, refs []Reference)
+}
+
+// collectIndexDataSharded threads the per-file shard cache through
+// the same sem/wg worker pool that collectIndexDataInternal uses.
 // cacheDir must be non-empty; callers that want a pure-rebuild path
 // should call collectIndexDataInternal directly.
 func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, xmlFiles []*xmlCacheFile, workers int, tracker perf.Tracker) ([]Symbol, []Reference) {
@@ -161,140 +162,101 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 	}
 	var (
 		mu      sync.Mutex
-		wg      sync.WaitGroup
 		symbols []Symbol
 		refs    []Reference
 		sem     = make(chan struct{}, workers)
 	)
 
-	appendSyms := func(s []Symbol) {
-		if len(s) == 0 {
-			return
-		}
-		mu.Lock()
-		symbols = append(symbols, s...)
-		mu.Unlock()
-	}
-	appendRefs := func(r []Reference) {
-		if len(r) == 0 {
-			return
-		}
-		mu.Lock()
-		refs = append(refs, r...)
-		mu.Unlock()
-	}
+	runPhase := func(label string, jobs []shardJob) {
+		run := func() {
+			var wg sync.WaitGroup
+			for _, j := range jobs {
+				wg.Add(1)
+				sem <- struct{}{}
+				go func(job shardJob) {
+					defer wg.Done()
+					defer func() { <-sem }()
 
-	runKotlin := func() {
-		for _, f := range files {
-			if f == nil {
-				continue
+					var syms []Symbol
+					var fileRefs []Reference
+					if s, ok := loadFileShard(cacheDir, job.Path, job.ContentHash); ok {
+						syms, fileRefs = s.Symbols, s.References
+					} else {
+						syms, fileRefs = job.Fresh()
+						_ = saveFileShard(cacheDir, &fileShard{
+							Path:        job.Path,
+							ContentHash: job.ContentHash,
+							Symbols:     syms,
+							References:  fileRefs,
+						})
+					}
+					if len(syms) == 0 && len(fileRefs) == 0 {
+						return
+					}
+					mu.Lock()
+					symbols = append(symbols, syms...)
+					refs = append(refs, fileRefs...)
+					mu.Unlock()
+				}(j)
 			}
-			wg.Add(1)
-			sem <- struct{}{}
-			go func(file *File) {
-				defer wg.Done()
-				defer func() { <-sem }()
-
-				hash := contentHashForFile(file.Path, file.Content)
-				if s, ok := loadFileShard(cacheDir, file.Path, hash); ok {
-					appendSyms(s.Symbols)
-					appendRefs(s.References)
-					return
-				}
-				syms, fileRefs := indexFile(file)
-				_ = saveFileShard(cacheDir, &fileShard{
-					Path:        file.Path,
-					ContentHash: hash,
-					Symbols:     syms,
-					References:  fileRefs,
-				})
-				appendSyms(syms)
-				appendRefs(fileRefs)
-			}(f)
+			wg.Wait()
 		}
-		wg.Wait()
-	}
-	if tracker != nil && tracker.IsEnabled() {
-		_ = tracker.Track("kotlinIndexCollection", func() error {
-			runKotlin()
-			return nil
-		})
-	} else {
-		runKotlin()
-	}
-
-	runJava := func() {
-		for _, jf := range javaFiles {
-			if jf == nil {
-				continue
-			}
-			wg.Add(1)
-			sem <- struct{}{}
-			go func(file *File) {
-				defer wg.Done()
-				defer func() { <-sem }()
-
-				hash := contentHashForFile(file.Path, file.Content)
-				if s, ok := loadFileShard(cacheDir, file.Path, hash); ok {
-					appendRefs(s.References)
-					return
-				}
-				var javaRefs []Reference
-				collectJavaReferencesFlat(file, &javaRefs)
-				_ = saveFileShard(cacheDir, &fileShard{
-					Path:        file.Path,
-					ContentHash: hash,
-					References:  javaRefs,
-				})
-				appendRefs(javaRefs)
-			}(jf)
+		if tracker != nil && tracker.IsEnabled() {
+			_ = tracker.Track(label, func() error { run(); return nil })
+		} else {
+			run()
 		}
-		wg.Wait()
-	}
-	if tracker != nil && tracker.IsEnabled() {
-		_ = tracker.Track("javaReferenceCollection", func() error {
-			runJava()
-			return nil
-		})
-	} else {
-		runJava()
 	}
 
-	runXML := func() {
-		for _, xf := range xmlFiles {
-			if xf == nil {
-				continue
-			}
-			wg.Add(1)
-			sem <- struct{}{}
-			go func(file *xmlCacheFile) {
-				defer wg.Done()
-				defer func() { <-sem }()
-
-				if s, ok := loadFileShard(cacheDir, file.Path, file.Hash); ok {
-					appendRefs(s.References)
-					return
-				}
-				var xmlRefs []Reference
-				appendXMLReferences(&xmlRefs, file.Path, file.Content)
-				_ = saveFileShard(cacheDir, &fileShard{
-					Path:        file.Path,
-					ContentHash: file.Hash,
-					References:  xmlRefs,
-				})
-				appendRefs(xmlRefs)
-			}(xf)
+	kotlinJobs := make([]shardJob, 0, len(files))
+	for _, f := range files {
+		if f == nil {
+			continue
 		}
-		wg.Wait()
-	}
-	if tracker != nil && tracker.IsEnabled() {
-		_ = tracker.Track("xmlReferenceCollection", func() error {
-			runXML()
-			return nil
+		file := f
+		kotlinJobs = append(kotlinJobs, shardJob{
+			Path:        file.Path,
+			ContentHash: contentHashForFile(file.Path, file.Content),
+			Fresh:       func() ([]Symbol, []Reference) { return indexFile(file) },
 		})
-	} else {
-		runXML()
 	}
+	runPhase("kotlinIndexCollection", kotlinJobs)
+
+	javaJobs := make([]shardJob, 0, len(javaFiles))
+	for _, f := range javaFiles {
+		if f == nil {
+			continue
+		}
+		file := f
+		javaJobs = append(javaJobs, shardJob{
+			Path:        file.Path,
+			ContentHash: contentHashForFile(file.Path, file.Content),
+			Fresh: func() ([]Symbol, []Reference) {
+				var r []Reference
+				collectJavaReferencesFlat(file, &r)
+				return nil, r
+			},
+		})
+	}
+	runPhase("javaReferenceCollection", javaJobs)
+
+	xmlJobs := make([]shardJob, 0, len(xmlFiles))
+	for _, f := range xmlFiles {
+		if f == nil {
+			continue
+		}
+		file := f
+		xmlJobs = append(xmlJobs, shardJob{
+			Path:        file.Path,
+			ContentHash: file.Hash,
+			Fresh: func() ([]Symbol, []Reference) {
+				var r []Reference
+				appendXMLReferences(&r, file.Path, file.Content)
+				return nil, r
+			},
+		})
+	}
+	runPhase("xmlReferenceCollection", xmlJobs)
 
 	return symbols, refs
 }
@@ -793,12 +755,11 @@ func loadXMLFilesForCache(ktFiles []*File) []*xmlCacheFile {
 				})
 				return nil
 			})
-			if len(local) == 0 {
-				return
+			if len(local) > 0 {
+				mu.Lock()
+				out = append(out, local...)
+				mu.Unlock()
 			}
-			mu.Lock()
-			out = append(out, local...)
-			mu.Unlock()
 		}(r)
 	}
 	wg.Wait()

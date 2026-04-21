@@ -55,17 +55,11 @@ func TestFileShardContentHashMismatchIsMiss(t *testing.T) {
 
 func TestFileShardPathMismatchIsMiss(t *testing.T) {
 	cacheDir := CrossFileCacheDir(t.TempDir())
-	// Forge a shard on disk at a.kt's key but claiming a different Path
-	// inside the payload. The load must reject it. We simulate by saving
-	// under one (path, hash) then loading with the same hash but a
-	// different path: a different path changes the key so we never even
-	// hit the file. Instead, directly rewrite the file at the original
-	// shard path with a tampered payload.
+	// Rename a saved shard under a different key so a load for that key
+	// finds it, but the embedded Path disagrees → miss.
 	if err := saveFileShard(cacheDir, &fileShard{Path: "a.kt", ContentHash: "h"}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	// Rename the stored shard file to the key for (b.kt, h) so a load
-	// for (b.kt, h) finds it but the embedded Path says "a.kt" → miss.
 	src := fileShardPath(cacheDir, shardKey("a.kt", "h"))
 	dst := fileShardPath(cacheDir, shardKey("b.kt", "h"))
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {

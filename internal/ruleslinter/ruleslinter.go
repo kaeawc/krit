@@ -7,14 +7,25 @@
 // declaration silently drops findings. This gate catches the mistake
 // at build time.
 //
+// The same gate also enforces the NeedsConcurrent capability shipped
+// with PR #326: a rule body that manages its own worker-local
+// finding-collector concurrency (calls scanner.MergeCollectors, spawns
+// goroutines with `go`, or uses sync.WaitGroup) must declare
+// NeedsConcurrent in Meta(); conversely, a rule declaring
+// NeedsConcurrent whose body contains none of those signals is flagged
+// as declared-but-unused. The signal set is intentionally narrow — see
+// scanBodyUsage below — and errs toward false negatives over false
+// positives, matching the direction given in the originating issue.
+//
 // Scope is intentionally conservative:
 //   - Analyzes one Go package (typically internal/rules) at a time.
 //   - Resolves the Check expression to a single function body: a FuncLit,
 //     a package-level FuncDecl, or a method on the rule type bound in
 //     the surrounding { r := &FooRule{...}; v2.Register(...) } block.
 //   - Scans that body (and bodies of any same-package helpers it calls)
-//     for ctx.Resolver selector usage and for zero-arg .Oracle() method
-//     calls. No generics tracking, no cross-package analysis.
+//     for ctx.Resolver selector usage, zero-arg .Oracle() method calls,
+//     and the concurrent-state signals described above. No generics
+//     tracking, no cross-package analysis.
 package ruleslinter
 
 import (
@@ -240,27 +251,42 @@ func analyzeRegisterCall(fset *token.FileSet, funcs map[funcKey]funcInfo, file *
 	if !ok {
 		return nil
 	}
-	usesResolver, usesOracle := scanBodyUsage(funcs, body, ctxName, map[funcKey]bool{})
+	usage := scanBodyUsage(funcs, body, ctxName, map[funcKey]bool{})
 
 	// NeedsTypeInfo is a composite of NeedsResolver|NeedsOracle and
 	// satisfies either requirement on its own.
 	satisfiesResolver := reg.NeedsNames["NeedsResolver"] || reg.NeedsNames["NeedsTypeInfo"]
 	satisfiesOracle := reg.NeedsNames["NeedsOracle"] || reg.NeedsNames["NeedsTypeInfo"]
+	declaresConcurrent := reg.NeedsNames["NeedsConcurrent"]
 
 	var out []Violation
 	pos := fset.Position(call.Pos())
-	if usesResolver && !satisfiesResolver {
+	if usage.resolver && !satisfiesResolver {
 		out = append(out, Violation{
 			RuleID:   reg.ID,
 			Position: pos,
 			Message:  "calls ctx.Resolver but does not declare NeedsResolver or NeedsTypeInfo in Meta()",
 		})
 	}
-	if usesOracle && !satisfiesOracle {
+	if usage.oracle && !satisfiesOracle {
 		out = append(out, Violation{
 			RuleID:   reg.ID,
 			Position: pos,
 			Message:  "calls (*oracle.CompositeResolver).Oracle() but does not declare NeedsOracle or NeedsTypeInfo in Meta()",
+		})
+	}
+	if usage.concurrent && !declaresConcurrent {
+		out = append(out, Violation{
+			RuleID:   reg.ID,
+			Position: pos,
+			Message:  "uses concurrent finding collector but does not declare NeedsConcurrent in Meta()",
+		})
+	}
+	if declaresConcurrent && !usage.concurrent {
+		out = append(out, Violation{
+			RuleID:   reg.ID,
+			Position: pos,
+			Message:  "declares NeedsConcurrent in Meta() but does not use concurrent state (goroutines, sync.WaitGroup, or scanner.MergeCollectors)",
 		})
 	}
 	return out
@@ -452,25 +478,61 @@ func enclosingBlock(file *ast.File, pos token.Pos) *ast.BlockStmt {
 	return result
 }
 
+// bodyUsage bundles the capability-usage signals scanBodyUsage detects
+// in a Check body (and its transitively-called same-package helpers).
+type bodyUsage struct {
+	resolver   bool
+	oracle     bool
+	concurrent bool
+}
+
+func (u bodyUsage) merge(other bodyUsage) bodyUsage {
+	return bodyUsage{
+		resolver:   u.resolver || other.resolver,
+		oracle:     u.oracle || other.oracle,
+		concurrent: u.concurrent || other.concurrent,
+	}
+}
+
 // scanBodyUsage reports whether body (or any same-package helper it
-// transitively calls) uses ctx.Resolver or calls <x>.Oracle() with no
-// args. Visited tracks helpers already inspected to avoid infinite
-// recursion.
-func scanBodyUsage(funcs map[funcKey]funcInfo, body *ast.BlockStmt, ctxName string, visited map[funcKey]bool) (resolver bool, oracle bool) {
+// transitively calls) uses ctx.Resolver, calls <x>.Oracle() with no
+// args, or uses concurrent-state primitives (go statement,
+// sync.WaitGroup, or *.MergeCollectors). Visited tracks helpers already
+// inspected to avoid infinite recursion.
+//
+// The concurrent-state signal set is intentionally narrow: it matches
+// the exact primitives the cross-file concurrent dispatcher shipped in
+// PR #326 uses to manage per-worker collectors. False negatives are
+// preferred over false positives, per the originating issue's
+// guidance.
+func scanBodyUsage(funcs map[funcKey]funcInfo, body *ast.BlockStmt, ctxName string, visited map[funcKey]bool) bodyUsage {
+	var usage bodyUsage
 	if body == nil {
-		return false, false
+		return usage
 	}
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch e := n.(type) {
+		case *ast.GoStmt:
+			usage.concurrent = true
 		case *ast.SelectorExpr:
 			if ctxName != "" && e.Sel.Name == "Resolver" {
 				if id, ok := e.X.(*ast.Ident); ok && id.Name == ctxName {
-					resolver = true
+					usage.resolver = true
+				}
+			}
+			// sync.WaitGroup type reference, e.g. `var wg sync.WaitGroup`
+			// or `&sync.WaitGroup{}`.
+			if e.Sel.Name == "WaitGroup" {
+				if id, ok := e.X.(*ast.Ident); ok && id.Name == "sync" {
+					usage.concurrent = true
 				}
 			}
 		case *ast.CallExpr:
 			if sel, ok := e.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Oracle" && len(e.Args) == 0 {
-				oracle = true
+				usage.oracle = true
+			}
+			if isMergeCollectorsCall(e) {
+				usage.concurrent = true
 			}
 			// Follow same-package helper calls.
 			switch fn := e.Fun.(type) {
@@ -478,9 +540,7 @@ func scanBodyUsage(funcs map[funcKey]funcInfo, body *ast.BlockStmt, ctxName stri
 				key := funcKey{Name: fn.Name}
 				if info, ok := funcs[key]; ok && !visited[key] {
 					visited[key] = true
-					r, o := scanBodyUsage(funcs, info.Body, info.CtxParam, visited)
-					resolver = resolver || r
-					oracle = oracle || o
+					usage = usage.merge(scanBodyUsage(funcs, info.Body, info.CtxParam, visited))
 				}
 			case *ast.SelectorExpr:
 				// Method call on a local variable or struct: try (recv, name).
@@ -488,16 +548,29 @@ func scanBodyUsage(funcs map[funcKey]funcInfo, body *ast.BlockStmt, ctxName stri
 					key := funcKey{Receiver: recv, Name: fn.Sel.Name}
 					if info, ok := funcs[key]; ok && !visited[key] {
 						visited[key] = true
-						r, o := scanBodyUsage(funcs, info.Body, info.CtxParam, visited)
-						resolver = resolver || r
-						oracle = oracle || o
+						usage = usage.merge(scanBodyUsage(funcs, info.Body, info.CtxParam, visited))
 					}
 				}
 			}
 		}
 		return true
 	})
-	return resolver, oracle
+	return usage
+}
+
+// isMergeCollectorsCall matches both the qualified call
+// scanner.MergeCollectors(...) and an unqualified MergeCollectors(...)
+// identifier (e.g. if a future rule package dot-imports scanner or the
+// helper is re-exported). Matching by selector name is deliberate: the
+// linter has no type information, so we rely on the distinctive name.
+func isMergeCollectorsCall(call *ast.CallExpr) bool {
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		return fn.Name == "MergeCollectors"
+	case *ast.SelectorExpr:
+		return fn.Sel.Name == "MergeCollectors"
+	}
+	return false
 }
 
 // guessReceiverType looks at sel.X and returns the type name if it

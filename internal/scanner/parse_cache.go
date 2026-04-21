@@ -7,6 +7,7 @@ package scanner
 // wrote.
 
 import (
+	"bytes"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -32,9 +33,11 @@ const (
 	// need 20–40 runs to pay back the fsync cost.
 	parseCacheMinFileSize = 1024
 
-	parseCacheDirName = "parse-cache"
-	parseCacheEntries = "entries"
-	parseCacheExt     = ".gob"
+	parseCacheDirName  = "parse-cache"
+	parseCacheEntries  = "entries"
+	parseCacheExt      = ".gob"
+	parseCacheLRUIndex = "lru-index.gob"
+	parseCacheLRULock  = "lru.lock"
 )
 
 // parseCacheEntry is the on-disk gob payload. NodeTypeTable maps the
@@ -53,8 +56,13 @@ type parseCacheEntry struct {
 // ParseCache persists FlatTree parse results keyed by content hash.
 // A nil *ParseCache is a valid disabled cache — every method is a
 // safe no-op.
+//
+// The optional size cap is enforced via an LRU sidecar index; when the
+// on-disk total exceeds lru.CapBytes, Save evicts the least-recently
+// accessed entries down to LowWaterFrac (80%) of the cap.
 type ParseCache struct {
 	dir string
+	lru *cacheutil.SizeCapLRU
 }
 
 var (
@@ -82,8 +90,15 @@ func GrammarVersion() string {
 
 // NewParseCache returns a ParseCache rooted at repoDir/.krit/parse-cache.
 // A schema-version or grammar-version mismatch in the existing metadata
-// clears the entries subtree.
+// clears the entries subtree. The default size cap
+// (cacheutil.DefaultParseCacheCapBytes) is applied.
 func NewParseCache(repoDir string) (*ParseCache, error) {
+	return NewParseCacheWithCap(repoDir, cacheutil.DefaultParseCacheCapBytes)
+}
+
+// NewParseCacheWithCap is NewParseCache with an explicit byte cap.
+// capBytes <= 0 disables the cap (no eviction).
+func NewParseCacheWithCap(repoDir string, capBytes int64) (*ParseCache, error) {
 	if repoDir == "" {
 		return nil, errors.New("scanner: NewParseCache requires a non-empty repoDir")
 	}
@@ -97,10 +112,21 @@ func NewParseCache(repoDir string) (*ParseCache, error) {
 			{Name: "hash", Value: hashutil.HasherName()},
 		},
 	}
-	if _, err := vd.Open(); err != nil {
+	entriesDir, err := vd.Open()
+	if err != nil {
 		return nil, fmt.Errorf("create parse cache dir: %w", err)
 	}
-	return &ParseCache{dir: dir}, nil
+	lru := &cacheutil.SizeCapLRU{
+		EntriesRoot: entriesDir,
+		IndexPath:   filepath.Join(dir, parseCacheLRUIndex),
+		LockPath:    filepath.Join(dir, parseCacheLRULock),
+		Ext:         parseCacheExt,
+		CapBytes:    capBytes,
+	}
+	if err := lru.Open(); err != nil {
+		return nil, fmt.Errorf("open parse cache lru: %w", err)
+	}
+	return &ParseCache{dir: dir, lru: lru}, nil
 }
 
 // Dir returns the root directory of the on-disk cache.
@@ -148,6 +174,9 @@ func (pc *ParseCache) loadByHash(hash string) (*FlatTree, bool) {
 		// Corrupt entry: drop it so we don't keep re-reading a doomed
 		// payload on every run.
 		_ = os.Remove(path)
+		if pc.lru != nil {
+			pc.lru.Forget(hash)
+		}
 		return nil, false
 	}
 	if entry.Version != parseCacheVersion ||
@@ -156,6 +185,9 @@ func (pc *ParseCache) loadByHash(hash string) (*FlatTree, bool) {
 		return nil, false
 	}
 
+	if pc.lru != nil {
+		pc.lru.Touch(hash)
+	}
 	remapEntryNodes(entry.Nodes, entry.NodeTypeTable)
 	return &FlatTree{Nodes: entry.Nodes}, true
 }
@@ -205,9 +237,32 @@ func (pc *ParseCache) saveEntry(hash string, tree *FlatTree) error {
 		NodeTypeTable: local,
 		Nodes:         cloned,
 	}
-	return fsutil.WriteFileAtomicStream(target, 0o644, func(w io.Writer) error {
-		return gob.NewEncoder(w).Encode(entry)
-	})
+
+	// Encode into a buffer first so we know the byte size before
+	// touching disk: the LRU bookkeeping needs the final on-disk size
+	// without a post-write stat round-trip.
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(entry); err != nil {
+		return fmt.Errorf("encode cache entry: %w", err)
+	}
+	size := int64(buf.Len())
+
+	if err := fsutil.WriteFileAtomicStream(target, 0o644, func(w io.Writer) error {
+		_, werr := w.Write(buf.Bytes())
+		return werr
+	}); err != nil {
+		return err
+	}
+
+	if pc.lru != nil {
+		pc.lru.Record(hash, size)
+		if _, err := pc.lru.MaybeEvict(); err != nil {
+			// Eviction failure is non-fatal: the entry was written,
+			// the cap is just overshooting. Next run will retry.
+			return nil
+		}
+	}
+	return nil
 }
 
 // buildLocalTableAndNodes walks nodes, collects the set of global Type
@@ -251,7 +306,40 @@ func (pc *ParseCache) Clear() error {
 	if err := os.RemoveAll(entries); err != nil {
 		return fmt.Errorf("clear parse cache: %w", err)
 	}
-	return os.MkdirAll(entries, 0o755)
+	if err := os.MkdirAll(entries, 0o755); err != nil {
+		return err
+	}
+	// Drop the sidecar index so it doesn't retain phantom entries.
+	_ = os.Remove(filepath.Join(pc.dir, parseCacheLRUIndex))
+	if pc.lru != nil {
+		pc.lru = &cacheutil.SizeCapLRU{
+			EntriesRoot: entries,
+			IndexPath:   filepath.Join(pc.dir, parseCacheLRUIndex),
+			LockPath:    filepath.Join(pc.dir, parseCacheLRULock),
+			Ext:         parseCacheExt,
+			CapBytes:    pc.lru.CapBytes,
+		}
+		_ = pc.lru.Open()
+	}
+	return nil
+}
+
+// Close flushes the LRU sidecar. Safe to call multiple times; a nil
+// ParseCache Close is a no-op so callers can always defer it.
+func (pc *ParseCache) Close() error {
+	if pc == nil || pc.lru == nil {
+		return nil
+	}
+	return pc.lru.Flush()
+}
+
+// Stats returns the current LRU snapshot. Empty when the cache is
+// disabled (nil receiver) or has no LRU attached.
+func (pc *ParseCache) Stats() cacheutil.LRUStats {
+	if pc == nil || pc.lru == nil {
+		return cacheutil.LRUStats{}
+	}
+	return pc.lru.Stats()
 }
 
 func init() {

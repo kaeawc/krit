@@ -307,6 +307,28 @@ func (c *Config) GetTopLevelString(section, key, defaultVal string) string {
 	return s
 }
 
+// GetTopLevelInt returns an int value nested under a top-level section.
+// For example, GetTopLevelInt("parseCache", "maxSizeMB", 200) reads
+// parseCache.maxSizeMB.
+func (c *Config) GetTopLevelInt(section, key string, defaultVal int) int {
+	if c == nil || c.data == nil {
+		return defaultVal
+	}
+	secData, ok := c.data[section]
+	if !ok {
+		return defaultVal
+	}
+	secMap, ok := secData.(map[string]interface{})
+	if !ok {
+		return defaultVal
+	}
+	v, ok := secMap[key]
+	if !ok {
+		return defaultVal
+	}
+	return toInt(v, defaultVal)
+}
+
 // GetTopLevelBool returns a bool value from a top-level config key.
 // For example, GetTopLevelBool("warningsAsErrors", false) reads config.warningsAsErrors.
 func (c *Config) GetTopLevelBool(key string, defaultVal bool) bool {

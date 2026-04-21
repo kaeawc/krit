@@ -1,77 +1,54 @@
 # Krit
 
-Go binary for Kotlin static analysis. Parses Kotlin (and Java) with tree-sitter, runs 481 rules via single-pass AST dispatch, outputs JSON/SARIF/Checkstyle. Includes LSP server (11 capabilities), MCP server (8 tools + 3 prompts), and binary autofix.
+Krit is a Go-first static analyzer for Kotlin, Java, and Android projects. It parses with tree-sitter, runs rules through a generated v2 registry and single-pass AST dispatcher, emits JSON/SARIF/Checkstyle, and ships autofix, LSP, MCP, Gradle/editor integrations, Android XML/resource analysis, and a Kotlin type oracle.
 
-## Key Rules
-- Go only
-- After implementation changes, run `go build -o krit ./cmd/krit/ && go vet ./...`
-- Unit tests should be fast. Run with `go test ./... -count=1`
-- Use tree-sitter AST nodes for structural analysis, regex for line-based pattern matching
-- New rules implement `DispatchRule` (node-targeted) or `LineRule` (line scanning), never legacy `Check()`
-- All rules must have positive and negative test fixtures in `tests/fixtures/`
-- Auto-fixes must produce ktfmt-compatible output
-- Fixes must declare a safety level: `FixCosmetic`, `FixIdiomatic`, or `FixSemantic`
-
-## Project Structure
-
-- `cmd/krit/` - CLI entry point
-- `cmd/krit-lsp/` - LSP server (11 capabilities: diagnostics, code actions, formatting, hover, symbols, definition, references, rename, completion, incremental, config)
-- `cmd/krit-mcp/` - MCP server (8 tools, 3 prompts, 2 resources for AI agent integration)
-- `internal/rules/` - All 481 rule implementations (dispatch, line, manifest, resource, gradle, icon, source)
-- `internal/scanner/` - Tree-sitter parsing, cross-file index, bloom filter, baselines, suppression, compiled queries
-- `internal/lsp/` - LSP protocol and server implementation
-- `internal/mcp/` - MCP protocol, tools, resources, prompts
-- `internal/output/` - JSON, plain text, SARIF, Checkstyle formatters
-- `internal/fixer/` - Auto-fix application engine (text + binary)
-- `internal/android/` - Android project detection, manifest/resource/icon parsing, XML AST
-- `internal/typeinfer/` - Type inference with parallel indexing
-- `internal/oracle/` - Kotlin Analysis API daemon (AppCDS, CRaC, persistent PID)
-- `internal/module/` - Gradle module discovery and dependency graph
-- `internal/perf/` - Performance timing (--perf)
-- `internal/config/` - YAML config loading
-- `internal/cache/` - Incremental analysis cache
-- `internal/schema/` - JSON Schema generation from rule registry
-- `internal/tsxml/` - Tree-sitter XML language binding
-- `tests/fixtures/` - 1,044 test fixtures (464 positive, 466 negative, 114 fixable)
-- `playground/` - Sample Kotlin projects for integration testing
-- `editors/` - VS Code, Neovim, IntelliJ editor configs
-- `krit-gradle-plugin/` - Gradle plugin (check/format/baseline)
-- `homebrew/` / `scoop/` / `winget/` - Package manager manifests
+## Working Rules
+- Keep core analyzer and rule work in Go. Edit Kotlin/Gradle only for `krit-gradle-plugin/` or `tools/krit-types/`.
+- Use tree-sitter AST/flat nodes for structural analysis; use regex only for line-oriented checks.
+- New rules use the v2 pipeline: implement the local rule struct with the existing bases (`FlatDispatchBase`, `LineBase`, `ManifestBase`, `ResourceBase`, `GradleBase`), expose node types or line/project capabilities through generated registry metadata, and never add legacy `Check(file)` walks.
+- Rules that need project context must declare the right capability (`NeedsCrossFile`, `NeedsModuleIndex`, `NeedsParsedFiles`, `NeedsManifest`, `NeedsResources`, `NeedsGradle`, `NeedsTypeInfo`, etc.) so the dispatcher/pipeline can provide indexes, Android data, or type info.
+- New rules require positive and negative fixtures under `tests/fixtures/`; fixable rules also need fixable fixtures.
+- Auto-fixes must be ktfmt-compatible and declare a safety level: `FixCosmetic`, `FixIdiomatic`, or `FixSemantic`.
 
 ## Build & Validate
 
 ```bash
-go build -o krit ./cmd/krit/   # Build binary
+go build -o krit ./cmd/krit/   # Build CLI
 go vet ./...                    # Lint Go code
-go test ./... -count=1          # Run all tests
-go test ./internal/rules/ -run TestPositiveFixtures -v  # Fixture tests
-go test ./internal/scanner/ -v  # Index/bloom filter tests
+go test ./... -count=1          # Full Go test suite
 ```
 
-## Architecture
+After implementation changes, run `go build -o krit ./cmd/krit/ && go vet ./...`. Run `go test ./... -count=1` for test validation; use focused package tests while iterating.
 
-The dispatcher walks the AST once per file:
-1. `FlatDispatchRule` receives nodes by type (378 rules)
-2. `LineRule` scans file.Lines in a single pass (86 rules)
-3. `AggregateRule` collects nodes during walk, finalizes after (0 currently)
-4. Legacy rules walk the tree themselves (22 remaining). The v1 Rule interface still requires `Check(file)`; every rule inherits a no-op via one of five base types (`FlatDispatchBase`, `LineBase`, `ManifestBase`, `ResourceBase`, `GradleBase`), so no per-rule Check stubs are needed.
+For rule metadata or registry changes, run:
 
-Cross-file dead code detection indexes Kotlin declarations, then cross-references against Kotlin + Java + XML. Bloom filter provides O(1) reference lookups.
+```bash
+python3 tools/rule_inventory.py
+go generate ./internal/rules/...
+```
 
-## Adding a Rule
+## Git
 
-1. Create the rule struct in the appropriate `internal/rules/*.go` file
-2. Implement `DispatchRule` (preferred) or `LineRule`
-3. Register in `init()` via `v2.Register(&YourRule{...})`
-4. Declare default-activity and config options via the generated `Meta()` descriptor — run `python3 tools/rule_inventory.py && go generate ./internal/rules/...` to refresh. Hand-write `meta_YourRule.go` (and add to `excludedStructs` in `internal/codegen/cmd/krit-gen/main.go`) only for exotic config shapes
-5. Create `tests/fixtures/positive/<category>/YourRule.kt` (code that triggers)
-6. Create `tests/fixtures/negative/<category>/YourRule.kt` (code that doesn't trigger)
-7. Optionally add auto-fix: implement `IsFixable()`, add `FixLevel()`, populate `f.Fix` in `CheckNode()`
+Use branch prefix `work/` for agent-created branches.
 
-## Configuration
+## Project Map
+- `cmd/krit/`, `cmd/krit-lsp/`, `cmd/krit-mcp/` - CLI, LSP server, MCP server.
+- `internal/rules/` - rule implementations, bases, generated metadata, v2 dispatcher, registry tests.
+- `internal/scanner/` - tree-sitter parsing, flat AST helpers, suppression, cross-file indexes, bloom-filter caches.
+- `internal/pipeline/`, `internal/deadcode/`, `internal/module/` - project analysis orchestration, dead-code passes, Gradle module graph.
+- `internal/android/`, `internal/tsxml/` - Android manifests, resources, icons, Gradle/XML analysis.
+- `internal/typeinfer/`, `internal/oracle/` - source-level inference and Kotlin Analysis API daemon.
+- `internal/lsp/`, `internal/mcp/`, `internal/output/`, `internal/fixer/` - protocol servers, formatters, fix engine.
+- `internal/config/`, `internal/cache/`, `internal/schema/`, `internal/perf/` - config, incremental cache, schema generation, timing.
+- `tests/fixtures/` - positive, negative, and fixable rule fixtures.
+- `playground/`, `docs/`, `editors/`, `homebrew/`, `scoop/`, `winget/` - integration samples, docs, editor/package manager assets.
 
-Loads `krit.yml` / `.krit.yml` from project root. Format matches detekt's YAML for migration compatibility. The `--config FILE` flag overrides auto-detection.
+## Architecture Notes
 
-## Suppression
+The dispatcher classifies generated `v2.Rule` entries by `NodeTypes`, `Languages`, and `Needs` capabilities. Node-targeted rules receive matching flat AST nodes during one file walk; line rules scan `file.Lines`; cross-file, module-aware, parsed-file, Android, Gradle, and aggregate rules run in pipeline phases after the needed indexes are built.
 
-`@Suppress("RuleName")` on any declaration suppresses that rule for the declaration's scope. Built into the dispatcher's AST walk (zero extra cost). Also supports `@Suppress("all")`, `@SuppressWarnings`, and `detekt:` prefixes.
+Cross-file analysis indexes Kotlin declarations plus Kotlin, Java, and XML references. Bloom filters provide fast negative reference checks and are cached per shard for warm runs.
+
+Suppression is built into the dispatcher via `@Suppress("RuleName")`, `@Suppress("all")`, `@SuppressWarnings`, and `detekt:` prefixes.
+
+Config loads `krit.yml` / `.krit.yml` from the project root, with `--config FILE` as an override. The schema and rule descriptors come from generated `Meta()` implementations; hand-write `meta_YourRule.go` and add the struct to `excludedStructs` only for config shapes the generator cannot express.

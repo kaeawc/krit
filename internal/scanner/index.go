@@ -81,6 +81,12 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 		return BuildIndexWithTracker(files, workers, tracker, javaFiles...), false
 	}
 
+	// Sweep any pre-v3 shards/ directory before touching the cache.
+	// Safe to call unconditionally: no-op when the legacy dir is
+	// absent. Runs even on monolithic cache hits so upgraders don't
+	// carry ~750 MB of dead data forever.
+	(&packStore{cacheDir: cacheDir}).sweepLegacyShardsDir()
+
 	// Pre-load XML files so fingerprint and reference extraction share
 	// one disk walk. Also gives the cache a complete file-set snapshot.
 	xmlFiles := loadXMLFilesForCache(files)
@@ -182,6 +188,9 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 	if workers < 1 {
 		workers = 1
 	}
+	// One packStore per scan. Nil when cacheDir == ""; store methods
+	// tolerate nil receivers to match the pre-pack fs-backend shape.
+	store := newPackStore(cacheDir)
 	var (
 		mu        sync.Mutex
 		symbols   []Symbol
@@ -218,7 +227,7 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 						fileRefs []Reference
 						shardBf  *bloom.BloomFilter
 					)
-					if s, ok := loadFileShard(cacheDir, job.Path, job.ContentHash); ok {
+					if s, ok := store.LoadShard(job.Path, job.ContentHash); ok {
 						syms, fileRefs = s.Symbols, s.References
 						// Cache hit: decode the persisted bloom. A decode
 						// failure falls back to rebuilding from refs so the
@@ -233,7 +242,7 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 						syms, fileRefs = job.Fresh()
 						shardBf = buildShardBloomFromRefs(fileRefs)
 						encoded, _ := encodeShardBloom(shardBf)
-						_ = saveFileShard(cacheDir, &fileShard{
+						_ = store.SaveShard(&fileShard{
 							Path:        job.Path,
 							ContentHash: job.ContentHash,
 							Symbols:     syms,

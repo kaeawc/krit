@@ -3,18 +3,13 @@ package scanner
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/gob"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/kaeawc/krit/internal/cacheutil"
-	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
@@ -66,8 +61,8 @@ func (crossFileShardsRegistered) Stats() cacheutil.CacheStats {
 	}
 }
 
-// crossFileShardVersion is bumped when the per-file shard payload shape
-// changes. A mismatch on load is treated as a miss.
+// crossFileShardVersion is bumped when the per-file shard payload
+// shape changes. A mismatch on load is treated as a miss.
 //
 // v2: added per-shard Bloom payload (gzip-compressed
 // bloom.MarshalBinary) so warm-load can union shards' blooms instead of
@@ -80,11 +75,10 @@ func (crossFileShardsRegistered) Stats() cacheutil.CacheStats {
 // whenever the property/function/class name lookup missed the direct
 // simple_identifier child (measured at 49% of symbols on Signal-Android,
 // 74% of shard disk bytes).
-const crossFileShardVersion = 3
-
-// crossFileShardsSubdir holds sharded, per-file index contributions
-// under {CrossFileCacheDir}/{crossFileShardsSubdir}/{hash[:2]}/{hash[2:]}.gob.
-const crossFileShardsSubdir = "shards"
+// v4: storage migrated from one .gob per shard (under "shards/") to
+// pack files under "packs-v1/". Payload shape is unchanged; the legacy
+// directory is swept on first scan.
+const crossFileShardVersion = 4
 
 // Per-shard bloom sizing. Every shard's bloom uses these exact
 // (m, k) parameters so they can be unioned with BloomFilter.Merge,
@@ -130,45 +124,6 @@ type fileShard struct {
 // purely structural.
 func shardKey(path, contentHash string) string {
 	return hashutil.HashHex([]byte(path + "\x00" + contentHash))
-}
-
-// shardsRoot returns the shards subdirectory under the cross-file
-// cache root. Empty cacheDir → empty result.
-func shardsRoot(cacheDir string) string {
-	if cacheDir == "" {
-		return ""
-	}
-	return filepath.Join(cacheDir, crossFileShardsSubdir)
-}
-
-func fileShardPath(cacheDir, key string) string {
-	return cacheutil.ShardedEntryPath(shardsRoot(cacheDir), key, ".gob")
-}
-
-// loadFileShard returns (shard, true) when a shard for (path, hash)
-// exists on disk, decodes cleanly, and matches by path+hash+version.
-// Any other outcome is a silent miss.
-func loadFileShard(cacheDir, path, contentHash string) (*fileShard, bool) {
-	if cacheDir == "" {
-		shardsMisses.Add(1)
-		return nil, false
-	}
-	key := shardKey(path, contentHash)
-	p := fileShardPath(cacheDir, key)
-	var s fileShard
-	if err := decodeGob(p, &s); err != nil {
-		shardsMisses.Add(1)
-		return nil, false
-	}
-	if s.Version != crossFileShardVersion || s.Path != path || s.ContentHash != contentHash {
-		shardsMisses.Add(1)
-		return nil, false
-	}
-	if fi, err := os.Stat(p); err == nil {
-		observeShard(key, fi.Size())
-	}
-	shardsHits.Add(1)
-	return &s, true
 }
 
 // newShardBloom returns a fresh empty bloom sized for union. Every
@@ -248,32 +203,4 @@ func decodeShardBloom(data []byte) (*bloom.BloomFilter, error) {
 			bf.Cap(), bf.K(), probe.Cap(), probe.K())
 	}
 	return bf, nil
-}
-
-// saveFileShard writes s atomically under its shard path. Errors are
-// returned to the caller but callers typically log-and-continue:
-// a failed persist just means the next run rebuilds the shard.
-func saveFileShard(cacheDir string, s *fileShard) error {
-	if cacheDir == "" {
-		return fmt.Errorf("empty cache dir")
-	}
-	if s == nil {
-		return fmt.Errorf("nil shard")
-	}
-	s.Version = crossFileShardVersion
-	key := shardKey(s.Path, s.ContentHash)
-	p := fileShardPath(cacheDir, key)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return fmt.Errorf("mkdir shard dir: %w", err)
-	}
-	if err := fsutil.WriteFileAtomicStream(p, 0o644, func(w io.Writer) error {
-		return gob.NewEncoder(w).Encode(s)
-	}); err != nil {
-		return err
-	}
-	shardsLastWrite.Store(time.Now().Unix())
-	if fi, err := os.Stat(p); err == nil {
-		observeShard(key, fi.Size())
-	}
-	return nil
 }

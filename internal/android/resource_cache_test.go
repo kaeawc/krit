@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"sort"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/cacheutil"
 )
 
 const sampleValuesXML = `<?xml version="1.0" encoding="utf-8"?>
@@ -112,6 +114,7 @@ func TestResourceIndexCache_RoundTripFindingEquivalence(t *testing.T) {
 	if s := cache.Stats(); s.Hits != 1 || s.Misses != 1 {
 		t.Errorf("after warm hit: hits=%d misses=%d (want 1/1)", s.Hits, s.Misses)
 	}
+	assertAnyResourceCacheEntryZstd(t, cache)
 
 	// Normalize slice order for comparison (maps are map-order already).
 	normalize := func(r *ResourceIndex) {
@@ -166,6 +169,31 @@ func TestResourceIndexCache_RoundTripFindingEquivalence(t *testing.T) {
 		if s.Name != w.Name || s.Parent != w.Parent || !reflect.DeepEqual(s.Items, w.Items) {
 			t.Errorf("Styles[%q] drift: cold=%#v warm=%#v", name, s, w)
 		}
+	}
+}
+
+func assertAnyResourceCacheEntryZstd(t *testing.T, cache *ResourceIndexCache) {
+	t.Helper()
+	var checked bool
+	err := filepath.WalkDir(cache.entriesDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil || d.IsDir() || filepath.Ext(path) != resourceCacheExt || checked {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read resource cache entry: %v", err)
+		}
+		if !cacheutil.IsZstdFrame(data) {
+			t.Fatalf("resource cache entry is not zstd-framed: %x", data[:min(4, len(data))])
+		}
+		checked = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk resource cache entries: %v", err)
+	}
+	if !checked {
+		t.Fatal("expected at least one resource cache entry")
 	}
 }
 

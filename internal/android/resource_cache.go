@@ -4,7 +4,8 @@ package android
 // content fingerprint over every values/*.xml file in a single res/values
 // directory (absolute resDir path + sorted per-file (name, content-hash)
 // pairs + requested ValuesScanKind mask). A warm hit skips the
-// encoding/xml parse entirely and deserializes a ResourceIndex from gob.
+// encoding/xml parse entirely and deserializes a ResourceIndex from
+// zstd-wrapped gob.
 //
 // The cache lives at {repo}/.krit/resource-cache/{hash[:2]}/{hash[2:]}.gob
 // with the same sharded layout and cacheutil.SizeCapLRU bookkeeping used
@@ -12,8 +13,6 @@ package android
 // it alongside every other on-disk cache.
 
 import (
-	"bytes"
-	"encoding/gob"
 	"errors"
 	"fmt"
 	"io"
@@ -31,8 +30,8 @@ import (
 )
 
 const (
-	resourceCacheVersion    uint32 = 1
-	resourceCacheVersionStr        = "1"
+	resourceCacheVersion    uint32 = 2
+	resourceCacheVersionStr        = "2"
 
 	resourceCacheDirName = "resource-cache"
 	resourceCacheEntries = "entries"
@@ -47,15 +46,11 @@ const (
 // multi-module repos fit in 128 MB.
 const DefaultResourceCacheCapBytes int64 = 128 * 1024 * 1024
 
-// resourceCacheEntry is the on-disk gob payload. Version + Fingerprint
-// are re-checked on load so a stale entry (corrupt shard, collision)
-// is caught before the index is handed back.
+// resourceCacheEntry is the compressed on-disk gob payload. Version and
+// hash algorithm live in sidecars; fingerprint, kind mask, and res dir are
+// already represented by the cache key.
 type resourceCacheEntry struct {
-	Version     uint32
-	Fingerprint string
-	Kinds       uint32
-	ResDir      string
-	Index       *ResourceIndex
+	Index *ResourceIndex
 }
 
 // ResourceIndexCache persists parsed ResourceIndex results keyed by
@@ -142,7 +137,7 @@ func (c *ResourceIndexCache) Load(fingerprint string, kinds ValuesScanKind, resD
 	defer f.Close()
 
 	var entry resourceCacheEntry
-	if err := gob.NewDecoder(f).Decode(&entry); err != nil {
+	if err := cacheutil.DecodeZstdGob(f, &entry); err != nil {
 		// Corrupt entry: drop it so we don't keep re-reading a doomed payload.
 		_ = os.Remove(path)
 		if c.lru != nil {
@@ -152,11 +147,7 @@ func (c *ResourceIndexCache) Load(fingerprint string, kinds ValuesScanKind, resD
 		c.evictions.Add(1)
 		return nil, false
 	}
-	if entry.Version != resourceCacheVersion ||
-		entry.Fingerprint != fingerprint ||
-		entry.Kinds != uint32(kinds) ||
-		entry.ResDir != resDir ||
-		entry.Index == nil {
+	if entry.Index == nil {
 		c.misses.Add(1)
 		return nil, false
 	}
@@ -177,22 +168,16 @@ func (c *ResourceIndexCache) Save(fingerprint string, kinds ValuesScanKind, resD
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("create resource cache shard dir: %w", err)
 	}
-	entry := resourceCacheEntry{
-		Version:     resourceCacheVersion,
-		Fingerprint: fingerprint,
-		Kinds:       uint32(kinds),
-		ResDir:      resDir,
-		Index:       idx,
-	}
+	entry := resourceCacheEntry{Index: idx}
 
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(entry); err != nil {
+	blob, err := cacheutil.EncodeZstdGob(entry)
+	if err != nil {
 		return fmt.Errorf("encode resource cache entry: %w", err)
 	}
-	size := int64(buf.Len())
+	size := int64(len(blob))
 
 	if err := fsutil.WriteFileAtomicStream(target, 0o644, func(w io.Writer) error {
-		_, werr := w.Write(buf.Bytes())
+		_, werr := w.Write(blob)
 		return werr
 	}); err != nil {
 		return err

@@ -1,8 +1,6 @@
 package scanner
 
 import (
-	"bytes"
-	"encoding/gob"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
@@ -124,21 +123,22 @@ func TestParseCache_Java_GrammarVersionMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read entry: %v", err)
 	}
-	var entry parseCacheEntry
-	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&entry); err != nil {
-		t.Fatalf("decode entry: %v", err)
+	if !cacheutil.IsZstdFrame(data) {
+		t.Fatalf("java parse cache entry is not zstd-framed: %x", data[:min(4, len(data))])
 	}
-	entry.GrammarVer = "smacker/go-tree-sitter@BOGUS#java:1"
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(&entry); err != nil {
-		t.Fatalf("re-encode entry: %v", err)
-	}
-	if err := os.WriteFile(entryPath, buf.Bytes(), 0o644); err != nil {
-		t.Fatalf("rewrite entry: %v", err)
+	if err := os.WriteFile(filepath.Join(pc.JavaDir(), "grammar-version"), []byte("smacker/go-tree-sitter@BOGUS#java:1"), 0o644); err != nil {
+		t.Fatalf("rewrite grammar-version sidecar: %v", err)
 	}
 
-	if _, ok := pc.LoadJava("", []byte(src)); ok {
+	pc2, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache after sidecar edit: %v", err)
+	}
+	if _, ok := pc2.LoadJava("", []byte(src)); ok {
 		t.Fatal("expected miss after Java grammar-version mismatch")
+	}
+	if _, err := os.Stat(entryPath); !os.IsNotExist(err) {
+		t.Fatalf("expected stale Java entry removed after sidecar mismatch, stat err=%v", err)
 	}
 }
 

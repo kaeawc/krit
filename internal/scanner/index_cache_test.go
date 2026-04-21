@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/cacheutil"
 )
 
 func TestCrossFileCacheRoundTrip(t *testing.T) {
@@ -25,6 +27,7 @@ func TestCrossFileCacheRoundTrip(t *testing.T) {
 	if err := SaveCrossFileCache(cacheDir, fp, CrossFileCacheMeta{}, symbols, refs); err != nil {
 		t.Fatalf("SaveCrossFileCache: %v", err)
 	}
+	assertCrossFilePayloadZstd(t, cacheDir)
 
 	gotSyms, gotRefs, ok := LoadCrossFileCache(cacheDir, fp)
 	if !ok {
@@ -177,6 +180,7 @@ func TestCrossFileCacheIndexRoundTripPreservesLookups(t *testing.T) {
 	if err := SaveCrossFileCacheIndex(cacheDir, "fp", CrossFileCacheMeta{}, built); err != nil {
 		t.Fatalf("SaveCrossFileCacheIndex: %v", err)
 	}
+	assertCrossFilePayloadZstd(t, cacheDir)
 
 	loaded, ok := LoadCrossFileCacheIndex(cacheDir, "fp")
 	if !ok {
@@ -212,6 +216,18 @@ func TestCrossFileCacheIndexRoundTripPreservesLookups(t *testing.T) {
 		len(loaded.UnusedSymbols(true)), len(built.UnusedSymbols(true)))
 	assertIntEq(t, "len(UnusedSymbols(false))",
 		len(loaded.UnusedSymbols(false)), len(built.UnusedSymbols(false)))
+}
+
+func assertCrossFilePayloadZstd(t *testing.T, cacheDir string) {
+	t.Helper()
+	paths := crossFileCacheFiles(cacheDir)
+	data, err := os.ReadFile(paths.Symbols)
+	if err != nil {
+		t.Fatalf("read cross-file payload: %v", err)
+	}
+	if !cacheutil.IsZstdFrame(data) {
+		t.Fatalf("cross-file payload is not zstd-framed: %x", data[:min(4, len(data))])
+	}
 }
 
 func TestCrossFileCacheIndexBloomCorruptIsMiss(t *testing.T) {

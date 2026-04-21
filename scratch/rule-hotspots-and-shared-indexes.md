@@ -414,11 +414,41 @@ Target:
   preserved `UnnecessarySafeCall` finding count, but repo-scale `kotlin` got slightly slower; reverted
 - [x] aggressive descendant whitelist for `NoNameShadowing`
   wall clock improved and `NoNameShadowing` callback time dropped, but rule findings on `kotlin` collapsed from `3135` to `368`; reverted
+- [x] ancestor-type-set coalescing for `MagicNumber`
+  replaces 11 `FlatHasAncestorOfType` walks per literal with one walk
+  populating a flag struct; semantics preserved and finding equivalence
+  verified on both `kotlin/kotlin` (1444 findings) and `Signal-Android`
+  (171 findings); kotlin `MagicNumber` warm callback was 368ms before
+  and 365ms after (wash, within run-to-run variance); not worth the
+  code churn. Confirms PR #320's conclusion that `MagicNumber` is
+  already out of the top-10 hotspots and per-callback narrowing is
+  not the right lever — the heuristic-driven skip count (31077 →
+  1444 findings over project history) is what moved the needle.
 
 ### Accepted
 
 - [x] narrow `DeclarationSummaryIndex` for function/class headers
   currently used by `LongParameterList` and `UnusedParameter`
+- [x] narrow `UnnecessarySafeCall` per-file null-safety summary (PR #320)
+  per-receiver regex scans collapsed into one lazy per-file summary;
+  kotlin/kotlin 11201ms → 2384ms (4.7×) + 1401ms bonus on
+  `UnnecessaryNotNullOperator`; closes #301 for this rule.
+
+### #301 Status
+
+Issue #301 asked to narrow three cross-rule hotspots. Final disposition:
+
+- `UnnecessarySafeCall` — narrowed in PR #320 (b4e267e), 4.7× speedup
+- `NoNameShadowing` — rejected as above; 1.6s warm on kotlin is below the
+  threshold that would justify re-attempting after the finding-collapse
+  incident, and the dedicated scope-analysis pass listed in the execution
+  order would be the right next step if/when it becomes hot enough
+- `MagicNumber` — rejected as above; already <400ms warm on kotlin, out
+  of top 10; ancestor-walk coalescing is semantics-preserving but
+  measurement-wash
+
+Per the issue's "document why not" clause and PR #290's precedent,
+the two deferred rules are closed out with logged reasons.
 
 ### Notes
 

@@ -175,8 +175,94 @@ type shardJob struct {
 	Fresh       func() (syms []Symbol, refs []Reference)
 }
 
+const (
+	localBufferMinCap             = 64
+	localBufferKotlinSymbolPerJob = 2
+	localBufferRefPerJob          = 16
+)
+
+type indexDataBuffer struct {
+	symbols []Symbol
+	refs    []Reference
+}
+
+func workerCountForJobs(workers, jobs int) int {
+	if jobs == 0 {
+		return 0
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > jobs {
+		return jobs
+	}
+	return workers
+}
+
+func newIndexDataBuffers(workers, jobs, symbolsPerJob, refsPerJob int) []indexDataBuffer {
+	if workers == 0 {
+		return nil
+	}
+	jobsPerWorker := (jobs + workers - 1) / workers
+	symbolCap := localBufferCap(jobsPerWorker, symbolsPerJob)
+	refCap := localBufferCap(jobsPerWorker, refsPerJob)
+
+	buffers := make([]indexDataBuffer, workers)
+	for i := range buffers {
+		if symbolCap > 0 {
+			buffers[i].symbols = make([]Symbol, 0, symbolCap)
+		}
+		if refCap > 0 {
+			buffers[i].refs = make([]Reference, 0, refCap)
+		}
+	}
+	return buffers
+}
+
+func localBufferCap(jobsPerWorker, itemsPerJob int) int {
+	if itemsPerJob == 0 {
+		return 0
+	}
+	capacity := jobsPerWorker * itemsPerJob
+	if capacity < localBufferMinCap {
+		return localBufferMinCap
+	}
+	return capacity
+}
+
+func appendIndexDataBuffers(symbols []Symbol, refs []Reference, buffers []indexDataBuffer) ([]Symbol, []Reference) {
+	var symbolCount, refCount int
+	for _, buf := range buffers {
+		symbolCount += len(buf.symbols)
+		refCount += len(buf.refs)
+	}
+	if symbolCount > 0 {
+		needed := len(symbols) + symbolCount
+		if cap(symbols) < needed {
+			merged := make([]Symbol, 0, needed)
+			merged = append(merged, symbols...)
+			symbols = merged
+		}
+		for _, buf := range buffers {
+			symbols = append(symbols, buf.symbols...)
+		}
+	}
+	if refCount > 0 {
+		needed := len(refs) + refCount
+		if cap(refs) < needed {
+			merged := make([]Reference, 0, needed)
+			merged = append(merged, refs...)
+			refs = merged
+		}
+		for _, buf := range buffers {
+			refs = append(refs, buf.refs...)
+		}
+	}
+	return symbols, refs
+}
+
 // collectIndexDataSharded threads the per-file shard cache through
-// the same sem/wg worker pool that collectIndexDataInternal uses.
+// the same bounded worker-pool shape that collectIndexDataInternal uses.
 // cacheDir must be non-empty; callers that want a pure-rebuild path
 // should call collectIndexDataInternal directly.
 //
@@ -194,12 +280,10 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 	// tolerate nil receivers to match the pre-pack fs-backend shape.
 	store := newPackStore(cacheDir)
 	var (
-		mu       sync.Mutex
 		symbols  []Symbol
 		refs     []Reference
 		aggBloom *bloom.BloomFilter
 		bloomMu  sync.Mutex
-		sem      = make(chan struct{}, workers)
 	)
 
 	mergeBloom := func(bf *bloom.BloomFilter) {
@@ -214,55 +298,71 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 		bloomMu.Unlock()
 	}
 
-	runPhase := func(label string, jobs []shardJob) {
-		run := func() {
-			var wg sync.WaitGroup
-			for _, j := range jobs {
-				wg.Add(1)
-				sem <- struct{}{}
-				go func(job shardJob) {
-					defer wg.Done()
-					defer func() { <-sem }()
-
-					var (
-						syms     []Symbol
-						fileRefs []Reference
-						shardBf  *bloom.BloomFilter
-					)
-					if s, ok := store.LoadShard(job.Path, job.ContentHash); ok {
-						syms, fileRefs = s.Symbols, s.References
-						// Cache hit: decode the persisted bloom. A decode
-						// failure falls back to rebuilding from refs so the
-						// aggregate is never missing a name — correctness
-						// beats a single-shard perf win.
-						if bf, err := decodeShardBloom(s.Bloom); err == nil && bf != nil {
-							shardBf = bf
-						} else if len(fileRefs) > 0 {
-							shardBf = buildShardBloomFromRefs(fileRefs)
-						}
-					} else {
-						syms, fileRefs = job.Fresh()
-						shardBf = buildShardBloomFromRefs(fileRefs)
-						encoded, _ := encodeShardBloom(shardBf)
-						_ = store.SaveShard(&fileShard{
-							Path:        job.Path,
-							ContentHash: job.ContentHash,
-							Symbols:     syms,
-							References:  fileRefs,
-							Bloom:       encoded,
-						})
-					}
-					mergeBloom(shardBf)
-					if len(syms) == 0 && len(fileRefs) == 0 {
-						return
-					}
-					mu.Lock()
-					symbols = append(symbols, syms...)
-					refs = append(refs, fileRefs...)
-					mu.Unlock()
-				}(j)
+	collectShardJob := func(job shardJob) (syms []Symbol, refs []Reference, shardBf *bloom.BloomFilter) {
+		if s, ok := store.LoadShard(job.Path, job.ContentHash); ok {
+			syms, refs = s.Symbols, s.References
+			// Cache hit: decode the persisted bloom. A decode
+			// failure falls back to rebuilding from refs so the
+			// aggregate is never missing a name — correctness
+			// beats a single-shard perf win.
+			if bf, err := decodeShardBloom(s.Bloom); err == nil && bf != nil {
+				shardBf = bf
+			} else if len(refs) > 0 {
+				shardBf = buildShardBloomFromRefs(refs)
 			}
-			wg.Wait()
+		} else {
+			syms, refs = job.Fresh()
+			shardBf = buildShardBloomFromRefs(refs)
+			encoded, _ := encodeShardBloom(shardBf)
+			_ = store.SaveShard(&fileShard{
+				Path:        job.Path,
+				ContentHash: job.ContentHash,
+				Symbols:     syms,
+				References:  refs,
+				Bloom:       encoded,
+			})
+		}
+		return syms, refs, shardBf
+	}
+
+	collectShardJobsByWorker := func(jobs []shardJob, symbolsPerJob, refsPerJob int) []indexDataBuffer {
+		workerCount := workerCountForJobs(workers, len(jobs))
+		if workerCount == 0 {
+			return nil
+		}
+		buffers := newIndexDataBuffers(workerCount, len(jobs), symbolsPerJob, refsPerJob)
+		jobCh := make(chan shardJob)
+
+		var wg sync.WaitGroup
+		for workerID := 0; workerID < workerCount; workerID++ {
+			wg.Add(1)
+			go func(workerID int) {
+				defer wg.Done()
+				buf := &buffers[workerID]
+				for job := range jobCh {
+					syms, fileRefs, shardBf := collectShardJob(job)
+					mergeBloom(shardBf)
+					if len(syms) > 0 {
+						buf.symbols = append(buf.symbols, syms...)
+					}
+					if len(fileRefs) > 0 {
+						buf.refs = append(buf.refs, fileRefs...)
+					}
+				}
+			}(workerID)
+		}
+		for _, job := range jobs {
+			jobCh <- job
+		}
+		close(jobCh)
+		wg.Wait()
+		return buffers
+	}
+
+	runPhase := func(label string, jobs []shardJob, symbolsPerJob, refsPerJob int) {
+		run := func() {
+			buffers := collectShardJobsByWorker(jobs, symbolsPerJob, refsPerJob)
+			symbols, refs = appendIndexDataBuffers(symbols, refs, buffers)
 		}
 		if tracker != nil && tracker.IsEnabled() {
 			_ = tracker.Track(label, func() error { run(); return nil })
@@ -283,7 +383,7 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 			Fresh:       func() ([]Symbol, []Reference) { return indexFile(file) },
 		})
 	}
-	runPhase("kotlinIndexCollection", kotlinJobs)
+	runPhase("kotlinIndexCollection", kotlinJobs, localBufferKotlinSymbolPerJob, localBufferRefPerJob)
 
 	javaJobs := make([]shardJob, 0, len(javaFiles))
 	for _, f := range javaFiles {
@@ -301,7 +401,7 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 			},
 		})
 	}
-	runPhase("javaReferenceCollection", javaJobs)
+	runPhase("javaReferenceCollection", javaJobs, 0, localBufferRefPerJob)
 
 	xmlJobs := make([]shardJob, 0, len(xmlFiles))
 	for _, f := range xmlFiles {
@@ -319,7 +419,7 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 			},
 		})
 	}
-	runPhase("xmlReferenceCollection", xmlJobs)
+	runPhase("xmlReferenceCollection", xmlJobs, 0, localBufferRefPerJob)
 
 	return symbols, refs, aggBloom
 }
@@ -329,29 +429,80 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 // nil falls back to a fresh walk.
 func collectIndexDataInternal(files []*File, workers int, tracker perf.Tracker, preloadedXML []*xmlCacheFile, javaFiles ...*File) ([]Symbol, []Reference) {
 	var (
-		mu      sync.Mutex
-		wg      sync.WaitGroup
 		symbols []Symbol
 		refs    []Reference
-		sem     = make(chan struct{}, workers)
 	)
+	if workers < 1 {
+		workers = 1
+	}
+
+	collectKotlinByWorker := func(files []*File) []indexDataBuffer {
+		workerCount := workerCountForJobs(workers, len(files))
+		if workerCount == 0 {
+			return nil
+		}
+		buffers := newIndexDataBuffers(workerCount, len(files), localBufferKotlinSymbolPerJob, localBufferRefPerJob)
+		fileCh := make(chan *File)
+
+		var wg sync.WaitGroup
+		for workerID := 0; workerID < workerCount; workerID++ {
+			wg.Add(1)
+			go func(workerID int) {
+				defer wg.Done()
+				buf := &buffers[workerID]
+				for file := range fileCh {
+					if file == nil {
+						continue
+					}
+					syms, fileRefs := indexFile(file)
+					buf.symbols = append(buf.symbols, syms...)
+					buf.refs = append(buf.refs, fileRefs...)
+				}
+			}(workerID)
+		}
+		for _, file := range files {
+			fileCh <- file
+		}
+		close(fileCh)
+		wg.Wait()
+		return buffers
+	}
+
+	collectJavaRefsByWorker := func(files []*File) []indexDataBuffer {
+		workerCount := workerCountForJobs(workers, len(files))
+		if workerCount == 0 {
+			return nil
+		}
+		buffers := newIndexDataBuffers(workerCount, len(files), 0, localBufferRefPerJob)
+		fileCh := make(chan *File)
+
+		var wg sync.WaitGroup
+		for workerID := 0; workerID < workerCount; workerID++ {
+			wg.Add(1)
+			go func(workerID int) {
+				defer wg.Done()
+				buf := &buffers[workerID]
+				for file := range fileCh {
+					if file == nil {
+						continue
+					}
+					var javaRefs []Reference
+					collectJavaReferencesFlat(file, &javaRefs)
+					buf.refs = append(buf.refs, javaRefs...)
+				}
+			}(workerID)
+		}
+		for _, file := range files {
+			fileCh <- file
+		}
+		close(fileCh)
+		wg.Wait()
+		return buffers
+	}
 
 	runKotlin := func() {
-		for _, f := range files {
-			wg.Add(1)
-			sem <- struct{}{}
-			go func(file *File) {
-				defer wg.Done()
-				defer func() { <-sem }()
-
-				syms, fileRefs := indexFile(file)
-				mu.Lock()
-				symbols = append(symbols, syms...)
-				refs = append(refs, fileRefs...)
-				mu.Unlock()
-			}(f)
-		}
-		wg.Wait()
+		buffers := collectKotlinByWorker(files)
+		symbols, refs = appendIndexDataBuffers(symbols, refs, buffers)
 	}
 	if tracker != nil && tracker.IsEnabled() {
 		_ = tracker.Track("kotlinIndexCollection", func() error {
@@ -364,21 +515,8 @@ func collectIndexDataInternal(files []*File, workers int, tracker perf.Tracker, 
 
 	// Index Java files for references only (no symbol declarations)
 	runJava := func() {
-		for _, jf := range javaFiles {
-			wg.Add(1)
-			sem <- struct{}{}
-			go func(file *File) {
-				defer wg.Done()
-				defer func() { <-sem }()
-
-				var javaRefs []Reference
-				collectJavaReferencesFlat(file, &javaRefs)
-				mu.Lock()
-				refs = append(refs, javaRefs...)
-				mu.Unlock()
-			}(jf)
-		}
-		wg.Wait()
+		buffers := collectJavaRefsByWorker(javaFiles)
+		symbols, refs = appendIndexDataBuffers(symbols, refs, buffers)
 	}
 	if tracker != nil && tracker.IsEnabled() {
 		_ = tracker.Track("javaReferenceCollection", func() error {

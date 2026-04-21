@@ -4,9 +4,10 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/oracle"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
-	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -20,7 +21,6 @@ type UnsafeCastRule struct {
 	BaseRule
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence. Without the
 // resolver this rule flags every bare `as` cast and then removes the
 // ones that match a hardcoded allow-list of idiomatic Android and
@@ -29,6 +29,542 @@ type UnsafeCastRule struct {
 // project-specific wrapper APIs. Pair with SafeCast, which targets
 // the same locations from a different angle.
 func (r *UnsafeCastRule) Confidence() float64 { return 0.75 }
+
+type unsafeCastExpressionParts struct {
+	source uint32
+	op     uint32
+	target uint32
+	safe   bool
+}
+
+func unsafeCastExpressionPartsFlat(file *scanner.File, idx uint32) (unsafeCastExpressionParts, bool) {
+	if file == nil || file.FlatType(idx) != "as_expression" {
+		return unsafeCastExpressionParts{}, false
+	}
+	var out unsafeCastExpressionParts
+	seenOp := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "as":
+			out.op = child
+			seenOp = true
+			continue
+		case "as?":
+			out.op = child
+			out.safe = true
+			seenOp = true
+			continue
+		}
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		if !seenOp {
+			if out.source == 0 {
+				out.source = child
+			}
+			continue
+		}
+		if out.target == 0 && unsafeCastNodeCanBeTypeRefFlat(file, child) {
+			out.target = child
+		}
+	}
+	return out, out.source != 0 && out.op != 0 && out.target != 0
+}
+
+func unsafeCastNodeCanBeTypeRefFlat(file *scanner.File, idx uint32) bool {
+	switch file.FlatType(idx) {
+	case "user_type", "nullable_type", "type_identifier", "function_type", "parenthesized_type":
+		return true
+	default:
+		return false
+	}
+}
+
+func unsafeCastUnwrapExpressionFlat(file *scanner.File, idx uint32) uint32 {
+	for idx != 0 {
+		switch file.FlatType(idx) {
+		case "parenthesized_expression", "expression_statement":
+			next := uint32(0)
+			for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+				if file.FlatIsNamed(child) {
+					next = child
+					break
+				}
+			}
+			if next == 0 {
+				return idx
+			}
+			idx = next
+		default:
+			return idx
+		}
+	}
+	return 0
+}
+
+func unsafeCastComparableExpressionFlat(file *scanner.File, idx uint32) string {
+	idx = unsafeCastUnwrapExpressionFlat(file, idx)
+	if idx == 0 {
+		return ""
+	}
+	switch file.FlatType(idx) {
+	case "simple_identifier", "navigation_expression", "call_expression":
+		return strings.TrimSpace(file.FlatNodeText(idx))
+	default:
+		return strings.TrimSpace(file.FlatNodeText(idx))
+	}
+}
+
+func unsafeCastTypeNameFlat(file *scanner.File, idx uint32) string {
+	idx = unsafeCastInnermostTypeNodeFlat(file, idx)
+	if idx == 0 {
+		return ""
+	}
+	text := strings.TrimSpace(file.FlatNodeText(idx))
+	text = strings.TrimSuffix(text, "?")
+	if lt := strings.IndexByte(text, '<'); lt >= 0 {
+		text = text[:lt]
+	}
+	return strings.TrimSpace(text)
+}
+
+func unsafeCastInnermostTypeNodeFlat(file *scanner.File, idx uint32) uint32 {
+	for idx != 0 {
+		switch file.FlatType(idx) {
+		case "nullable_type", "parenthesized_type":
+			next := uint32(0)
+			for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+				if file.FlatIsNamed(child) && unsafeCastNodeCanBeTypeRefFlat(file, child) {
+					next = child
+					break
+				}
+			}
+			if next == 0 {
+				return idx
+			}
+			idx = next
+		default:
+			return idx
+		}
+	}
+	return 0
+}
+
+func unsafeCastTypeNodeIsNullableFlat(file *scanner.File, idx uint32) bool {
+	if idx == 0 {
+		return false
+	}
+	if file.FlatType(idx) == "nullable_type" {
+		return true
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatIsNamed(child) && unsafeCastTypeNodeIsNullableFlat(file, child) {
+			return true
+		}
+	}
+	return false
+}
+
+func unsafeCastIsNullLiteralFlat(file *scanner.File, idx uint32) bool {
+	idx = unsafeCastUnwrapExpressionFlat(file, idx)
+	return idx != 0 && file.FlatNodeTextEquals(idx, "null")
+}
+
+func unsafeCastTypesCompatible(exprType, targetType *typeinfer.ResolvedType) bool {
+	if exprType == nil || targetType == nil ||
+		exprType.Kind == typeinfer.TypeUnknown || targetType.Kind == typeinfer.TypeUnknown {
+		return false
+	}
+	if exprType.FQN != "" && targetType.FQN != "" && exprType.FQN == targetType.FQN {
+		return true
+	}
+	if exprType.Name != "" && targetType.Name != "" && exprType.Name == targetType.Name {
+		return true
+	}
+	if targetType.FQN != "" && exprType.IsSubtypeOf(targetType.FQN) {
+		return true
+	}
+	if targetType.Name != "" && exprType.IsSubtypeOf(targetType.Name) {
+		return true
+	}
+	return false
+}
+
+func unsafeCastKnownPlatformCastFlat(ctx *v2.Context, source, target uint32, targetName string) bool {
+	if ctx == nil || ctx.File == nil {
+		return false
+	}
+	file := ctx.File
+	source = unsafeCastUnwrapExpressionFlat(file, source)
+	if source == 0 || file.FlatType(source) != "call_expression" {
+		return false
+	}
+	callee := flatCallExpressionName(file, source)
+	switch callee {
+	case "getSystemService":
+		return unsafeCastGetSystemServiceMatchesFlat(ctx, source, target, targetName)
+	case "findViewById", "requireViewById":
+		return unsafeCastPlatformCallConfirmedFlat(ctx, source, callee, unsafeCastReceiverIsViewLookupHost) &&
+			unsafeCastTargetIsAndroidViewLikeFlat(ctx.Resolver, file, target, targetName)
+	case "findFragmentById", "findFragmentByTag":
+		return unsafeCastPlatformCallConfirmedFlat(ctx, source, callee, unsafeCastReceiverIsFragmentManagerLike) &&
+			unsafeCastTargetIsFragmentLikeFlat(ctx.Resolver, file, target, targetName)
+	default:
+		return false
+	}
+}
+
+func unsafeCastGetSystemServiceMatchesFlat(ctx *v2.Context, call, target uint32, targetName string) bool {
+	file := ctx.File
+	if !unsafeCastPlatformCallConfirmedFlat(ctx, call, "getSystemService", unsafeCastReceiverIsContextLike) {
+		return false
+	}
+	serviceName := unsafeCastFirstArgumentLastIdentifierFlat(file, call)
+	expectedType := serviceCastMap[serviceName]
+	if expectedType == "" {
+		return false
+	}
+	targetType := unsafeCastResolveTypeFlat(ctx.Resolver, file, target)
+	if unsafeCastTypeMatchesSimpleName(targetType, targetName, expectedType) {
+		return true
+	}
+	return isClipboardServiceType(expectedType) && unsafeCastTargetIsClipboardLike(targetType, targetName)
+}
+
+func unsafeCastPlatformCallConfirmedFlat(ctx *v2.Context, call uint32, callee string, receiverOK func(*typeinfer.ResolvedType) bool) bool {
+	file := ctx.File
+	if target := unsafeCastOracleCallTargetFlat(ctx, call); target != "" {
+		if unsafeCastCallTargetMatches(target, callee) && unsafeCastCallTargetIsPlatform(target) {
+			return true
+		}
+		if unsafeCastCallTargetLooksResolved(target) {
+			return false
+		}
+	}
+	receiver := unsafeCastCallReceiverFlat(file, call)
+	if receiver == 0 || ctx.Resolver == nil {
+		return unsafeCastEnclosingOwnerMatchesFlat(ctx, call, receiverOK)
+	}
+	receiverType := ctx.Resolver.ResolveFlatNode(receiver, file)
+	return receiverOK(receiverType) || unsafeCastEnclosingOwnerMatchesFlat(ctx, call, receiverOK)
+}
+
+func unsafeCastEnclosingOwnerMatchesFlat(ctx *v2.Context, idx uint32, receiverOK func(*typeinfer.ResolvedType) bool) bool {
+	if ctx == nil || ctx.Resolver == nil || ctx.File == nil {
+		return false
+	}
+	for owner, ok := ctx.File.FlatParent(idx); ok; owner, ok = ctx.File.FlatParent(owner) {
+		if ctx.File.FlatType(owner) != "class_declaration" {
+			continue
+		}
+		name := extractIdentifierFlat(ctx.File, owner)
+		if name == "" {
+			return false
+		}
+		info := ctx.Resolver.ClassHierarchy(name)
+		if info == nil {
+			info = ctx.Resolver.ClassHierarchy(ctx.Resolver.ResolveImport(name, ctx.File))
+		}
+		if info == nil {
+			return false
+		}
+		return receiverOK(&typeinfer.ResolvedType{
+			Name:       info.Name,
+			FQN:        info.FQN,
+			Kind:       typeinfer.TypeClass,
+			Supertypes: info.Supertypes,
+		})
+	}
+	return false
+}
+
+func unsafeCastOracleCallTargetFlat(ctx *v2.Context, idx uint32) string {
+	if ctx == nil || ctx.Resolver == nil || ctx.File == nil {
+		return ""
+	}
+	var oracleLookup oracle.Lookup
+	if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+		oracleLookup = cr.Oracle()
+	}
+	if oracleLookup == nil {
+		return ""
+	}
+	return oracleLookup.LookupCallTarget(ctx.File.Path, ctx.File.FlatRow(idx)+1, ctx.File.FlatCol(idx)+1)
+}
+
+func unsafeCastCallTargetMatches(callTarget, callee string) bool {
+	if callTarget == callee {
+		return true
+	}
+	return strings.HasSuffix(callTarget, "."+callee) ||
+		strings.HasSuffix(callTarget, "#"+callee)
+}
+
+func unsafeCastCallTargetIsPlatform(callTarget string) bool {
+	return strings.HasPrefix(callTarget, "android.") ||
+		strings.HasPrefix(callTarget, "androidx.") ||
+		strings.HasPrefix(callTarget, "com.google.android.material.")
+}
+
+func unsafeCastCallTargetLooksResolved(callTarget string) bool {
+	return strings.Contains(callTarget, ".") || strings.Contains(callTarget, "#")
+}
+
+func unsafeCastCallReceiverFlat(file *scanner.File, call uint32) uint32 {
+	nav, _ := flatCallExpressionParts(file, call)
+	if nav == 0 || file.FlatType(nav) != "navigation_expression" {
+		return 0
+	}
+	for child := file.FlatFirstChild(nav); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatIsNamed(child) && file.FlatType(child) != "navigation_suffix" {
+			return child
+		}
+	}
+	return 0
+}
+
+func unsafeCastFirstArgumentLastIdentifierFlat(file *scanner.File, call uint32) string {
+	args := flatCallKeyArguments(file, call)
+	arg := flatPositionalValueArgument(file, args, 0)
+	if arg == 0 {
+		return ""
+	}
+	return unsafeCastLastReferenceIdentifierFlat(file, arg)
+}
+
+func unsafeCastLastReferenceIdentifierFlat(file *scanner.File, idx uint32) string {
+	idx = unsafeCastUnwrapExpressionFlat(file, idx)
+	switch file.FlatType(idx) {
+	case "simple_identifier", "type_identifier":
+		return file.FlatNodeString(idx, nil)
+	case "navigation_expression":
+		return flatNavigationExpressionLastIdentifier(file, idx)
+	case "value_argument":
+		for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatIsNamed(child) {
+				return unsafeCastLastReferenceIdentifierFlat(file, child)
+			}
+		}
+	case "call_expression":
+		return flatCallExpressionName(file, idx)
+	}
+	last := ""
+	file.FlatWalkAllNodes(idx, func(n uint32) {
+		switch file.FlatType(n) {
+		case "simple_identifier", "type_identifier":
+			last = file.FlatNodeString(n, nil)
+		}
+	})
+	return last
+}
+
+func unsafeCastResolveTypeFlat(resolver typeinfer.TypeResolver, file *scanner.File, idx uint32) *typeinfer.ResolvedType {
+	if resolver == nil || idx == 0 {
+		return nil
+	}
+	return resolver.ResolveFlatNode(idx, file)
+}
+
+func unsafeCastReceiverIsContextLike(t *typeinfer.ResolvedType) bool {
+	return unsafeCastTypeMatchesAny(t,
+		"android.content.Context", "Context",
+		"android.app.Activity", "Activity",
+		"android.app.Application", "Application",
+		"android.app.Service", "Service",
+	)
+}
+
+func unsafeCastReceiverIsViewLookupHost(t *typeinfer.ResolvedType) bool {
+	return unsafeCastTypeMatchesAny(t,
+		"android.app.Activity", "Activity",
+		"android.app.Dialog", "Dialog",
+		"android.view.View", "View",
+	)
+}
+
+func unsafeCastReceiverIsFragmentManagerLike(t *typeinfer.ResolvedType) bool {
+	return unsafeCastTypeMatchesAny(t,
+		"android.app.FragmentManager", "FragmentManager",
+		"androidx.fragment.app.FragmentManager", "FragmentManager",
+	)
+}
+
+func unsafeCastTypeMatchesAny(t *typeinfer.ResolvedType, names ...string) bool {
+	if t == nil || t.Kind == typeinfer.TypeUnknown {
+		return false
+	}
+	for _, name := range names {
+		if t.Name == name || t.FQN == name || t.IsSubtypeOf(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func unsafeCastTargetIsAndroidViewLikeFlat(resolver typeinfer.TypeResolver, file *scanner.File, target uint32, targetName string) bool {
+	t := unsafeCastResolveTypeFlat(resolver, file, target)
+	if unsafeCastTypeMatchesSimpleName(t, targetName, "View") ||
+		unsafeCastTypeHasFQNPrefix(t, "android.view.", "android.widget.", "android.webkit.", "androidx.recyclerview.widget.", "com.google.android.material.") {
+		return true
+	}
+	return unsafeCastHierarchyContainsFlat(resolver, t, targetName, "android.view.View", "View")
+}
+
+func unsafeCastTargetIsFragmentLikeFlat(resolver typeinfer.TypeResolver, file *scanner.File, target uint32, targetName string) bool {
+	t := unsafeCastResolveTypeFlat(resolver, file, target)
+	if unsafeCastTypeMatchesSimpleName(t, targetName, "Fragment") ||
+		unsafeCastTypeHasFQNPrefix(t, "android.app.", "androidx.fragment.app.") {
+		return true
+	}
+	return unsafeCastHierarchyContainsFlat(resolver, t, targetName, "android.app.Fragment", "androidx.fragment.app.Fragment", "Fragment")
+}
+
+func unsafeCastTypeMatchesSimpleName(t *typeinfer.ResolvedType, targetName, want string) bool {
+	if simpleTypeName(targetName) == want {
+		return true
+	}
+	if t == nil || t.Kind == typeinfer.TypeUnknown {
+		return false
+	}
+	return t.Name == want || strings.HasSuffix(t.FQN, "."+want)
+}
+
+func unsafeCastTypeHasFQNPrefix(t *typeinfer.ResolvedType, prefixes ...string) bool {
+	if t == nil || t.Kind == typeinfer.TypeUnknown || t.FQN == "" {
+		return false
+	}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(t.FQN, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func unsafeCastHierarchyContainsFlat(resolver typeinfer.TypeResolver, t *typeinfer.ResolvedType, targetName string, supers ...string) bool {
+	if resolver == nil {
+		return false
+	}
+	candidates := []string{targetName}
+	if t != nil {
+		candidates = append(candidates, t.Name, t.FQN)
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		info := resolver.ClassHierarchy(candidate)
+		if info == nil {
+			continue
+		}
+		for _, supertype := range info.Supertypes {
+			for _, want := range supers {
+				if supertype == want || strings.HasSuffix(supertype, "."+want) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func isClipboardServiceType(name string) bool {
+	return name == "ClipboardManager" ||
+		name == "android.content.ClipboardManager" ||
+		name == "android.text.ClipboardManager"
+}
+
+func unsafeCastTargetIsClipboardLike(t *typeinfer.ResolvedType, targetName string) bool {
+	return isClipboardServiceType(targetName) ||
+		isClipboardServiceType(simpleTypeName(targetName)) ||
+		(t != nil && (isClipboardServiceType(t.Name) || isClipboardServiceType(t.FQN)))
+}
+
+func unsafeCastTargetResolvableFlat(file *scanner.File, target uint32, targetName string, resolver typeinfer.TypeResolver) bool {
+	if targetName == "" {
+		return false
+	}
+	if _, ok := typeinfer.PrimitiveTypes[simpleTypeName(targetName)]; ok {
+		return true
+	}
+	if t := unsafeCastResolveTypeFlat(resolver, file, target); t != nil && t.Kind != typeinfer.TypeUnknown {
+		return true
+	}
+	return unsafeCastSameFileDeclaresTypeFlat(file, targetName)
+}
+
+func unsafeCastSameFileDeclaresTypeFlat(file *scanner.File, targetName string) bool {
+	want := simpleTypeName(targetName)
+	if want == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(idx) {
+		case "class_declaration", "object_declaration":
+			found = extractIdentifierFlat(file, idx) == want
+		}
+	})
+	return found
+}
+
+func unsafeCastSourceClearlyLocalFlat(file *scanner.File, source uint32) bool {
+	source = unsafeCastUnwrapExpressionFlat(file, source)
+	if source == 0 {
+		return false
+	}
+	switch file.FlatType(source) {
+	case "simple_identifier":
+		return unsafeCastNameDeclaredBeforeFlat(file, source, file.FlatNodeString(source, nil))
+	case "call_expression":
+		name := flatCallExpressionName(file, source)
+		return name != "" && unsafeCastFunctionDeclaredBeforeFlat(file, source, name)
+	default:
+		return false
+	}
+}
+
+func unsafeCastNameDeclaredBeforeFlat(file *scanner.File, idx uint32, name string) bool {
+	if name == "" {
+		return false
+	}
+	for owner, ok := file.FlatParent(idx); ok; owner, ok = file.FlatParent(owner) {
+		switch file.FlatType(owner) {
+		case "function_declaration", "class_declaration", "object_declaration", "source_file":
+			found := false
+			file.FlatWalkAllNodes(owner, func(n uint32) {
+				if found || file.FlatStartByte(n) > file.FlatStartByte(idx) {
+					return
+				}
+				switch file.FlatType(n) {
+				case "parameter", "class_parameter", "property_declaration", "variable_declaration":
+					found = extractIdentifierFlat(file, n) == name
+				}
+			})
+			if found {
+				return true
+			}
+		}
+		if file.FlatType(owner) == "source_file" {
+			break
+		}
+	}
+	return false
+}
+
+func unsafeCastFunctionDeclaredBeforeFlat(file *scanner.File, idx uint32, name string) bool {
+	found := false
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		if found || file.FlatStartByte(fn) > file.FlatStartByte(idx) {
+			return
+		}
+		found = extractIdentifierFlat(file, fn) == name
+	})
+	return found
+}
 
 func (r *UnsafeCastRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -47,77 +583,21 @@ func (r *UnsafeCastRule) check(ctx *v2.Context) {
 	if isInsidePreviewOrSampleFunctionFlat(file, idx) {
 		return
 	}
-	text := file.FlatNodeText(idx)
-	if strings.Contains(text, "as?") {
+	cast, ok := unsafeCastExpressionPartsFlat(file, idx)
+	if !ok || cast.safe {
 		return
 	}
 
-	// Extract the variable name and target type from "expr as TargetType"
-	parts := strings.SplitN(text, " as ", 2)
-	if len(parts) != 2 {
-		return
-	}
-	castVar := strings.TrimSpace(parts[0])
-	castTarget := strings.TrimSpace(parts[1])
-
-	// Skip idiomatic Android patterns where the cast is guaranteed by context:
-	// - findViewById/requireViewById casts to a View subtype (layout XML guarantees type)
-	// - DialogCompat.requireViewById similar
-	// - getSystemService(...) casts to a service type
-	// - getSerializable/getParcelable — Android Bundle access requires cast
-	// - .layoutParams — View.getLayoutParams returns abstract base type
-	// - .applicationContext as Application — always safe per Android contract
-	// - TransitionValues.values[...] — Map<String, Any> requires cast
-	castVarLower := castVar
-	if strings.Contains(castVarLower, "findViewById") ||
-		strings.Contains(castVarLower, "requireViewById") ||
-		strings.Contains(castVarLower, "findFragmentById") ||
-		strings.Contains(castVarLower, "findFragmentByTag") ||
-		strings.Contains(castVarLower, "getSerializable(") ||
-		strings.Contains(castVarLower, "requireNonNull(") ||
-		strings.Contains(castVarLower, "requireNotNull(") ||
-		strings.Contains(castVarLower, "checkNotNull(") ||
-		strings.Contains(castVarLower, "requireView(") ||
-		strings.Contains(castVarLower, "requireActivity(") ||
-		strings.Contains(castVarLower, "requireContext(") ||
-		strings.Contains(castVarLower, "requireDialog(") ||
-		// Android framework return-type casts — the caller's context
-		// determines the concrete type.
-		strings.Contains(castVarLower, ".inflate(") ||
-		strings.Contains(castVarLower, "onCreateDialog(") ||
-		strings.Contains(castVarLower, "onCreateView(") ||
-		strings.Contains(castVarLower, "getSystemService(") ||
-		strings.Contains(castVarLower, ".fromBundle(") ||
-		// RecyclerView.ViewHolder / PopupWindow / DialogFragment layout-root
-		// downcasts — `itemView`/`contentView` are layout-guaranteed.
-		castVarLower == "itemView" || castVarLower == "contentView" ||
-		strings.HasSuffix(castVarLower, ".itemView") ||
-		strings.HasSuffix(castVarLower, ".contentView") ||
-		// RecyclerView LayoutManager downcasts — the LayoutManager was
-		// set programmatically by the caller that owns the cast.
-		strings.HasSuffix(castVarLower, ".layoutManager") ||
-		// ViewGroup.getChildAt(i) returns View — caller knows the child
-		// type from the layout structure.
-		strings.Contains(castVarLower, ".getChildAt(") ||
-		strings.Contains(castVarLower, "getChildAt(") ||
-		strings.HasSuffix(castVarLower, ".layoutParams") ||
-		castVarLower == "layoutParams" ||
-		strings.HasSuffix(castVarLower, ".applicationContext") ||
-		strings.HasSuffix(castVarLower, ".parent") ||
-		strings.HasSuffix(castVarLower, ".rootView") ||
-		strings.Contains(castVarLower, ".values[") ||
-		strings.Contains(castVarLower, "startValues.values") ||
-		strings.Contains(castVarLower, "endValues.values") {
-		return
-	}
+	castVar := unsafeCastComparableExpressionFlat(file, cast.source)
+	castTarget := unsafeCastTypeNameFlat(file, cast.target)
 	// Skip `null as Type?` — cast of null literal for overload resolution.
-	if castVar == "null" {
+	if unsafeCastIsNullLiteralFlat(file, cast.source) {
 		return
 	}
 	// Skip casts to nullable types `as T?` — they can never throw
 	// ClassCastException on null input and are often used for generic
 	// variance widening.
-	if strings.HasSuffix(castTarget, "?") {
+	if unsafeCastTypeNodeIsNullableFlat(file, cast.target) {
 		return
 	}
 	// Skip `other as ThisClass` inside an `equals(other: Any?)` method,
@@ -138,6 +618,9 @@ func (r *UnsafeCastRule) check(ctx *v2.Context) {
 	if castTarget == "Any" {
 		return
 	}
+	if unsafeCastKnownPlatformCastFlat(ctx, cast.source, cast.target, castTarget) {
+		return
+	}
 	// Skip casts inside a `when` branch whose subject is the same variable
 	// being cast's discriminator — the branch condition has guaranteed the
 	// target shape already. Common idiom for annotation/value deserializers:
@@ -145,34 +628,20 @@ func (r *UnsafeCastRule) check(ctx *v2.Context) {
 	if isInsideWhenBranchWithStringSubjectFlat(file, idx) {
 		return
 	}
-	// Skip ValueAnimator.animatedValue casts — the animator constructor
-	// determines the return type safely.
-	if strings.HasSuffix(castVar, "animatedValue") ||
-		strings.HasSuffix(castVar, ".animatedValue") {
-		return
-	}
-	// Skip rootProject.extra["..."] / extra[...] Gradle patterns.
-	if strings.Contains(castVar, ".extra[") || strings.Contains(castVar, "rootProject.extra") {
-		return
-	}
 	// Skip empty-lambda SAM conversion: `{} as OnEventListener` — the
 	// Kotlin compiler generates a valid SAM instance; the `as` is a
 	// workaround for default-parameter SAM inference limitations.
-	if strings.HasPrefix(castVar, "{") && strings.HasSuffix(castVar, "}") {
+	if file.FlatType(unsafeCastUnwrapExpressionFlat(file, cast.source)) == "lambda_literal" {
 		return
 	}
 
 	// 1. Resolver-based check: the expression type already matches the target
 	//    (e.g., via is-check smart cast or declaration type).
-	if ctx.Resolver != nil && file.FlatChildCount(idx) >= 2 {
-		exprType := ctx.Resolver.ResolveFlatNode(file.FlatChild(idx, 0), file)
-		targetType := ctx.Resolver.ResolveFlatNode(file.FlatChild(idx, file.FlatChildCount(idx)-1), file)
-		if exprType != nil && targetType != nil &&
-			exprType.Kind != typeinfer.TypeUnknown && targetType.Kind != typeinfer.TypeUnknown {
-			if exprType.FQN == targetType.FQN || exprType.IsSubtypeOf(targetType.FQN) ||
-				exprType.Name == targetType.Name {
-				return
-			}
+	if ctx.Resolver != nil {
+		exprType := ctx.Resolver.ResolveFlatNode(cast.source, file)
+		targetType := ctx.Resolver.ResolveFlatNode(cast.target, file)
+		if unsafeCastTypesCompatible(exprType, targetType) {
+			return
 		}
 	}
 
@@ -190,8 +659,17 @@ func (r *UnsafeCastRule) check(ctx *v2.Context) {
 		return
 	}
 
+	confidence := 0.75
+	if !unsafeCastTargetResolvableFlat(file, cast.target, castTarget, ctx.Resolver) {
+		if !unsafeCastSourceClearlyLocalFlat(file, cast.source) {
+			return
+		}
+		confidence = 0.6
+	}
+
 	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 		"Unsafe cast. Use 'as?' for a safe cast instead.")
+	f.Confidence = confidence
 	// Find the "as" keyword child node in the as_expression AST node
 	// and replace it with "as?" using its precise byte range.
 	for i := 0; i < file.FlatChildCount(idx); i++ {
@@ -494,7 +972,6 @@ type CastNullableToNonNullableTypeRule struct {
 	BaseRule
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence — needs the
 // resolver to decide whether the source expression is nullable; without it,
 // reverts to a heuristic. Classified per roadmap/17.
@@ -578,4 +1055,3 @@ func (r *CastToNullableTypeRule) check(ctx *v2.Context) {
 		return
 	}
 }
-

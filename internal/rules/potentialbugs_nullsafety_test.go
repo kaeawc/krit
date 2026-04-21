@@ -1,10 +1,13 @@
 package rules_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -51,6 +54,103 @@ fun process(obj: Any) {
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for safe cast 'as?', got %d", len(findings))
 	}
+}
+
+func TestUnsafeCast_DoesNotSuppressSubstringCallee(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCast", `
+package test
+fun findViewByIdButNotReally(): Any = ""
+fun process() {
+    val str = findViewByIdButNotReally() as String
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for local callee whose name merely contains findViewById")
+	}
+}
+
+func TestUnsafeCast_SuppressesResolvedGetSystemServiceCast(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
+package test
+import android.app.AlarmManager
+import android.content.Context
+
+fun process(context: Context) {
+    val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no finding for Context.ALARM_SERVICE cast to AlarmManager, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCast_FlagsMismatchedGetSystemServiceCast(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
+package test
+import android.content.Context
+import android.os.PowerManager
+
+fun process(context: Context) {
+    val manager = context.getSystemService(Context.ALARM_SERVICE) as PowerManager
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for Context.ALARM_SERVICE cast to PowerManager")
+	}
+}
+
+func TestUnsafeCast_SuppressesUnqualifiedGetSystemServiceInContextOwner(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
+package test
+import android.app.Service
+
+class SyncService : Service() {
+    fun process() {
+        val manager = getSystemService(POWER_SERVICE) as android.os.PowerManager
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no finding for POWER_SERVICE cast inside Service owner, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCast_FallsBackAfterLexicalOracleCallTarget(t *testing.T) {
+	code := `
+package test
+import android.app.Service
+
+class SyncService : Service() {
+    fun process() {
+        val manager = getSystemService(POWER_SERVICE) as android.os.PowerManager
+    }
+}
+`
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if strings.Contains(file.FlatNodeText(idx), "getSystemService") {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = "getSystemService"
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+
+	for _, r := range v2rules.Registry {
+		if r.ID != "UnsafeCast" {
+			continue
+		}
+		cols := rules.NewDispatcherV2([]*v2rules.Rule{r}, composite).Run(file)
+		findings := cols.Findings()
+		if len(findings) != 0 {
+			t.Fatalf("expected lexical oracle call target to fall back to resolver checks, got %d findings", len(findings))
+		}
+		return
+	}
+	t.Fatal("UnsafeCast rule not found")
 }
 
 func TestUnsafeCast_IgnoresMultiplatformTestRoots(t *testing.T) {

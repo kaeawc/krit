@@ -11,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
@@ -35,7 +36,17 @@ func (crossFileCacheRegistered) Clear(ctx cacheutil.ClearContext) error {
 // Every Reference previously serialized its File path in full (~100
 // bytes × millions of rows on Signal-scale repos); interning collapses
 // that to uint32 indexes and a de-duplicated string list.
-const CrossFileCacheVersion = 3
+// v4: embedded the assembled lookup maps (symbolsByName, refCountByName,
+// refFilesByName, nonCommentRefFilesByName,
+// nonCommentRefCountByNameFile) plus the serialized bloom filter so a
+// warm hit can skip the lookup-map rebuild phase entirely.
+const CrossFileCacheVersion = 4
+
+// bloomLibraryVersion is the pinned bits-and-blooms/bloom/v3 version.
+// It is mixed into the cross-file fingerprint so a library upgrade
+// that changes the bloom filter's binary layout nukes the cache.
+// Keep this in sync with go.mod.
+const bloomLibraryVersion = "bits-and-blooms/bloom/v3@v3.7.1"
 
 const crossFileCacheDirName = "cross-file-cache"
 
@@ -103,6 +114,8 @@ func computeCrossFileFingerprint(kotlinFiles, javaFiles []*File, xmlFiles []*xml
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 	h := hashutil.Hasher().New()
+	_, _ = h.Write([]byte(bloomLibraryVersion))
+	_, _ = h.Write([]byte{'\n'})
 	for _, e := range entries {
 		_, _ = h.Write([]byte(e.Path))
 		_, _ = h.Write([]byte{':'})
@@ -129,10 +142,15 @@ func crossFileCacheFiles(dir string) crossFileCachePaths {
 // cachePayload is the interned on-disk form. A shared string table backs
 // every File/Name/Kind/Visibility reference so the gob encoding doesn't
 // repeat the same ~100-byte file path millions of times.
+//
+// Lookup is optional. When non-empty, the warm-load path feeds it
+// directly into the CodeIndex instead of re-building the maps and bloom
+// filter from Refs.
 type cachePayload struct {
 	Strings []string
 	Syms    packedSymbols
 	Refs    packedRefs
+	Lookup  packedLookup
 }
 
 type packedSymbols struct {
@@ -154,6 +172,42 @@ type packedRefs struct {
 	InComment []bool
 }
 
+// packedLookup stores the assembled lookup maps + bloom filter in a
+// form that references the enclosing payload's string table. All keys
+// and values that hold strings are uint32 indices into Strings.
+//
+// An empty packedLookup (zero Has flag) means "not persisted" and the
+// loader reconstructs the maps from Refs.
+type packedLookup struct {
+	// Has is true when the remaining fields are populated. Distinguishes
+	// "legitimately empty index" from "legacy payload without maps".
+	Has bool
+
+	// map[name] -> []symbolIndex (into Syms arrays)
+	SymByNameKeys   []uint32
+	SymByNameValues [][]uint32
+
+	// map[name] -> refCount
+	RefCountKeys   []uint32
+	RefCountValues []uint32
+
+	// map[name] -> set of fileIndex
+	RefFilesKeys   []uint32
+	RefFilesValues [][]uint32
+
+	// map[name] -> set of fileIndex (non-comment only)
+	NCRefFilesKeys   []uint32
+	NCRefFilesValues [][]uint32
+
+	// map[name] -> map[file] -> count (non-comment only)
+	NCRefCountKeys   []uint32
+	NCRefCountFiles  [][]uint32
+	NCRefCountValues [][]uint32
+
+	// Bloom is the bloom filter's MarshalBinary output.
+	Bloom []byte
+}
+
 type stringInterner struct {
 	idx   map[string]uint32
 	table []string
@@ -171,6 +225,130 @@ func (s *stringInterner) intern(v string) uint32 {
 	s.idx[v] = i
 	s.table = append(s.table, v)
 	return i
+}
+
+// packPayloadWithIndex packs the symbols, references, and lookup maps
+// from a fully-built CodeIndex. If idx is nil, the lookup section is
+// left empty and the warm-load path will fall back to rebuilding.
+func packPayloadWithIndex(idx *CodeIndex) cachePayload {
+	if idx == nil {
+		return packPayload(nil, nil)
+	}
+	p := packPayload(idx.Symbols, idx.References)
+	p.Lookup = packLookup(idx, &p)
+	return p
+}
+
+func packLookup(idx *CodeIndex, p *cachePayload) packedLookup {
+	if idx == nil {
+		return packedLookup{}
+	}
+
+	intr := &stringInterner{idx: make(map[string]uint32, len(p.Strings)), table: p.Strings}
+	for i, s := range intr.table {
+		intr.idx[s] = uint32(i)
+	}
+
+	// Build a symbol-index lookup keyed by "Name|File|Line|StartByte" so
+	// symbolsByName values can reference rows in p.Syms by index.
+	type symKey struct {
+		Name      uint32
+		File      uint32
+		Line      int32
+		StartByte int32
+	}
+	symIndexByKey := make(map[symKey]uint32, len(idx.Symbols))
+	for i := range idx.Symbols {
+		k := symKey{
+			Name:      p.Syms.Name[i],
+			File:      p.Syms.File[i],
+			Line:      p.Syms.Line[i],
+			StartByte: p.Syms.StartByte[i],
+		}
+		if _, ok := symIndexByKey[k]; !ok {
+			symIndexByKey[k] = uint32(i)
+		}
+	}
+
+	out := packedLookup{Has: true}
+
+	// symbolsByName
+	out.SymByNameKeys = make([]uint32, 0, len(idx.symbolsByName))
+	out.SymByNameValues = make([][]uint32, 0, len(idx.symbolsByName))
+	for name, syms := range idx.symbolsByName {
+		nameIdx := intr.intern(name)
+		rows := make([]uint32, 0, len(syms))
+		for _, s := range syms {
+			k := symKey{
+				Name:      intr.intern(s.Name),
+				File:      intr.intern(s.File),
+				Line:      int32(s.Line),
+				StartByte: int32(s.StartByte),
+			}
+			if ri, ok := symIndexByKey[k]; ok {
+				rows = append(rows, ri)
+			}
+		}
+		out.SymByNameKeys = append(out.SymByNameKeys, nameIdx)
+		out.SymByNameValues = append(out.SymByNameValues, rows)
+	}
+
+	// refCountByName
+	out.RefCountKeys = make([]uint32, 0, len(idx.refCountByName))
+	out.RefCountValues = make([]uint32, 0, len(idx.refCountByName))
+	for name, count := range idx.refCountByName {
+		out.RefCountKeys = append(out.RefCountKeys, intr.intern(name))
+		out.RefCountValues = append(out.RefCountValues, uint32(count))
+	}
+
+	// refFilesByName
+	out.RefFilesKeys = make([]uint32, 0, len(idx.refFilesByName))
+	out.RefFilesValues = make([][]uint32, 0, len(idx.refFilesByName))
+	for name, files := range idx.refFilesByName {
+		vals := make([]uint32, 0, len(files))
+		for f := range files {
+			vals = append(vals, intr.intern(f))
+		}
+		out.RefFilesKeys = append(out.RefFilesKeys, intr.intern(name))
+		out.RefFilesValues = append(out.RefFilesValues, vals)
+	}
+
+	// nonCommentRefFilesByName
+	out.NCRefFilesKeys = make([]uint32, 0, len(idx.nonCommentRefFilesByName))
+	out.NCRefFilesValues = make([][]uint32, 0, len(idx.nonCommentRefFilesByName))
+	for name, files := range idx.nonCommentRefFilesByName {
+		vals := make([]uint32, 0, len(files))
+		for f := range files {
+			vals = append(vals, intr.intern(f))
+		}
+		out.NCRefFilesKeys = append(out.NCRefFilesKeys, intr.intern(name))
+		out.NCRefFilesValues = append(out.NCRefFilesValues, vals)
+	}
+
+	// nonCommentRefCountByNameFile
+	out.NCRefCountKeys = make([]uint32, 0, len(idx.nonCommentRefCountByNameFile))
+	out.NCRefCountFiles = make([][]uint32, 0, len(idx.nonCommentRefCountByNameFile))
+	out.NCRefCountValues = make([][]uint32, 0, len(idx.nonCommentRefCountByNameFile))
+	for name, byFile := range idx.nonCommentRefCountByNameFile {
+		files := make([]uint32, 0, len(byFile))
+		counts := make([]uint32, 0, len(byFile))
+		for f, c := range byFile {
+			files = append(files, intr.intern(f))
+			counts = append(counts, uint32(c))
+		}
+		out.NCRefCountKeys = append(out.NCRefCountKeys, intr.intern(name))
+		out.NCRefCountFiles = append(out.NCRefCountFiles, files)
+		out.NCRefCountValues = append(out.NCRefCountValues, counts)
+	}
+
+	if idx.refBloom != nil {
+		if data, err := idx.refBloom.MarshalBinary(); err == nil {
+			out.Bloom = data
+		}
+	}
+
+	p.Strings = intr.table
+	return out
 }
 
 func packPayload(symbols []Symbol, refs []Reference) cachePayload {
@@ -282,6 +460,213 @@ func (p cachePayload) unpack() ([]Symbol, []Reference, bool) {
 		}
 	}
 	return symbols, refs, true
+}
+
+// unpackFull rebuilds a full CodeIndex (including lookup maps + bloom
+// filter) from the on-disk payload. Returns ok=false if any index is
+// out of range or the bloom filter fails to decode; the caller must
+// then fall back to a rebuild-from-scratch.
+func (p cachePayload) unpackFull() (*CodeIndex, bool) {
+	symbols, refs, ok := p.unpack()
+	if !ok {
+		return nil, false
+	}
+	if !p.Lookup.Has {
+		return BuildIndexFromData(symbols, refs), true
+	}
+
+	getStr := func(i uint32) (string, bool) {
+		if i >= uint32(len(p.Strings)) {
+			return "", false
+		}
+		return p.Strings[i], true
+	}
+
+	idx := &CodeIndex{
+		Symbols:                      symbols,
+		References:                   refs,
+		symbolsByName:                make(map[string][]Symbol, len(p.Lookup.SymByNameKeys)),
+		refCountByName:               make(map[string]int, len(p.Lookup.RefCountKeys)),
+		refFilesByName:               make(map[string]map[string]bool, len(p.Lookup.RefFilesKeys)),
+		nonCommentRefFilesByName:     make(map[string]map[string]bool, len(p.Lookup.NCRefFilesKeys)),
+		nonCommentRefCountByNameFile: make(map[string]map[string]int, len(p.Lookup.NCRefCountKeys)),
+	}
+
+	// symbolsByName
+	if len(p.Lookup.SymByNameKeys) != len(p.Lookup.SymByNameValues) {
+		return nil, false
+	}
+	for i, nameIdx := range p.Lookup.SymByNameKeys {
+		name, ok := getStr(nameIdx)
+		if !ok {
+			return nil, false
+		}
+		rows := p.Lookup.SymByNameValues[i]
+		syms := make([]Symbol, 0, len(rows))
+		for _, r := range rows {
+			if r >= uint32(len(symbols)) {
+				return nil, false
+			}
+			syms = append(syms, symbols[r])
+		}
+		idx.symbolsByName[name] = syms
+	}
+
+	// refCountByName
+	if len(p.Lookup.RefCountKeys) != len(p.Lookup.RefCountValues) {
+		return nil, false
+	}
+	for i, nameIdx := range p.Lookup.RefCountKeys {
+		name, ok := getStr(nameIdx)
+		if !ok {
+			return nil, false
+		}
+		idx.refCountByName[name] = int(p.Lookup.RefCountValues[i])
+	}
+
+	// refFilesByName
+	if len(p.Lookup.RefFilesKeys) != len(p.Lookup.RefFilesValues) {
+		return nil, false
+	}
+	for i, nameIdx := range p.Lookup.RefFilesKeys {
+		name, ok := getStr(nameIdx)
+		if !ok {
+			return nil, false
+		}
+		set := make(map[string]bool, len(p.Lookup.RefFilesValues[i]))
+		for _, fIdx := range p.Lookup.RefFilesValues[i] {
+			f, ok := getStr(fIdx)
+			if !ok {
+				return nil, false
+			}
+			set[f] = true
+		}
+		idx.refFilesByName[name] = set
+	}
+
+	// nonCommentRefFilesByName
+	if len(p.Lookup.NCRefFilesKeys) != len(p.Lookup.NCRefFilesValues) {
+		return nil, false
+	}
+	for i, nameIdx := range p.Lookup.NCRefFilesKeys {
+		name, ok := getStr(nameIdx)
+		if !ok {
+			return nil, false
+		}
+		set := make(map[string]bool, len(p.Lookup.NCRefFilesValues[i]))
+		for _, fIdx := range p.Lookup.NCRefFilesValues[i] {
+			f, ok := getStr(fIdx)
+			if !ok {
+				return nil, false
+			}
+			set[f] = true
+		}
+		idx.nonCommentRefFilesByName[name] = set
+	}
+
+	// nonCommentRefCountByNameFile
+	if len(p.Lookup.NCRefCountKeys) != len(p.Lookup.NCRefCountFiles) ||
+		len(p.Lookup.NCRefCountKeys) != len(p.Lookup.NCRefCountValues) {
+		return nil, false
+	}
+	for i, nameIdx := range p.Lookup.NCRefCountKeys {
+		name, ok := getStr(nameIdx)
+		if !ok {
+			return nil, false
+		}
+		files := p.Lookup.NCRefCountFiles[i]
+		counts := p.Lookup.NCRefCountValues[i]
+		if len(files) != len(counts) {
+			return nil, false
+		}
+		inner := make(map[string]int, len(files))
+		for j, fIdx := range files {
+			f, ok := getStr(fIdx)
+			if !ok {
+				return nil, false
+			}
+			inner[f] = int(counts[j])
+		}
+		idx.nonCommentRefCountByNameFile[name] = inner
+	}
+
+	// Bloom filter
+	if len(p.Lookup.Bloom) == 0 {
+		return nil, false
+	}
+	bf := &bloom.BloomFilter{}
+	if err := bf.UnmarshalBinary(p.Lookup.Bloom); err != nil {
+		return nil, false
+	}
+	idx.refBloom = bf
+
+	return idx, true
+}
+
+// LoadCrossFileCacheIndex returns a fully-assembled CodeIndex (symbols,
+// references, lookup maps, and bloom filter) when the on-disk
+// fingerprint matches. A miss — missing files, version mismatch,
+// decode error, fingerprint drift, or missing lookup section — is
+// never an error; callers fall back to BuildIndex.
+func LoadCrossFileCacheIndex(dir, wantFingerprint string) (*CodeIndex, bool) {
+	if dir == "" || wantFingerprint == "" {
+		return nil, false
+	}
+	paths := crossFileCacheFiles(dir)
+	metaBytes, err := os.ReadFile(paths.Meta)
+	if err != nil {
+		return nil, false
+	}
+	var meta CrossFileCacheMeta
+	if err := json.Unmarshal(metaBytes, &meta); err != nil {
+		return nil, false
+	}
+	if meta.Version != CrossFileCacheVersion || meta.Fingerprint != wantFingerprint {
+		return nil, false
+	}
+	var packed cachePayload
+	if err := decodeGob(paths.Symbols, &packed); err != nil {
+		return nil, false
+	}
+	return packed.unpackFull()
+}
+
+// SaveCrossFileCacheIndex persists a fully-built CodeIndex so warm
+// loads can skip the lookup-map rebuild.
+func SaveCrossFileCacheIndex(dir, fingerprint string, meta CrossFileCacheMeta, idx *CodeIndex) error {
+	if dir == "" {
+		return fmt.Errorf("empty cache dir")
+	}
+	if idx == nil {
+		return fmt.Errorf("nil index")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("mkdir cache dir: %w", err)
+	}
+	paths := crossFileCacheFiles(dir)
+
+	meta.Version = CrossFileCacheVersion
+	meta.Fingerprint = fingerprint
+	if meta.WrittenAt.IsZero() {
+		meta.WrittenAt = time.Now().UTC()
+	}
+	meta.SymbolCount = len(idx.Symbols)
+	meta.ReferenceCount = len(idx.References)
+
+	packed := packPayloadWithIndex(idx)
+	if err := fsutil.WriteFileAtomicStream(paths.Symbols, 0o644, func(w io.Writer) error {
+		return gob.NewEncoder(w).Encode(packed)
+	}); err != nil {
+		return fmt.Errorf("write cross-file cache payload: %w", err)
+	}
+	metaBytes, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal meta: %w", err)
+	}
+	if err := fsutil.WriteFileAtomic(paths.Meta, metaBytes, 0644); err != nil {
+		return fmt.Errorf("write meta: %w", err)
+	}
+	return nil
 }
 
 // LoadCrossFileCache returns (symbols, refs, true) when the on-disk

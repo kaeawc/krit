@@ -86,10 +86,9 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 	xmlFiles := loadXMLFilesForCache(files)
 	fingerprint, _ := computeCrossFileFingerprint(files, javaFiles, xmlFiles)
 
-	if syms, refs, ok := LoadCrossFileCache(cacheDir, fingerprint); ok {
-		idx := BuildIndexFromDataWithTracker(syms, refs, tracker)
-		idx.Files = append(idx.Files, files...)
-		return idx, true
+	if cachedIdx, ok := LoadCrossFileCacheIndex(cacheDir, fingerprint); ok {
+		cachedIdx.Files = append(cachedIdx.Files, files...)
+		return cachedIdx, true
 	}
 
 	// Miss → full build. Reuse the pre-loaded XML so we don't re-walk.
@@ -103,7 +102,7 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 		XMLFiles:    len(xmlFiles),
 	}
 	// Best-effort persistence; any error just means the next run rebuilds.
-	_ = SaveCrossFileCache(cacheDir, fingerprint, meta, symbols, refs)
+	_ = SaveCrossFileCacheIndex(cacheDir, fingerprint, meta, idx)
 	return idx, false
 }
 

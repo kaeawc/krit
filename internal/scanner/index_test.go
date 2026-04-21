@@ -1,10 +1,16 @@
 package scanner
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+
+	"github.com/bits-and-blooms/bloom/v3"
 )
 
 func buildTestIndex(symbols []Symbol, refs []Reference) *CodeIndex {
@@ -47,6 +53,106 @@ func TestBuildIndexFromData(t *testing.T) {
 	if idx.MayHaveReference("missingSymbol") {
 		t.Fatal("did not expect missingSymbol to be present in ref bloom")
 	}
+}
+
+func TestBuildCodeIndexWithBloom_PreGroupedMatchesLazy(t *testing.T) {
+	symbols := []Symbol{
+		{Name: "helperFunc", Kind: "function", Visibility: "public", File: "a.kt", Line: 10},
+		{Name: "HelperClass", Kind: "class", Visibility: "internal", File: "b.kt", Line: 2},
+	}
+	refs := []Reference{
+		{Name: "helperFunc", File: "b.kt", Line: 4, InComment: false},
+		{Name: "HelperClass", File: "c.kt", Line: 7, InComment: true},
+		{Name: "helperFunc", File: "a.kt", Line: 10, InComment: false},
+		{Name: "helperFunc", File: "b.kt", Line: 8, InComment: true},
+		{Name: "helperFunc", File: "b.kt", Line: 9, InComment: false},
+		{Name: "HelperClass", File: "d.kt", Line: 12, InComment: false},
+		{Name: "onlyCommented", File: "notes.kt", Line: 1, InComment: true},
+		{Name: "onlyCommented", File: "notes.kt", Line: 2, InComment: true},
+	}
+	originalRefs := append([]Reference(nil), refs...)
+
+	got := buildCodeIndexWithBloom(symbols, refs, nil)
+	want := buildCodeIndexWithBloomLazyForTest(symbols, refs, nil)
+
+	if !reflect.DeepEqual(refs, originalRefs) {
+		t.Fatal("buildCodeIndexWithBloom mutated reference order")
+	}
+	if !reflect.DeepEqual(got.symbolsByName, want.symbolsByName) {
+		t.Fatalf("symbolsByName mismatch:\ngot  %#v\nwant %#v", got.symbolsByName, want.symbolsByName)
+	}
+	if !reflect.DeepEqual(got.refCountByName, want.refCountByName) {
+		t.Fatalf("refCountByName mismatch:\ngot  %#v\nwant %#v", got.refCountByName, want.refCountByName)
+	}
+	if !reflect.DeepEqual(got.refFilesByName, want.refFilesByName) {
+		t.Fatalf("refFilesByName mismatch:\ngot  %#v\nwant %#v", got.refFilesByName, want.refFilesByName)
+	}
+	if !reflect.DeepEqual(got.nonCommentRefFilesByName, want.nonCommentRefFilesByName) {
+		t.Fatalf("nonCommentRefFilesByName mismatch:\ngot  %#v\nwant %#v", got.nonCommentRefFilesByName, want.nonCommentRefFilesByName)
+	}
+	if !reflect.DeepEqual(got.nonCommentRefCountByNameFile, want.nonCommentRefCountByNameFile) {
+		t.Fatalf("nonCommentRefCountByNameFile mismatch:\ngot  %#v\nwant %#v", got.nonCommentRefCountByNameFile, want.nonCommentRefCountByNameFile)
+	}
+
+	gotBloom, err := got.refBloom.MarshalBinary()
+	if err != nil {
+		t.Fatalf("marshal got bloom: %v", err)
+	}
+	wantBloom, err := want.refBloom.MarshalBinary()
+	if err != nil {
+		t.Fatalf("marshal want bloom: %v", err)
+	}
+	if !bytes.Equal(gotBloom, wantBloom) {
+		t.Fatal("ref bloom bytes differ from lazy builder")
+	}
+}
+
+func buildCodeIndexWithBloomLazyForTest(symbols []Symbol, refs []Reference, prebuilt *bloom.BloomFilter) *CodeIndex {
+	idx := &CodeIndex{
+		Symbols:                      symbols,
+		References:                   refs,
+		symbolsByName:                make(map[string][]Symbol),
+		refCountByName:               make(map[string]int),
+		refFilesByName:               make(map[string]map[string]bool),
+		nonCommentRefFilesByName:     make(map[string]map[string]bool),
+		nonCommentRefCountByNameFile: make(map[string]map[string]int),
+	}
+
+	if prebuilt != nil {
+		idx.refBloom = prebuilt
+	} else {
+		estimatedRefs := uint(len(idx.References))
+		if estimatedRefs < 1000 {
+			estimatedRefs = 1000
+		}
+		idx.refBloom = bloom.NewWithEstimates(estimatedRefs, 0.01)
+	}
+
+	for _, sym := range idx.Symbols {
+		idx.symbolsByName[sym.Name] = append(idx.symbolsByName[sym.Name], sym)
+	}
+	for _, ref := range idx.References {
+		idx.refCountByName[ref.Name]++
+		if idx.refFilesByName[ref.Name] == nil {
+			idx.refFilesByName[ref.Name] = make(map[string]bool)
+		}
+		idx.refFilesByName[ref.Name][ref.File] = true
+		if !ref.InComment {
+			if idx.nonCommentRefFilesByName[ref.Name] == nil {
+				idx.nonCommentRefFilesByName[ref.Name] = make(map[string]bool)
+			}
+			idx.nonCommentRefFilesByName[ref.Name][ref.File] = true
+			if idx.nonCommentRefCountByNameFile[ref.Name] == nil {
+				idx.nonCommentRefCountByNameFile[ref.Name] = make(map[string]int)
+			}
+			idx.nonCommentRefCountByNameFile[ref.Name][ref.File]++
+		}
+		if prebuilt == nil {
+			idx.refBloom.AddString(ref.Name)
+		}
+	}
+
+	return idx
 }
 
 func TestUnusedSymbols_IgnoreCommentReferences_True(t *testing.T) {
@@ -623,6 +729,54 @@ func BenchmarkCodeIndexHotLookups(b *testing.B) {
 			}
 		}
 	})
+}
+
+func BenchmarkBuildCodeIndexFromRefs_SignalScale(b *testing.B) {
+	refs := makeSignalScaleRefs(120000, 6700, 5000000)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		idx := BuildIndexFromData(nil, refs)
+		if idx.ReferenceCount("Symbol000000") == 0 {
+			b.Fatal("expected hot symbol refs")
+		}
+	}
+}
+
+func BenchmarkBuildCodeIndexFromRefs_LazySignalScale(b *testing.B) {
+	refs := makeSignalScaleRefs(120000, 6700, 5000000)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		idx := buildCodeIndexWithBloomLazyForTest(nil, refs, nil)
+		if idx.ReferenceCount("Symbol000000") == 0 {
+			b.Fatal("expected hot symbol refs")
+		}
+	}
+}
+
+func makeSignalScaleRefs(nameCount, fileCount, refCount int) []Reference {
+	names := make([]string, nameCount)
+	for i := range names {
+		names[i] = fmt.Sprintf("Symbol%06d", i)
+	}
+	files := make([]string, fileCount)
+	for i := range files {
+		files[i] = fmt.Sprintf("module/src/File%04d.kt", i)
+	}
+
+	rng := rand.New(rand.NewSource(355))
+	zipf := rand.NewZipf(rng, 1.07, 1, uint64(nameCount-1))
+	refs := make([]Reference, refCount)
+	for i := range refs {
+		refs[i] = Reference{
+			Name:      names[zipf.Uint64()],
+			File:      files[rng.Intn(fileCount)],
+			Line:      (i % 200) + 1,
+			InComment: rng.Intn(20) == 0,
+		}
+	}
+	return refs
 }
 
 func TestIsXMLReferenceCandidate(t *testing.T) {

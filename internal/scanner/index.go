@@ -93,8 +93,10 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 
 	// Monolithic miss → shard-backed partial rebuild so unchanged files
 	// reuse their cached contribution; only new/edited files run fresh.
-	symbols, refs := collectIndexDataSharded(cacheDir, files, javaFiles, xmlFiles, workers, tracker)
-	idx := BuildIndexFromDataWithTracker(symbols, refs, tracker)
+	// The unioned bloom produced by the sharded path lets the lookup
+	// build skip the per-reference AddString loop.
+	symbols, refs, prebuiltBloom := collectIndexDataSharded(cacheDir, files, javaFiles, xmlFiles, workers, tracker)
+	idx := BuildIndexFromDataWithBloom(symbols, refs, prebuiltBloom, tracker)
 	idx.Files = append(idx.Files, files...)
 
 	meta := CrossFileCacheMeta{
@@ -124,15 +126,28 @@ func BuildIndexFromData(symbols []Symbol, refs []Reference) *CodeIndex {
 // BuildIndexFromDataWithTracker constructs a CodeIndex from pre-collected symbols and
 // references and records sub-phase timings when tracker is enabled.
 func BuildIndexFromDataWithTracker(symbols []Symbol, refs []Reference, tracker perf.Tracker) *CodeIndex {
+	return BuildIndexFromDataWithBloom(symbols, refs, nil, tracker)
+}
+
+// BuildIndexFromDataWithBloom is like BuildIndexFromDataWithTracker but
+// accepts a pre-built bloom filter. When prebuilt is non-nil it replaces
+// the AddString loop in lookup-map construction, so warm-load paths that
+// already unioned per-shard blooms don't pay the per-reference hash
+// cost again. prebuilt must cover at least every ref's Name; extra
+// items are fine (bloom false positives are already tolerated by
+// callers) but missing items would produce false negatives and are
+// considered a bug.
+func BuildIndexFromDataWithBloom(symbols []Symbol, refs []Reference, prebuilt *bloom.BloomFilter, tracker perf.Tracker) *CodeIndex {
+	build := func() *CodeIndex { return buildCodeIndexWithBloom(symbols, refs, prebuilt) }
 	if tracker != nil && tracker.IsEnabled() {
 		var idx *CodeIndex
 		_ = tracker.Track("lookupMapBuild", func() error {
-			idx = buildCodeIndex(symbols, refs)
+			idx = build()
 			return nil
 		})
 		return idx
 	}
-	return buildCodeIndex(symbols, refs)
+	return build()
 }
 
 func collectIndexData(files []*File, workers int, javaFiles ...*File) ([]Symbol, []Reference) {
@@ -156,16 +171,37 @@ type shardJob struct {
 // the same sem/wg worker pool that collectIndexDataInternal uses.
 // cacheDir must be non-empty; callers that want a pure-rebuild path
 // should call collectIndexDataInternal directly.
-func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, xmlFiles []*xmlCacheFile, workers int, tracker perf.Tracker) ([]Symbol, []Reference) {
+//
+// Returns the aggregated symbols, references, and a bloom filter
+// unioned from every shard's per-shard bloom — both cache hits (decoded
+// from the shard payload) and cache misses (built fresh from the
+// file's references and persisted back). A nil bloom means no shard
+// contributed any references, and callers should treat it as "no
+// prebuilt filter"; the rebuild path will create one.
+func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, xmlFiles []*xmlCacheFile, workers int, tracker perf.Tracker) ([]Symbol, []Reference, *bloom.BloomFilter) {
 	if workers < 1 {
 		workers = 1
 	}
 	var (
-		mu      sync.Mutex
-		symbols []Symbol
-		refs    []Reference
-		sem     = make(chan struct{}, workers)
+		mu        sync.Mutex
+		symbols   []Symbol
+		refs      []Reference
+		aggBloom  *bloom.BloomFilter
+		bloomMu   sync.Mutex
+		sem       = make(chan struct{}, workers)
 	)
+
+	mergeBloom := func(bf *bloom.BloomFilter) {
+		if bf == nil {
+			return
+		}
+		bloomMu.Lock()
+		if aggBloom == nil {
+			aggBloom = newShardBloom()
+		}
+		_ = aggBloom.Merge(bf)
+		bloomMu.Unlock()
+	}
 
 	runPhase := func(label string, jobs []shardJob) {
 		run := func() {
@@ -177,19 +213,35 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 					defer wg.Done()
 					defer func() { <-sem }()
 
-					var syms []Symbol
-					var fileRefs []Reference
+					var (
+						syms     []Symbol
+						fileRefs []Reference
+						shardBf  *bloom.BloomFilter
+					)
 					if s, ok := loadFileShard(cacheDir, job.Path, job.ContentHash); ok {
 						syms, fileRefs = s.Symbols, s.References
+						// Cache hit: decode the persisted bloom. A decode
+						// failure falls back to rebuilding from refs so the
+						// aggregate is never missing a name — correctness
+						// beats a single-shard perf win.
+						if bf, err := decodeShardBloom(s.Bloom); err == nil && bf != nil {
+							shardBf = bf
+						} else if len(fileRefs) > 0 {
+							shardBf = buildShardBloomFromRefs(fileRefs)
+						}
 					} else {
 						syms, fileRefs = job.Fresh()
+						shardBf = buildShardBloomFromRefs(fileRefs)
+						encoded, _ := encodeShardBloom(shardBf)
 						_ = saveFileShard(cacheDir, &fileShard{
 							Path:        job.Path,
 							ContentHash: job.ContentHash,
 							Symbols:     syms,
 							References:  fileRefs,
+							Bloom:       encoded,
 						})
 					}
+					mergeBloom(shardBf)
 					if len(syms) == 0 && len(fileRefs) == 0 {
 						return
 					}
@@ -258,7 +310,7 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 	}
 	runPhase("xmlReferenceCollection", xmlJobs)
 
-	return symbols, refs
+	return symbols, refs, aggBloom
 }
 
 // collectIndexDataInternal is the shared body. A non-nil preloadedXML
@@ -346,6 +398,17 @@ func collectIndexDataInternal(files []*File, workers int, tracker perf.Tracker, 
 }
 
 func buildCodeIndex(symbols []Symbol, refs []Reference) *CodeIndex {
+	return buildCodeIndexWithBloom(symbols, refs, nil)
+}
+
+// buildCodeIndexWithBloom assembles the lookup maps and bloom filter. A
+// non-nil prebuilt bloom replaces the per-reference AddString loop —
+// prebuilt is adopted as-is and the loop only mutates the maps. The
+// prebuilt filter must be a superset of the ref names; extra bits are
+// fine (existing MayHaveReference callers already tolerate false
+// positives) but missing bits would break IsReferencedOutsideFile
+// short-circuits.
+func buildCodeIndexWithBloom(symbols []Symbol, refs []Reference, prebuilt *bloom.BloomFilter) *CodeIndex {
 	idx := &CodeIndex{
 		Symbols:                      symbols,
 		References:                   refs,
@@ -356,13 +419,16 @@ func buildCodeIndex(symbols []Symbol, refs []Reference) *CodeIndex {
 		nonCommentRefCountByNameFile: make(map[string]map[string]int),
 	}
 
-	// Build lookup maps + bloom filters.
-	// Estimate bloom filter size: number of unique name+file pairs.
-	estimatedRefs := uint(len(idx.References))
-	if estimatedRefs < 1000 {
-		estimatedRefs = 1000
+	if prebuilt != nil {
+		idx.refBloom = prebuilt
+	} else {
+		// Estimate bloom filter size: number of unique name+file pairs.
+		estimatedRefs := uint(len(idx.References))
+		if estimatedRefs < 1000 {
+			estimatedRefs = 1000
+		}
+		idx.refBloom = bloom.NewWithEstimates(estimatedRefs, 0.01) // 1% false positive
 	}
-	idx.refBloom = bloom.NewWithEstimates(estimatedRefs, 0.01) // 1% false positive
 
 	for _, sym := range idx.Symbols {
 		idx.symbolsByName[sym.Name] = append(idx.symbolsByName[sym.Name], sym)
@@ -383,7 +449,9 @@ func buildCodeIndex(symbols []Symbol, refs []Reference) *CodeIndex {
 			}
 			idx.nonCommentRefCountByNameFile[ref.Name][ref.File]++
 		}
-		idx.refBloom.AddString(ref.Name)
+		if prebuilt == nil {
+			idx.refBloom.AddString(ref.Name)
+		}
 	}
 
 	return idx

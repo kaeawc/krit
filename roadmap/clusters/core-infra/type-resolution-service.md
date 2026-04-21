@@ -46,10 +46,22 @@ Relevant files:
 ## Proposed design
 
 `TypeAwareRule` is deleted. Rules that need type information declare
-`NeedsResolver` in their `Capabilities` bitfield (from
-[`unified-rule-interface.md`](unified-rule-interface.md)). The
-dispatcher populates `ctx.Resolver` before calling the rule's `Check`
-function.
+`NeedsTypeInfo` in their `Capabilities` bitfield (from
+[`unified-rule-interface.md`](unified-rule-interface.md)).
+`NeedsTypeInfo` is the unified capability: it is defined as
+`NeedsResolver | NeedsOracle` and asks the dispatcher to (a) populate
+`ctx.Resolver` with a `ChainedResolver` whose backends are ordered
+oracle > source-level, and (b) include the rule in the oracle's
+file-selection pass. Rules authored against `NeedsTypeInfo` never need
+to know which backend they will be served by at call time — the
+resolver service picks the cheapest backend internally.
+
+The individual `NeedsResolver` / `NeedsOracle` bits remain as the
+lower-level primitives and continue to work for existing rules, but
+new rules should prefer `NeedsTypeInfo`.
+
+The dispatcher populates `ctx.Resolver` before calling the rule's
+`Check` function.
 
 ```go
 type Context struct {

@@ -118,6 +118,33 @@ func init() {
 	}
 }
 
+func TestAnalyzeSource_NeedsTypeInfoSatisfiesBoth(t *testing.T) {
+	src := `package rules
+
+import (
+	"github.com/kaeawc/krit/internal/oracle"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
+)
+
+func init() {
+	v2.Register(&v2.Rule{
+		ID:          "Unified",
+		Description: "uses both resolver and oracle under NeedsTypeInfo",
+		Needs:       v2.NeedsTypeInfo,
+		Check: func(ctx *v2.Context) {
+			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+				_ = cr.Oracle()
+			}
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "unified.go", src)
+	if len(violations) != 0 {
+		t.Fatalf("want 0 violations, got %d: %v", len(violations), violations)
+	}
+}
+
 func TestAnalyzeSource_ResolvesMethodReference(t *testing.T) {
 	src := `package rules
 

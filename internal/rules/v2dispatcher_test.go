@@ -195,25 +195,36 @@ func TestV2Dispatcher_RespectsExclusions(t *testing.T) {
 	}
 }
 
-// --- 5. ctx.Resolver is populated for NeedsResolver rules -------------------
+// --- 5. ctx.Resolver is populated for resolver-needing rules ----------------
 
 func TestV2Dispatcher_ResolverPopulatedInContext(t *testing.T) {
-	file := writeKotlinFile(t, "fun foo() { bar() }", "Resolver.kt")
+	cases := []struct {
+		name  string
+		needs v2.Capabilities
+	}{
+		{"NeedsResolver", v2.NeedsResolver},
+		{"NeedsTypeInfo", v2.NeedsTypeInfo},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			file := writeKotlinFile(t, "fun foo() { bar() }", tc.name+".kt")
 
-	var gotResolver typeinfer.TypeResolver
-	rule := v2.FakeRule("ResolverRule",
-		v2.WithNodeTypes("call_expression"),
-		v2.WithNeeds(v2.NeedsResolver),
-		v2.WithCheck(func(ctx *v2.Context) {
-			gotResolver = ctx.Resolver
-		}),
-	)
+			var gotResolver typeinfer.TypeResolver
+			rule := v2.FakeRule("ResolverRule",
+				v2.WithNodeTypes("call_expression"),
+				v2.WithNeeds(tc.needs),
+				v2.WithCheck(func(ctx *v2.Context) {
+					gotResolver = ctx.Resolver
+				}),
+			)
 
-	d := NewV2Dispatcher([]*v2.Rule{rule}, typeinfer.NewFakeResolver())
-	_ = d.Run(file)
+			d := NewV2Dispatcher([]*v2.Rule{rule}, typeinfer.NewFakeResolver())
+			_ = d.Run(file)
 
-	if gotResolver == nil {
-		t.Error("ctx.Resolver was nil even though resolver was provided")
+			if gotResolver == nil {
+				t.Error("ctx.Resolver was nil even though resolver was provided")
+			}
+		})
 	}
 }
 

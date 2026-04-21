@@ -81,6 +81,24 @@ func TestFixLevel_String(t *testing.T) {
 	}
 }
 
+func TestCapabilities_NeedsTypeInfo(t *testing.T) {
+	if !NeedsTypeInfo.Has(NeedsResolver) {
+		t.Error("NeedsTypeInfo should include NeedsResolver")
+	}
+	if !NeedsTypeInfo.Has(NeedsOracle) {
+		t.Error("NeedsTypeInfo should include NeedsOracle")
+	}
+	// Composite Has is conjunctive: a solo bit must not satisfy a
+	// multi-bit check, or callers would silently see the unified
+	// capability flagged present when only half is declared.
+	if NeedsResolver.Has(NeedsTypeInfo) {
+		t.Error("NeedsResolver alone should not satisfy NeedsTypeInfo")
+	}
+	if NeedsOracle.Has(NeedsTypeInfo) {
+		t.Error("NeedsOracle alone should not satisfy NeedsTypeInfo")
+	}
+}
+
 func TestOracleFilter_NeverNeedsOracle(t *testing.T) {
 	tests := []struct {
 		name   string

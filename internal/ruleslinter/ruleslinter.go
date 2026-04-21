@@ -1,9 +1,11 @@
 // Package ruleslinter statically verifies that each v2 rule which calls
-// ctx.Resolver or (*oracle.CompositeResolver).Oracle() declares the
-// matching capability (NeedsResolver / NeedsOracle) in its v2.Rule
-// registration. The runtime dispatcher only wires the resolver / oracle
-// when those bits are set, so a missing declaration silently drops
-// findings. This gate catches the mistake at build time.
+// ctx.Resolver or (*oracle.CompositeResolver).Oracle() declares a
+// matching capability in its v2.Rule registration. The accepted
+// declarations are NeedsResolver, NeedsOracle, or the unified
+// NeedsTypeInfo (which subsumes both). The runtime dispatcher only
+// wires the resolver / oracle when those bits are set, so a missing
+// declaration silently drops findings. This gate catches the mistake
+// at build time.
 //
 // Scope is intentionally conservative:
 //   - Analyzes one Go package (typically internal/rules) at a time.
@@ -240,20 +242,25 @@ func analyzeRegisterCall(fset *token.FileSet, funcs map[funcKey]funcInfo, file *
 	}
 	usesResolver, usesOracle := scanBodyUsage(funcs, body, ctxName, map[funcKey]bool{})
 
+	// NeedsTypeInfo is a composite of NeedsResolver|NeedsOracle and
+	// satisfies either requirement on its own.
+	satisfiesResolver := reg.NeedsNames["NeedsResolver"] || reg.NeedsNames["NeedsTypeInfo"]
+	satisfiesOracle := reg.NeedsNames["NeedsOracle"] || reg.NeedsNames["NeedsTypeInfo"]
+
 	var out []Violation
 	pos := fset.Position(call.Pos())
-	if usesResolver && !reg.NeedsNames["NeedsResolver"] {
+	if usesResolver && !satisfiesResolver {
 		out = append(out, Violation{
 			RuleID:   reg.ID,
 			Position: pos,
-			Message:  "calls ctx.Resolver but does not declare NeedsResolver in Meta()",
+			Message:  "calls ctx.Resolver but does not declare NeedsResolver or NeedsTypeInfo in Meta()",
 		})
 	}
-	if usesOracle && !reg.NeedsNames["NeedsOracle"] {
+	if usesOracle && !satisfiesOracle {
 		out = append(out, Violation{
 			RuleID:   reg.ID,
 			Position: pos,
-			Message:  "calls (*oracle.CompositeResolver).Oracle() but does not declare NeedsOracle in Meta()",
+			Message:  "calls (*oracle.CompositeResolver).Oracle() but does not declare NeedsOracle or NeedsTypeInfo in Meta()",
 		})
 	}
 	return out

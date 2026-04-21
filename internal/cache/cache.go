@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -245,7 +244,7 @@ func ComputeConfigHash(ruleNames []string, cfg *config.Config, editorConfigEnabl
 	copy(sorted, ruleNames)
 	sort.Strings(sorted)
 
-	h := sha256.New()
+	h := hashutil.Hasher().New()
 	h.Write([]byte(strings.Join(sorted, ",")))
 
 	// Include editorconfig marker so "with editorconfig" and "without" produce different hashes

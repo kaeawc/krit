@@ -11,8 +11,9 @@
 package main
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
+
+	"github.com/kaeawc/krit/internal/hashutil"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -361,7 +362,7 @@ func fileHash(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(data)
+	sum := hashutil.HashBytes(data)
 	return hex.EncodeToString(sum[:])[:16], nil
 }
 

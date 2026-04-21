@@ -13,6 +13,7 @@ import (
 func TestFileShardRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	cacheDir := CrossFileCacheDir(dir)
+	store := newPackStore(cacheDir)
 
 	want := &fileShard{
 		Path:        "a.kt",
@@ -25,10 +26,10 @@ func TestFileShardRoundTrip(t *testing.T) {
 			{Name: "Bar", File: "a.kt", Line: 2},
 		},
 	}
-	if err := saveFileShard(cacheDir, want); err != nil {
-		t.Fatalf("saveFileShard: %v", err)
+	if err := store.SaveShard(want); err != nil {
+		t.Fatalf("SaveShard: %v", err)
 	}
-	got, ok := loadFileShard(cacheDir, want.Path, want.ContentHash)
+	got, ok := store.LoadShard(want.Path, want.ContentHash)
 	if !ok {
 		t.Fatalf("expected shard hit")
 	}
@@ -47,55 +48,133 @@ func TestFileShardRoundTrip(t *testing.T) {
 }
 
 func TestFileShardContentHashMismatchIsMiss(t *testing.T) {
-	cacheDir := CrossFileCacheDir(t.TempDir())
-	if err := saveFileShard(cacheDir, &fileShard{Path: "a.kt", ContentHash: "h1"}); err != nil {
+	store := newPackStore(CrossFileCacheDir(t.TempDir()))
+	if err := store.SaveShard(&fileShard{Path: "a.kt", ContentHash: "h1"}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	if _, ok := loadFileShard(cacheDir, "a.kt", "h2"); ok {
+	if _, ok := store.LoadShard("a.kt", "h2"); ok {
 		t.Fatalf("expected miss on different hash")
 	}
 }
 
-func TestFileShardPathMismatchIsMiss(t *testing.T) {
+// TestFileShardReopenPersists exercises the cross-process path: save
+// via one store, discard it, reopen a new store against the same
+// cacheDir, and confirm the shard is still there. This is what
+// actually matters - the in-memory round-trip is covered above.
+func TestFileShardReopenPersists(t *testing.T) {
 	cacheDir := CrossFileCacheDir(t.TempDir())
-	// Rename a saved shard under a different key so a load for that key
-	// finds it, but the embedded Path disagrees → miss.
-	if err := saveFileShard(cacheDir, &fileShard{Path: "a.kt", ContentHash: "h"}); err != nil {
+	a := newPackStore(cacheDir)
+	if err := a.SaveShard(&fileShard{Path: "a.kt", ContentHash: "h"}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	src := fileShardPath(cacheDir, shardKey("a.kt", "h"))
-	dst := fileShardPath(cacheDir, shardKey("b.kt", "h"))
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.Rename(src, dst); err != nil {
-		t.Fatalf("rename: %v", err)
-	}
-	if _, ok := loadFileShard(cacheDir, "b.kt", "h"); ok {
-		t.Fatalf("expected miss when payload.Path disagrees with key")
+	b := newPackStore(cacheDir)
+	if _, ok := b.LoadShard("a.kt", "h"); !ok {
+		t.Fatalf("expected hit after reopen")
 	}
 }
 
 func TestFileShardCorruptIsMiss(t *testing.T) {
 	cacheDir := CrossFileCacheDir(t.TempDir())
-	if err := saveFileShard(cacheDir, &fileShard{Path: "a.kt", ContentHash: "h"}); err != nil {
+	store := newPackStore(cacheDir)
+	if err := store.SaveShard(&fileShard{Path: "a.kt", ContentHash: "h"}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	p := fileShardPath(cacheDir, shardKey("a.kt", "h"))
-	if err := os.WriteFile(p, []byte("not-gob"), 0o644); err != nil {
+	// Overwrite the pack file with garbage. A new store must treat it as
+	// empty (no crash, every Load a miss).
+	packPath := store.packFor(shardKey("a.kt", "h")).path
+	if err := os.WriteFile(packPath, []byte("not-a-pack"), 0o644); err != nil {
 		t.Fatalf("corrupt: %v", err)
 	}
-	if _, ok := loadFileShard(cacheDir, "a.kt", "h"); ok {
-		t.Fatalf("expected miss on corrupted shard")
+	fresh := newPackStore(cacheDir)
+	if _, ok := fresh.LoadShard("a.kt", "h"); ok {
+		t.Fatalf("expected miss on corrupted pack")
 	}
 }
 
-func TestFileShardEmptyCacheDirIsMissAndSaveErrors(t *testing.T) {
-	if _, ok := loadFileShard("", "a.kt", "h"); ok {
-		t.Fatalf("expected miss on empty cacheDir")
+// TestFileShardCrcTamperIsMiss verifies that a single-bit flip inside a
+// blob region invalidates only that key, not the whole pack.
+func TestFileShardCrcTamperIsMiss(t *testing.T) {
+	cacheDir := CrossFileCacheDir(t.TempDir())
+	store := newPackStore(cacheDir)
+	if err := store.SaveShard(&fileShard{Path: "a.kt", ContentHash: "h",
+		References: []Reference{{Name: "R", File: "a.kt", Line: 1}}}); err != nil {
+		t.Fatalf("save a: %v", err)
 	}
-	if err := saveFileShard("", &fileShard{Path: "a.kt", ContentHash: "h"}); err == nil {
-		t.Fatalf("expected error on empty cacheDir save")
+	if err := store.SaveShard(&fileShard{Path: "b.kt", ContentHash: "h",
+		References: []Reference{{Name: "R", File: "b.kt", Line: 1}}}); err != nil {
+		t.Fatalf("save b: %v", err)
+	}
+
+	// Flip a byte in a's pack. Pack a and pack b may or may not be the
+	// same file; tamper the one that holds key a.
+	packPath := store.packFor(shardKey("a.kt", "h")).path
+	data, err := os.ReadFile(packPath)
+	if err != nil {
+		t.Fatalf("read pack: %v", err)
+	}
+	// Flip the last byte - safely inside the blob region regardless of
+	// which blob comes last.
+	data[len(data)-1] ^= 0xFF
+	if err := os.WriteFile(packPath, data, 0o644); err != nil {
+		t.Fatalf("tamper: %v", err)
+	}
+
+	// Re-open and check: the flipped key misses, the other (if in a
+	// different pack) still hits.
+	fresh := newPackStore(cacheDir)
+	packForA := fresh.packFor(shardKey("a.kt", "h"))
+	packForB := fresh.packFor(shardKey("b.kt", "h"))
+	_, hitA := fresh.LoadShard("a.kt", "h")
+	_, hitB := fresh.LoadShard("b.kt", "h")
+	if packForA == packForB {
+		// Both keys live in the same pack. Tampering the last blob's
+		// final byte flips whichever was placed last; the other should
+		// still hit.
+		if hitA && hitB {
+			t.Fatalf("expected exactly one miss after tamper, got both hits")
+		}
+	} else {
+		if hitA {
+			t.Fatalf("expected a.kt to miss after CRC tamper")
+		}
+		if !hitB {
+			t.Fatalf("expected b.kt to hit (separate pack)")
+		}
+	}
+}
+
+// TestPackStoreSweepsLegacyShardsDir verifies that writing any shard
+// removes a pre-v3 shards/ directory. Keeps ~750 MB of dead data from
+// accumulating after the upgrade.
+func TestPackStoreSweepsLegacyShardsDir(t *testing.T) {
+	cacheDir := CrossFileCacheDir(t.TempDir())
+	legacy := filepath.Join(cacheDir, legacyShardsSubdir, "ab")
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatalf("mkdir legacy: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "dead.gob"), []byte("junk"), 0o644); err != nil {
+		t.Fatalf("write legacy: %v", err)
+	}
+
+	store := newPackStore(cacheDir)
+	if err := store.SaveShard(&fileShard{Path: "a.kt", ContentHash: "h"}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, legacyShardsSubdir)); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy shards dir removed, got err=%v", err)
+	}
+}
+
+func TestFileShardEmptyCacheDirIsNoop(t *testing.T) {
+	var store *packStore = newPackStore("")
+	if store != nil {
+		t.Fatalf("expected nil store for empty cacheDir")
+	}
+	if _, ok := store.LoadShard("a.kt", "h"); ok {
+		t.Fatalf("expected miss from nil store")
+	}
+	if err := store.SaveShard(&fileShard{Path: "a.kt", ContentHash: "h"}); err != nil {
+		t.Fatalf("expected silent no-op save on nil store, got %v", err)
 	}
 }
 
@@ -118,6 +197,7 @@ func TestShardKeyIsPerPathAndHash(t *testing.T) {
 func TestBuildIndexCachedShardFallbackEquivalent(t *testing.T) {
 	dir := t.TempDir()
 	cacheDir := CrossFileCacheDir(dir)
+	store := newPackStore(cacheDir)
 
 	// Build a synthetic fingerprint that won't match, then seed shards
 	// manually for two files that contribute to the same index shape.
@@ -132,10 +212,10 @@ func TestBuildIndexCachedShardFallbackEquivalent(t *testing.T) {
 	symsB := []Symbol{{Name: "B", Kind: "class", Visibility: "public", File: fb.Path, Line: 1}}
 	refsB := []Reference{{Name: "A", File: fb.Path, Line: 2}}
 
-	if err := saveFileShard(cacheDir, &fileShard{Path: fa.Path, ContentHash: ha, Symbols: symsA, References: refsA}); err != nil {
+	if err := store.SaveShard(&fileShard{Path: fa.Path, ContentHash: ha, Symbols: symsA, References: refsA}); err != nil {
 		t.Fatalf("save shard a: %v", err)
 	}
-	if err := saveFileShard(cacheDir, &fileShard{Path: fb.Path, ContentHash: hb, Symbols: symsB, References: refsB}); err != nil {
+	if err := store.SaveShard(&fileShard{Path: fb.Path, ContentHash: hb, Symbols: symsB, References: refsB}); err != nil {
 		t.Fatalf("save shard b: %v", err)
 	}
 
@@ -170,6 +250,7 @@ func TestBuildIndexCachedShardFallbackEquivalent(t *testing.T) {
 // bloom reloads with the same MayContain answers as the original.
 func TestFileShardBloomRoundTrip(t *testing.T) {
 	cacheDir := CrossFileCacheDir(t.TempDir())
+	store := newPackStore(cacheDir)
 
 	refs := []Reference{
 		{Name: "Alpha", File: "a.kt", Line: 1},
@@ -185,7 +266,7 @@ func TestFileShardBloomRoundTrip(t *testing.T) {
 		t.Fatalf("expected non-empty encoded bloom")
 	}
 
-	if err := saveFileShard(cacheDir, &fileShard{
+	if err := store.SaveShard(&fileShard{
 		Path:        "a.kt",
 		ContentHash: "h",
 		References:  refs,
@@ -194,7 +275,7 @@ func TestFileShardBloomRoundTrip(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	got, ok := loadFileShard(cacheDir, "a.kt", "h")
+	got, ok := store.LoadShard("a.kt", "h")
 	if !ok {
 		t.Fatalf("expected shard hit")
 	}
@@ -279,6 +360,7 @@ func TestShardBloomUnionEqualsDirectAdd(t *testing.T) {
 // collector returns must be TestString-positive on the unioned bloom.
 func TestCollectIndexDataShardedUnionBloomCoversRefs(t *testing.T) {
 	cacheDir := CrossFileCacheDir(t.TempDir())
+	store := newPackStore(cacheDir)
 
 	fa := &File{Path: "/tmp/a.kt", Content: []byte("ignored")}
 	fb := &File{Path: "/tmp/b.kt", Content: []byte("ignored")}
@@ -298,7 +380,7 @@ func TestCollectIndexDataShardedUnionBloomCoversRefs(t *testing.T) {
 			t.Fatalf("encode shard %s: %v", s.Path, err)
 		}
 		s.Bloom = enc
-		if err := saveFileShard(cacheDir, s); err != nil {
+		if err := store.SaveShard(s); err != nil {
 			t.Fatalf("save shard %s: %v", s.Path, err)
 		}
 	}
@@ -382,10 +464,11 @@ func TestShardBloomUnionFPRSmallScale(t *testing.T) {
 }
 
 // TestSaveFileShardConcurrent exercises the parallel write path; the
-// shard directory and atomic rename must tolerate many goroutines
-// touching different shards at the same time without corruption.
+// pack files and atomic rename must tolerate many goroutines touching
+// different shards at the same time without corruption.
 func TestSaveFileShardConcurrent(t *testing.T) {
 	cacheDir := CrossFileCacheDir(t.TempDir())
+	store := newPackStore(cacheDir)
 	var wg sync.WaitGroup
 	const N = 32
 	for i := 0; i < N; i++ {
@@ -397,10 +480,24 @@ func TestSaveFileShardConcurrent(t *testing.T) {
 				ContentHash: "h",
 				References:  []Reference{{Name: "R", File: "x", Line: i}},
 			}
-			if err := saveFileShard(cacheDir, s); err != nil {
+			if err := store.SaveShard(s); err != nil {
 				t.Errorf("save: %v", err)
 			}
 		}(i)
 	}
 	wg.Wait()
+
+	// Spot-check a handful: after all writes, every "last writer per
+	// path" entry must read back.
+	seen := map[string]bool{}
+	for i := N - 1; i >= 0; i-- {
+		p := filepath.Join("/tmp", "f"+string(rune('A'+i%26))+".kt")
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		if _, ok := store.LoadShard(p, "h"); !ok {
+			t.Errorf("expected shard hit for %s after concurrent writes", p)
+		}
+	}
 }

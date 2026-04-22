@@ -439,6 +439,23 @@ class ProductionSubclass : BaseForTests()
 		}
 	})
 
+	t.Run("cross file same package without import triggers", func(t *testing.T) {
+		findings := runOpenForTestingCallerRule(t, map[string]string{
+			"core/src/main/java/com/example/BaseForTests.kt": `package com.example
+
+@OpenForTesting
+open class BaseForTests
+`,
+			"app/src/main/java/com/example/ProductionSubclass.kt": `package com.example
+
+class ProductionSubclass : BaseForTests()
+`,
+		})
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
 	t.Run("import alias to nested class triggers", func(t *testing.T) {
 		findings := runOpenForTestingCallerRule(t, map[string]string{
 			"core/src/main/java/com/example/testing/Outer.kt": `package com.example.testing

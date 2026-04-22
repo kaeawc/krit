@@ -7,6 +7,8 @@ import (
 	"sync"
 
 	"github.com/kaeawc/krit/internal/experiment"
+	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/rules/semantics"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -1350,24 +1352,190 @@ type NullableToStringCallRule struct {
 // common null-returning APIs. Classified per roadmap/17.
 func (r *NullableToStringCallRule) Confidence() float64 { return 0.75 }
 
-var nullableToStringRe = regexp.MustCompile(`\?\s*\.\s*toString\(\)`)
-var nullableToStringReceiverRe = regexp.MustCompile(`(\w+)\?\s*\.\s*toString\(\)`)
+func (r *NullableToStringCallRule) NodeTypes() []string {
+	return []string{"call_expression", "string_literal"}
+}
 
 func (r *NullableToStringCallRule) check(ctx *v2.Context) {
-	idx, file := ctx.Idx, ctx.File
-	text := file.FlatNodeText(idx)
-	if !nullableToStringRe.MatchString(text) {
+	if ctx.Resolver == nil {
 		return
 	}
-	// If resolver is available, check if receiver is actually nullable
-	if ctx.Resolver != nil {
-		if m := nullableToStringReceiverRe.FindStringSubmatch(text); m != nil {
-			resolved := ctx.Resolver.ResolveByNameFlat(m[1], idx, file)
-			if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
-				return // known non-null, skip
-			}
+	switch ctx.File.FlatType(ctx.Idx) {
+	case "call_expression":
+		r.checkNullableToStringCall(ctx)
+	case "string_literal":
+		r.checkNullableStringTemplate(ctx)
+	}
+}
+
+func (r *NullableToStringCallRule) checkNullableToStringCall(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
+	if flatCallExpressionName(file, idx) != "toString" {
+		return
+	}
+	nav, args := flatCallExpressionParts(file, idx)
+	if nav == 0 || flatCallHasArguments(file, args) {
+		return
+	}
+	if flatNavigationLastSuffixOperator(file, nav) == "?." {
+		return
+	}
+	receiver := flatUnwrapParenExpr(file, flatNullCheckNavigationReceiver(file, nav))
+	receiverType, ok := flatKnownResolvedType(file, ctx.Resolver, receiver)
+	if !ok || !receiverType.IsNullable() {
+		return
+	}
+	confidence, ok := flatNullableToStringCallConfidence(ctx, idx, receiver)
+	if !ok {
+		return
+	}
+	if flatSameFileNullableToStringExtensionMatches(file, receiverType.Name) {
+		return
+	}
+
+	finding := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"Calling toString() on a nullable receiver may produce the string \"null\". Use a safe call with an explicit fallback instead.")
+	finding.Confidence = confidence
+	ctx.Emit(finding)
+}
+
+func (r *NullableToStringCallRule) checkNullableStringTemplate(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		expr := flatStringTemplateInterpolationExpression(file, child)
+		if expr == 0 {
+			continue
+		}
+		if !flatTemplateExpressionIsResolvedNullable(file, ctx.Resolver, expr) {
+			continue
+		}
+		ctx.Emit(r.Finding(file, file.FlatRow(child)+1, file.FlatCol(child)+1,
+			"Interpolating a nullable expression may produce the string \"null\". Use an explicit fallback instead."))
+	}
+}
+
+func flatCallHasArguments(file *scanner.File, args uint32) bool {
+	return file != nil && args != 0 && file.FlatNamedChildCount(args) > 0
+}
+
+func flatNullableToStringCallConfidence(ctx *v2.Context, call uint32, receiver uint32) (float64, bool) {
+	target, ok := semantics.ResolveCallTarget(ctx, call)
+	if !ok {
+		return 0, false
+	}
+	if target.Resolved {
+		if target.QualifiedName == "kotlin.toString" || target.QualifiedName == "kotlin.Any.toString" {
+			return 0.95, true
+		}
+		return 0, false
+	}
+	if _, hasOracle := ctx.Resolver.(*oracle.CompositeResolver); hasOracle {
+		return 0, false
+	}
+	if !flatNullableToStringHasLocalEvidence(ctx.File, ctx.Resolver, receiver) {
+		return 0, false
+	}
+	return 0.80, true
+}
+
+func flatNullableToStringHasLocalEvidence(file *scanner.File, resolver typeinfer.TypeResolver, receiver uint32) bool {
+	if file == nil || resolver == nil || receiver == 0 {
+		return false
+	}
+	switch file.FlatType(receiver) {
+	case "simple_identifier", "this_expression":
+		return flatReferenceHasSameFileTarget(file, receiver)
+	case "call_expression":
+		return flatCallHasResolvedTarget(file, resolver, receiver)
+	case "navigation_expression":
+		_, ok := flatNavigationResolvedMemberType(file, resolver, receiver)
+		return ok
+	default:
+		return false
+	}
+}
+
+func flatNavigationLastSuffixOperator(file *scanner.File, nav uint32) string {
+	if file == nil || nav == 0 || file.FlatType(nav) != "navigation_expression" {
+		return ""
+	}
+	var suffix uint32
+	for child := file.FlatFirstChild(nav); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "navigation_suffix" {
+			suffix = child
 		}
 	}
-	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Calling toString() on a nullable type. Use '\\.toString()' with safe call or string templates instead."))
+	for child := file.FlatFirstChild(suffix); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case ".", "?.":
+			return file.FlatType(child)
+		}
+	}
+	return ""
+}
+
+func flatSameFileNullableToStringExtensionMatches(file *scanner.File, receiverType string) bool {
+	if file == nil || receiverType == "" {
+		return false
+	}
+	matched := false
+	file.FlatWalkAllNodes(0, func(candidate uint32) {
+		if matched || file.FlatType(candidate) != "function_declaration" || flatFunctionName(file, candidate) != "toString" {
+			return
+		}
+		name, nullable := flatFunctionReceiverTypeInfo(file, candidate)
+		matched = nullable && (name == receiverType || name == "Any")
+	})
+	return matched
+}
+
+func flatFunctionReceiverTypeInfo(file *scanner.File, fn uint32) (string, bool) {
+	if file == nil || fn == 0 || file.FlatType(fn) != "function_declaration" {
+		return "", false
+	}
+	var name string
+	var nullable bool
+	for child := file.FlatFirstChild(fn); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "nullable_type":
+			nullable = true
+			name = flatLastIdentifierInNode(file, child)
+		case "user_type", "type_identifier":
+			if name == "" {
+				name = flatLastIdentifierInNode(file, child)
+			}
+		case ".":
+			return name, nullable
+		case "function_value_parameters", "function_body":
+			return "", false
+		}
+	}
+	return "", false
+}
+
+func flatStringTemplateInterpolationExpression(file *scanner.File, idx uint32) uint32 {
+	if file == nil || idx == 0 {
+		return 0
+	}
+	switch file.FlatType(idx) {
+	case "interpolated_identifier":
+		return idx
+	case "interpolated_expression", "line_string_expression", "multi_line_string_expression":
+		if file.FlatNamedChildCount(idx) > 0 {
+			return file.FlatNamedChild(idx, 0)
+		}
+	}
+	return 0
+}
+
+func flatTemplateExpressionIsResolvedNullable(file *scanner.File, resolver typeinfer.TypeResolver, expr uint32) bool {
+	if file == nil || resolver == nil || expr == 0 {
+		return false
+	}
+	if file.FlatType(expr) == "interpolated_identifier" {
+		resolved := resolver.ResolveByNameFlat(file.FlatNodeString(expr, nil), expr, file)
+		return resolved != nil && resolved.Kind != typeinfer.TypeUnknown && resolved.IsNullable()
+	}
+	resolved, ok := flatKnownResolvedType(file, resolver, flatUnwrapParenExpr(file, expr))
+	return ok && resolved.IsNullable()
 }

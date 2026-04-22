@@ -15064,83 +15064,12 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"disjunction_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
-			Needs: v2.NeedsResolver, OriginalV1: r,
+			Needs:             v2.NeedsTypeInfo,
+			Oracle:            &v2.OracleFilter{Identifiers: []string{"isEmpty", "count", ".size", ".length", "\"\""}},
+			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"count", "isEmpty"}},
+			OriginalV1:        r,
 			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				compact := strings.ReplaceAll(file.FlatNodeText(idx), " ", "")
-				compact = strings.ReplaceAll(compact, "\n", "")
-				compact = strings.ReplaceAll(compact, "\t", "")
-				if m := useIsNullOrEmptyTextRe.FindStringSubmatch(compact); len(m) == 4 {
-					nullVar := m[1]
-					if nullVar == "" {
-						nullVar = m[2]
-					}
-					if nullVar != "" && nullVar == m[3] {
-						f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-							"Use 'isNullOrEmpty()' instead of 'x == null || x.isEmpty()'.")
-						f.Fix = &scanner.Fix{
-							ByteMode:    true,
-							StartByte:   int(file.FlatStartByte(idx)),
-							EndByte:     int(file.FlatEndByte(idx)),
-							Replacement: nullVar + ".isNullOrEmpty()",
-						}
-						ctx.Emit(f)
-						return
-					}
-				}
-				if file.FlatChildCount(idx) < 3 {
-					return
-				}
-				left := file.FlatChild(idx, 0)
-				right := file.FlatChild(idx, file.FlatChildCount(idx)-1)
-				nullVar := flatNullOrEmptyNullCheckedVar(file, left)
-				if nullVar == "" {
-					return
-				}
-				emptyVar := flatNullOrEmptyEmptyCheckedVar(file, right)
-				if emptyVar == "" {
-					text := strings.ReplaceAll(file.FlatNodeText(idx), " ", "")
-					text = strings.ReplaceAll(text, "\n", "")
-					text = strings.ReplaceAll(text, "\t", "")
-					patterns := []string{
-						nullVar + "==null||" + nullVar + ".isEmpty()",
-						"null==" + nullVar + "||" + nullVar + ".isEmpty()",
-					}
-					for _, pattern := range patterns {
-						if text == pattern {
-							emptyVar = nullVar
-							break
-						}
-					}
-				}
-				if emptyVar == "" || emptyVar != nullVar {
-					return
-				}
-				for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-					if file.FlatType(p) == "function_declaration" {
-						fnName := extractIdentifierFlat(file, p)
-						if fnName == "isNullOrEmpty" || fnName == "isEmpty" ||
-							fnName == "isNullOrBlank" || fnName == "isBlank" {
-							return
-						}
-						break
-					}
-				}
-				if ctx.Resolver != nil {
-					resolved := ctx.Resolver.ResolveByNameFlat(nullVar, idx, file)
-					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
-						return
-					}
-				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Use 'isNullOrEmpty()' instead of 'x == null || x.isEmpty()'.")
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   int(file.FlatStartByte(idx)),
-					EndByte:     int(file.FlatEndByte(idx)),
-					Replacement: nullVar + ".isNullOrEmpty()",
-				}
-				ctx.Emit(f)
+				flatUseIsNullOrEmpty(ctx, r.BaseRule)
 			},
 		})
 	}

@@ -25,12 +25,10 @@ func TestFixableFixtures(t *testing.T) {
 			activeRules = append(activeRules, r)
 		}
 	}
-	dispatcher := rules.NewDispatcherV2(activeRules)
-
 	// Bundled fixtures live directly under tests/fixtures/fixable/
 	// and run every default-active rule, applying every fixable
 	// finding. Filename must match a corresponding .expected file.
-	bundledCount, err := runBundledFixableFixtures(t, fixableDir, dispatcher)
+	bundledCount, err := runBundledFixableFixtures(t, fixableDir, activeRules)
 	if err != nil {
 		t.Fatalf("bundled fixtures: %v", err)
 	}
@@ -56,7 +54,7 @@ func TestFixableFixtures(t *testing.T) {
 // runBundledFixableFixtures walks the top-level fixable/ directory and
 // runs each <Name>.kt / <Name>.kt.expected pair against every active
 // rule (the original pre-Phase-4 behavior).
-func runBundledFixableFixtures(t *testing.T, dir string, dispatcher *rules.Dispatcher) (int, error) {
+func runBundledFixableFixtures(t *testing.T, dir string, activeRules []*v2rules.Rule) (int, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return 0, err
@@ -82,6 +80,12 @@ func runBundledFixableFixtures(t *testing.T, dir string, dispatcher *rules.Dispa
 				t.Fatalf("failed to parse %s: %v", ktPath, err)
 			}
 
+			dispatcher := rules.NewDispatcherV2(activeRules)
+			if rulesNeedResolver(activeRules) {
+				resolver := typeinfer.NewResolver()
+				resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+				dispatcher = rules.NewDispatcherV2(activeRules, resolver)
+			}
 			findingCols := dispatcher.Run(file)
 			findings := findingCols.Findings()
 			var fixableFindings []scanner.Finding
@@ -99,6 +103,15 @@ func runBundledFixableFixtures(t *testing.T, dir string, dispatcher *rules.Dispa
 		})
 	}
 	return count, nil
+}
+
+func rulesNeedResolver(activeRules []*v2rules.Rule) bool {
+	for _, rule := range activeRules {
+		if rule != nil && rule.Needs.Has(v2rules.NeedsResolver) {
+			return true
+		}
+	}
+	return false
 }
 
 // runPerRuleFixableFixtures walks the fixable/per-rule/ directory. Each

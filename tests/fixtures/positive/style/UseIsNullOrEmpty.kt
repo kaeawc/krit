@@ -29,3 +29,25 @@ fun checkEmptyString(x: String?) {
         println("empty")
     }
 }
+
+fun checkCollectionSize(items: Collection<String>?) {
+    if (items == null || items.size == 0) {
+        println("empty")
+    }
+}
+
+fun checkMultiline(items: List<String>?) {
+    if (items == null ||
+        items.isEmpty()
+    ) {
+        println("empty")
+    }
+}
+
+class Holder(private val text: String?) {
+    fun checkThis() {
+        if (this.text == null || this.text.isEmpty()) {
+            println("empty")
+        }
+    }
+}

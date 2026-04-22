@@ -36,6 +36,7 @@ import (
 	"hash/crc32"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -65,13 +66,13 @@ func init() {
 }
 
 const (
-	packMagic    uint32 = 0x4b50414b // "KPAK"
-	packVersion  uint16 = 1
-	packSubdir          = "packs-v1"
-	packBucketBits      = 256
-	packHeaderFixed     = 4 + 2 + 4 // magic + version + entryCount
-	packEntryFixed      = 2 + 8 + 8 + 4 // keyLen + offset + length + crc32
-	packExt             = ".pack"
+	packMagic       uint32 = 0x4b50414b // "KPAK"
+	packVersion     uint16 = 1
+	packSubdir             = "packs-v1"
+	packBucketBits         = 256
+	packHeaderFixed        = 4 + 2 + 4     // magic + version + entryCount
+	packEntryFixed         = 2 + 8 + 8 + 4 // keyLen + offset + length + crc32
+	packExt                = ".pack"
 )
 
 // errPackCorrupt is returned when a pack header fails to parse. The
@@ -86,16 +87,21 @@ type packEntry struct {
 	crc    uint32
 }
 
+type encodedShardWrite struct {
+	key  string
+	blob []byte
+}
+
 // packHandle wraps one pack file. Lazy-loaded on first access so an
 // LSP scan that only touches a few files doesn't eagerly read all
 // 256 packs.
 type packHandle struct {
-	path   string
-	mu     sync.RWMutex
-	loaded bool
+	path    string
+	mu      sync.RWMutex
+	loaded  bool
 	missing bool // file did not exist on last load attempt
-	index  map[string]packEntry
-	data   []byte // full pack contents, indexed by entry.offset
+	index   map[string]packEntry
+	data    []byte // full pack contents, indexed by entry.offset
 }
 
 // legacyShardsSubdir is the directory name used by the pre-v3 layout
@@ -251,6 +257,16 @@ func (h *packHandle) get(key string) ([]byte, bool) {
 // replaced. All other entries are preserved. Holds the pack write
 // lock for the duration.
 func (h *packHandle) put(key string, blob []byte) error {
+	return h.putMany([]encodedShardWrite{{key: key, blob: blob}}, true)
+}
+
+// putMany atomically rewrites the pack with all writes inserted or
+// replaced. All other entries are preserved. Holds the pack write lock
+// for the duration.
+func (h *packHandle) putMany(writes []encodedShardWrite, ensureDir bool) error {
+	if len(writes) == 0 {
+		return nil
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -281,15 +297,26 @@ func (h *packHandle) put(key string, blob []byte) error {
 		h.index = map[string]packEntry{}
 	}
 
+	latest := make(map[string][]byte, len(writes))
+	for _, w := range writes {
+		if w.key == "" || w.blob == nil {
+			continue
+		}
+		latest[w.key] = w.blob
+	}
+	if len(latest) == 0 {
+		return nil
+	}
+
 	// Reconstruct blob list: existing entries (excluding key) + new.
 	type kv struct {
 		key  string
 		data []byte
 		crc  uint32
 	}
-	items := make([]kv, 0, len(h.index)+1)
+	items := make([]kv, 0, len(h.index)+len(latest))
 	for k, e := range h.index {
-		if k == key {
+		if _, replacing := latest[k]; replacing {
 			continue
 		}
 		// Copy existing blob - the final buffer replaces h.data.
@@ -297,7 +324,9 @@ func (h *packHandle) put(key string, blob []byte) error {
 		copy(cp, h.data[e.offset:e.offset+e.length])
 		items = append(items, kv{key: k, data: cp, crc: e.crc})
 	}
-	items = append(items, kv{key: key, data: blob, crc: crc32.ChecksumIEEE(blob)})
+	for k, blob := range latest {
+		items = append(items, kv{key: k, data: blob, crc: crc32.ChecksumIEEE(blob)})
+	}
 
 	// Compute header size and write new pack.
 	headerSize := int64(packHeaderFixed)
@@ -340,8 +369,10 @@ func (h *packHandle) put(key string, blob []byte) error {
 		blobOff += int64(len(it.data))
 	}
 
-	if err := os.MkdirAll(filepath.Dir(h.path), 0o755); err != nil {
-		return err
+	if ensureDir {
+		if err := os.MkdirAll(filepath.Dir(h.path), 0o755); err != nil {
+			return err
+		}
 	}
 	tmp := h.path + ".tmp"
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
@@ -417,6 +448,75 @@ func (ps *packStore) SaveShard(s *fileShard) error {
 	}
 	shardsLastWrite.Store(time.Now().Unix())
 	observeShard(key, int64(len(blob)))
+	return nil
+}
+
+// SaveEncodedShards persists pre-encoded shard blobs, grouping by pack
+// so cold scans rewrite each bucket once instead of once per file.
+func (ps *packStore) SaveEncodedShards(writes []encodedShardWrite) error {
+	if ps == nil || len(writes) == 0 {
+		return nil
+	}
+	grouped := make(map[*packHandle][]encodedShardWrite, min(len(writes), packBucketBits))
+	for _, w := range writes {
+		if w.key == "" || w.blob == nil {
+			continue
+		}
+		h := ps.packFor(w.key)
+		grouped[h] = append(grouped[h], w)
+	}
+	if len(grouped) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(ps.dir, 0o755); err != nil {
+		return err
+	}
+	type packWriteJob struct {
+		handle *packHandle
+		writes []encodedShardWrite
+	}
+	jobs := make(chan packWriteJob)
+	errCh := make(chan error, 1)
+	workers := min(runtime.GOMAXPROCS(0), len(grouped))
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				if err := job.handle.putMany(job.writes, false); err != nil {
+					select {
+					case errCh <- err:
+					default:
+					}
+				}
+			}
+		}()
+	}
+	for h, packWrites := range grouped {
+		select {
+		case err := <-errCh:
+			close(jobs)
+			wg.Wait()
+			return err
+		case jobs <- packWriteJob{handle: h, writes: packWrites}:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	select {
+	case err := <-errCh:
+		return err
+	default:
+	}
+	now := time.Now().Unix()
+	for _, w := range writes {
+		if w.key == "" || w.blob == nil {
+			continue
+		}
+		shardsLastWrite.Store(now)
+		observeShard(w.key, int64(len(w.blob)))
+	}
 	return nil
 }
 

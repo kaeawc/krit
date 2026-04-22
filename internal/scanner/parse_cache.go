@@ -83,6 +83,7 @@ type langCache struct {
 	grammarVer string
 	language   Language
 	lru        *cacheutil.SizeCapLRU
+	dirs       sync.Map
 
 	// Hot-path counters maintained with atomic ops so Stats() is
 	// lock-free. Drift across process restarts is deliberately
@@ -445,6 +446,17 @@ func (lc *langCache) saveAsync(path string, content []byte, tree *FlatTree, writ
 	return err
 }
 
+func (lc *langCache) ensureEntryDir(dir string) error {
+	if _, ok := lc.dirs.Load(dir); ok {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	lc.dirs.Store(dir, struct{}{})
+	return nil
+}
+
 func (pc *ParseCache) saveEntry(hash string, tree *FlatTree) error {
 	return pc.kotlin.saveEntry(hash, tree)
 }
@@ -466,7 +478,7 @@ func (lc *langCache) saveEntryFromOwnedNodes(hash string, nodes []FlatNode) (int
 
 func (lc *langCache) writeEntry(hash string, local []string, nodes []FlatNode) (int64, error) {
 	target := lc.entryPath(hash)
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := lc.ensureEntryDir(filepath.Dir(target)); err != nil {
 		return 0, fmt.Errorf("create cache shard dir: %w", err)
 	}
 	entry := parseCacheEntry{

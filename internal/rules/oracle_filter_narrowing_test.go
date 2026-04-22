@@ -23,6 +23,7 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 		{"Deprecation", []string{"Deprecated"}, []string{"Deprecated"}},
 		{"IgnoredReturnValue", []string{"CheckReturnValue", "CheckResult"}, []string{"CheckReturnValue", "CheckResult"}},
 		{"NullableToStringCall", []string{"toString", "$"}, []string{"toString"}},
+		{"ObjectAnimatorBinding", []string{"ObjectAnimator", "ofFloat", "ofInt", "ofObject"}, nil},
 		{"UnreachableCode", []string{"return", "throw", "break", "continue"}, nil},
 		{"UseIsNullOrEmpty", []string{"isEmpty", "count", ".size", ".length", "\"\""}, nil},
 		{"CastNullableToNonNullableType", []string{" as "}, nil},

@@ -425,9 +425,11 @@ abstract class BaseService : Service() {
 // =====================================================================
 
 func TestObjectAnimator_UnknownProperty(t *testing.T) {
-	findings := runRuleByName(t, "ObjectAnimatorBinding", `
+	findings := runRuleByNameWithResolver(t, "ObjectAnimatorBinding", `
 package test
-fun animate() {
+import android.animation.ObjectAnimator
+import android.view.View
+fun animate(view: View) {
     ObjectAnimator.ofFloat(view, "translatoinX", 0f, 100f)
 }`)
 	found := false
@@ -442,9 +444,11 @@ fun animate() {
 }
 
 func TestObjectAnimator_KnownProperty(t *testing.T) {
-	findings := runRuleByName(t, "ObjectAnimatorBinding", `
+	findings := runRuleByNameWithResolver(t, "ObjectAnimatorBinding", `
 package test
-fun animate() {
+import android.animation.ObjectAnimator
+import android.view.View
+fun animate(view: View) {
     ObjectAnimator.ofFloat(view, "alpha", 0f, 1f)
     ObjectAnimator.ofFloat(view, "translationX", 0f, 100f)
     ObjectAnimator.ofFloat(view, "translationY", 0f, 100f)
@@ -461,9 +465,11 @@ fun animate() {
 }
 
 func TestObjectAnimator_OfIntUnknownProperty(t *testing.T) {
-	findings := runRuleByName(t, "ObjectAnimatorBinding", `
+	findings := runRuleByNameWithResolver(t, "ObjectAnimatorBinding", `
 package test
-fun animate() {
+import android.animation.ObjectAnimator
+import android.view.View
+fun animate(view: View) {
     ObjectAnimator.ofInt(view, "backgroundTint", 0, 255)
 }`)
 	found := false
@@ -478,10 +484,12 @@ fun animate() {
 }
 
 func TestObjectAnimator_OfObjectUnknownProperty(t *testing.T) {
-	findings := runRuleByName(t, "ObjectAnimatorBinding", `
+	findings := runRuleByNameWithResolver(t, "ObjectAnimatorBinding", `
 package test
-fun animate() {
-    ObjectAnimator.ofObject(view, "colour", evaluator, startColor, endColor)
+import android.animation.ObjectAnimator
+class Target
+fun animate(target: Target) {
+    ObjectAnimator.ofObject(target, "colour", evaluator, startColor, endColor)
 }`)
 	found := false
 	for _, f := range findings {
@@ -495,7 +503,7 @@ fun animate() {
 }
 
 func TestObjectAnimator_CommentIgnored(t *testing.T) {
-	findings := runRuleByName(t, "ObjectAnimatorBinding", `
+	findings := runRuleByNameWithResolver(t, "ObjectAnimatorBinding", `
 package test
 fun animate() {
     // ObjectAnimator.ofFloat(view, "foo", 0f, 1f)
@@ -503,6 +511,54 @@ fun animate() {
 	for _, f := range findings {
 		if f.Rule == "ObjectAnimatorBinding" {
 			t.Errorf("Should not flag commented-out code, got: %s", f.Message)
+		}
+	}
+}
+
+func TestObjectAnimator_CustomSetterAllowed(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "ObjectAnimatorBinding", `
+package test
+import android.animation.ObjectAnimator
+class Meter {
+    fun setProgressFraction(value: Float) {}
+}
+fun animate(meter: Meter) {
+    ObjectAnimator.ofFloat(meter, "progressFraction", 1f)
+}`)
+	for _, f := range findings {
+		if f.Rule == "ObjectAnimatorBinding" {
+			t.Errorf("Should not flag custom target setter, got: %s", f.Message)
+		}
+	}
+}
+
+func TestObjectAnimator_UnresolvedTargetSkipped(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "ObjectAnimatorBinding", `
+package test
+import android.animation.ObjectAnimator
+fun animate(view: Any) {
+    ObjectAnimator.ofFloat(missingTarget, "translatoinX", 1f)
+}`)
+	for _, f := range findings {
+		if f.Rule == "ObjectAnimatorBinding" {
+			t.Errorf("Should skip unresolved targets, got: %s", f.Message)
+		}
+	}
+}
+
+func TestObjectAnimator_LocalFactorySkipped(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "ObjectAnimatorBinding", `
+package test
+class Meter
+object ObjectAnimator {
+    fun ofFloat(target: Meter, propertyName: String, value: Float) {}
+}
+fun animate(meter: Meter) {
+    ObjectAnimator.ofFloat(meter, "missing", 1f)
+}`)
+	for _, f := range findings {
+		if f.Rule == "ObjectAnimatorBinding" {
+			t.Errorf("Should skip local ObjectAnimator factories, got: %s", f.Message)
 		}
 	}
 }

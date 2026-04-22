@@ -641,10 +641,12 @@ fun load() {
 
 func TestObjectAnimatorBinding(t *testing.T) {
 	t.Run("triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "ObjectAnimatorBinding", `
+		findings := runRuleByNameWithResolver(t, "ObjectAnimatorBinding", `
 package test
+import android.animation.ObjectAnimator
+import android.view.View
 
-fun animate() {
+fun animate(view: View) {
     ObjectAnimator.ofFloat(view, "fooBar", 0f, 1f)
 }
 `)
@@ -653,10 +655,12 @@ fun animate() {
 		}
 	})
 	t.Run("clean", func(t *testing.T) {
-		findings := runRuleByName(t, "ObjectAnimatorBinding", `
+		findings := runRuleByNameWithResolver(t, "ObjectAnimatorBinding", `
 package test
+import android.animation.ObjectAnimator
+import android.view.View
 
-fun animate() {
+fun animate(view: View) {
     ObjectAnimator.ofFloat(view, "alpha", 0f, 1f)
 }
 `)

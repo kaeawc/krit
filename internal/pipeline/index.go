@@ -866,7 +866,7 @@ func buildOracleCallTargetFilterForInvocation(activeRules []*v2.Rule, tracker pe
 		"calleeNames": int64(len(callFilter.CalleeNames)),
 		"targetFqns":  int64(len(callFilter.TargetFQNs)),
 		"disabledBy":  int64(len(callFilter.DisabledBy)),
-	}, map[string]string{"fingerprint": callFilter.Fingerprint})
+	}, callTargetFilterPerfAttrs(callFilter))
 	if verbose {
 		if callFilter.Enabled {
 			fmt.Fprintf(os.Stderr, "verbose: Oracle call filter: enabled (%d callees) fingerprint=%s\n",
@@ -880,4 +880,20 @@ func buildOracleCallTargetFilterForInvocation(activeRules []*v2.Rule, tracker pe
 		return nil
 	}
 	return &callFilter
+}
+
+func callTargetFilterPerfAttrs(callFilter oracle.CallTargetFilterSummary) map[string]string {
+	const maxDisabledByAttrs = 25
+
+	attrs := map[string]string{"fingerprint": callFilter.Fingerprint}
+	if len(callFilter.DisabledBy) == 0 {
+		return attrs
+	}
+	disabledBy := callFilter.DisabledBy
+	if len(disabledBy) > maxDisabledByAttrs {
+		disabledBy = disabledBy[:maxDisabledByAttrs]
+		attrs["disabledByTruncated"] = "1"
+	}
+	attrs["disabledBy"] = strings.Join(disabledBy, ",")
+	return attrs
 }

@@ -1379,60 +1379,386 @@ type TestFixtureAccessedFromProductionRule struct {
 }
 
 func (r *TestFixtureAccessedFromProductionRule) Confidence() float64 { return 0.80 }
+
+type testFixtureDeclaration struct {
+	qualifiedName string
+}
+
 func (r *TestFixtureAccessedFromProductionRule) check(ctx *v2.Context) {
 	index := ctx.CodeIndex
 	if index == nil {
 		return
 	}
 
-	fixtureTypes := make(map[string]string)
-	for _, file := range index.Files {
-		if !strings.Contains(file.Path, "/testFixtures/") {
-			continue
-		}
-		for _, line := range file.Lines {
-			trimmed := strings.TrimSpace(line)
-			for _, prefix := range []string{"class ", "object ", "interface ", "data class ", "sealed class ", "enum class "} {
-				if idx := strings.Index(trimmed, prefix); idx >= 0 {
-					rest := trimmed[idx+len(prefix):]
-					end := strings.IndexAny(rest, "( :{<")
-					if end > 0 {
-						name := strings.TrimSpace(rest[:end])
-						fixtureTypes[name] = file.Path
-					} else if len(rest) > 0 {
-						fixtureTypes[strings.TrimSpace(rest)] = file.Path
-					}
-				}
-			}
-		}
+	parsedFiles := ctx.ParsedFiles
+	if len(parsedFiles) == 0 {
+		parsedFiles = index.Files
 	}
-
-	if len(fixtureTypes) == 0 {
+	if len(parsedFiles) == 0 {
 		return
 	}
 
-	for _, file := range index.Files {
-		if isTestFile(file.Path) || strings.Contains(file.Path, "/testFixtures/") {
+	filesByPath := make(map[string]*scanner.File, len(parsedFiles))
+	packageByPath := make(map[string]string, len(parsedFiles))
+	for _, file := range parsedFiles {
+		if file == nil {
 			continue
 		}
-		for i, line := range file.Lines {
-			for typeName := range fixtureTypes {
-				if strings.Contains(line, typeName) {
-					col := strings.Index(line, typeName)
-					ctx.Emit(scanner.Finding{
-						File:       file.Path,
-						Line:       i + 1,
-						Col:        col + 1,
-						RuleSet:    r.RuleSetName,
-						Rule:       r.RuleName,
-						Severity:   r.Sev,
-						Message:    fmt.Sprintf("Test fixture type %q from testFixtures/ used in production code.", typeName),
-						Confidence: 0.7,
-					})
+		filesByPath[file.Path] = file
+		packageByPath[file.Path] = sourcePackageName(file)
+	}
+
+	fixturesByQualified := make(map[string]testFixtureDeclaration)
+	productionDeclarations := make(map[string]bool)
+	for _, sym := range index.Symbols {
+		if !isClassLikeFixtureSymbol(sym) {
+			continue
+		}
+		file := filesByPath[sym.File]
+		if file == nil {
+			continue
+		}
+		packageName := packageByPath[sym.File]
+		qualifiedName := qualifySourceName(packageName, sym.Name)
+		if isTestFixturePath(sym.File) {
+			if isNestedClassLikeSymbol(file, sym) {
+				continue
+			}
+			fixturesByQualified[qualifiedName] = testFixtureDeclaration{
+				qualifiedName: qualifiedName,
+			}
+			continue
+		}
+		productionDeclarations[qualifiedName] = true
+	}
+	for _, file := range parsedFiles {
+		if file == nil || isTestFixturePath(file.Path) || isTestFile(filepath.ToSlash(file.Path)) {
+			continue
+		}
+		for _, name := range topLevelClassLikeNames(file) {
+			productionDeclarations[qualifySourceName(packageByPath[file.Path], name)] = true
+		}
+	}
+
+	if len(fixturesByQualified) == 0 {
+		return
+	}
+
+	emitted := make(map[string]bool)
+	for _, file := range parsedFiles {
+		if file == nil || file.FlatTree == nil {
+			continue
+		}
+		if isTestFile(filepath.ToSlash(file.Path)) || isTestFixturePath(file.Path) || isGeneratedSourcePath(file.Path) {
+			continue
+		}
+
+		imports, importedNames := fixtureImportBindings(file, fixturesByQualified)
+		for _, binding := range imports {
+			r.emitTestFixtureAccess(ctx, file, binding.node, binding.decl, 0.95, emitted)
+		}
+
+		localNames := localValueNames(file)
+		packageName := packageByPath[file.Path]
+		file.FlatWalkAllNodes(0, func(idx uint32) {
+			if !isFixtureReferenceNode(file, idx, localNames) {
+				return
+			}
+			decl, confidence, ok := resolveFixtureReference(file, idx, packageName, fixturesByQualified, imports, importedNames, productionDeclarations)
+			if !ok {
+				return
+			}
+			r.emitTestFixtureAccess(ctx, file, idx, decl, confidence, emitted)
+		})
+	}
+}
+
+type fixtureImportBinding struct {
+	node uint32
+	decl testFixtureDeclaration
+}
+
+func (r *TestFixtureAccessedFromProductionRule) emitTestFixtureAccess(ctx *v2.Context, file *scanner.File, idx uint32, decl testFixtureDeclaration, confidence float64, emitted map[string]bool) {
+	line := file.FlatRow(idx) + 1
+	col := file.FlatCol(idx) + 1
+	key := fmt.Sprintf("%s:%d:%d:%s", file.Path, line, col, decl.qualifiedName)
+	if emitted[key] {
+		return
+	}
+	emitted[key] = true
+	ctx.Emit(scanner.Finding{
+		File:       file.Path,
+		Line:       line,
+		Col:        col,
+		RuleSet:    r.RuleSetName,
+		Rule:       r.RuleName,
+		Severity:   r.Sev,
+		Message:    fmt.Sprintf("Test fixture type %q from testFixtures/ used in production code.", decl.qualifiedName),
+		Confidence: confidence,
+	})
+}
+
+func fixtureImportBindings(file *scanner.File, fixtures map[string]testFixtureDeclaration) (map[string]fixtureImportBinding, map[string]string) {
+	bindings := make(map[string]fixtureImportBinding)
+	importedNames := make(map[string]string)
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		nodeType := file.FlatType(idx)
+		if nodeType != "import_header" && nodeType != "import_declaration" {
+			return
+		}
+		qualifiedName, localName, wildcard := parseSourceImport(file.FlatNodeText(idx))
+		if qualifiedName == "" || wildcard {
+			return
+		}
+		importedNames[localName] = qualifiedName
+		if decl, ok := fixtures[qualifiedName]; ok {
+			bindings[localName] = fixtureImportBinding{
+				node: idx,
+				decl: decl,
+			}
+		}
+	})
+	return bindings, importedNames
+}
+
+func resolveFixtureReference(file *scanner.File, idx uint32, packageName string, fixtures map[string]testFixtureDeclaration, imports map[string]fixtureImportBinding, importedNames map[string]string, productionDeclarations map[string]bool) (testFixtureDeclaration, float64, bool) {
+	if decl, ok := fixtureByQualifiedReferenceText(file, idx, fixtures); ok {
+		return decl, 0.95, true
+	}
+
+	name := file.FlatNodeText(idx)
+	if binding, ok := imports[name]; ok {
+		return binding.decl, 0.95, true
+	}
+
+	if imported, ok := importedNames[name]; ok {
+		if _, isFixtureImport := fixtures[imported]; !isFixtureImport {
+			return testFixtureDeclaration{}, 0, false
+		}
+	}
+
+	qualifiedName := qualifySourceName(packageName, name)
+	decl, ok := fixtures[qualifiedName]
+	if !ok {
+		return testFixtureDeclaration{}, 0, false
+	}
+	if productionDeclarations[qualifiedName] {
+		return testFixtureDeclaration{}, 0, false
+	}
+	return decl, 0.85, true
+}
+
+func fixtureByQualifiedReferenceText(file *scanner.File, idx uint32, fixtures map[string]testFixtureDeclaration) (testFixtureDeclaration, bool) {
+	for current, ok := idx, true; ok; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "user_type", "navigation_expression", "call_expression", "object_creation_expression", "scoped_identifier", "scoped_type_identifier", "field_access", "method_invocation":
+			text := compactSourceReference(file.FlatNodeText(current))
+			for qualifiedName, decl := range fixtures {
+				if text == qualifiedName ||
+					strings.HasPrefix(text, qualifiedName+"<") ||
+					strings.HasPrefix(text, qualifiedName+"(") ||
+					strings.HasPrefix(text, qualifiedName+".") {
+					return decl, true
 				}
 			}
 		}
 	}
+	return testFixtureDeclaration{}, false
+}
+
+func compactSourceReference(text string) string {
+	text = strings.TrimSpace(text)
+	replacer := strings.NewReplacer(" ", "", "\t", "", "\n", "", "\r", "")
+	return replacer.Replace(text)
+}
+
+func isFixtureReferenceNode(file *scanner.File, idx uint32, localNames map[string]bool) bool {
+	nodeType := file.FlatType(idx)
+	if nodeType != "type_identifier" && nodeType != "simple_identifier" && nodeType != "identifier" {
+		return false
+	}
+	name := file.FlatNodeText(idx)
+	if name == "" {
+		return false
+	}
+	if hasFlatAncestorTypeName(file, idx, "package_header", "package_declaration", "import_header", "import_declaration", "line_comment", "multiline_comment", "string_literal", "raw_string_literal", "character_literal") {
+		return false
+	}
+	if isDeclarationIdentifier(file, idx) {
+		return false
+	}
+	if nodeType != "type_identifier" && localNames[name] {
+		return false
+	}
+	return nodeType == "type_identifier" ||
+		hasFlatAncestorTypeName(file, idx, "user_type", "type_reference", "call_expression", "navigation_expression", "constructor_invocation", "object_creation_expression", "scoped_identifier", "scoped_type_identifier", "field_access", "method_invocation")
+}
+
+func isDeclarationIdentifier(file *scanner.File, idx uint32) bool {
+	parent, ok := file.FlatParent(idx)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(parent) {
+	case "class_declaration", "object_declaration", "function_declaration", "variable_declaration", "function_value_parameter",
+		"interface_declaration", "method_declaration", "constructor_declaration", "variable_declarator", "formal_parameter":
+		return true
+	}
+	return false
+}
+
+func localValueNames(file *scanner.File) map[string]bool {
+	names := make(map[string]bool)
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		switch file.FlatType(idx) {
+		case "variable_declaration", "function_value_parameter", "variable_declarator", "formal_parameter":
+			if name := firstChildText(file, idx, "simple_identifier", "identifier"); name != "" {
+				names[name] = true
+			}
+		}
+	})
+	return names
+}
+
+func topLevelClassLikeNames(file *scanner.File) []string {
+	var names []string
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		switch file.FlatType(idx) {
+		case "class_declaration", "object_declaration", "interface_declaration":
+			if isNestedClassLikeNode(file, idx) {
+				return
+			}
+			if name := firstChildText(file, idx, "type_identifier", "simple_identifier", "identifier"); name != "" {
+				names = append(names, name)
+			}
+		}
+	})
+	return names
+}
+
+func firstChildText(file *scanner.File, idx uint32, nodeTypes ...string) string {
+	for i := 0; i < file.FlatChildCount(idx); i++ {
+		child := file.FlatChild(idx, i)
+		childType := file.FlatType(child)
+		for _, nodeType := range nodeTypes {
+			if childType == nodeType {
+				return file.FlatNodeText(child)
+			}
+		}
+	}
+	return ""
+}
+
+func sourcePackageName(file *scanner.File) string {
+	if file == nil || file.FlatTree == nil {
+		return ""
+	}
+	var packageName string
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if packageName != "" {
+			return
+		}
+		nodeType := file.FlatType(idx)
+		if nodeType != "package_header" && nodeType != "package_declaration" {
+			return
+		}
+		text := strings.TrimSpace(file.FlatNodeText(idx))
+		text = strings.TrimPrefix(text, "package")
+		text = strings.TrimSpace(strings.TrimSuffix(text, ";"))
+		packageName = text
+	})
+	return packageName
+}
+
+func parseSourceImport(text string) (qualifiedName string, localName string, wildcard bool) {
+	text = strings.TrimSpace(text)
+	if !strings.HasPrefix(text, "import") {
+		return "", "", false
+	}
+	body := strings.TrimSpace(strings.TrimPrefix(text, "import"))
+	body = strings.TrimSpace(strings.TrimSuffix(body, ";"))
+	body = strings.TrimPrefix(body, "static ")
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "", "", false
+	}
+
+	alias := ""
+	if before, after, ok := strings.Cut(body, " as "); ok {
+		body = strings.TrimSpace(before)
+		alias = strings.TrimSpace(after)
+	}
+	if strings.HasSuffix(body, ".*") {
+		return strings.TrimSuffix(body, ".*"), "", true
+	}
+	localName = alias
+	if localName == "" {
+		localName = simpleSourceName(body)
+	}
+	return body, localName, false
+}
+
+func isClassLikeFixtureSymbol(sym scanner.Symbol) bool {
+	return sym.Name != "" && (sym.Kind == "class" || sym.Kind == "interface" || sym.Kind == "object")
+}
+
+func isNestedClassLikeSymbol(file *scanner.File, sym scanner.Symbol) bool {
+	if file == nil || sym.StartByte < 0 || sym.EndByte <= sym.StartByte {
+		return false
+	}
+	idx, ok := file.FlatNamedDescendantForByteRange(uint32(sym.StartByte), uint32(sym.EndByte))
+	if !ok {
+		return false
+	}
+	return isNestedClassLikeNode(file, idx)
+}
+
+func isNestedClassLikeNode(file *scanner.File, idx uint32) bool {
+	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "class_declaration", "object_declaration", "interface_declaration":
+			return true
+		}
+	}
+	return false
+}
+
+func hasFlatAncestorTypeName(file *scanner.File, idx uint32, nodeTypes ...string) bool {
+	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
+		currentType := file.FlatType(current)
+		for _, nodeType := range nodeTypes {
+			if currentType == nodeType {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func qualifySourceName(packageName, name string) string {
+	if packageName == "" {
+		return name
+	}
+	return packageName + "." + name
+}
+
+func simpleSourceName(qualifiedName string) string {
+	if idx := strings.LastIndex(qualifiedName, "."); idx >= 0 {
+		return qualifiedName[idx+1:]
+	}
+	return qualifiedName
+}
+
+func isTestFixturePath(path string) bool {
+	return strings.Contains(filepath.ToSlash(path), "/testFixtures/")
+}
+
+func isGeneratedSourcePath(path string) bool {
+	path = filepath.ToSlash(path)
+	return strings.Contains(path, "/build/generated/") ||
+		strings.Contains(path, "/generated/") ||
+		strings.Contains(path, "/ksp/") ||
+		strings.Contains(path, "/kapt/")
 }
 
 // TimberTreeNotPlantedRule flags projects that use Timber.d/i/w/e but have

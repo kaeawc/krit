@@ -1,16 +1,12 @@
 package com.example.exceptions
 
-import java.util.logging.Logger
-
 class Processor {
-
-    private val logger = Logger.getLogger(Processor::class.java.name)
 
     fun process() {
         try {
             doWork()
         } catch (e: Exception) {
-            logger.severe("Processing failed: ${e.message}")
+            Log.e("Processor", "Processing failed", e)
         }
     }
 
@@ -42,7 +38,7 @@ class Processor {
         try {
             doWork()
         } catch (e: Exception) {
-            logger.severe("Failed: ${e.message}")
+            Log.e("Processor", "Failed", e)
             throw RuntimeException()
         }
     }
@@ -53,7 +49,7 @@ class Processor {
             try {
                 rows += transform(i)
             } catch (e: Exception) {
-                rows += "*Failed to Transform*"
+                rows += "*Failed to Transform*: ${e.message}"
             }
         }
     }

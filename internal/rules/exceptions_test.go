@@ -1,6 +1,16 @@
 package rules_test
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
+)
 
 // --- ExceptionRaisedInUnexpectedLocation ---
 
@@ -172,12 +182,293 @@ fun test() {
     try {
         doWork()
     } catch (e: Exception) {
-        log(e)
+        Log.e("tag", "failed", e)
     }
 }
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestExc_SwallowedException_ASTPositiveCases(t *testing.T) {
+	cases := map[string]string{
+		"empty catch": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+    }
+}
+`,
+		"comment only": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        // ignored: e throw log handle
+    }
+}
+`,
+		"message only throw": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        throw IllegalStateException(e.message)
+    }
+}
+`,
+		"message alias throw": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        val msg = e.message
+        throw IllegalStateException(
+            msg
+        )
+    }
+}
+`,
+		"message only logging": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        logger.warn(e.message)
+    }
+}
+`,
+		"unresolved logger name": `
+fun test(logger: Any) {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        logger.warn("failed", e)
+    }
+}
+`,
+		"unresolved same name api": `
+class WarningSink {
+    fun warn(value: Any?) {}
+}
+fun test(sink: WarningSink) {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        sink.warn(e)
+    }
+}
+`,
+		"nested lambda ignored": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        run {
+            logger.warn("failed", e)
+        }
+    }
+}
+`,
+		"string literals ignored": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        println("e throw log handle")
+    }
+}
+`,
+		"unknown assignment without exception is not handling": `
+fun test() {
+    var handled = false
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        handled = true
+    }
+}
+`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			findings := runRuleByName(t, "SwallowedException", code)
+			if len(findings) == 0 {
+				t.Fatal("expected finding")
+			}
+		})
+	}
+}
+
+func TestExc_SwallowedException_ASTNegativeCases(t *testing.T) {
+	cases := map[string]string{
+		"direct rethrow": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        throw e
+    }
+}
+`,
+		"cause forwarding": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        throw IllegalStateException("failed", e)
+    }
+}
+`,
+		"named cause forwarding": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        throw IllegalStateException(
+            message = "failed",
+            cause = e
+        )
+    }
+}
+`,
+		"alias forwarding throw": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        val cause = e
+        throw cause
+    }
+}
+`,
+		"alias constructor forwarding": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        val cause = e
+        throw IllegalStateException(
+            "failed",
+            cause
+        )
+    }
+}
+`,
+		"recognized logger": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        Log.e("tag", "failed", e)
+        recover()
+    }
+}
+`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			findings := runRuleByNameWithResolver(t, "SwallowedException", code)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
+			}
+		})
+	}
+}
+
+func TestExc_SwallowedException_ResolvedLoggerCall(t *testing.T) {
+	code := `
+import java.util.logging.Logger
+import java.util.logging.Level
+
+class Test(private val logger: Logger) {
+    fun test() {
+        try {
+            work()
+        } catch (e: java.io.IOException) {
+            logger.log(Level.WARNING, "failed", e)
+        }
+    }
+}
+`
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if strings.Contains(file.FlatNodeText(idx), "logger.log") {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = "java.util.logging.Logger.log"
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range v2rules.Registry {
+		if r.ID != "SwallowedException" {
+			continue
+		}
+		cols := rules.NewDispatcherV2([]*v2rules.Rule{r}, composite).Run(file)
+		findings := cols.Findings()
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
+		}
+		return
+	}
+	t.Fatal("SwallowedException rule not found")
+}
+
+func TestExc_SwallowedException_ASTNegativeCasesWithoutResolver(t *testing.T) {
+	cases := map[string]string{
+		"qualified android log": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        Log.e("tag", "failed", e)
+    }
+}
+`,
+		"ui handling": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        Toast.makeText(context, e.message, Toast.LENGTH_SHORT).show()
+    }
+}
+`,
+		"assignment handling": `
+class Holder {
+    var lastError: Throwable? = null
+    fun test() {
+        try {
+            work()
+        } catch (e: java.io.IOException) {
+            lastError = e
+        }
+    }
+}
+`,
+		"same owner local handler": `
+fun test() {
+    fun handleError(t: Throwable) {}
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        handleError(e)
+    }
+}
+`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			findings := runRuleByName(t, "SwallowedException", code)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
+			}
+		})
 	}
 }
 

@@ -1041,57 +1041,334 @@ func (r *OpenForTestingCallerInNonTestRule) check(ctx *v2.Context) {
 		return
 	}
 
-	openForTestTypes := make(map[string]bool)
+	scopes := make(map[string]openForTestingFileScope, len(index.Files))
+	targets := openForTestingTargetSet{
+		byFQN:    make(map[string]openForTestingTarget),
+		bySimple: make(map[string][]openForTestingTarget),
+	}
 	for _, file := range index.Files {
-		for i, line := range file.Lines {
-			if strings.Contains(strings.TrimSpace(line), "@OpenForTesting") {
-				for j := i + 1; j < len(file.Lines); j++ {
-					nextLine := strings.TrimSpace(file.Lines[j])
-					if strings.HasPrefix(nextLine, "@") {
-						continue
-					}
-					if idx := strings.Index(nextLine, "class "); idx >= 0 {
-						rest := nextLine[idx+6:]
-						end := strings.IndexAny(rest, "( :{<")
-						if end > 0 {
-							openForTestTypes[strings.TrimSpace(rest[:end])] = true
-						}
-					}
-					break
-				}
-			}
+		if file == nil || file.FlatTree == nil {
+			continue
 		}
+		scope := openForTestingScope(file)
+		scopes[file.Path] = scope
+		file.FlatWalkAllNodes(0, func(idx uint32) {
+			nodeType := file.FlatType(idx)
+			if nodeType != "class_declaration" && nodeType != "object_declaration" {
+				return
+			}
+			if !openForTestingDeclarationHasAnnotation(file, idx, scope.imports) {
+				return
+			}
+			target := openForTestingTargetForDeclaration(file, idx, scope.pkg)
+			if target.simple == "" || target.fqn == "" {
+				return
+			}
+			targets.byFQN[target.fqn] = target
+			targets.bySimple[target.simple] = append(targets.bySimple[target.simple], target)
+		})
 	}
 
-	if len(openForTestTypes) == 0 {
+	if len(targets.byFQN) == 0 {
 		return
 	}
 
 	for _, file := range index.Files {
+		if file == nil || file.FlatTree == nil {
+			continue
+		}
 		if isTestFile(file.Path) {
 			continue
 		}
-		for i, line := range file.Lines {
-			for typeName := range openForTestTypes {
-				if strings.Contains(line, ": "+typeName) || strings.Contains(line, ":"+typeName) ||
-					strings.Contains(line, typeName+"()") {
-					trimmed := strings.TrimSpace(line)
-					if strings.Contains(trimmed, "class ") && (strings.Contains(trimmed, ": "+typeName) || strings.Contains(trimmed, ":"+typeName)) {
-						col := strings.Index(line, typeName)
-						ctx.Emit(scanner.Finding{
-							File:       file.Path,
-							Line:       i + 1,
-							Col:        col + 1,
-							RuleSet:    r.RuleSetName,
-							Rule:       r.RuleName,
-							Severity:   r.Sev,
-							Message:    fmt.Sprintf("@OpenForTesting type %q subclassed outside test code.", typeName),
-							Confidence: 0.65,
-						})
-					}
+		scope := scopes[file.Path]
+		file.FlatWalkNodes(0, "class_declaration", func(classDecl uint32) {
+			for child := file.FlatFirstChild(classDecl); child != 0; child = file.FlatNextSib(child) {
+				if file.FlatType(child) != "delegation_specifier" {
+					continue
+				}
+				ref := openForTestingSupertypeRef(file, child)
+				if ref.simple == "" {
+					continue
+				}
+				target, confidence, ok := resolveOpenForTestingSupertype(file, ref, scope, targets)
+				if !ok {
+					continue
+				}
+				ctx.Emit(scanner.Finding{
+					File:       file.Path,
+					Line:       file.FlatRow(ref.node) + 1,
+					Col:        file.FlatCol(ref.node) + 1,
+					RuleSet:    r.RuleSetName,
+					Rule:       r.RuleName,
+					Severity:   r.Sev,
+					Message:    fmt.Sprintf("@OpenForTesting type %q subclassed outside test code.", target.simple),
+					Confidence: confidence,
+				})
+			}
+		})
+	}
+}
+
+type openForTestingFileScope struct {
+	pkg     string
+	imports map[string]string
+}
+
+type openForTestingTarget struct {
+	simple string
+	fqn    string
+	file   string
+	node   uint32
+}
+
+type openForTestingTargetSet struct {
+	byFQN    map[string]openForTestingTarget
+	bySimple map[string][]openForTestingTarget
+}
+
+type openForTestingTypeRef struct {
+	simple string
+	path   []string
+	node   uint32
+}
+
+func openForTestingScope(file *scanner.File) openForTestingFileScope {
+	return openForTestingFileScope{
+		pkg:     openForTestingPackageName(file),
+		imports: openForTestingImports(file),
+	}
+}
+
+func openForTestingTargetForDeclaration(file *scanner.File, decl uint32, pkg string) openForTestingTarget {
+	name := openForTestingDeclarationName(file, decl)
+	if name == "" {
+		return openForTestingTarget{}
+	}
+	parts := make([]string, 0, 4)
+	if pkg != "" {
+		parts = append(parts, pkg)
+	}
+	if owner := flatEnclosingOwnerName(file, decl); owner != "" {
+		parts = append(parts, strings.Split(owner, ".")...)
+	}
+	parts = append(parts, name)
+	return openForTestingTarget{
+		simple: name,
+		fqn:    strings.Join(parts, "."),
+		file:   file.Path,
+		node:   decl,
+	}
+}
+
+func openForTestingDeclarationName(file *scanner.File, decl uint32) string {
+	for child := file.FlatFirstChild(decl); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "type_identifier", "simple_identifier":
+			return file.FlatNodeString(child, nil)
+		}
+	}
+	return ""
+}
+
+func openForTestingDeclarationHasAnnotation(file *scanner.File, decl uint32, imports map[string]string) bool {
+	if mods, ok := file.FlatFindChild(decl, "modifiers"); ok {
+		for child := file.FlatFirstChild(mods); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "annotation" && openForTestingAnnotationMatches(file, child, imports) {
+				return true
+			}
+		}
+	}
+	for child := file.FlatFirstChild(decl); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "annotation" && openForTestingAnnotationMatches(file, child, imports) {
+			return true
+		}
+	}
+	return false
+}
+
+func openForTestingAnnotationMatches(file *scanner.File, annotation uint32, imports map[string]string) bool {
+	ref := openForTestingTypeRefFromNode(file, annotation)
+	if ref.simple == "" {
+		return false
+	}
+	if ref.simple == "OpenForTesting" {
+		return true
+	}
+	fqn := imports[ref.simple]
+	return fqn == "OpenForTesting" || strings.HasSuffix(fqn, ".OpenForTesting")
+}
+
+func openForTestingSupertypeRef(file *scanner.File, spec uint32) openForTestingTypeRef {
+	return openForTestingTypeRefFromNode(file, spec)
+}
+
+func openForTestingTypeRefFromNode(file *scanner.File, root uint32) openForTestingTypeRef {
+	userType := openForTestingFirstUserType(file, root)
+	if userType == 0 {
+		return openForTestingTypeRef{}
+	}
+	path, nameNode := openForTestingUserTypePath(file, userType)
+	if len(path) == 0 || nameNode == 0 {
+		return openForTestingTypeRef{}
+	}
+	return openForTestingTypeRef{
+		simple: path[len(path)-1],
+		path:   path,
+		node:   nameNode,
+	}
+}
+
+func openForTestingFirstUserType(file *scanner.File, root uint32) uint32 {
+	if file == nil || file.FlatTree == nil || int(root) >= len(file.FlatTree.Nodes) {
+		return 0
+	}
+	if file.FlatType(root) == "user_type" {
+		return root
+	}
+	for child := file.FlatFirstChild(root); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "type_arguments" {
+			continue
+		}
+		if found := openForTestingFirstUserType(file, child); found != 0 {
+			return found
+		}
+	}
+	return 0
+}
+
+func openForTestingUserTypePath(file *scanner.File, userType uint32) ([]string, uint32) {
+	var path []string
+	var nameNode uint32
+	var walk func(uint32)
+	walk = func(idx uint32) {
+		if file.FlatType(idx) == "type_arguments" {
+			return
+		}
+		switch file.FlatType(idx) {
+		case "type_identifier", "simple_identifier":
+			path = append(path, file.FlatNodeString(idx, nil))
+			nameNode = idx
+			return
+		}
+		for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+			walk(child)
+		}
+	}
+	walk(userType)
+	return path, nameNode
+}
+
+func resolveOpenForTestingSupertype(file *scanner.File, ref openForTestingTypeRef, scope openForTestingFileScope, targets openForTestingTargetSet) (openForTestingTarget, float64, bool) {
+	if len(ref.path) > 1 {
+		qualified := strings.Join(ref.path, ".")
+		if target, ok := targets.byFQN[qualified]; ok {
+			return target, 0.90, true
+		}
+		if scope.pkg != "" {
+			if target, ok := targets.byFQN[scope.pkg+"."+qualified]; ok {
+				return target, 0.85, true
+			}
+		}
+	}
+
+	if fqn := scope.imports[ref.simple]; fqn != "" {
+		if target, ok := targets.byFQN[fqn]; ok {
+			return target, 0.90, true
+		}
+	}
+
+	candidates := targets.bySimple[ref.simple]
+	if len(candidates) == 0 {
+		return openForTestingTarget{}, 0, false
+	}
+	var found openForTestingTarget
+	count := 0
+	refOwner := openForTestingInheritanceOwner(file, ref.node)
+	for _, candidate := range candidates {
+		if candidate.file != file.Path || flatEnclosingOwnerName(file, candidate.node) != refOwner {
+			continue
+		}
+		found = candidate
+		count++
+		if count > 1 {
+			return openForTestingTarget{}, 0, false
+		}
+	}
+	if count == 1 {
+		return found, 0.80, true
+	}
+	return openForTestingTarget{}, 0, false
+}
+
+func openForTestingInheritanceOwner(file *scanner.File, ref uint32) string {
+	classDecl, ok := flatEnclosingAncestor(file, ref, "class_declaration")
+	if !ok {
+		return flatEnclosingOwnerName(file, ref)
+	}
+	return flatEnclosingOwnerName(file, classDecl)
+}
+
+func openForTestingPackageName(file *scanner.File) string {
+	var parts []string
+	for child := file.FlatFirstChild(0); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "package_header" {
+			continue
+		}
+		openForTestingCollectImportPath(file, child, false, &parts, nil)
+		break
+	}
+	return strings.Join(parts, ".")
+}
+
+func openForTestingImports(file *scanner.File) map[string]string {
+	imports := make(map[string]string)
+	for child := file.FlatFirstChild(0); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "import_header":
+			openForTestingAddImport(file, child, imports)
+		case "import_list":
+			for imp := file.FlatFirstChild(child); imp != 0; imp = file.FlatNextSib(imp) {
+				if file.FlatType(imp) == "import_header" {
+					openForTestingAddImport(file, imp, imports)
 				}
 			}
 		}
+	}
+	return imports
+}
+
+func openForTestingAddImport(file *scanner.File, importHeader uint32, imports map[string]string) {
+	var path []string
+	var alias string
+	openForTestingCollectImportPath(file, importHeader, false, &path, &alias)
+	if len(path) == 0 {
+		return
+	}
+	fqn := strings.Join(path, ".")
+	key := path[len(path)-1]
+	if alias != "" {
+		key = alias
+	}
+	imports[key] = fqn
+}
+
+func openForTestingCollectImportPath(file *scanner.File, idx uint32, afterAs bool, path *[]string, alias *string) {
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		childType := file.FlatType(child)
+		switch childType {
+		case "as":
+			afterAs = true
+			continue
+		case "simple_identifier", "type_identifier":
+			name := file.FlatNodeString(child, nil)
+			if afterAs && alias != nil {
+				*alias = name
+			} else {
+				*path = append(*path, name)
+			}
+			continue
+		}
+		openForTestingCollectImportPath(file, child, afterAs, path, alias)
 	}
 }
 

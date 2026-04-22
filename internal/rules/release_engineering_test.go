@@ -396,6 +396,149 @@ func runVisibleForTestingCallerRule(t *testing.T, files map[string]string) []sca
 	return v2.ContextFindings(ctx)
 }
 
+func TestOpenForTestingCallerInNonTest(t *testing.T) {
+	root := fixtureRoot(t)
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		findings := runOpenForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/OpenForTestingCallerInNonTest.kt": mustReadFixture(t, filepath.Join(root, "positive", "release-engineering", "OpenForTestingCallerInNonTest.kt")),
+		})
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		findings := runOpenForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/OpenForTestingCallerInNonTest.kt": mustReadFixture(t, filepath.Join(root, "negative", "release-engineering", "OpenForTestingCallerInNonTest.kt")),
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("cross file explicit import triggers", func(t *testing.T) {
+		findings := runOpenForTestingCallerRule(t, map[string]string{
+			"core/src/main/java/com/example/testing/BaseForTests.kt": `package com.example.testing
+
+@OpenForTesting
+open class BaseForTests
+`,
+			"app/src/main/java/com/example/app/ProductionSubclass.kt": `package com.example.app
+
+import com.example.testing.BaseForTests
+
+class ProductionSubclass : BaseForTests()
+`,
+		})
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Line != 5 {
+			t.Fatalf("expected finding on supertype line 5, got %d", findings[0].Line)
+		}
+	})
+
+	t.Run("import alias to nested class triggers", func(t *testing.T) {
+		findings := runOpenForTestingCallerRule(t, map[string]string{
+			"core/src/main/java/com/example/testing/Outer.kt": `package com.example.testing
+
+class Outer {
+    @OpenForTesting
+    open class NestedBase
+}
+`,
+			"app/src/main/java/com/example/app/ProductionSubclass.kt": `package com.example.app
+
+import com.example.testing.Outer.NestedBase as TestBase
+
+class ProductionSubclass : TestBase()
+`,
+		})
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("test sources are skipped", func(t *testing.T) {
+		findings := runOpenForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/BaseForTests.kt": `package com.example
+
+@OpenForTesting
+open class BaseForTests
+`,
+			"app/src/test/java/com/example/ProductionSubclassTest.kt": `package com.example
+
+import com.example.BaseForTests
+
+class ProductionSubclassTest : BaseForTests()
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("unrelated same simple name is skipped", func(t *testing.T) {
+		findings := runOpenForTestingCallerRule(t, map[string]string{
+			"core/src/main/java/com/example/testing/BaseForTests.kt": `package com.example.testing
+
+@OpenForTesting
+open class BaseForTests
+`,
+			"app/src/main/java/com/example/app/BaseForTests.kt": `package com.example.app
+
+open class BaseForTests
+`,
+			"app/src/main/java/com/example/app/ProductionSubclass.kt": `package com.example.app
+
+class ProductionSubclass : BaseForTests()
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func runOpenForTestingCallerRule(t *testing.T, files map[string]string) []scanner.Finding {
+	t.Helper()
+	registered := buildRuleIndex()["OpenForTestingCallerInNonTest"]
+	if registered == nil {
+		t.Fatal("OpenForTestingCallerInNonTest rule not registered")
+	}
+
+	root := t.TempDir()
+	parsed := make([]*scanner.File, 0, len(files))
+	for rel, content := range files {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		writeModuleFile(t, path, content)
+		file, err := scanner.ParseFile(path)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", path, err)
+		}
+		parsed = append(parsed, file)
+	}
+
+	index := scanner.BuildIndex(parsed, 1)
+	ctx := &v2.Context{
+		Rule:      registered,
+		CodeIndex: index,
+		Collector: scanner.NewFindingCollector(0),
+	}
+	registered.Check(ctx)
+	return v2.ContextFindings(ctx)
+}
+
+func mustReadFixture(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", path, err)
+	}
+	return string(content)
+}
+
 func TestCommentedOutCodeBlock(t *testing.T) {
 	rule := buildRuleIndex()["CommentedOutCodeBlock"]
 	if rule == nil {

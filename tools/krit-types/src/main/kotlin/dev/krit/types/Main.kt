@@ -335,11 +335,12 @@ class DaemonSession(
         val deps = mutableMapOf<String, ClassResult>()
         val tracker = DepTracker()
         val perf = KotlinPerf(request.timings)
+        val activePerf = if (perf.enabled) perf else null
         val callFilter = request.callFilter ?: args.callFilter
         perf.recordCallFilterSummary(callFilter)
 
         if (requestedFiles.isNullOrEmpty()) {
-            return buildDaemonResponseWithDeps(request.id, files, deps, errors, tracker, perf)
+            return buildDaemonResponseWithDeps(request.id, files, deps, errors, tracker, activePerf)
         }
 
         val ktFiles = perf.track("kotlinDaemonPsiRoots") {
@@ -396,7 +397,7 @@ class DaemonSession(
         perf.track("kotlinDaemonAnalyzeFiles") {
             for (ktFile in filesToAnalyze) {
                 try {
-                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, perf, callFilter)
+                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, callFilter)
                     if (ok) processed++ else skipped++
                 } catch (e: Exception) {
                     skipped++
@@ -416,7 +417,7 @@ class DaemonSession(
             )
         )
 
-        return buildDaemonResponseWithDeps(request.id, files, deps, errors, tracker, perf)
+        return buildDaemonResponseWithDeps(request.id, files, deps, errors, tracker, activePerf)
     }
 
     @OptIn(KaExperimentalApi::class)
@@ -607,6 +608,31 @@ fun KotlinPerf.recordCallFilterSummary(filter: CallFilter?) {
     )
 }
 
+fun fileTimingSummary(name: String, valuesNs: List<Long>): PerfEntry {
+    if (valuesNs.isEmpty()) {
+        return PerfEntry(name, 0, metrics = mapOf("count" to 0L))
+    }
+    val sorted = valuesNs.sorted()
+    fun percentile(pct: Int): Long {
+        val idx = (((sorted.size - 1) * pct) + 99) / 100
+        return sorted[idx.coerceIn(0, sorted.size - 1)] / 1_000_000
+    }
+    val totalMs = valuesNs.sum() / 1_000_000
+    return PerfEntry(
+        name,
+        totalMs,
+        metrics = mapOf(
+            "count" to sorted.size.toLong(),
+            "totalMs" to totalMs,
+            "p50Ms" to percentile(50),
+            "p90Ms" to percentile(90),
+            "p95Ms" to percentile(95),
+            "p99Ms" to percentile(99),
+            "maxMs" to sorted.last() / 1_000_000
+        )
+    )
+}
+
 class KotlinPerf(val enabled: Boolean = false) {
     private val entries = mutableListOf<PerfEntry>()
     private val fileTimings = mutableListOf<FilePerf>()
@@ -713,10 +739,18 @@ class KotlinPerf(val enabled: Boolean = false) {
         all.addAll(entries)
 
         val fileCount = fileTimings.size.toLong()
+        for ((name, ns) in phaseTotals) {
+            val metrics: Map<String, Long> = if (fileCount > 0) mapOf("files" to fileCount) else emptyMap()
+            all.add(PerfEntry(name, ns / 1_000_000, metrics))
+        }
+
         if (fileCount > 0) {
-            for ((name, ns) in phaseTotals) {
-                all.add(PerfEntry(name, ns / 1_000_000, mapOf("files" to fileCount)))
-            }
+            all.add(fileTimingSummary("kotlinFileTotalSummary", fileTimings.map { it.totalNs }))
+            all.add(fileTimingSummary("kotlinFileAnalysisSessionSummary", fileTimings.map { it.analysisSessionNs }))
+            all.add(fileTimingSummary("kotlinFileDeclarationsSummary", fileTimings.map { it.declarationsNs }))
+            all.add(fileTimingSummary("kotlinFileImportDepsSummary", fileTimings.map { it.importDepsNs }))
+            all.add(fileTimingSummary("kotlinFileCallCollectSummary", fileTimings.map { it.callCollectNs }))
+            all.add(fileTimingSummary("kotlinFileCallResolveSummary", fileTimings.map { it.callResolveNs }))
 
             val slow = fileTimings.sortedByDescending { it.totalNs }.take(25).map { f ->
                 PerfEntry(
@@ -853,14 +887,16 @@ fun appendPerfEntry(sb: StringBuilder, entry: PerfEntry) {
 // --- Build session (shared between one-shot and daemon) ---
 
 @OptIn(KaExperimentalApi::class)
-fun buildSession(disposable: Disposable, args: ParsedArgs): KaSourceModule {
+fun buildSession(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf? = null): KaSourceModule {
     val platform = JvmPlatforms.defaultJvmPlatform
     lateinit var sourceModule: KaSourceModule
 
     buildStandaloneAnalysisAPISession(disposable) {
+        val providerStart = System.nanoTime()
         buildKtModuleProvider {
             this.platform = platform
 
+            val jdkStart = System.nanoTime()
             val jdk = args.jdkHome?.let { jdkHome ->
                 buildKtSdkModule {
                     addBinaryRootsFromJdkHome(Path(jdkHome), isJre = false)
@@ -874,13 +910,17 @@ fun buildSession(disposable: Disposable, args: ParsedArgs): KaSourceModule {
                     libraryName = "jdk"
                 }
             }
+            perf?.addPhaseTotal("kotlinBuildSession.jdkModule", System.nanoTime() - jdkStart)
 
+            val dependenciesStart = System.nanoTime()
             val dependencies = buildKtLibraryModule {
                 this.platform = platform
                 addBinaryRoots(args.classpath.map { Path(it) })
                 libraryName = "dependencies"
             }
+            perf?.addPhaseTotal("kotlinBuildSession.dependenciesModule", System.nanoTime() - dependenciesStart)
 
+            val sourceStart = System.nanoTime()
             sourceModule = buildKtSourceModule {
                 addSourceRoots(args.sourceDirs.map { Path(it) })
                 this.platform = platform
@@ -888,9 +928,11 @@ fun buildSession(disposable: Disposable, args: ParsedArgs): KaSourceModule {
                 addRegularDependency(jdk)
                 addRegularDependency(dependencies)
             }
+            perf?.addPhaseTotal("kotlinBuildSession.sourceModule", System.nanoTime() - sourceStart)
 
             addModule(sourceModule)
         }
+        perf?.addPhaseTotal("kotlinBuildSession.moduleProvider", System.nanoTime() - providerStart)
     }
     return sourceModule
 }
@@ -970,9 +1012,11 @@ fun buildDaemonResponseWithDeps(
     perf: KotlinPerf? = null
 ): String {
     val sb = StringBuilder()
+    perf?.recordCacheDepsSummary(tracker)
     val cacheDepsJson = perf?.track("kotlinDaemonCacheDepsJsonBuild") {
         buildCacheDepsJson(tracker)
     } ?: buildCacheDepsJson(tracker)
+    perf?.recordOracleJsonSummary(files, deps)
     sb.append("""{"id":$id,"result":""")
     sb.append(buildJsonCompact(files, deps))
     if (errors.isNotEmpty()) {
@@ -1129,6 +1173,32 @@ class DepTracker {
     }
 }
 
+fun KotlinPerf.recordCacheDepsSummary(tracker: DepTracker) {
+    if (!enabled) return
+    addInstant(
+        "kotlinCacheDepsSummary",
+        mapOf(
+            "files" to tracker.depPathsByFile.size.toLong(),
+            "depPaths" to tracker.depPathsByFile.values.sumOf { it.size }.toLong(),
+            "perFileDeps" to tracker.perFileDeps.values.sumOf { it.size }.toLong(),
+            "crashed" to tracker.crashedFiles.size.toLong()
+        )
+    )
+}
+
+fun KotlinPerf.recordOracleJsonSummary(files: Map<String, FileResult>, deps: Map<String, ClassResult>) {
+    if (!enabled) return
+    addInstant(
+        "kotlinOracleJsonSummary",
+        mapOf(
+            "files" to files.size.toLong(),
+            "dependencies" to deps.size.toLong(),
+            "declarations" to files.values.sumOf { it.declarations.size }.toLong(),
+            "expressions" to files.values.sumOf { it.expressions.size }.toLong()
+        )
+    )
+}
+
 /**
  * Extract a source-file path from a KaSymbol, if the symbol originates from
  * the source module (as opposed to a .jar/.class binary dep or generated
@@ -1208,7 +1278,7 @@ fun analyzeKtFile(
                             // via supertype source origins, which the session
                             // resolver will have already walked.
                             val sourceOriginsStart = System.nanoTime()
-                            recordSupertypeSourceOrigins(symbol, depTracker, path)
+                            recordSupertypeSourceOrigins(symbol, depTracker, path, perf)
                             perf?.addPhaseTotal("kotlinDeclarations.recordSupertypeSourceOrigins", System.nanoTime() - sourceOriginsStart)
                         } catch (t: Throwable) {
                             // Skip this class but keep going. Preserves any
@@ -1236,8 +1306,13 @@ fun analyzeKtFile(
                     val importedFqName = import.importedFqName ?: continue
                     try {
                         val classId = org.jetbrains.kotlin.name.ClassId.topLevel(importedFqName)
-                        val sym = findClass(classId) ?: continue
+                        val findClassStart = System.nanoTime()
+                        val sym = findClass(classId)
+                        perf?.count("kotlinImportDeps.findClass", System.nanoTime() - findClassStart)
+                        if (sym == null) continue
+                        val sourcePathStart = System.nanoTime()
                         sourceFilePathOf(sym)?.let { depTracker.recordDepPath(path, it) }
+                        perf?.count("kotlinImportDeps.sourceFilePath", System.nanoTime() - sourcePathStart)
                     } catch (_: Throwable) {}
                 }
                 importDepsNs += System.nanoTime() - importStart
@@ -1288,18 +1363,25 @@ fun analyzeKtFile(
                         var calleeAggregateNs = 0L
                         val siteStart = System.nanoTime()
                         try {
+                            val locationStart = System.nanoTime()
                             val offset = expr.textRange.startOffset
                             line = document.getLineNumber(offset) + 1
                             col = offset - document.getLineStartOffset(line - 1) + 1
                             val key = "$line:$col"
+                            perf?.count("kotlinCallResolve.location", System.nanoTime() - locationStart)
                             if (key in expressions) {
                                 perf?.count("kotlinCallResolveDuplicate")
                                 status = "duplicate"
                                 continue
                             }
+                            val calleeTextStart = System.nanoTime()
                             callee = expr.calleeExpression?.text ?: ""
+                            perf?.count("kotlinCallResolve.calleeText", System.nanoTime() - calleeTextStart)
                             perf?.count("kotlinCallResolveAttempt")
-                            if (callFilter != null && !callFilter.shouldResolve(callee)) {
+                            val filterStart = System.nanoTime()
+                            val shouldResolve = callFilter == null || callFilter.shouldResolve(callee)
+                            perf?.count("kotlinCallResolve.filterCheck", System.nanoTime() - filterStart)
+                            if (!shouldResolve) {
                                 perf?.count("kotlinCallResolveSkippedByFilter")
                                 status = "skipped-filter"
                                 continue
@@ -1321,16 +1403,22 @@ fun analyzeKtFile(
                             perf?.count("kotlinCallResolveResolveToCall", resolveNs)
                             if (callInfo != null) {
                                 perf?.count("kotlinCallResolveNonNull")
+                                val memberCallStart = System.nanoTime()
                                 val memberCall: KaCallableMemberCall<*, *>? =
                                     callInfo.singleFunctionCallOrNull()
                                         ?: callInfo.singleVariableAccessCall()
+                                perf?.count("kotlinCallResolve.memberCall", System.nanoTime() - memberCallStart)
                                 if (memberCall != null) {
                                     perf?.count("kotlinCallResolveMemberCall")
                                     val symbol = memberCall.partiallyAppliedSymbol.symbol
+                                    val callableIDStart = System.nanoTime()
                                     val cid = symbol.callableId
+                                    perf?.count("kotlinCallResolve.callableId", System.nanoTime() - callableIDStart)
                                     if (cid != null) {
                                         perf?.count("kotlinCallResolveCallableId")
+                                        val fqnStart = System.nanoTime()
                                         val fqn = cid.asSingleFqName().asString()
+                                        perf?.count("kotlinCallResolve.fqnString", System.nanoTime() - fqnStart)
                                         if (fqn.isNotEmpty()) {
                                             callTarget = fqn
                                             status = "resolved"
@@ -1578,9 +1666,10 @@ fun printUsage() {
 
 @OptIn(KaExperimentalApi::class)
 fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf = KotlinPerf()): String {
+    val activePerf = if (perf.enabled) perf else null
     perf.recordCallFilterSummary(args.callFilter)
     val sourceModule = perf.track("kotlinBuildSession") {
-        buildSession(disposable, args)
+        buildSession(disposable, args, activePerf)
     }
 
     val files = mutableMapOf<String, FileResult>()
@@ -1651,7 +1740,7 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
     var skipped = 0
     perf.track("kotlinAnalyzeFiles") {
         for ((i, ktFile) in ktFiles.withIndex()) {
-            val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, perf, args.callFilter)
+            val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, args.callFilter)
             if (ok) processed++ else skipped++
             if ((i + 1) % progressStep == 0) {
                 System.err.println("  ... ${i + 1}/$total (${processed} processed, ${skipped} skipped)")
@@ -1681,6 +1770,7 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
     // dependencies map so cold-start assembly can union without a second
     // pass through the JVM.
     if (tracker != null && args.cacheDepsOut != null) {
+        perf.recordCacheDepsSummary(tracker)
         val cacheDepsJson = perf.track("kotlinCacheDepsJsonBuild") {
             buildCacheDepsJson(tracker)
         }
@@ -1690,6 +1780,7 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
         System.err.println("Wrote ${args.cacheDepsOut}")
     }
 
+    perf.recordOracleJsonSummary(files, deps)
     return perf.track("kotlinOracleJsonBuild") {
         buildJson(files, deps)
     }
@@ -1901,17 +1992,22 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.collectDependencySupertypes(
     perf: KotlinPerf? = null
 ) {
     for (supertype in symbol.superTypes) {
+        perf?.count("kotlinDependencySupertypes.visit")
         val superClassType = supertype as? KaClassType ?: continue
         val fqn = superClassType.classId.asFqNameString()
         if (fqn == "kotlin.Any") continue
 
+        val symbolStart = System.nanoTime()
         val superSymbol = superClassType.symbol as? KaNamedClassSymbol ?: continue
+        perf?.count("kotlinDependencySupertypes.symbol", System.nanoTime() - symbolStart)
 
         // For source-origin supertypes, record the path in the tracker so
         // the cache can invalidate when that source file changes.
         if (superSymbol.origin == KaSymbolOrigin.SOURCE) {
             if (depTracker != null && forFile != null) {
+                val sourcePathStart = System.nanoTime()
                 sourceFilePathOf(superSymbol)?.let { depTracker.recordDepPath(forFile, it) }
+                perf?.count("kotlinDependencySupertypes.sourceOrigin", System.nanoTime() - sourcePathStart)
             }
             continue
         }
@@ -1919,7 +2015,9 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.collectDependencySupertypes(
         // Library dependency: extract and record both globally (shared deps
         // map for the whole run) and per-file (so each cache entry is
         // self-contained).
+        val extractStart = System.nanoTime()
         val cls = deps.getOrPut(fqn) { extractClass(superSymbol, perf) }
+        perf?.count("kotlinDependencySupertypes.libraryExtract", System.nanoTime() - extractStart)
         if (depTracker != null && forFile != null) {
             depTracker.perFileDeps.getOrPut(forFile) { mutableMapOf() }[fqn] = cls
         }
@@ -1937,13 +2035,17 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.collectDependencySupertypes(
 fun org.jetbrains.kotlin.analysis.api.KaSession.recordSupertypeSourceOrigins(
     symbol: KaNamedClassSymbol,
     depTracker: DepTracker?,
-    forFile: String
+    forFile: String,
+    perf: KotlinPerf? = null
 ) {
     if (depTracker == null) return
     for (supertype in symbol.superTypes) {
+        perf?.count("kotlinSourceOrigins.supertype")
         val superClassType = supertype as? KaClassType ?: continue
-        val superSymbol = superClassType.symbol ?: continue
+        val superSymbol = superClassType.symbol
+        val sourcePathStart = System.nanoTime()
         sourceFilePathOf(superSymbol)?.let { depTracker.recordDepPath(forFile, it) }
+        perf?.count("kotlinSourceOrigins.supertypeSourcePath", System.nanoTime() - sourcePathStart)
     }
     // Also walk property/function return types so cross-file type
     // references (field types, return types) show up in the closure.
@@ -1951,16 +2053,22 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.recordSupertypeSourceOrigins(
         try {
             when (decl) {
                 is KaPropertySymbol -> {
+                    val propertyStart = System.nanoTime()
                     val t = decl.returnType as? KaClassType
                     val sym = t?.symbol
                     sourceFilePathOf(sym)?.let { depTracker.recordDepPath(forFile, it) }
+                    perf?.count("kotlinSourceOrigins.propertyReturnType", System.nanoTime() - propertyStart)
                 }
                 is KaNamedFunctionSymbol -> {
+                    val returnStart = System.nanoTime()
                     val rt = decl.returnType as? KaClassType
                     sourceFilePathOf(rt?.symbol)?.let { depTracker.recordDepPath(forFile, it) }
+                    perf?.count("kotlinSourceOrigins.functionReturnType", System.nanoTime() - returnStart)
                     for (p in decl.valueParameters) {
+                        val paramStart = System.nanoTime()
                         val pt = p.returnType as? KaClassType
                         sourceFilePathOf(pt?.symbol)?.let { depTracker.recordDepPath(forFile, it) }
+                        perf?.count("kotlinSourceOrigins.functionParamType", System.nanoTime() - paramStart)
                     }
                 }
                 else -> {}

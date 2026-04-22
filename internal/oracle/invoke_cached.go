@@ -505,6 +505,9 @@ func runKritTypesCached(
 		"--files", missListPath,
 		"--cache-deps-out", depsOutPath,
 	}
+	extraJVMArgs := configuredExtraJVMArgs(opts)
+	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgs)
+	recordKritTypesJVMArgs(tracker, extraJVMArgs)
 	callFilterPath, cleanupCallFilter, err := writeCallFilterArg(opts, tracker)
 	if err != nil {
 		return fmt.Errorf("call filter: %w", err)
@@ -724,6 +727,12 @@ func runKritTypesCachedShardedWithRunner(
 		"bytes":      totalBytes,
 		"callTokens": totalCallTokens,
 	}, nil)
+	addOracleInstant(tracker, "shardedJVMCPUConfig", map[string]int64{
+		"shards":     int64(len(groups)),
+		"goroutines": int64(len(groups)),
+	}, map[string]string{
+		"extraJVMArgs": strings.Join(extraJVMArgsFromEnv(), " "),
+	})
 
 	results := make([]shardResult, len(groups))
 	var wg sync.WaitGroup

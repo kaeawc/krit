@@ -196,6 +196,7 @@ func StartDaemon(jarPath string, sourceDirs []string, classpath []string, verbos
 	}
 	_ = useCRaCRestore // reserved for future pipe-based CRaC restore
 
+	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgsFromEnv())
 	args = append(args, "-jar", jarPath, "--daemon")
 	if len(sourceDirs) > 0 {
 		args = append(args, "--sources", strings.Join(sourceDirs, ","))
@@ -1023,6 +1024,7 @@ func StartDaemonWithPortSlot(jarPath string, sourceDirs []string, classpath []st
 		}
 	}
 
+	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgsFromEnv())
 	args = append(args, "-jar", jarPath, "--daemon", "--port", "0")
 	if len(sourceDirs) > 0 {
 		args = append(args, "--sources", strings.Join(sourceDirs, ","))

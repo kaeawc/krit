@@ -1,8 +1,15 @@
 package rules_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // =====================================================================
@@ -119,13 +126,40 @@ class MyActivity {
 // Range tests
 // =====================================================================
 
+func runRangeRuleWithCallTargets(t *testing.T, code string, targets map[string]string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		text := file.FlatNodeText(idx)
+		for needle, target := range targets {
+			if strings.Contains(text, needle) {
+				key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+				fake.CallTargets[file.Path][key] = target
+			}
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range v2rules.Registry {
+		if r.ID == "Range" {
+			cols := rules.NewDispatcherV2([]*v2rules.Rule{r}, composite).Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatal("rule Range not found in registry")
+	return nil
+}
+
 func TestRange_SetAlphaOutOfRange(t *testing.T) {
-	findings := runRuleByName(t, "Range", `
+	findings := runRangeRuleWithCallTargets(t, `
 package test
 fun example() {
     view.setAlpha(300)
     view.setAlpha(-1)
-}`)
+}`, map[string]string{"setAlpha": "android.view.View.setAlpha"})
 	count := 0
 	for _, f := range findings {
 		if f.Rule == "Range" && strings.Contains(f.Message, "setAlpha") {
@@ -138,13 +172,13 @@ fun example() {
 }
 
 func TestRange_SetAlphaInRange(t *testing.T) {
-	findings := runRuleByName(t, "Range", `
+	findings := runRangeRuleWithCallTargets(t, `
 package test
 fun example() {
     view.setAlpha(0)
     view.setAlpha(128)
     view.setAlpha(255)
-}`)
+}`, map[string]string{"setAlpha": "android.view.View.setAlpha"})
 	for _, f := range findings {
 		if f.Rule == "Range" && strings.Contains(f.Message, "setAlpha") {
 			t.Errorf("Should not flag valid setAlpha values, got: %s", f.Message)
@@ -153,11 +187,11 @@ fun example() {
 }
 
 func TestRange_ColorArgbOutOfRange(t *testing.T) {
-	findings := runRuleByName(t, "Range", `
+	findings := runRangeRuleWithCallTargets(t, `
 package test
 fun example() {
     val c = Color.argb(256, 0, 0, 0)
-}`)
+}`, map[string]string{"Color.argb": "android.graphics.Color.argb"})
 	found := false
 	for _, f := range findings {
 		if f.Rule == "Range" && strings.Contains(f.Message, "Color.argb") {
@@ -170,11 +204,11 @@ fun example() {
 }
 
 func TestRange_ColorRgbOutOfRange(t *testing.T) {
-	findings := runRuleByName(t, "Range", `
+	findings := runRangeRuleWithCallTargets(t, `
 package test
 fun example() {
     val c = Color.rgb(-1, 0, 0)
-}`)
+}`, map[string]string{"Color.rgb": "android.graphics.Color.rgb"})
 	found := false
 	for _, f := range findings {
 		if f.Rule == "Range" && strings.Contains(f.Message, "Color.rgb") {
@@ -187,11 +221,11 @@ fun example() {
 }
 
 func TestRange_SetProgressOutOfRange(t *testing.T) {
-	findings := runRuleByName(t, "Range", `
+	findings := runRangeRuleWithCallTargets(t, `
 package test
 fun example() {
     progressBar.setProgress(150)
-}`)
+}`, map[string]string{"setProgress": "android.widget.ProgressBar.setProgress"})
 	found := false
 	for _, f := range findings {
 		if f.Rule == "Range" && strings.Contains(f.Message, "setProgress") {
@@ -204,13 +238,13 @@ fun example() {
 }
 
 func TestRange_SetProgressInRange(t *testing.T) {
-	findings := runRuleByName(t, "Range", `
+	findings := runRangeRuleWithCallTargets(t, `
 package test
 fun example() {
     progressBar.setProgress(50)
     progressBar.setProgress(0)
     progressBar.setProgress(100)
-}`)
+}`, map[string]string{"setProgress": "android.widget.ProgressBar.setProgress"})
 	for _, f := range findings {
 		if f.Rule == "Range" && strings.Contains(f.Message, "setProgress") {
 			t.Errorf("Should not flag valid setProgress values, got: %s", f.Message)
@@ -219,11 +253,11 @@ fun example() {
 }
 
 func TestRange_SetRotationOutOfRange(t *testing.T) {
-	findings := runRuleByName(t, "Range", `
+	findings := runRangeRuleWithCallTargets(t, `
 package test
 fun example() {
     view.setRotation(720)
-}`)
+}`, map[string]string{"setRotation": "android.view.View.setRotation"})
 	found := false
 	for _, f := range findings {
 		if f.Rule == "Range" && strings.Contains(f.Message, "setRotation") {
@@ -232,6 +266,115 @@ fun example() {
 	}
 	if !found {
 		t.Error("Should flag setRotation(720)")
+	}
+}
+
+func TestRange_MultilineAndUnaryNegative(t *testing.T) {
+	findings := runRangeRuleWithCallTargets(t, `
+package test
+fun example() {
+    Color.rgb(
+        255,
+        255,
+        999
+    )
+    progressBar.setProgress(-1)
+}`, map[string]string{
+		"Color.rgb":   "android.graphics.Color.rgb",
+		"setProgress": "android.widget.ProgressBar.setProgress",
+	})
+	count := 0
+	for _, f := range findings {
+		if f.Rule == "Range" {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Errorf("Expected 2 range findings for multiline rgb and unary negative progress, got %d", count)
+	}
+}
+
+func TestRange_LocalAnnotatedParameter(t *testing.T) {
+	findings := runRuleByName(t, "Range", `
+package test
+fun bounded(@IntRange(from = 0, to = 10) value: Int) {}
+fun example() {
+    bounded(11)
+}`)
+	found := false
+	for _, f := range findings {
+		if f.Rule == "Range" && strings.Contains(f.Message, "bounded") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Should flag same-file @IntRange parameter")
+	}
+}
+
+func TestRange_LocalConstantInRange(t *testing.T) {
+	findings := runRuleByName(t, "Range", `
+package test
+const val OK = 7
+fun bounded(@IntRange(from = 0, to = 10) value: Int) {}
+fun example() {
+    bounded(OK)
+}`)
+	for _, f := range findings {
+		if f.Rule == "Range" {
+			t.Errorf("Should not flag same-file constant inside range, got: %s", f.Message)
+		}
+	}
+}
+
+func TestRange_DynamicAndUnresolvedValuesAreSkipped(t *testing.T) {
+	findings := runRuleByName(t, "Range", `
+package test
+fun bounded(@IntRange(from = 0, to = 10) value: Int) {}
+fun example(input: Int) {
+    bounded(input + 100)
+    bounded(MISSING)
+}`)
+	for _, f := range findings {
+		if f.Rule == "Range" {
+			t.Errorf("Should not flag dynamic or unresolved values, got: %s", f.Message)
+		}
+	}
+}
+
+func TestRange_FloatExclusiveBound(t *testing.T) {
+	findings := runRuleByName(t, "Range", `
+package test
+fun bounded(@FloatRange(from = 0.0, to = 1.0, toInclusive = false) value: Float) {}
+fun example() {
+    bounded(1.0f)
+}`)
+	found := false
+	for _, f := range findings {
+		if f.Rule == "Range" && strings.Contains(f.Message, "bounded") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Should flag exclusive @FloatRange upper bound")
+	}
+}
+
+func TestRange_UnresolvedFrameworkAndUnannotatedProjectCallsSkipped(t *testing.T) {
+	findings := runRuleByName(t, "Range", `
+package test
+import android.graphics.Color as PaintColor
+class Gauge { fun setProgress(value: Int) {} }
+fun example(gauge: Gauge) {
+    // view.setAlpha(300)
+    val text = "Color.rgb(255, 255, 999)"
+    PaintColor.rgb(255, 255, 999)
+    gauge.setProgress(150)
+}`)
+	for _, f := range findings {
+		if f.Rule == "Range" {
+			t.Errorf("Should skip comments, strings, unresolved framework aliases, and unannotated project calls, got: %s", f.Message)
+		}
 	}
 }
 

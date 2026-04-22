@@ -2,6 +2,8 @@ package potentialbugs
 
 class MapGetWithNotNullAssertionOperator {
     fun getValue(map: Map<String, String>): String {
-        return map["key"]!!
+        val bracket = map["key"]!!
+        val call = map.get("other")!!
+        return bracket + call
     }
 }

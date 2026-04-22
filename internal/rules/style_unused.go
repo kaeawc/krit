@@ -18,7 +18,6 @@ type UnusedImportRule struct {
 // false-positives on substring collisions. Classified per roadmap/17.
 func (r *UnusedImportRule) Confidence() float64 { return 0.75 }
 
-
 // UnusedParameterRule detects function parameters that are never used in the body.
 type UnusedParameterRule struct {
 	FlatDispatchBase
@@ -26,16 +25,230 @@ type UnusedParameterRule struct {
 	AllowedNames *regexp.Regexp
 }
 
-// Confidence reports a tier-2 (medium) base confidence. The rule
-// uses strings.Count on the function body to detect parameter usage,
-// which false-positives when the parameter name is a substring of
-// another identifier (e.g. `id` matching `guid`) and false-negatives
-// when usage is stringified or reflection-based. Even with the
-// existing exclusion list (override, operator, actual, composable,
-// DSL stubs, overloads) the substring heuristic is the tight
-// constraint on accuracy.
-func (r *UnusedParameterRule) Confidence() float64 { return 0.75 }
+// Confidence reports a tier-1 (high) base confidence. Parameter usage is
+// detected from reference-shaped AST identifiers with local shadowing handled
+// structurally, so comments, strings, and substring collisions do not count as
+// usage.
+func (r *UnusedParameterRule) Confidence() float64 { return 0.95 }
 
+func unusedParameterHasReferenceFlat(file *scanner.File, body uint32, paramIdx uint32, paramName string) bool {
+	if file == nil || body == 0 || paramIdx == 0 || paramName == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(body, func(candidate uint32) {
+		if found {
+			return
+		}
+		refName := unusedParameterReferenceNameFlat(file, candidate)
+		if refName != paramName {
+			return
+		}
+		if file.FlatType(candidate) == "simple_identifier" &&
+			!unusedParameterIdentifierIsReferenceFlat(file, candidate) {
+			return
+		}
+		if unusedParameterInsideNestedFunctionFlat(file, candidate, body) {
+			return
+		}
+		if unusedParameterReferenceShadowedFlat(file, body, candidate, paramName) {
+			return
+		}
+		found = true
+	})
+	return found
+}
+
+func unusedParameterReferenceNameFlat(file *scanner.File, idx uint32) string {
+	switch file.FlatType(idx) {
+	case "simple_identifier":
+		return file.FlatNodeText(idx)
+	case "interpolated_identifier", "line_str_ref", "multi_line_str_ref":
+		text := strings.TrimSpace(file.FlatNodeText(idx))
+		text = strings.TrimPrefix(text, "$")
+		text = strings.TrimPrefix(text, "{")
+		text = strings.TrimSuffix(text, "}")
+		return text
+	default:
+		return ""
+	}
+}
+
+func unusedParameterIdentifierIsReferenceFlat(file *scanner.File, ident uint32) bool {
+	parent, ok := file.FlatParent(ident)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(parent) {
+	case "parameter", "class_parameter", "variable_declaration",
+		"function_declaration", "class_declaration", "object_declaration",
+		"type_identifier", "user_type", "nullable_type", "function_type",
+		"type_parameter", "type_parameters", "function_value_parameters",
+		"lambda_parameters", "value_argument_label", "import_header",
+		"package_header", "navigation_suffix":
+		return false
+	case "value_argument":
+		if file.FlatNamedChildCount(parent) >= 2 && file.FlatNamedChild(parent, 0) == ident {
+			return false
+		}
+	}
+	for cur, ok := file.FlatParent(ident); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "user_type", "nullable_type", "function_type", "type_parameter", "type_parameters":
+			return false
+		case "function_body", "lambda_literal", "function_declaration":
+			return true
+		}
+	}
+	return true
+}
+
+func unusedParameterInsideNestedFunctionFlat(file *scanner.File, ident uint32, body uint32) bool {
+	for cur, ok := file.FlatParent(ident); ok && cur != body; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "function_declaration", "anonymous_function":
+			return true
+		}
+	}
+	return false
+}
+
+func unusedParameterReferenceShadowedFlat(file *scanner.File, body uint32, ref uint32, name string) bool {
+	for cur, ok := file.FlatParent(ref); ok && cur != body; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "lambda_literal":
+			if unusedParameterLambdaDeclaresNameFlat(file, cur, name) {
+				return true
+			}
+		case "for_statement":
+			if unusedParameterForDeclaresNameFlat(file, cur, name) {
+				return true
+			}
+		case "catch_block", "catch_clause":
+			if unusedParameterCatchDeclaresNameFlat(file, cur, name) {
+				return true
+			}
+		}
+	}
+	return unusedParameterPriorLocalDeclarationShadowsFlat(file, body, ref, name)
+}
+
+func unusedParameterLambdaDeclaresNameFlat(file *scanner.File, lambda uint32, name string) bool {
+	params, ok := file.FlatFindChild(lambda, "lambda_parameters")
+	if !ok {
+		return name == "it"
+	}
+	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		switch file.FlatType(child) {
+		case "simple_identifier":
+			if file.FlatNodeTextEquals(child, name) {
+				return true
+			}
+		case "variable_declaration":
+			if extractIdentifierFlat(file, child) == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func unusedParameterForDeclaresNameFlat(file *scanner.File, forStmt uint32, name string) bool {
+	for child := file.FlatFirstChild(forStmt); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "simple_identifier":
+			if file.FlatNodeTextEquals(child, name) {
+				return true
+			}
+		case "variable_declaration", "multi_variable_declaration":
+			if unusedParameterDeclarationNodeHasNameFlat(file, child, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func unusedParameterCatchDeclaresNameFlat(file *scanner.File, catchNode uint32, name string) bool {
+	for child := file.FlatFirstChild(catchNode); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "parameter" && extractIdentifierFlat(file, child) == name {
+			return true
+		}
+		if file.FlatType(child) == "simple_identifier" && file.FlatNodeTextEquals(child, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func unusedParameterPriorLocalDeclarationShadowsFlat(file *scanner.File, body uint32, ref uint32, name string) bool {
+	refStart := file.FlatStartByte(ref)
+	shadowed := false
+	file.FlatWalkAllNodes(body, func(candidate uint32) {
+		if shadowed || file.FlatStartByte(candidate) >= refStart {
+			return
+		}
+		switch file.FlatType(candidate) {
+		case "property_declaration":
+			if unusedParameterNodeContainsFlat(file, candidate, ref) {
+				return
+			}
+			if unusedParameterDeclarationNodeHasNameFlat(file, candidate, name) &&
+				unusedParameterDeclarationScopeContainsRefFlat(file, body, candidate, ref) {
+				shadowed = true
+			}
+		case "function_declaration":
+			if extractIdentifierFlat(file, candidate) == name &&
+				unusedParameterDeclarationScopeContainsRefFlat(file, body, candidate, ref) {
+				shadowed = true
+			}
+		}
+	})
+	return shadowed
+}
+
+func unusedParameterDeclarationNodeHasNameFlat(file *scanner.File, node uint32, name string) bool {
+	if extractIdentifierFlat(file, node) == name {
+		return true
+	}
+	found := false
+	file.FlatWalkAllNodes(node, func(candidate uint32) {
+		if found || file.FlatType(candidate) != "variable_declaration" {
+			return
+		}
+		if extractIdentifierFlat(file, candidate) == name {
+			found = true
+		}
+	})
+	return found
+}
+
+func unusedParameterDeclarationScopeContainsRefFlat(file *scanner.File, stop uint32, decl uint32, ref uint32) bool {
+	scope := unusedParameterLexicalScopeFlat(file, stop, decl)
+	return scope != 0 && unusedParameterNodeContainsFlat(file, scope, ref)
+}
+
+func unusedParameterLexicalScopeFlat(file *scanner.File, stop uint32, node uint32) uint32 {
+	for cur, ok := file.FlatParent(node); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "statements", "function_body", "control_structure_body",
+			"lambda_literal", "catch_block", "catch_clause", "for_statement":
+			return cur
+		}
+		if cur == stop {
+			return cur
+		}
+	}
+	return 0
+}
+
+func unusedParameterNodeContainsFlat(file *scanner.File, outer uint32, inner uint32) bool {
+	return file.FlatStartByte(outer) <= file.FlatStartByte(inner) &&
+		file.FlatEndByte(inner) <= file.FlatEndByte(outer)
+}
 
 func hasSiblingOverloadFlat(file *scanner.File, idx uint32, name string) bool {
 	if file == nil || idx == 0 || name == "" {

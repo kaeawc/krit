@@ -31,6 +31,7 @@ type OracleCacheWriter struct {
 	marshalNs            atomic.Int64
 	storePutNs           atomic.Int64
 	atomicWriteNs        atomic.Int64
+	packWrites           atomic.Int64
 
 	uniqueMu       sync.Mutex
 	uniqueDepPaths map[string]struct{}
@@ -51,6 +52,7 @@ type OracleCacheWriterStats struct {
 	MarshalDuration        time.Duration
 	StorePutDuration       time.Duration
 	AtomicWriteDuration    time.Duration
+	PackWrites             int64
 }
 
 // NewOracleCacheWriter starts a bounded writer for oracle cache entries.
@@ -95,6 +97,15 @@ func (w *OracleCacheWriter) QueueFreshEntriesToStoreScoped(s *store.FileStore, c
 
 	w.queued.Add(int64(len(jobs)))
 	memo := newOracleCacheHashMemo(len(jobs))
+	if s == nil {
+		batch := append([]freshOracleEntryJob(nil), jobs...)
+		if !w.writer.Submit(func() (int64, error) {
+			return w.writePackedBatch(cacheDir, memo, batch, callFilterFingerprint), nil
+		}) {
+			w.writePackedBatch(cacheDir, memo, batch, callFilterFingerprint)
+		}
+		return len(jobs), nil
+	}
 	for start := 0; start < len(jobs); start += freshOracleEntryBatchSize {
 		end := start + freshOracleEntryBatchSize
 		if end > len(jobs) {
@@ -152,6 +163,7 @@ func (w *OracleCacheWriter) Stats() OracleCacheWriterStats {
 		MarshalDuration:        time.Duration(w.marshalNs.Load()),
 		StorePutDuration:       time.Duration(w.storePutNs.Load()),
 		AtomicWriteDuration:    time.Duration(w.atomicWriteNs.Load()),
+		PackWrites:             w.packWrites.Load(),
 	}
 }
 
@@ -171,6 +183,7 @@ func (w *OracleCacheWriter) AddPerfEntries(t perf.Tracker, storeBacked bool) {
 		perf.AddEntryDetails(t, "freshEntryStorePut", stats.StorePutDuration, map[string]int64{"entries": stats.Completed}, nil)
 	} else {
 		perf.AddEntryDetails(t, "freshEntryAtomicWrite", stats.AtomicWriteDuration, map[string]int64{"entries": stats.Completed}, nil)
+		perf.AddEntryDetails(t, "oraclePackWrite", stats.AtomicWriteDuration, map[string]int64{"packs": stats.PackWrites, "entries": stats.Completed}, nil)
 	}
 	perf.AddEntryDetails(t, "freshEntryPoisonWrites", 0, map[string]int64{"entries": stats.PoisonWrites}, nil)
 	perf.AddEntryDetails(t, "freshEntrySummary", 0, map[string]int64{
@@ -183,10 +196,11 @@ func (w *OracleCacheWriter) AddPerfEntries(t perf.Tracker, storeBacked bool) {
 		"poisonWrites":   stats.PoisonWrites,
 	}, nil)
 	perf.AddEntryDetails(t, "oracleCacheWriterSummary", 0, map[string]int64{
-		"queued":    stats.Queued,
-		"completed": stats.Completed,
-		"failed":    stats.Failed,
-		"bytes":     stats.Bytes,
+		"queued":     stats.Queued,
+		"completed":  stats.Completed,
+		"failed":     stats.Failed,
+		"bytes":      stats.Bytes,
+		"packWrites": stats.PackWrites,
 	}, nil)
 }
 
@@ -200,13 +214,77 @@ func (w *OracleCacheWriter) writeBatch(s *store.FileStore, cacheDir string, memo
 	return bytes
 }
 
+func (w *OracleCacheWriter) writePackedBatch(cacheDir string, memo *oracleCacheHashMemo, batch []freshOracleEntryJob, callFilterFingerprint string) int64 {
+	writes := make([]oracleEncodedEntryWrite, 0, len(batch))
+	var bytes int64
+	var poisonWrites int64
+	for _, job := range batch {
+		entry, data, poison, ok := w.buildEntryData(memo, job, callFilterFingerprint)
+		if !ok {
+			continue
+		}
+		writes = append(writes, oracleEncodedEntryWrite{hash: entry.ContentHash, data: data})
+		bytes += int64(len(data))
+		if poison {
+			poisonWrites++
+		}
+	}
+	if len(writes) == 0 {
+		return 0
+	}
+	writeStart := time.Now()
+	err := writeEntriesData(cacheDir, writes)
+	w.atomicWriteNs.Add(time.Since(writeStart).Nanoseconds())
+	if err != nil {
+		w.failed.Add(int64(len(writes)))
+		return 0
+	}
+	w.completed.Add(int64(len(writes)))
+	w.bytes.Add(bytes)
+	w.poisonWrites.Add(poisonWrites)
+	w.packWrites.Add(countOraclePackGroups(writes))
+	return bytes
+}
+
 func (w *OracleCacheWriter) writeOne(s *store.FileStore, cacheDir string, memo *oracleCacheHashMemo, job freshOracleEntryJob, callFilterFingerprint string) (int64, bool) {
+	entry, data, poison, ok := w.buildEntryData(memo, job, callFilterFingerprint)
+	if !ok {
+		return 0, false
+	}
+
+	writeStart := time.Now()
+	var err error
+	if s != nil {
+		err = writeEntryDataToStore(s, entry, data)
+		w.storePutNs.Add(time.Since(writeStart).Nanoseconds())
+	} else {
+		err = writeEntryData(cacheDir, entry, data)
+		w.atomicWriteNs.Add(time.Since(writeStart).Nanoseconds())
+		if err == nil {
+			w.packWrites.Add(1)
+		}
+	}
+	if err != nil {
+		w.failed.Add(1)
+		return 0, false
+	}
+
+	n := int64(len(data))
+	w.completed.Add(1)
+	w.bytes.Add(n)
+	if poison {
+		w.poisonWrites.Add(1)
+	}
+	return n, true
+}
+
+func (w *OracleCacheWriter) buildEntryData(memo *oracleCacheHashMemo, job freshOracleEntryJob, callFilterFingerprint string) (*CacheEntry, []byte, bool, bool) {
 	hashStart := time.Now()
 	hash, err := memo.contentHash(job.path)
 	w.contentHashNs.Add(time.Since(hashStart).Nanoseconds())
 	if err != nil {
 		w.failed.Add(1)
-		return 0, false
+		return nil, nil, false, false
 	}
 
 	entry := &CacheEntry{
@@ -226,7 +304,7 @@ func (w *OracleCacheWriter) writeOne(s *store.FileStore, cacheDir string, memo *
 		w.closureFingerprintNs.Add(time.Since(fpStart).Nanoseconds())
 		if err != nil {
 			w.failed.Add(1)
-			return 0, false
+			return nil, nil, false, false
 		}
 		entry.FileResult = job.fileResult
 		entry.PerFileDeps = job.perFileDeps
@@ -238,29 +316,10 @@ func (w *OracleCacheWriter) writeOne(s *store.FileStore, cacheDir string, memo *
 	w.marshalNs.Add(time.Since(marshalStart).Nanoseconds())
 	if err != nil {
 		w.failed.Add(1)
-		return 0, false
+		return nil, nil, false, false
 	}
 
-	writeStart := time.Now()
-	if s != nil {
-		err = writeEntryDataToStore(s, entry, data)
-		w.storePutNs.Add(time.Since(writeStart).Nanoseconds())
-	} else {
-		err = writeEntryData(cacheDir, entry, data)
-		w.atomicWriteNs.Add(time.Since(writeStart).Nanoseconds())
-	}
-	if err != nil {
-		w.failed.Add(1)
-		return 0, false
-	}
-
-	n := int64(len(data))
-	w.completed.Add(1)
-	w.bytes.Add(n)
-	if job.crashed {
-		w.poisonWrites.Add(1)
-	}
-	return n, true
+	return entry, data, job.crashed, true
 }
 
 func (w *OracleCacheWriter) recordDepPaths(paths []string) {

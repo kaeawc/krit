@@ -68,6 +68,7 @@ type Daemon struct {
 	nextID  int
 	started bool
 	shared  bool // true if this daemon was connected to (not started by us)
+	slot    int  // daemon-pool slot; 0 is the legacy single-daemon slot
 	// sourcesHash is the 16-hex-char fingerprint of the sourceDirs this
 	// Daemon was built for (or connected to). Used by MatchesRepo to
 	// detect cross-repo daemon reuse. For freshly-started-by-us daemons
@@ -661,7 +662,7 @@ func (d *Daemon) Close() error {
 	// PID file entries — other repos' daemons under daemons/ are
 	// left alone.
 	if d.port != 0 && d.sourcesHash != "" {
-		removePIDFile(d.sourcesHash)
+		removePIDFileSlot(d.sourcesHash, d.slot)
 	}
 	if d.conn != nil {
 		d.conn.Close()
@@ -711,21 +712,43 @@ func daemonsDir() (string, error) {
 // under ~/.krit/cache/daemons/{hash}.pid, so multiple daemons
 // can coexist — one per repo the user is actively working on.
 func daemonPIDPath(sourcesHash string) string {
+	return daemonPIDPathForSlot(sourcesHash, 0)
+}
+
+func daemonPIDPathForSlot(sourcesHash string, slot int) string {
 	dir, err := daemonsDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), "krit-cache", "daemons", sourcesHash+".pid")
+		return filepath.Join(os.TempDir(), "krit-cache", "daemons", daemonPIDFileName(sourcesHash, slot))
 	}
-	return filepath.Join(dir, sourcesHash+".pid")
+	return filepath.Join(dir, daemonPIDFileName(sourcesHash, slot))
 }
 
 // daemonPortPath returns the path to the port file for the daemon
 // serving the given sourcesHash. Sibling of daemonPIDPath.
 func daemonPortPath(sourcesHash string) string {
+	return daemonPortPathForSlot(sourcesHash, 0)
+}
+
+func daemonPortPathForSlot(sourcesHash string, slot int) string {
 	dir, err := daemonsDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), "krit-cache", "daemons", sourcesHash+".port")
+		return filepath.Join(os.TempDir(), "krit-cache", "daemons", daemonPortFileName(sourcesHash, slot))
 	}
-	return filepath.Join(dir, sourcesHash+".port")
+	return filepath.Join(dir, daemonPortFileName(sourcesHash, slot))
+}
+
+func daemonPIDFileName(sourcesHash string, slot int) string {
+	if slot <= 0 {
+		return sourcesHash + ".pid"
+	}
+	return fmt.Sprintf("%s.%d.pid", sourcesHash, slot)
+}
+
+func daemonPortFileName(sourcesHash string, slot int) string {
+	if slot <= 0 {
+		return sourcesHash + ".port"
+	}
+	return fmt.Sprintf("%s.%d.port", sourcesHash, slot)
 }
 
 // hashSources returns the 16-hex-char content-hash prefix of the
@@ -755,7 +778,11 @@ type pidFileInfo struct {
 // or unparseable. SourcesHash on the returned info is populated from
 // the lookup key, not from disk.
 func readPIDFile(sourcesHash string) (*pidFileInfo, error) {
-	pidPath := daemonPIDPath(sourcesHash)
+	return readPIDFileSlot(sourcesHash, 0)
+}
+
+func readPIDFileSlot(sourcesHash string, slot int) (*pidFileInfo, error) {
+	pidPath := daemonPIDPathForSlot(sourcesHash, slot)
 	pidData, err := os.ReadFile(pidPath)
 	if err != nil {
 		return nil, fmt.Errorf("read pid file: %w", err)
@@ -765,7 +792,7 @@ func readPIDFile(sourcesHash string) (*pidFileInfo, error) {
 		return nil, fmt.Errorf("parse pid: %w", err)
 	}
 
-	portPath := daemonPortPath(sourcesHash)
+	portPath := daemonPortPathForSlot(sourcesHash, slot)
 	portData, err := os.ReadFile(portPath)
 	if err != nil {
 		return nil, fmt.Errorf("read port file: %w", err)
@@ -781,11 +808,15 @@ func readPIDFile(sourcesHash string) (*pidFileInfo, error) {
 // writePIDFile records the PID and port for the daemon serving the
 // given sourcesHash. Creates the daemons/ directory if needed.
 func writePIDFile(pid, port int, sourcesHash string) error {
-	pidPath := daemonPIDPath(sourcesHash)
+	return writePIDFileSlot(pid, port, sourcesHash, 0)
+}
+
+func writePIDFileSlot(pid, port int, sourcesHash string, slot int) error {
+	pidPath := daemonPIDPathForSlot(sourcesHash, slot)
 	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(pid)+"\n"), 0644); err != nil {
 		return fmt.Errorf("write pid file: %w", err)
 	}
-	portPath := daemonPortPath(sourcesHash)
+	portPath := daemonPortPathForSlot(sourcesHash, slot)
 	if err := os.WriteFile(portPath, []byte(strconv.Itoa(port)+"\n"), 0644); err != nil {
 		return fmt.Errorf("write port file: %w", err)
 	}
@@ -795,8 +826,12 @@ func writePIDFile(pid, port int, sourcesHash string) error {
 // removePIDFile removes the PID and port files for the daemon
 // serving the given sourcesHash. Silent on missing files.
 func removePIDFile(sourcesHash string) {
-	os.Remove(daemonPIDPath(sourcesHash))
-	os.Remove(daemonPortPath(sourcesHash))
+	removePIDFileSlot(sourcesHash, 0)
+}
+
+func removePIDFileSlot(sourcesHash string, slot int) {
+	os.Remove(daemonPIDPathForSlot(sourcesHash, slot))
+	os.Remove(daemonPortPathForSlot(sourcesHash, slot))
 }
 
 // isProcessAlive checks whether a process with the given PID is running.
@@ -815,8 +850,12 @@ func isProcessAlive(pid int) bool {
 // ~/.krit/cache/daemons/{hash}.{pid,port}, so multiple daemons (one
 // per repo) can coexist under the same user cache hierarchy.
 func connectExistingDaemon(sourceDirs []string, verbose bool) (*Daemon, error) {
+	return connectExistingDaemonSlot(sourceDirs, verbose, 0)
+}
+
+func connectExistingDaemonSlot(sourceDirs []string, verbose bool, slot int) (*Daemon, error) {
 	hash := hashSources(sourceDirs)
-	info, err := readPIDFile(hash)
+	info, err := readPIDFileSlot(hash, slot)
 	if err != nil {
 		return nil, fmt.Errorf("no existing daemon: %w", err)
 	}
@@ -842,6 +881,7 @@ func connectExistingDaemon(sourceDirs []string, verbose bool) (*Daemon, error) {
 		nextID:      1,
 		started:     true,
 		shared:      true,
+		slot:        slot,
 		sourcesHash: info.SourcesHash,
 	}
 
@@ -852,7 +892,7 @@ func connectExistingDaemon(sourceDirs []string, verbose bool) (*Daemon, error) {
 	}
 
 	if verbose {
-		fmt.Fprintf(os.Stderr, "verbose: Reusing existing daemon (PID %d, port %d, sources %s)\n", info.PID, info.Port, info.SourcesHash)
+		fmt.Fprintf(os.Stderr, "verbose: Reusing existing daemon slot %d (PID %d, port %d, sources %s)\n", slot, info.PID, info.Port, info.SourcesHash)
 	}
 
 	return d, nil
@@ -862,30 +902,34 @@ func connectExistingDaemon(sourceDirs []string, verbose bool) (*Daemon, error) {
 // the given sourceDirs. Only touches the PID file entries belonging
 // to this repo's hash — other repos' daemons are left alone.
 func cleanStaleDaemon(sourceDirs []string, verbose bool) {
+	cleanStaleDaemonSlot(sourceDirs, verbose, 0)
+}
+
+func cleanStaleDaemonSlot(sourceDirs []string, verbose bool, slot int) {
 	hash := hashSources(sourceDirs)
-	info, err := readPIDFile(hash)
+	info, err := readPIDFileSlot(hash, slot)
 	if err != nil {
 		// No PID file or unreadable — nothing to clean
-		removePIDFile(hash)
+		removePIDFileSlot(hash, slot)
 		return
 	}
 
 	if !isProcessAlive(info.PID) {
 		if verbose {
-			fmt.Fprintf(os.Stderr, "verbose: Cleaning up stale daemon PID file (PID %d no longer alive)\n", info.PID)
+			fmt.Fprintf(os.Stderr, "verbose: Cleaning up stale daemon slot %d PID file (PID %d no longer alive)\n", slot, info.PID)
 		}
-		removePIDFile(hash)
+		removePIDFileSlot(hash, slot)
 		return
 	}
 
 	// Process is alive but we couldn't connect — it's stuck. Kill it.
 	if verbose {
-		fmt.Fprintf(os.Stderr, "verbose: Killing unresponsive daemon (PID %d)\n", info.PID)
+		fmt.Fprintf(os.Stderr, "verbose: Killing unresponsive daemon slot %d (PID %d)\n", slot, info.PID)
 	}
 
 	proc, err := os.FindProcess(info.PID)
 	if err != nil {
-		removePIDFile(hash)
+		removePIDFileSlot(hash, slot)
 		return
 	}
 
@@ -907,7 +951,7 @@ func cleanStaleDaemon(sourceDirs []string, verbose bool) {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	removePIDFile(hash)
+	removePIDFileSlot(hash, slot)
 }
 
 // startDaemonReady is the JSON message the daemon sends when --port is used.
@@ -919,6 +963,10 @@ type startDaemonReady struct {
 // StartDaemonWithPort launches the krit-types JVM process in daemon mode with
 // a TCP listener. The daemon auto-assigns a port and reports it on stdout.
 func StartDaemonWithPort(jarPath string, sourceDirs []string, classpath []string, verbose bool) (*Daemon, error) {
+	return StartDaemonWithPortSlot(jarPath, sourceDirs, classpath, verbose, 0)
+}
+
+func StartDaemonWithPortSlot(jarPath string, sourceDirs []string, classpath []string, verbose bool, slot int) (*Daemon, error) {
 	javaPath, err := exec.LookPath("java")
 	if err != nil {
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
@@ -984,7 +1032,7 @@ func StartDaemonWithPort(jarPath string, sourceDirs []string, classpath []string
 	}
 
 	if verbose {
-		fmt.Fprintf(os.Stderr, "verbose: Starting persistent krit-types daemon: %s %s\n", javaPath, strings.Join(args, " "))
+		fmt.Fprintf(os.Stderr, "verbose: Starting persistent krit-types daemon slot %d: %s %s\n", slot, javaPath, strings.Join(args, " "))
 	}
 
 	cmd := exec.Command(javaPath, args...)
@@ -1066,7 +1114,7 @@ func StartDaemonWithPort(jarPath string, sourceDirs []string, classpath []string
 	srcHash := hashSources(sourceDirs)
 
 	// Write PID file so future invocations can find this daemon
-	if err := writePIDFile(cmd.Process.Pid, ready.Port, srcHash); err != nil {
+	if err := writePIDFileSlot(cmd.Process.Pid, ready.Port, srcHash, slot); err != nil {
 		cmd.Process.Kill()
 		return nil, fmt.Errorf("write PID file: %w", err)
 	}
@@ -1075,7 +1123,7 @@ func StartDaemonWithPort(jarPath string, sourceDirs []string, classpath []string
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", ready.Port), 5*time.Second)
 	if err != nil {
 		cmd.Process.Kill()
-		removePIDFile(srcHash)
+		removePIDFileSlot(srcHash, slot)
 		return nil, fmt.Errorf("connect to new daemon: %w", err)
 	}
 
@@ -1092,6 +1140,7 @@ func StartDaemonWithPort(jarPath string, sourceDirs []string, classpath []string
 		nextID:      1,
 		started:     true,
 		shared:      false,
+		slot:        slot,
 		sourcesHash: srcHash,
 	}
 

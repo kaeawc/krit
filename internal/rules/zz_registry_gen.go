@@ -3568,6 +3568,19 @@ func registerAllRules() {
 
 	// --- from android_security.go ---
 	{
+		r := &FieldGetterRule{FlatDispatchBase: FlatDispatchBase{}, AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "FieldGetter", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:  "FieldGetter", Brief: "Using getter instead of field access",
+			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 4,
+			Origin: "AOSP Android Lint",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(),
+			Sev: v2.Severity(r.Sev), NodeTypes: []string{"call_expression"},
+			Confidence: r.Confidence(), OriginalV1: r, Check: r.check,
+		})
+	}
+	{
 		r := &AddJavascriptInterfaceRule{AndroidRule: AndroidRule{
 			BaseRule: BaseRule{RuleName: "AddJavascriptInterface", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:  "AddJavascriptInterface", Brief: "addJavascriptInterface called",
@@ -3679,15 +3692,6 @@ func registerAllRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
-	}
-	{
-		r := &FieldGetterRule{AndroidRule: AndroidRule{
-			BaseRule: BaseRule{RuleName: "FieldGetter", RuleSetName: androidRuleSet, Sev: "warning"},
-			IssueID:  "FieldGetter", Brief: "Using getter instead of field access",
-			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 4,
-			Origin: "AOSP Android Lint",
-		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &FloatMathRule{AndroidRule: AndroidRule{

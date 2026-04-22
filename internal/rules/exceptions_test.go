@@ -1,6 +1,16 @@
 package rules_test
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
+)
 
 // --- ExceptionRaisedInUnexpectedLocation ---
 
@@ -172,7 +182,7 @@ fun test() {
     try {
         doWork()
     } catch (e: Exception) {
-        logger.warn("failed", e)
+        Log.e("tag", "failed", e)
     }
 }
 `)
@@ -230,6 +240,15 @@ fun test() {
     }
 }
 `,
+		"unresolved logger name": `
+fun test(logger: Any) {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        logger.warn("failed", e)
+    }
+}
+`,
 		"unresolved same name api": `
 class WarningSink {
     fun warn(value: Any?) {}
@@ -259,6 +278,16 @@ fun test() {
         work()
     } catch (e: java.io.IOException) {
         println("e throw log handle")
+    }
+}
+`,
+		"unknown assignment without exception is not handling": `
+fun test() {
+    var handled = false
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        handled = true
     }
 }
 `,
@@ -333,12 +362,66 @@ fun test() {
     try {
         work()
     } catch (e: java.io.IOException) {
-        logger.warn("failed", e)
+        Log.e("tag", "failed", e)
         recover()
     }
 }
 `,
-		"android log": `
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			findings := runRuleByNameWithResolver(t, "SwallowedException", code)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
+			}
+		})
+	}
+}
+
+func TestExc_SwallowedException_ResolvedLoggerCall(t *testing.T) {
+	code := `
+import java.util.logging.Logger
+import java.util.logging.Level
+
+class Test(private val logger: Logger) {
+    fun test() {
+        try {
+            work()
+        } catch (e: java.io.IOException) {
+            logger.log(Level.WARNING, "failed", e)
+        }
+    }
+}
+`
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if strings.Contains(file.FlatNodeText(idx), "logger.log") {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = "java.util.logging.Logger.log"
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range v2rules.Registry {
+		if r.ID != "SwallowedException" {
+			continue
+		}
+		cols := rules.NewDispatcherV2([]*v2rules.Rule{r}, composite).Run(file)
+		findings := cols.Findings()
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
+		}
+		return
+	}
+	t.Fatal("SwallowedException rule not found")
+}
+
+func TestExc_SwallowedException_ASTNegativeCasesWithoutResolver(t *testing.T) {
+	cases := map[string]string{
+		"qualified android log": `
 fun test() {
     try {
         work()

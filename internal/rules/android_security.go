@@ -6,6 +6,7 @@ package rules
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
@@ -44,30 +45,143 @@ func (r *AddJavascriptInterfaceRule) check(ctx *v2.Context) {
 
 
 // GetInstanceRule detects Cipher.getInstance with insecure algorithms (ECB, DES).
-type GetInstanceRule struct{ AndroidRule }
+type GetInstanceRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
 
-var getInstanceRe = regexp.MustCompile(`Cipher\.getInstance\s*\(\s*"([^"]*)"`)
+// Confidence reports a tier-2 (medium) base confidence. AST-based
+// detection resolves the call shape structurally (call_expression →
+// navigation_expression(Cipher.getInstance) → string_literal arg) and
+// confirms the receiver is javax.crypto.Cipher via import presence or
+// the absence of a same-file user-defined Cipher class. Algorithm
+// inspection uses the literal's parsed content, not regex slicing.
+func (r *GetInstanceRule) Confidence() float64 { return 0.85 }
 
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *GetInstanceRule) Confidence() float64 { return 0.75 }
+var getInstanceInsecureAlgoTokens = []string{"ECB", "DES", "RC2", "RC4"}
 
 func (r *GetInstanceRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		matches := getInstanceRe.FindStringSubmatch(line)
-		if matches != nil {
-			algo := strings.ToUpper(matches[1])
-			if strings.Contains(algo, "ECB") || strings.HasPrefix(algo, "DES") {
-				ctx.Emit(r.Finding(file, i+1, 1,
-					"Cipher.getInstance uses insecure algorithm. Avoid ECB mode and DES."))
-			}
+	file, idx := ctx.File, ctx.Idx
+	navExpr, args := flatCallExpressionParts(file, idx)
+	if navExpr == 0 || args == 0 {
+		return
+	}
+	if flatNavigationExpressionLastIdentifier(file, navExpr) != "getInstance" {
+		return
+	}
+	if !getInstanceReceiverIsJavaxCipher(file, navExpr) {
+		return
+	}
+	algo, ok := getInstanceFirstStringArg(file, args)
+	if !ok {
+		return
+	}
+	upper := strings.ToUpper(algo)
+	hit := false
+	for _, tok := range getInstanceInsecureAlgoTokens {
+		if strings.Contains(upper, tok) {
+			hit = true
+			break
 		}
 	}
+	if !hit {
+		return
+	}
+	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"Cipher.getInstance uses insecure algorithm. Avoid ECB mode and DES/RC2/RC4.")
+}
+
+// getInstanceReceiverIsJavaxCipher returns true when the navigation
+// expression's receiver is javax.crypto.Cipher — either explicitly
+// spelled `javax.crypto.Cipher.getInstance(...)` or a bare `Cipher`
+// reference backed by an import of `javax.crypto.Cipher` with no
+// conflicting user-defined Cipher class in the same file.
+func getInstanceReceiverIsJavaxCipher(file *scanner.File, navExpr uint32) bool {
+	if file == nil || navExpr == 0 || file.FlatNamedChildCount(navExpr) == 0 {
+		return false
+	}
+	receiver := file.FlatNamedChild(navExpr, 0)
+	text := strings.TrimSpace(file.FlatNodeText(receiver))
+	if text == "javax.crypto.Cipher" {
+		return true
+	}
+	if text != "Cipher" {
+		return false
+	}
+	if getInstanceFileDeclaresCipherType(file) {
+		return false
+	}
+	return getInstanceFileImportsJavaxCipher(file)
+}
+
+func getInstanceFileImportsJavaxCipher(file *scanner.File) bool {
+	found := false
+	file.FlatWalkNodes(0, "import_header", func(node uint32) {
+		if found {
+			return
+		}
+		text := strings.TrimSpace(file.FlatNodeText(node))
+		text = strings.TrimPrefix(text, "import ")
+		text = strings.TrimSuffix(text, ";")
+		text = strings.TrimSpace(text)
+		if text == "javax.crypto.Cipher" || text == "javax.crypto.*" {
+			found = true
+		}
+	})
+	return found
+}
+
+func getInstanceFileDeclaresCipherType(file *scanner.File) bool {
+	found := false
+	for _, nodeType := range []string{"class_declaration", "object_declaration", "type_alias"} {
+		file.FlatWalkNodes(0, nodeType, func(node uint32) {
+			if found {
+				return
+			}
+			if extractIdentifierFlat(file, node) == "Cipher" {
+				found = true
+			}
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+func getInstanceFirstStringArg(file *scanner.File, args uint32) (string, bool) {
+	if file == nil || args == 0 {
+		return "", false
+	}
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if !file.FlatIsNamed(arg) {
+			continue
+		}
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		expr := flatValueArgumentExpression(file, arg)
+		if expr == 0 {
+			return "", false
+		}
+		switch file.FlatType(expr) {
+		case "string_literal", "line_string_literal", "multi_line_string_literal":
+			if flatContainsStringInterpolation(file, expr) {
+				return "", false
+			}
+			text := file.FlatNodeText(expr)
+			if strings.HasPrefix(text, `"""`) && strings.HasSuffix(text, `"""`) {
+				return strings.TrimSuffix(strings.TrimPrefix(text, `"""`), `"""`), true
+			}
+			value, err := strconv.Unquote(text)
+			if err != nil {
+				return "", false
+			}
+			return value, true
+		}
+		return "", false
+	}
+	return "", false
 }
 
 

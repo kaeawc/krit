@@ -252,6 +252,14 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	if filesListPath != "" {
 		args = append(args, "--files", filesListPath)
 	}
+	callFilterPath, cleanupCallFilter, err := writeCallFilterArg(opts, tracker)
+	if err != nil {
+		return "", fmt.Errorf("call filter: %w", err)
+	}
+	defer cleanupCallFilter()
+	if callFilterPath != "" {
+		args = append(args, "--call-filter", callFilterPath)
+	}
 	var cleanupTimings func()
 	if tracker.IsEnabled() {
 		timingsPath, cleanup, err := tempTimingsPath()
@@ -275,12 +283,12 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	defer cancel()
 
 	var res string
-	err := trackOracle(tracker, "kritTypesProcess", func() error {
+	processErr := trackOracle(tracker, "kritTypesProcess", func() error {
 		var err error
 		res, err = runOracleProcess(ctx, javaPath, args, outputPath, timeout, graceExit, verbose)
 		return err
 	})
-	return res, err
+	return res, processErr
 }
 
 // runOracleProcess is the exec+wait+grace-period+stderr-capture core shared by

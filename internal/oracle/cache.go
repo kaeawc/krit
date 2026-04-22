@@ -74,6 +74,10 @@ type CacheEntry struct {
 	FileResult  *OracleFile             `json:"file_result"`
 	PerFileDeps map[string]*OracleClass `json:"per_file_deps,omitempty"`
 	Closure     CacheClosure            `json:"closure"`
+	// CallFilterFingerprint is empty for unfiltered/broad oracle entries.
+	// Filtered entries only satisfy lookups for the same filter. Unfiltered
+	// entries are a safe superset and can satisfy filtered runs.
+	CallFilterFingerprint string `json:"call_filter_fingerprint,omitempty"`
 	// Approximation tags the dep-closure tracking method used when the
 	// entry was written. Any mismatch with the current runtime's
 	// approximation is treated as a miss — lets us upgrade the tracker
@@ -233,6 +237,16 @@ func VerifyClosure(entry *CacheEntry, hashCache map[string]string) bool {
 	return fp == entry.Closure.Fingerprint
 }
 
+func cacheScopeCompatible(entry *CacheEntry, currentCallFilter string) bool {
+	if entry == nil {
+		return false
+	}
+	if currentCallFilter == "" {
+		return entry.CallFilterFingerprint == ""
+	}
+	return entry.CallFilterFingerprint == "" || entry.CallFilterFingerprint == currentCallFilter
+}
+
 // IndexCacheHashes walks the cache entries directory once and returns a
 // set of content hashes that have a cache entry on disk. Lets
 // ClassifyFiles short-circuit misses without a per-file LoadEntry — on
@@ -331,6 +345,10 @@ func writeEntryData(cacheDir string, entry *CacheEntry, data []byte) error {
 // for a content-identical but differently-named file). The `misses` slice
 // contains the subset of `paths` that need to be sent to krit-types.
 func ClassifyFiles(cacheDir string, paths []string) (hits []*CacheEntry, misses []string) {
+	return ClassifyFilesScoped(cacheDir, paths, "")
+}
+
+func ClassifyFilesScoped(cacheDir string, paths []string, callFilterFingerprint string) (hits []*CacheEntry, misses []string) {
 	recordOracleDir(cacheDir)
 	hits = make([]*CacheEntry, 0, len(paths))
 	misses = make([]string, 0)
@@ -376,6 +394,10 @@ func ClassifyFiles(cacheDir string, paths []string) (hits []*CacheEntry, misses 
 			continue
 		}
 		if entry == nil {
+			misses = append(misses, p)
+			continue
+		}
+		if !cacheScopeCompatible(entry, callFilterFingerprint) {
 			misses = append(misses, p)
 			continue
 		}
@@ -782,6 +804,16 @@ func WriteFreshEntriesWithTracker(
 	deps *CacheDepsFile,
 	tracker perf.Tracker,
 ) (int, error) {
+	return WriteFreshEntriesWithTrackerScoped(cacheDir, fresh, deps, tracker, "")
+}
+
+func WriteFreshEntriesWithTrackerScoped(
+	cacheDir string,
+	fresh *OracleData,
+	deps *CacheDepsFile,
+	tracker perf.Tracker,
+	callFilterFingerprint string,
+) (int, error) {
 	if fresh == nil {
 		return 0, nil
 	}
@@ -832,7 +864,8 @@ func WriteFreshEntriesWithTracker(
 				DepPaths:    depPaths,
 				Fingerprint: fp,
 			},
-			Approximation: approx,
+			Approximation:         approx,
+			CallFilterFingerprint: callFilterFingerprint,
 		}
 		entry.V = CacheVersion
 		marshalStart := time.Now()
@@ -869,12 +902,13 @@ func WriteFreshEntriesWithTracker(
 				continue
 			}
 			entry := &CacheEntry{
-				V:             CacheVersion,
-				ContentHash:   hash,
-				FilePath:      path,
-				Crashed:       true,
-				CrashError:    errMsg,
-				Approximation: approx,
+				V:                     CacheVersion,
+				ContentHash:           hash,
+				FilePath:              path,
+				Crashed:               true,
+				CrashError:            errMsg,
+				Approximation:         approx,
+				CallFilterFingerprint: callFilterFingerprint,
 				Closure: CacheClosure{
 					DepPaths:    nil,
 					Fingerprint: "",
@@ -961,8 +995,12 @@ func writeEntryDataToStore(s *store.FileStore, entry *CacheEntry, data []byte) e
 // the legacy cacheDir layout.  Falls back to ClassifyFiles(cacheDir, paths)
 // when s is nil.
 func ClassifyFilesWithStore(s *store.FileStore, cacheDir string, paths []string) (hits []*CacheEntry, misses []string) {
+	return ClassifyFilesWithStoreScoped(s, cacheDir, paths, "")
+}
+
+func ClassifyFilesWithStoreScoped(s *store.FileStore, cacheDir string, paths []string, callFilterFingerprint string) (hits []*CacheEntry, misses []string) {
 	if s == nil {
-		return ClassifyFiles(cacheDir, paths)
+		return ClassifyFilesScoped(cacheDir, paths, callFilterFingerprint)
 	}
 	recordOracleDir(cacheDir)
 	hits = make([]*CacheEntry, 0, len(paths))
@@ -982,6 +1020,10 @@ func ClassifyFilesWithStore(s *store.FileStore, cacheDir string, paths []string)
 
 		entry, err := LoadEntryFromStore(s, hash)
 		if err != nil || entry == nil {
+			misses = append(misses, p)
+			continue
+		}
+		if !cacheScopeCompatible(entry, callFilterFingerprint) {
 			misses = append(misses, p)
 			continue
 		}
@@ -1018,8 +1060,19 @@ func WriteFreshEntriesToStoreWithTracker(
 	deps *CacheDepsFile,
 	tracker perf.Tracker,
 ) (int, error) {
+	return WriteFreshEntriesToStoreWithTrackerScoped(s, cacheDir, fresh, deps, tracker, "")
+}
+
+func WriteFreshEntriesToStoreWithTrackerScoped(
+	s *store.FileStore,
+	cacheDir string,
+	fresh *OracleData,
+	deps *CacheDepsFile,
+	tracker perf.Tracker,
+	callFilterFingerprint string,
+) (int, error) {
 	if s == nil {
-		return WriteFreshEntriesWithTracker(cacheDir, fresh, deps, tracker)
+		return WriteFreshEntriesWithTrackerScoped(cacheDir, fresh, deps, tracker, callFilterFingerprint)
 	}
 	if fresh == nil {
 		return 0, nil
@@ -1060,12 +1113,13 @@ func WriteFreshEntriesToStoreWithTracker(
 			continue
 		}
 		entry := &CacheEntry{
-			V:             CacheVersion,
-			ContentHash:   hash,
-			FilePath:      path,
-			FileResult:    fr,
-			PerFileDeps:   perFileDeps,
-			Approximation: approx,
+			V:                     CacheVersion,
+			ContentHash:           hash,
+			FilePath:              path,
+			FileResult:            fr,
+			PerFileDeps:           perFileDeps,
+			Approximation:         approx,
+			CallFilterFingerprint: callFilterFingerprint,
 			Closure: CacheClosure{
 				DepPaths:    depPaths,
 				Fingerprint: fp,
@@ -1100,13 +1154,14 @@ func WriteFreshEntriesToStoreWithTracker(
 				continue
 			}
 			entry := &CacheEntry{
-				V:             CacheVersion,
-				ContentHash:   hash,
-				FilePath:      path,
-				Crashed:       true,
-				CrashError:    errMsg,
-				Approximation: approx,
-				Closure:       CacheClosure{},
+				V:                     CacheVersion,
+				ContentHash:           hash,
+				FilePath:              path,
+				Crashed:               true,
+				CrashError:            errMsg,
+				Approximation:         approx,
+				CallFilterFingerprint: callFilterFingerprint,
+				Closure:               CacheClosure{},
 			}
 			entry.V = CacheVersion
 			marshalStart := time.Now()

@@ -58,6 +58,11 @@ func WithOracle(f *OracleFilter) FakeOption {
 	return func(r *Rule) { r.Oracle = f }
 }
 
+// WithOracleCallTargets sets the oracle call-target filter.
+func WithOracleCallTargets(f *OracleCallTargetFilter) FakeOption {
+	return func(r *Rule) { r.OracleCallTargets = f }
+}
+
 // FakeContext creates a minimal context for testing with the given file.
 // A FindingCollector is pre-allocated; use ContextFindings(ctx) to read results.
 func FakeContext(file *scanner.File) *Context {

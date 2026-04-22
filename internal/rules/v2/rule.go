@@ -174,6 +174,16 @@ type OracleFilter struct {
 	AllFiles    bool
 }
 
+// OracleCallTargetFilter declares which call targets a rule may ask the
+// JVM oracle to resolve via LookupCallTarget. Nil means the rule does not
+// contribute call-target interest. AllCalls is conservative and disables
+// callee-name filtering when the rule is enabled.
+type OracleCallTargetFilter struct {
+	AllCalls    bool
+	TargetFQNs  []string
+	CalleeNames []string
+}
+
 // NeverNeedsOracle returns true when the filter declares the rule is
 // purely tree-sitter and will never consult the oracle.
 func (f *OracleFilter) NeverNeedsOracle() bool {
@@ -215,6 +225,11 @@ type Rule struct {
 
 	// Oracle filtering (nil = conservative AllFiles default)
 	Oracle *OracleFilter
+
+	// OracleCallTargets optionally narrows JVM call-target resolution to
+	// lexical callees this rule can consume. Broad consumers set
+	// AllCalls=true, which disables the optimization for the active rule set.
+	OracleCallTargets *OracleCallTargetFilter
 
 	// TypeInfo carries per-rule routing hints for type-information
 	// lookups. Zero value (PreferAny, Required=false) is backwards

@@ -14,6 +14,7 @@ import (
 type InvocationOptions struct {
 	Tracker     perf.Tracker
 	CacheWriter *OracleCacheWriter
+	CallFilter  *CallTargetFilterSummary
 }
 
 func (o InvocationOptions) tracker() perf.Tracker {
@@ -75,4 +76,27 @@ func tempTimingsPath() (string, func(), error) {
 	name := f.Name()
 	_ = f.Close()
 	return name, func() { _ = os.Remove(name) }, nil
+}
+
+func callFilterFingerprint(opts InvocationOptions) string {
+	if opts.CallFilter == nil || !opts.CallFilter.Enabled {
+		return ""
+	}
+	return opts.CallFilter.Fingerprint
+}
+
+func writeCallFilterArg(opts InvocationOptions, tracker perf.Tracker) (string, func(), error) {
+	if opts.CallFilter == nil || !opts.CallFilter.Enabled {
+		return "", func() {}, nil
+	}
+	var path string
+	err := trackOracle(tracker, "oracleCallFilterWrite", func() error {
+		var werr error
+		path, werr = WriteCallTargetFilterFile(*opts.CallFilter, "")
+		return werr
+	})
+	if err != nil {
+		return "", func() {}, err
+	}
+	return path, func() { removeCallTargetFilterFile(path) }, nil
 }

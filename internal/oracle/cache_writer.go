@@ -72,15 +72,21 @@ func NewOracleCacheWriter(workers int) *OracleCacheWriter {
 // QueueFreshEntries queues fresh oracle cache entries. If the writer is nil,
 // the existing synchronous path is used.
 func (w *OracleCacheWriter) QueueFreshEntries(cacheDir string, fresh *OracleData, deps *CacheDepsFile) (int, error) {
-	return w.QueueFreshEntriesToStore(nil, cacheDir, fresh, deps)
+	return w.QueueFreshEntriesToStoreScoped(nil, cacheDir, fresh, deps, "")
 }
 
 // QueueFreshEntriesToStore queues fresh oracle cache entries, writing to the
 // unified store when s is non-nil. Queue saturation falls back to running that
 // batch synchronously so cache persistence remains best-effort complete.
 func (w *OracleCacheWriter) QueueFreshEntriesToStore(s *store.FileStore, cacheDir string, fresh *OracleData, deps *CacheDepsFile) (int, error) {
+	return w.QueueFreshEntriesToStoreScoped(s, cacheDir, fresh, deps, "")
+}
+
+// QueueFreshEntriesToStoreScoped is QueueFreshEntriesToStore with cache
+// compatibility metadata for filtered oracle call-target output.
+func (w *OracleCacheWriter) QueueFreshEntriesToStoreScoped(s *store.FileStore, cacheDir string, fresh *OracleData, deps *CacheDepsFile, callFilterFingerprint string) (int, error) {
 	if w == nil || w.writer == nil {
-		return WriteFreshEntriesToStore(s, cacheDir, fresh, deps)
+		return WriteFreshEntriesToStoreWithTrackerScoped(s, cacheDir, fresh, deps, nil, callFilterFingerprint)
 	}
 	jobs := freshOracleEntryJobs(fresh, deps)
 	if len(jobs) == 0 {
@@ -96,9 +102,9 @@ func (w *OracleCacheWriter) QueueFreshEntriesToStore(s *store.FileStore, cacheDi
 		}
 		batch := append([]freshOracleEntryJob(nil), jobs[start:end]...)
 		if !w.writer.Submit(func() (int64, error) {
-			return w.writeBatch(s, cacheDir, memo, batch), nil
+			return w.writeBatch(s, cacheDir, memo, batch, callFilterFingerprint), nil
 		}) {
-			w.writeBatch(s, cacheDir, memo, batch)
+			w.writeBatch(s, cacheDir, memo, batch, callFilterFingerprint)
 		}
 	}
 	return len(jobs), nil
@@ -184,17 +190,17 @@ func (w *OracleCacheWriter) AddPerfEntries(t perf.Tracker, storeBacked bool) {
 	}, nil)
 }
 
-func (w *OracleCacheWriter) writeBatch(s *store.FileStore, cacheDir string, memo *oracleCacheHashMemo, batch []freshOracleEntryJob) int64 {
+func (w *OracleCacheWriter) writeBatch(s *store.FileStore, cacheDir string, memo *oracleCacheHashMemo, batch []freshOracleEntryJob, callFilterFingerprint string) int64 {
 	var bytes int64
 	for _, job := range batch {
-		if n, ok := w.writeOne(s, cacheDir, memo, job); ok {
+		if n, ok := w.writeOne(s, cacheDir, memo, job, callFilterFingerprint); ok {
 			bytes += n
 		}
 	}
 	return bytes
 }
 
-func (w *OracleCacheWriter) writeOne(s *store.FileStore, cacheDir string, memo *oracleCacheHashMemo, job freshOracleEntryJob) (int64, bool) {
+func (w *OracleCacheWriter) writeOne(s *store.FileStore, cacheDir string, memo *oracleCacheHashMemo, job freshOracleEntryJob, callFilterFingerprint string) (int64, bool) {
 	hashStart := time.Now()
 	hash, err := memo.contentHash(job.path)
 	w.contentHashNs.Add(time.Since(hashStart).Nanoseconds())
@@ -204,10 +210,11 @@ func (w *OracleCacheWriter) writeOne(s *store.FileStore, cacheDir string, memo *
 	}
 
 	entry := &CacheEntry{
-		V:             CacheVersion,
-		ContentHash:   hash,
-		FilePath:      job.path,
-		Approximation: job.approximation,
+		V:                     CacheVersion,
+		ContentHash:           hash,
+		FilePath:              job.path,
+		Approximation:         job.approximation,
+		CallFilterFingerprint: callFilterFingerprint,
 	}
 	if job.crashed {
 		entry.Crashed = true

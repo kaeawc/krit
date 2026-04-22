@@ -438,10 +438,22 @@ func (d *Daemon) Analyze(files []string) (*OracleData, error) {
 
 // AnalyzeAll sends a full analysis request for all files.
 func (d *Daemon) AnalyzeAll() (*OracleData, error) {
+	return d.AnalyzeAllWithCallFilter(nil)
+}
+
+// AnalyzeAllWithCallFilter sends a full analysis request for all files,
+// optionally narrowing call-target resolution in the JVM oracle.
+func (d *Daemon) AnalyzeAllWithCallFilter(callFilter *CallTargetFilterSummary) (*OracleData, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	result, err := d.sendResult("analyzeAll", nil)
+	var params map[string]interface{}
+	if callFilter != nil && callFilter.Enabled {
+		params = map[string]interface{}{
+			"callFilterCalleeNames": callFilter.CalleeNames,
+		}
+	}
+	result, err := d.sendResult("analyzeAll", params)
 	if err != nil {
 		return nil, err
 	}
@@ -466,19 +478,22 @@ func (d *Daemon) AnalyzeAll() (*OracleData, error) {
 // the condition and trigger a daemon Rebuild + retry before falling
 // through to one-shot.
 func (d *Daemon) AnalyzeWithDeps(files []string) (*OracleData, *CacheDepsFile, error) {
-	data, deps, _, err := d.AnalyzeWithDepsWithTimings(files, false)
+	data, deps, _, err := d.AnalyzeWithDepsWithTimings(files, false, nil)
 	return data, deps, err
 }
 
 // AnalyzeWithDepsWithTimings is AnalyzeWithDeps plus optional Kotlin-side
 // timing entries returned by newer daemon processes.
-func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool) (*OracleData, *CacheDepsFile, []perf.TimingEntry, error) {
+func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool, callFilter *CallTargetFilterSummary) (*OracleData, *CacheDepsFile, []perf.TimingEntry, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	params := map[string]interface{}{
 		"files":   files,
 		"timings": collectTimings,
+	}
+	if callFilter != nil && callFilter.Enabled {
+		params["callFilterCalleeNames"] = callFilter.CalleeNames
 	}
 
 	resp, err := d.send("analyzeWithDeps", params)

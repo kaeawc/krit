@@ -801,6 +801,44 @@ func runMissAnalysis(
 		return fallback("KRIT_DAEMON_CACHE=off")
 	}
 
+	poolSize := configuredDaemonPoolSize(len(misses))
+	if shouldUseDaemonPool(len(misses), poolSize) {
+		var pool *DaemonPool
+		if err := trackOracle(tracker, "daemonPoolConnectOrStart", func() error {
+			var err error
+			pool, err = ConnectOrStartDaemonPool(jarPath, sourceDirs, nil, poolSize, verbose)
+			return err
+		}); err != nil {
+			return fallback(fmt.Sprintf("ConnectOrStartDaemonPool: %v", err))
+		}
+		defer pool.Release()
+		addOracleInstant(tracker, "daemonPoolConnectOrStartSummary", map[string]int64{
+			"requested": int64(pool.Requested),
+			"connected": int64(pool.Connected),
+			"started":   int64(pool.Started),
+		}, nil)
+		if !pool.MatchesRepo(sourceDirs) {
+			addOracleInstant(tracker, "daemonPoolRepoMismatch", map[string]int64{"misses": int64(len(misses))}, nil)
+			return fallback("daemon pool sourceDirs mismatch")
+		}
+		if verbose {
+			fmt.Fprintf(os.Stderr, "verbose: sharding daemon miss analysis across %d persistent workers (%d files)\n", len(pool.Members), len(misses))
+		}
+		fresh, deps, err := pool.AnalyzeWithDepsSharded(misses, tracker != nil && tracker.IsEnabled(), opts.CallFilter, tracker)
+		if err != nil {
+			addOracleInstant(tracker, "daemonPoolMissAnalysisFallback", nil, map[string]string{"error": err.Error()})
+			return fallback(fmt.Sprintf("daemon pool AnalyzeWithDeps: %v", err))
+		}
+		return fresh, deps, true, nil
+	}
+	if poolSize > 1 {
+		addOracleInstant(tracker, "daemonPoolBypass", map[string]int64{
+			"poolSize":  int64(poolSize),
+			"misses":    int64(len(misses)),
+			"threshold": int64(daemonPoolMinMisses),
+		}, map[string]string{"reason": "smallMissSet"})
+	}
+
 	var d *Daemon
 	if err := trackOracle(tracker, "daemonConnectOrStart", func() error {
 		var err error

@@ -7,6 +7,70 @@ import (
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 )
 
+const wrongConstantAnnotatedApi = `
+annotation class IntDef(vararg val value: Int, val flag: Boolean = false)
+
+@IntDef(View.VISIBLE, View.INVISIBLE, View.GONE)
+annotation class Visibility
+
+@IntDef(View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL, View.LAYOUT_DIRECTION_INHERIT, View.LAYOUT_DIRECTION_LOCALE)
+annotation class LayoutDirection
+
+@IntDef(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, View.IMPORTANT_FOR_ACCESSIBILITY_YES, View.IMPORTANT_FOR_ACCESSIBILITY_NO, View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS)
+annotation class ImportantForAccessibility
+
+@IntDef(LinearLayout.HORIZONTAL, LinearLayout.VERTICAL)
+annotation class Orientation
+
+@IntDef(Gravity.LEFT, Gravity.RIGHT, Gravity.TOP, Gravity.BOTTOM, Gravity.CENTER, flag = true)
+annotation class GravityInt
+
+open class View {
+    companion object {
+        const val VISIBLE = 0
+        const val INVISIBLE = 4
+        const val GONE = 8
+        const val LAYOUT_DIRECTION_LTR = 0
+        const val LAYOUT_DIRECTION_RTL = 1
+        const val LAYOUT_DIRECTION_INHERIT = 2
+        const val LAYOUT_DIRECTION_LOCALE = 3
+        const val IMPORTANT_FOR_ACCESSIBILITY_AUTO = 0
+        const val IMPORTANT_FOR_ACCESSIBILITY_YES = 1
+        const val IMPORTANT_FOR_ACCESSIBILITY_NO = 2
+        const val IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS = 4
+    }
+
+    fun setVisibility(@Visibility value: Int) {}
+    fun setLayoutDirection(@LayoutDirection value: Int) {}
+    fun setImportantForAccessibility(@ImportantForAccessibility value: Int) {}
+}
+
+object Gravity {
+    const val LEFT = 3
+    const val RIGHT = 5
+    const val TOP = 48
+    const val BOTTOM = 80
+    const val CENTER = 17
+}
+
+class TextView : View() {
+    fun setGravity(@GravityInt value: Int) {}
+}
+
+class LinearLayout : View() {
+    companion object {
+        const val HORIZONTAL = 0
+        const val VERTICAL = 1
+    }
+
+    fun setOrientation(@Orientation value: Int) {}
+}
+`
+
+func wrongConstantFixture(body string) string {
+	return "package test\n" + wrongConstantAnnotatedApi + body
+}
+
 // ---------------------------------------------------------------------------
 // TrulyRandom
 // ---------------------------------------------------------------------------
@@ -157,54 +221,53 @@ fun example() {}`)
 
 func TestWrongConstant(t *testing.T) {
 	t.Run("setVisibility with literal triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "WrongConstant", `
-package test
+		findings := runRuleByName(t, "WrongConstant", wrongConstantFixture(`
 fun example() {
+    val view: View = View()
     view.setVisibility(0)
-}`)
+}`))
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 
 	t.Run("setVisibility with constant is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "WrongConstant", `
-package test
+		findings := runRuleByName(t, "WrongConstant", wrongConstantFixture(`
 fun example() {
+    val view: View = View()
     view.setVisibility(View.VISIBLE)
-}`)
+}`))
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("setOrientation with literal triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "WrongConstant", `
-package test
+		findings := runRuleByName(t, "WrongConstant", wrongConstantFixture(`
 fun example() {
+    val layout: LinearLayout = LinearLayout()
     layout.setOrientation(1)
-}`)
+}`))
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 
 	t.Run("setGravity with literal triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "WrongConstant", `
-package test
+		findings := runRuleByName(t, "WrongConstant", wrongConstantFixture(`
 fun example() {
+    val textView: TextView = TextView()
     textView.setGravity(17)
-}`)
+}`))
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 
 	t.Run("comment line is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "WrongConstant", `
-package test
+		findings := runRuleByName(t, "WrongConstant", wrongConstantFixture(`
 // view.setVisibility(0)
-fun example() {}`)
+fun example() {}`))
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}

@@ -547,23 +547,87 @@ fun track() {
 
 func TestWrongConstant_Extra(t *testing.T) {
 	t.Run("positive - raw integer in setVisibility", func(t *testing.T) {
-		findings := runRuleByName(t, "WrongConstant", `
-package test
-
+		findings := runRuleByName(t, "WrongConstant", wrongConstantFixture(`
 fun hide(view: View) {
     view.setVisibility(0)
 }
-`)
+`))
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 	t.Run("negative - named constant in setVisibility", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongConstant", wrongConstantFixture(`
+fun hide(view: View) {
+    view.setVisibility(View.VISIBLE)
+}
+`))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("positive - multiline raw integer in setLayoutDirection", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongConstant", wrongConstantFixture(`
+fun configure(view: View) {
+    view.setLayoutDirection(
+        1
+    )
+}
+`))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Line == 0 || findings[0].Col == 0 {
+			t.Fatalf("expected precise literal location, got line=%d col=%d", findings[0].Line, findings[0].Col)
+		}
+	})
+	t.Run("positive - invalid local constant with annotated same-file API", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongConstant", wrongConstantFixture(`
+const val BAD_VISIBILITY = 3
+
+fun hide(view: View) {
+    view.setVisibility(BAD_VISIBILITY)
+}
+`))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("negative - valid local constant is clean", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongConstant", wrongConstantFixture(`
+const val LOCAL_VISIBLE = 0
+
+fun hide(view: View) {
+    view.setVisibility(LOCAL_VISIBLE)
+}
+`))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative - unrelated same-name method without annotation is clean", func(t *testing.T) {
 		findings := runRuleByName(t, "WrongConstant", `
 package test
 
-fun hide(view: View) {
-    view.setVisibility(View.VISIBLE)
+class Fake {
+    fun setVisibility(value: Int) {}
+}
+
+fun hide(fake: Fake) {
+    fake.setVisibility(0)
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative - strings and unresolved targets are clean", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongConstant", `
+package test
+
+fun hide() {
+    val sample = "view.setVisibility(0)"
+    view.setVisibility(0)
 }
 `)
 		if len(findings) != 0 {

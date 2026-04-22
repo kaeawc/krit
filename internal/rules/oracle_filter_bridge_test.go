@@ -5,6 +5,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/oracle"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func TestBuildOracleFilterRulesV2_SkipsRulesWithoutNeedsOracle(t *testing.T) {
@@ -111,4 +112,72 @@ func TestBuildOracleCallTargetFilterV2_BroadDisables(t *testing.T) {
 	if len(got.DisabledBy) != 1 || got.DisabledBy[0] != "Broad" {
 		t.Fatalf("DisabledBy = %v, want [Broad]", got.DisabledBy)
 	}
+}
+
+func TestBuildOracleCallTargetFilterV2_DerivesAnnotatedCallees(t *testing.T) {
+	files := []*scanner.File{{
+		Path: "src/main/kotlin/Api.kt",
+		Content: []byte(`package test
+
+import kotlin.Deprecated as Old
+
+class Api {
+    @Old("use fun replacement")
+    fun oldCall() = Unit
+
+    @get:CheckResult
+    val mustUse: String = ""
+}
+
+@CheckReturnValue
+fun topLevelMustUse(): String = ""
+`),
+	}}
+	rules := []*v2.Rule{{
+		ID:    "AnnotatedCalls",
+		Needs: v2.NeedsTypeInfo,
+		OracleCallTargets: &v2.OracleCallTargetFilter{
+			AnnotatedIdentifiers: []string{"Deprecated", "CheckReturnValue", "CheckResult"},
+		},
+	}}
+
+	got := BuildOracleCallTargetFilterV2ForFiles(rules, files)
+	if !got.Enabled {
+		t.Fatalf("filter disabled: %+v", got)
+	}
+	for _, want := range []string{"mustUse", "oldCall", "topLevelMustUse"} {
+		if !containsString(got.CalleeNames, want) {
+			t.Fatalf("callee names = %v, missing %q", got.CalleeNames, want)
+		}
+	}
+	if got.Fingerprint == "" {
+		t.Fatal("expected non-empty fingerprint")
+	}
+}
+
+func TestBuildOracleCallTargetFilterV2_AnnotatedCalleesNeedFiles(t *testing.T) {
+	rules := []*v2.Rule{{
+		ID:    "AnnotatedCalls",
+		Needs: v2.NeedsTypeInfo,
+		OracleCallTargets: &v2.OracleCallTargetFilter{
+			AnnotatedIdentifiers: []string{"Deprecated"},
+		},
+	}}
+
+	got := BuildOracleCallTargetFilterV2(rules)
+	if got.Enabled {
+		t.Fatalf("filter enabled without files, want conservative disable: %+v", got)
+	}
+	if len(got.DisabledBy) != 1 || got.DisabledBy[0] != "AnnotatedCalls" {
+		t.Fatalf("DisabledBy = %v, want [AnnotatedCalls]", got.DisabledBy)
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

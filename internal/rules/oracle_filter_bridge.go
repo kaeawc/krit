@@ -3,6 +3,7 @@ package rules
 import (
 	"github.com/kaeawc/krit/internal/oracle"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // BuildOracleFilterRulesV2 converts the subset of v2 rules that declare
@@ -46,6 +47,29 @@ func BuildOracleFilterRulesV2(enabled []*v2.Rule) []oracle.OracleFilterRule {
 // behavior. Rules with nil OracleCallTargets are treated as non-consumers of
 // LookupCallTarget and do not contribute to the union.
 func BuildOracleCallTargetFilterV2(enabled []*v2.Rule) oracle.CallTargetFilterSummary {
+	return BuildOracleCallTargetFilterV2ForFiles(enabled, nil)
+}
+
+// OracleCallTargetFilterNeedsFiles reports whether any active rule asks
+// the call-target filter to derive lexical callee names from source files.
+func OracleCallTargetFilterNeedsFiles(enabled []*v2.Rule) bool {
+	for _, r := range enabled {
+		if r == nil || !r.Needs.Has(v2.NeedsOracle) || r.OracleCallTargets == nil {
+			continue
+		}
+		if len(r.OracleCallTargets.AnnotatedIdentifiers) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// BuildOracleCallTargetFilterV2ForFiles is BuildOracleCallTargetFilterV2
+// plus source-derived callee names for rules that declare
+// OracleCallTargetFilter.AnnotatedIdentifiers. If those rules are evaluated
+// without source files, the function conservatively disables filtering so
+// the JVM preserves the old broad LookupCallTarget behavior.
+func BuildOracleCallTargetFilterV2ForFiles(enabled []*v2.Rule, files []*scanner.File) oracle.CallTargetFilterSummary {
 	summary := oracle.CallTargetFilterSummary{Enabled: true}
 	for _, r := range enabled {
 		if r == nil || !r.Needs.Has(v2.NeedsOracle) {
@@ -62,6 +86,20 @@ func BuildOracleCallTargetFilterV2(enabled []*v2.Rule) oracle.CallTargetFilterSu
 		}
 		summary.CalleeNames = append(summary.CalleeNames, spec.CalleeNames...)
 		summary.TargetFQNs = append(summary.TargetFQNs, spec.TargetFQNs...)
+		if len(spec.AnnotatedIdentifiers) > 0 {
+			if len(files) == 0 {
+				summary.Enabled = false
+				summary.DisabledBy = append(summary.DisabledBy, r.ID)
+				continue
+			}
+			names, uncertain := deriveAnnotatedDeclarationCalleeNames(files, spec.AnnotatedIdentifiers)
+			if uncertain {
+				summary.Enabled = false
+				summary.DisabledBy = append(summary.DisabledBy, r.ID)
+				continue
+			}
+			summary.CalleeNames = append(summary.CalleeNames, names...)
+		}
 	}
 	return oracle.FinalizeCallTargetFilter(summary)
 }

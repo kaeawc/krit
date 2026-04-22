@@ -179,9 +179,20 @@ type OracleFilter struct {
 // contribute call-target interest. AllCalls is conservative and disables
 // callee-name filtering when the rule is enabled.
 type OracleCallTargetFilter struct {
-	AllCalls    bool
-	TargetFQNs  []string
+	AllCalls bool
+	// TargetFQNs are fully-qualified callable targets the rule may query.
+	// The Go bridge derives their simple names for the JVM-side lexical
+	// callee filter.
+	TargetFQNs []string
+	// CalleeNames are lexical callee names the rule may query directly.
 	CalleeNames []string
+	// AnnotatedIdentifiers asks the bridge to derive CalleeNames from
+	// source declarations annotated with these annotation identifiers.
+	// This is for rules that call LookupCallTarget only so they can call
+	// LookupAnnotations on annotated symbols; it avoids resolving every
+	// call expression when the annotated declaration names are knowable
+	// from raw source.
+	AnnotatedIdentifiers []string
 }
 
 // NeverNeedsOracle returns true when the filter declares the rule is

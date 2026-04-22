@@ -276,7 +276,27 @@ func flatValueArgumentExpression(file *scanner.File, arg uint32) uint32 {
 	if file == nil || arg == 0 || file.FlatNamedChildCount(arg) == 0 {
 		return 0
 	}
-	return file.FlatNamedChild(arg, 0)
+	afterEquals := false
+	for child := file.FlatFirstChild(arg); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			afterEquals = true
+			continue
+		}
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		if afterEquals {
+			return child
+		}
+		if file.FlatType(child) == "value_argument_label" {
+			continue
+		}
+		if next, ok := file.FlatNextSibling(child); ok && file.FlatType(next) == "=" {
+			continue
+		}
+		return child
+	}
+	return 0
 }
 
 func flatContainsStringInterpolation(file *scanner.File, idx uint32) bool {

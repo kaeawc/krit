@@ -172,12 +172,220 @@ fun test() {
     try {
         doWork()
     } catch (e: Exception) {
-        log(e)
+        logger.warn("failed", e)
     }
 }
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestExc_SwallowedException_ASTPositiveCases(t *testing.T) {
+	cases := map[string]string{
+		"empty catch": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+    }
+}
+`,
+		"comment only": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        // ignored: e throw log handle
+    }
+}
+`,
+		"message only throw": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        throw IllegalStateException(e.message)
+    }
+}
+`,
+		"message alias throw": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        val msg = e.message
+        throw IllegalStateException(
+            msg
+        )
+    }
+}
+`,
+		"message only logging": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        logger.warn(e.message)
+    }
+}
+`,
+		"unresolved same name api": `
+class WarningSink {
+    fun warn(value: Any?) {}
+}
+fun test(sink: WarningSink) {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        sink.warn(e)
+    }
+}
+`,
+		"nested lambda ignored": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        run {
+            logger.warn("failed", e)
+        }
+    }
+}
+`,
+		"string literals ignored": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        println("e throw log handle")
+    }
+}
+`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			findings := runRuleByName(t, "SwallowedException", code)
+			if len(findings) == 0 {
+				t.Fatal("expected finding")
+			}
+		})
+	}
+}
+
+func TestExc_SwallowedException_ASTNegativeCases(t *testing.T) {
+	cases := map[string]string{
+		"direct rethrow": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        throw e
+    }
+}
+`,
+		"cause forwarding": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        throw IllegalStateException("failed", e)
+    }
+}
+`,
+		"named cause forwarding": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        throw IllegalStateException(
+            message = "failed",
+            cause = e
+        )
+    }
+}
+`,
+		"alias forwarding throw": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        val cause = e
+        throw cause
+    }
+}
+`,
+		"alias constructor forwarding": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        val cause = e
+        throw IllegalStateException(
+            "failed",
+            cause
+        )
+    }
+}
+`,
+		"recognized logger": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        logger.warn("failed", e)
+        recover()
+    }
+}
+`,
+		"android log": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        Log.e("tag", "failed", e)
+    }
+}
+`,
+		"ui handling": `
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        Toast.makeText(context, e.message, Toast.LENGTH_SHORT).show()
+    }
+}
+`,
+		"assignment handling": `
+class Holder {
+    var lastError: Throwable? = null
+    fun test() {
+        try {
+            work()
+        } catch (e: java.io.IOException) {
+            lastError = e
+        }
+    }
+}
+`,
+		"same owner local handler": `
+fun test() {
+    fun handleError(t: Throwable) {}
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        handleError(e)
+    }
+}
+`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			findings := runRuleByName(t, "SwallowedException", code)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
+			}
+		})
 	}
 }
 

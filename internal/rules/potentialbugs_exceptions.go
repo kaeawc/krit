@@ -24,8 +24,6 @@ type PrintStackTraceRule struct {
 // sharing the same simple name. Classified per roadmap/17.
 func (r *PrintStackTraceRule) Confidence() float64 { return 0.75 }
 
-
-
 // ---------------------------------------------------------------------------
 // asyncBoundaryBaseClasses are base classes where catching generic exceptions
 // is a best practice because they run on background threads and uncaught
@@ -51,7 +49,6 @@ type TooGenericExceptionCaughtRule struct {
 	AllowedExceptionNameRegex *regexp.Regexp // exception var names matching this are allowed
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence — matches on
 // exception-type names; with the resolver it can respect custom
 // hierarchies, without it flags by name only. Classified per roadmap/17.
@@ -71,7 +68,6 @@ var genericExceptionSet = func() map[string]bool {
 	}
 	return m
 }()
-
 
 func (r *TooGenericExceptionCaughtRule) exceptionNameSet() map[string]bool {
 	names := r.ExceptionNames
@@ -181,23 +177,42 @@ func (r *TooGenericExceptionCaughtRule) checkNode(ctx *v2.Context) {
 }
 
 func extractCaughtVarNameFlat(file *scanner.File, catchNode uint32) string {
-	text := file.FlatNodeText(catchNode)
-	re := regexp.MustCompile(`catch\s*\(\s*(\w+)\s*:`)
-	m := re.FindStringSubmatch(text)
-	if len(m) >= 2 {
-		return m[1]
+	if file == nil || catchNode == 0 || file.FlatType(catchNode) != "catch_block" {
+		return ""
+	}
+	for child := file.FlatFirstChild(catchNode); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "simple_identifier" {
+			return file.FlatNodeString(child, nil)
+		}
 	}
 	return ""
 }
 
 func extractCaughtTypeNameFlat(file *scanner.File, catchNode uint32) string {
-	text := file.FlatNodeText(catchNode)
-	re := regexp.MustCompile(`catch\s*\(\s*\w+\s*:\s*(\w+)`)
-	m := re.FindStringSubmatch(text)
-	if len(m) >= 2 {
-		return m[1]
+	if file == nil || catchNode == 0 || file.FlatType(catchNode) != "catch_block" {
+		return ""
+	}
+	for child := file.FlatFirstChild(catchNode); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "user_type", "nullable_type", "function_type":
+			if name := flatTypeLastIdentifier(file, child); name != "" {
+				return name
+			}
+			return strings.TrimSpace(file.FlatNodeText(child))
+		}
 	}
 	return ""
+}
+
+func flatTypeLastIdentifier(file *scanner.File, idx uint32) string {
+	last := ""
+	file.FlatWalkAllNodes(idx, func(candidate uint32) {
+		switch file.FlatType(candidate) {
+		case "type_identifier", "simple_identifier":
+			last = file.FlatNodeString(candidate, nil)
+		}
+	})
+	return last
 }
 
 func isInsideAsyncBoundaryFlat(file *scanner.File, idx uint32) bool {
@@ -309,7 +324,6 @@ type TooGenericExceptionThrownRule struct {
 	ExceptionNames []string // configurable list of generic exception types
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence — matches on
 // thrown-exception names; name-only fallback false-positives on
 // project-defined exceptions with the same name. Classified per roadmap/17.
@@ -400,7 +414,6 @@ type UnreachableCatchBlockRule struct {
 	FlatDispatchBase
 	BaseRule
 }
-
 
 // Confidence reports a tier-2 (medium) base confidence — catch-block
 // reachability depends on the thrown-type hierarchy from the resolver;
@@ -499,7 +512,6 @@ var oracleDiagnosticFactories = map[string]bool{
 	"USELESS_ELVIS":    true,
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence. When the
 // oracle provides compiler diagnostics the rule is authoritative
 // (the Kotlin compiler already decided the code is unreachable), but
@@ -511,7 +523,6 @@ var oracleDiagnosticFactories = map[string]bool{
 // path could override to 0.95 per-finding; the rule-level base
 // reflects the fallback's accuracy.
 func (r *UnreachableCodeRule) Confidence() float64 { return 0.75 }
-
 
 // nothingReturningFuncs lists bare function names that are known to return Nothing.
 var nothingReturningFuncs = map[string]bool{

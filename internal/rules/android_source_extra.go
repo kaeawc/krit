@@ -13,27 +13,57 @@ import (
 )
 
 type permissionAPI struct {
-	api  string
-	perm string
-	re   *regexp.Regexp
+	api             string
+	callee          string
+	perm            string
+	callTargets     []string
+	receiverTypes   []string
+	staticReceivers []string
 }
 
 var missingPermissionAPIs = []permissionAPI{
-	{api: "requestLocationUpdates", perm: "ACCESS_FINE_LOCATION", re: regexp.MustCompile(`\brequestLocationUpdates\s*\(`)},
-	{api: "getLastKnownLocation", perm: "ACCESS_FINE_LOCATION", re: regexp.MustCompile(`\bgetLastKnownLocation\s*\(`)},
-	{api: "getCellLocation", perm: "ACCESS_COARSE_LOCATION", re: regexp.MustCompile(`\bgetCellLocation\s*\(`)},
-	{api: "Camera.open", perm: "CAMERA", re: regexp.MustCompile(`\bCamera\.open\s*\(`)},
-	{api: "setAudioSource", perm: "RECORD_AUDIO", re: regexp.MustCompile(`\bsetAudioSource\s*\(`)},
+	{
+		api:           "requestLocationUpdates",
+		callee:        "requestLocationUpdates",
+		perm:          "ACCESS_FINE_LOCATION",
+		callTargets:   []string{"android.location.LocationManager.requestLocationUpdates"},
+		receiverTypes: []string{"android.location.LocationManager"},
+	},
+	{
+		api:           "getLastKnownLocation",
+		callee:        "getLastKnownLocation",
+		perm:          "ACCESS_FINE_LOCATION",
+		callTargets:   []string{"android.location.LocationManager.getLastKnownLocation"},
+		receiverTypes: []string{"android.location.LocationManager"},
+	},
+	{
+		api:           "getCellLocation",
+		callee:        "getCellLocation",
+		perm:          "ACCESS_COARSE_LOCATION",
+		callTargets:   []string{"android.telephony.TelephonyManager.getCellLocation"},
+		receiverTypes: []string{"android.telephony.TelephonyManager"},
+	},
+	{
+		api:             "Camera.open",
+		callee:          "open",
+		perm:            "CAMERA",
+		callTargets:     []string{"android.hardware.Camera.open"},
+		staticReceivers: []string{"android.hardware.Camera"},
+	},
+	{
+		api:           "setAudioSource",
+		callee:        "setAudioSource",
+		perm:          "RECORD_AUDIO",
+		callTargets:   []string{"android.media.MediaRecorder.setAudioSource"},
+		receiverTypes: []string{"android.media.MediaRecorder"},
+	},
 }
 
-var permissionGuardTokens = []string{
-	"checkSelfPermission",
-	"ContextCompat.checkSelfPermission",
-	"ActivityCompat.checkSelfPermission",
-	"PermissionChecker.checkSelfPermission",
-	"requestPermissions(",
-	"ContextCompat.requestPermissions",
-	"ActivityCompat.requestPermissions",
+var missingPermissionKnownPerms = map[string]bool{
+	"ACCESS_COARSE_LOCATION": true,
+	"ACCESS_FINE_LOCATION":   true,
+	"CAMERA":                 true,
+	"RECORD_AUDIO":           true,
 }
 
 type ViewConstructorRule struct {
@@ -518,54 +548,563 @@ func (r *TrulyRandomRule) check(ctx *v2.Context) {
 }
 
 type MissingPermissionRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
+func (r *MissingPermissionRule) NodeTypes() []string { return []string{"call_expression"} }
+
+// Confidence reports a tier-2 (medium) base confidence. The rule requires a
+// structural or resolved Android API anchor and a same-permission guard proof,
+// but can still run with source-level type evidence when KAA call targets are
+// unavailable.
 func (r *MissingPermissionRule) Confidence() float64 { return 0.75 }
 
 func (r *MissingPermissionRule) check(ctx *v2.Context) {
+	if ctx == nil || ctx.File == nil || ctx.Idx == 0 {
+		return
+	}
 	file := ctx.File
-	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if scanner.IsCommentLine(line) || strings.HasPrefix(trimmed, "import ") {
+	if first := file.FlatChild(ctx.Idx, 0); first != 0 && file.FlatType(first) == "call_expression" {
+		return
+	}
+	match, evidence, ok := missingPermissionRequiredAPI(ctx, ctx.Idx)
+	if !ok {
+		return
+	}
+	confidence, ok := semantics.ConfidenceForEvidence(r.Confidence(), evidence)
+	if !ok {
+		return
+	}
+	if missingPermissionHasStructuralGuard(ctx, ctx.Idx, match.perm) {
+		return
+	}
+	line := file.FlatRow(ctx.Idx) + 1
+	col := file.FlatCol(ctx.Idx) + 1
+	f := r.Finding(file, line, col,
+		match.api+" requires "+match.perm+" permission. Ensure checkSelfPermission() is called before this API.")
+	f.Confidence = confidence
+	ctx.Emit(f)
+}
+
+func missingPermissionRequiredAPI(ctx *v2.Context, call uint32) (permissionAPI, semantics.SemanticEvidence, bool) {
+	target, ok := semantics.ResolveCallTarget(ctx, call)
+	if !ok {
+		return permissionAPI{}, semantics.EvidenceUnresolved, false
+	}
+	for i := range missingPermissionAPIs {
+		api := missingPermissionAPIs[i]
+		if target.CalleeName != api.callee {
 			continue
 		}
-		var match *permissionAPI
-		var loc []int
-		for idx := range missingPermissionAPIs {
-			api := &missingPermissionAPIs[idx]
-			if candidate := api.re.FindStringIndex(line); candidate != nil {
-				match = api
-				loc = candidate
-				break
+		if target.Resolved && missingPermissionCallTargetMatches(target.QualifiedName, api.callTargets) {
+			return api, semantics.EvidenceResolved, true
+		}
+		if missingPermissionStaticReceiverMatches(ctx.File, target, api.staticReceivers) {
+			return api, semantics.EvidenceQualifiedReceiver, true
+		}
+		if semantics.MatchQualifiedReceiver(ctx, call, api.receiverTypes...) {
+			return api, semantics.EvidenceQualifiedReceiver, true
+		}
+		if missingPermissionReceiverDeclarationHasType(ctx, target.Receiver.Node, api.receiverTypes) {
+			return api, semantics.EvidenceSameOwner, true
+		}
+	}
+	if api, ok := missingPermissionAnnotatedSameFileTarget(ctx, call, target); ok {
+		return api, semantics.EvidenceSameFileDeclaration, true
+	}
+	return permissionAPI{}, semantics.EvidenceUnresolved, false
+}
+
+func missingPermissionCallTargetMatches(got string, wants []string) bool {
+	got = strings.ReplaceAll(strings.TrimSpace(got), "#", ".")
+	for _, want := range wants {
+		want = strings.ReplaceAll(strings.TrimSpace(want), "#", ".")
+		if got == want || strings.HasSuffix(got, "."+want) {
+			return true
+		}
+	}
+	return false
+}
+
+func missingPermissionStaticReceiverMatches(file *scanner.File, target semantics.CallTarget, receivers []string) bool {
+	if file == nil || !target.Receiver.Valid() || len(receivers) == 0 {
+		return false
+	}
+	receiverPath := missingPermissionIdentifierPath(file, target.Receiver.Node)
+	for _, receiver := range receivers {
+		if receiverPath == receiver {
+			return true
+		}
+		if receiverPath == missingPermissionSimpleName(receiver) && missingPermissionHasImport(file, receiver) {
+			return true
+		}
+	}
+	return false
+}
+
+func missingPermissionReceiverDeclarationHasType(ctx *v2.Context, receiver uint32, types []string) bool {
+	if ctx == nil || ctx.File == nil || receiver == 0 || len(types) == 0 {
+		return false
+	}
+	file := ctx.File
+	name := semantics.ReferenceName(file, receiver)
+	if name == "" {
+		return false
+	}
+	for owner, ok := file.FlatParent(receiver); ok; owner, ok = file.FlatParent(owner) {
+		switch file.FlatType(owner) {
+		case "function_declaration", "secondary_constructor", "class_declaration", "object_declaration", "source_file":
+			if missingPermissionOwnerDeclaresTypedName(file, owner, name, types) {
+				return true
 			}
 		}
-		if match == nil {
-			continue
-		}
-		if enclosingAncestor(file, nodeAtPoint(file, i+1, loc[0]), "call_expression") == 0 {
-			continue
-		}
-		if containsAny(line, permissionGuardTokens) {
-			continue
-		}
-		prefix, ok := prefixTextBeforeLine(file, i+1, "function_declaration", "secondary_constructor", "anonymous_initializer", "lambda_literal")
-		if !ok {
-			continue
-		}
-		if containsAny(prefix, permissionGuardTokens) {
-			continue
-		}
-		ctx.Emit(r.Finding(file, i+1, 1,
-			match.api+" requires "+match.perm+" permission. Ensure checkSelfPermission() is called before this API."))
 	}
+	return false
+}
+
+func missingPermissionOwnerDeclaresTypedName(file *scanner.File, owner uint32, name string, types []string) bool {
+	found := false
+	file.FlatWalkAllNodes(owner, func(node uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(node) {
+		case "parameter", "class_parameter", "property_declaration", "variable_declaration":
+			if extractIdentifierFlat(file, node) == name && missingPermissionNodeMentionsType(file, node, types) {
+				found = true
+			}
+		}
+	})
+	return found
+}
+
+func missingPermissionNodeMentionsType(file *scanner.File, node uint32, types []string) bool {
+	found := false
+	file.FlatWalkAllNodes(node, func(candidate uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(candidate) {
+		case "type_identifier", "user_type":
+			path := missingPermissionIdentifierPath(file, candidate)
+			for _, typ := range types {
+				if path == typ || path == missingPermissionSimpleName(typ) && missingPermissionHasImport(file, typ) {
+					found = true
+					return
+				}
+			}
+		}
+	})
+	return found
+}
+
+func missingPermissionAnnotatedSameFileTarget(ctx *v2.Context, call uint32, target semantics.CallTarget) (permissionAPI, bool) {
+	if ctx == nil || ctx.File == nil || target.CalleeName == "" {
+		return permissionAPI{}, false
+	}
+	file := ctx.File
+	var out permissionAPI
+	found := false
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		if found || !semantics.SameFileDeclarationMatch(ctx, fn, call) {
+			return
+		}
+		perm, ok := missingPermissionRequiredPermissionAnnotation(ctx, fn)
+		if !ok {
+			return
+		}
+		out = permissionAPI{api: target.CalleeName, callee: target.CalleeName, perm: perm}
+		found = true
+	})
+	return out, found
+}
+
+func missingPermissionHasStructuralGuard(ctx *v2.Context, call uint32, perm string) bool {
+	return missingPermissionEnclosingPermissionCondition(ctx, call, perm) ||
+		missingPermissionHasPrecedingGrantedReturnGuard(ctx, call, perm) ||
+		missingPermissionEnclosingAnnotationRequires(ctx, call, perm) ||
+		missingPermissionEnclosingCatchesSecurityException(ctx, call)
+}
+
+type missingPermissionGuardState int
+
+const (
+	missingPermissionGuardUnknown missingPermissionGuardState = iota
+	missingPermissionGuardGranted
+	missingPermissionGuardDenied
+)
+
+func missingPermissionEnclosingPermissionCondition(ctx *v2.Context, call uint32, perm string) bool {
+	file := ctx.File
+	for body, ok := file.FlatParent(call); ok; body, ok = file.FlatParent(body) {
+		if file.FlatType(body) != "control_structure_body" {
+			continue
+		}
+		parent, ok := file.FlatParent(body)
+		if !ok || file.FlatType(parent) != "if_expression" {
+			continue
+		}
+		cond, thenBody, elseBody := missingPermissionIfParts(file, parent)
+		if cond == 0 || body != thenBody && body != elseBody {
+			continue
+		}
+		state := missingPermissionConditionPermissionState(ctx, cond, perm)
+		if state == missingPermissionGuardGranted && body == thenBody {
+			return true
+		}
+		if state == missingPermissionGuardDenied && body == elseBody {
+			return true
+		}
+	}
+	return false
+}
+
+func missingPermissionConditionPermissionState(ctx *v2.Context, cond uint32, perm string) missingPermissionGuardState {
+	if ctx == nil || ctx.File == nil || cond == 0 {
+		return missingPermissionGuardUnknown
+	}
+	file := ctx.File
+	cond = flatUnwrapParenExpr(file, cond)
+	switch file.FlatType(cond) {
+	case "equality_expression":
+		return missingPermissionEqualityPermissionState(ctx, cond, perm)
+	case "conjunction_expression":
+		for child := file.FlatFirstChild(cond); child != 0; child = file.FlatNextSib(child) {
+			if !file.FlatIsNamed(child) {
+				continue
+			}
+			if missingPermissionConditionPermissionState(ctx, child, perm) == missingPermissionGuardGranted {
+				return missingPermissionGuardGranted
+			}
+		}
+	}
+	return missingPermissionGuardUnknown
+}
+
+func missingPermissionEqualityPermissionState(ctx *v2.Context, expr uint32, perm string) missingPermissionGuardState {
+	file := ctx.File
+	if file.FlatType(expr) != "equality_expression" || file.FlatChildCount(expr) < 3 {
+		return missingPermissionGuardUnknown
+	}
+	left := flatUnwrapParenExpr(file, file.FlatChild(expr, 0))
+	op := strings.TrimSpace(file.FlatNodeText(file.FlatChild(expr, 1)))
+	right := flatUnwrapParenExpr(file, file.FlatChild(expr, file.FlatChildCount(expr)-1))
+	if left == 0 || op == "" || right == 0 {
+		return missingPermissionGuardUnknown
+	}
+
+	if missingPermissionCheckSelfPermissionCall(ctx, left, perm) {
+		return missingPermissionComparePermissionResult(file, op, right)
+	}
+	if missingPermissionCheckSelfPermissionCall(ctx, right, perm) {
+		return missingPermissionComparePermissionResult(file, op, left)
+	}
+	return missingPermissionGuardUnknown
+}
+
+func missingPermissionComparePermissionResult(file *scanner.File, op string, result uint32) missingPermissionGuardState {
+	granted, ok := missingPermissionPermissionResultConstant(file, result)
+	if !ok {
+		return missingPermissionGuardUnknown
+	}
+	switch op {
+	case "==":
+		if granted {
+			return missingPermissionGuardGranted
+		}
+		return missingPermissionGuardDenied
+	case "!=":
+		if granted {
+			return missingPermissionGuardDenied
+		}
+		return missingPermissionGuardGranted
+	default:
+		return missingPermissionGuardUnknown
+	}
+}
+
+func missingPermissionPermissionResultConstant(file *scanner.File, expr uint32) (granted bool, ok bool) {
+	expr = flatUnwrapParenExpr(file, expr)
+	path := missingPermissionIdentifierPath(file, expr)
+	switch missingPermissionSimpleName(path) {
+	case "PERMISSION_GRANTED", "GRANTED":
+		return true, true
+	case "PERMISSION_DENIED", "DENIED":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func missingPermissionCheckSelfPermissionCall(ctx *v2.Context, call uint32, perm string) bool {
+	if ctx == nil || ctx.File == nil || ctx.File.FlatType(call) != "call_expression" {
+		return false
+	}
+	target, ok := semantics.ResolveCallTarget(ctx, call)
+	if !ok || target.CalleeName != "checkSelfPermission" {
+		return false
+	}
+	for _, arg := range target.Arguments {
+		if missingPermissionExprMatchesPermission(ctx, arg.Node, perm) {
+			return true
+		}
+	}
+	return false
+}
+
+func missingPermissionHasPrecedingGrantedReturnGuard(ctx *v2.Context, call uint32, perm string) bool {
+	if ctx == nil || ctx.File == nil || call == 0 {
+		return false
+	}
+	file := ctx.File
+	scope := enclosingAncestor(file, call, "function_declaration", "secondary_constructor", "anonymous_initializer", "lambda_literal")
+	if scope == 0 {
+		return false
+	}
+	targetStart := file.FlatStartByte(call)
+	guarded := false
+	file.FlatWalkNodes(scope, "if_expression", func(ifExpr uint32) {
+		if guarded || file.FlatStartByte(ifExpr) >= targetStart {
+			return
+		}
+		ifStmt, ifContainer := missingPermissionContainingStatement(file, ifExpr)
+		callStmt, callContainer := missingPermissionContainingStatement(file, call)
+		if ifContainer == 0 || ifContainer != callContainer || file.FlatEndByte(ifStmt) > file.FlatStartByte(callStmt) {
+			return
+		}
+		cond, thenBody, _ := missingPermissionIfParts(file, ifExpr)
+		if cond == 0 || thenBody == 0 {
+			return
+		}
+		if missingPermissionConditionPermissionState(ctx, cond, perm) != missingPermissionGuardDenied {
+			return
+		}
+		if missingPermissionBodyTerminates(file, thenBody) {
+			guarded = true
+		}
+	})
+	return guarded
+}
+
+func missingPermissionContainingStatement(file *scanner.File, idx uint32) (stmt uint32, container uint32) {
+	if file == nil || idx == 0 {
+		return 0, 0
+	}
+	for cur, ok := idx, true; ok; cur, ok = file.FlatParent(cur) {
+		parent, hasParent := file.FlatParent(cur)
+		if !hasParent {
+			return cur, 0
+		}
+		switch file.FlatType(parent) {
+		case "statements", "function_body", "control_structure_body", "lambda_literal", "anonymous_initializer":
+			return cur, parent
+		}
+	}
+	return 0, 0
+}
+
+func missingPermissionBodyTerminates(file *scanner.File, body uint32) bool {
+	if file == nil || body == 0 {
+		return false
+	}
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		if missingPermissionNodeTerminates(file, child) {
+			return true
+		}
+	}
+	return missingPermissionNodeTerminates(file, body)
+}
+
+func missingPermissionNodeTerminates(file *scanner.File, node uint32) bool {
+	switch file.FlatType(node) {
+	case "jump_expression":
+		text := strings.TrimSpace(file.FlatNodeText(node))
+		return strings.HasPrefix(text, "return") || strings.HasPrefix(text, "throw")
+	case "call_expression":
+		target, ok := semantics.ResolveCallTarget(&v2.Context{File: file}, node)
+		return ok && (target.CalleeName == "error" || target.CalleeName == "TODO")
+	default:
+		for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatIsNamed(child) {
+				return missingPermissionNodeTerminates(file, child)
+			}
+		}
+		return false
+	}
+}
+
+func missingPermissionEnclosingAnnotationRequires(ctx *v2.Context, call uint32, perm string) bool {
+	for owner, ok := ctx.File.FlatParent(call); ok; owner, ok = ctx.File.FlatParent(owner) {
+		switch ctx.File.FlatType(owner) {
+		case "function_declaration", "class_declaration", "object_declaration":
+			if required, ok := missingPermissionRequiredPermissionAnnotation(ctx, owner); ok && required == perm {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func missingPermissionRequiredPermissionAnnotation(ctx *v2.Context, node uint32) (string, bool) {
+	file := ctx.File
+	if mods, ok := file.FlatFindChild(node, "modifiers"); ok {
+		if perm, ok := missingPermissionAnnotationContainerPermission(ctx, mods); ok {
+			return perm, true
+		}
+	}
+	for prev, ok := file.FlatPrevSibling(node); ok; prev, ok = file.FlatPrevSibling(prev) {
+		switch file.FlatType(prev) {
+		case "prefix_expression", "annotation", "modifiers":
+			if perm, ok := missingPermissionAnnotationContainerPermission(ctx, prev); ok {
+				return perm, true
+			}
+		default:
+			if strings.TrimSpace(file.FlatNodeText(prev)) != "" {
+				return "", false
+			}
+		}
+	}
+	return "", false
+}
+
+func missingPermissionAnnotationContainerPermission(ctx *v2.Context, container uint32) (string, bool) {
+	file := ctx.File
+	var perm string
+	if !strings.Contains(file.FlatNodeText(container), "RequiresPermission") {
+		return "", false
+	}
+	file.FlatWalkAllNodes(container, func(candidate uint32) {
+		if perm != "" {
+			return
+		}
+		if p, ok := missingPermissionExprPermissionName(ctx, candidate); ok {
+			perm = p
+		}
+	})
+	return perm, perm != ""
+}
+
+func missingPermissionEnclosingCatchesSecurityException(ctx *v2.Context, call uint32) bool {
+	for _, handler := range semantics.EnclosingCaughtExceptionHandlers(ctx, call) {
+		if handler.TypeName == "SecurityException" || handler.TypeName == "java.lang.SecurityException" {
+			return true
+		}
+	}
+	return false
+}
+
+func missingPermissionExprMatchesPermission(ctx *v2.Context, expr uint32, perm string) bool {
+	if p, ok := missingPermissionExprPermissionName(ctx, expr); ok {
+		return p == perm
+	}
+	if ctx == nil || ctx.File == nil || expr == 0 {
+		return false
+	}
+	found := false
+	ctx.File.FlatWalkAllNodes(expr, func(node uint32) {
+		if found {
+			return
+		}
+		if p, ok := missingPermissionExprPermissionName(ctx, node); ok && p == perm {
+			found = true
+		}
+	})
+	return found
+}
+
+func missingPermissionExprPermissionName(ctx *v2.Context, expr uint32) (string, bool) {
+	if ctx == nil || ctx.File == nil || expr == 0 {
+		return "", false
+	}
+	if val, ok := semantics.EvalConst(ctx, expr); ok && val.Kind == "string" {
+		return missingPermissionStringPermissionName(val.String)
+	}
+	file := ctx.File
+	switch file.FlatType(expr) {
+	case "simple_identifier", "navigation_expression", "user_type", "type_identifier":
+		path := missingPermissionIdentifierPath(file, expr)
+		if path == "" {
+			return "", false
+		}
+		last := missingPermissionSimpleName(path)
+		if !missingPermissionKnownPerms[last] {
+			return "", false
+		}
+		if strings.Contains(path, ".permission.") || strings.Contains(path, "Manifest.permission.") || path == last {
+			return last, true
+		}
+	}
+	return "", false
+}
+
+func missingPermissionStringPermissionName(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "android.permission.") {
+		value = strings.TrimPrefix(value, "android.permission.")
+	}
+	if missingPermissionKnownPerms[value] {
+		return value, true
+	}
+	return "", false
+}
+
+func missingPermissionIdentifierPath(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 {
+		return ""
+	}
+	var parts []string
+	file.FlatWalkAllNodes(idx, func(candidate uint32) {
+		switch file.FlatType(candidate) {
+		case "simple_identifier", "type_identifier":
+			parts = append(parts, file.FlatNodeString(candidate, nil))
+		}
+	})
+	return strings.Join(parts, ".")
+}
+
+func missingPermissionSimpleName(name string) string {
+	name = strings.TrimSpace(strings.Trim(name, "`"))
+	if idx := strings.LastIndex(name, "."); idx >= 0 && idx+1 < len(name) {
+		return name[idx+1:]
+	}
+	return name
+}
+
+func missingPermissionHasImport(file *scanner.File, fqn string) bool {
+	found := false
+	file.FlatWalkNodes(0, "import_header", func(node uint32) {
+		if found {
+			return
+		}
+		path := missingPermissionIdentifierPath(file, node)
+		found = path == fqn
+	})
+	return found
+}
+
+func missingPermissionIfParts(file *scanner.File, idx uint32) (cond uint32, thenBody uint32, elseBody uint32) {
+	foundElse := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "control_structure_body":
+			if !foundElse && thenBody == 0 {
+				thenBody = child
+			} else if foundElse && elseBody == 0 {
+				elseBody = child
+			}
+		case "else":
+			foundElse = true
+		default:
+			if cond == 0 && file.FlatIsNamed(child) {
+				cond = child
+			}
+		}
+	}
+	return cond, thenBody, elseBody
 }
 
 type WrongConstantRule struct {

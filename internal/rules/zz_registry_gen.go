@@ -4144,7 +4144,11 @@ func registerAllRules() {
 		r := &MissingPermissionRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "MissingPermission", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "MissingPermission", Brief: "Missing permission check before API call", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 9, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: r.Confidence(), OriginalV1: r,
+			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{
+				"requestLocationUpdates", "getLastKnownLocation", "getCellLocation", "open", "setAudioSource",
+				"checkSelfPermission", "requestPermissions", "launch",
+			}},
 			Check: r.check,
 		})
 	}

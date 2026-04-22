@@ -516,8 +516,9 @@ func TestMissingPermission_Extra(t *testing.T) {
 	t.Run("positive - location API without permission check", func(t *testing.T) {
 		findings := runRuleByName(t, "MissingPermission", `
 package test
+import android.location.LocationManager
 
-fun track() {
+fun track(manager: LocationManager) {
     manager.requestLocationUpdates("gps", 0, 0f, listener)
 }
 `)
@@ -528,10 +529,217 @@ fun track() {
 	t.Run("negative - has checkSelfPermission", func(t *testing.T) {
 		findings := runRuleByName(t, "MissingPermission", `
 package test
+import android.location.LocationManager
 
-fun track() {
+fun track(manager: LocationManager) {
     if (checkSelfPermission(ACCESS_FINE_LOCATION) == GRANTED) {
         manager.requestLocationUpdates("gps", 0, 0f, listener)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("positive - multiline call without guard", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.location.LocationManager
+
+fun track(manager: LocationManager) {
+    manager.requestLocationUpdates(
+        "gps",
+        0,
+        0f,
+        listener
+    )
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("negative - different permission check does not suppress", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.location.LocationManager
+
+fun track(manager: LocationManager) {
+    if (checkSelfPermission(CAMERA) == GRANTED) {
+        manager.requestLocationUpdates("gps", 0, 0f, listener)
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("negative - project local same name method is clean", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+
+class Fake { fun requestLocationUpdates() {} }
+fun ok(fake: Fake) = fake.requestLocationUpdates()
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative - project local receiver type is clean", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+
+class LocationManager { fun requestLocationUpdates(provider: String, minTime: Long, minDistance: Float, listener: Any) {} }
+fun ok(manager: LocationManager) = manager.requestLocationUpdates("gps", 0L, 0f, listener)
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative - comments and strings do not affect detection", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+
+fun ok() {
+    // locationManager.requestLocationUpdates("gps", 0, 0f, listener)
+    val text = "checkSelfPermission ACCESS_FINE_LOCATION requestLocationUpdates"
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative - string permission guard suppresses", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.location.LocationManager
+
+fun track(manager: LocationManager) {
+    if (checkSelfPermission("android.permission.ACCESS_FINE_LOCATION") == GRANTED) {
+        manager.requestLocationUpdates("gps", 0, 0f, listener)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative - manifest permission guard suppresses", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import android.hardware.Camera
+
+fun openCamera() {
+    if (checkSelfPermission(Manifest.permission.CAMERA) == GRANTED) {
+        Camera.open()
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("positive - request permission alone does not suppress", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import android.media.MediaRecorder
+
+fun record(recorder: MediaRecorder) {
+    requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
+    recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("positive - permission granted else branch still triggers", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import android.hardware.Camera
+
+fun openCamera() {
+    if (checkSelfPermission(Manifest.permission.CAMERA) == PERMISSION_GRANTED) {
+        println("safe branch")
+    } else {
+        Camera.open()
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("negative - denied early return guard suppresses", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import android.hardware.Camera
+
+fun openCamera() {
+    if (checkSelfPermission(Manifest.permission.CAMERA) != PERMISSION_GRANTED) {
+        return
+    }
+    Camera.open()
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("positive - nested denied return does not guard outer call", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import android.hardware.Camera
+
+fun openCamera(enabled: Boolean) {
+    if (enabled) {
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PERMISSION_GRANTED) {
+            return
+        }
+    }
+    Camera.open()
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("positive - annotated wrapper without guard triggers", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import androidx.annotation.RequiresPermission
+
+@RequiresPermission(Manifest.permission.CAMERA)
+fun openCameraWrapper() {}
+
+fun open() {
+    openCameraWrapper()
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("negative - annotated wrapper in different owner is unresolved", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import androidx.annotation.RequiresPermission
+
+class CameraWrapper {
+    @RequiresPermission(Manifest.permission.CAMERA)
+    fun openCameraWrapper() {}
+}
+
+class Screen {
+    fun open() {
+        openCameraWrapper()
     }
 }
 `)

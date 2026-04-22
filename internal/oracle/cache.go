@@ -441,6 +441,29 @@ func AssembleOracle(hits []*CacheEntry, fresh *OracleData) *OracleData {
 	return out
 }
 
+func mergeOracleData(parts ...*OracleData) *OracleData {
+	out := &OracleData{
+		Version:      1,
+		Files:        map[string]*OracleFile{},
+		Dependencies: map[string]*OracleClass{},
+	}
+	for _, part := range parts {
+		if part == nil {
+			continue
+		}
+		if out.KotlinVersion == "" {
+			out.KotlinVersion = part.KotlinVersion
+		}
+		for path, file := range part.Files {
+			out.Files[path] = file
+		}
+		for fqn, cls := range part.Dependencies {
+			out.Dependencies[fqn] = cls
+		}
+	}
+	return out
+}
+
 // CacheDepsFile is the schema of the --cache-deps-out JSON emitted by
 // krit-types. Keys in Files are source file paths. Crashed maps a file
 // path to the short error string for files whose analyzeKtFile outer
@@ -456,6 +479,34 @@ type CacheDepsFile struct {
 type CacheDepsEntry struct {
 	DepPaths    []string                `json:"depPaths"`
 	PerFileDeps map[string]*OracleClass `json:"perFileDeps"`
+}
+
+func mergeCacheDeps(parts ...*CacheDepsFile) *CacheDepsFile {
+	var sawPart bool
+	out := &CacheDepsFile{
+		Version: 1,
+		Files:   map[string]*CacheDepsEntry{},
+		Crashed: map[string]string{},
+	}
+	for _, part := range parts {
+		if part == nil {
+			continue
+		}
+		sawPart = true
+		if out.Approximation == "" {
+			out.Approximation = part.Approximation
+		}
+		for path, entry := range part.Files {
+			out.Files[path] = entry
+		}
+		for path, msg := range part.Crashed {
+			out.Crashed[path] = msg
+		}
+	}
+	if !sawPart {
+		return nil
+	}
+	return out
 }
 
 type freshEntryWriteStats struct {

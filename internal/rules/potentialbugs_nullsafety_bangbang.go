@@ -1,10 +1,10 @@
 package rules
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/experiment"
+	"github.com/kaeawc/krit/internal/rules/semantics"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -277,10 +277,7 @@ func isPostFilterSmartCastFlat(file *scanner.File, idx uint32, receiverText stri
 	return false
 }
 
-func isMapContainsKeyGuardedFlat(file *scanner.File, idx uint32, receiver, key string) bool {
-	key = strings.TrimSpace(key)
-	receiver = strings.TrimSpace(receiver)
-	containsCall := receiver + ".containsKey(" + key + ")"
+func isMapContainsKeyGuardedFlat(file *scanner.File, idx uint32, receiver, key uint32) bool {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		if file.FlatType(p) == "function_declaration" || file.FlatType(p) == "lambda_literal" {
 			break
@@ -292,18 +289,64 @@ func isMapContainsKeyGuardedFlat(file *scanner.File, idx uint32, receiver, key s
 		if !ok || file.FlatType(parent) != "if_expression" {
 			continue
 		}
-		if strings.Contains(file.FlatNodeText(parent), containsCall) {
+		cond, thenBody, elseBody := flatIfConditionBodies(file, parent)
+		if cond == 0 {
+			continue
+		}
+		if thenBody == p && mapContainsKeyConditionProves(file, cond, receiver, key, true) {
+			return true
+		}
+		if elseBody == p && mapContainsKeyConditionProves(file, cond, receiver, key, false) {
 			return true
 		}
 	}
 	return false
 }
 
-func isInsideContainsKeyFilterChainFlat(file *scanner.File, idx uint32, receiver string) bool {
-	receiver = strings.TrimSpace(receiver)
-	if receiver == "" {
+func isEarlyReturnMapContainsKeyGuardedFlat(file *scanner.File, idx uint32, receiver, key uint32) bool {
+	var anchor uint32
+	var statements uint32
+	child := idx
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		t := file.FlatType(p)
+		if t == "function_declaration" || t == "lambda_literal" {
+			break
+		}
+		if t == "statements" {
+			statements = p
+			anchor = child
+			break
+		}
+		child = p
+	}
+	if statements == 0 || anchor == 0 {
 		return false
 	}
+	for stmt := file.FlatFirstChild(statements); stmt != 0; stmt = file.FlatNextSib(stmt) {
+		if !file.FlatIsNamed(stmt) {
+			continue
+		}
+		if stmt == anchor || file.FlatStartByte(stmt) >= file.FlatStartByte(anchor) {
+			break
+		}
+		if file.FlatType(stmt) != "if_expression" {
+			continue
+		}
+		cond, thenBody, elseBody := flatIfConditionBodies(file, stmt)
+		if cond == 0 || thenBody == 0 || elseBody != 0 {
+			continue
+		}
+		if !bodyAlwaysExitsFlat(file, thenBody) {
+			continue
+		}
+		if mapContainsKeyConditionProves(file, cond, receiver, key, false) {
+			return true
+		}
+	}
+	return false
+}
+
+func isInsideContainsKeyFilterChainFlat(file *scanner.File, idx uint32, receiver uint32) bool {
 	var lambda uint32
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		t := file.FlatType(p)
@@ -344,7 +387,6 @@ func isInsideContainsKeyFilterChainFlat(file *scanner.File, idx uint32, receiver
 	default:
 		return false
 	}
-	needle := receiver + ".containsKey("
 	cur := navExpr
 	for i := 0; i < 8; i++ {
 		if cur == 0 || file.FlatNamedChildCount(cur) == 0 {
@@ -359,7 +401,7 @@ func isInsideContainsKeyFilterChainFlat(file *scanner.File, idx uint32, receiver
 			if recvCallee != 0 {
 				last := flatNavigationExpressionLastIdentifier(file, recvCallee)
 				if last == "filter" || last == "filterKeys" || last == "filterValues" {
-					if strings.Contains(file.FlatNodeText(recv), needle) {
+					if flatSubtreeHasContainsKeyForReceiver(file, recv, receiver) {
 						return true
 					}
 				}
@@ -374,6 +416,133 @@ func isInsideContainsKeyFilterChainFlat(file *scanner.File, idx uint32, receiver
 		return false
 	}
 	return false
+}
+
+func flatIfConditionBodies(file *scanner.File, ifExpr uint32) (cond, thenBody, elseBody uint32) {
+	foundElse := false
+	for child := file.FlatFirstChild(ifExpr); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "else":
+			foundElse = true
+		case "control_structure_body":
+			if !foundElse && thenBody == 0 {
+				thenBody = child
+			} else if foundElse && elseBody == 0 {
+				elseBody = child
+			}
+		default:
+			if cond == 0 && file.FlatIsNamed(child) && file.FlatType(child) != "control_structure_body" {
+				cond = child
+			}
+		}
+	}
+	return cond, thenBody, elseBody
+}
+
+func mapContainsKeyConditionProves(file *scanner.File, cond, receiver, key uint32, truth bool) bool {
+	proves := false
+	file.FlatWalkAllNodes(cond, func(candidate uint32) {
+		if proves || file.FlatType(candidate) != "call_expression" {
+			return
+		}
+		if !mapContainsKeyCallMatches(file, candidate, receiver, key) {
+			return
+		}
+		negated := flatCallNegatedWithin(file, candidate, cond)
+		if truth {
+			if !negated && !flatHasAncestorBetween(file, candidate, cond, "disjunction_expression") {
+				proves = true
+			}
+			return
+		}
+		if negated && !flatHasAncestorBetween(file, candidate, cond, "conjunction_expression") {
+			proves = true
+		}
+	})
+	return proves
+}
+
+func mapContainsKeyCallMatches(file *scanner.File, call, receiver, key uint32) bool {
+	nav, args := flatCallExpressionParts(file, call)
+	if nav == 0 || args == 0 || flatNavigationExpressionLastIdentifier(file, nav) != "containsKey" {
+		return false
+	}
+	if flatNavigationLastSuffixHasSafeAccess(file, nav) {
+		return false
+	}
+	callReceiver := flatNavigationExpressionReceiver(file, nav)
+	if callReceiver == 0 || !flatExpressionsEquivalent(file, callReceiver, receiver) {
+		return false
+	}
+	arg, ok := flatSingleValueArgumentExpression(file, args)
+	return ok && flatExpressionsEquivalent(file, arg, key)
+}
+
+func flatSubtreeHasContainsKeyForReceiver(file *scanner.File, root, receiver uint32) bool {
+	found := false
+	file.FlatWalkAllNodes(root, func(candidate uint32) {
+		if found || file.FlatType(candidate) != "call_expression" {
+			return
+		}
+		nav, _ := flatCallExpressionParts(file, candidate)
+		if nav == 0 || flatNavigationExpressionLastIdentifier(file, nav) != "containsKey" {
+			return
+		}
+		callReceiver := flatNavigationExpressionReceiver(file, nav)
+		if callReceiver != 0 && flatExpressionsEquivalent(file, callReceiver, receiver) {
+			found = true
+		}
+	})
+	return found
+}
+
+func flatCallNegatedWithin(file *scanner.File, call, root uint32) bool {
+	negated := false
+	for p, ok := file.FlatParent(call); ok; p, ok = file.FlatParent(p) {
+		if file.FlatType(p) == "prefix_expression" && flatPrefixExpressionIsBang(file, p) {
+			negated = !negated
+		}
+		if p == root {
+			break
+		}
+	}
+	return negated
+}
+
+func flatPrefixExpressionIsBang(file *scanner.File, idx uint32) bool {
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) && file.FlatType(child) == "!" {
+			return true
+		}
+	}
+	return false
+}
+
+func flatHasAncestorBetween(file *scanner.File, idx, root uint32, nodeType string) bool {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		if p == root {
+			return false
+		}
+		if file.FlatType(p) == nodeType {
+			return true
+		}
+	}
+	return false
+}
+
+func flatExpressionsEquivalent(file *scanner.File, a, b uint32) bool {
+	a = flatUnwrapParenExpr(file, a)
+	b = flatUnwrapParenExpr(file, b)
+	if a == 0 || b == 0 {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	if file.FlatType(a) != file.FlatType(b) {
+		return false
+	}
+	return strings.TrimSpace(file.FlatNodeText(a)) == strings.TrimSpace(file.FlatNodeText(b))
 }
 
 // ---------------------------------------------------------------------------
@@ -1192,14 +1361,17 @@ type MapGetWithNotNullAssertionRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence — tree-sitter
-// structural check; resolver confirms the receiver is Map but falls back to
-// name-based assumption. Classified per roadmap/17.
+// structural check backed by resolver/source type confirmation that the
+// receiver is Map-like. Classified per roadmap/17.
 func (r *MapGetWithNotNullAssertionRule) Confidence() float64 { return 0.75 }
 
-var mapBangRe = regexp.MustCompile(`\[[^\]]+\]\s*!!|\.get\([^)]+\)\s*!!`)
-
-var mapBracketBangRe = regexp.MustCompile(`(\w+(?:\.\w+)*)\[([^\]]+)\]\s*!!`)
-var mapGetBangRe = regexp.MustCompile(`(\w+(?:\.\w+)*)\.get\(([^)]+)\)\s*!!`)
+type mapGetBangAccess struct {
+	access   uint32
+	receiver uint32
+	key      uint32
+	call     bool
+	safeCall bool
+}
 
 func (r *MapGetWithNotNullAssertionRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -1207,81 +1379,420 @@ func (r *MapGetWithNotNullAssertionRule) check(ctx *v2.Context) {
 	if isTestFile(file.Path) {
 		return
 	}
-	text := file.FlatNodeText(idx)
-	if !mapBangRe.MatchString(text) {
+	access, ok := flatMapGetBangAccess(file, idx)
+	if !ok {
+		return
+	}
+	receiverType, ok := mapGetReceiverMapType(ctx, access.receiver)
+	if !ok || !mapGetAccessMatchesMapGet(ctx, access, receiverType) {
 		return
 	}
 	// Skip when the access is guarded by `map.containsKey(key)` in an
 	// enclosing if or earlier statement, or by a preceding filter.
-	if m := mapBracketBangRe.FindStringSubmatch(text); m != nil {
-		receiver, key := m[1], m[2]
-		if isMapContainsKeyGuardedFlat(file, idx, receiver, key) {
-			return
-		}
-		if experiment.Enabled("map-get-bang-skip-contains-key-filter") &&
-			isInsideContainsKeyFilterChainFlat(file, idx, receiver) {
-			return
-		}
-	} else if m := mapGetBangRe.FindStringSubmatch(text); m != nil {
-		receiver, key := m[1], m[2]
-		if isMapContainsKeyGuardedFlat(file, idx, receiver, key) {
-			return
-		}
-		if experiment.Enabled("map-get-bang-skip-contains-key-filter") &&
-			isInsideContainsKeyFilterChainFlat(file, idx, receiver) {
-			return
+	if isMapContainsKeyGuardedFlat(file, idx, access.receiver, access.key) ||
+		isEarlyReturnMapContainsKeyGuardedFlat(file, idx, access.receiver, access.key) {
+		return
+	}
+	if experiment.Enabled("map-get-bang-skip-contains-key-filter") &&
+		isInsideContainsKeyFilterChainFlat(file, idx, access.receiver) {
+		return
+	}
+
+	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"Map access with not-null assertion operator (!!). Use getValue() or getOrDefault() instead.")
+	if !access.safeCall {
+		f.Fix = &scanner.Fix{
+			ByteMode:  true,
+			StartByte: int(file.FlatStartByte(idx)),
+			EndByte:   int(file.FlatEndByte(idx)),
+			Replacement: strings.TrimSpace(file.FlatNodeText(access.receiver)) +
+				".getValue(" + strings.TrimSpace(file.FlatNodeText(access.key)) + ")",
 		}
 	}
-	// If resolver is available, verify the receiver is actually a Map type
-	if ctx.Resolver != nil {
-		var receiverName string
-		if m := mapBracketBangRe.FindStringSubmatch(text); m != nil {
-			receiverName = m[1]
-		} else if m := mapGetBangRe.FindStringSubmatch(text); m != nil {
-			receiverName = m[1]
+	ctx.Emit(f)
+}
+
+func flatMapGetBangAccess(file *scanner.File, idx uint32) (mapGetBangAccess, bool) {
+	if file == nil || file.FlatType(idx) != "postfix_expression" || !flatPostfixHasBangBang(file, idx) {
+		return mapGetBangAccess{}, false
+	}
+	expr := flatFirstNamedChild(file, idx)
+	if expr == 0 {
+		return mapGetBangAccess{}, false
+	}
+	access := flatUnwrapParenExpr(file, expr)
+	switch file.FlatType(access) {
+	case "indexing_expression":
+		receiver, key, ok := flatIndexingExpressionParts(file, access)
+		if !ok {
+			return mapGetBangAccess{}, false
 		}
-		if receiverName != "" {
-			simpleName := receiverName
-			if dotIdx := strings.LastIndex(simpleName, "."); dotIdx >= 0 {
-				simpleName = simpleName[dotIdx+1:]
+		return mapGetBangAccess{access: access, receiver: receiver, key: key}, true
+	case "call_expression":
+		receiver, key, safeCall, ok := flatGetCallExpressionParts(file, access)
+		if !ok {
+			return mapGetBangAccess{}, false
+		}
+		return mapGetBangAccess{access: access, receiver: receiver, key: key, call: true, safeCall: safeCall}, true
+	default:
+		return mapGetBangAccess{}, false
+	}
+}
+
+func flatPostfixHasBangBang(file *scanner.File, idx uint32) bool {
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) && file.FlatType(child) == "!!" {
+			return true
+		}
+	}
+	return false
+}
+
+func flatFirstNamedChild(file *scanner.File, idx uint32) uint32 {
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatIsNamed(child) {
+			return child
+		}
+	}
+	return 0
+}
+
+func flatIndexingExpressionParts(file *scanner.File, idx uint32) (receiver, key uint32, ok bool) {
+	if file.FlatType(idx) != "indexing_expression" {
+		return 0, 0, false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		if file.FlatType(child) == "indexing_suffix" {
+			if key != 0 || file.FlatNamedChildCount(child) != 1 {
+				return 0, 0, false
 			}
-			resolved := ctx.Resolver.ResolveByNameFlat(simpleName, idx, file)
-			if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
-				isMap := resolved.Name == "Map" || resolved.Name == "MutableMap" ||
-					resolved.Name == "HashMap" || resolved.Name == "LinkedHashMap" ||
-					strings.HasSuffix(resolved.FQN, ".Map") ||
-					strings.HasSuffix(resolved.FQN, ".MutableMap") ||
-					strings.HasSuffix(resolved.FQN, ".HashMap") ||
-					strings.HasSuffix(resolved.FQN, ".LinkedHashMap")
-				if !isMap {
-					return // receiver is not a Map, skip
+			key = file.FlatNamedChild(child, 0)
+			continue
+		}
+		if receiver == 0 {
+			receiver = child
+		}
+	}
+	return receiver, key, receiver != 0 && key != 0
+}
+
+func flatGetCallExpressionParts(file *scanner.File, idx uint32) (receiver, key uint32, safeCall bool, ok bool) {
+	nav, args := flatCallExpressionParts(file, idx)
+	if nav == 0 || args == 0 || flatNavigationExpressionLastIdentifier(file, nav) != "get" {
+		return 0, 0, false, false
+	}
+	receiver = flatNavigationExpressionReceiver(file, nav)
+	if receiver == 0 {
+		return 0, 0, false, false
+	}
+	key, ok = flatSingleValueArgumentExpression(file, args)
+	if !ok {
+		return 0, 0, false, false
+	}
+	return receiver, key, flatNavigationLastSuffixHasSafeAccess(file, nav), true
+}
+
+func flatNavigationExpressionReceiver(file *scanner.File, nav uint32) uint32 {
+	if file == nil || nav == 0 || file.FlatType(nav) != "navigation_expression" || file.FlatNamedChildCount(nav) < 2 {
+		return 0
+	}
+	return file.FlatNamedChild(nav, 0)
+}
+
+func flatNavigationLastSuffixHasSafeAccess(file *scanner.File, nav uint32) bool {
+	var suffix uint32
+	for child := file.FlatFirstChild(nav); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "navigation_suffix" {
+			suffix = child
+		}
+	}
+	if suffix == 0 {
+		return false
+	}
+	for child := file.FlatFirstChild(suffix); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) && file.FlatType(child) == "?." {
+			return true
+		}
+	}
+	return false
+}
+
+func flatSingleValueArgumentExpression(file *scanner.File, args uint32) (uint32, bool) {
+	var arg uint32
+	for child := file.FlatFirstChild(args); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "value_argument" {
+			continue
+		}
+		if arg != 0 {
+			return 0, false
+		}
+		arg = child
+	}
+	if arg == 0 {
+		return 0, false
+	}
+	if flatHasValueArgumentLabel(file, arg) {
+		expr := flatLastNamedChild(file, arg)
+		return expr, expr != 0
+	}
+	expr := flatValueArgumentExpression(file, arg)
+	return expr, expr != 0
+}
+
+func mapGetAccessMatchesMapGet(ctx *v2.Context, access mapGetBangAccess, receiverType *typeinfer.ResolvedType) bool {
+	if access.call {
+		target, ok := semantics.ResolveCallTarget(ctx, access.access)
+		if !ok || target.CalleeName != "get" {
+			return false
+		}
+		if target.Resolved && !mapGetResolvedTargetIsMapGet(target.QualifiedName) {
+			return false
+		}
+	}
+	return mapGetKeyCompatible(ctx, receiverType, access.key)
+}
+
+func mapGetResolvedTargetIsMapGet(target string) bool {
+	return target == "kotlin.collections.Map.get" ||
+		target == "kotlin.collections.MutableMap.get" ||
+		target == "java.util.Map.get" ||
+		strings.HasSuffix(target, ".Map.get") ||
+		strings.HasSuffix(target, ".MutableMap.get")
+}
+
+func mapGetReceiverMapType(ctx *v2.Context, receiver uint32) (*typeinfer.ResolvedType, bool) {
+	if ctx == nil || ctx.File == nil || ctx.Resolver == nil || receiver == 0 {
+		return nil, false
+	}
+	receiver = flatUnwrapParenExpr(ctx.File, receiver)
+	resolved := mapResolveExpressionType(ctx, receiver, nil)
+	if mapResolvedTypeIsMap(ctx.Resolver, resolved, nil) {
+		return resolved, true
+	}
+	return nil, false
+}
+
+func mapResolveExpressionType(ctx *v2.Context, expr uint32, seen map[uint32]bool) *typeinfer.ResolvedType {
+	if ctx == nil || ctx.File == nil || ctx.Resolver == nil || expr == 0 {
+		return nil
+	}
+	expr = flatUnwrapParenExpr(ctx.File, expr)
+	if seen == nil {
+		seen = make(map[uint32]bool)
+	}
+	if seen[expr] {
+		return nil
+	}
+	seen[expr] = true
+
+	switch ctx.File.FlatType(expr) {
+	case "simple_identifier":
+		if resolved := ctx.Resolver.ResolveFlatNode(expr, ctx.File); resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
+			return resolved
+		}
+		return ctx.Resolver.ResolveByNameFlat(ctx.File.FlatNodeString(expr, nil), expr, ctx.File)
+	case "navigation_expression":
+		name := flatNavigationExpressionLastIdentifier(ctx.File, expr)
+		if name != "" {
+			if resolved := ctx.Resolver.ResolveByNameFlat(name, expr, ctx.File); resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
+				return resolved
+			}
+			base := flatNavigationExpressionReceiver(ctx.File, expr)
+			if baseType := mapResolveExpressionType(ctx, base, seen); baseType != nil {
+				return mapMemberType(ctx, baseType, name)
+			}
+		}
+	}
+	resolved := ctx.Resolver.ResolveFlatNode(expr, ctx.File)
+	if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
+		return resolved
+	}
+	return nil
+}
+
+func mapResolvedTypeIsMap(resolver typeinfer.TypeResolver, resolved *typeinfer.ResolvedType, seen map[string]bool) bool {
+	if resolved == nil || resolved.Kind == typeinfer.TypeUnknown {
+		return false
+	}
+	if mapTypeNameIsKnown(resolved.Name) || mapTypeNameIsKnown(resolved.FQN) {
+		return true
+	}
+	for _, super := range resolved.Supertypes {
+		if mapTypeNameIsKnown(super) {
+			return true
+		}
+	}
+	if resolver == nil {
+		return false
+	}
+	if seen == nil {
+		seen = make(map[string]bool)
+	}
+	for _, name := range []string{resolved.FQN, resolved.Name} {
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		if info := resolver.ClassHierarchy(name); info != nil {
+			for _, super := range info.Supertypes {
+				if mapTypeNameIsKnown(super) {
+					return true
+				}
+				if mapResolvedTypeIsMap(resolver, &typeinfer.ResolvedType{Name: simpleTypeName(super), FQN: super, Kind: typeinfer.TypeClass}, seen) {
+					return true
 				}
 			}
 		}
 	}
+	return false
+}
 
-	startByte := int(file.FlatStartByte(idx))
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Map access with not-null assertion operator (!!). Use getValue() or getOrDefault() instead.")
-	// Try bracket syntax: map[key]!!
-	if loc := mapBracketBangRe.FindStringSubmatchIndex(text); loc != nil {
-		receiver := text[loc[2]:loc[3]]
-		key := text[loc[4]:loc[5]]
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   startByte + loc[0],
-			EndByte:     startByte + loc[1],
-			Replacement: receiver + ".getValue(" + key + ")",
-		}
-	} else if loc := mapGetBangRe.FindStringSubmatchIndex(text); loc != nil {
-		receiver := text[loc[2]:loc[3]]
-		key := text[loc[4]:loc[5]]
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   startByte + loc[0],
-			EndByte:     startByte + loc[1],
-			Replacement: receiver + ".getValue(" + key + ")",
+func mapTypeNameIsKnown(name string) bool {
+	switch name {
+	case "Map", "MutableMap", "HashMap", "LinkedHashMap", "TreeMap",
+		"kotlin.collections.Map", "kotlin.collections.MutableMap",
+		"kotlin.collections.HashMap", "kotlin.collections.LinkedHashMap", "kotlin.collections.TreeMap",
+		"java.util.Map", "java.util.HashMap", "java.util.LinkedHashMap", "java.util.TreeMap":
+		return true
+	default:
+		return false
+	}
+}
+
+func mapGetKeyCompatible(ctx *v2.Context, receiverType *typeinfer.ResolvedType, key uint32) bool {
+	if receiverType == nil || len(receiverType.TypeArgs) == 0 {
+		return true
+	}
+	want := receiverType.TypeArgs[0]
+	if mapTypeArgIsWildcard(want) {
+		return true
+	}
+	got := mapResolveExpressionType(ctx, key, nil)
+	if got == nil || got.Kind == typeinfer.TypeUnknown {
+		return false
+	}
+	return mapTypesCompatible(want, *got)
+}
+
+func mapTypeArgIsWildcard(t typeinfer.ResolvedType) bool {
+	name := simpleTypeName(t.Name)
+	return name == "" || name == "*" || name == "Any"
+}
+
+func mapTypesCompatible(want, got typeinfer.ResolvedType) bool {
+	if mapTypeArgIsWildcard(want) {
+		return true
+	}
+	wantName := simpleTypeName(firstNonEmpty(want.FQN, want.Name))
+	gotName := simpleTypeName(firstNonEmpty(got.FQN, got.Name))
+	if wantName == "" || gotName == "" {
+		return false
+	}
+	if wantName == gotName {
+		return true
+	}
+	return typeinfer.MapJavaToKotlin(firstNonEmpty(got.FQN, got.Name)) == firstNonEmpty(want.FQN, want.Name)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
 		}
 	}
-	ctx.Emit(f)
+	return ""
+}
+
+func mapMemberType(ctx *v2.Context, owner *typeinfer.ResolvedType, member string) *typeinfer.ResolvedType {
+	if ctx == nil || ctx.File == nil || ctx.Resolver == nil || owner == nil || member == "" {
+		return nil
+	}
+	for _, ownerName := range []string{owner.FQN, owner.Name} {
+		if ownerName == "" {
+			continue
+		}
+		if info := ctx.Resolver.ClassHierarchy(ownerName); info != nil {
+			for _, m := range info.Members {
+				if m.Name == member && m.Type != nil && m.Type.Kind != typeinfer.TypeUnknown {
+					return m.Type
+				}
+			}
+		}
+		if typ := mapMemberTypeFromSameFileDeclaration(ctx, simpleTypeName(ownerName), member); typ != nil {
+			return typ
+		}
+	}
+	return nil
+}
+
+func mapMemberTypeFromSameFileDeclaration(ctx *v2.Context, ownerName, member string) *typeinfer.ResolvedType {
+	if ctx == nil || ctx.File == nil || ctx.Resolver == nil || ownerName == "" || member == "" {
+		return nil
+	}
+	file := ctx.File
+	var classDecl uint32
+	file.FlatWalkAllNodes(0, func(candidate uint32) {
+		if classDecl != 0 || file.FlatType(candidate) != "class_declaration" {
+			return
+		}
+		if extractIdentifierFlat(file, candidate) == ownerName {
+			classDecl = candidate
+		}
+	})
+	if classDecl == 0 {
+		return nil
+	}
+	var out *typeinfer.ResolvedType
+	file.FlatWalkAllNodes(classDecl, func(candidate uint32) {
+		if out != nil || candidate == classDecl {
+			return
+		}
+		if !mapClassMemberCandidate(file, classDecl, candidate) || extractIdentifierFlat(file, candidate) != member {
+			return
+		}
+		if typeNode := mapExplicitTypeNode(file, candidate); typeNode != 0 {
+			out = ctx.Resolver.ResolveFlatNode(typeNode, file)
+			if out == nil || out.Kind == typeinfer.TypeUnknown {
+				out = &typeinfer.ResolvedType{Name: simpleTypeName(file.FlatNodeText(typeNode)), Kind: typeinfer.TypeClass}
+			}
+		}
+	})
+	return out
+}
+
+func mapClassMemberCandidate(file *scanner.File, classDecl, candidate uint32) bool {
+	switch file.FlatType(candidate) {
+	case "class_parameter", "property_declaration":
+	default:
+		return false
+	}
+	for p, ok := file.FlatParent(candidate); ok; p, ok = file.FlatParent(p) {
+		if p == classDecl {
+			return true
+		}
+		switch file.FlatType(p) {
+		case "function_declaration", "lambda_literal", "object_declaration":
+			return false
+		case "class_declaration":
+			return p == classDecl
+		}
+	}
+	return false
+}
+
+func mapExplicitTypeNode(file *scanner.File, idx uint32) uint32 {
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "user_type", "nullable_type", "type_identifier":
+			return child
+		case "variable_declaration":
+			if inner := mapExplicitTypeNode(file, child); inner != 0 {
+				return inner
+			}
+		}
+	}
+	return 0
 }

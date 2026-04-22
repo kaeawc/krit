@@ -525,26 +525,65 @@ class Foo {
 // --- MapGetWithNotNullAssertionOperator ---
 
 func TestMapGetWithNotNullAssertion_Positive(t *testing.T) {
-	findings := runRuleByName(t, "MapGetWithNotNullAssertionOperator", `
+	findings := runRuleByNameWithResolver(t, "MapGetWithNotNullAssertionOperator", `
 package test
 fun lookup(map: Map<String, Int>) {
     val value = map["key"]!!
+    val value2 = map.get("key")!!
 }
 `)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for map[key]!!, got none")
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings for map access with !!, got %d", len(findings))
 	}
 }
 
 func TestMapGetWithNotNullAssertion_Negative(t *testing.T) {
-	findings := runRuleByName(t, "MapGetWithNotNullAssertionOperator", `
+	findings := runRuleByNameWithResolver(t, "MapGetWithNotNullAssertionOperator", `
 package test
+class Box { operator fun get(key: String): String? = null }
+operator fun Map<*, *>.get(one: Int): Int? = null
 fun lookup(map: Map<String, Int>) {
     val value = map.getValue("key")
+    if (map.containsKey("other")) {
+        val guarded = map["other"]!!
+    }
+    val extensionGet = map[0]!!
+}
+fun ok(box: Box) {
+    val value = box["x"]!!
 }
 `)
 	if len(findings) != 0 {
-		t.Fatalf("expected no findings for getValue(), got %d", len(findings))
+		t.Fatalf("expected no findings for getValue(), guarded access, or non-map indexing, got %d", len(findings))
+	}
+}
+
+func TestMapGetWithNotNullAssertion_NestedReceiver(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "MapGetWithNotNullAssertionOperator", `
+package test
+class Holder(val maps: Maps)
+class Maps(val current: Map<String, Int>)
+fun lookup(holder: Holder, key: String) {
+    val value = holder.maps.current[key]!!
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected finding for nested map receiver, got %d", len(findings))
+	}
+}
+
+func TestMapGetWithNotNullAssertion_DoesNotMatchUnrelatedNestedTerminalName(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "MapGetWithNotNullAssertionOperator", `
+package test
+class Maps(val current: Map<String, Int>)
+class Other(val current: Box)
+class Box { operator fun get(key: String): String? = null }
+fun lookup(other: Other, key: String) {
+    val value = other.current[key]!!
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no finding for unrelated nested terminal name, got %d", len(findings))
 	}
 }
 

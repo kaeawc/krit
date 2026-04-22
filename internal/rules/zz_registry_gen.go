@@ -11755,7 +11755,10 @@ func registerAllRules() {
 		r := &TimberTreeNotPlantedRule{BaseRule: BaseRule{RuleName: "TimberTreeNotPlanted", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects Timber logging usage without any Timber.plant() call in the project."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
+			Needs:             v2.NeedsCrossFile | v2.NeedsTypeInfo,
+			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"v", "d", "i", "w", "e", "wtf", "plant"}},
+			TypeInfo:          v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true},
+			Confidence:        r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
 	}

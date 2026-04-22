@@ -1,15 +1,18 @@
 package rules_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/module"
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 func TestBuildConfigDebugInLibrary(t *testing.T) {
@@ -394,6 +397,292 @@ func runVisibleForTestingCallerRule(t *testing.T, files map[string]string) []sca
 	}
 	registered.Check(ctx)
 	return v2.ContextFindings(ctx)
+}
+
+func TestTimberTreeNotPlanted(t *testing.T) {
+	t.Run("flags first production Timber usage when no startup plant exists", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+import timber.log.Timber
+
+fun logIt() {
+    Timber.d("hello")
+}
+`,
+		}, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Line != 6 {
+			t.Fatalf("finding line = %d, want first Timber call line 6", findings[0].Line)
+		}
+	})
+
+	t.Run("accepts Application onCreate planting", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/App.kt": `package com.example
+
+import android.app.Application
+import timber.log.Timber
+
+class App : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        Timber.plant(Timber.DebugTree())
+    }
+}
+`,
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+import timber.log.Timber
+
+fun logIt() {
+    Timber.e("hello")
+}
+`,
+		}, nil)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("supports multiline qualified Timber calls", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+import timber.log.Timber
+
+fun logIt() {
+    Timber
+        .d("hello")
+}
+`,
+		}, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("supports fully qualified Timber receiver", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+fun logIt() {
+    timber.log.Timber.d("hello")
+}
+`,
+		}, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("skips unimported unresolved Timber receiver", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+fun logIt() {
+    Timber.d("ambiguous")
+}
+`,
+		}, nil)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("ignores local Timber object", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+object Timber {
+    fun d(msg: String) = Unit
+    fun plant(tree: Any) = Unit
+}
+
+fun logIt() {
+    Timber.d("not timber.log.Timber")
+}
+`,
+		}, nil)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("ignores comments strings and unrelated methods", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+class Logger {
+    fun d(msg: String) = Unit
+}
+
+fun logIt(logger: Logger) {
+    val text = "Timber.d(\"hello\")"
+    // Timber.e("hello")
+    logger.d(text)
+}
+`,
+		}, nil)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("non Application plant does not satisfy production usage", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+import timber.log.Timber
+
+class Feature {
+    fun start() {
+        Timber.plant(Timber.DebugTree())
+        Timber.i("hello")
+    }
+}
+`,
+		}, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("test source plant does not satisfy production usage", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/test/java/com/example/TestApp.kt": `package com.example
+
+import android.app.Application
+import timber.log.Timber
+
+class TestApp : Application() {
+    override fun onCreate() {
+        Timber.plant(Timber.DebugTree())
+    }
+}
+`,
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+import timber.log.Timber
+
+fun logIt() {
+    Timber.w("hello")
+}
+`,
+		}, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("supports alias and member imports", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Alias.kt": `package com.example
+
+import timber.log.Timber as T
+
+fun aliasLog() {
+    T.w("hello")
+}
+`,
+			"app/src/main/java/com/example/Member.kt": `package com.example
+
+import timber.log.Timber.d
+
+fun memberLog() {
+    d("hello")
+}
+`,
+		}, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected one project-level finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("resolved unrelated Timber target is skipped", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+import timber.log.Timber
+
+fun logIt() {
+    Timber.d("hello")
+}
+`,
+		}, map[string]map[string]string{
+			"app/src/main/java/com/example/Feature.kt": {
+				"Timber.d": "com.example.Timber.d",
+			},
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func runTimberTreeNotPlantedRule(t *testing.T, files map[string]string, fakeTargets map[string]map[string]string) []scanner.Finding {
+	t.Helper()
+	registered := buildRuleIndex()["TimberTreeNotPlanted"]
+	if registered == nil {
+		t.Fatal("TimberTreeNotPlanted rule not registered")
+	}
+
+	root := t.TempDir()
+	parsed := make([]*scanner.File, 0, len(files))
+	for rel, content := range files {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		writeModuleFile(t, path, content)
+		file, err := scanner.ParseFile(path)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", path, err)
+		}
+		parsed = append(parsed, file)
+	}
+
+	index := scanner.BuildIndex(parsed, 1)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel(parsed, 1)
+	var typedResolver typeinfer.TypeResolver = resolver
+	if fakeTargets != nil {
+		fake := oracle.NewFakeOracle()
+		for _, file := range parsed {
+			targets := fakeTargets[relativeToRoot(t, root, file.Path)]
+			if len(targets) == 0 {
+				continue
+			}
+			fake.CallTargets[file.Path] = make(map[string]string)
+			file.FlatWalkNodes(0, "call_expression", func(call uint32) {
+				text := file.FlatNodeText(call)
+				for needle, target := range targets {
+					if strings.Contains(text, needle) {
+						key := fmt.Sprintf("%d:%d", file.FlatRow(call)+1, file.FlatCol(call)+1)
+						fake.CallTargets[file.Path][key] = target
+					}
+				}
+			})
+		}
+		typedResolver = oracle.NewCompositeResolver(fake, resolver)
+	}
+
+	ctx := &v2.Context{
+		Rule:      registered,
+		CodeIndex: index,
+		Resolver:  typedResolver,
+		Collector: scanner.NewFindingCollector(0),
+	}
+	registered.Check(ctx)
+	return v2.ContextFindings(ctx)
+}
+
+func relativeToRoot(t *testing.T, root, path string) string {
+	t.Helper()
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		t.Fatalf("filepath.Rel(%s, %s): %v", root, path, err)
+	}
+	return filepath.ToSlash(rel)
 }
 
 func TestOpenForTestingCallerInNonTest(t *testing.T) {

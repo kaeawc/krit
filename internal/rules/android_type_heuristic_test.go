@@ -327,6 +327,22 @@ fun example() {
 	}
 }
 
+func TestRange_LocalConstantShadowingUsesNearestScope(t *testing.T) {
+	findings := runRuleByName(t, "Range", `
+package test
+const val LIMIT = 99
+fun bounded(@IntRange(from = 0, to = 10) value: Int) {}
+fun example() {
+    val LIMIT = 7
+    bounded(LIMIT)
+}`)
+	for _, f := range findings {
+		if f.Rule == "Range" {
+			t.Errorf("Should resolve same-function constant before top-level constant, got: %s", f.Message)
+		}
+	}
+}
+
 func TestRange_DynamicAndUnresolvedValuesAreSkipped(t *testing.T) {
 	findings := runRuleByName(t, "Range", `
 package test
@@ -339,6 +355,43 @@ fun example(input: Int) {
 		if f.Rule == "Range" {
 			t.Errorf("Should not flag dynamic or unresolved values, got: %s", f.Message)
 		}
+	}
+}
+
+func TestRange_SameNameAnnotatedMemberDoesNotMatchUnqualifiedTopLevelCall(t *testing.T) {
+	findings := runRuleByName(t, "Range", `
+package test
+class Limits {
+    fun bounded(@IntRange(from = 0, to = 10) value: Int) {}
+}
+fun bounded(value: Int) {}
+fun example() {
+    bounded(11)
+}`)
+	for _, f := range findings {
+		if f.Rule == "Range" {
+			t.Errorf("Should not apply same-file member annotation to top-level call, got: %s", f.Message)
+		}
+	}
+}
+
+func TestRange_QualifiedSameFileOwnerMatch(t *testing.T) {
+	findings := runRuleByName(t, "Range", `
+package test
+object Limits {
+    fun bounded(@IntRange(from = 0, to = 10) value: Int) {}
+}
+fun example() {
+    Limits.bounded(11)
+}`)
+	found := false
+	for _, f := range findings {
+		if f.Rule == "Range" && strings.Contains(f.Message, "bounded") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Should flag same-file declaration when receiver qualifies the declaring owner")
 	}
 }
 

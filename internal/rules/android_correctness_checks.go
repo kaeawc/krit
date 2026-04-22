@@ -288,42 +288,55 @@ type rangeArgSpec struct {
 
 type rangeNumber struct {
 	value float64
-	isInt bool
 	node  uint32
 }
 
 type rangeFileSummary struct {
-	constants map[string]rangeNumber
+	constants map[string][]rangeConstantSpec
 	functions map[string][]rangeFunctionSpec
 }
 
 type rangeFunctionSpec struct {
 	name   string
+	decl   uint32
+	owner  uint32
 	params []rangeArgSpec
+}
+
+type rangeConstantSpec struct {
+	name     string
+	decl     uint32
+	owner    uint32
+	function uint32
+	value    rangeNumber
 }
 
 var rangeSummaryCache sync.Map
 
 func rangeSummaryForFile(file *scanner.File) *rangeFileSummary {
 	if file == nil {
-		return &rangeFileSummary{constants: map[string]rangeNumber{}, functions: map[string][]rangeFunctionSpec{}}
+		return &rangeFileSummary{constants: map[string][]rangeConstantSpec{}, functions: map[string][]rangeFunctionSpec{}}
 	}
 	key := file.Path + "\x00" + strconv.Itoa(len(file.Content))
 	if cached, ok := rangeSummaryCache.Load(key); ok {
 		return cached.(*rangeFileSummary)
 	}
 	summary := &rangeFileSummary{
-		constants: map[string]rangeNumber{},
+		constants: map[string][]rangeConstantSpec{},
 		functions: map[string][]rangeFunctionSpec{},
 	}
 	file.FlatWalkNodes(0, "property_declaration", func(idx uint32) {
-		name, value, ok := rangeConstantProperty(file, idx, summary.constants)
-		if ok && name != "" {
-			summary.constants[name] = value
+		spec, ok := rangeConstantProperty(file, idx, summary.constants)
+		if ok && spec.name != "" {
+			summary.constants[spec.name] = append(summary.constants[spec.name], spec)
 		}
 	})
 	file.FlatWalkNodes(0, "function_declaration", func(idx uint32) {
-		fn := rangeFunctionSpec{name: extractIdentifierFlat(file, idx)}
+		fn := rangeFunctionSpec{
+			name:  extractIdentifierFlat(file, idx),
+			decl:  idx,
+			owner: androidEnclosingOwner(file, idx),
+		}
 		if fn.name == "" {
 			return
 		}
@@ -349,9 +362,9 @@ func rangeSummaryForFile(file *scanner.File) *rangeFileSummary {
 	return actual.(*rangeFileSummary)
 }
 
-func rangeConstantProperty(file *scanner.File, idx uint32, constants map[string]rangeNumber) (string, rangeNumber, bool) {
+func rangeConstantProperty(file *scanner.File, idx uint32, constants map[string][]rangeConstantSpec) (rangeConstantSpec, bool) {
 	if file == nil || file.FlatType(idx) != "property_declaration" || rangePropertyIsVar(file, idx) {
-		return "", rangeNumber{}, false
+		return rangeConstantSpec{}, false
 	}
 	name := ""
 	if vd, ok := file.FlatFindChild(idx, "variable_declaration"); ok {
@@ -362,7 +375,17 @@ func rangeConstantProperty(file *scanner.File, idx uint32, constants map[string]
 	}
 	init := rangePropertyInitializer(file, idx)
 	value, _, ok := rangeEvaluateNumericExpr(file, init, constants, nil)
-	return name, value, ok
+	if !ok {
+		return rangeConstantSpec{}, false
+	}
+	fn, _ := flatEnclosingFunction(file, idx)
+	return rangeConstantSpec{
+		name:     name,
+		decl:     idx,
+		owner:    androidEnclosingOwner(file, idx),
+		function: fn,
+		value:    value,
+	}, true
 }
 
 func rangePropertyIsVar(file *scanner.File, idx uint32) bool {
@@ -508,14 +531,72 @@ func rangeSpecsForCall(ctx *v2.Context, call uint32, callName string, args uint3
 		return nil
 	}
 	argCount := rangeValueArgumentCount(ctx.File, args)
-	var out []rangeArgSpec
+	bestScore := 0
+	var best *rangeFunctionSpec
+	ambiguous := false
 	for _, candidate := range candidates {
 		if rangeMaxSpecIndex(candidate.params) >= argCount {
 			continue
 		}
-		out = append(out, candidate.params...)
+		score := rangeLocalFunctionMatchScore(ctx.File, call, candidate)
+		if score == 0 {
+			continue
+		}
+		if score > bestScore {
+			c := candidate
+			best = &c
+			bestScore = score
+			ambiguous = false
+			continue
+		}
+		if score == bestScore {
+			ambiguous = true
+		}
 	}
-	return out
+	if best == nil || ambiguous {
+		return nil
+	}
+	return best.params
+}
+
+func rangeLocalFunctionMatchScore(file *scanner.File, call uint32, candidate rangeFunctionSpec) int {
+	if file == nil || candidate.decl == 0 || call == 0 {
+		return 0
+	}
+	callOwner := androidEnclosingOwner(file, call)
+	receiver := rangeCallReceiverNode(file, call)
+	if receiver == 0 {
+		if candidate.owner != 0 && candidate.owner == callOwner {
+			return 3
+		}
+		if candidate.owner == 0 {
+			return 2
+		}
+		return 0
+	}
+	receiverText := strings.TrimSpace(file.FlatNodeText(receiver))
+	if receiverText == "this" && candidate.owner != 0 && candidate.owner == callOwner {
+		return 4
+	}
+	if candidate.owner != 0 && receiverText == rangeOwnerName(file, candidate.owner) {
+		return 4
+	}
+	return 0
+}
+
+func rangeCallReceiverNode(file *scanner.File, call uint32) uint32 {
+	nav, _ := flatCallExpressionParts(file, call)
+	if nav == 0 || file.FlatNamedChildCount(nav) < 2 {
+		return 0
+	}
+	return file.FlatNamedChild(nav, 0)
+}
+
+func rangeOwnerName(file *scanner.File, owner uint32) string {
+	if file == nil || owner == 0 {
+		return ""
+	}
+	return extractIdentifierFlat(file, owner)
 }
 
 func rangeOracleCallTarget(ctx *v2.Context, call uint32) string {
@@ -644,7 +725,7 @@ func rangeValueArgumentExpression(file *scanner.File, arg uint32) uint32 {
 	return 0
 }
 
-func rangeEvaluateNumericExpr(file *scanner.File, idx uint32, constants map[string]rangeNumber, seen map[string]bool) (rangeNumber, uint32, bool) {
+func rangeEvaluateNumericExpr(file *scanner.File, idx uint32, constants map[string][]rangeConstantSpec, seen map[string]bool) (rangeNumber, uint32, bool) {
 	if file == nil || idx == 0 {
 		return rangeNumber{}, 0, false
 	}
@@ -652,7 +733,7 @@ func rangeEvaluateNumericExpr(file *scanner.File, idx uint32, constants map[stri
 	switch file.FlatType(idx) {
 	case "integer_literal":
 		if value, ok := rangeParseIntegerLiteral(file.FlatNodeText(idx)); ok {
-			return rangeNumber{value: float64(value), isInt: true, node: idx}, idx, true
+			return rangeNumber{value: float64(value), node: idx}, idx, true
 		}
 	case "real_literal":
 		if value, ok := rangeParseFloatLiteral(file.FlatNodeText(idx)); ok {
@@ -660,7 +741,7 @@ func rangeEvaluateNumericExpr(file *scanner.File, idx uint32, constants map[stri
 		}
 	case "simple_identifier":
 		name := file.FlatNodeString(idx, nil)
-		if constants == nil || constants[name].node == 0 {
+		if constants == nil {
 			return rangeNumber{}, 0, false
 		}
 		if seen == nil {
@@ -670,8 +751,10 @@ func rangeEvaluateNumericExpr(file *scanner.File, idx uint32, constants map[stri
 			return rangeNumber{}, 0, false
 		}
 		seen[name] = true
-		value := constants[name]
-		return value, idx, true
+		if value, ok := rangeResolveConstant(file, name, idx, constants); ok {
+			return value, idx, true
+		}
+		return rangeNumber{}, 0, false
 	case "unary_expression", "prefix_expression":
 		if !rangeHasMinusPrefix(file, idx) {
 			return rangeNumber{}, 0, false
@@ -686,6 +769,47 @@ func rangeEvaluateNumericExpr(file *scanner.File, idx uint32, constants map[stri
 		return value, idx, true
 	}
 	return rangeNumber{}, 0, false
+}
+
+func rangeResolveConstant(file *scanner.File, name string, use uint32, constants map[string][]rangeConstantSpec) (rangeNumber, bool) {
+	candidates := constants[name]
+	if len(candidates) == 0 {
+		return rangeNumber{}, false
+	}
+	useFn, _ := flatEnclosingFunction(file, use)
+	useOwner := androidEnclosingOwner(file, use)
+	useStart := file.FlatTree.Nodes[use].StartByte
+	bestScore := 0
+	var best rangeConstantSpec
+	for _, candidate := range candidates {
+		if candidate.decl == 0 || file.FlatTree.Nodes[candidate.decl].StartByte >= useStart {
+			continue
+		}
+		score := 0
+		switch {
+		case candidate.function != 0:
+			if candidate.function == useFn {
+				score = 4
+			}
+		case candidate.owner != 0:
+			if candidate.owner == useOwner {
+				score = 3
+			}
+		default:
+			score = 1
+		}
+		if score == 0 {
+			continue
+		}
+		if score > bestScore || (score == bestScore && file.FlatTree.Nodes[candidate.decl].StartByte > file.FlatTree.Nodes[best.decl].StartByte) {
+			best = candidate
+			bestScore = score
+		}
+	}
+	if bestScore == 0 {
+		return rangeNumber{}, false
+	}
+	return best.value, true
 }
 
 func rangeHasMinusPrefix(file *scanner.File, idx uint32) bool {

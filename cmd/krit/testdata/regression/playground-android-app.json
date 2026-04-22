@@ -1,6 +1,6 @@
 {
   "project": "../../playground/android-app/",
-  "findings_count": 46,
+  "findings_count": 49,
   "findings": [
     {
       "rule": "MagicNumber",
@@ -147,6 +147,14 @@
       "message": "Parameter 'verbose' is unused."
     },
     {
+      "rule": "SwallowedException",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/app/adapters/UserAdapter.kt",
+      "line": 48,
+      "col": 0,
+      "message": "Exception 'e' is caught but never used. Either log/handle it or rethrow."
+    },
+    {
       "rule": "TooGenericExceptionCaught",
       "ruleSet": "exceptions",
       "file": "src/main/kotlin/com/example/app/adapters/UserAdapter.kt",
@@ -219,6 +227,14 @@
       "message": "Empty catch block detected. Empty catch blocks should be avoided."
     },
     {
+      "rule": "SwallowedException",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 50,
+      "col": 0,
+      "message": "Exception 'e' is caught but never used. Either log/handle it or rethrow."
+    },
+    {
       "rule": "ForbiddenComment",
       "ruleSet": "style",
       "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
@@ -249,6 +265,14 @@
       "line": 55,
       "col": 0,
       "message": "Empty catch block detected. Empty catch blocks should be avoided."
+    },
+    {
+      "rule": "SwallowedException",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 55,
+      "col": 0,
+      "message": "Exception 'e' is caught but never used. Either log/handle it or rethrow."
     },
     {
       "rule": "MagicNumber",

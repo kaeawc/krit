@@ -18,6 +18,32 @@ class Processor {
         }
     }
 
+    fun commentOnly() {
+        try {
+            doWork()
+        } catch (e: Exception) {
+            // ignored: e throw log handle
+        }
+    }
+
+    fun messageOnlyLogging() {
+        try {
+            doWork()
+        } catch (e: Exception) {
+            logger.warn(e.message)
+        }
+    }
+
+    fun nestedLambdaIgnored() {
+        try {
+            doWork()
+        } catch (e: Exception) {
+            run {
+                logger.warn("failed", e)
+            }
+        }
+    }
+
     private fun doWork() {
         throw RuntimeException("failure")
     }

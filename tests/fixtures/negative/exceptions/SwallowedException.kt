@@ -1,6 +1,7 @@
 package com.example.exceptions
 
 import java.util.logging.Logger
+import java.util.logging.Level
 
 class Processor {
 
@@ -10,7 +11,7 @@ class Processor {
         try {
             doWork()
         } catch (e: Exception) {
-            logger.severe("Processing failed: ${e.message}")
+            logger.log(Level.SEVERE, "Processing failed", e)
         }
     }
 
@@ -42,7 +43,7 @@ class Processor {
         try {
             doWork()
         } catch (e: Exception) {
-            logger.severe("Failed: ${e.message}")
+            logger.log(Level.SEVERE, "Failed", e)
             throw RuntimeException()
         }
     }

@@ -30,7 +30,6 @@ var unexpectedThrowFunctions = map[string]bool{
 // roadmap/17.
 func (r *ExceptionRaisedInUnexpectedLocationRule) Confidence() float64 { return 0.75 }
 
-
 // InstanceOfCheckForExceptionRule detects `is SomeException` inside catch blocks.
 type InstanceOfCheckForExceptionRule struct {
 	FlatDispatchBase
@@ -43,7 +42,6 @@ var isExceptionRe = regexp.MustCompile(`\bis\s+\w*Exception\w*`)
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
 func (r *InstanceOfCheckForExceptionRule) Confidence() float64 { return 0.75 }
-
 
 func isInsideWhenDispatchOnCatchVarFlat(file *scanner.File, isNode uint32, caughtVar string) bool {
 	for p, ok := file.FlatParent(isNode); ok; p, ok = file.FlatParent(p) {
@@ -84,7 +82,6 @@ type NotImplementedDeclarationRule struct {
 // roadmap/17.
 func (r *NotImplementedDeclarationRule) Confidence() float64 { return 0.75 }
 
-
 // RethrowCaughtExceptionRule detects catch { throw e } where e is the caught variable.
 type RethrowCaughtExceptionRule struct {
 	FlatDispatchBase
@@ -95,7 +92,6 @@ type RethrowCaughtExceptionRule struct {
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
 func (r *RethrowCaughtExceptionRule) Confidence() float64 { return 0.75 }
-
 
 // ReturnFromFinallyRule detects return statements inside finally blocks.
 type ReturnFromFinallyRule struct {
@@ -109,63 +105,10 @@ type ReturnFromFinallyRule struct {
 // roadmap/17.
 func (r *ReturnFromFinallyRule) Confidence() float64 { return 0.75 }
 
-
 // SwallowedExceptionRule detects catch blocks that either never use the exception
 // variable or that throw a new exception without passing the original as the cause.
 // Matches detekt's SwallowedException semantics: referencing only e.message or
 // e.toString() (directly or via a variable) in a throw counts as swallowed.
-// swallowedExceptionLogCallRe matches any `Log.verb(...)` call — used to
-// detect catch blocks that handle the exception via logging even without
-// passing the caught variable.
-var swallowedExceptionLogCallRe = regexp.MustCompile(`\bLog\.[vdiwef]\s*\(`)
-
-// swallowedExceptionBroadLogCallRe expands the logging detection to
-// common patterns beyond AOSP `Log.*`:
-//   - top-level logging functions like `warn(...)`, `error(...)`, `info(...)`,
-//     `debug(...)`, `trace(...)`, `log(...)`, `logError(...)`, `logWarning(...)`
-//   - `Timber.verb(...)`, `Slf4j.verb(...)`
-//   - instance-style: `logger.warn(...)`, `log.error(...)`, `this.logger.info(...)`
-var swallowedExceptionBroadLogCallRe = regexp.MustCompile(`(?:^|[^a-zA-Z0-9_.])(?:warn|error|info|debug|trace|log|logError|logWarning|logWarn|logInfo|logDebug|logTrace|logger\.(?:warn|error|info|debug|trace)|log\.(?:warn|error|info|debug|trace)|Timber\.[vdiwef])\s*\(`)
-
-// swallowedExceptionUICallRe matches UI notification APIs that communicate
-// errors to the user. Catch blocks using these are handling the exception.
-var swallowedExceptionUICallRe = regexp.MustCompile(`\b(Toast\.makeText|Snackbar\.make|AlertDialog|MaterialAlertDialog|showError|showDialog)\b`)
-
-// swallowedExceptionAssignmentRe matches assignment statements in the catch
-// body — assigning to state is handling. Includes compound assignments
-// (+=, -=, *=, /=, %=) which mutate collections/accumulators as a fallback.
-var swallowedExceptionAssignmentRe = regexp.MustCompile(`\w+\s*(=|\+=|-=|\*=|/=|%=)\s*\S`)
-
-// swallowedExceptionHandlerCallRe matches invocation of a handler-style
-// function whose name clearly indicates error recovery — the exception
-// variable may not be referenced but the handler routine is handling.
-var swallowedExceptionHandlerCallRe = regexp.MustCompile(`\b(?:toastOn|showError|showErrorDialog|handleError|reportError|recoverFrom|onError|fallback|notifyError)\w*\s*\(`)
-
-// stripCommentsFromBody removes // line comments and /* */ block comments
-// from a code snippet. Used to check if a catch body is comment-only.
-func stripCommentsFromBody(s string) string {
-	// Remove /* ... */ block comments
-	for {
-		start := strings.Index(s, "/*")
-		if start < 0 {
-			break
-		}
-		end := strings.Index(s[start:], "*/")
-		if end < 0 {
-			break
-		}
-		s = s[:start] + s[start+end+2:]
-	}
-	// Remove // line comments
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		if idx := strings.Index(line, "//"); idx >= 0 {
-			lines[i] = line[:idx]
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
 type SwallowedExceptionRule struct {
 	FlatDispatchBase
 	BaseRule
@@ -177,7 +120,6 @@ type SwallowedExceptionRule struct {
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
 func (r *SwallowedExceptionRule) Confidence() float64 { return 0.75 }
-
 
 func (r *SwallowedExceptionRule) makeUnusedFindingFlat(ctx *v2.Context, caughtVar string) {
 	idx, file := ctx.Idx, ctx.File
@@ -205,102 +147,522 @@ func (r *SwallowedExceptionRule) makeUnusedFindingFlat(ctx *v2.Context, caughtVa
 	ctx.Emit(f)
 }
 
-// isExceptionSwallowedInThrows checks whether there is at least one throw
-// expression that references the caught variable but only via property/method
-// access (e.g. e.message, e.toString()) without passing e directly as a cause.
-// A throw that does NOT reference the variable at all is ignored — the
-// exception may be used elsewhere (e.g. logging).  This matches detekt's
-// isExceptionSwallowed semantics.
-func isExceptionSwallowedInThrows(body, caughtVar string) bool {
-	quotedVar := regexp.QuoteMeta(caughtVar)
-	throwRe := regexp.MustCompile(`throw\s+\w+\s*\(`)
-	dotAccessRe := regexp.MustCompile(`\b` + quotedVar + `\.(message|toString\(\)|localizedMessage|stackTraceToString\(\)|cause)`)
-	directRefRe := regexp.MustCompile(`\b` + quotedVar + `\b`)
-	directNoDotRe := regexp.MustCompile(`\b` + quotedVar + `(?:\s*[,)\s])`)
-
-	throwLocs := throwRe.FindAllStringIndex(body, -1)
-	if len(throwLocs) == 0 {
-		return false
+func (r *SwallowedExceptionRule) checkSwallowedException(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
+	if isTestFile(file.Path) {
+		return
 	}
-
-	// Build alias maps: val x = e.message  ->  string alias (swallowed)
-	//                    val x = e          ->  direct alias (not swallowed)
-	aliasRe := regexp.MustCompile(`val\s+(\w+)\s*=\s*` + quotedVar + `\.(message|toString\(\)|localizedMessage|stackTraceToString\(\))`)
-	stringAliases := make(map[string]bool)
-	for _, m := range aliasRe.FindAllStringSubmatch(body, -1) {
-		stringAliases[m[1]] = true
+	caughtVar := extractCaughtVarNameFlat(file, idx)
+	if caughtVar == "" || caughtVar == "_" {
+		return
 	}
-	directAliasRe := regexp.MustCompile(`val\s+(\w+)\s*=\s*` + quotedVar + `\s*[\n;})]`)
-	directAliases := make(map[string]bool)
-	for _, m := range directAliasRe.FindAllStringSubmatch(body, -1) {
-		directAliases[m[1]] = true
+	if r.AllowedExceptionNameRegex != nil && r.AllowedExceptionNameRegex.MatchString(caughtVar) {
+		return
 	}
-
-	for _, loc := range throwLocs {
-		throwStart := loc[0]
-		throwExpr := extractBalancedParens(body[loc[1]-1:])
-		if throwExpr == "" {
-			continue
+	caughtType := extractCaughtTypeNameFlat(file, idx)
+	if len(r.IgnoredExceptionTypes) > 0 && caughtType != "" {
+		lowerType := strings.ToLower(caughtType)
+		for _, ignored := range r.IgnoredExceptionTypes {
+			if strings.Contains(lowerType, strings.ToLower(ignored)) {
+				return
+			}
 		}
-		fullThrow := body[throwStart : loc[1]-1+len(throwExpr)]
+	}
+	if isCatchPartOfTryExpressionFlat(file, idx) {
+		return
+	}
+	if caughtType == "EOFException" {
+		return
+	}
 
-		// Only inspect throws that actually reference the caught variable
-		// (directly or via an alias).
-		if !directRefRe.MatchString(fullThrow) {
-			// Check aliases
-			hasStringAlias := false
-			for alias := range stringAliases {
-				if regexp.MustCompile(`\b` + regexp.QuoteMeta(alias) + `\b`).MatchString(fullThrow) {
-					hasStringAlias = true
-					break
-				}
-			}
-			for alias := range directAliases {
-				if regexp.MustCompile(`\b` + regexp.QuoteMeta(alias) + `\b`).MatchString(fullThrow) {
-					// Direct alias used — exception forwarded properly
-					return false
-				}
-			}
-			if !hasStringAlias {
-				// Throw doesn't reference the exception at all — skip it
-				continue
-			}
-			// Only string aliases used in this throw — swallowed
+	result := analyzeSwallowedCatchBody(file, idx, caughtVar)
+	if result.handled {
+		return
+	}
+	if result.indirectOnly || result.anyCaughtReference {
+		ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
+			fmt.Sprintf("Exception '%s' is caught but not meaningfully handled. Pass it directly to logging, handling, or rethrowing code.", caughtVar)))
+		return
+	}
+	r.makeUnusedFindingFlat(ctx, caughtVar)
+}
+
+type swallowedCatchResult struct {
+	handled            bool
+	indirectOnly       bool
+	anyCaughtReference bool
+}
+
+func analyzeSwallowedCatchBody(file *scanner.File, catchNode uint32, caughtVar string) swallowedCatchResult {
+	body := swallowedCatchStatements(file, catchNode)
+	if body == 0 || !swallowedHasNamedStatement(file, body) {
+		return swallowedCatchResult{}
+	}
+
+	directAliases := map[string]bool{caughtVar: true}
+	derivedAliases := map[string]bool{}
+	swallowedWalkCatchBody(file, body, func(node uint32) bool {
+		if file.FlatType(node) != "property_declaration" {
 			return true
 		}
+		name := swallowedPropertyDeclarationName(file, node)
+		if name == "" {
+			return true
+		}
+		init := swallowedPropertyInitializer(file, node)
+		switch swallowedExpressionAliasKind(file, init, directAliases, derivedAliases) {
+		case swallowedAliasDirect:
+			directAliases[name] = true
+		case swallowedAliasDerived:
+			derivedAliases[name] = true
+		}
+		return true
+	})
 
-		// Variable is referenced directly in the throw.
-		// Strip dot-access usages and check if a bare reference remains.
-		stripped := dotAccessRe.ReplaceAllString(fullThrow, "")
-		if directNoDotRe.MatchString(stripped) {
-			// Exception is passed directly as a constructor argument — not swallowed
+	result := swallowedCatchResult{}
+	swallowedWalkCatchBody(file, body, func(node uint32) bool {
+		if result.handled {
 			return false
 		}
-		// Only dot-access references (e.message, etc.) — swallowed
+		if file.FlatType(node) == "simple_identifier" && swallowedIdentifierReferencesCaught(file, node, directAliases, derivedAliases) {
+			result.anyCaughtReference = true
+		}
+		switch file.FlatType(node) {
+		case "jump_expression":
+			throwResult := swallowedAnalyzeThrow(file, node, directAliases, derivedAliases)
+			if throwResult.handled {
+				result.handled = true
+				return false
+			}
+			result.indirectOnly = result.indirectOnly || throwResult.indirectOnly
+		case "call_expression":
+			callResult := swallowedAnalyzeCall(file, catchNode, node, directAliases, derivedAliases)
+			if callResult.handled {
+				result.handled = true
+				return false
+			}
+			result.indirectOnly = result.indirectOnly || callResult.indirectOnly
+		case "assignment", "augmented_assignment":
+			result.handled = true
+			return false
+		case "return_expression":
+			result.handled = true
+			return false
+		}
 		return true
-	}
+	})
+	return result
+}
 
+type swallowedEvidence struct {
+	handled      bool
+	indirectOnly bool
+}
+
+type swallowedAliasKind uint8
+
+const (
+	swallowedAliasNone swallowedAliasKind = iota
+	swallowedAliasDirect
+	swallowedAliasDerived
+)
+
+func swallowedCatchStatements(file *scanner.File, catchNode uint32) uint32 {
+	for child := file.FlatFirstChild(catchNode); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "statements" {
+			return child
+		}
+	}
+	return 0
+}
+
+func swallowedHasNamedStatement(file *scanner.File, statements uint32) bool {
+	for child := file.FlatFirstChild(statements); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatIsNamed(child) {
+			return true
+		}
+	}
 	return false
 }
 
-// extractBalancedParens extracts text from the opening paren to its matching close.
-func extractBalancedParens(s string) string {
-	if len(s) == 0 || s[0] != '(' {
-		return ""
-	}
-	depth := 0
-	for i, ch := range s {
-		switch ch {
-		case '(':
-			depth++
-		case ')':
-			depth--
-			if depth == 0 {
-				return s[:i+1]
+func swallowedWalkCatchBody(file *scanner.File, root uint32, fn func(uint32) bool) {
+	var walk func(uint32) bool
+	walk = func(node uint32) bool {
+		if node != root {
+			switch file.FlatType(node) {
+			case "lambda_literal", "function_declaration", "class_declaration", "object_declaration":
+				return true
 			}
+		}
+		if !fn(node) {
+			return false
+		}
+		for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+			if !walk(child) {
+				return false
+			}
+		}
+		return true
+	}
+	walk(root)
+}
+
+func swallowedPropertyDeclarationName(file *scanner.File, prop uint32) string {
+	if decl, ok := file.FlatFindChild(prop, "variable_declaration"); ok {
+		if ident, ok := file.FlatFindChild(decl, "simple_identifier"); ok {
+			return file.FlatNodeString(ident, nil)
 		}
 	}
 	return ""
+}
+
+func swallowedPropertyInitializer(file *scanner.File, prop uint32) uint32 {
+	afterEquals := false
+	for child := file.FlatFirstChild(prop); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			afterEquals = true
+			continue
+		}
+		if afterEquals && file.FlatIsNamed(child) {
+			return child
+		}
+	}
+	return 0
+}
+
+func swallowedExpressionAliasKind(file *scanner.File, expr uint32, directAliases, derivedAliases map[string]bool) swallowedAliasKind {
+	expr = swallowedUnwrapExpression(file, expr)
+	if expr == 0 {
+		return swallowedAliasNone
+	}
+	if file.FlatType(expr) == "simple_identifier" {
+		name := file.FlatNodeString(expr, nil)
+		if directAliases[name] {
+			return swallowedAliasDirect
+		}
+		if derivedAliases[name] {
+			return swallowedAliasDerived
+		}
+	}
+	if swallowedSubtreeReferencesCaught(file, expr, directAliases, derivedAliases) {
+		return swallowedAliasDerived
+	}
+	return swallowedAliasNone
+}
+
+func swallowedUnwrapExpression(file *scanner.File, expr uint32) uint32 {
+	for expr != 0 {
+		switch file.FlatType(expr) {
+		case "parenthesized_expression":
+			if file.FlatNamedChildCount(expr) != 1 {
+				return expr
+			}
+			expr = file.FlatNamedChild(expr, 0)
+		default:
+			return expr
+		}
+	}
+	return 0
+}
+
+func swallowedAnalyzeThrow(file *scanner.File, node uint32, directAliases, derivedAliases map[string]bool) swallowedEvidence {
+	if !swallowedIsThrowExpression(file, node) {
+		return swallowedEvidence{}
+	}
+	expr := swallowedJumpExpressionValue(file, node)
+	if swallowedExpressionIsDirectAlias(file, expr, directAliases) {
+		return swallowedEvidence{handled: true}
+	}
+	if file.FlatType(expr) == "call_expression" {
+		args := flatCallKeyArguments(file, expr)
+		argUse := swallowedAnalyzeArguments(file, args, directAliases, derivedAliases)
+		if argUse.handled {
+			return swallowedEvidence{handled: true}
+		}
+		if argUse.indirectOnly {
+			return swallowedEvidence{indirectOnly: true}
+		}
+	}
+	if swallowedExpressionAliasKind(file, expr, directAliases, derivedAliases) == swallowedAliasDerived {
+		return swallowedEvidence{indirectOnly: true}
+	}
+	return swallowedEvidence{}
+}
+
+func swallowedIsThrowExpression(file *scanner.File, node uint32) bool {
+	if file.FlatType(node) != "jump_expression" {
+		return false
+	}
+	for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+		return file.FlatType(child) == "throw"
+	}
+	return false
+}
+
+func swallowedJumpExpressionValue(file *scanner.File, node uint32) uint32 {
+	seenKeyword := false
+	for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+		if !seenKeyword {
+			seenKeyword = file.FlatType(child) == "throw" || file.FlatType(child) == "return"
+			continue
+		}
+		if file.FlatIsNamed(child) {
+			return child
+		}
+	}
+	return 0
+}
+
+func swallowedAnalyzeCall(file *scanner.File, catchNode, node uint32, directAliases, derivedAliases map[string]bool) swallowedEvidence {
+	kind := swallowedClassifyCall(file, catchNode, node)
+	if kind == swallowedCallUnknown {
+		return swallowedEvidence{}
+	}
+	args := flatCallKeyArguments(file, node)
+	argUse := swallowedAnalyzeArguments(file, args, directAliases, derivedAliases)
+	if kind == swallowedCallUI || kind == swallowedCallLocalHandler {
+		if argUse.handled || argUse.indirectOnly {
+			return swallowedEvidence{handled: true}
+		}
+		return swallowedEvidence{}
+	}
+	return argUse
+}
+
+type swallowedCallKind uint8
+
+const (
+	swallowedCallUnknown swallowedCallKind = iota
+	swallowedCallLogging
+	swallowedCallUI
+	swallowedCallLocalHandler
+)
+
+func swallowedClassifyCall(file *scanner.File, catchNode, node uint32) swallowedCallKind {
+	callee, receivers := swallowedCallTarget(file, node)
+	if callee == "" {
+		return swallowedCallUnknown
+	}
+	// Structural-only fallback: without KAA call targets, logging requires a
+	// known receiver shape and local handlers must be declared in the same owner.
+	if swallowedIsLoggingCall(callee, receivers) {
+		return swallowedCallLogging
+	}
+	if swallowedIsUICall(callee, receivers) {
+		return swallowedCallUI
+	}
+	if swallowedIsHandlerName(callee) && swallowedSameOwnerLocalFunctionExists(file, catchNode, callee) {
+		return swallowedCallLocalHandler
+	}
+	return swallowedCallUnknown
+}
+
+func swallowedCallTarget(file *scanner.File, node uint32) (string, []string) {
+	core := node
+	if flatCallExpressionName(file, core) == "" {
+		for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "call_expression" {
+				core = child
+				break
+			}
+		}
+	}
+	callee := flatCallExpressionName(file, core)
+	if callee == "" {
+		return "", nil
+	}
+	navExpr, _ := flatCallExpressionParts(file, core)
+	if navExpr == 0 {
+		return callee, nil
+	}
+	parts := swallowedNavigationIdentifiers(file, navExpr)
+	if len(parts) <= 1 {
+		return callee, nil
+	}
+	return callee, parts[:len(parts)-1]
+}
+
+func swallowedNavigationIdentifiers(file *scanner.File, navExpr uint32) []string {
+	var parts []string
+	for child := file.FlatFirstChild(navExpr); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "simple_identifier":
+			parts = append(parts, file.FlatNodeString(child, nil))
+		case "navigation_suffix":
+			for gc := file.FlatFirstChild(child); gc != 0; gc = file.FlatNextSib(gc) {
+				if file.FlatType(gc) == "simple_identifier" {
+					parts = append(parts, file.FlatNodeString(gc, nil))
+				}
+			}
+		case "navigation_expression":
+			parts = append(parts, swallowedNavigationIdentifiers(file, child)...)
+		}
+	}
+	return parts
+}
+
+func swallowedIsLoggingCall(callee string, receivers []string) bool {
+	if len(receivers) == 0 {
+		return false
+	}
+	logVerb := map[string]bool{
+		"v": true, "d": true, "i": true, "w": true, "e": true, "wtf": true,
+		"trace": true, "debug": true, "info": true, "warn": true, "warning": true,
+		"error": true, "log": true, "logError": true, "logWarning": true,
+		"logWarn": true, "logInfo": true, "logDebug": true, "logTrace": true,
+	}
+	if !logVerb[callee] {
+		return false
+	}
+	for _, receiver := range receivers {
+		lower := strings.ToLower(receiver)
+		if receiver == "Log" || receiver == "Timber" || lower == "logger" ||
+			lower == "log" || strings.HasSuffix(lower, "logger") {
+			return true
+		}
+	}
+	return false
+}
+
+func swallowedIsUICall(callee string, receivers []string) bool {
+	uiReceivers := map[string]bool{
+		"Toast": true, "Snackbar": true, "AlertDialog": true,
+		"MaterialAlertDialog": true, "MaterialAlertDialogBuilder": true,
+	}
+	if len(receivers) > 0 {
+		for _, receiver := range receivers {
+			if uiReceivers[receiver] {
+				return true
+			}
+		}
+	}
+	switch callee {
+	case "showError", "showDialog", "showErrorDialog":
+		return len(receivers) > 0
+	default:
+		return false
+	}
+}
+
+func swallowedIsHandlerName(name string) bool {
+	switch name {
+	case "toastOn", "showError", "showErrorDialog", "handleError",
+		"reportError", "recoverFrom", "onError", "fallback", "notifyError",
+		"logError", "logWarning", "logWarn":
+		return true
+	default:
+		return false
+	}
+}
+
+func swallowedSameOwnerLocalFunctionExists(file *scanner.File, catchNode uint32, name string) bool {
+	callFunc, _ := flatEnclosingAncestor(file, catchNode, "function_declaration")
+	callClass, _ := flatEnclosingAncestor(file, catchNode, "class_declaration", "object_declaration")
+	found := false
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		if found || fn == callFunc {
+			return
+		}
+		if swallowedFunctionName(file, fn) != name {
+			return
+		}
+		if callFunc != 0 {
+			if ownerFunc, ok := flatEnclosingAncestor(file, fn, "function_declaration"); ok && ownerFunc == callFunc {
+				found = true
+				return
+			}
+		}
+		if callClass != 0 {
+			if ownerClass, ok := flatEnclosingAncestor(file, fn, "class_declaration", "object_declaration"); ok && ownerClass == callClass {
+				found = true
+				return
+			}
+		}
+		if callClass == 0 {
+			if _, ok := flatEnclosingAncestor(file, fn, "class_declaration", "object_declaration"); !ok {
+				found = true
+			}
+		}
+	})
+	return found
+}
+
+func swallowedFunctionName(file *scanner.File, fn uint32) string {
+	for child := file.FlatFirstChild(fn); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "simple_identifier" {
+			return file.FlatNodeString(child, nil)
+		}
+	}
+	return ""
+}
+
+func swallowedAnalyzeArguments(file *scanner.File, args uint32, directAliases, derivedAliases map[string]bool) swallowedEvidence {
+	if args == 0 {
+		return swallowedEvidence{}
+	}
+	indirect := false
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		expr := flatValueArgumentExpression(file, arg)
+		if swallowedExpressionIsDirectAlias(file, expr, directAliases) {
+			return swallowedEvidence{handled: true}
+		}
+		if swallowedExpressionAliasKind(file, expr, directAliases, derivedAliases) == swallowedAliasDerived {
+			indirect = true
+		}
+	}
+	return swallowedEvidence{indirectOnly: indirect}
+}
+
+func swallowedExpressionIsDirectAlias(file *scanner.File, expr uint32, directAliases map[string]bool) bool {
+	expr = swallowedUnwrapExpression(file, expr)
+	if expr == 0 || file.FlatType(expr) != "simple_identifier" {
+		return false
+	}
+	return directAliases[file.FlatNodeString(expr, nil)] && swallowedIsReferenceIdentifier(file, expr)
+}
+
+func swallowedSubtreeReferencesCaught(file *scanner.File, root uint32, directAliases, derivedAliases map[string]bool) bool {
+	found := false
+	swallowedWalkCatchBody(file, root, func(node uint32) bool {
+		if file.FlatType(node) == "simple_identifier" && swallowedIdentifierReferencesCaught(file, node, directAliases, derivedAliases) {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+func swallowedIdentifierReferencesCaught(file *scanner.File, ident uint32, directAliases, derivedAliases map[string]bool) bool {
+	if !swallowedIsReferenceIdentifier(file, ident) {
+		return false
+	}
+	name := file.FlatNodeString(ident, nil)
+	return directAliases[name] || derivedAliases[name]
+}
+
+func swallowedIsReferenceIdentifier(file *scanner.File, ident uint32) bool {
+	parent, ok := file.FlatParent(ident)
+	if !ok {
+		return true
+	}
+	switch file.FlatType(parent) {
+	case "variable_declaration", "function_declaration", "type_identifier",
+		"user_type", "value_argument_label", "navigation_suffix":
+		return false
+	case "value_argument":
+		if next, ok := file.FlatNextSibling(ident); ok && file.FlatType(next) == "=" {
+			return false
+		}
+	case "call_expression":
+		if first := file.FlatFirstChild(parent); first == ident {
+			return false
+		}
+	}
+	return true
 }
 
 // ThrowingExceptionFromFinallyRule detects throw inside finally blocks.
@@ -313,7 +675,6 @@ type ThrowingExceptionFromFinallyRule struct {
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
 func (r *ThrowingExceptionFromFinallyRule) Confidence() float64 { return 0.75 }
-
 
 // ThrowingExceptionsWithoutMessageOrCauseRule detects throw Exception() with no args.
 // Uses tree-sitter dispatch to find call_expression nodes, then checks if the parent
@@ -343,7 +704,6 @@ var defaultExceptionsRequiringMessage = map[string]bool{
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
 func (r *ThrowingExceptionsWithoutMessageOrCauseRule) Confidence() float64 { return 0.75 }
-
 
 func (r *ThrowingExceptionsWithoutMessageOrCauseRule) exceptionAllowlist() map[string]bool {
 	if !experiment.Enabled("exceptions-allowlist-cache") || len(r.Exceptions) == 0 {
@@ -405,7 +765,6 @@ type ThrowingNewInstanceOfSameExceptionRule struct {
 // roadmap/17.
 func (r *ThrowingNewInstanceOfSameExceptionRule) Confidence() float64 { return 0.75 }
 
-
 // ThrowingExceptionInMainRule detects throw in main function.
 type ThrowingExceptionInMainRule struct {
 	FlatDispatchBase
@@ -416,7 +775,6 @@ type ThrowingExceptionInMainRule struct {
 // shapes via structural AST + name-list lookups. Classified per
 // roadmap/17.
 func (r *ThrowingExceptionInMainRule) Confidence() float64 { return 0.75 }
-
 
 // ErrorUsageWithThrowableRule detects error(throwable) calls.
 type ErrorUsageWithThrowableRule struct {
@@ -429,13 +787,11 @@ type ErrorUsageWithThrowableRule struct {
 // roadmap/17.
 func (r *ErrorUsageWithThrowableRule) Confidence() float64 { return 0.75 }
 
-
 // ObjectExtendsThrowableRule detects object : Exception/Throwable/Error.
 type ObjectExtendsThrowableRule struct {
 	FlatDispatchBase
 	BaseRule
 }
-
 
 // Confidence reports a tier-2 (medium) base confidence — relies on
 // resolver to determine supertypes; falls back to name-based heuristics on
@@ -445,7 +801,6 @@ func (r *ObjectExtendsThrowableRule) Confidence() float64 { return 0.75 }
 var throwableBaseTypes = []string{"Throwable", "Exception", "Error", "RuntimeException",
 	"IllegalStateException", "IllegalArgumentException", "IOException",
 	"UnsupportedOperationException"}
-
 
 func walkThrowExpressionsFlat(file *scanner.File, idx uint32, fn func(throwNode uint32)) {
 	file.FlatWalkNodes(idx, "jump_expression", func(n uint32) {

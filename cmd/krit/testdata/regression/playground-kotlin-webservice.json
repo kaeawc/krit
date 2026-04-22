@@ -1,6 +1,6 @@
 {
   "project": "../../playground/kotlin-webservice/",
-  "findings_count": 58,
+  "findings_count": 60,
   "findings": [
     {
       "rule": "WildcardImport",
@@ -131,6 +131,14 @@
       "message": "Magic number '18'. Consider extracting it to a named constant."
     },
     {
+      "rule": "SwallowedException",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 110,
+      "col": 0,
+      "message": "Exception 'e' is caught but never used. Either log/handle it or rethrow."
+    },
+    {
       "rule": "TooGenericExceptionCaught",
       "ruleSet": "exceptions",
       "file": "src/main/kotlin/com/example/services/UserService.kt",
@@ -145,6 +153,14 @@
       "line": 119,
       "col": 0,
       "message": "Empty catch block detected. Empty catch blocks should be avoided."
+    },
+    {
+      "rule": "SwallowedException",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/services/UserService.kt",
+      "line": 119,
+      "col": 0,
+      "message": "Exception 'e' is caught but never used. Either log/handle it or rethrow."
     },
     {
       "rule": "ReturnFromFinally",

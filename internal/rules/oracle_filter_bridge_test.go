@@ -97,6 +97,12 @@ func TestBuildOracleCallTargetFilterV2_Bounded(t *testing.T) {
 	if got.Fingerprint == "" {
 		t.Fatal("expected non-empty fingerprint")
 	}
+	if len(got.RuleProfiles) != 2 {
+		t.Fatalf("rule profiles = %+v, want 2", got.RuleProfiles)
+	}
+	if got.RuleProfiles[0].RuleID != "Cast" || got.RuleProfiles[1].RuleID != "Suspend" {
+		t.Fatalf("rule profiles not sorted by rule ID: %+v", got.RuleProfiles)
+	}
 }
 
 func TestBuildOracleCallTargetFilterV2_BroadDisables(t *testing.T) {
@@ -111,6 +117,9 @@ func TestBuildOracleCallTargetFilterV2_BroadDisables(t *testing.T) {
 	}
 	if len(got.DisabledBy) != 1 || got.DisabledBy[0] != "Broad" {
 		t.Fatalf("DisabledBy = %v, want [Broad]", got.DisabledBy)
+	}
+	if len(got.RuleProfiles) != 2 || got.RuleProfiles[1].RuleID != "Broad" || got.RuleProfiles[1].DisabledReason != "allCalls" {
+		t.Fatalf("RuleProfiles = %+v, want allCalls disabled profile", got.RuleProfiles)
 	}
 }
 
@@ -149,6 +158,9 @@ fun topLevelMustUse(): String = ""
 		if !containsString(got.CalleeNames, want) {
 			t.Fatalf("callee names = %v, missing %q", got.CalleeNames, want)
 		}
+	}
+	if len(got.RuleProfiles) != 1 || !containsString(got.RuleProfiles[0].DerivedCalleeNames, "oldCall") {
+		t.Fatalf("RuleProfiles = %+v, want derived oldCall attribution", got.RuleProfiles)
 	}
 	if got.Fingerprint == "" {
 		t.Fatal("expected non-empty fingerprint")

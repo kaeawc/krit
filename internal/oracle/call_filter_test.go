@@ -33,6 +33,13 @@ func TestWriteCallTargetFilterFile(t *testing.T) {
 		Enabled:     true,
 		CalleeNames: []string{"delay"},
 		TargetFQNs:  []string{"kotlinx.coroutines.delay"},
+		RuleProfiles: []CallTargetRuleProfile{{
+			RuleID:               "SuspendRule",
+			CalleeNames:          []string{"delay"},
+			TargetFQNs:           []string{"kotlinx.coroutines.delay"},
+			AnnotatedIdentifiers: []string{"Deprecated"},
+			DerivedCalleeNames:   []string{"oldCall"},
+		}},
 	})
 
 	path, err := WriteCallTargetFilterFile(summary, dir)
@@ -54,6 +61,12 @@ func TestWriteCallTargetFilterFile(t *testing.T) {
 	}
 	if len(payload.CalleeNames) != 1 || payload.CalleeNames[0] != "delay" {
 		t.Fatalf("calleeNames = %v, want [delay]", payload.CalleeNames)
+	}
+	if len(payload.RuleProfiles) != 1 || payload.RuleProfiles[0].RuleID != "SuspendRule" {
+		t.Fatalf("ruleProfiles = %+v, want SuspendRule profile", payload.RuleProfiles)
+	}
+	if len(payload.RuleProfiles[0].DerivedCalleeNames) != 1 || payload.RuleProfiles[0].DerivedCalleeNames[0] != "oldCall" {
+		t.Fatalf("derived callee names = %+v, want [oldCall]", payload.RuleProfiles[0].DerivedCalleeNames)
 	}
 }
 

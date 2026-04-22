@@ -15,18 +15,33 @@ import (
 // resolveToCall() work. Enabled=false means at least one active rule needs
 // broad call targets, so krit-types must preserve the pre-filter behavior.
 type CallTargetFilterSummary struct {
-	Enabled     bool
-	DisabledBy  []string
-	CalleeNames []string
-	TargetFQNs  []string
-	Fingerprint string
+	Enabled      bool
+	DisabledBy   []string
+	CalleeNames  []string
+	TargetFQNs   []string
+	RuleProfiles []CallTargetRuleProfile
+	Fingerprint  string
+}
+
+// CallTargetRuleProfile carries attribution metadata for instrumentation.
+// It does not change the filter fingerprint; the effective JVM resolution
+// scope is still defined solely by CalleeNames and TargetFQNs.
+type CallTargetRuleProfile struct {
+	RuleID               string   `json:"ruleID"`
+	AllCalls             bool     `json:"allCalls"`
+	CalleeNames          []string `json:"calleeNames,omitempty"`
+	TargetFQNs           []string `json:"targetFQNs,omitempty"`
+	AnnotatedIdentifiers []string `json:"annotatedIdentifiers,omitempty"`
+	DerivedCalleeNames   []string `json:"derivedCalleeNames,omitempty"`
+	DisabledReason       string   `json:"disabledReason,omitempty"`
 }
 
 type callTargetFilterJSON struct {
-	Version     int      `json:"version"`
-	Mode        string   `json:"mode"`
-	CalleeNames []string `json:"calleeNames"`
-	TargetFQNs  []string `json:"targetFqns,omitempty"`
+	Version      int                     `json:"version"`
+	Mode         string                  `json:"mode"`
+	CalleeNames  []string                `json:"calleeNames"`
+	TargetFQNs   []string                `json:"targetFqns,omitempty"`
+	RuleProfiles []CallTargetRuleProfile `json:"ruleProfiles,omitempty"`
 }
 
 // FinalizeCallTargetFilter sorts, deduplicates, derives simple callee names
@@ -48,6 +63,20 @@ func FinalizeCallTargetFilter(summary CallTargetFilterSummary) CallTargetFilterS
 	summary.CalleeNames = compactStrings(summary.CalleeNames)
 	sort.Strings(summary.TargetFQNs)
 	summary.TargetFQNs = compactStrings(summary.TargetFQNs)
+	for i := range summary.RuleProfiles {
+		profile := &summary.RuleProfiles[i]
+		sort.Strings(profile.CalleeNames)
+		profile.CalleeNames = compactStrings(profile.CalleeNames)
+		sort.Strings(profile.TargetFQNs)
+		profile.TargetFQNs = compactStrings(profile.TargetFQNs)
+		sort.Strings(profile.AnnotatedIdentifiers)
+		profile.AnnotatedIdentifiers = compactStrings(profile.AnnotatedIdentifiers)
+		sort.Strings(profile.DerivedCalleeNames)
+		profile.DerivedCalleeNames = compactStrings(profile.DerivedCalleeNames)
+	}
+	sort.Slice(summary.RuleProfiles, func(i, j int) bool {
+		return summary.RuleProfiles[i].RuleID < summary.RuleProfiles[j].RuleID
+	})
 	summary.Fingerprint = fingerprintCallTargetFilter(summary.CalleeNames, summary.TargetFQNs)
 	return summary
 }
@@ -62,10 +91,11 @@ func WriteCallTargetFilterFile(summary CallTargetFilterSummary, tmpDir string) (
 		tmpDir = os.TempDir()
 	}
 	payload := callTargetFilterJSON{
-		Version:     1,
-		Mode:        "calleeNames",
-		CalleeNames: append([]string(nil), summary.CalleeNames...),
-		TargetFQNs:  append([]string(nil), summary.TargetFQNs...),
+		Version:      1,
+		Mode:         "calleeNames",
+		CalleeNames:  append([]string(nil), summary.CalleeNames...),
+		TargetFQNs:   append([]string(nil), summary.TargetFQNs...),
+		RuleProfiles: append([]CallTargetRuleProfile(nil), summary.RuleProfiles...),
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

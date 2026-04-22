@@ -242,14 +242,24 @@ func TestCacheDir_BumpNukes(t *testing.T) {
 	if err := os.WriteFile(sentinel, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	packSentinel := filepath.Join(cacheDir, oraclePackSubdir, "aa"+oraclePackExt)
+	if err := os.MkdirAll(filepath.Dir(packSentinel), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packSentinel, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	// Manually lower the recorded version so the next CacheDir sees a
-	// mismatch and nukes the entries subtree.
+	// mismatch and nukes the entries and pack subtrees.
 	_ = os.WriteFile(filepath.Join(cacheDir, "version"), []byte("0"), 0o644)
 	if _, err := CacheDir(tmp); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
 		t.Fatalf("sentinel survived version bump: %v", err)
+	}
+	if _, err := os.Stat(packSentinel); !os.IsNotExist(err) {
+		t.Fatalf("pack sentinel survived version bump: %v", err)
 	}
 }
 
@@ -285,6 +295,134 @@ func TestWriteEntry_Atomic_ReadBack(t *testing.T) {
 	}
 	if got.PerFileDeps["java.lang.Object"] == nil {
 		t.Fatalf("per-file deps roundtrip broken")
+	}
+}
+
+func TestOraclePack_WriteReadMultipleShardsAndOverlay(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := []*CacheEntry{
+		{
+			ContentHash: "ab1111",
+			FilePath:    "/tmp/A.kt",
+			FileResult:  &OracleFile{Package: "a"},
+			Closure:     CacheClosure{DepPaths: []string{}, Fingerprint: "fp-a"},
+		},
+		{
+			ContentHash: "ab2222",
+			FilePath:    "/tmp/B.kt",
+			FileResult:  &OracleFile{Package: "b"},
+			Closure:     CacheClosure{DepPaths: []string{}, Fingerprint: "fp-b"},
+		},
+		{
+			ContentHash: "cd3333",
+			FilePath:    "/tmp/C.kt",
+			FileResult:  &OracleFile{Package: "c"},
+			Closure:     CacheClosure{DepPaths: []string{}, Fingerprint: "fp-c"},
+		},
+	}
+	for _, entry := range entries {
+		if err := WriteEntry(cacheDir, entry); err != nil {
+			t.Fatalf("write %s: %v", entry.ContentHash, err)
+		}
+	}
+
+	updated := *entries[0]
+	updated.FileResult = &OracleFile{Package: "updated"}
+	if err := WriteEntry(cacheDir, &updated); err != nil {
+		t.Fatalf("overlay write: %v", err)
+	}
+
+	got, err := LoadEntry(cacheDir, "ab1111")
+	if err != nil {
+		t.Fatalf("load updated: %v", err)
+	}
+	if got.FileResult == nil || got.FileResult.Package != "updated" {
+		t.Fatalf("overlay did not replace existing entry: %#v", got.FileResult)
+	}
+	got, err = LoadEntry(cacheDir, "ab2222")
+	if err != nil {
+		t.Fatalf("load same-shard sibling: %v", err)
+	}
+	if got.FileResult == nil || got.FileResult.Package != "b" {
+		t.Fatalf("same-shard sibling was not preserved: %#v", got.FileResult)
+	}
+	got, err = LoadEntry(cacheDir, "cd3333")
+	if err != nil {
+		t.Fatalf("load other shard: %v", err)
+	}
+	if got.FileResult == nil || got.FileResult.Package != "c" {
+		t.Fatalf("other-shard entry was not preserved: %#v", got.FileResult)
+	}
+	if _, err := os.Stat(entryPath(cacheDir, "ab1111")); !os.IsNotExist(err) {
+		t.Fatalf("packed write should not create legacy JSON entry, stat err=%v", err)
+	}
+}
+
+func TestClassifyFiles_LegacyFallbackWhenPackMissing(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := writeTempFile(t, tmp, "A.kt", "class A {}\n")
+	hash, _ := ContentHash(src)
+	fp, _ := closureFingerprint(nil, nil)
+	writeLegacyCacheEntry(t, cacheDir, &CacheEntry{
+		V:           CacheVersion,
+		ContentHash: hash,
+		FilePath:    src,
+		FileResult:  &OracleFile{Package: "legacy"},
+		Closure:     CacheClosure{DepPaths: nil, Fingerprint: fp},
+	})
+
+	hits, misses := ClassifyFiles(cacheDir, []string{src})
+	if len(hits) != 1 || len(misses) != 0 {
+		t.Fatalf("expected legacy hit, got hits=%d misses=%d", len(hits), len(misses))
+	}
+	if hits[0].FileResult == nil || hits[0].FileResult.Package != "legacy" {
+		t.Fatalf("wrong fallback entry: %#v", hits[0].FileResult)
+	}
+}
+
+func TestClassifyFiles_CorruptPackFallsBackToLegacy(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := writeTempFile(t, tmp, "A.kt", "class A {}\n")
+	hash, _ := ContentHash(src)
+	fp, _ := closureFingerprint(nil, nil)
+	if err := WriteEntry(cacheDir, &CacheEntry{
+		ContentHash: hash,
+		FilePath:    src,
+		FileResult:  &OracleFile{Package: "packed"},
+		Closure:     CacheClosure{DepPaths: nil, Fingerprint: fp},
+	}); err != nil {
+		t.Fatalf("write pack: %v", err)
+	}
+	packPath := filepath.Join(cacheDir, oraclePackSubdir, hash[:2]+oraclePackExt)
+	if err := os.WriteFile(packPath, []byte("not a pack"), 0o644); err != nil {
+		t.Fatalf("corrupt pack: %v", err)
+	}
+	writeLegacyCacheEntry(t, cacheDir, &CacheEntry{
+		V:           CacheVersion,
+		ContentHash: hash,
+		FilePath:    src,
+		FileResult:  &OracleFile{Package: "legacy"},
+		Closure:     CacheClosure{DepPaths: nil, Fingerprint: fp},
+	})
+
+	hits, misses := ClassifyFiles(cacheDir, []string{src})
+	if len(hits) != 1 || len(misses) != 0 {
+		t.Fatalf("expected fallback hit, got hits=%d misses=%d", len(hits), len(misses))
+	}
+	if hits[0].FileResult == nil || hits[0].FileResult.Package != "legacy" {
+		t.Fatalf("corrupt pack did not fall back to legacy: %#v", hits[0].FileResult)
 	}
 }
 
@@ -549,4 +687,20 @@ func findTiming(entries []perf.TimingEntry, name string) perf.TimingEntry {
 		}
 	}
 	return perf.TimingEntry{}
+}
+
+func writeLegacyCacheEntry(t *testing.T, cacheDir string, entry *CacheEntry) {
+	t.Helper()
+	entry.V = CacheVersion
+	data, err := marshalCacheEntry(entry)
+	if err != nil {
+		t.Fatalf("marshal legacy entry: %v", err)
+	}
+	path := entryPath(cacheDir, entry.ContentHash)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir legacy entry: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write legacy entry: %v", err)
+	}
 }

@@ -3,12 +3,14 @@ package oracle
 // On-disk incremental cache for the krit-types oracle.
 //
 // Each source .kt file's analysis result is stored as a content-addressable
-// JSON entry keyed by the content hash of its bytes. Each entry carries a "closure"
-// of the file's direct source-dependency paths plus a fingerprint computed
-// by hashing the current on-disk contents of those deps. A cache lookup is
-// a HIT only if (a) the content hash matches (b) every dep path still
-// exists on disk and (c) the recomputed closure fingerprint matches the
-// stored one.
+// JSON entry keyed by the content hash of its bytes. The primary disk backend
+// packs those JSON blobs into first-byte shard packs; the legacy one-json-file
+// layout remains readable as a migration fallback. Each entry carries a
+// "closure" of the file's direct source-dependency paths plus a fingerprint
+// computed by hashing the current on-disk contents of those deps. A cache
+// lookup is a HIT only if (a) the content hash matches (b) every dep path still
+// exists on disk and (c) the recomputed closure fingerprint matches the stored
+// one.
 //
 // This file owns:
 //   - CacheEntry schema + JSON serde (via encoding/json)
@@ -30,7 +32,6 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/cacheutil"
-	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/store"
@@ -106,18 +107,35 @@ type CacheClosure struct {
 // it doesn't exist.
 func CacheDir(repoDir string) (string, error) {
 	dir := filepath.Join(repoDir, ".krit", "types-cache")
+	tokens := []cacheutil.SchemaToken{
+		{Name: "version", Value: fmt.Sprintf("%d", CacheVersion)},
+		{Name: "hash", Value: hashutil.HasherName()},
+	}
+	if oracleCacheTokenMismatch(dir, tokens) {
+		_ = os.RemoveAll(filepath.Join(dir, oraclePackSubdir))
+	}
 	vd := cacheutil.VersionedDir{
 		Root:       dir,
 		EntriesDir: "entries",
-		Tokens: []cacheutil.SchemaToken{
-			{Name: "version", Value: fmt.Sprintf("%d", CacheVersion)},
-			{Name: "hash", Value: hashutil.HasherName()},
-		},
+		Tokens:     tokens,
 	}
 	if _, err := vd.Open(); err != nil {
 		return "", fmt.Errorf("create cache dir: %w", err)
 	}
 	return dir, nil
+}
+
+func oracleCacheTokenMismatch(dir string, tokens []cacheutil.SchemaToken) bool {
+	for _, token := range tokens {
+		data, err := os.ReadFile(filepath.Join(dir, token.Name))
+		if err != nil {
+			continue
+		}
+		if string(data) != token.Value {
+			return true
+		}
+	}
+	return false
 }
 
 // FindRepoDir picks a repo root for the cache. Uses the first scan path,
@@ -149,10 +167,24 @@ func entryPath(cacheDir, hash string) string {
 	return cacheutil.ShardedEntryPath(filepath.Join(cacheDir, "entries"), hash, ".json")
 }
 
-// LoadEntry reads and parses a cache entry. Returns (nil, nil) if the
-// entry file does not exist. Corrupt JSON returns an error so the caller
-// can decide whether to delete the bad file (ClassifyFiles does).
+// LoadEntry reads and parses a cache entry from the packed backend, falling
+// back to the legacy per-entry JSON file if the pack is missing or corrupt.
+// Returns (nil, nil) if neither backend has the entry. Corrupt JSON returns an
+// error so the caller can degrade to a miss.
 func LoadEntry(cacheDir, hash string) (*CacheEntry, error) {
+	ps := newOraclePackStore(cacheDir)
+	if entry, err := ps.LoadEntry(hash); err == nil && entry != nil {
+		return entry, nil
+	} else if err != nil {
+		if legacy, legacyErr := loadLegacyEntry(cacheDir, hash); legacyErr == nil && legacy != nil {
+			return legacy, nil
+		}
+		return nil, err
+	}
+	return loadLegacyEntry(cacheDir, hash)
+}
+
+func loadLegacyEntry(cacheDir, hash string) (*CacheEntry, error) {
 	path := entryPath(cacheDir, hash)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -161,9 +193,13 @@ func LoadEntry(cacheDir, hash string) (*CacheEntry, error) {
 		}
 		return nil, err
 	}
+	return parseCacheEntryData(data, path)
+}
+
+func parseCacheEntryData(data []byte, source string) (*CacheEntry, error) {
 	var e CacheEntry
 	if err := json.Unmarshal(data, &e); err != nil {
-		return nil, fmt.Errorf("parse cache entry %s: %w", path, err)
+		return nil, fmt.Errorf("parse cache entry %s: %w", source, err)
 	}
 	if e.V != CacheVersion {
 		return nil, fmt.Errorf("cache entry version %d != %d", e.V, CacheVersion)
@@ -247,11 +283,9 @@ func cacheScopeCompatible(entry *CacheEntry, currentCallFilter string) bool {
 	return entry.CallFilterFingerprint == "" || entry.CallFilterFingerprint == currentCallFilter
 }
 
-// IndexCacheHashes walks the cache entries directory once and returns a
-// set of content hashes that have a cache entry on disk. Lets
-// ClassifyFiles short-circuit misses without a per-file LoadEntry — on
-// repos with many files (e.g. kotlin/kotlin) this eliminates 40k+ Stat
-// syscalls and JSON opens per warm run.
+// IndexCacheHashes walks the legacy cache entries directory once and returns a
+// set of content hashes that have a legacy JSON entry on disk. Packed entries
+// are indexed per shard when the shard is loaded.
 //
 // Returned map is nil on directory walk error; callers treat nil the
 // same as "don't trust the index, fall back to per-file LoadEntry".
@@ -314,17 +348,7 @@ func marshalCacheEntry(entry *CacheEntry) ([]byte, error) {
 }
 
 func writeEntryData(cacheDir string, entry *CacheEntry, data []byte) error {
-	target := entryPath(cacheDir, entry.ContentHash)
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(target), err)
-	}
-	if err := fsutil.WriteFileAtomic(target, data, 0o644); err != nil {
-		return fmt.Errorf("write entry: %w", err)
-	}
-	recordOracleDir(cacheDir)
-	oracleCacheWrites.Add(1)
-	oracleCacheLastWrite.Store(time.Now().Unix())
-	return nil
+	return writeEntriesData(cacheDir, []oracleEncodedEntryWrite{{hash: entry.ContentHash, data: data}})
 }
 
 // ClassifyFiles partitions paths into cache hits and cache misses. For each
@@ -333,12 +357,12 @@ func writeEntryData(cacheDir string, entry *CacheEntry, data []byte) error {
 // a miss for that file (with a best-effort cleanup of the corrupt entry)
 // so a single bad entry can't poison the whole run.
 //
-// Performance: ClassifyFiles builds an in-memory index of existing entry
-// hashes once, and shares a single content-hash memoization map across
-// all VerifyClosure calls in the pass. On kotlin/kotlin (~16k files,
-// ~15 deps each), the shared hash cache turns ~240k redundant dep reads
-// into ~16k unique reads, and the index eliminates per-file LoadEntry
-// lookups for definite misses. Observed warm classify: 5.4 s → ~400 ms.
+// Performance: ClassifyFiles keeps one pack store per pass, so each requested
+// pack shard is loaded at most once, and builds an in-memory index for the
+// legacy fallback directory. It also shares a single content-hash memoization
+// map across all VerifyClosure calls in the pass. On kotlin/kotlin (~16k files,
+// ~15 deps each), the shared hash cache turns ~240k redundant dep reads into
+// ~16k unique reads.
 //
 // The returned `hits` slice has one entry per hit with `FilePath` already
 // set to the canonical path (synthesized if the stored entry was written
@@ -357,11 +381,11 @@ func ClassifyFilesScoped(cacheDir string, paths []string, callFilterFingerprint 
 		oracleCacheMisses.Add(int64(len(misses)))
 	}()
 
-	// Pre-walk the entries directory to build an in-memory set of
-	// existing content hashes. Cheap directory walk (one Stat per entry
-	// file instead of one per input path), reused across every lookup.
-	// Nil index means walk failed — fall back to per-file LoadEntry.
+	// Pre-walk the legacy entries directory so pack misses can avoid statting
+	// the old per-entry path. Nil index means walk failed — fall back to
+	// per-file legacy checks.
 	index := IndexCacheHashes(cacheDir)
+	packs := newOraclePackStore(cacheDir)
 
 	// Shared content-hash memoization. Seed it with each path's own
 	// hash as we compute it, so subsequent files that list it as a dep
@@ -378,20 +402,28 @@ func ClassifyFilesScoped(cacheDir string, paths []string, callFilterFingerprint 
 		}
 		hashCache[p] = hash
 
-		// Fast-path miss: definite no-entry-on-disk via the in-memory
-		// index. Avoids the LoadEntry stat + read + parse for every
-		// file that was never cached. Nil index disables this path.
-		if index != nil && !index[hash] {
-			misses = append(misses, p)
-			continue
-		}
-
-		entry, err := LoadEntry(cacheDir, hash)
-		if err != nil {
-			// Corrupt or version-mismatched entry — best effort delete.
-			_ = os.Remove(entryPath(cacheDir, hash))
-			misses = append(misses, p)
-			continue
+		entry, packErr := packs.LoadEntry(hash)
+		var loadErr error
+		if entry == nil {
+			if index != nil && !index[hash] {
+				misses = append(misses, p)
+				continue
+			}
+			entry, loadErr = loadLegacyEntry(cacheDir, hash)
+			if loadErr != nil {
+				// Corrupt or version-mismatched legacy entry — best effort delete.
+				_ = os.Remove(entryPath(cacheDir, hash))
+				misses = append(misses, p)
+				continue
+			}
+		} else if packErr != nil {
+			if index != nil && index[hash] {
+				entry, loadErr = loadLegacyEntry(cacheDir, hash)
+			}
+			if loadErr != nil || entry == nil {
+				misses = append(misses, p)
+				continue
+			}
 		}
 		if entry == nil {
 			misses = append(misses, p)
@@ -546,6 +578,7 @@ type freshEntryWriteStats struct {
 	marshalNs            int64
 	storePutNs           int64
 	atomicWriteNs        int64
+	packWrites           int64
 	sizeTop              []freshEntrySize
 }
 
@@ -735,6 +768,7 @@ func (s *freshEntryWriteStats) emit(t perf.Tracker, storeBacked bool) {
 		perf.AddEntryDetails(t, "freshEntryStorePut", time.Duration(s.storePutNs), map[string]int64{"entries": s.written}, nil)
 	} else {
 		perf.AddEntryDetails(t, "freshEntryAtomicWrite", time.Duration(s.atomicWriteNs), map[string]int64{"entries": s.written}, nil)
+		perf.AddEntryDetails(t, "oraclePackWrite", time.Duration(s.atomicWriteNs), map[string]int64{"packs": s.packWrites, "entries": s.written}, nil)
 	}
 	perf.AddEntryDetails(t, "freshEntryPoisonWrites", 0, map[string]int64{"entries": s.poisonWrites}, nil)
 	perf.AddEntryDetails(t, "freshEntrySummary", 0, map[string]int64{
@@ -821,6 +855,8 @@ func WriteFreshEntriesWithTrackerScoped(
 	stats := newFreshEntryWriteStats(fresh, deps)
 	defer stats.emit(tracker, false)
 	hashCache := make(map[string]string, len(fresh.Files))
+	writes := make([]oracleEncodedEntryWrite, 0, len(fresh.Files))
+	pendingPoisonWrites := int64(0)
 	for path, fr := range fresh.Files {
 		hashStart := time.Now()
 		hash, err := ContentHash(path)
@@ -875,17 +911,8 @@ func WriteFreshEntriesWithTrackerScoped(
 			stats.skipped++
 			continue
 		}
-		writeStart := time.Now()
-		if err := writeEntryData(cacheDir, entry, data); err != nil {
-			stats.atomicWriteNs += time.Since(writeStart).Nanoseconds()
-			// Non-fatal: one bad write shouldn't tank the whole run.
-			stats.skipped++
-			continue
-		}
-		stats.atomicWriteNs += time.Since(writeStart).Nanoseconds()
+		writes = append(writes, oracleEncodedEntryWrite{hash: entry.ContentHash, data: data})
 		stats.recordSize(path, int64(len(data)))
-		stats.written++
-		written++
 	}
 	// Poison-entry markers for files that deterministically crashed
 	// analyzeKtFile. They have no FileResult and no deps; a subsequent run
@@ -922,18 +949,23 @@ func WriteFreshEntriesWithTrackerScoped(
 				stats.skipped++
 				continue
 			}
-			writeStart := time.Now()
-			if err := writeEntryData(cacheDir, entry, data); err != nil {
-				stats.atomicWriteNs += time.Since(writeStart).Nanoseconds()
-				stats.skipped++
-				continue
-			}
-			stats.atomicWriteNs += time.Since(writeStart).Nanoseconds()
+			writes = append(writes, oracleEncodedEntryWrite{hash: entry.ContentHash, data: data})
 			stats.recordSize(path, int64(len(data)))
-			stats.poisonWrites++
-			stats.written++
-			written++
+			pendingPoisonWrites++
 		}
+	}
+	if len(writes) > 0 {
+		writeStart := time.Now()
+		if err := writeEntriesData(cacheDir, writes); err != nil {
+			stats.atomicWriteNs += time.Since(writeStart).Nanoseconds()
+			stats.skipped += int64(len(writes))
+			return 0, nil
+		}
+		stats.atomicWriteNs += time.Since(writeStart).Nanoseconds()
+		stats.packWrites = countOraclePackGroups(writes)
+		stats.written += int64(len(writes))
+		stats.poisonWrites = pendingPoisonWrites
+		written = len(writes)
 	}
 	return written, nil
 }
@@ -1205,6 +1237,15 @@ func CacheStats(cacheDir string) (count int, bytes int64, err error) {
 		bytes += info.Size()
 		return nil
 	})
+	if err != nil {
+		return count, bytes, err
+	}
+	packCount, packBytes, packErr := oraclePackStats(cacheDir)
+	count += packCount
+	bytes += packBytes
+	if packErr != nil {
+		err = packErr
+	}
 	return count, bytes, err
 }
 

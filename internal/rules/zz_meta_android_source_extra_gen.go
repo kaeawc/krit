@@ -250,7 +250,7 @@ func (r *WrongConstantRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.75,
+		Confidence:    0.85,
 		SourceHash:    "e7e6f484c5815d5e",
 	}
 }

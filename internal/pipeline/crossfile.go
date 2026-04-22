@@ -281,14 +281,14 @@ func crossRuleParsedFiles(kotlinFiles, javaFiles []*scanner.File) []*scanner.Fil
 
 func buildCrossRuleContext(r *v2.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, resolver typeinfer.TypeResolver, collector *scanner.FindingCollector) *v2.Context {
 	rctx := &v2.Context{Collector: collector, Rule: r, DefaultConfidence: 0.95}
+	if r.Needs.Has(v2.NeedsResolver) {
+		rctx.Resolver = resolver
+	}
 	if r.Needs.Has(v2.NeedsParsedFiles) {
 		rctx.ParsedFiles = parsedFiles
 	}
 	if r.Needs.Has(v2.NeedsCrossFile) {
 		rctx.CodeIndex = codeIndex
-	}
-	if r.Needs.Has(v2.NeedsResolver) {
-		rctx.Resolver = resolver
 	}
 	return rctx
 }

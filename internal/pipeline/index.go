@@ -420,9 +420,16 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 	}
 
 	oracleTracker := p.oracleTracker(in)
+	var oracleFilterFiles []*scanner.File
+	loadOracleFilterFiles := func() []*scanner.File {
+		if oracleFilterFiles == nil {
+			oracleFilterFiles = loadFilesForOracleFilter(in.KotlinFilePaths)
+		}
+		return oracleFilterFiles
+	}
 
 	if in.UseDaemon {
-		callFilterPtr := buildOracleCallTargetFilterForInvocation(in.ActiveRules, oracleTracker, in.Verbose)
+		callFilterPtr := buildOracleCallTargetFilterForInvocation(in.ActiveRules, loadOracleFilterFiles, oracleTracker, in.Verbose)
 
 		// Daemon mode: start a long-lived JVM process
 		var d *oracle.Daemon
@@ -536,7 +543,7 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 					})
 					var lightFiles []*scanner.File
 					jvmTracker.Track("oracleFilterLoadFiles", func() error {
-						lightFiles = loadFilesForOracleFilter(in.KotlinFilePaths)
+						lightFiles = loadOracleFilterFiles()
 						return nil
 					})
 					var summary oracle.OracleFilterSummary
@@ -589,7 +596,7 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 				// Both paths accept filterListPath so rule filtering and
 				// per-file caching compose: the filter narrows the
 				// universe first, then the cache classifies what's left.
-				callFilterPtr := buildOracleCallTargetFilterForInvocation(in.ActiveRules, jvmTracker, in.Verbose)
+				callFilterPtr := buildOracleCallTargetFilterForInvocation(in.ActiveRules, loadOracleFilterFiles, jvmTracker, in.Verbose)
 				invokeOpts := oracle.InvocationOptions{Tracker: jvmTracker, CacheWriter: in.OracleCacheWriter, CallFilter: callFilterPtr}
 				var res string
 				var err error
@@ -846,15 +853,23 @@ func maxIntLocal(a, b int) int {
 	return b
 }
 
-func buildOracleCallTargetFilterForInvocation(activeRules []*v2.Rule, tracker perf.Tracker, verbose bool) *oracle.CallTargetFilterSummary {
+func buildOracleCallTargetFilterForInvocation(activeRules []*v2.Rule, loadFiles func() []*scanner.File, tracker perf.Tracker, verbose bool) *oracle.CallTargetFilterSummary {
 	if strings.EqualFold(os.Getenv("KRIT_ORACLE_CALL_FILTER"), "off") {
 		perf.AddEntryDetails(tracker, "oracleCallFilterSummary", 0, map[string]int64{"enabled": 0}, map[string]string{"disabled": "env"})
 		return nil
 	}
 
+	var files []*scanner.File
+	if rules.OracleCallTargetFilterNeedsFiles(activeRules) && loadFiles != nil {
+		tracker.Track("oracleCallFilterLoadFiles", func() error {
+			files = loadFiles()
+			return nil
+		})
+	}
+
 	var callFilter oracle.CallTargetFilterSummary
 	tracker.Track("oracleCallFilterBuild", func() error {
-		callFilter = rules.BuildOracleCallTargetFilterV2(activeRules)
+		callFilter = rules.BuildOracleCallTargetFilterV2ForFiles(activeRules, files)
 		return nil
 	})
 	enabled := int64(0)

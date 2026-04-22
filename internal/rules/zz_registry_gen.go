@@ -9839,7 +9839,7 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "navigation_expression", "user_type"}, Confidence: 0.75, OriginalV1: r,
 			Needs:             v2.NeedsTypeInfo,
-			OracleCallTargets: &v2.OracleCallTargetFilter{AllCalls: true},
+			OracleCallTargets: &v2.OracleCallTargetFilter{AnnotatedIdentifiers: []string{"Deprecated"}},
 			// Narrow by the "Deprecated" token — captures @Deprecated,
 			// @kotlin.Deprecated, @java.lang.Deprecated, and any import
 			// header that aliases kotlin.Deprecated. Inherited deprecations
@@ -10000,7 +10000,7 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
 			Needs:             v2.NeedsTypeInfo,
-			OracleCallTargets: &v2.OracleCallTargetFilter{AllCalls: true},
+			OracleCallTargets: &v2.OracleCallTargetFilter{AnnotatedIdentifiers: []string{"CheckReturnValue", "CheckResult"}},
 			// Narrow by the @CheckReturnValue / @CheckResult tokens. The
 			// functional-ops path (map/filter/…) does not require the
 			// oracle — it fires on tree-sitter alone. The oracle is only

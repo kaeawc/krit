@@ -218,6 +218,136 @@ fun main() {
 	}
 }
 
+func TestUnusedVariable_IgnoresStringsAndComments(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val user = loadUser()
+    // user
+    println("user")
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding when only strings and comments mention variable")
+	}
+}
+
+func TestUnusedVariable_DoesNotMatchIdentifierSubstrings(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val id = 1
+    val guid = 2
+    println(guid)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding for id only, got %d", len(findings))
+	}
+}
+
+func TestUnusedVariable_ShadowingDoesNotCountInnerUsage(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val value = 1
+    run {
+        val value = 2
+        println(value)
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for outer shadowed value")
+	}
+}
+
+func TestUnusedVariable_LambdaParameterShadowingDoesNotCountInnerUsage(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val value = 1
+    listOf(1).forEach { value ->
+        println(value)
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for outer value shadowed by lambda parameter")
+	}
+}
+
+func TestUnusedVariable_ShadowInitializerCanReferenceOuterVariable(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val value = 1
+    run {
+        val value = value + 1
+        println(value)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected initializer reference to count for outer value, got %d", len(findings))
+	}
+}
+
+func TestUnusedVariable_NestedLambdaCanCapture(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val value = 1
+    run {
+        println(value)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected captured lambda use to count, got %d", len(findings))
+	}
+}
+
+func TestUnusedVariable_StringInterpolationCountsAsUse(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val message = "Sync OK"
+    println("Result: $message")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected string interpolation use to count, got %d", len(findings))
+	}
+}
+
+func TestUnusedVariable_DestructuringEntries(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val (used, unused) = pair()
+    println(used)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding for unused destructured entry, got %d", len(findings))
+	}
+}
+
+func TestUnusedVariable_AllowedNames(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val ignored = compute()
+    val _ = compute()
+    println("done")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected allowed names to be ignored, got %d", len(findings))
+	}
+}
+
 // --- UnusedPrivateClass ---
 
 func TestUnusedPrivateClass_Positive(t *testing.T) {

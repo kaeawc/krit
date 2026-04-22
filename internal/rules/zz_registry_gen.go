@@ -16937,84 +16937,22 @@ func registerAllRules() {
 		r := &UnusedVariableRule{BaseRule: BaseRule{RuleName: "UnusedVariable", RuleSetName: "style", Sev: "warning", Desc: "Detects local variables that are declared but never used."}, AllowedNames: regexp.MustCompile(`^(ignored|_)$`)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"property_declaration", "variable_declaration"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
 					return
 				}
-				parent, ok := file.FlatParent(idx)
+				target, ok := unusedVariableDeclaration(file, idx)
 				if !ok {
 					return
 				}
-				parentType := file.FlatType(parent)
-				if parentType == "source_file" ||
-					parentType == "class_body" || parentType == "enum_class_body" ||
-					parentType == "companion_object" || parentType == "object_declaration" ||
-					parentType == "class_member_declarations" {
+				if r.AllowedNames != nil && r.AllowedNames.MatchString(target.name) {
 					return
 				}
-				propLine := file.FlatRow(idx)
-				depth := 0
-				for i := propLine - 1; i >= 0 && i >= propLine-200; i-- {
-					line := file.Lines[i]
-					depth += strings.Count(line, "}") - strings.Count(line, "{")
-					if depth < 0 {
-						trimmed := strings.TrimSpace(line)
-						if strings.Contains(trimmed, "companion object") ||
-							strings.HasPrefix(trimmed, "object ") ||
-							strings.Contains(trimmed, " object ") {
-							return
-						}
-						break
-					}
-				}
-				for a, ok := file.FlatParent(idx); ok; a, ok = file.FlatParent(a) {
-					t := file.FlatType(a)
-					if t == "delegation_specifier" || t == "explicit_delegation" {
-						return
-					}
-					if t == "class_body" || t == "enum_class_body" ||
-						t == "companion_object" || t == "object_declaration" ||
-						t == "class_member_declarations" {
-						return
-					}
-					if t == "function_body" || t == "function_declaration" ||
-						t == "anonymous_function" || t == "source_file" {
-						break
-					}
-				}
-				text := file.FlatNodeText(idx)
-				trimmed := strings.TrimSpace(text)
-				if !strings.HasPrefix(trimmed, "val ") && !strings.HasPrefix(trimmed, "var ") {
-					return
-				}
-				varName := propertyDeclarationNameFlat(file, idx)
-				if varName == "" {
-					return
-				}
-				if r.AllowedNames != nil && r.AllowedNames.MatchString(varName) {
-					return
-				}
-				scope := parent
-				for {
-					t := file.FlatType(scope)
-					if t == "statements" || t == "function_body" || t == "lambda_literal" ||
-						t == "control_structure_body" || t == "source_file" {
-						break
-					}
-					next, ok := file.FlatParent(scope)
-					if !ok {
-						scope = parent
-						break
-					}
-					scope = next
-				}
-				scopeText := file.FlatNodeText(scope)
-				count := countIdentifierOccurrences(scopeText, varName)
-				if count <= 1 {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Local variable '%s' is never used.", varName))
+				if !unusedVariableHasReference(file, target) {
+					ctx.EmitAt(file.FlatRow(target.emitNode)+1, 1,
+						fmt.Sprintf("Local variable '%s' is never used.", target.name))
 				}
 			},
 		})

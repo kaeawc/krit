@@ -4152,7 +4152,13 @@ func registerAllRules() {
 		r := &WrongConstantRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "WrongConstant", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "WrongConstant", Brief: "Wrong constant passed to API", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo,
+			Oracle: &v2.OracleFilter{Identifiers: []string{"setVisibility", "setLayoutDirection", "setImportantForAccessibility", "setGravity", "setOrientation"}},
+			OracleCallTargets: &v2.OracleCallTargetFilter{
+				CalleeNames: []string{"setVisibility", "setLayoutDirection", "setImportantForAccessibility", "setGravity", "setOrientation"},
+			},
+			TypeInfo:   v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true},
+			Confidence: r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
 	}

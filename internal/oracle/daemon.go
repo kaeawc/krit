@@ -452,7 +452,9 @@ func (d *Daemon) AnalyzeAllWithCallFilter(callFilter *CallTargetFilterSummary) (
 	var params map[string]interface{}
 	if callFilter != nil && callFilter.Enabled {
 		params = map[string]interface{}{
-			"callFilterCalleeNames": callFilter.CalleeNames,
+			"callFilterCalleeNames":          callFilter.CalleeNames,
+			"callFilterLexicalHintsByCallee": callFilter.LexicalHintsByCallee,
+			"callFilterLexicalSkipByCallee":  callFilter.LexicalSkipByCallee,
 		}
 	}
 	result, err := d.sendResult("analyzeAll", params)
@@ -496,6 +498,8 @@ func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool,
 	}
 	if callFilter != nil && callFilter.Enabled {
 		params["callFilterCalleeNames"] = callFilter.CalleeNames
+		params["callFilterLexicalHintsByCallee"] = callFilter.LexicalHintsByCallee
+		params["callFilterLexicalSkipByCallee"] = callFilter.LexicalSkipByCallee
 	}
 
 	resp, err := d.send("analyzeWithDeps", params)

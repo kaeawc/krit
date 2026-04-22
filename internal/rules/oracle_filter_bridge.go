@@ -82,8 +82,11 @@ func BuildOracleCallTargetFilterV2ForFiles(enabled []*v2.Rule, files []*scanner.
 		profile := oracle.CallTargetRuleProfile{
 			RuleID:               r.ID,
 			AllCalls:             spec.AllCalls,
+			DiscardedOnly:        spec.DiscardedOnly,
 			CalleeNames:          append([]string(nil), spec.CalleeNames...),
 			TargetFQNs:           append([]string(nil), spec.TargetFQNs...),
+			LexicalHintsByCallee: cloneLexicalHintsByCallee(spec.LexicalHintsByCallee),
+			LexicalSkipByCallee:  cloneLexicalHintsByCallee(spec.LexicalSkipByCallee),
 			AnnotatedIdentifiers: append([]string(nil), spec.AnnotatedIdentifiers...),
 		}
 		if spec.AllCalls {
@@ -95,6 +98,8 @@ func BuildOracleCallTargetFilterV2ForFiles(enabled []*v2.Rule, files []*scanner.
 		}
 		summary.CalleeNames = append(summary.CalleeNames, spec.CalleeNames...)
 		summary.TargetFQNs = append(summary.TargetFQNs, spec.TargetFQNs...)
+		summary.LexicalHintsByCallee = mergeLexicalHintsByCallee(summary.LexicalHintsByCallee, spec.LexicalHintsByCallee)
+		summary.LexicalSkipByCallee = mergeLexicalHintsByCallee(summary.LexicalSkipByCallee, spec.LexicalSkipByCallee)
 		if len(spec.AnnotatedIdentifiers) > 0 {
 			if len(files) == 0 {
 				summary.Enabled = false
@@ -117,4 +122,28 @@ func BuildOracleCallTargetFilterV2ForFiles(enabled []*v2.Rule, files []*scanner.
 		summary.RuleProfiles = append(summary.RuleProfiles, profile)
 	}
 	return oracle.FinalizeCallTargetFilter(summary)
+}
+
+func mergeLexicalHintsByCallee(dst, src map[string][]string) map[string][]string {
+	for callee, hints := range src {
+		if callee == "" || len(hints) == 0 {
+			continue
+		}
+		if dst == nil {
+			dst = make(map[string][]string)
+		}
+		dst[callee] = append(dst[callee], hints...)
+	}
+	return dst
+}
+
+func cloneLexicalHintsByCallee(in map[string][]string) map[string][]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(in))
+	for callee, hints := range in {
+		out[callee] = append([]string(nil), hints...)
+	}
+	return out
 }

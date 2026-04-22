@@ -466,7 +466,16 @@ fun parseRequest(json: String): DaemonRequest {
     val files = extractJsonStringArray(json, "files")
     val timings = extractJsonBoolean(json, "timings") ?: false
     val callFilterNames = extractJsonStringArray(json, "callFilterCalleeNames")
-    val callFilter = callFilterNames?.let { CallFilter(enabled = true, calleeNames = it.toSet()) }
+    val lexicalHints = extractJsonStringArrayMap(json, "callFilterLexicalHintsByCallee") ?: emptyMap()
+    val lexicalSkips = extractJsonStringArrayMap(json, "callFilterLexicalSkipByCallee") ?: emptyMap()
+    val callFilter = callFilterNames?.let {
+        CallFilter(
+            enabled = true,
+            calleeNames = it.toSet(),
+            lexicalHintsByCallee = lexicalHints.mapValues { entry -> entry.value.toSet() },
+            lexicalSkipByCallee = lexicalSkips.mapValues { entry -> entry.value.toSet() }
+        )
+    }
     return DaemonRequest(id, method, files, timings, callFilter)
 }
 
@@ -486,6 +495,96 @@ fun extractJsonStringArray(json: String, key: String): List<String>? {
     val content = match.groupValues[1].trim()
     if (content.isEmpty()) return emptyList()
     return content.split(",").map { it.trim().removeSurrounding("\"") }
+}
+
+fun extractJsonStringArrayMap(json: String, key: String): Map<String, List<String>>? {
+    val keyPattern = """"$key""""
+    val keyIdx = json.indexOf(keyPattern)
+    if (keyIdx < 0) return null
+    var i = json.indexOf(':', keyIdx)
+    if (i < 0) return null
+    i = skipJsonWhitespace(json, i + 1)
+    if (i >= json.length || json[i] != '{') return null
+    i++
+
+    val out = linkedMapOf<String, List<String>>()
+    while (i < json.length) {
+        i = skipJsonWhitespace(json, i)
+        if (i < json.length && json[i] == '}') return out
+        val keyResult = parseJsonStringLiteral(json, i) ?: return null
+        val mapKey = keyResult.first
+        i = skipJsonWhitespace(json, keyResult.second)
+        if (i >= json.length || json[i] != ':') return null
+        i = skipJsonWhitespace(json, i + 1)
+        val arrayResult = parseJsonStringArrayLiteral(json, i) ?: return null
+        out[mapKey] = arrayResult.first
+        i = skipJsonWhitespace(json, arrayResult.second)
+        when {
+            i < json.length && json[i] == ',' -> i++
+            i < json.length && json[i] == '}' -> return out
+            else -> return null
+        }
+    }
+    return null
+}
+
+fun skipJsonWhitespace(json: String, start: Int): Int {
+    var i = start
+    while (i < json.length && json[i].isWhitespace()) i++
+    return i
+}
+
+fun parseJsonStringArrayLiteral(json: String, start: Int): Pair<List<String>, Int>? {
+    var i = skipJsonWhitespace(json, start)
+    if (i >= json.length || json[i] != '[') return null
+    i++
+    val out = mutableListOf<String>()
+    while (i < json.length) {
+        i = skipJsonWhitespace(json, i)
+        if (i < json.length && json[i] == ']') return out to i + 1
+        val value = parseJsonStringLiteral(json, i) ?: return null
+        out.add(value.first)
+        i = skipJsonWhitespace(json, value.second)
+        when {
+            i < json.length && json[i] == ',' -> i++
+            i < json.length && json[i] == ']' -> return out to i + 1
+            else -> return null
+        }
+    }
+    return null
+}
+
+fun parseJsonStringLiteral(json: String, start: Int): Pair<String, Int>? {
+    var i = skipJsonWhitespace(json, start)
+    if (i >= json.length || json[i] != '"') return null
+    i++
+    val sb = StringBuilder()
+    while (i < json.length) {
+        val c = json[i++]
+        when (c) {
+            '"' -> return sb.toString() to i
+            '\\' -> {
+                if (i >= json.length) return null
+                when (val escaped = json[i++]) {
+                    '"', '\\', '/' -> sb.append(escaped)
+                    'b' -> sb.append('\b')
+                    'f' -> sb.append('\u000C')
+                    'n' -> sb.append('\n')
+                    'r' -> sb.append('\r')
+                    't' -> sb.append('\t')
+                    'u' -> {
+                        if (i + 4 > json.length) return null
+                        val code = json.substring(i, i + 4).toIntOrNull(16) ?: return null
+                        sb.append(code.toChar())
+                        i += 4
+                    }
+                    else -> return null
+                }
+            }
+            else -> sb.append(c)
+        }
+    }
+    return null
 }
 
 fun extractJsonBoolean(json: String, key: String): Boolean? {
@@ -576,8 +675,11 @@ data class CallCalleePerf(
 data class RuleTargetProfile(
     val ruleID: String,
     val allCalls: Boolean,
+    val discardedOnly: Boolean,
     val calleeNames: Set<String>,
     val targetFqns: Set<String>,
+    val lexicalHintsByCallee: Map<String, Set<String>>,
+    val lexicalSkipByCallee: Map<String, Set<String>>,
     val annotatedIdentifiers: Set<String>,
     val derivedCalleeNames: Set<String>,
     val disabledReason: String
@@ -615,15 +717,52 @@ data class RuleTargetPerf(
     var maxNs: Long = 0
 )
 
+data class LexicalCallSite(
+    val callee: String,
+    val receiverText: String?,
+    val packageName: String,
+    val imports: Set<String>,
+    val discarded: Boolean
+)
+
 data class CallFilter(
     val enabled: Boolean,
     val calleeNames: Set<String>,
     val targetFqns: Set<String> = emptySet(),
+    val lexicalHintsByCallee: Map<String, Set<String>> = emptyMap(),
+    val lexicalSkipByCallee: Map<String, Set<String>> = emptyMap(),
     val ruleProfiles: List<RuleTargetProfile> = emptyList()
 ) {
     fun shouldResolve(callee: String): Boolean {
         if (!enabled) return true
         return calleeNames.contains(callee)
+    }
+
+    fun shouldResolve(site: LexicalCallSite): Boolean {
+        if (!enabled) return true
+        if (!calleeNames.contains(site.callee)) return false
+        if (ruleProfiles.isNotEmpty()) {
+            val matchingProfiles = ruleProfiles.filter { it.matches(site.callee) }
+            if (matchingProfiles.isNotEmpty()) {
+                return matchingProfiles.any { it.shouldResolve(site) }
+            }
+        }
+        return summaryShouldResolve(site)
+    }
+
+    private fun summaryShouldResolve(site: LexicalCallSite): Boolean {
+        val hints = lexicalHintsByCallee[site.callee]
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+        val skipHints = lexicalSkipByCallee[site.callee]
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+        if (!skipHints.isNullOrEmpty() && skipHints.any { lexicalReceiverMatchesHint(site, it) }) {
+            return false
+        }
+        if (hints == null) return true
+        if (hints.isEmpty()) return true
+        return hints.any { lexicalHintMatches(site, it) }
     }
 
     fun matchingRuleIDs(callee: String): List<String> {
@@ -641,14 +780,47 @@ data class CallFilter(
     }
 }
 
+fun RuleTargetProfile.matches(callee: String): Boolean {
+    return allCalls ||
+        calleeNames.contains(callee) ||
+        derivedCalleeNames.contains(callee) ||
+        lexicalHintsByCallee.containsKey(callee) ||
+        lexicalSkipByCallee.containsKey(callee)
+}
+
+fun RuleTargetProfile.shouldResolve(site: LexicalCallSite): Boolean {
+    if (discardedOnly && !site.discarded) return false
+    val skipHints = lexicalSkipByCallee[site.callee]
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+    if (!skipHints.isNullOrEmpty() && skipHints.any { lexicalReceiverMatchesHint(site, it) }) {
+        return false
+    }
+    val hints = lexicalHintsByCallee[site.callee]
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?: return true
+    if (hints.isEmpty()) return true
+    return hints.any { lexicalHintMatches(site, it) }
+}
+
 fun loadCallFilter(path: String?): CallFilter? {
     if (path == null) return null
     return try {
         val json = File(path).readText()
         val names = extractJsonStringArray(json, "calleeNames") ?: emptyList()
         val fqns = extractJsonStringArray(json, "targetFqns") ?: emptyList()
+        val lexicalHints = extractJsonStringArrayMap(json, "lexicalHintsByCallee") ?: emptyMap()
+        val lexicalSkips = extractJsonStringArrayMap(json, "lexicalSkipByCallee") ?: emptyMap()
         val ruleProfiles = extractRuleTargetProfiles(json)
-        CallFilter(enabled = true, calleeNames = names.toSet(), targetFqns = fqns.toSet(), ruleProfiles = ruleProfiles)
+        CallFilter(
+            enabled = true,
+            calleeNames = names.toSet(),
+            targetFqns = fqns.toSet(),
+            lexicalHintsByCallee = lexicalHints.mapValues { it.value.toSet() },
+            lexicalSkipByCallee = lexicalSkips.mapValues { it.value.toSet() },
+            ruleProfiles = ruleProfiles
+        )
     } catch (e: Exception) {
         System.err.println("Failed to read --call-filter $path: ${e.message}")
         null
@@ -662,8 +834,11 @@ fun extractRuleTargetProfiles(json: String): List<RuleTargetProfile> {
         RuleTargetProfile(
             ruleID = ruleID,
             allCalls = extractJsonBoolean(obj, "allCalls") ?: false,
+            discardedOnly = extractJsonBoolean(obj, "discardedOnly") ?: false,
             calleeNames = (extractJsonStringArray(obj, "calleeNames") ?: emptyList()).toSet(),
             targetFqns = (extractJsonStringArray(obj, "targetFQNs") ?: emptyList()).toSet(),
+            lexicalHintsByCallee = (extractJsonStringArrayMap(obj, "lexicalHintsByCallee") ?: emptyMap()).mapValues { it.value.toSet() },
+            lexicalSkipByCallee = (extractJsonStringArrayMap(obj, "lexicalSkipByCallee") ?: emptyMap()).mapValues { it.value.toSet() },
             annotatedIdentifiers = (extractJsonStringArray(obj, "annotatedIdentifiers") ?: emptyList()).toSet(),
             derivedCalleeNames = (extractJsonStringArray(obj, "derivedCalleeNames") ?: emptyList()).toSet(),
             disabledReason = extractJsonString(obj, "disabledReason") ?: ""
@@ -724,6 +899,8 @@ fun KotlinPerf.recordCallFilterSummary(filter: CallFilter?) {
             "enabled" to (if (filter.enabled) 1L else 0L),
             "calleeNames" to filter.calleeNames.size.toLong(),
             "targetFqns" to filter.targetFqns.size.toLong(),
+            "lexicalHints" to filter.lexicalHintsByCallee.size.toLong(),
+            "lexicalSkips" to filter.lexicalSkipByCallee.size.toLong(),
             "ruleProfiles" to filter.ruleProfiles.size.toLong()
         )
     )
@@ -1504,6 +1681,107 @@ fun lexicalReceiverKind(expr: KtCallExpression): String {
     }
 }
 
+fun KtFile.lexicalImportSet(): Set<String> {
+    val out = linkedSetOf<String>()
+    for (import in importDirectives) {
+        val imported = import.importedFqName?.asString() ?: continue
+        out.add(imported)
+        if (import.isAllUnder) {
+            out.add("$imported.*")
+        }
+    }
+    return out
+}
+
+fun KtCallExpression.lexicalCallSite(ktFile: KtFile, imports: Set<String> = ktFile.lexicalImportSet()): LexicalCallSite {
+    val parent = parent
+    val receiver = when {
+        parent is KtDotQualifiedExpression && parent.selectorExpression == this -> parent.receiverExpression.text
+        parent is KtSafeQualifiedExpression && parent.selectorExpression == this -> parent.receiverExpression.text
+        else -> null
+    }
+    val outer = outerQualifiedCallExpression()
+    return LexicalCallSite(
+        callee = calleeExpression?.text ?: "",
+        receiverText = receiver?.take(160),
+        packageName = ktFile.packageFqName.asString(),
+        imports = imports,
+        discarded = outer.isPossiblyDiscardedExpression()
+    )
+}
+
+fun KtCallExpression.outerQualifiedCallExpression(): PsiElement {
+    var current: PsiElement = this
+    while (true) {
+        val p = current.parent
+        current = when {
+            p is KtDotQualifiedExpression && p.selectorExpression == current -> p
+            p is KtSafeQualifiedExpression && p.selectorExpression == current -> p
+            else -> return current
+        }
+    }
+}
+
+fun PsiElement.isPossiblyDiscardedExpression(): Boolean {
+    return when (parent) {
+        is KtBlockExpression -> true
+        is KtReturnExpression,
+        is KtValueArgument,
+        is KtProperty,
+        is KtBinaryExpression,
+        is KtUnaryExpression,
+        is KtIfExpression,
+        is KtWhenEntry,
+        is KtCallExpression -> false
+        else -> true
+    }
+}
+
+fun lexicalHintMatches(site: LexicalCallSite, hint: String): Boolean {
+    val normalizedHint = hint.trim().removeSuffix(".*")
+    if (normalizedHint.isEmpty()) return false
+    if (site.imports.any { lexicalImportMatchesHint(it, normalizedHint) }) return true
+
+    val receiver = site.receiverText?.trim()
+    if (!receiver.isNullOrEmpty()) {
+        val simpleHint = normalizedHint.substringAfterLast('.')
+        if (receiver == normalizedHint || receiver == simpleHint || receiver.endsWith(".$simpleHint")) {
+            return true
+        }
+    }
+
+    val pkg = site.packageName.trim()
+    if (pkg.isNotEmpty()) {
+        if (pkg == normalizedHint || pkg.startsWith("$normalizedHint.")) return true
+        val hintPkg = normalizedHint.substringBeforeLast('.', missingDelimiterValue = "")
+        if (hintPkg.isNotEmpty() && (pkg == hintPkg || pkg.startsWith("$hintPkg."))) return true
+    }
+    return false
+}
+
+fun lexicalReceiverMatchesHint(site: LexicalCallSite, hint: String): Boolean {
+    val normalizedHint = hint.trim().removeSuffix(".*")
+    if (normalizedHint == "*") return true
+    if (normalizedHint.isEmpty()) return false
+    val receiver = site.receiverText?.trim() ?: return false
+    if (receiver.isEmpty()) return false
+    val simpleHint = normalizedHint.substringAfterLast('.')
+    return receiver == normalizedHint ||
+        receiver == simpleHint ||
+        receiver.endsWith(".$simpleHint") ||
+        receiver.startsWith("$simpleHint.") ||
+        receiver.startsWith("$simpleHint(")
+}
+
+fun lexicalImportMatchesHint(imported: String, hint: String): Boolean {
+    val normalizedImport = imported.trim()
+    if (normalizedImport.isEmpty()) return false
+    if (normalizedImport == hint || normalizedImport.startsWith("$hint.")) return true
+    if (!normalizedImport.endsWith(".*")) return false
+    val starPrefix = normalizedImport.removeSuffix(".*")
+    return hint == starPrefix || hint.startsWith("$starPrefix.") || starPrefix.startsWith("$hint.")
+}
+
 fun importStateForCallee(ktFile: KtFile, callee: String): String {
     if (callee.isEmpty()) return "empty"
     var hasWildcard = false
@@ -1672,6 +1950,7 @@ fun analyzeKtFile(
                     callCount = callExprs.size.toLong()
 
                     val callResolveStart = System.nanoTime()
+                    val lexicalImports = ktFile.lexicalImportSet()
                     for (expr in callExprs) {
                         // Per-expression try-catch: the FIR lazy resolver can
                         // crash while building the containing function's FIR
@@ -1712,10 +1991,17 @@ fun analyzeKtFile(
                             perf?.count("kotlinCallResolve.lexicalContext", System.nanoTime() - lexicalStart)
                             perf?.count("kotlinCallResolveAttempt")
                             val filterStart = System.nanoTime()
-                            val shouldResolve = callFilter == null || callFilter.shouldResolve(callee)
+                            val lexicalSite = expr.lexicalCallSite(ktFile, lexicalImports)
+                            val shouldResolve = callFilter == null || callFilter.shouldResolve(lexicalSite)
                             perf?.count("kotlinCallResolve.filterCheck", System.nanoTime() - filterStart)
                             if (!shouldResolve) {
                                 perf?.count("kotlinCallResolveSkippedByFilter")
+                                if (callFilter.calleeNames.contains(callee)) {
+                                    perf?.count("kotlinCallResolveSkippedByLexicalFilter")
+                                    if (callFilter.lexicalSkipByCallee[callee]?.any { lexicalReceiverMatchesHint(lexicalSite, it) } == true) {
+                                        perf?.count("kotlinCallResolveSkippedByLexicalSkip")
+                                    }
+                                }
                                 perf?.recordSkippedCallee(callee, System.nanoTime() - siteStart)
                                 status = "skipped-filter"
                                 continue

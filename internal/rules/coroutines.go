@@ -262,6 +262,23 @@ func redundantSuspendCallTargetCallees() []string {
 	}
 }
 
+func redundantSuspendCallTargetLexicalHints() map[string][]string {
+	hints := make(map[string][]string)
+	for _, callee := range redundantSuspendCallTargetCallees() {
+		hints[callee] = []string{"kotlinx.coroutines", "kotlin.coroutines"}
+	}
+	hints["collect"] = append(hints["collect"], "kotlinx.coroutines.flow", "Flow")
+	hints["emit"] = append(hints["emit"], "kotlinx.coroutines.flow", "FlowCollector")
+	hints["send"] = append(hints["send"], "kotlinx.coroutines.channels", "SendChannel")
+	hints["receive"] = append(hints["receive"], "kotlinx.coroutines.channels", "ReceiveChannel")
+	hints["receiveCatching"] = append(hints["receiveCatching"], "kotlinx.coroutines.channels", "ReceiveChannel")
+	hints["join"] = append(hints["join"], "Job")
+	hints["cancelAndJoin"] = append(hints["cancelAndJoin"], "Job")
+	hints["await"] = append(hints["await"], "Deferred")
+	hints["lock"] = append(hints["lock"], "Mutex", "kotlinx.coroutines.sync")
+	return hints
+}
+
 // suspendFQNPrefixes are package prefixes that indicate a call target is likely
 // a suspend function when no exact FQN match is found.
 var suspendFQNPrefixes = []string{

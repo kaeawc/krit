@@ -180,12 +180,23 @@ type OracleFilter struct {
 // callee-name filtering when the rule is enabled.
 type OracleCallTargetFilter struct {
 	AllCalls bool
+	// DiscardedOnly means the rule only needs call targets for calls whose
+	// result is used as a standalone statement.
+	DiscardedOnly bool
 	// TargetFQNs are fully-qualified callable targets the rule may query.
 	// The Go bridge derives their simple names for the JVM-side lexical
 	// callee filter.
 	TargetFQNs []string
 	// CalleeNames are lexical callee names the rule may query directly.
 	CalleeNames []string
+	// LexicalHintsByCallee optionally adds cheap file-level evidence that
+	// must be present before the JVM resolves broad call names. Absence keeps
+	// name-only behavior for that callee.
+	LexicalHintsByCallee map[string][]string
+	// LexicalSkipByCallee optionally declares cheap receiver evidence where
+	// the Go rule can classify the call structurally and does not need a JVM
+	// call target for that site.
+	LexicalSkipByCallee map[string][]string
 	// AnnotatedIdentifiers asks the bridge to derive CalleeNames from
 	// source declarations annotated with these annotation identifiers.
 	// This is for rules that call LookupCallTarget only so they can call

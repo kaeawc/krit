@@ -29,7 +29,6 @@ var lifecycleCollectCallbacks = map[string]bool{
 // collide. Classified per roadmap/17.
 func (r *CollectInOnCreateWithoutLifecycleRule) Confidence() float64 { return 0.75 }
 
-
 func hasAncestorCallNamedFlat(file *scanner.File, idx uint32, name string) bool {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		if file.FlatType(p) == "function_declaration" {
@@ -64,7 +63,6 @@ func (*GlobalCoroutineUsageRule) Description() string {
 // name lists and structural patterns; project wrappers can escape or
 // collide. Classified per roadmap/17.
 func (r *GlobalCoroutineUsageRule) Confidence() float64 { return 0.75 }
-
 
 // InjectDispatcherRule detects hardcoded Dispatchers.IO/Default/Unconfined in call expressions.
 type InjectDispatcherRule struct {
@@ -234,6 +232,36 @@ var knownSuspendFQNs = map[string]bool{
 	"kotlinx.coroutines.sync.Mutex.lock":                         true,
 }
 
+func redundantSuspendCallTargetCallees() []string {
+	return []string{
+		"acquire",
+		"async",
+		"await",
+		"awaitAll",
+		"cancelAndJoin",
+		"collect",
+		"coroutineScope",
+		"delay",
+		"emit",
+		"join",
+		"joinAll",
+		"launch",
+		"lock",
+		"mutex",
+		"receive",
+		"receiveCatching",
+		"runBlocking",
+		"send",
+		"supervisorScope",
+		"suspendCancellableCoroutine",
+		"suspendCoroutine",
+		"withContext",
+		"withTimeout",
+		"withTimeoutOrNull",
+		"yield",
+	}
+}
+
 // suspendFQNPrefixes are package prefixes that indicate a call target is likely
 // a suspend function when no exact FQN match is found.
 var suspendFQNPrefixes = []string{
@@ -254,7 +282,6 @@ var commonNonSuspendCallees = map[string]bool{
 	"String": true, "Int": true, "Long": true, "Float": true, "Double": true,
 }
 
-
 // SleepInsteadOfDelayRule detects Thread.sleep() usage inside suspend functions
 // and coroutine builder lambdas (launch, async, runBlocking, withContext, etc.).
 type SleepInsteadOfDelayRule struct {
@@ -273,7 +300,6 @@ var coroutineBuilders = map[string]bool{
 // name lists and structural patterns; project wrappers can escape or
 // collide. Classified per roadmap/17.
 func (r *SleepInsteadOfDelayRule) Confidence() float64 { return 0.75 }
-
 
 func isInsideSuspendContextFlat(file *scanner.File, idx uint32) bool {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
@@ -330,7 +356,6 @@ var suspendKeywordRe = regexp.MustCompile(`\bsuspend\s+`)
 // collide. Classified per roadmap/17.
 func (r *SuspendFunWithFlowReturnTypeRule) Confidence() float64 { return 0.75 }
 
-
 // CoroutineLaunchedInTestWithoutRunTestRule detects launch/async in @Test without runTest.
 type CoroutineLaunchedInTestWithoutRunTestRule struct {
 	FlatDispatchBase
@@ -341,7 +366,6 @@ type CoroutineLaunchedInTestWithoutRunTestRule struct {
 // name lists and structural patterns; project wrappers can escape or
 // collide. Classified per roadmap/17.
 func (r *CoroutineLaunchedInTestWithoutRunTestRule) Confidence() float64 { return 0.75 }
-
 
 // SuspendFunInFinallySectionRule detects suspend calls in finally blocks.
 type SuspendFunInFinallySectionRule struct {
@@ -354,20 +378,17 @@ type SuspendFunInFinallySectionRule struct {
 // collide. Classified per roadmap/17.
 func (r *SuspendFunInFinallySectionRule) Confidence() float64 { return 0.75 }
 
-
 // SuspendFunSwallowedCancellationRule detects catching CancellationException without rethrow.
 type SuspendFunSwallowedCancellationRule struct {
 	FlatDispatchBase
 	BaseRule
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence — detecting which
 // catch blocks swallow CancellationException without rethrow is structural
 // but depends on the resolver to recognize aliases of
 // CancellationException. Classified per roadmap/17.
 func (r *SuspendFunSwallowedCancellationRule) Confidence() float64 { return 0.75 }
-
 
 // SuspendFunWithCoroutineScopeReceiverRule detects suspend fun CoroutineScope.x().
 type SuspendFunWithCoroutineScopeReceiverRule struct {
@@ -379,7 +400,6 @@ type SuspendFunWithCoroutineScopeReceiverRule struct {
 // name lists and structural patterns; project wrappers can escape or
 // collide. Classified per roadmap/17.
 func (r *SuspendFunWithCoroutineScopeReceiverRule) Confidence() float64 { return 0.75 }
-
 
 func hasSuspendModifierFlat(file *scanner.File, idx uint32) bool {
 	return file.FlatHasModifier(idx, "suspend")
@@ -411,7 +431,6 @@ var synchronizedCollectionFactories = map[string]bool{
 	"synchronizedList": true, "synchronizedSet": true, "synchronizedMap": true,
 }
 
-
 // ConcurrentModificationIterationRule detects collection mutation inside for loops.
 type ConcurrentModificationIterationRule struct {
 	FlatDispatchBase
@@ -423,7 +442,6 @@ func (r *ConcurrentModificationIterationRule) Confidence() float64 { return 0.75
 var mutatingMethods = map[string]bool{
 	"remove": true, "add": true, "addAll": true, "removeAll": true, "clear": true,
 }
-
 
 // CoroutineScopeCreatedButNeverCancelledRule detects CoroutineScope properties without cancel().
 type CoroutineScopeCreatedButNeverCancelledRule struct {
@@ -454,7 +472,6 @@ var flowTerminalOps = map[string]bool{
 	"reduce": true, "fold": true, "count": true,
 }
 
-
 // ---------------------------------------------------------------------------
 // Batch 2: synchronized / JVM primitive rules
 // ---------------------------------------------------------------------------
@@ -479,7 +496,6 @@ var boxedPrimitiveTypes = map[string]bool{
 	"Int": true, "Long": true, "Short": true, "Byte": true,
 	"Float": true, "Double": true, "Boolean": true, "Char": true,
 }
-
 
 func resolvePropertyTypeInScope(file *scanner.File, fromIdx uint32, varName string) string {
 	classDecl, ok := flatEnclosingAncestor(file, fromIdx, "class_declaration", "object_declaration")
@@ -563,7 +579,6 @@ var threadSafeTypes = map[string]bool{
 	"AtomicInteger": true, "AtomicLong": true, "AtomicBoolean": true,
 	"AtomicReference": true, "ConcurrentHashMap": true, "CopyOnWriteArrayList": true,
 }
-
 
 // ---------------------------------------------------------------------------
 // Batch 3: Flow / StateFlow rules

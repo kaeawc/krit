@@ -67,3 +67,48 @@ func TestBuildOracleFilterRulesV2_NoOracleRulesReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestBuildOracleCallTargetFilterV2_Bounded(t *testing.T) {
+	rules := []*v2.Rule{
+		{ID: "SyntacticRule"},
+		{ID: "NoCallTarget", Needs: v2.NeedsTypeInfo},
+		{ID: "Suspend", Needs: v2.NeedsTypeInfo, OracleCallTargets: &v2.OracleCallTargetFilter{
+			TargetFQNs:  []string{"kotlinx.coroutines.delay"},
+			CalleeNames: []string{"await", "delay"},
+		}},
+		{ID: "Cast", Needs: v2.NeedsTypeInfo, OracleCallTargets: &v2.OracleCallTargetFilter{
+			CalleeNames: []string{"getSystemService", "findViewById"},
+		}},
+	}
+
+	got := BuildOracleCallTargetFilterV2(rules)
+	if !got.Enabled {
+		t.Fatalf("filter disabled: %+v", got)
+	}
+	want := []string{"await", "delay", "findViewById", "getSystemService"}
+	if len(got.CalleeNames) != len(want) {
+		t.Fatalf("callee names = %v, want %v", got.CalleeNames, want)
+	}
+	for i := range want {
+		if got.CalleeNames[i] != want[i] {
+			t.Fatalf("callee names = %v, want %v", got.CalleeNames, want)
+		}
+	}
+	if got.Fingerprint == "" {
+		t.Fatal("expected non-empty fingerprint")
+	}
+}
+
+func TestBuildOracleCallTargetFilterV2_BroadDisables(t *testing.T) {
+	rules := []*v2.Rule{
+		{ID: "Bounded", Needs: v2.NeedsTypeInfo, OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"delay"}}},
+		{ID: "Broad", Needs: v2.NeedsTypeInfo, OracleCallTargets: &v2.OracleCallTargetFilter{AllCalls: true}},
+	}
+
+	got := BuildOracleCallTargetFilterV2(rules)
+	if got.Enabled {
+		t.Fatalf("filter enabled, want disabled: %+v", got)
+	}
+	if len(got.DisabledBy) != 1 || got.DisabledBy[0] != "Broad" {
+		t.Fatalf("DisabledBy = %v, want [Broad]", got.DisabledBy)
+	}
+}

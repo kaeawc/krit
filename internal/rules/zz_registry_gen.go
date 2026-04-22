@@ -5983,8 +5983,9 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
-			Needs:  v2.NeedsTypeInfo,
-			Oracle: &v2.OracleFilter{Identifiers: []string{"suspend"}},
+			Needs:             v2.NeedsTypeInfo,
+			Oracle:            &v2.OracleFilter{Identifiers: []string{"suspend"}},
+			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: redundantSuspendCallTargetCallees()},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var oracleLookup oracle.Lookup
@@ -9837,7 +9838,8 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "navigation_expression", "user_type"}, Confidence: 0.75, OriginalV1: r,
-			Needs: v2.NeedsTypeInfo,
+			Needs:             v2.NeedsTypeInfo,
+			OracleCallTargets: &v2.OracleCallTargetFilter{AllCalls: true},
 			// Narrow by the "Deprecated" token — captures @Deprecated,
 			// @kotlin.Deprecated, @java.lang.Deprecated, and any import
 			// header that aliases kotlin.Deprecated. Inherited deprecations
@@ -9997,7 +9999,8 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Needs: v2.NeedsTypeInfo,
+			Needs:             v2.NeedsTypeInfo,
+			OracleCallTargets: &v2.OracleCallTargetFilter{AllCalls: true},
 			// Narrow by the @CheckReturnValue / @CheckResult tokens. The
 			// functional-ops path (map/filter/…) does not require the
 			// oracle — it fires on tree-sitter alone. The oracle is only
@@ -10218,8 +10221,15 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
-			Needs:      v2.NeedsTypeInfo,
-			Oracle:     &v2.OracleFilter{Identifiers: []string{" as "}},
+			Needs:  v2.NeedsTypeInfo,
+			Oracle: &v2.OracleFilter{Identifiers: []string{" as "}},
+			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{
+				"findFragmentById",
+				"findFragmentByTag",
+				"findViewById",
+				"getSystemService",
+				"requireViewById",
+			}},
 			OriginalV1: r,
 			Check:      r.check,
 		})

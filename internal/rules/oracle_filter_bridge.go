@@ -39,3 +39,29 @@ func BuildOracleFilterRulesV2(enabled []*v2.Rule) []oracle.OracleFilterRule {
 	}
 	return out
 }
+
+// BuildOracleCallTargetFilterV2 unions the call-target interest declared by
+// active rules. If any enabled oracle rule declares AllCalls, the returned
+// summary is disabled and callers must preserve the old "resolve every call"
+// behavior. Rules with nil OracleCallTargets are treated as non-consumers of
+// LookupCallTarget and do not contribute to the union.
+func BuildOracleCallTargetFilterV2(enabled []*v2.Rule) oracle.CallTargetFilterSummary {
+	summary := oracle.CallTargetFilterSummary{Enabled: true}
+	for _, r := range enabled {
+		if r == nil || !r.Needs.Has(v2.NeedsOracle) {
+			continue
+		}
+		spec := r.OracleCallTargets
+		if spec == nil {
+			continue
+		}
+		if spec.AllCalls {
+			summary.Enabled = false
+			summary.DisabledBy = append(summary.DisabledBy, r.ID)
+			continue
+		}
+		summary.CalleeNames = append(summary.CalleeNames, spec.CalleeNames...)
+		summary.TargetFQNs = append(summary.TargetFQNs, spec.TargetFQNs...)
+	}
+	return oracle.FinalizeCallTargetFilter(summary)
+}

@@ -218,6 +218,7 @@ func InvokeCachedWithOptions(
 		return InvokeWithFilesWithOptions(jarPath, sourceDirs, outputPath, filterListPath, verbose, opts)
 	}
 	addOracleInstant(tracker, "ktFilesDiscovered", map[string]int64{"files": int64(len(ktFiles)), "sourceDirs": int64(len(sourceDirs))}, nil)
+	callFilterScope := callFilterFingerprint(opts)
 
 	// Apply the rule-classification filter (if any) before cache lookup:
 	// files not in the filter set are dropped from both the hit-lookup and
@@ -254,7 +255,7 @@ func InvokeCachedWithOptions(
 	}
 
 	startClassify := time.Now()
-	hits, misses := ClassifyFilesWithStore(s, cacheDir, ktFiles)
+	hits, misses := ClassifyFilesWithStoreScoped(s, cacheDir, ktFiles, callFilterScope)
 	classifyElapsed := time.Since(startClassify)
 	perf.AddEntryDetails(tracker, "cacheClassify", classifyElapsed, map[string]int64{
 		"files":  int64(len(ktFiles)),
@@ -312,7 +313,7 @@ func InvokeCachedWithOptions(
 
 	freshData, depsFile, usedDaemon, err := runMissAnalysis(
 		jarPath, sourceDirs, misses,
-		missListPath, missFreshPath, missDepsPath, verbose, tracker,
+		missListPath, missFreshPath, missDepsPath, verbose, tracker, opts,
 	)
 	if err != nil {
 		return "", err
@@ -332,7 +333,7 @@ func InvokeCachedWithOptions(
 	} else {
 		if opts.CacheWriter != nil {
 			start := time.Now()
-			queued, _ := opts.CacheWriter.QueueFreshEntriesToStore(s, cacheDir, freshData, depsFile)
+			queued, _ := opts.CacheWriter.QueueFreshEntriesToStoreScoped(s, cacheDir, freshData, depsFile, callFilterScope)
 			perf.AddEntryDetails(tracker, "queueFreshCacheEntries", time.Since(start), map[string]int64{"queued": int64(queued)}, nil)
 			addOracleInstant(tracker, "freshCacheEntriesQueued", map[string]int64{"entries": int64(queued)}, nil)
 			if verbose {
@@ -341,7 +342,7 @@ func InvokeCachedWithOptions(
 		} else {
 			var written int
 			writeTracker := tracker.Serial("writeFreshCacheEntries")
-			written, _ = WriteFreshEntriesToStoreWithTracker(s, cacheDir, freshData, depsFile, writeTracker)
+			written, _ = WriteFreshEntriesToStoreWithTrackerScoped(s, cacheDir, freshData, depsFile, writeTracker, callFilterScope)
 			writeTracker.End()
 			addOracleInstant(tracker, "freshCacheEntriesWritten", map[string]int64{"entries": int64(written)}, nil)
 			if verbose {
@@ -380,11 +381,12 @@ func InvokeCachedWithOptions(
 				continue
 			}
 			entry := &CacheEntry{
-				V:           CacheVersion,
-				ContentHash: hash,
-				FilePath:    p,
-				Crashed:     true,
-				CrashError:  "jar-skipped: file not in Analysis API KtFile set (typically oversized source)",
+				V:                     CacheVersion,
+				ContentHash:           hash,
+				FilePath:              p,
+				Crashed:               true,
+				CrashError:            "jar-skipped: file not in Analysis API KtFile set (typically oversized source)",
+				CallFilterFingerprint: callFilterScope,
 			}
 			writeErr := func() error {
 				if s != nil {
@@ -473,6 +475,7 @@ func runKritTypesCached(
 	missListPath, freshOutPath, depsOutPath string,
 	verbose bool,
 	tracker perf.Tracker,
+	opts InvocationOptions,
 ) error {
 	var javaPath string
 	if err := trackOracle(tracker, "javaLookup", func() error {
@@ -501,6 +504,14 @@ func runKritTypesCached(
 		"--files", missListPath,
 		"--cache-deps-out", depsOutPath,
 	}
+	callFilterPath, cleanupCallFilter, err := writeCallFilterArg(opts, tracker)
+	if err != nil {
+		return fmt.Errorf("call filter: %w", err)
+	}
+	defer cleanupCallFilter()
+	if callFilterPath != "" {
+		args = append(args, "--call-filter", callFilterPath)
+	}
 	var timingsPath string
 	if tracker != nil && tracker.IsEnabled() {
 		path, cleanup, err := tempTimingsPath()
@@ -520,16 +531,16 @@ func runKritTypesCached(
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	var err error
+	var runErr error
 	trackErr := trackOracle(tracker, "kritTypesProcess", func() error {
-		_, err = runOracleProcess(ctx, javaPath, args, freshOutPath, timeout, grace, verbose)
-		return err
+		_, runErr = runOracleProcess(ctx, javaPath, args, freshOutPath, timeout, grace, verbose)
+		return runErr
 	})
 	if trackErr != nil {
 		return trackErr
 	}
 	addKotlinTimingsFromFile(tracker, timingsPath)
-	return err
+	return runErr
 }
 
 type kritTypesCachedRunner func(
@@ -591,7 +602,10 @@ func runKritTypesCachedSharded(
 	verbose bool,
 	tracker perf.Tracker,
 ) (*OracleData, *CacheDepsFile, error) {
-	return runKritTypesCachedShardedWithRunner(jarPath, sourceDirs, misses, shards, verbose, tracker, runKritTypesCached)
+	runner := func(jarPath string, sourceDirs []string, missListPath, freshOutPath, depsOutPath string, verbose bool, tracker perf.Tracker) error {
+		return runKritTypesCached(jarPath, sourceDirs, missListPath, freshOutPath, depsOutPath, verbose, tracker, InvocationOptions{})
+	}
+	return runKritTypesCachedShardedWithRunner(jarPath, sourceDirs, misses, shards, verbose, tracker, runner)
 }
 
 func runKritTypesCachedShardedWithRunner(
@@ -731,13 +745,14 @@ func runMissAnalysis(
 	missListPath, missFreshPath, missDepsPath string,
 	verbose bool,
 	tracker perf.Tracker,
+	opts InvocationOptions,
 ) (*OracleData, *CacheDepsFile, bool, error) {
 	fallback := func(reason string) (*OracleData, *CacheDepsFile, bool, error) {
 		if verbose {
 			fmt.Fprintf(os.Stderr, "verbose: daemon cache path falling back to one-shot: %s\n", reason)
 		}
 		addOracleInstant(tracker, "missAnalysisFallback", nil, map[string]string{"reason": reason})
-		if err := runKritTypesCached(jarPath, sourceDirs, missListPath, missFreshPath, missDepsPath, verbose, tracker); err != nil {
+		if err := runKritTypesCached(jarPath, sourceDirs, missListPath, missFreshPath, missDepsPath, verbose, tracker, opts); err != nil {
 			return nil, nil, false, err
 		}
 		var fresh *OracleData
@@ -766,7 +781,12 @@ func runMissAnalysis(
 		// KRIT_TYPES_SHARDS is an explicit one-shot JVM experiment: bypass
 		// the daemon so the miss list is actually processed by multiple
 		// independent Analysis API workers.
-		fresh, deps, err := runKritTypesCachedSharded(jarPath, sourceDirs, misses, shards, verbose, tracker)
+		runner := func(jarPath string, sourceDirs []string, missListPath, freshOutPath, depsOutPath string, verbose bool, tracker perf.Tracker) error {
+			shardOpts := opts
+			shardOpts.Tracker = tracker
+			return runKritTypesCached(jarPath, sourceDirs, missListPath, freshOutPath, depsOutPath, verbose, tracker, shardOpts)
+		}
+		fresh, deps, err := runKritTypesCachedShardedWithRunner(jarPath, sourceDirs, misses, shards, verbose, tracker, runner)
 		if err != nil {
 			addOracleInstant(tracker, "shardedMissAnalysisFallback", nil, map[string]string{"error": err.Error()})
 			return fallback(fmt.Sprintf("sharded miss analysis failed: %v", err))
@@ -807,7 +827,7 @@ func runMissAnalysis(
 	var kotlinTimings []perf.TimingEntry
 	if err := trackOracle(tracker, "daemonAnalyzeWithDeps", func() error {
 		var err error
-		fresh, deps, kotlinTimings, err = d.AnalyzeWithDepsWithTimings(misses, tracker != nil && tracker.IsEnabled())
+		fresh, deps, kotlinTimings, err = d.AnalyzeWithDepsWithTimings(misses, tracker != nil && tracker.IsEnabled(), opts.CallFilter)
 		return err
 	}); err != nil {
 		return fallback(fmt.Sprintf("AnalyzeWithDeps: %v", err))

@@ -305,10 +305,11 @@ class DaemonSession(
 
         val files = mutableMapOf<String, FileResult>()
         val deps = mutableMapOf<String, ClassResult>()
+        val callFilter = request.callFilter ?: args.callFilter
 
         for (ktFile in filesToAnalyze) {
             try {
-                analyzeKtFile(ktFile, files, deps, args.expressions)
+                analyzeKtFile(ktFile, files, deps, args.expressions, callFilter = callFilter)
             } catch (e: Exception) {
                 errors[ktFile.virtualFilePath] = e.message ?: "Analysis failed"
                 System.err.println("Error analyzing ${ktFile.virtualFilePath}: ${e.message}")
@@ -334,6 +335,8 @@ class DaemonSession(
         val deps = mutableMapOf<String, ClassResult>()
         val tracker = DepTracker()
         val perf = KotlinPerf(request.timings)
+        val callFilter = request.callFilter ?: args.callFilter
+        perf.recordCallFilterSummary(callFilter)
 
         if (requestedFiles.isNullOrEmpty()) {
             return buildDaemonResponseWithDeps(request.id, files, deps, errors, tracker, perf)
@@ -393,7 +396,7 @@ class DaemonSession(
         perf.track("kotlinDaemonAnalyzeFiles") {
             for (ktFile in filesToAnalyze) {
                 try {
-                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, perf)
+                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, perf, callFilter)
                     if (ok) processed++ else skipped++
                 } catch (e: Exception) {
                     skipped++
@@ -423,12 +426,13 @@ class DaemonSession(
         val files = mutableMapOf<String, FileResult>()
         val deps = mutableMapOf<String, ClassResult>()
         val errors = mutableMapOf<String, String>()
+        val callFilter = request.callFilter ?: args.callFilter
 
         System.err.println("Analyzing ${ktFiles.size} files...")
 
         for (ktFile in ktFiles) {
             try {
-                analyzeKtFile(ktFile, files, deps, args.expressions)
+                analyzeKtFile(ktFile, files, deps, args.expressions, callFilter = callFilter)
                 val fileOnDisk = File(ktFile.virtualFilePath)
                 if (fileOnDisk.exists()) {
                     fileTimestamps[ktFile.virtualFilePath] = fileOnDisk.lastModified()
@@ -449,7 +453,8 @@ data class DaemonRequest(
     val id: Long,
     val method: String,
     val files: List<String>? = null,
-    val timings: Boolean = false
+    val timings: Boolean = false,
+    val callFilter: CallFilter? = null
 )
 
 fun parseRequest(json: String): DaemonRequest {
@@ -458,7 +463,9 @@ fun parseRequest(json: String): DaemonRequest {
     val method = extractJsonString(json, "method") ?: throw IllegalArgumentException("Missing 'method' field")
     val files = extractJsonStringArray(json, "files")
     val timings = extractJsonBoolean(json, "timings") ?: false
-    return DaemonRequest(id, method, files, timings)
+    val callFilterNames = extractJsonStringArray(json, "callFilterCalleeNames")
+    val callFilter = callFilterNames?.let { CallFilter(enabled = true, calleeNames = it.toSet()) }
+    return DaemonRequest(id, method, files, timings, callFilter)
 }
 
 fun extractJsonLong(json: String, key: String): Long? {
@@ -553,6 +560,42 @@ data class SlowCallSite(
     val durationNs: Long,
     val status: String
 )
+
+data class CallFilter(
+    val enabled: Boolean,
+    val calleeNames: Set<String>,
+    val targetFqns: Set<String> = emptySet()
+) {
+    fun shouldResolve(callee: String): Boolean {
+        if (!enabled) return true
+        return calleeNames.contains(callee)
+    }
+}
+
+fun loadCallFilter(path: String?): CallFilter? {
+    if (path == null) return null
+    return try {
+        val json = File(path).readText()
+        val names = extractJsonStringArray(json, "calleeNames") ?: emptyList()
+        val fqns = extractJsonStringArray(json, "targetFqns") ?: emptyList()
+        CallFilter(enabled = true, calleeNames = names.toSet(), targetFqns = fqns.toSet())
+    } catch (e: Exception) {
+        System.err.println("Failed to read --call-filter $path: ${e.message}")
+        null
+    }
+}
+
+fun KotlinPerf.recordCallFilterSummary(filter: CallFilter?) {
+    if (filter == null) return
+    addInstant(
+        "kotlinCallFilterSummary",
+        mapOf(
+            "enabled" to (if (filter.enabled) 1L else 0L),
+            "calleeNames" to filter.calleeNames.size.toLong(),
+            "targetFqns" to filter.targetFqns.size.toLong()
+        )
+    )
+}
 
 class KotlinPerf(val enabled: Boolean = false) {
     private val entries = mutableListOf<PerfEntry>()
@@ -1055,7 +1098,8 @@ fun analyzeKtFile(
     deps: MutableMap<String, ClassResult>,
     includeExpressions: Boolean,
     depTracker: DepTracker? = null,
-    perf: KotlinPerf? = null
+    perf: KotlinPerf? = null,
+    callFilter: CallFilter? = null
 ): Boolean {
     val path = ktFile.virtualFilePath
     val fileStart = System.nanoTime()
@@ -1193,6 +1237,12 @@ fun analyzeKtFile(
                             }
                             callee = expr.calleeExpression?.text ?: ""
                             perf?.count("kotlinCallResolveAttempt")
+                            if (callFilter != null && !callFilter.shouldResolve(callee)) {
+                                perf?.count("kotlinCallResolveSkippedByFilter")
+                                status = "skipped-filter"
+                                continue
+                            }
+                            perf?.count("kotlinCallResolveAttempted")
 
                             // Primary: resolve against the symbol graph for a
                             // fully-qualified callable FQN. This is the only
@@ -1249,6 +1299,7 @@ fun analyzeKtFile(
                                     continue
                                 }
                                 perf?.count("kotlinCallResolveLexicalFallback")
+                                perf?.count("kotlinCallResolveFallback")
                                 status = "fallback-$fallbackReason"
                             }
 
@@ -1376,7 +1427,8 @@ data class ParsedArgs(
     val exclude: List<String> = DEFAULT_EXCLUDE_GLOBS,
     val filesList: String? = null,      // --files LISTFILE: restrict analyze to these paths
     val cacheDepsOut: String? = null,   // --cache-deps-out PATH: emit per-file dep-closure JSON
-    val timingsOut: String? = null      // --timings-out PATH: emit perf.TimingEntry-compatible JSON
+    val timingsOut: String? = null,     // --timings-out PATH: emit perf.TimingEntry-compatible JSON
+    val callFilter: CallFilter? = null  // --call-filter JSON: narrow resolveToCall by lexical callee
 )
 
 val DEFAULT_EXCLUDE_GLOBS: List<String> = listOf("**/testData/**", "**/test-resources/**")
@@ -1393,6 +1445,7 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
     var filesList: String? = null
     var cacheDepsOut: String? = null
     var timingsOut: String? = null
+    var callFilterPath: String? = null
 
     var i = 0
     while (i < args.size) {
@@ -1417,13 +1470,14 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
             "--files" -> { i++; if (i >= args.size) return null; filesList = args[i] }
             "--cache-deps-out" -> { i++; if (i >= args.size) return null; cacheDepsOut = args[i] }
             "--timings-out" -> { i++; if (i >= args.size) return null; timingsOut = args[i] }
+            "--call-filter" -> { i++; if (i >= args.size) return null; callFilterPath = args[i] }
             "--help", "-h" -> return null
             else -> { System.err.println("Unknown argument: ${args[i]}"); return null }
         }
         i++
     }
     if (sources.isEmpty()) { System.err.println("Error: --sources is required"); return null }
-    return ParsedArgs(sources, classpath, jdkHome, output, expressions, daemon, port, exclude, filesList, cacheDepsOut, timingsOut)
+    return ParsedArgs(sources, classpath, jdkHome, output, expressions, daemon, port, exclude, filesList, cacheDepsOut, timingsOut, loadCallFilter(callFilterPath))
 }
 
 fun printUsage() {
@@ -1442,12 +1496,14 @@ fun printUsage() {
         |  --files LISTFILE        Restrict analysis to absolute paths in LISTFILE (one per line)
         |  --cache-deps-out PATH   Emit per-file dep-closure + per-file-deps JSON alongside --output
         |  --timings-out PATH      Emit perf timing JSON sidecar
+        |  --call-filter PATH      JSON callee filter for call-target resolution
         |  --help                  Show this help
     """.trimMargin())
 }
 
 @OptIn(KaExperimentalApi::class)
 fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf = KotlinPerf()): String {
+    perf.recordCallFilterSummary(args.callFilter)
     val sourceModule = perf.track("kotlinBuildSession") {
         buildSession(disposable, args)
     }
@@ -1520,7 +1576,7 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
     var skipped = 0
     perf.track("kotlinAnalyzeFiles") {
         for ((i, ktFile) in ktFiles.withIndex()) {
-            val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, perf)
+            val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, perf, args.callFilter)
             if (ok) processed++ else skipped++
             if ((i + 1) % progressStep == 0) {
                 System.err.println("  ... ${i + 1}/$total (${processed} processed, ${skipped} skipped)")

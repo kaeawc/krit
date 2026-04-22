@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"time"
 
@@ -421,6 +422,8 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 	oracleTracker := p.oracleTracker(in)
 
 	if in.UseDaemon {
+		callFilterPtr := buildOracleCallTargetFilterForInvocation(in.ActiveRules, oracleTracker, in.Verbose)
+
 		// Daemon mode: start a long-lived JVM process
 		var d *oracle.Daemon
 		var daemonErr error
@@ -437,7 +440,7 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 
 			var oracleData *oracle.OracleData
 			oracleTracker.Track("jvmAnalyze", func() error {
-				od, err := d.AnalyzeAll()
+				od, err := d.AnalyzeAllWithCallFilter(callFilterPtr)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "warning: daemon analyzeAll: %v\n", err)
 					return err
@@ -586,17 +589,19 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 				// Both paths accept filterListPath so rule filtering and
 				// per-file caching compose: the filter narrows the
 				// universe first, then the cache classifies what's left.
+				callFilterPtr := buildOracleCallTargetFilterForInvocation(in.ActiveRules, jvmTracker, in.Verbose)
+				invokeOpts := oracle.InvocationOptions{Tracker: jvmTracker, CacheWriter: in.OracleCacheWriter, CallFilter: callFilterPtr}
 				var res string
 				var err error
 				if in.NoCacheOracle {
-					res, err = oracle.InvokeWithFilesWithOptions(jarPath, sourceDirs, cacheDest, filterListPath, in.Verbose, oracle.InvocationOptions{Tracker: jvmTracker})
+					res, err = oracle.InvokeWithFilesWithOptions(jarPath, sourceDirs, cacheDest, filterListPath, in.Verbose, invokeOpts)
 				} else {
 					var repoDir string
 					jvmTracker.Track("findRepoDir", func() error {
 						repoDir = oracle.FindRepoDir(scanPaths)
 						return nil
 					})
-					res, err = oracle.InvokeCachedWithOptions(jarPath, sourceDirs, repoDir, cacheDest, filterListPath, in.Verbose, in.Store, oracle.InvocationOptions{Tracker: jvmTracker, CacheWriter: in.OracleCacheWriter})
+					res, err = oracle.InvokeCachedWithOptions(jarPath, sourceDirs, repoDir, cacheDest, filterListPath, in.Verbose, in.Store, invokeOpts)
 				}
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "warning: krit-types: %v\n", err)
@@ -839,4 +844,40 @@ func maxIntLocal(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func buildOracleCallTargetFilterForInvocation(activeRules []*v2.Rule, tracker perf.Tracker, verbose bool) *oracle.CallTargetFilterSummary {
+	if strings.EqualFold(os.Getenv("KRIT_ORACLE_CALL_FILTER"), "off") {
+		perf.AddEntryDetails(tracker, "oracleCallFilterSummary", 0, map[string]int64{"enabled": 0}, map[string]string{"disabled": "env"})
+		return nil
+	}
+
+	var callFilter oracle.CallTargetFilterSummary
+	tracker.Track("oracleCallFilterBuild", func() error {
+		callFilter = rules.BuildOracleCallTargetFilterV2(activeRules)
+		return nil
+	})
+	enabled := int64(0)
+	if callFilter.Enabled {
+		enabled = 1
+	}
+	perf.AddEntryDetails(tracker, "oracleCallFilterSummary", 0, map[string]int64{
+		"enabled":     enabled,
+		"calleeNames": int64(len(callFilter.CalleeNames)),
+		"targetFqns":  int64(len(callFilter.TargetFQNs)),
+		"disabledBy":  int64(len(callFilter.DisabledBy)),
+	}, map[string]string{"fingerprint": callFilter.Fingerprint})
+	if verbose {
+		if callFilter.Enabled {
+			fmt.Fprintf(os.Stderr, "verbose: Oracle call filter: enabled (%d callees) fingerprint=%s\n",
+				len(callFilter.CalleeNames), callFilter.Fingerprint)
+		} else {
+			fmt.Fprintf(os.Stderr, "verbose: Oracle call filter: disabled by broad rules: %s\n",
+				strings.Join(callFilter.DisabledBy, ","))
+		}
+	}
+	if !callFilter.Enabled {
+		return nil
+	}
+	return &callFilter
 }

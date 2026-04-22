@@ -16903,7 +16903,8 @@ func registerAllRules() {
 				if r.AllowedNames != nil && r.AllowedNames.MatchString(target.name) {
 					return
 				}
-				if !unusedVariableHasReference(file, target) {
+				used, unknown := unusedVariableUsage(file, target)
+				if !used && !unknown {
 					ctx.EmitAt(file.FlatRow(target.emitNode)+1, 1,
 						fmt.Sprintf("Local variable '%s' is never used.", target.name))
 				}

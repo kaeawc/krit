@@ -321,6 +321,95 @@ fun main() {
 	}
 }
 
+func TestUnusedVariable_BracedStringInterpolationCountsAsUse(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val message = "Sync OK"
+    println("Result: ${message}")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected braced string interpolation use to count, got %d", len(findings))
+	}
+}
+
+func TestUnusedVariable_BacktickIdentifierReferences(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val `+"`actual`"+` = 1
+    println(actual)
+    val `+"`in`"+` = 2
+    println(`+"`in`"+`)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected backtick identifier references to count, got %d", len(findings))
+	}
+}
+
+func TestUnusedVariable_NestedFunctionCanCapture(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val value = 1
+    fun nested() {
+        println(value)
+    }
+    nested()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected nested function capture to count, got %d", len(findings))
+	}
+}
+
+func TestUnusedVariable_NestedFunctionParameterShadowingDoesNotCountInnerUsage(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val value = 1
+    fun nested(value: Int) {
+        println(value)
+    }
+    nested(2)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding for outer value shadowed by nested function parameter, got %d", len(findings))
+	}
+}
+
+func TestUnusedVariable_ImplicitItShadowingDoesNotCountInnerUsage(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    val it = 1
+    listOf(1).forEach {
+        println(it)
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding for outer it shadowed by implicit lambda parameter, got %d", len(findings))
+	}
+}
+
+func TestUnusedVariable_ObjectMembersAreNotLocalVariables(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+fun main() {
+    object Holder {
+        val value = 1
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected object member property to be ignored, got %d", len(findings))
+	}
+}
+
 func TestUnusedVariable_DestructuringEntries(t *testing.T) {
 	findings := runRuleByName(t, "UnusedVariable", `
 package test

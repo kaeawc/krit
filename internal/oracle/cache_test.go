@@ -402,6 +402,90 @@ func TestWriteFreshEntriesWithTracker_EmitsAggregateBreakdown(t *testing.T) {
 	}
 }
 
+func TestOracleCacheWriter_FlushPersistsQueuedFreshEntries(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatalf("cache dir: %v", err)
+	}
+	dep := writeTempFile(t, tmp, "Dep.kt", "class Dep\n")
+	src := writeTempFile(t, tmp, "A.kt", "class A : Dep()\n")
+	fresh := &OracleData{
+		Version: 1,
+		Files: map[string]*OracleFile{
+			src: {Package: "x"},
+		},
+		Dependencies: map[string]*OracleClass{},
+	}
+	deps := &CacheDepsFile{
+		Version:       1,
+		Approximation: "symbol-resolved-sources",
+		Files: map[string]*CacheDepsEntry{
+			src: {DepPaths: []string{dep}, PerFileDeps: map[string]*OracleClass{}},
+		},
+	}
+
+	w := NewOracleCacheWriter(1)
+	queued, err := w.QueueFreshEntries(cacheDir, fresh, deps)
+	if err != nil {
+		t.Fatalf("queue: %v", err)
+	}
+	if queued != 1 {
+		t.Fatalf("queued %d entries, want 1", queued)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	hits, misses := ClassifyFiles(cacheDir, []string{src})
+	if len(hits) != 1 || len(misses) != 0 {
+		t.Fatalf("expected cached hit after flush, got hits=%d misses=%d", len(hits), len(misses))
+	}
+	stats := w.Stats()
+	if stats.Queued != 1 || stats.Completed != 1 || stats.Failed != 0 || stats.Bytes == 0 {
+		t.Fatalf("unexpected writer stats: %#v", stats)
+	}
+}
+
+func TestOracleCacheWriter_FlushPersistsPoisonEntries(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatalf("cache dir: %v", err)
+	}
+	src := writeTempFile(t, tmp, "Poison.kt", "class P // boom\n")
+	fresh := &OracleData{
+		Version:      1,
+		Files:        map[string]*OracleFile{},
+		Dependencies: map[string]*OracleClass{},
+	}
+	deps := &CacheDepsFile{
+		Version:       1,
+		Approximation: "symbol-resolved-sources",
+		Files:         map[string]*CacheDepsEntry{},
+		Crashed: map[string]string{
+			src: "boom",
+		},
+	}
+
+	w := NewOracleCacheWriter(1)
+	if _, err := w.QueueFreshEntries(cacheDir, fresh, deps); err != nil {
+		t.Fatalf("queue: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	hits, misses := ClassifyFiles(cacheDir, []string{src})
+	if len(hits) != 1 || len(misses) != 0 || !hits[0].Crashed {
+		t.Fatalf("expected poison hit after flush, got hits=%d misses=%d", len(hits), len(misses))
+	}
+	stats := w.Stats()
+	if stats.Queued != 1 || stats.Completed != 1 || stats.PoisonWrites != 1 {
+		t.Fatalf("unexpected writer stats: %#v", stats)
+	}
+}
+
 func hasTiming(entries []perf.TimingEntry, name string) bool {
 	return findTiming(entries, name).Name != ""
 }

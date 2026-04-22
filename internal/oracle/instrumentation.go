@@ -12,7 +12,8 @@ import (
 // InvocationOptions carries optional diagnostics for oracle invocations.
 // A nil or disabled tracker keeps the existing low-overhead behavior.
 type InvocationOptions struct {
-	Tracker perf.Tracker
+	Tracker     perf.Tracker
+	CacheWriter *OracleCacheWriter
 }
 
 func (o InvocationOptions) tracker() perf.Tracker {

@@ -188,28 +188,43 @@ func (r *ViewTagRule) check(ctx *v2.Context) {
 	if !ok || target.CalleeName != "setTag" || len(target.Arguments) != 1 {
 		return
 	}
-	if !viewTagReceiverIsView(ctx, target) {
+	confidence, ok := viewTagReceiverEvidence(ctx, target)
+	if !ok {
 		return
 	}
 	arg := target.Arguments[0]
 	if !arg.Valid() || !viewTagArgumentIsFrameworkHeavy(ctx, arg.Node) {
 		return
 	}
-	ctx.EmitAt(ctx.File.FlatRow(ctx.Idx)+1, ctx.File.FlatCol(ctx.Idx)+1, viewTagLeakMessage)
+	ctx.Emit(scanner.Finding{
+		Line:       ctx.File.FlatRow(ctx.Idx) + 1,
+		Col:        ctx.File.FlatCol(ctx.Idx) + 1,
+		Message:    viewTagLeakMessage,
+		Confidence: confidence,
+	})
 }
 
-func viewTagReceiverIsView(ctx *v2.Context, target semantics.CallTarget) bool {
+func viewTagReceiverEvidence(ctx *v2.Context, target semantics.CallTarget) (float64, bool) {
 	if target.Resolved {
-		return viewTagCallTargetIsViewSetTag(target.QualifiedName)
+		if viewTagCallTargetIsViewSetTag(target.QualifiedName) {
+			return 0.85, true
+		}
+		return 0, false
 	}
 	if !target.Receiver.Valid() {
-		return false
+		return 0, false
 	}
 	typ, ok := semantics.ExpressionType(ctx, target.Receiver.Node)
 	if !ok {
-		return false
+		return 0, false
 	}
-	return viewTagTypeMatches(ctx, typ.Type, viewTagReceiverTypes)
+	if viewTagFrameworkTypeMatches(ctx, typ.Type, viewTagReceiverTypes) {
+		return 0.85, true
+	}
+	if viewTagSameFileClassTypeMatches(ctx, typ.Type, viewTagReceiverTypes) {
+		return 0.80, true
+	}
+	return 0, false
 }
 
 func viewTagArgumentIsFrameworkHeavy(ctx *v2.Context, expr uint32) bool {
@@ -232,6 +247,41 @@ func viewTagCallTargetIsViewSetTag(target string) bool {
 		owner := strings.TrimSuffix(target, suffix)
 		return viewTagFQNMatchesAny(owner, viewTagReceiverTypes) ||
 			viewTagKnownSubtypeOfAny(owner, viewTagReceiverTypes)
+	}
+	return false
+}
+
+func viewTagFrameworkTypeMatches(ctx *v2.Context, typ *typeinfer.ResolvedType, targets []string) bool {
+	if typ == nil || typ.Kind == typeinfer.TypeUnknown {
+		return false
+	}
+	if viewTagFQNMatchesAny(typ.FQN, targets) || viewTagKnownSubtypeOfAny(typ.FQN, targets) {
+		return true
+	}
+	if ctx == nil || ctx.Resolver == nil || ctx.File == nil || typ.Name == "" {
+		return false
+	}
+	if fqn := ctx.Resolver.ResolveImport(typ.Name, ctx.File); fqn != "" {
+		return viewTagFQNMatchesAny(fqn, targets) || viewTagKnownSubtypeOfAny(fqn, targets)
+	}
+	return false
+}
+
+func viewTagSameFileClassTypeMatches(ctx *v2.Context, typ *typeinfer.ResolvedType, targets []string) bool {
+	if ctx == nil || ctx.Resolver == nil || ctx.File == nil || typ == nil || typ.Kind == typeinfer.TypeUnknown {
+		return false
+	}
+	for _, candidate := range []string{typ.FQN, typ.Name} {
+		if candidate == "" {
+			continue
+		}
+		info := ctx.Resolver.ClassHierarchy(candidate)
+		if info == nil || info.File != ctx.File.Path {
+			continue
+		}
+		if viewTagClassInfoMatches(ctx, info, targets, map[string]bool{}) {
+			return true
+		}
 	}
 	return false
 }

@@ -354,6 +354,31 @@ fun foo(view: AndroidView, activity: AndroidActivity) {
 		}
 	})
 
+	t.Run("same-file View subclass triggers with lower confidence", func(t *testing.T) {
+		file := parseInline(t, `
+package test
+fun foo() {
+    view.setTag(activity)
+}
+`)
+		resolver := typeinfer.NewFakeResolver()
+		resolver.NodeTypes["view"] = &typeinfer.ResolvedType{Name: "MyView", FQN: "test.MyView", Kind: typeinfer.TypeClass}
+		resolver.NodeTypes["activity"] = &typeinfer.ResolvedType{Name: "Activity", FQN: "android.app.Activity", Kind: typeinfer.TypeClass}
+		resolver.Classes["test.MyView"] = &typeinfer.ClassInfo{
+			Name:       "MyView",
+			FQN:        "test.MyView",
+			Supertypes: []string{"android.view.View"},
+			File:       file.Path,
+		}
+		findings := runViewTagRuleWithResolver(t, file, resolver)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Confidence != 0.80 {
+			t.Fatalf("expected lower-confidence same-file finding, got %.2f", findings[0].Confidence)
+		}
+	})
+
 	t.Run("local shadowed names do not trigger", func(t *testing.T) {
 		findings := runViewTagRule(t, `
 package test
@@ -363,6 +388,28 @@ fun foo(view: View, activity: Activity) {
     view.setTag(activity)
 }
 `)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("external unresolved receiver subtype does not trigger", func(t *testing.T) {
+		file := parseInline(t, `
+package test
+fun foo() {
+    view.setTag(activity)
+}
+`)
+		resolver := typeinfer.NewFakeResolver()
+		resolver.NodeTypes["view"] = &typeinfer.ResolvedType{Name: "ExternalView", FQN: "com.example.ExternalView", Kind: typeinfer.TypeClass}
+		resolver.NodeTypes["activity"] = &typeinfer.ResolvedType{Name: "Activity", FQN: "android.app.Activity", Kind: typeinfer.TypeClass}
+		resolver.Classes["com.example.ExternalView"] = &typeinfer.ClassInfo{
+			Name:       "ExternalView",
+			FQN:        "com.example.ExternalView",
+			Supertypes: []string{"android.view.View"},
+			File:       "/other/ExternalView.kt",
+		}
+		findings := runViewTagRuleWithResolver(t, file, resolver)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}

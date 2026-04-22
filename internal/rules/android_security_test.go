@@ -35,6 +35,7 @@ func TestGetInstance(t *testing.T) {
 	t.Run("triggers on insecure Cipher algorithm", func(t *testing.T) {
 		findings := runRuleByName(t, "GetInstance", `
 package test
+import javax.crypto.Cipher
 class Crypto {
     fun encrypt() {
         val cipher = Cipher.getInstance("DES/CBC/PKCS5Padding")
@@ -45,12 +46,60 @@ class Crypto {
 			t.Fatal("expected findings")
 		}
 	})
+	t.Run("triggers on ECB mode with AES", func(t *testing.T) {
+		findings := runRuleByName(t, "GetInstance", `
+package test
+import javax.crypto.Cipher
+class Crypto {
+    fun encrypt() {
+        val cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")
+    }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected findings")
+		}
+	})
 	t.Run("clean code with AES passes", func(t *testing.T) {
 		findings := runRuleByName(t, "GetInstance", `
 package test
+import javax.crypto.Cipher
 class Crypto {
     fun encrypt() {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("ignores comments mentioning insecure algorithm", func(t *testing.T) {
+		findings := runRuleByName(t, "GetInstance", `
+package test
+import javax.crypto.Cipher
+class Crypto {
+    fun encrypt() {
+        // Cipher.getInstance("DES") was removed in favour of AES
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("ignores custom Cipher class not from javax.crypto", func(t *testing.T) {
+		findings := runRuleByName(t, "GetInstance", `
+package test
+class Cipher {
+    companion object {
+        fun getInstance(name: String): Cipher = Cipher()
+    }
+}
+class Crypto {
+    fun encrypt() {
+        val cipher = Cipher.getInstance("DES")
     }
 }
 `)

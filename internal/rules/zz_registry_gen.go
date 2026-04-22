@@ -11726,7 +11726,7 @@ func registerAllRules() {
 		r := &TestFixtureAccessedFromProductionRule{BaseRule: BaseRule{RuleName: "TestFixtureAccessedFromProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects usage of types declared under src/testFixtures/ from production source files."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
+			Needs: v2.NeedsCrossFile | v2.NeedsParsedFiles | v2.NeedsResolver, Confidence: r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
 	}

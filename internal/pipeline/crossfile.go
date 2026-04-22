@@ -11,6 +11,7 @@ import (
 	"github.com/kaeawc/krit/internal/rules"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // CrossFilePhase runs the rule families that cannot be decided from a
@@ -90,7 +91,7 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 				}
 				ruleID := r.ID
 				call := func() error {
-					rctx := buildCrossRuleContext(r, codeIndex, in.KotlinFiles, crossCollector)
+					rctx := buildCrossRuleContext(r, codeIndex, crossRuleParsedFiles(in.KotlinFiles, in.JavaFiles), in.Resolver, crossCollector)
 					r.Check(rctx)
 					return nil
 				}
@@ -104,7 +105,7 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 				if err := ctx.Err(); err != nil {
 					return err
 				}
-				runConcurrentCrossRules(ctx, concurrentRules, codeIndex, in.KotlinFiles, crossCollector, p.Workers, ruleTracker)
+				runConcurrentCrossRules(ctx, concurrentRules, codeIndex, crossRuleParsedFiles(in.KotlinFiles, in.JavaFiles), in.Resolver, crossCollector, p.Workers, ruleTracker)
 			}
 			if ruleTracker != nil {
 				ruleTracker.End()
@@ -268,13 +269,26 @@ func splitConcurrentCrossRules(active []*v2.Rule) (serial, concurrent []*v2.Rule
 // inputs a rule declares it needs. Shared between the serial and
 // concurrent execution paths so both families see identical Context
 // shapes.
-func buildCrossRuleContext(r *v2.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, collector *scanner.FindingCollector) *v2.Context {
+func crossRuleParsedFiles(kotlinFiles, javaFiles []*scanner.File) []*scanner.File {
+	if len(javaFiles) == 0 {
+		return kotlinFiles
+	}
+	parsedFiles := make([]*scanner.File, 0, len(kotlinFiles)+len(javaFiles))
+	parsedFiles = append(parsedFiles, kotlinFiles...)
+	parsedFiles = append(parsedFiles, javaFiles...)
+	return parsedFiles
+}
+
+func buildCrossRuleContext(r *v2.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, resolver typeinfer.TypeResolver, collector *scanner.FindingCollector) *v2.Context {
 	rctx := &v2.Context{Collector: collector, Rule: r, DefaultConfidence: 0.95}
 	if r.Needs.Has(v2.NeedsParsedFiles) {
 		rctx.ParsedFiles = parsedFiles
 	}
 	if r.Needs.Has(v2.NeedsCrossFile) {
 		rctx.CodeIndex = codeIndex
+	}
+	if r.Needs.Has(v2.NeedsResolver) {
+		rctx.Resolver = resolver
 	}
 	return rctx
 }
@@ -291,7 +305,7 @@ const concurrentCrossRuleThreshold = 2
 // owner re-sorts the full columnar result by file/line before output
 // (see applySuppressionColumns + result.Findings path). Rule panics are
 // recovered per-rule so one broken rule does not take down the phase.
-func runConcurrentCrossRules(ctx context.Context, rules []*v2.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, dst *scanner.FindingCollector, workers int, tracker perf.Tracker) {
+func runConcurrentCrossRules(ctx context.Context, rules []*v2.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, resolver typeinfer.TypeResolver, dst *scanner.FindingCollector, workers int, tracker perf.Tracker) {
 	if len(rules) == 0 {
 		return
 	}
@@ -313,7 +327,7 @@ func runConcurrentCrossRules(ctx context.Context, rules []*v2.Rule, codeIndex *s
 			}
 			ruleID := r.ID
 			call := func() error {
-				runConcurrentCrossRule(r, codeIndex, parsedFiles, dst)
+				runConcurrentCrossRule(r, codeIndex, parsedFiles, resolver, dst)
 				return nil
 			}
 			if tracker != nil {
@@ -347,7 +361,7 @@ func runConcurrentCrossRules(ctx context.Context, rules []*v2.Rule, codeIndex *s
 					return
 				}
 				r := rules[idx]
-				runConcurrentCrossRule(r, codeIndex, parsedFiles, local)
+				runConcurrentCrossRule(r, codeIndex, parsedFiles, resolver, local)
 			}
 		}(w)
 	}
@@ -363,9 +377,9 @@ func runConcurrentCrossRules(ctx context.Context, rules []*v2.Rule, codeIndex *s
 // runConcurrentCrossRule invokes a single rule's Check against a given
 // collector, recovering from panics the same way the serial path does.
 // Each caller hands its own collector so the goroutines never contend.
-func runConcurrentCrossRule(r *v2.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, local *scanner.FindingCollector) {
+func runConcurrentCrossRule(r *v2.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, resolver typeinfer.TypeResolver, local *scanner.FindingCollector) {
 	defer func() { _ = recover() }()
-	rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, local)
+	rctx := buildCrossRuleContext(r, codeIndex, parsedFiles, resolver, local)
 	r.Check(rctx)
 }
 

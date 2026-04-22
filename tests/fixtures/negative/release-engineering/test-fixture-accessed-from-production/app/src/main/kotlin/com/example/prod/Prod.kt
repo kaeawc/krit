@@ -7,5 +7,5 @@ class Prod {
     val text = "FakeUser should not be reported from a string"
     val unresolved: MissingFixture? = null
     val local = ProdFake()
+    val samePackageProduction = FakeUser()
 }
-

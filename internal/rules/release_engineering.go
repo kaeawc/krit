@@ -1455,22 +1455,220 @@ func (r *TestFixtureAccessedFromProductionRule) check(ctx *v2.Context) {
 
 		imports, importedNames := fixtureImportBindings(file, fixturesByQualified)
 		for _, binding := range imports {
+			if productionDeclarations[binding.decl.qualifiedName] {
+				continue
+			}
 			r.emitTestFixtureAccess(ctx, file, binding.node, binding.decl, 0.95, emitted)
 		}
 
-		localNames := localValueNames(file)
 		packageName := packageByPath[file.Path]
+		fileCtx := &v2.Context{File: file, Resolver: ctx.Resolver, CodeIndex: index}
 		file.FlatWalkAllNodes(0, func(idx uint32) {
-			if !isFixtureReferenceNode(file, idx, localNames) {
-				return
-			}
-			decl, confidence, ok := resolveFixtureReference(file, idx, packageName, fixturesByQualified, imports, importedNames, productionDeclarations)
+			decl, confidence, ok := resolveFixtureAccessNode(fileCtx, idx, packageName, fixturesByQualified, imports, importedNames, productionDeclarations)
 			if !ok {
 				return
 			}
 			r.emitTestFixtureAccess(ctx, file, idx, decl, confidence, emitted)
 		})
 	}
+}
+
+func resolveFixtureAccessNode(ctx *v2.Context, idx uint32, packageName string, fixtures map[string]testFixtureDeclaration, imports map[string]fixtureImportBinding, importedNames map[string]string, productionDeclarations map[string]bool) (testFixtureDeclaration, float64, bool) {
+	if ctx == nil || ctx.File == nil {
+		return testFixtureDeclaration{}, 0, false
+	}
+	file := ctx.File
+	switch file.FlatType(idx) {
+	case "call_expression":
+		return resolveFixtureCall(ctx, idx, packageName, fixtures, imports, importedNames, productionDeclarations)
+	case "navigation_expression":
+		if parent, ok := file.FlatParent(idx); ok && file.FlatType(parent) == "call_expression" {
+			return testFixtureDeclaration{}, 0, false
+		}
+		return resolveFixtureNavigation(ctx, idx, packageName, fixtures, imports, importedNames, productionDeclarations)
+	case "user_type", "object_creation_expression":
+		return resolveFixtureTypeLikeNode(ctx, idx, packageName, fixtures, imports, importedNames, productionDeclarations)
+	case "type_identifier":
+		if file.Language != scanner.LangJava || isDeclarationIdentifier(file, idx) || hasFlatAncestorTypeName(file, idx, "import_declaration", "package_declaration") {
+			return testFixtureDeclaration{}, 0, false
+		}
+		return resolveFixtureTypeLikeNode(ctx, idx, packageName, fixtures, imports, importedNames, productionDeclarations)
+	}
+	return testFixtureDeclaration{}, 0, false
+}
+
+func resolveFixtureCall(ctx *v2.Context, call uint32, packageName string, fixtures map[string]testFixtureDeclaration, imports map[string]fixtureImportBinding, importedNames map[string]string, productionDeclarations map[string]bool) (testFixtureDeclaration, float64, bool) {
+	if decl, ok := fixtureByQualifiedReferenceText(ctx.File, call, fixtures); ok {
+		if productionDeclarations[decl.qualifiedName] {
+			return testFixtureDeclaration{}, 0, false
+		}
+		return decl, 0.95, true
+	}
+	target, ok := semantics.ResolveCallTarget(ctx, call)
+	if !ok {
+		return testFixtureDeclaration{}, 0, false
+	}
+	if target.Resolved {
+		if decl, ok := fixtures[target.QualifiedName]; ok {
+			if productionDeclarations[decl.qualifiedName] {
+				return testFixtureDeclaration{}, 0, false
+			}
+			return decl, 0.95, true
+		}
+	}
+	if target.Receiver.Valid() {
+		if decl, confidence, ok := resolveFixtureName(ctx, semantics.ReferenceName(ctx.File, target.Receiver.Node), target.Receiver.Node, packageName, fixtures, imports, importedNames, productionDeclarations); ok {
+			return decl, confidence, true
+		}
+	}
+	return resolveFixtureName(ctx, target.CalleeName, call, packageName, fixtures, imports, importedNames, productionDeclarations)
+}
+
+func resolveFixtureNavigation(ctx *v2.Context, nav uint32, packageName string, fixtures map[string]testFixtureDeclaration, imports map[string]fixtureImportBinding, importedNames map[string]string, productionDeclarations map[string]bool) (testFixtureDeclaration, float64, bool) {
+	if decl, ok := fixtureByQualifiedReferenceText(ctx.File, nav, fixtures); ok {
+		if productionDeclarations[decl.qualifiedName] {
+			return testFixtureDeclaration{}, 0, false
+		}
+		return decl, 0.95, true
+	}
+	receiver := firstReferenceIdentifier(ctx.File, nav)
+	return resolveFixtureName(ctx, receiver, nav, packageName, fixtures, imports, importedNames, productionDeclarations)
+}
+
+func resolveFixtureTypeLikeNode(ctx *v2.Context, idx uint32, packageName string, fixtures map[string]testFixtureDeclaration, imports map[string]fixtureImportBinding, importedNames map[string]string, productionDeclarations map[string]bool) (testFixtureDeclaration, float64, bool) {
+	if hasFlatAncestorTypeName(ctx.File, idx, "line_comment", "multiline_comment", "string_literal", "raw_string_literal", "character_literal") {
+		return testFixtureDeclaration{}, 0, false
+	}
+	if decl, ok := fixtureByQualifiedReferenceText(ctx.File, idx, fixtures); ok {
+		if productionDeclarations[decl.qualifiedName] {
+			return testFixtureDeclaration{}, 0, false
+		}
+		return decl, 0.95, true
+	}
+	if ctx.Resolver != nil {
+		if typ := ctx.Resolver.ResolveFlatNode(idx, ctx.File); typ != nil {
+			if decl, ok := fixtures[typ.FQN]; ok {
+				if productionDeclarations[decl.qualifiedName] {
+					return testFixtureDeclaration{}, 0, false
+				}
+				return decl, 0.95, true
+			}
+		}
+	}
+	return resolveFixtureName(ctx, lastReferenceIdentifier(ctx.File, idx), idx, packageName, fixtures, imports, importedNames, productionDeclarations)
+}
+
+func resolveFixtureName(ctx *v2.Context, name string, ref uint32, packageName string, fixtures map[string]testFixtureDeclaration, imports map[string]fixtureImportBinding, importedNames map[string]string, productionDeclarations map[string]bool) (testFixtureDeclaration, float64, bool) {
+	if name == "" {
+		return testFixtureDeclaration{}, 0, false
+	}
+	if binding, ok := imports[name]; ok {
+		if productionDeclarations[binding.decl.qualifiedName] {
+			return testFixtureDeclaration{}, 0, false
+		}
+		return binding.decl, 0.95, true
+	}
+	if ctx.Resolver != nil {
+		if imported := ctx.Resolver.ResolveImport(name, ctx.File); imported != "" {
+			if decl, ok := fixtures[imported]; ok {
+				if productionDeclarations[decl.qualifiedName] {
+					return testFixtureDeclaration{}, 0, false
+				}
+				return decl, 0.95, true
+			}
+			return testFixtureDeclaration{}, 0, false
+		}
+	}
+	if imported, ok := importedNames[name]; ok {
+		if _, isFixtureImport := fixtures[imported]; !isFixtureImport {
+			return testFixtureDeclaration{}, 0, false
+		}
+	}
+
+	qualifiedName := qualifySourceName(packageName, name)
+	decl, ok := fixtures[qualifiedName]
+	if !ok {
+		return testFixtureDeclaration{}, 0, false
+	}
+	if productionDeclarations[qualifiedName] {
+		return testFixtureDeclaration{}, 0, false
+	}
+	if sameFileClassLikeDeclarationShadows(ctx, name, ref) {
+		return testFixtureDeclaration{}, 0, false
+	}
+	if !samePackageReferenceContext(ctx.File, ref) {
+		return testFixtureDeclaration{}, 0, false
+	}
+	return decl, 0.80, true
+}
+
+func sameFileClassLikeDeclarationShadows(ctx *v2.Context, name string, ref uint32) bool {
+	if ctx == nil || ctx.File == nil || name == "" {
+		return false
+	}
+	file := ctx.File
+	var shadowed bool
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if shadowed {
+			return
+		}
+		switch file.FlatType(idx) {
+		case "class_declaration", "object_declaration", "interface_declaration":
+			if isNestedClassLikeNode(file, idx) && !semantics.SameEnclosingOwner(file, idx, ref) {
+				return
+			}
+			if firstChildText(file, idx, "type_identifier", "simple_identifier", "identifier") == name &&
+				semantics.SameFileDeclarationMatch(ctx, idx, ref) {
+				shadowed = true
+			}
+		}
+	})
+	return shadowed
+}
+
+func samePackageReferenceContext(file *scanner.File, idx uint32) bool {
+	switch file.FlatType(idx) {
+	case "call_expression", "user_type", "type_identifier", "object_creation_expression":
+		return true
+	case "navigation_expression":
+		return firstReferenceIdentifier(file, idx) != ""
+	default:
+		return false
+	}
+}
+
+func firstReferenceIdentifier(file *scanner.File, idx uint32) string {
+	for i := 0; i < file.FlatChildCount(idx); i++ {
+		child := file.FlatChild(idx, i)
+		switch file.FlatType(child) {
+		case "simple_identifier", "type_identifier", "identifier":
+			return file.FlatNodeText(child)
+		case "scoped_identifier", "scoped_type_identifier", "navigation_expression":
+			if name := firstReferenceIdentifier(file, child); name != "" {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+func lastReferenceIdentifier(file *scanner.File, idx uint32) string {
+	last := ""
+	file.FlatWalkAllNodes(idx, func(candidate uint32) {
+		switch file.FlatType(candidate) {
+		case "simple_identifier", "type_identifier", "identifier":
+			if !isDeclarationIdentifier(file, candidate) {
+				last = file.FlatNodeText(candidate)
+			}
+		}
+	})
+	if last != "" {
+		return last
+	}
+	if file.FlatType(idx) == "simple_identifier" || file.FlatType(idx) == "type_identifier" || file.FlatType(idx) == "identifier" {
+		return file.FlatNodeText(idx)
+	}
+	return ""
 }
 
 type fixtureImportBinding struct {
@@ -1521,33 +1719,6 @@ func fixtureImportBindings(file *scanner.File, fixtures map[string]testFixtureDe
 	return bindings, importedNames
 }
 
-func resolveFixtureReference(file *scanner.File, idx uint32, packageName string, fixtures map[string]testFixtureDeclaration, imports map[string]fixtureImportBinding, importedNames map[string]string, productionDeclarations map[string]bool) (testFixtureDeclaration, float64, bool) {
-	if decl, ok := fixtureByQualifiedReferenceText(file, idx, fixtures); ok {
-		return decl, 0.95, true
-	}
-
-	name := file.FlatNodeText(idx)
-	if binding, ok := imports[name]; ok {
-		return binding.decl, 0.95, true
-	}
-
-	if imported, ok := importedNames[name]; ok {
-		if _, isFixtureImport := fixtures[imported]; !isFixtureImport {
-			return testFixtureDeclaration{}, 0, false
-		}
-	}
-
-	qualifiedName := qualifySourceName(packageName, name)
-	decl, ok := fixtures[qualifiedName]
-	if !ok {
-		return testFixtureDeclaration{}, 0, false
-	}
-	if productionDeclarations[qualifiedName] {
-		return testFixtureDeclaration{}, 0, false
-	}
-	return decl, 0.85, true
-}
-
 func fixtureByQualifiedReferenceText(file *scanner.File, idx uint32, fixtures map[string]testFixtureDeclaration) (testFixtureDeclaration, bool) {
 	for current, ok := idx, true; ok; current, ok = file.FlatParent(current) {
 		switch file.FlatType(current) {
@@ -1572,28 +1743,6 @@ func compactSourceReference(text string) string {
 	return replacer.Replace(text)
 }
 
-func isFixtureReferenceNode(file *scanner.File, idx uint32, localNames map[string]bool) bool {
-	nodeType := file.FlatType(idx)
-	if nodeType != "type_identifier" && nodeType != "simple_identifier" && nodeType != "identifier" {
-		return false
-	}
-	name := file.FlatNodeText(idx)
-	if name == "" {
-		return false
-	}
-	if hasFlatAncestorTypeName(file, idx, "package_header", "package_declaration", "import_header", "import_declaration", "line_comment", "multiline_comment", "string_literal", "raw_string_literal", "character_literal") {
-		return false
-	}
-	if isDeclarationIdentifier(file, idx) {
-		return false
-	}
-	if nodeType != "type_identifier" && localNames[name] {
-		return false
-	}
-	return nodeType == "type_identifier" ||
-		hasFlatAncestorTypeName(file, idx, "user_type", "type_reference", "call_expression", "navigation_expression", "constructor_invocation", "object_creation_expression", "scoped_identifier", "scoped_type_identifier", "field_access", "method_invocation")
-}
-
 func isDeclarationIdentifier(file *scanner.File, idx uint32) bool {
 	parent, ok := file.FlatParent(idx)
 	if !ok {
@@ -1605,19 +1754,6 @@ func isDeclarationIdentifier(file *scanner.File, idx uint32) bool {
 		return true
 	}
 	return false
-}
-
-func localValueNames(file *scanner.File) map[string]bool {
-	names := make(map[string]bool)
-	file.FlatWalkAllNodes(0, func(idx uint32) {
-		switch file.FlatType(idx) {
-		case "variable_declaration", "function_value_parameter", "variable_declarator", "formal_parameter":
-			if name := firstChildText(file, idx, "simple_identifier", "identifier"); name != "" {
-				names[name] = true
-			}
-		}
-	})
-	return names
 }
 
 func topLevelClassLikeNames(file *scanner.File) []string {

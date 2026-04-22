@@ -568,7 +568,7 @@ func TestTestFixtureAccessedFromProduction(t *testing.T) {
 			if finding.Confidence >= 0.95 {
 				sawExact = true
 			}
-			if finding.Confidence == 0.85 {
+			if finding.Confidence == 0.80 {
 				sawFallback = true
 			}
 		}

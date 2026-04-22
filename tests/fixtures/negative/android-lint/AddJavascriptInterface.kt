@@ -23,6 +23,7 @@ class StringLiteralOnly {
 }
 
 class NonWebViewWrapper {
+    @Suppress("EmptyFunctionBlock")
     fun addJavascriptInterface(obj: Any, name: String) {}
 }
 

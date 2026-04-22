@@ -293,47 +293,50 @@ func (r *GrantAllUrisRule) check(ctx *v2.Context) {
 
 
 // SecureRandomRule detects java.util.Random usage where SecureRandom should be used.
-type SecureRandomRule struct{ AndroidRule }
+type SecureRandomRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
 
-var secureRandomImportRe = regexp.MustCompile(`import\s+java\.util\.Random\b`)
-var randomInstantiationRe = regexp.MustCompile(`\bjava\.util\.Random\s*\(|(?:^|[^.])\bRandom\s*\(\s*\)`)
-
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *SecureRandomRule) Confidence() float64 { return 0.75 }
+func (r *SecureRandomRule) Confidence() float64 { return 0.85 }
 
 func (r *SecureRandomRule) check(ctx *v2.Context) {
+	if ctx == nil || ctx.File == nil || ctx.Idx == 0 {
+		return
+	}
 	file := ctx.File
-	hasInsecureImport := false
-	for _, line := range file.Lines {
-		if secureRandomImportRe.MatchString(line) {
-			hasInsecureImport = true
-			break
-		}
+	if file.FlatType(ctx.Idx) != "call_expression" {
+		return
 	}
-	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "import ") {
-			continue
+	navExpr, _ := flatCallExpressionParts(file, ctx.Idx)
+	insecure := false
+	if navExpr != 0 {
+		ids := flatNavigationIdentifierParts(file, navExpr)
+		if len(ids) == 3 && ids[0] == "java" && ids[1] == "util" && ids[2] == "Random" {
+			insecure = true
 		}
-		// Detect direct java.util.Random usage
-		if strings.Contains(line, "java.util.Random(") {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"Using java.util.Random. Use java.security.SecureRandom for security-sensitive operations."))
-			continue
-		}
-		// Detect Random() instantiation when java.util.Random is imported
-		if hasInsecureImport && strings.Contains(line, "Random(") &&
-			!strings.Contains(line, "SecureRandom") &&
-			!strings.Contains(line, "ThreadLocalRandom") {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"Using java.util.Random. Use java.security.SecureRandom for security-sensitive operations."))
-		}
+	} else if flatCallExpressionName(file, ctx.Idx) == "Random" && secureRandomImportsJavaUtilRandom(file) {
+		insecure = true
 	}
+	if !insecure {
+		return
+	}
+	ctx.Emit(r.Finding(file, file.FlatRow(ctx.Idx)+1, file.FlatCol(ctx.Idx)+1,
+		"Using java.util.Random. Use java.security.SecureRandom for security-sensitive operations."))
+}
+
+func secureRandomImportsJavaUtilRandom(file *scanner.File) bool {
+	javaUtil := false
+	kotlinRandom := false
+	file.FlatWalkNodes(0, "import_header", func(node uint32) {
+		switch missingPermissionIdentifierPath(file, node) {
+		case "java.util.Random":
+			javaUtil = true
+		case "kotlin.random.Random":
+			kotlinRandom = true
+		}
+	})
+	return javaUtil && !kotlinRandom
 }
 
 

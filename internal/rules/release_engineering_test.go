@@ -539,6 +539,104 @@ func mustReadFixture(t *testing.T, path string) string {
 	return string(content)
 }
 
+func TestTestFixtureAccessedFromProduction(t *testing.T) {
+	registered := buildRuleIndex()["TestFixtureAccessedFromProduction"]
+	if registered == nil {
+		t.Fatal("TestFixtureAccessedFromProduction rule not registered")
+	}
+
+	root := fixtureRoot(t)
+	positiveDir := filepath.Join(root, "positive", "release-engineering", "test-fixture-accessed-from-production")
+	negativeDir := filepath.Join(root, "negative", "release-engineering", "test-fixture-accessed-from-production")
+
+	t.Run("positive fixture triggers on imports and references", func(t *testing.T) {
+		findings := runTestFixtureAccessedFromProductionRule(t, registered, positiveDir)
+		if len(findings) < 5 {
+			t.Fatalf("expected at least 5 findings, got %d: %#v", len(findings), findings)
+		}
+		if !hasFindingAtPathSuffix(findings, "app/src/main/kotlin/com/example/prod/Prod.kt", 3) {
+			t.Fatalf("expected import finding in Prod.kt, got %#v", findings)
+		}
+		if !hasFindingAtPathSuffix(findings, "app/src/main/java/com/example/prod/JavaProd.java", 3) {
+			t.Fatalf("expected Java import finding in JavaProd.java, got %#v", findings)
+		}
+		if !hasFindingAtPathSuffix(findings, "app/src/main/kotlin/com/example/SamePackageProd.kt", 4) {
+			t.Fatalf("expected same-package reference finding, got %#v", findings)
+		}
+		var sawExact, sawFallback bool
+		for _, finding := range findings {
+			if finding.Confidence >= 0.95 {
+				sawExact = true
+			}
+			if finding.Confidence == 0.80 {
+				sawFallback = true
+			}
+		}
+		if !sawExact || !sawFallback {
+			t.Fatalf("expected exact and package fallback confidence findings, got %#v", findings)
+		}
+	})
+
+	t.Run("negative fixture avoids comments strings tests aliases generated and unresolved names", func(t *testing.T) {
+		findings := runTestFixtureAccessedFromProductionRule(t, registered, negativeDir)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %#v", len(findings), findings)
+		}
+	})
+}
+
+func runTestFixtureAccessedFromProductionRule(t *testing.T, registered *v2.Rule, projectDir string) []scanner.Finding {
+	t.Helper()
+	var kotlinFiles []*scanner.File
+	var javaFiles []*scanner.File
+	var parsedFiles []*scanner.File
+
+	err := filepath.Walk(projectDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return err
+		}
+		switch {
+		case strings.HasSuffix(path, ".kt"), strings.HasSuffix(path, ".kts"):
+			file, parseErr := scanner.ParseFile(path)
+			if parseErr != nil {
+				return parseErr
+			}
+			kotlinFiles = append(kotlinFiles, file)
+			parsedFiles = append(parsedFiles, file)
+		case strings.HasSuffix(path, ".java"):
+			file, parseErr := scanner.ParseJavaFile(path)
+			if parseErr != nil {
+				return parseErr
+			}
+			javaFiles = append(javaFiles, file)
+			parsedFiles = append(parsedFiles, file)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", projectDir, err)
+	}
+
+	index := scanner.BuildIndex(kotlinFiles, 1, javaFiles...)
+	ctx := &v2.Context{
+		Rule:        registered,
+		CodeIndex:   index,
+		ParsedFiles: parsedFiles,
+		Collector:   scanner.NewFindingCollector(0),
+	}
+	registered.Check(ctx)
+	return v2.ContextFindings(ctx)
+}
+
+func hasFindingAtPathSuffix(findings []scanner.Finding, suffix string, line int) bool {
+	for _, finding := range findings {
+		if strings.HasSuffix(filepath.ToSlash(finding.File), suffix) && finding.Line == line {
+			return true
+		}
+	}
+	return false
+}
+
 func TestCommentedOutCodeBlock(t *testing.T) {
 	rule := buildRuleIndex()["CommentedOutCodeBlock"]
 	if rule == nil {

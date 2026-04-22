@@ -1276,6 +1276,11 @@ func resolveOpenForTestingSupertype(file *scanner.File, ref openForTestingTypeRe
 			return target, 0.90, true
 		}
 	}
+	if scope.pkg != "" {
+		if target, ok := targets.byFQN[scope.pkg+"."+ref.simple]; ok {
+			return target, 0.85, true
+		}
+	}
 
 	candidates := targets.bySimple[ref.simple]
 	if len(candidates) == 0 {

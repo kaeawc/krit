@@ -213,11 +213,10 @@ func (r *EasterEggRule) check(ctx *v2.Context) {
 
 
 // ExportedContentProviderRule detects exported content providers without permission.
-type ExportedContentProviderRule struct{ AndroidRule }
-
-var contentProviderRe = regexp.MustCompile(`:\s*ContentProvider\s*\(`)
-
-var permissionEnforcementRe = regexp.MustCompile(`(?i)enforceCallingPermission|enforceCallingOrSelfPermission|checkCallingPermission|checkCallingOrSelfPermission|enforcePermission|checkPermission`)
+type ExportedContentProviderRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -227,27 +226,56 @@ var permissionEnforcementRe = regexp.MustCompile(`(?i)enforceCallingPermission|e
 // Classified per roadmap/17.
 func (r *ExportedContentProviderRule) Confidence() float64 { return 0.75 }
 
-func (r *ExportedContentProviderRule) check(ctx *v2.Context) {
-	file := ctx.File
-	// Skip if the file has any permission enforcement calls
-	for _, line := range file.Lines {
-		if permissionEnforcementRe.MatchString(line) {
+func exportedPermissionEnforcedInClass(file *scanner.File, classIdx uint32) bool {
+	body, _ := file.FlatFindChild(classIdx, "class_body")
+	if body == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(body, "call_expression", func(call uint32) {
+		if found {
 			return
 		}
-	}
-	for i, line := range file.Lines {
-		if contentProviderRe.MatchString(line) {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"ContentProvider subclass may be exported without permission. Ensure permissions are enforced."))
+		switch flatCallExpressionName(file, call) {
+		case "enforceCallingPermission",
+			"enforceCallingOrSelfPermission",
+			"checkCallingPermission",
+			"checkCallingOrSelfPermission",
+			"enforcePermission",
+			"checkPermission",
+			"enforceUriPermission",
+			"checkUriPermission":
+			found = true
 		}
+	})
+	return found
+}
+
+func exportedClassExtendsAndroid(file *scanner.File, classIdx uint32, simpleName, fqn string) bool {
+	if !privacyClassDirectlyExtendsFlat(file, classIdx, simpleName) {
+		return false
 	}
+	return missingPermissionHasImport(file, fqn)
+}
+
+func (r *ExportedContentProviderRule) check(ctx *v2.Context) {
+	file, idx := ctx.File, ctx.Idx
+	if !exportedClassExtendsAndroid(file, idx, "ContentProvider", "android.content.ContentProvider") {
+		return
+	}
+	if exportedPermissionEnforcedInClass(file, idx) {
+		return
+	}
+	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"ContentProvider subclass may be exported without permission. Ensure permissions are enforced.")
 }
 
 
 // ExportedReceiverRule detects exported receivers without permission.
-type ExportedReceiverRule struct{ AndroidRule }
-
-var broadcastReceiverRe = regexp.MustCompile(`:\s*BroadcastReceiver\s*\(`)
+type ExportedReceiverRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -258,13 +286,15 @@ var broadcastReceiverRe = regexp.MustCompile(`:\s*BroadcastReceiver\s*\(`)
 func (r *ExportedReceiverRule) Confidence() float64 { return 0.75 }
 
 func (r *ExportedReceiverRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if broadcastReceiverRe.MatchString(line) {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"BroadcastReceiver subclass may be exported without permission. Ensure permissions are enforced."))
-		}
+	file, idx := ctx.File, ctx.Idx
+	if !exportedClassExtendsAndroid(file, idx, "BroadcastReceiver", "android.content.BroadcastReceiver") {
+		return
 	}
+	if exportedPermissionEnforcedInClass(file, idx) {
+		return
+	}
+	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"BroadcastReceiver subclass may be exported without permission. Ensure permissions are enforced.")
 }
 
 

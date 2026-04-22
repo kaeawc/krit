@@ -140,6 +140,7 @@ func TestExportedContentProvider(t *testing.T) {
 	t.Run("triggers on ContentProvider without permission check", func(t *testing.T) {
 		findings := runRuleByName(t, "ExportedContentProvider", `
 package test
+import android.content.ContentProvider
 class MyProvider : ContentProvider() {
     override fun query() {}
 }
@@ -151,6 +152,7 @@ class MyProvider : ContentProvider() {
 	t.Run("clean code with permission enforcement passes", func(t *testing.T) {
 		findings := runRuleByName(t, "ExportedContentProvider", `
 package test
+import android.content.ContentProvider
 class MyProvider : ContentProvider() {
     override fun query() {
         enforceCallingPermission("com.example.READ", "No permission")
@@ -161,12 +163,41 @@ class MyProvider : ContentProvider() {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+	t.Run("sibling class enforcement does not suppress provider finding", func(t *testing.T) {
+		findings := runRuleByName(t, "ExportedContentProvider", `
+package test
+import android.content.ContentProvider
+class Helper {
+    fun check() {
+        enforceCallingPermission("com.example.READ", "No permission")
+    }
+}
+class MyProvider : ContentProvider() {
+    override fun query() {}
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected findings; sibling class enforcement must not suppress")
+		}
+	})
+	t.Run("class named ContentProvider without android import does not trigger", func(t *testing.T) {
+		findings := runRuleByName(t, "ExportedContentProvider", `
+package test
+class MyProvider : ContentProvider() {
+    override fun query() {}
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings without import, got %d", len(findings))
+		}
+	})
 }
 
 func TestExportedReceiver(t *testing.T) {
 	t.Run("triggers on BroadcastReceiver subclass", func(t *testing.T) {
 		findings := runRuleByName(t, "ExportedReceiver", `
 package test
+import android.content.BroadcastReceiver
 class MyReceiver : BroadcastReceiver() {
     override fun onReceive() {}
 }

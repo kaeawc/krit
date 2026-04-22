@@ -416,48 +416,99 @@ func (r *WorldWriteableFilesRule) check(ctx *v2.Context) {
 // =============================================================================
 
 // DrawAllocationRule detects object allocations inside onDraw/draw methods.
-type DrawAllocationRule struct{ AndroidRule }
+// Uses AST dispatch on function_declaration to avoid brace-counting errors
+// from string literals, comments, and multi-line signatures that broke the
+// prior line-scan implementation.
+type DrawAllocationRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
 
-var drawAllocRe = regexp.MustCompile(`\b(?:Paint|Rect|RectF|Path|Matrix|LinearGradient|RadialGradient|Bitmap|Canvas|PorterDuffXfermode|Shader|ColorFilter)\s*\(`)
+// drawAllocationAllocTypes is the fixed allow-list of graphics types whose
+// construction inside onDraw/draw triggers a finding. Matched by unqualified
+// type name.
+var drawAllocationAllocTypes = map[string]bool{
+	"Paint":              true,
+	"Rect":               true,
+	"RectF":              true,
+	"Path":               true,
+	"Matrix":             true,
+	"LinearGradient":     true,
+	"RadialGradient":     true,
+	"SweepGradient":      true,
+	"Bitmap":             true,
+	"PorterDuffXfermode": true,
+	"Shader":             true,
+	"ColorFilter":        true,
+	"PorterDuffColorFilter": true,
+	"BitmapShader":       true,
+	"ComposeShader":      true,
+	"Region":             true,
+}
 
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *DrawAllocationRule) Confidence() float64 { return 0.75 }
+// Confidence reports a tier-2 (medium) base confidence. AST-based
+// detection scopes allocations to the onDraw/draw function body,
+// eliminating the prior regex/brace-scan false positives from string
+// literals, comments, and multi-line signatures. Unqualified type-name
+// matching against the fixed allow-list keeps this pattern-based
+// without KAA type resolution. Classified per roadmap/17.
+func (r *DrawAllocationRule) Confidence() float64 { return 0.85 }
 
 func (r *DrawAllocationRule) check(ctx *v2.Context) {
 	file := ctx.File
-	inDraw := false
-	braceDepth := 0
-	drawStartDepth := 0
-
-	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-
-		// Detect onDraw or draw override
-		if !inDraw && (strings.Contains(trimmed, "override fun onDraw(") ||
-			strings.Contains(trimmed, "override fun draw(") ||
-			strings.Contains(trimmed, "fun onDraw(") ||
-			strings.Contains(trimmed, "fun draw(canvas")) {
-			inDraw = true
-			drawStartDepth = braceDepth
+	fn := ctx.Idx
+	if file == nil || fn == 0 || file.FlatType(fn) != "function_declaration" {
+		return
+	}
+	name := flatFunctionName(file, fn)
+	if name != "onDraw" && name != "draw" {
+		return
+	}
+	if !file.FlatHasModifier(fn, "override") {
+		return
+	}
+	body, _ := file.FlatFindChild(fn, "function_body")
+	if body == 0 {
+		return
+	}
+	file.FlatWalkNodes(body, "call_expression", func(call uint32) {
+		if !drawAllocationIsAllocCall(file, call) {
+			return
 		}
+		ctx.EmitAt(file.FlatRow(call)+1, file.FlatCol(call)+1,
+			"Allocation in drawing code. Move allocations out of onDraw() for better performance.")
+	})
+}
 
-		braceDepth += strings.Count(line, "{") - strings.Count(line, "}")
-
-		if inDraw {
-			if drawAllocRe.MatchString(trimmed) && !strings.HasPrefix(trimmed, "//") {
-				ctx.Emit(r.Finding(file, i+1, 1,
-					"Allocation in drawing code. Move allocations out of onDraw() for better performance."))
-			}
-			if braceDepth <= drawStartDepth {
-				inDraw = false
-			}
+// drawAllocationIsAllocCall reports whether a call_expression is an
+// unqualified constructor-style call whose callee name appears in the
+// graphics allow-list. Qualified calls (receiver.Foo()) and calls whose
+// callee is not a simple identifier are ignored.
+func drawAllocationIsAllocCall(file *scanner.File, call uint32) bool {
+	if file == nil || file.FlatType(call) != "call_expression" {
+		return false
+	}
+	// Require the callee to be a bare simple_identifier, not a
+	// navigation_expression. `receiver.Paint()` is a method call, not a
+	// constructor of the Paint type.
+	var calleeName string
+	for child := file.FlatFirstChild(call); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		switch file.FlatType(child) {
+		case "simple_identifier":
+			calleeName = file.FlatNodeText(child)
+		case "navigation_expression":
+			return false
+		case "call_suffix":
+			// no-op
+		}
+		if calleeName != "" {
+			break
 		}
 	}
+	return drawAllocationAllocTypes[calleeName]
 }
 
 

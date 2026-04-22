@@ -3668,7 +3668,11 @@ func registerAllRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 9,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: r.check,
+		})
 	}
 	{
 		r := &FieldGetterRule{AndroidRule: AndroidRule{

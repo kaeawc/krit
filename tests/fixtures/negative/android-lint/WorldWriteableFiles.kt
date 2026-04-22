@@ -4,7 +4,7 @@ import android.content.Context
 
 class FileHelper(private val context: Context) {
     // MODE_WORLD_WRITEABLE must never be used.
-    fun openFile() = context.openFileOutput("data.txt", Context.MODE_PRIVATE)
+    private val rationale = "Avoid MODE_WORLD_WRITEABLE and MODE_WORLD_WRITABLE at all costs"
 
-    fun rationale(): String = "Avoid MODE_WORLD_WRITEABLE and MODE_WORLD_WRITABLE at all costs"
+    fun openFile() = context.openFileOutput("data.txt", Context.MODE_PRIVATE)
 }

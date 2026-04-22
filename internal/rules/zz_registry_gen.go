@@ -1075,7 +1075,13 @@ func registerAllRules() {
 		r := &ObjectAnimatorBindingRule{AndroidRule: alcRule("ObjectAnimatorBinding", "Incorrect ObjectAnimator Property", ALSError, 4)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: r.Confidence(), OriginalV1: r,
+			Oracle: &v2.OracleFilter{Identifiers: []string{"ObjectAnimator", "ofFloat", "ofInt", "ofObject"}},
+			OracleCallTargets: &v2.OracleCallTargetFilter{TargetFQNs: []string{
+				"android.animation.ObjectAnimator.ofFloat",
+				"android.animation.ObjectAnimator.ofInt",
+				"android.animation.ObjectAnimator.ofObject",
+			}},
 			Check: r.check,
 		})
 	}

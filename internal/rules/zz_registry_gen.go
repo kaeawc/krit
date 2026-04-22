@@ -4122,8 +4122,12 @@ func registerAllRules() {
 		r := &ViewTagRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ViewTag", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ViewTag", Brief: "Tagged object may leak", Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes:  []string{"call_expression"},
+			Needs:      v2.NeedsTypeInfo,
+			Confidence: r.Confidence(), OriginalV1: r,
+			Oracle:            &v2.OracleFilter{Identifiers: []string{"setTag"}},
+			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"setTag"}},
+			Check:             r.check,
 		})
 	}
 	{

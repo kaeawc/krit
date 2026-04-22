@@ -1,17 +1,13 @@
-package test
-
 import android.animation.ObjectAnimator as Animator
 import android.view.View
 
 class Meter {
     var colour: Float = 0f
-    fun setProgressFraction(value: Float) {}
+    fun setProgressFraction(value: Float) = Unit
 }
 
-class AnimatorFactory {
-    companion object {
-        fun ofFloat(target: Meter, propertyName: String, value: Float) {}
-    }
+object AnimatorFactory {
+    fun ofFloat(target: Meter, propertyName: String, value: Float) = Unit
 }
 
 fun cleanViewProperties(view: View) {
@@ -33,6 +29,6 @@ fun ignoredInputs(view: View, propertyName: String, meter: Meter) {
     Animator.ofFloat(view, propertyName, 1f)
     Animator.ofFloat(missingTarget, "translatoinX", 1f)
     AnimatorFactory.ofFloat(meter, "missing", 1f)
-    val sample = "ObjectAnimator.ofFloat(view, \"translatoinX\", 1f)"
+    val ignored = "ObjectAnimator.ofFloat(view, \"translatoinX\", 1f)"
     // ObjectAnimator.ofFloat(view, "translatoinX", 1f)
 }

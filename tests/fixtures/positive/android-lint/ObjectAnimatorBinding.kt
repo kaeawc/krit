@@ -1,9 +1,7 @@
-package test
-
 import android.animation.ObjectAnimator
 import android.view.View
 
-class Gauge
+private class Gauge
 
 fun viewTypo(view: View) {
     ObjectAnimator.ofFloat(view, "translatoinX", 1f)

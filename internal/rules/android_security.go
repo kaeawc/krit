@@ -9,8 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/scanner"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // Additional category constants not in android.go
@@ -22,25 +23,107 @@ const (
 // Security Rules
 // =============================================================================
 
-// AddJavascriptInterfaceRule detects addJavascriptInterface() calls.
-type AddJavascriptInterfaceRule struct{ AndroidRule }
-
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *AddJavascriptInterfaceRule) Confidence() float64 { return 0.75 }
+// AddJavascriptInterfaceRule detects WebView.addJavascriptInterface() calls.
+type AddJavascriptInterfaceRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
 
 func (r *AddJavascriptInterfaceRule) check(ctx *v2.Context) {
+	if ctx == nil || ctx.File == nil || ctx.Idx == 0 {
+		return
+	}
 	file := ctx.File
-	for i, line := range file.Lines {
-		if strings.Contains(line, "addJavascriptInterface(") || strings.Contains(line, "addJavascriptInterface (") {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"addJavascriptInterface called. This can introduce XSS vulnerabilities on older Android versions."))
+	if file.FlatType(ctx.Idx) != "call_expression" {
+		return
+	}
+	if flatCallExpressionName(file, ctx.Idx) != "addJavascriptInterface" {
+		return
+	}
+	navExpr, _ := flatCallExpressionParts(file, ctx.Idx)
+	if navExpr == 0 || file.FlatNamedChildCount(navExpr) == 0 {
+		return
+	}
+	receiverExpr := file.FlatNamedChild(navExpr, 0)
+	confidence, ok := addJavascriptInterfaceReceiverConfidence(ctx, receiverExpr)
+	if !ok {
+		return
+	}
+	line := file.FlatRow(ctx.Idx) + 1
+	col := file.FlatCol(ctx.Idx) + 1
+	f := r.Finding(file, line, col,
+		"addJavascriptInterface called. This can introduce XSS vulnerabilities on older Android versions.")
+	f.Confidence = confidence
+	ctx.Emit(f)
+}
+
+func addJavascriptInterfaceReceiverConfidence(ctx *v2.Context, receiverExpr uint32) (float64, bool) {
+	file := ctx.File
+	receiver := flatUnwrapParenExpr(file, receiverExpr)
+	if ctx.Resolver != nil {
+		typ := ctx.Resolver.ResolveFlatNode(receiver, file)
+		if (typ == nil || typ.Kind == typeinfer.TypeUnknown) && file.FlatType(receiver) == "simple_identifier" {
+			typ = ctx.Resolver.ResolveByNameFlat(file.FlatNodeText(receiver), receiver, file)
+		}
+		if typ != nil && typ.Kind != typeinfer.TypeUnknown && (typ.Name != "" || typ.FQN != "") {
+			if addJavascriptInterfaceTypeIsWebView(ctx.Resolver, typ) {
+				return 1.0, true
+			}
+			return 0, false
 		}
 	}
+	name := addJavascriptInterfaceReceiverName(file, receiver)
+	if name == "" {
+		return 0, false
+	}
+	if name == "webView" || name == "wv" {
+		return 0.85, true
+	}
+	return 0, false
+}
+
+func addJavascriptInterfaceReceiverName(file *scanner.File, receiver uint32) string {
+	switch file.FlatType(receiver) {
+	case "simple_identifier":
+		return file.FlatNodeText(receiver)
+	case "navigation_expression":
+		return flatNavigationExpressionLastIdentifier(file, receiver)
+	}
+	return ""
+}
+
+func addJavascriptInterfaceTypeIsWebView(resolver typeinfer.TypeResolver, typ *typeinfer.ResolvedType) bool {
+	if typ == nil {
+		return false
+	}
+	seen := make(map[string]bool)
+	var visit func(string) bool
+	visit = func(name string) bool {
+		if name == "" || seen[name] {
+			return false
+		}
+		seen[name] = true
+		if name == "WebView" || name == "android.webkit.WebView" {
+			return true
+		}
+		if resolver == nil {
+			return false
+		}
+		info := resolver.ClassHierarchy(name)
+		if info == nil {
+			return false
+		}
+		if info.Name == "WebView" || info.FQN == "android.webkit.WebView" {
+			return true
+		}
+		for _, supertype := range info.Supertypes {
+			if visit(supertype) {
+				return true
+			}
+		}
+		return false
+	}
+	return visit(typ.FQN) || visit(typ.Name)
 }
 
 

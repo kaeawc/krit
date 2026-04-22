@@ -3,7 +3,7 @@ package rules_test
 import "testing"
 
 func TestAddJavascriptInterface(t *testing.T) {
-	t.Run("triggers on addJavascriptInterface call", func(t *testing.T) {
+	t.Run("heuristic webView identifier without resolver fires at 0.85", func(t *testing.T) {
 		findings := runRuleByName(t, "AddJavascriptInterface", `
 package test
 class MyWebView {
@@ -12,8 +12,11 @@ class MyWebView {
     }
 }
 `)
-		if len(findings) == 0 {
-			t.Fatal("expected findings")
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Confidence != 0.85 {
+			t.Errorf("expected confidence 0.85, got %v", findings[0].Confidence)
 		}
 	})
 	t.Run("clean code passes", func(t *testing.T) {
@@ -22,6 +25,63 @@ package test
 class MyWebView {
     fun setup() {
         webView.loadUrl("https://example.com")
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("resolver-backed WebView receiver fires at 1.0", func(t *testing.T) {
+		findings := runRuleByNameWithResolver(t, "AddJavascriptInterface", `
+package test
+import android.webkit.WebView
+class MyWebView {
+    fun setup(wv: WebView) {
+        wv.addJavascriptInterface(bridge, "Android")
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Confidence != 1.0 {
+			t.Errorf("expected confidence 1.0, got %v", findings[0].Confidence)
+		}
+	})
+	t.Run("non-WebView receiver does not fire", func(t *testing.T) {
+		findings := runRuleByNameWithResolver(t, "AddJavascriptInterface", `
+package test
+class Wrapper {
+    fun addJavascriptInterface(obj: Any, name: String) {}
+}
+fun caller() {
+    val wrapper = Wrapper()
+    wrapper.addJavascriptInterface(Any(), "bridge")
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings on non-WebView receiver, got %d", len(findings))
+		}
+	})
+	t.Run("comment and string literal do not fire", func(t *testing.T) {
+		findings := runRuleByName(t, "AddJavascriptInterface", `
+package test
+class Misc {
+    // do not call addJavascriptInterface(
+    fun describe(): String = "addJavascriptInterface(bridge)"
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings in comment/string, got %d", len(findings))
+		}
+	})
+	t.Run("unrelated identifier without resolver does not fire", func(t *testing.T) {
+		findings := runRuleByName(t, "AddJavascriptInterface", `
+package test
+class Random {
+    fun setup() {
+        someOther.addJavascriptInterface(bridge, "Android")
     }
 }
 `)

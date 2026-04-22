@@ -75,6 +75,12 @@ func TestBuildOracleCallTargetFilterV2_Bounded(t *testing.T) {
 		{ID: "Suspend", Needs: v2.NeedsTypeInfo, OracleCallTargets: &v2.OracleCallTargetFilter{
 			TargetFQNs:  []string{"kotlinx.coroutines.delay"},
 			CalleeNames: []string{"await", "delay"},
+			LexicalHintsByCallee: map[string][]string{
+				"await": {"kotlinx.coroutines"},
+			},
+			LexicalSkipByCallee: map[string][]string{
+				"w": {"Log"},
+			},
 		}},
 		{ID: "Cast", Needs: v2.NeedsTypeInfo, OracleCallTargets: &v2.OracleCallTargetFilter{
 			CalleeNames: []string{"getSystemService", "findViewById"},
@@ -96,6 +102,15 @@ func TestBuildOracleCallTargetFilterV2_Bounded(t *testing.T) {
 	}
 	if got.Fingerprint == "" {
 		t.Fatal("expected non-empty fingerprint")
+	}
+	if hints := got.LexicalHintsByCallee["await"]; len(hints) != 1 || hints[0] != "kotlinx.coroutines" {
+		t.Fatalf("await lexical hints = %v, want [kotlinx.coroutines]", hints)
+	}
+	if hints := got.LexicalHintsByCallee["delay"]; len(hints) == 0 {
+		t.Fatalf("delay lexical hints missing derived TargetFQN evidence: %+v", got.LexicalHintsByCallee)
+	}
+	if skips := got.LexicalSkipByCallee["w"]; len(skips) != 1 || skips[0] != "Log" {
+		t.Fatalf("w lexical skips = %v, want [Log]", skips)
 	}
 	if len(got.RuleProfiles) != 2 {
 		t.Fatalf("rule profiles = %+v, want 2", got.RuleProfiles)

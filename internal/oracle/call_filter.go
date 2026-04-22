@@ -15,33 +15,41 @@ import (
 // resolveToCall() work. Enabled=false means at least one active rule needs
 // broad call targets, so krit-types must preserve the pre-filter behavior.
 type CallTargetFilterSummary struct {
-	Enabled      bool
-	DisabledBy   []string
-	CalleeNames  []string
-	TargetFQNs   []string
-	RuleProfiles []CallTargetRuleProfile
-	Fingerprint  string
+	Enabled              bool
+	DisabledBy           []string
+	CalleeNames          []string
+	TargetFQNs           []string
+	LexicalHintsByCallee map[string][]string
+	LexicalSkipByCallee  map[string][]string
+	RuleProfiles         []CallTargetRuleProfile
+	Fingerprint          string
 }
 
 // CallTargetRuleProfile carries attribution metadata for instrumentation.
 // It does not change the filter fingerprint; the effective JVM resolution
-// scope is still defined solely by CalleeNames and TargetFQNs.
+// scope is defined by the summary's CalleeNames, TargetFQNs, and
+// LexicalHintsByCallee.
 type CallTargetRuleProfile struct {
-	RuleID               string   `json:"ruleID"`
-	AllCalls             bool     `json:"allCalls"`
-	CalleeNames          []string `json:"calleeNames,omitempty"`
-	TargetFQNs           []string `json:"targetFQNs,omitempty"`
-	AnnotatedIdentifiers []string `json:"annotatedIdentifiers,omitempty"`
-	DerivedCalleeNames   []string `json:"derivedCalleeNames,omitempty"`
-	DisabledReason       string   `json:"disabledReason,omitempty"`
+	RuleID               string              `json:"ruleID"`
+	AllCalls             bool                `json:"allCalls"`
+	DiscardedOnly        bool                `json:"discardedOnly,omitempty"`
+	CalleeNames          []string            `json:"calleeNames,omitempty"`
+	TargetFQNs           []string            `json:"targetFQNs,omitempty"`
+	LexicalHintsByCallee map[string][]string `json:"lexicalHintsByCallee,omitempty"`
+	LexicalSkipByCallee  map[string][]string `json:"lexicalSkipByCallee,omitempty"`
+	AnnotatedIdentifiers []string            `json:"annotatedIdentifiers,omitempty"`
+	DerivedCalleeNames   []string            `json:"derivedCalleeNames,omitempty"`
+	DisabledReason       string              `json:"disabledReason,omitempty"`
 }
 
 type callTargetFilterJSON struct {
-	Version      int                     `json:"version"`
-	Mode         string                  `json:"mode"`
-	CalleeNames  []string                `json:"calleeNames"`
-	TargetFQNs   []string                `json:"targetFqns,omitempty"`
-	RuleProfiles []CallTargetRuleProfile `json:"ruleProfiles,omitempty"`
+	Version              int                     `json:"version"`
+	Mode                 string                  `json:"mode"`
+	CalleeNames          []string                `json:"calleeNames"`
+	TargetFQNs           []string                `json:"targetFqns,omitempty"`
+	LexicalHintsByCallee map[string][]string     `json:"lexicalHintsByCallee,omitempty"`
+	LexicalSkipByCallee  map[string][]string     `json:"lexicalSkipByCallee,omitempty"`
+	RuleProfiles         []CallTargetRuleProfile `json:"ruleProfiles,omitempty"`
 }
 
 // FinalizeCallTargetFilter sorts, deduplicates, derives simple callee names
@@ -57,18 +65,25 @@ func FinalizeCallTargetFilter(summary CallTargetFilterSummary) CallTargetFilterS
 	for _, fqn := range summary.TargetFQNs {
 		if name := simpleCalleeName(fqn); name != "" {
 			summary.CalleeNames = append(summary.CalleeNames, name)
+			for _, hint := range lexicalHintsForTargetFQN(fqn) {
+				summary.LexicalHintsByCallee = appendStringMapValue(summary.LexicalHintsByCallee, name, hint)
+			}
 		}
 	}
 	sort.Strings(summary.CalleeNames)
 	summary.CalleeNames = compactStrings(summary.CalleeNames)
 	sort.Strings(summary.TargetFQNs)
 	summary.TargetFQNs = compactStrings(summary.TargetFQNs)
+	summary.LexicalHintsByCallee = normalizeStringSliceMap(summary.LexicalHintsByCallee)
+	summary.LexicalSkipByCallee = normalizeStringSliceMap(summary.LexicalSkipByCallee)
 	for i := range summary.RuleProfiles {
 		profile := &summary.RuleProfiles[i]
 		sort.Strings(profile.CalleeNames)
 		profile.CalleeNames = compactStrings(profile.CalleeNames)
 		sort.Strings(profile.TargetFQNs)
 		profile.TargetFQNs = compactStrings(profile.TargetFQNs)
+		profile.LexicalHintsByCallee = normalizeStringSliceMap(profile.LexicalHintsByCallee)
+		profile.LexicalSkipByCallee = normalizeStringSliceMap(profile.LexicalSkipByCallee)
 		sort.Strings(profile.AnnotatedIdentifiers)
 		profile.AnnotatedIdentifiers = compactStrings(profile.AnnotatedIdentifiers)
 		sort.Strings(profile.DerivedCalleeNames)
@@ -77,7 +92,7 @@ func FinalizeCallTargetFilter(summary CallTargetFilterSummary) CallTargetFilterS
 	sort.Slice(summary.RuleProfiles, func(i, j int) bool {
 		return summary.RuleProfiles[i].RuleID < summary.RuleProfiles[j].RuleID
 	})
-	summary.Fingerprint = fingerprintCallTargetFilter(summary.CalleeNames, summary.TargetFQNs)
+	summary.Fingerprint = fingerprintCallTargetFilter(summary.CalleeNames, summary.TargetFQNs, summary.LexicalHintsByCallee, summary.LexicalSkipByCallee)
 	return summary
 }
 
@@ -91,11 +106,13 @@ func WriteCallTargetFilterFile(summary CallTargetFilterSummary, tmpDir string) (
 		tmpDir = os.TempDir()
 	}
 	payload := callTargetFilterJSON{
-		Version:      1,
-		Mode:         "calleeNames",
-		CalleeNames:  append([]string(nil), summary.CalleeNames...),
-		TargetFQNs:   append([]string(nil), summary.TargetFQNs...),
-		RuleProfiles: append([]CallTargetRuleProfile(nil), summary.RuleProfiles...),
+		Version:              1,
+		Mode:                 "calleeNames",
+		CalleeNames:          append([]string(nil), summary.CalleeNames...),
+		TargetFQNs:           append([]string(nil), summary.TargetFQNs...),
+		LexicalHintsByCallee: cloneStringSliceMap(summary.LexicalHintsByCallee),
+		LexicalSkipByCallee:  cloneStringSliceMap(summary.LexicalSkipByCallee),
+		RuleProfiles:         append([]CallTargetRuleProfile(nil), summary.RuleProfiles...),
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -130,9 +147,33 @@ func simpleCalleeName(fqn string) string {
 	return fqn
 }
 
-func fingerprintCallTargetFilter(calleeNames, targetFQNs []string) string {
+func lexicalHintsForTargetFQN(fqn string) []string {
+	normalized := strings.TrimSpace(strings.ReplaceAll(fqn, "#", "."))
+	if normalized == "" {
+		return nil
+	}
+	callee := simpleCalleeName(normalized)
+	prefix := strings.TrimSuffix(normalized, "."+callee)
+	if prefix == "" || prefix == normalized {
+		return nil
+	}
+
+	var hints []string
+	hints = append(hints, prefix)
+	if idx := strings.LastIndex(prefix, "."); idx > 0 {
+		pkg := prefix[:idx]
+		receiver := prefix[idx+1:]
+		if receiver != "" && receiver[:1] == strings.ToUpper(receiver[:1]) {
+			hints = append(hints, pkg)
+			hints = append(hints, receiver)
+		}
+	}
+	return hints
+}
+
+func fingerprintCallTargetFilter(calleeNames, targetFQNs []string, lexicalHintsByCallee, lexicalSkipByCallee map[string][]string) string {
 	h := hashutil.Hasher().New()
-	_, _ = h.Write([]byte("call-filter-v1\ncallee\n"))
+	_, _ = h.Write([]byte("call-filter-v2\ncallee\n"))
 	for _, name := range calleeNames {
 		_, _ = h.Write([]byte(name))
 		_, _ = h.Write([]byte{'\n'})
@@ -142,7 +183,86 @@ func fingerprintCallTargetFilter(calleeNames, targetFQNs []string) string {
 		_, _ = h.Write([]byte(fqn))
 		_, _ = h.Write([]byte{'\n'})
 	}
+	_, _ = h.Write([]byte("lexical\n"))
+	for _, callee := range sortedStringMapKeys(lexicalHintsByCallee) {
+		_, _ = h.Write([]byte(callee))
+		_, _ = h.Write([]byte{0})
+		for _, hint := range lexicalHintsByCallee[callee] {
+			_, _ = h.Write([]byte(hint))
+			_, _ = h.Write([]byte{0})
+		}
+		_, _ = h.Write([]byte{'\n'})
+	}
+	_, _ = h.Write([]byte("lexical-skip\n"))
+	for _, callee := range sortedStringMapKeys(lexicalSkipByCallee) {
+		_, _ = h.Write([]byte(callee))
+		_, _ = h.Write([]byte{0})
+		for _, hint := range lexicalSkipByCallee[callee] {
+			_, _ = h.Write([]byte(hint))
+			_, _ = h.Write([]byte{0})
+		}
+		_, _ = h.Write([]byte{'\n'})
+	}
 	return hex.EncodeToString(h.Sum(nil)[:8])
+}
+
+func appendStringMapValue(m map[string][]string, key, value string) map[string][]string {
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if key == "" || value == "" {
+		return m
+	}
+	if m == nil {
+		m = make(map[string][]string)
+	}
+	m[key] = append(m[key], value)
+	return m
+}
+
+func normalizeStringSliceMap(in map[string][]string) map[string][]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(in))
+	for key, values := range in {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		values = append([]string(nil), values...)
+		for i := range values {
+			values[i] = strings.TrimSpace(values[i])
+		}
+		sort.Strings(values)
+		values = compactStrings(values)
+		if len(values) > 0 {
+			out[key] = values
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func cloneStringSliceMap(in map[string][]string) map[string][]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(in))
+	for key, values := range in {
+		out[key] = append([]string(nil), values...)
+	}
+	return out
+}
+
+func sortedStringMapKeys(in map[string][]string) []string {
+	keys := make([]string, 0, len(in))
+	for key := range in {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func compactStrings(in []string) []string {

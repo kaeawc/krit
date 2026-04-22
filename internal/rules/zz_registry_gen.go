@@ -6011,9 +6011,12 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
-			Needs:             v2.NeedsTypeInfo,
-			Oracle:            &v2.OracleFilter{Identifiers: []string{"suspend"}},
-			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: redundantSuspendCallTargetCallees()},
+			Needs:  v2.NeedsTypeInfo,
+			Oracle: &v2.OracleFilter{Identifiers: []string{"suspend"}},
+			OracleCallTargets: &v2.OracleCallTargetFilter{
+				CalleeNames:          redundantSuspendCallTargetCallees(),
+				LexicalHintsByCallee: redundantSuspendCallTargetLexicalHints(),
+			},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var oracleLookup oracle.Lookup
@@ -7849,13 +7852,16 @@ func registerAllRules() {
 		r := &SwallowedExceptionRule{BaseRule: BaseRule{RuleName: "SwallowedException", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects catch blocks that silently swallow the caught exception without logging, handling, or rethrowing."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes:         []string{"catch_block"},
-			Needs:             v2.NeedsTypeInfo,
-			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: swallowedExceptionCallTargetCallees()},
-			TypeInfo:          v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true},
-			Confidence:        0.75,
-			OriginalV1:        r,
-			Check:             r.checkSwallowedException,
+			NodeTypes: []string{"catch_block"},
+			Needs:     v2.NeedsTypeInfo,
+			OracleCallTargets: &v2.OracleCallTargetFilter{
+				CalleeNames:         swallowedExceptionCallTargetCallees(),
+				LexicalSkipByCallee: swallowedExceptionCallTargetLexicalSkips(),
+			},
+			TypeInfo:   v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true},
+			Confidence: 0.75,
+			OriginalV1: r,
+			Check:      r.checkSwallowedException,
 		})
 	}
 	{
@@ -9953,8 +9959,11 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Needs:             v2.NeedsTypeInfo,
-			OracleCallTargets: &v2.OracleCallTargetFilter{AnnotatedIdentifiers: []string{"CheckReturnValue", "CheckResult"}},
+			Needs: v2.NeedsTypeInfo,
+			OracleCallTargets: &v2.OracleCallTargetFilter{
+				DiscardedOnly:        true,
+				AnnotatedIdentifiers: []string{"CheckReturnValue", "CheckResult"},
+			},
 			// Narrow by the @CheckReturnValue / @CheckResult tokens. The
 			// functional-ops path (map/filter/…) does not require the
 			// oracle — it fires on tree-sitter alone. The oracle is only
@@ -10164,11 +10173,14 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
-			Needs:             v2.NeedsTypeInfo,
-			Oracle:            &v2.OracleFilter{Identifiers: []string{"!!"}},
-			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"get"}},
-			OriginalV1:        r,
-			Check:             r.check,
+			Needs:  v2.NeedsTypeInfo,
+			Oracle: &v2.OracleFilter{Identifiers: []string{"!!"}},
+			OracleCallTargets: &v2.OracleCallTargetFilter{
+				CalleeNames:         []string{"get"},
+				LexicalSkipByCallee: map[string][]string{"get": {"*"}},
+			},
+			OriginalV1: r,
+			Check:      r.check,
 		})
 	}
 
@@ -10186,6 +10198,12 @@ func registerAllRules() {
 				"findViewById",
 				"getSystemService",
 				"requireViewById",
+			}, LexicalSkipByCallee: map[string][]string{
+				"findFragmentById":  {"fragmentManager", "supportFragmentManager", "childFragmentManager", "parentFragmentManager", "FragmentManager"},
+				"findFragmentByTag": {"fragmentManager", "supportFragmentManager", "childFragmentManager", "parentFragmentManager", "FragmentManager"},
+				"findViewById":      {"view", "root", "itemView", "activity", "dialog", "window", "View"},
+				"getSystemService":  {"context", "applicationContext", "requireContext", "activity", "Context"},
+				"requireViewById":   {"view", "root", "itemView", "activity", "dialog", "window", "View"},
 			}},
 			OriginalV1: r,
 			Check:      r.check,
@@ -15078,10 +15096,16 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"disjunction_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
-			Needs:             v2.NeedsTypeInfo,
-			Oracle:            &v2.OracleFilter{Identifiers: []string{"isEmpty", "count", ".size", ".length", "\"\""}},
-			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"count", "isEmpty"}},
-			OriginalV1:        r,
+			Needs:  v2.NeedsTypeInfo,
+			Oracle: &v2.OracleFilter{Identifiers: []string{"isEmpty", "count", ".size", ".length", "\"\""}},
+			OracleCallTargets: &v2.OracleCallTargetFilter{
+				CalleeNames: []string{"count", "isEmpty"},
+				LexicalSkipByCallee: map[string][]string{
+					"count":   {"*"},
+					"isEmpty": {"*"},
+				},
+			},
+			OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				flatUseIsNullOrEmpty(ctx, r.BaseRule)
 			},

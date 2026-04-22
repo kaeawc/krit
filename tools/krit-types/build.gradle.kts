@@ -22,6 +22,8 @@ dependencies {
     implementation("com.github.ben-manes.caffeine:caffeine:3.2.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.11.0")
     runtimeOnly("org.jetbrains.intellij.deps.kotlinx:kotlinx-coroutines-core:1.10.2-intellij-1")
+
+    testImplementation(kotlin("test-junit5"))
 }
 
 kotlin {
@@ -47,4 +49,8 @@ tasks.shadowJar {
         exclude(dependency("org.jetbrains.intellij.deps.kotlinx:kotlinx-coroutines-core:.*"))
         exclude(dependency("org.jetbrains.kotlinx:kotlinx-serialization-core:.*"))
     }
+}
+
+tasks.test {
+    useJUnitPlatform()
 }

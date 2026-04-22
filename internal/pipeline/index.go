@@ -901,6 +901,8 @@ func buildOracleCallTargetFilterForInvocation(activeRules []*v2.Rule, loadFiles 
 		"enabled":      enabled,
 		"calleeNames":  int64(len(callFilter.CalleeNames)),
 		"targetFqns":   int64(len(callFilter.TargetFQNs)),
+		"lexicalHints": int64(len(callFilter.LexicalHintsByCallee)),
+		"lexicalSkips": int64(len(callFilter.LexicalSkipByCallee)),
 		"ruleProfiles": int64(len(callFilter.RuleProfiles)),
 		"disabledBy":   int64(len(callFilter.DisabledBy)),
 	}, callTargetFilterPerfAttrs(callFilter))
@@ -922,7 +924,7 @@ func buildOracleCallTargetFilterForInvocation(activeRules []*v2.Rule, loadFiles 
 func recordOracleRuleNeedProfile(activeRules []*v2.Rule, tracker perf.Tracker) {
 	var active, needsOracle, needsTypeInfo, needsResolver int64
 	var oracleAllFiles, oracleFiltered int64
-	var callTargetRules, callTargetAllCalls, callTargetCalleeRules, callTargetFqnRules, callTargetAnnotatedRules int64
+	var callTargetRules, callTargetAllCalls, callTargetCalleeRules, callTargetFqnRules, callTargetLexicalRules, callTargetLexicalSkipRules, callTargetAnnotatedRules int64
 	for _, r := range activeRules {
 		if r == nil {
 			continue
@@ -953,6 +955,12 @@ func recordOracleRuleNeedProfile(activeRules []*v2.Rule, tracker perf.Tracker) {
 			if len(r.OracleCallTargets.TargetFQNs) > 0 {
 				callTargetFqnRules++
 			}
+			if len(r.OracleCallTargets.LexicalHintsByCallee) > 0 {
+				callTargetLexicalRules++
+			}
+			if len(r.OracleCallTargets.LexicalSkipByCallee) > 0 {
+				callTargetLexicalSkipRules++
+			}
 			if len(r.OracleCallTargets.AnnotatedIdentifiers) > 0 {
 				callTargetAnnotatedRules++
 			}
@@ -969,6 +977,8 @@ func recordOracleRuleNeedProfile(activeRules []*v2.Rule, tracker perf.Tracker) {
 		"callTargetAllCallsRules":  callTargetAllCalls,
 		"callTargetCalleeRules":    callTargetCalleeRules,
 		"callTargetFqnRules":       callTargetFqnRules,
+		"callTargetLexicalRules":   callTargetLexicalRules,
+		"callTargetLexicalSkips":   callTargetLexicalSkipRules,
 		"callTargetAnnotatedRules": callTargetAnnotatedRules,
 	}, nil)
 }

@@ -709,6 +709,21 @@ func swallowedExceptionCallTargetCallees() []string {
 	}
 }
 
+func swallowedExceptionCallTargetLexicalSkips() map[string][]string {
+	logReceivers := []string{"Log", "Timber", "Logger"}
+	uiReceivers := []string{"Toast", "Snackbar", "AlertDialog", "MaterialAlertDialog", "MaterialAlertDialogBuilder"}
+	out := make(map[string][]string)
+	for _, callee := range []string{"v", "d", "i", "w", "e", "wtf", "trace", "debug", "info", "warn", "warning", "severe", "error", "log", "logError", "logWarning", "logWarn", "logInfo", "logDebug", "logTrace"} {
+		out[callee] = append([]string(nil), logReceivers...)
+	}
+	out["make"] = []string{"Snackbar", "MaterialAlertDialogBuilder"}
+	out["makeText"] = []string{"Toast"}
+	for _, callee := range []string{"show", "showError", "showDialog", "showErrorDialog"} {
+		out[callee] = append([]string(nil), uiReceivers...)
+	}
+	return out
+}
+
 func swallowedIsHandlerName(name string) bool {
 	switch name {
 	case "toastOn", "showError", "showErrorDialog", "handleError",

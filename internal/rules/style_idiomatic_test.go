@@ -101,7 +101,7 @@ fun foo(x: Int) {
 }
 
 func TestUseIsNullOrEmpty_Positive(t *testing.T) {
-	findings := runRuleByName(t, "UseIsNullOrEmpty", `
+	findings := runRuleByNameWithResolver(t, "UseIsNullOrEmpty", `
 package test
 fun foo(x: String?) {
     if (x == null || x.isEmpty()) println("empty")
@@ -113,10 +113,9 @@ fun foo(x: String?) {
 }
 
 func TestUseIsNullOrEmpty_PositiveSizeCheck(t *testing.T) {
-	findings := runRuleByName(t, "UseIsNullOrEmpty", `
+	findings := runRuleByNameWithResolver(t, "UseIsNullOrEmpty", `
 package test
-class Bytes(val size: Int)
-fun foo(value: Bytes?) {
+fun foo(value: Collection<String>?) {
     if (value == null || value.size == 0) println("empty")
 }
 `)
@@ -125,11 +124,64 @@ fun foo(value: Bytes?) {
 	}
 }
 
+func TestUseIsNullOrEmpty_PositiveStructuralVariants(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UseIsNullOrEmpty", `
+package test
+class Holder(val text: String?) {
+    fun stringEmpty() {
+        if ((text) == null || (text) == "") println("empty")
+    }
+    fun listCount(items: List<String>?) {
+        if (items == null ||
+            items.count() == 0
+        ) println("empty")
+    }
+    fun stringLength(name: String?) {
+        if (null == name || name.length == 0) println("empty")
+    }
+    fun thisProperty() {
+        if (this.text == null || this.text.isEmpty()) println("empty")
+    }
+}
+`)
+	if len(findings) != 4 {
+		t.Fatalf("expected 4 findings for structural variants, got %d", len(findings))
+	}
+}
+
 func TestUseIsNullOrEmpty_Negative(t *testing.T) {
 	findings := runRuleByName(t, "UseIsNullOrEmpty", `
 package test
 fun foo(x: String?) {
     if (x.isNullOrEmpty()) println("empty")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseIsNullOrEmpty_NegativeSemanticGuards(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UseIsNullOrEmpty", `
+package test
+class Box { fun isEmpty() = true }
+class Holder(val text: String?) {
+    fun differentVariables(a: String?, b: String?) {
+        if (a == null || b.isEmpty()) println("empty")
+    }
+    fun customType(box: Box?) {
+        if (box == null || box.isEmpty()) println("empty")
+    }
+    fun shadowed(text: String?) {
+        if (this.text == null || text.isEmpty()) println("empty")
+    }
+    fun unresolved(value: MissingType?) {
+        if (value == null || value.isEmpty()) println("empty")
+    }
+    fun commentsAndStrings(x: String?) {
+        // x == null || x.isEmpty()
+        val s = "x == null || x.isEmpty()"
+    }
 }
 `)
 	if len(findings) != 0 {

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/perf"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -161,4 +162,79 @@ func TestIndexPhase_Run_ContextCancel(t *testing.T) {
 	if !errors.As(err, &pe) || pe.Phase != "index" {
 		t.Fatalf("want PhaseError phase=index, got %v", err)
 	}
+}
+
+func TestIndexPhase_Run_JavaIndexingChildTimings(t *testing.T) {
+	dir := t.TempDir()
+	kt := filepath.Join(dir, "A.kt")
+	if err := os.WriteFile(kt, []byte("class A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	java := filepath.Join(dir, "B.java")
+	if err := os.WriteFile(java, []byte("package a;\npublic class B { A a; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kotlinFile, err := scanner.ParseFile(kt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tracker := perf.New(true)
+	crossTracker := tracker.Serial("crossFileAnalysis")
+	out, err := IndexPhase{SkipAndroid: true, SkipModules: true}.Run(context.Background(), IndexInput{
+		ParseResult: ParseResult{
+			Paths:       []string{dir},
+			KotlinFiles: []*scanner.File{kotlinFile},
+		},
+		BuildCodeIndex:         true,
+		CrossFileParentTracker: crossTracker,
+	})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	crossTracker.End()
+	if len(out.JavaFiles) != 1 {
+		t.Fatalf("JavaFiles = %d, want 1", len(out.JavaFiles))
+	}
+
+	cross, ok := findTiming(tracker.GetTimings(), "crossFileAnalysis")
+	if !ok {
+		t.Fatalf("missing crossFileAnalysis timing: %#v", tracker.GetTimings())
+	}
+	javaIndexing, ok := findTiming(cross.Children, "javaIndexing")
+	if !ok {
+		t.Fatalf("missing javaIndexing child: %#v", cross.Children)
+	}
+	for _, name := range []string{
+		"collectJavaFiles",
+		"fileRead",
+		"parseCacheLoad",
+		"parseCacheHitSummary",
+		"treeSitterParse",
+		"flattenTree",
+		"queueParseCacheSave",
+		"referenceExtraction",
+		"filesSummary",
+	} {
+		if _, ok := findTiming(javaIndexing.Children, name); !ok {
+			t.Fatalf("missing javaIndexing child %q: %#v", name, javaIndexing.Children)
+		}
+	}
+	summary, _ := findTiming(javaIndexing.Children, "parseCacheHitSummary")
+	if summary.Metrics["hits"] != 0 || summary.Metrics["misses"] != 1 {
+		t.Fatalf("cache metrics = %#v, want hits=0 misses=1", summary.Metrics)
+	}
+	filesSummary, _ := findTiming(javaIndexing.Children, "filesSummary")
+	if filesSummary.Metrics["files"] != 1 || filesSummary.Metrics["bytes"] == 0 {
+		t.Fatalf("files metrics = %#v, want one non-empty Java file", filesSummary.Metrics)
+	}
+}
+
+func findTiming(entries []perf.TimingEntry, name string) (perf.TimingEntry, bool) {
+	for _, entry := range entries {
+		if entry.Name == name {
+			return entry, true
+		}
+	}
+	return perf.TimingEntry{}, false
 }

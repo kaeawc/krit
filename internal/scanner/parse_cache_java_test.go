@@ -75,6 +75,94 @@ func TestParseCache_Java_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestParseJavaFileCachedForIndex_RecordsMissPerfAndPrecomputesRefs(t *testing.T) {
+	repo := t.TempDir()
+	src := "package a;\npublic class Foo { Helper h; void m() { new Helper().go(); } }\nclass Helper { void go() {} }\n"
+	path := writeJava(t, repo, "Foo.java", src)
+
+	stats := &JavaIndexPerf{}
+	file, err := ParseJavaFileCachedForIndex(path, nil, stats)
+	if err != nil {
+		t.Fatalf("parse index java: %v", err)
+	}
+	if len(file.Lines) != 0 {
+		t.Fatalf("index-only Java parse built %d lines, want 0", len(file.Lines))
+	}
+	if !file.ReferencesPrecomputed {
+		t.Fatal("expected Java references to be precomputed on cache miss")
+	}
+	if !hasReferenceName(file.PrecomputedReferences, "Helper") {
+		t.Fatalf("expected precomputed Helper reference, got %#v", file.PrecomputedReferences)
+	}
+
+	// Prove the collector reuses the precomputed references instead of
+	// requiring the flattened AST to still be present.
+	file.FlatTree = nil
+	var refs []Reference
+	collectJavaReferencesFlat(file, &refs)
+	if !hasReferenceName(refs, "Helper") {
+		t.Fatalf("expected reused Helper reference, got %#v", refs)
+	}
+
+	snap := stats.Snapshot()
+	if snap.Files != 1 || snap.Bytes != int64(len(src)) {
+		t.Fatalf("summary = files:%d bytes:%d, want files:1 bytes:%d", snap.Files, snap.Bytes, len(src))
+	}
+	if snap.CacheHits != 0 || snap.CacheMisses != 1 {
+		t.Fatalf("cache summary = hits:%d misses:%d, want hits:0 misses:1", snap.CacheHits, snap.CacheMisses)
+	}
+	if snap.FileReadNs <= 0 || snap.TreeSitterParseNs <= 0 || snap.FlattenTreeNs <= 0 || snap.ReferenceExtractionNs <= 0 {
+		t.Fatalf("expected positive read/parse/flatten/reference timings, got %#v", snap)
+	}
+}
+
+func TestParseJavaFileCachedForIndex_RecordsCacheHitPerf(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache: %v", err)
+	}
+
+	src := largeJavaSource()
+	path := writeJava(t, repo, "Hit.java", src)
+	seed, err := ParseJavaFileCached(path, nil)
+	if err != nil {
+		t.Fatalf("seed parse: %v", err)
+	}
+	if err := pc.SaveJava(path, []byte(src), seed.FlatTree); err != nil {
+		t.Fatalf("SaveJava: %v", err)
+	}
+
+	stats := &JavaIndexPerf{}
+	hit, err := ParseJavaFileCachedForIndex(path, pc, stats)
+	if err != nil {
+		t.Fatalf("parse index java hit: %v", err)
+	}
+	if len(hit.Lines) != 0 {
+		t.Fatalf("index-only Java cache hit built %d lines, want 0", len(hit.Lines))
+	}
+	if hit.ReferencesPrecomputed {
+		t.Fatal("cache-hit Java parse should not precompute references before index cache lookup")
+	}
+
+	snap := stats.Snapshot()
+	if snap.CacheHits != 1 || snap.CacheMisses != 0 {
+		t.Fatalf("cache summary = hits:%d misses:%d, want hits:1 misses:0", snap.CacheHits, snap.CacheMisses)
+	}
+	if snap.TreeSitterParseNs != 0 || snap.FlattenTreeNs != 0 || snap.ReferenceExtractionNs != 0 {
+		t.Fatalf("cache hit should skip parse/flatten/reference extraction, got %#v", snap)
+	}
+}
+
+func hasReferenceName(refs []Reference, name string) bool {
+	for _, ref := range refs {
+		if ref.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // TestParseCache_Java_CrossLanguageIsolation asserts that Java and
 // Kotlin entries share no shard. A byte-identical blob parsed as Java
 // and Kotlin must hit the Java shard only when read as Java, and vice

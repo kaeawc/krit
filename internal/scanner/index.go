@@ -965,24 +965,42 @@ func hasFlatAncestorType(file *File, idx uint32, want string) bool {
 }
 
 func collectJavaReferencesFlat(file *File, refs *[]Reference) {
+	if file == nil {
+		return
+	}
+	if file.ReferencesPrecomputed {
+		*refs = append(*refs, file.PrecomputedReferences...)
+		return
+	}
+	collectJavaReferencesFlatUncached(file, refs)
+}
+
+func collectJavaReferencesFlatUncached(file *File, refs *[]Reference) {
 	if file == nil || file.FlatTree == nil {
 		return
 	}
-	file.FlatWalkAllNodes(0, func(idx uint32) {
-		nodeType := file.FlatType(idx)
-		if nodeType != "identifier" && nodeType != "type_identifier" {
-			return
+	identifierID, hasIdentifier := lookupNodeType("identifier")
+	typeIdentifierID, hasTypeIdentifier := lookupNodeType("type_identifier")
+	if !hasIdentifier && !hasTypeIdentifier {
+		return
+	}
+	nodes := file.FlatTree.Nodes
+	for i := range nodes {
+		node := nodes[i]
+		if (!hasIdentifier || node.Type != identifierID) && (!hasTypeIdentifier || node.Type != typeIdentifierID) {
+			continue
 		}
-		name := file.FlatNodeText(idx)
+		idx := uint32(i)
+		name := FlatNodeText(file.FlatTree, idx, file.Content)
 		if name == "" {
-			return
+			continue
 		}
 		*refs = append(*refs, Reference{
 			Name: name,
 			File: file.Path,
-			Line: file.FlatRow(idx) + 1,
+			Line: int(node.StartRow) + 1,
 		})
-	})
+	}
 }
 
 // xmlCacheFile is a pre-loaded XML source whose content and hash are

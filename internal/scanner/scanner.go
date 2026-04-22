@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/java"
@@ -125,6 +126,12 @@ type File struct {
 	// *android.ManifestMeta, *android.ResourceMeta, *android.BuildConfig)
 	// for non-source-language files. Nil for Kotlin/Java.
 	Metadata any
+
+	// PrecomputedReferences optionally stores cross-file references
+	// collected during a specialized source parse path. ReferencesPrecomputed
+	// distinguishes an intentionally empty reference set from "not computed".
+	PrecomputedReferences []Reference
+	ReferencesPrecomputed bool
 
 	// SuppressionIdx is the byte-range annotation index. Populated by
 	// the pipeline.Parse phase as a side-effect of building Suppression;
@@ -366,26 +373,74 @@ func ParseJavaFile(path string) (*File, error) {
 // flattenTree walk are both skipped. A nil pc behaves exactly like an
 // uncached parse.
 func ParseJavaFileCached(path string, pc *ParseCache) (*File, error) {
+	return parseJavaFileCached(path, pc, javaParseOptions{buildLines: true})
+}
+
+// ParseJavaFileCachedForIndex is a reference-indexing-only Java parse path.
+// It skips line splitting and, on parse-cache misses, precomputes Java
+// references so index construction can reuse the same flattened tree walk.
+func ParseJavaFileCachedForIndex(path string, pc *ParseCache, stats *JavaIndexPerf) (*File, error) {
+	return parseJavaFileCached(path, pc, javaParseOptions{
+		buildLines:                 false,
+		precomputeReferencesOnMiss: true,
+		perf:                       stats,
+	})
+}
+
+type javaParseOptions struct {
+	buildLines                 bool
+	precomputeReferencesOnMiss bool
+	perf                       *JavaIndexPerf
+}
+
+func parseJavaFileCached(path string, pc *ParseCache, opts javaParseOptions) (*File, error) {
+	readStart := time.Now()
 	content, err := os.ReadFile(path)
+	if opts.perf != nil {
+		opts.perf.FileReadNs.Add(time.Since(readStart).Nanoseconds())
+	}
 	if err != nil {
 		return nil, err
 	}
+	if opts.perf != nil {
+		opts.perf.Files.Add(1)
+		opts.perf.Bytes.Add(int64(len(content)))
+	}
 
+	cacheStart := time.Now()
 	if tree, ok := pc.LoadJava(path, content); ok {
-		return newJavaFileFromFlatTree(path, content, tree), nil
+		if opts.perf != nil {
+			opts.perf.ParseCacheLoadNs.Add(time.Since(cacheStart).Nanoseconds())
+			opts.perf.CacheHits.Add(1)
+		}
+		return newJavaFileFromFlatTreeWithOptions(path, content, tree, opts.buildLines), nil
+	} else if opts.perf != nil {
+		opts.perf.ParseCacheLoadNs.Add(time.Since(cacheStart).Nanoseconds())
+		opts.perf.CacheMisses.Add(1)
 	}
 
 	parser := javaParserPool.Get().(*sitter.Parser)
 	defer javaParserPool.Put(parser)
+	parseStart := time.Now()
 	tree, err := parser.ParseCtx(context.Background(), nil, content)
+	if opts.perf != nil {
+		opts.perf.TreeSitterParseNs.Add(time.Since(parseStart).Nanoseconds())
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	lines := strings.Split(string(content), "\n")
+	var lines []string
+	if opts.buildLines {
+		lines = strings.Split(string(content), "\n")
+	}
 	var flatTree *FlatTree
 	if tree != nil {
+		flattenStart := time.Now()
 		flatTree = flattenTree(tree.RootNode())
+		if opts.perf != nil {
+			opts.perf.FlattenTreeNs.Add(time.Since(flattenStart).Nanoseconds())
+		}
 	}
 
 	file := &File{
@@ -395,18 +450,40 @@ func ParseJavaFileCached(path string, pc *ParseCache) (*File, error) {
 		Lines:    lines,
 		FlatTree: flatTree,
 	}
+	if opts.precomputeReferencesOnMiss {
+		refStart := time.Now()
+		var refs []Reference
+		collectJavaReferencesFlatUncached(file, &refs)
+		file.PrecomputedReferences = refs
+		file.ReferencesPrecomputed = true
+		if opts.perf != nil {
+			opts.perf.ReferenceExtractionNs.Add(time.Since(refStart).Nanoseconds())
+		}
+	}
 	if file.FlatTree != nil {
+		saveStart := time.Now()
 		_ = pc.SaveJavaAsync(path, content, file.FlatTree)
+		if opts.perf != nil {
+			opts.perf.QueueParseCacheSaveNs.Add(time.Since(saveStart).Nanoseconds())
+		}
 	}
 	return file, nil
 }
 
 func newJavaFileFromFlatTree(path string, content []byte, tree *FlatTree) *File {
+	return newJavaFileFromFlatTreeWithOptions(path, content, tree, true)
+}
+
+func newJavaFileFromFlatTreeWithOptions(path string, content []byte, tree *FlatTree, buildLines bool) *File {
+	var lines []string
+	if buildLines {
+		lines = strings.Split(string(content), "\n")
+	}
 	return &File{
 		Path:     internString(path),
 		Language: LangJava,
 		Content:  content,
-		Lines:    strings.Split(string(content), "\n"),
+		Lines:    lines,
 		FlatTree: tree,
 	}
 }
@@ -422,6 +499,13 @@ func ScanJavaFiles(paths []string, workers int) ([]*File, []error) {
 func ScanJavaFilesCached(paths []string, workers int, pc *ParseCache) ([]*File, []error) {
 	return scanFilesParallel(paths, workers, func(p string) (*File, error) {
 		return ParseJavaFileCached(p, pc)
+	})
+}
+
+// ScanJavaFilesCachedForIndex parses Java files for cross-file indexing.
+func ScanJavaFilesCachedForIndex(paths []string, workers int, pc *ParseCache, stats *JavaIndexPerf) ([]*File, []error) {
+	return scanFilesParallel(paths, workers, func(p string) (*File, error) {
+		return ParseJavaFileCachedForIndex(p, pc, stats)
 	})
 }
 

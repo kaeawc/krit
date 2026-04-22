@@ -541,11 +541,13 @@ func TestMapGetWithNotNullAssertion_Negative(t *testing.T) {
 	findings := runRuleByNameWithResolver(t, "MapGetWithNotNullAssertionOperator", `
 package test
 class Box { operator fun get(key: String): String? = null }
+operator fun Map<*, *>.get(one: Int): Int? = null
 fun lookup(map: Map<String, Int>) {
     val value = map.getValue("key")
     if (map.containsKey("other")) {
         val guarded = map["other"]!!
     }
+    val extensionGet = map[0]!!
 }
 fun ok(box: Box) {
     val value = box["x"]!!
@@ -567,6 +569,21 @@ fun lookup(holder: Holder, key: String) {
 `)
 	if len(findings) != 1 {
 		t.Fatalf("expected finding for nested map receiver, got %d", len(findings))
+	}
+}
+
+func TestMapGetWithNotNullAssertion_DoesNotMatchUnrelatedNestedTerminalName(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "MapGetWithNotNullAssertionOperator", `
+package test
+class Maps(val current: Map<String, Int>)
+class Other(val current: Box)
+class Box { operator fun get(key: String): String? = null }
+fun lookup(other: Other, key: String) {
+    val value = other.current[key]!!
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no finding for unrelated nested terminal name, got %d", len(findings))
 	}
 }
 

@@ -10158,10 +10158,11 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
-			Needs:      v2.NeedsTypeInfo,
-			Oracle:     &v2.OracleFilter{Identifiers: []string{"!!"}},
-			OriginalV1: r,
-			Check:      r.check,
+			Needs:             v2.NeedsTypeInfo,
+			Oracle:            &v2.OracleFilter{Identifiers: []string{"!!"}},
+			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"get"}},
+			OriginalV1:        r,
+			Check:             r.check,
 		})
 	}
 

@@ -37,6 +37,22 @@ func writeKotlin(t *testing.T, dir, name, src string) string {
 	return path
 }
 
+func packedBlobForHash(t *testing.T, lc *langCache, hash string) ([]byte, string) {
+	t.Helper()
+	h, err := lc.pack.packForHash(hash)
+	if err != nil {
+		t.Fatalf("packForHash: %v", err)
+	}
+	if err := h.ensureLoaded(); err != nil {
+		t.Fatalf("ensureLoaded: %v", err)
+	}
+	blob, ok := h.get(hash)
+	if !ok {
+		t.Fatalf("packed blob for %s not found", hash)
+	}
+	return blob, h.path
+}
+
 func TestParseCache_RoundTrip(t *testing.T) {
 	repo := t.TempDir()
 	pc, err := NewParseCache(repo)
@@ -168,6 +184,46 @@ func TestParseCache_AsyncSaveFlushVisibleAfterRestart(t *testing.T) {
 	}
 }
 
+func TestParseCache_AsyncConcurrentWritesSamePack(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache: %v", err)
+	}
+	pc.SetAsyncWriter(cacheutil.NewAsyncWriter(4, 64))
+
+	src := largeSource()
+	path := writeKotlin(t, repo, "AsyncSamePack.kt", src)
+	seed, err := ParseKotlinFileCached(path, nil)
+	if err != nil {
+		t.Fatalf("seed parse: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = pc.SaveAsync("", []byte(src), seed.FlatTree)
+		}()
+	}
+	wg.Wait()
+	if err := pc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if stats := pc.WriterStats(); stats.PackWrites != 1 {
+		t.Fatalf("expected one packed shard write, got %d", stats.PackWrites)
+	}
+
+	fresh, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache fresh: %v", err)
+	}
+	if _, ok := fresh.Load("", []byte(src)); !ok {
+		t.Fatal("expected hit after concurrent async writes")
+	}
+}
+
 func TestParseCache_GrammarVersionMismatch(t *testing.T) {
 	repo := t.TempDir()
 	pc, err := NewParseCache(repo)
@@ -183,11 +239,7 @@ func TestParseCache_GrammarVersionMismatch(t *testing.T) {
 	// Re-opening the cache should nuke stale entries before any load path
 	// can serve them.
 	hash := hashutil.HashHex([]byte(src))
-	entryPath := pc.entryPath(hash)
-	data, err := os.ReadFile(entryPath)
-	if err != nil {
-		t.Fatalf("read entry: %v", err)
-	}
+	data, packPath := packedBlobForHash(t, pc.kotlin, hash)
 	if !cacheutil.IsZstdFrame(data) {
 		t.Fatalf("parse cache entry is not zstd-framed: %x", data[:min(4, len(data))])
 	}
@@ -202,8 +254,8 @@ func TestParseCache_GrammarVersionMismatch(t *testing.T) {
 	if _, ok := pc2.Load("", []byte(src)); ok {
 		t.Fatal("expected miss after grammar-version mismatch")
 	}
-	if _, err := os.Stat(entryPath); !os.IsNotExist(err) {
-		t.Fatalf("expected stale entry removed after sidecar mismatch, stat err=%v", err)
+	if _, err := os.Stat(packPath); !os.IsNotExist(err) {
+		t.Fatalf("expected stale pack removed after sidecar mismatch, stat err=%v", err)
 	}
 }
 
@@ -238,17 +290,13 @@ func TestParseCache_CorruptEntryTreatedAsMiss(t *testing.T) {
 		t.Fatalf("seed parse: %v", err)
 	}
 	hash := hashutil.HashHex([]byte(src))
-	entryPath := pc.entryPath(hash)
-	if err := os.WriteFile(entryPath, []byte("not-a-gob-payload"), 0o644); err != nil {
-		t.Fatalf("corrupt entry: %v", err)
+	_, packPath := packedBlobForHash(t, pc.kotlin, hash)
+	if err := os.WriteFile(packPath, []byte("not-a-pack-payload"), 0o644); err != nil {
+		t.Fatalf("corrupt pack: %v", err)
 	}
+	pc.kotlin.pack = newParsePackStore(pc.kotlin.dir)
 	if _, ok := pc.Load("", []byte(src)); ok {
-		t.Fatal("expected miss on corrupt entry")
-	}
-	// Corrupt entry should have been removed so the next hit path
-	// doesn't redo the Open+Decode dance forever.
-	if _, err := os.Stat(entryPath); !os.IsNotExist(err) {
-		t.Fatalf("corrupt entry not cleaned up: err=%v", err)
+		t.Fatal("expected miss on corrupt pack")
 	}
 }
 

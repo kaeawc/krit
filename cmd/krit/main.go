@@ -902,10 +902,10 @@ potential-bugs:
 			cacheFlushTracker := tracker.Serial("cacheBackgroundFlush")
 			if parseCache != nil {
 				var closeErr error
-				_ = cacheFlushTracker.Track("parseCacheFlush", func() error {
-					closeErr = parseCache.Close()
-					return closeErr
-				})
+				parseFlushTracker := cacheFlushTracker.Serial("parseCacheFlush")
+				closeErr = parseCache.Close()
+				parseCache.AddPerfEntries(parseFlushTracker)
+				parseFlushTracker.End()
 				if closeErr != nil && *verboseFlag {
 					fmt.Fprintf(os.Stderr, "verbose: parse cache flush failed: %v\n", closeErr)
 				}

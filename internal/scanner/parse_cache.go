@@ -12,7 +12,6 @@ package scanner
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -24,13 +23,13 @@ import (
 	"github.com/smacker/go-tree-sitter/kotlin"
 
 	"github.com/kaeawc/krit/internal/cacheutil"
-	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/perf"
 )
 
 const (
-	parseCacheVersion    uint32 = 4
-	parseCacheVersionStr        = "4"
+	parseCacheVersion    uint32 = 5
+	parseCacheVersionStr        = "5"
 
 	// Files below this threshold parse in under a millisecond; the gob
 	// serialization + filesystem round-trip dominates the savings.
@@ -83,7 +82,10 @@ type langCache struct {
 	grammarVer string
 	language   Language
 	lru        *cacheutil.SizeCapLRU
+	pack       *parsePackStore
 	dirs       sync.Map
+	pendingMu  sync.Mutex
+	pending    []parseEncodedEntryWrite
 
 	// Hot-path counters maintained with atomic ops so Stats() is
 	// lock-free. Drift across process restarts is deliberately
@@ -92,6 +94,15 @@ type langCache struct {
 	misses       atomic.Int64
 	evictions    atomic.Int64
 	lastWriteSec atomic.Int64
+
+	asyncQueued    atomic.Int64
+	asyncCompleted atomic.Int64
+	asyncFailed    atomic.Int64
+	asyncBytes     atomic.Int64
+	encodeNs       atomic.Int64
+	packWriteNs    atomic.Int64
+	lruUpdateNs    atomic.Int64
+	packWrites     atomic.Int64
 }
 
 var (
@@ -199,6 +210,8 @@ func newLangCache(root, sub, grammarVer string, lang Language, capBytes int64) (
 	vd := cacheutil.VersionedDir{
 		Root:       dir,
 		EntriesDir: parseCacheEntries,
+		ExtraDirs:  []string{parsePackSubdir},
+		ExtraFiles: []string{parseCacheLRUIndex},
 		Tokens: []cacheutil.SchemaToken{
 			{Name: "version", Value: parseCacheVersionStr},
 			{Name: "grammar-version", Value: grammarVer},
@@ -209,17 +222,24 @@ func newLangCache(root, sub, grammarVer string, lang Language, capBytes int64) (
 	if err != nil {
 		return nil, fmt.Errorf("create parse cache dir (%s): %w", sub, err)
 	}
+	lc := &langCache{dir: dir, grammarVer: grammarVer, language: lang, pack: newParsePackStore(dir)}
 	lru := &cacheutil.SizeCapLRU{
 		EntriesRoot: entriesDir,
 		IndexPath:   filepath.Join(dir, parseCacheLRUIndex),
 		LockPath:    filepath.Join(dir, parseCacheLRULock),
 		Ext:         parseCacheExt,
 		CapBytes:    capBytes,
+		Remove:      lc.removeEntry,
+		TrustIndex:  true,
 	}
+	lc.lru = lru
 	if err := lru.Open(); err != nil {
 		return nil, fmt.Errorf("open parse cache lru (%s): %w", sub, err)
 	}
-	return &langCache{dir: dir, grammarVer: grammarVer, language: lang, lru: lru}, nil
+	if err := lc.rebuildPackLRUIfEmpty(); err != nil {
+		return nil, fmt.Errorf("rebuild parse cache pack lru (%s): %w", sub, err)
+	}
+	return lc, nil
 }
 
 // Dir returns the Kotlin subtree root for the on-disk cache. Kept
@@ -330,10 +350,44 @@ func (pc *ParseCache) loadJavaByHash(hash string) (*FlatTree, bool) {
 }
 
 func (lc *langCache) loadByHash(hash string) (*FlatTree, bool) {
+	if entry, ok := lc.loadPackedEntry(hash); ok {
+		if lc.lru != nil {
+			lc.lru.Touch(hash)
+		}
+		remapEntryNodes(entry.Nodes, entry.NodeTypeTable)
+		lc.hits.Add(1)
+		return &FlatTree{Nodes: entry.Nodes}, true
+	}
+	if entry, ok := lc.loadLegacyEntry(hash); ok {
+		if lc.lru != nil {
+			lc.lru.Touch(hash)
+		}
+		remapEntryNodes(entry.Nodes, entry.NodeTypeTable)
+		lc.hits.Add(1)
+		return &FlatTree{Nodes: entry.Nodes}, true
+	}
+	if lc.lru != nil {
+		lc.lru.Forget(hash)
+	}
+	lc.misses.Add(1)
+	return nil, false
+}
+
+func (lc *langCache) loadPackedEntry(hash string) (*parseCacheEntry, bool) {
+	if lc == nil || lc.pack == nil {
+		return nil, false
+	}
+	entry, err := lc.pack.LoadEntry(hash)
+	if err != nil || entry == nil {
+		return nil, false
+	}
+	return entry, true
+}
+
+func (lc *langCache) loadLegacyEntry(hash string) (*parseCacheEntry, bool) {
 	path := lc.entryPath(hash)
 	f, err := os.Open(path)
 	if err != nil {
-		lc.misses.Add(1)
 		return nil, false
 	}
 	defer f.Close()
@@ -346,17 +400,11 @@ func (lc *langCache) loadByHash(hash string) (*FlatTree, bool) {
 		if lc.lru != nil {
 			lc.lru.Forget(hash)
 		}
-		lc.misses.Add(1)
 		lc.evictions.Add(1)
 		return nil, false
 	}
 
-	if lc.lru != nil {
-		lc.lru.Touch(hash)
-	}
-	remapEntryNodes(entry.Nodes, entry.NodeTypeTable)
-	lc.hits.Add(1)
-	return &FlatTree{Nodes: entry.Nodes}, true
+	return &entry, true
 }
 
 // remapEntryNodes rewrites each node's Type from the entry's local
@@ -437,12 +485,26 @@ func (lc *langCache) saveAsync(path string, content []byte, tree *FlatTree, writ
 		return lc.saveEntry(hash, tree)
 	}
 	nodes := append([]FlatNode(nil), tree.Nodes...)
+	lc.asyncQueued.Add(1)
 	if writer.Submit(func() (int64, error) {
-		return lc.saveEntryFromOwnedNodes(hash, nodes)
+		n, err := lc.encodePendingEntryFromOwnedNodes(hash, nodes)
+		if err != nil {
+			lc.asyncFailed.Add(1)
+			return 0, err
+		}
+		lc.asyncCompleted.Add(1)
+		lc.asyncBytes.Add(n)
+		return n, nil
 	}) {
 		return nil
 	}
-	_, err := lc.saveEntryFromOwnedNodes(hash, nodes)
+	n, err := lc.saveEntryFromOwnedNodes(hash, nodes)
+	if err != nil {
+		lc.asyncFailed.Add(1)
+		return err
+	}
+	lc.asyncCompleted.Add(1)
+	lc.asyncBytes.Add(n)
 	return err
 }
 
@@ -454,6 +516,40 @@ func (lc *langCache) ensureEntryDir(dir string) error {
 		return err
 	}
 	lc.dirs.Store(dir, struct{}{})
+	return nil
+}
+
+func (lc *langCache) removeEntry(hash string) error {
+	if lc == nil {
+		return nil
+	}
+	var errs []error
+	if lc.pack != nil {
+		if err := lc.pack.RemoveEntries([]string{hash}); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	path := lc.entryPath(hash)
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+func (lc *langCache) rebuildPackLRUIfEmpty() error {
+	if lc == nil || lc.lru == nil || lc.pack == nil {
+		return nil
+	}
+	if lc.lru.Stats().Entries != 0 {
+		return nil
+	}
+	records, err := lc.pack.ScanEntries()
+	if err != nil {
+		return err
+	}
+	for _, r := range records {
+		lc.lru.Record(r.hash, r.size)
+	}
 	return nil
 }
 
@@ -476,44 +572,94 @@ func (lc *langCache) saveEntryFromOwnedNodes(hash string, nodes []FlatNode) (int
 	return lc.writeEntry(hash, local, nodes)
 }
 
-func (lc *langCache) writeEntry(hash string, local []string, nodes []FlatNode) (int64, error) {
-	target := lc.entryPath(hash)
-	if err := lc.ensureEntryDir(filepath.Dir(target)); err != nil {
-		return 0, fmt.Errorf("create cache shard dir: %w", err)
+func (lc *langCache) encodePendingEntryFromOwnedNodes(hash string, nodes []FlatNode) (int64, error) {
+	local := rewriteNodesToLocalTypes(nodes)
+	blob, err := lc.encodeEntry(local, nodes)
+	if err != nil {
+		return 0, err
 	}
-	entry := parseCacheEntry{
-		NodeTypeTable: local,
-		Nodes:         nodes,
-	}
+	lc.queueEncodedEntry(parseEncodedEntryWrite{hash: hash, data: blob})
+	return int64(len(blob)), nil
+}
 
-	// Encode into a buffer first so we know the byte size before
-	// touching disk: the LRU bookkeeping needs the final on-disk size
-	// without a post-write stat round-trip.
-	blob, err := cacheutil.EncodeZstdGob(entry)
+func (lc *langCache) writeEntry(hash string, local []string, nodes []FlatNode) (int64, error) {
+	blob, err := lc.encodeEntry(local, nodes)
 	if err != nil {
 		return 0, fmt.Errorf("encode cache entry: %w", err)
 	}
 	size := int64(len(blob))
-
-	if err := fsutil.WriteFileAtomicStream(target, 0o644, func(w io.Writer) error {
-		_, werr := w.Write(blob)
-		return werr
-	}); err != nil {
+	if err := lc.writeEncodedEntries([]parseEncodedEntryWrite{{hash: hash, data: blob}}); err != nil {
 		return 0, err
 	}
+	return size, nil
+}
 
+func (lc *langCache) encodeEntry(local []string, nodes []FlatNode) ([]byte, error) {
+	entry := parseCacheEntry{
+		NodeTypeTable: local,
+		Nodes:         nodes,
+	}
+	start := time.Now()
+	blob, err := cacheutil.EncodeZstdGob(entry)
+	lc.encodeNs.Add(time.Since(start).Nanoseconds())
+	if err != nil {
+		return nil, err
+	}
+	return blob, nil
+}
+
+func (lc *langCache) queueEncodedEntry(write parseEncodedEntryWrite) {
+	lc.pendingMu.Lock()
+	lc.pending = append(lc.pending, write)
+	lc.pendingMu.Unlock()
+}
+
+func (lc *langCache) flushPending() error {
+	if lc == nil {
+		return nil
+	}
+	lc.pendingMu.Lock()
+	writes := lc.pending
+	lc.pending = nil
+	lc.pendingMu.Unlock()
+	if len(writes) == 0 {
+		return nil
+	}
+	if err := lc.writeEncodedEntries(writes); err != nil {
+		lc.asyncFailed.Add(int64(len(writes)))
+		return err
+	}
+	return nil
+}
+
+func (lc *langCache) writeEncodedEntries(writes []parseEncodedEntryWrite) error {
+	if lc == nil || len(writes) == 0 {
+		return nil
+	}
+	start := time.Now()
+	packs, err := lc.pack.SaveEncodedEntries(writes)
+	lc.packWriteNs.Add(time.Since(start).Nanoseconds())
+	if err != nil {
+		return err
+	}
+	lc.packWrites.Add(int64(packs))
 	lc.lastWriteSec.Store(time.Now().Unix())
 	if lc.lru != nil {
-		lc.lru.Record(hash, size)
+		lruStart := time.Now()
+		for _, w := range writes {
+			lc.lru.Record(w.hash, int64(len(w.data)))
+		}
 		if removed, err := lc.lru.MaybeEvict(); err != nil {
 			// Eviction failure is non-fatal: the entry was written,
 			// the cap is just overshooting. Next run will retry.
-			return size, nil
+			lc.lruUpdateNs.Add(time.Since(lruStart).Nanoseconds())
+			return nil
 		} else if removed > 0 {
 			lc.evictions.Add(int64(removed))
 		}
+		lc.lruUpdateNs.Add(time.Since(lruStart).Nanoseconds())
 	}
-	return size, nil
+	return nil
 }
 
 // buildLocalTableAndNodes walks nodes, collects the set of global Type
@@ -574,6 +720,9 @@ func (lc *langCache) clear() error {
 	if err := os.RemoveAll(entries); err != nil {
 		return fmt.Errorf("clear parse cache: %w", err)
 	}
+	if err := os.RemoveAll(filepath.Join(lc.dir, parsePackSubdir)); err != nil {
+		return fmt.Errorf("clear parse cache packs: %w", err)
+	}
 	if err := os.MkdirAll(entries, 0o755); err != nil {
 		return err
 	}
@@ -587,19 +736,38 @@ func (lc *langCache) clear() error {
 			LockPath:    filepath.Join(lc.dir, parseCacheLRULock),
 			Ext:         parseCacheExt,
 			CapBytes:    cap,
+			Remove:      lc.removeEntry,
+			TrustIndex:  true,
 		}
 		_ = lc.lru.Open()
 	}
+	lc.pack = newParsePackStore(lc.dir)
 	return nil
 }
 
 // Flush waits for all accepted async write jobs to finish. Synchronous
 // caches have nothing to drain.
 func (pc *ParseCache) Flush() error {
-	if pc == nil || pc.writer == nil {
+	if pc == nil {
 		return nil
 	}
-	return pc.writer.Flush()
+	var errs []error
+	if pc.writer != nil {
+		if err := pc.writer.Flush(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if pc.kotlin != nil {
+		if err := pc.kotlin.flushPending(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if pc.java != nil {
+		if err := pc.java.flushPending(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // Close flushes any async writes and the per-language LRU sidecars.
@@ -612,6 +780,16 @@ func (pc *ParseCache) Close() error {
 	var errs []error
 	if pc.writer != nil {
 		if err := pc.writer.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if pc.kotlin != nil {
+		if err := pc.kotlin.flushPending(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if pc.java != nil {
+		if err := pc.java.flushPending(); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -677,15 +855,100 @@ func (pc *ParseCache) Stats() cacheutil.CacheStats {
 		if lw := lc.lastWriteSec.Load(); lw > out.LastWriteUnix {
 			out.LastWriteUnix = lw
 		}
-	}
-	if pc.writer != nil {
-		ws := pc.writer.Stats()
-		out.AsyncQueued = ws.Queued
-		out.AsyncCompleted = ws.Completed
-		out.AsyncFailed = ws.Failed
-		out.AsyncBytes = ws.Bytes
+		out.AsyncQueued += lc.asyncQueued.Load()
+		out.AsyncCompleted += lc.asyncCompleted.Load()
+		out.AsyncFailed += lc.asyncFailed.Load()
+		out.AsyncBytes += lc.asyncBytes.Load()
 	}
 	return out
+}
+
+// ParseCacheWriterStats is a point-in-time snapshot of parse-cache async
+// persistence. Durations are aggregate worker time, not wall-clock flush time.
+type ParseCacheWriterStats struct {
+	Queued         int64
+	Completed      int64
+	Failed         int64
+	Bytes          int64
+	KotlinEntries  int64
+	JavaEntries    int64
+	KotlinBytes    int64
+	JavaBytes      int64
+	EncodeDuration time.Duration
+	PackWriteTime  time.Duration
+	LRUUpdateTime  time.Duration
+	PackWrites     int64
+}
+
+func (pc *ParseCache) WriterStats() ParseCacheWriterStats {
+	if pc == nil {
+		return ParseCacheWriterStats{}
+	}
+	var out ParseCacheWriterStats
+	for _, lc := range []*langCache{pc.kotlin, pc.java} {
+		if lc == nil {
+			continue
+		}
+		queued := lc.asyncQueued.Load()
+		completed := lc.asyncCompleted.Load()
+		failed := lc.asyncFailed.Load()
+		bytes := lc.asyncBytes.Load()
+		out.Queued += queued
+		out.Completed += completed
+		out.Failed += failed
+		out.Bytes += bytes
+		if lc.language == LangJava {
+			out.JavaEntries += completed
+			out.JavaBytes += bytes
+		} else {
+			out.KotlinEntries += completed
+			out.KotlinBytes += bytes
+		}
+		out.EncodeDuration += time.Duration(lc.encodeNs.Load())
+		out.PackWriteTime += time.Duration(lc.packWriteNs.Load())
+		out.LRUUpdateTime += time.Duration(lc.lruUpdateNs.Load())
+		out.PackWrites += lc.packWrites.Load()
+	}
+	return out
+}
+
+func (pc *ParseCache) AddPerfEntries(t perf.Tracker) {
+	if pc == nil || t == nil || !t.IsEnabled() {
+		return
+	}
+	stats := pc.WriterStats()
+	if pc.kotlin != nil {
+		perf.AddEntryDetails(t, "kotlinEncodeZstdGob", time.Duration(pc.kotlin.encodeNs.Load()), map[string]int64{
+			"entries": pc.kotlin.asyncCompleted.Load(),
+			"bytes":   pc.kotlin.asyncBytes.Load(),
+		}, nil)
+		perf.AddEntryDetails(t, "kotlinPackWrite", time.Duration(pc.kotlin.packWriteNs.Load()), map[string]int64{
+			"entries": pc.kotlin.asyncCompleted.Load(),
+			"bytes":   pc.kotlin.asyncBytes.Load(),
+			"packs":   pc.kotlin.packWrites.Load(),
+		}, nil)
+	}
+	if pc.java != nil {
+		perf.AddEntryDetails(t, "javaEncodeZstdGob", time.Duration(pc.java.encodeNs.Load()), map[string]int64{
+			"entries": pc.java.asyncCompleted.Load(),
+			"bytes":   pc.java.asyncBytes.Load(),
+		}, nil)
+		perf.AddEntryDetails(t, "javaPackWrite", time.Duration(pc.java.packWriteNs.Load()), map[string]int64{
+			"entries": pc.java.asyncCompleted.Load(),
+			"bytes":   pc.java.asyncBytes.Load(),
+			"packs":   pc.java.packWrites.Load(),
+		}, nil)
+	}
+	perf.AddEntryDetails(t, "lruUpdate", stats.LRUUpdateTime, map[string]int64{"entries": stats.Completed}, nil)
+	perf.AddEntryDetails(t, "parseCacheWriterSummary", 0, map[string]int64{
+		"queued":        stats.Queued,
+		"completed":     stats.Completed,
+		"failed":        stats.Failed,
+		"bytes":         stats.Bytes,
+		"kotlinEntries": stats.KotlinEntries,
+		"javaEntries":   stats.JavaEntries,
+		"packWrites":    stats.PackWrites,
+	}, nil)
 }
 
 // activeParseCache is the most-recently-constructed ParseCache, so

@@ -1,6 +1,7 @@
 package dev.krit.types
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -129,8 +130,8 @@ class CallFilterTest {
 
         val got = extractJsonStringArrayMap(json, "lexicalHintsByCallee") ?: error("missing lexical hint map")
 
-        assertTrue(got["launch"] == listOf("kotlinx.coroutines", "CoroutineScope"))
-        assertTrue(got["open"] == listOf("android.hardware.Camera"))
+        assertEquals(listOf("kotlinx.coroutines", "CoroutineScope"), got["launch"])
+        assertEquals(listOf("android.hardware.Camera"), got["open"])
     }
 
     private fun site(

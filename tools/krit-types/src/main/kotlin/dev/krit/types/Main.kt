@@ -466,8 +466,8 @@ fun parseRequest(json: String): DaemonRequest {
     val files = extractJsonStringArray(json, "files")
     val timings = extractJsonBoolean(json, "timings") ?: false
     val callFilterNames = extractJsonStringArray(json, "callFilterCalleeNames")
-    val lexicalHints = extractJsonStringArrayMap(json, "callFilterLexicalHintsByCallee") ?: emptyMap()
-    val lexicalSkips = extractJsonStringArrayMap(json, "callFilterLexicalSkipByCallee") ?: emptyMap()
+    val lexicalHints = extractJsonStringArrayMap(json, "callFilterLexicalHintsByCallee").orEmpty()
+    val lexicalSkips = extractJsonStringArrayMap(json, "callFilterLexicalSkipByCallee").orEmpty()
     val callFilter = callFilterNames?.let {
         CallFilter(
             enabled = true,
@@ -497,6 +497,7 @@ fun extractJsonStringArray(json: String, key: String): List<String>? {
     return content.split(",").map { it.trim().removeSurrounding("\"") }
 }
 
+@Suppress("ReturnCount")
 fun extractJsonStringArrayMap(json: String, key: String): Map<String, List<String>>? {
     val keyPattern = """"$key""""
     val keyIdx = json.indexOf(keyPattern)
@@ -530,10 +531,13 @@ fun extractJsonStringArrayMap(json: String, key: String): Map<String, List<Strin
 
 fun skipJsonWhitespace(json: String, start: Int): Int {
     var i = start
-    while (i < json.length && json[i].isWhitespace()) i++
+    while (i < json.length && json[i].isWhitespace()) {
+        i++
+    }
     return i
 }
 
+@Suppress("ReturnCount")
 fun parseJsonStringArrayLiteral(json: String, start: Int): Pair<List<String>, Int>? {
     var i = skipJsonWhitespace(json, start)
     if (i >= json.length || json[i] != '[') return null
@@ -554,6 +558,9 @@ fun parseJsonStringArrayLiteral(json: String, start: Int): Pair<List<String>, In
     return null
 }
 
+private const val UNICODE_ESCAPE_HEX_DIGITS = 4
+
+@Suppress("ReturnCount")
 fun parseJsonStringLiteral(json: String, start: Int): Pair<String, Int>? {
     var i = skipJsonWhitespace(json, start)
     if (i >= json.length || json[i] != '"') return null
@@ -573,10 +580,10 @@ fun parseJsonStringLiteral(json: String, start: Int): Pair<String, Int>? {
                     'r' -> sb.append('\r')
                     't' -> sb.append('\t')
                     'u' -> {
-                        if (i + 4 > json.length) return null
-                        val code = json.substring(i, i + 4).toIntOrNull(16) ?: return null
+                        if (i + UNICODE_ESCAPE_HEX_DIGITS > json.length) return null
+                        val code = json.substring(i, i + UNICODE_ESCAPE_HEX_DIGITS).toIntOrNull(16) ?: return null
                         sb.append(code.toChar())
-                        i += 4
+                        i += UNICODE_ESCAPE_HEX_DIGITS
                     }
                     else -> return null
                 }
@@ -810,8 +817,8 @@ fun loadCallFilter(path: String?): CallFilter? {
         val json = File(path).readText()
         val names = extractJsonStringArray(json, "calleeNames") ?: emptyList()
         val fqns = extractJsonStringArray(json, "targetFqns") ?: emptyList()
-        val lexicalHints = extractJsonStringArrayMap(json, "lexicalHintsByCallee") ?: emptyMap()
-        val lexicalSkips = extractJsonStringArrayMap(json, "lexicalSkipByCallee") ?: emptyMap()
+        val lexicalHints = extractJsonStringArrayMap(json, "lexicalHintsByCallee").orEmpty()
+        val lexicalSkips = extractJsonStringArrayMap(json, "lexicalSkipByCallee").orEmpty()
         val ruleProfiles = extractRuleTargetProfiles(json)
         CallFilter(
             enabled = true,
@@ -837,8 +844,12 @@ fun extractRuleTargetProfiles(json: String): List<RuleTargetProfile> {
             discardedOnly = extractJsonBoolean(obj, "discardedOnly") ?: false,
             calleeNames = (extractJsonStringArray(obj, "calleeNames") ?: emptyList()).toSet(),
             targetFqns = (extractJsonStringArray(obj, "targetFQNs") ?: emptyList()).toSet(),
-            lexicalHintsByCallee = (extractJsonStringArrayMap(obj, "lexicalHintsByCallee") ?: emptyMap()).mapValues { it.value.toSet() },
-            lexicalSkipByCallee = (extractJsonStringArrayMap(obj, "lexicalSkipByCallee") ?: emptyMap()).mapValues { it.value.toSet() },
+            lexicalHintsByCallee = extractJsonStringArrayMap(obj, "lexicalHintsByCallee")
+                .orEmpty()
+                .mapValues { it.value.toSet() },
+            lexicalSkipByCallee = extractJsonStringArrayMap(obj, "lexicalSkipByCallee")
+                .orEmpty()
+                .mapValues { it.value.toSet() },
             annotatedIdentifiers = (extractJsonStringArray(obj, "annotatedIdentifiers") ?: emptyList()).toSet(),
             derivedCalleeNames = (extractJsonStringArray(obj, "derivedCalleeNames") ?: emptyList()).toSet(),
             disabledReason = extractJsonString(obj, "disabledReason") ?: ""
@@ -1693,7 +1704,10 @@ fun KtFile.lexicalImportSet(): Set<String> {
     return out
 }
 
-fun KtCallExpression.lexicalCallSite(ktFile: KtFile, imports: Set<String> = ktFile.lexicalImportSet()): LexicalCallSite {
+fun KtCallExpression.lexicalCallSite(
+    ktFile: KtFile,
+    imports: Set<String> = ktFile.lexicalImportSet()
+): LexicalCallSite {
     val parent = parent
     val receiver = when {
         parent is KtDotQualifiedExpression && parent.selectorExpression == this -> parent.receiverExpression.text
@@ -1998,7 +2012,8 @@ fun analyzeKtFile(
                                 perf?.count("kotlinCallResolveSkippedByFilter")
                                 if (callFilter.calleeNames.contains(callee)) {
                                     perf?.count("kotlinCallResolveSkippedByLexicalFilter")
-                                    if (callFilter.lexicalSkipByCallee[callee]?.any { lexicalReceiverMatchesHint(lexicalSite, it) } == true) {
+                                    val skipHints = callFilter.lexicalSkipByCallee[callee]
+                                    if (skipHints?.any { lexicalReceiverMatchesHint(lexicalSite, it) } == true) {
                                         perf?.count("kotlinCallResolveSkippedByLexicalSkip")
                                     }
                                 }

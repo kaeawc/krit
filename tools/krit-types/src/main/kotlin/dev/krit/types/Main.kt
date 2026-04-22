@@ -539,10 +539,34 @@ data class FilePerf(
     val ok: Boolean
 )
 
+data class CounterSummary(
+    var count: Long = 0,
+    var durationNs: Long = 0,
+    var maxNs: Long = 0
+)
+
+data class SlowCallSite(
+    val path: String,
+    val line: Int,
+    val col: Int,
+    val callee: String,
+    val durationNs: Long,
+    val status: String
+)
+
 class KotlinPerf(val enabled: Boolean = false) {
     private val entries = mutableListOf<PerfEntry>()
     private val fileTimings = mutableListOf<FilePerf>()
     private val phaseTotals = linkedMapOf<String, Long>()
+    private val counters = linkedMapOf<String, CounterSummary>()
+    private val callLatencyBuckets = linkedMapOf(
+        "lt1ms" to 0L,
+        "1_5ms" to 0L,
+        "5_20ms" to 0L,
+        "20_100ms" to 0L,
+        "gte100ms" to 0L
+    )
+    private val slowCallSites = mutableListOf<SlowCallSite>()
 
     fun <T> track(name: String, block: () -> T): T {
         if (!enabled) return block()
@@ -562,6 +586,47 @@ class KotlinPerf(val enabled: Boolean = false) {
     fun addInstant(name: String, metrics: Map<String, Long> = emptyMap(), attributes: Map<String, String> = emptyMap()) {
         if (!enabled) return
         entries.add(PerfEntry(name, 0, metrics, attributes))
+    }
+
+    fun count(name: String, durationNs: Long = 0) {
+        if (!enabled) return
+        val c = counters.getOrPut(name) { CounterSummary() }
+        c.count++
+        c.durationNs += durationNs
+        if (durationNs > c.maxNs) c.maxNs = durationNs
+    }
+
+    fun addPhaseTotal(name: String, durationNs: Long) {
+        if (!enabled) return
+        phaseTotals[name] = (phaseTotals[name] ?: 0L) + durationNs
+    }
+
+    fun recordCallSite(path: String, line: Int, col: Int, callee: String, durationNs: Long, status: String) {
+        if (!enabled) return
+        val bucket = when {
+            durationNs < 1_000_000L -> "lt1ms"
+            durationNs < 5_000_000L -> "1_5ms"
+            durationNs < 20_000_000L -> "5_20ms"
+            durationNs < 100_000_000L -> "20_100ms"
+            else -> "gte100ms"
+        }
+        callLatencyBuckets[bucket] = (callLatencyBuckets[bucket] ?: 0L) + 1
+
+        if (slowCallSites.size < 25) {
+            slowCallSites.add(SlowCallSite(path, line, col, callee.take(160), durationNs, status))
+            return
+        }
+        var minIdx = 0
+        var minNs = slowCallSites[0].durationNs
+        for (i in 1 until slowCallSites.size) {
+            if (slowCallSites[i].durationNs < minNs) {
+                minIdx = i
+                minNs = slowCallSites[i].durationNs
+            }
+        }
+        if (durationNs > minNs) {
+            slowCallSites[minIdx] = SlowCallSite(path, line, col, callee.take(160), durationNs, status)
+        }
     }
 
     fun recordFile(file: FilePerf) {
@@ -603,6 +668,43 @@ class KotlinPerf(val enabled: Boolean = false) {
                 )
             }
             all.add(PerfEntry("kotlinSlowFilesTop25", slow.sumOf { it.durationMs }, children = slow))
+        }
+
+        if (counters.isNotEmpty()) {
+            for ((name, c) in counters) {
+                all.add(
+                    PerfEntry(
+                        name,
+                        c.durationNs / 1_000_000,
+                        metrics = mapOf(
+                            "count" to c.count,
+                            "maxMs" to c.maxNs / 1_000_000
+                        )
+                    )
+                )
+            }
+        }
+        val histogramCount = callLatencyBuckets.values.sum()
+        if (histogramCount > 0) {
+            all.add(PerfEntry("kotlinCallResolveLatencyHistogram", 0, metrics = callLatencyBuckets))
+        }
+        if (slowCallSites.isNotEmpty()) {
+            val slow = slowCallSites.sortedByDescending { it.durationNs }.map { s ->
+                PerfEntry(
+                    "${s.path}:${s.line}:${s.col}",
+                    s.durationNs / 1_000_000,
+                    metrics = mapOf(
+                        "line" to s.line.toLong(),
+                        "col" to s.col.toLong()
+                    ),
+                    attributes = mapOf(
+                        "file" to s.path,
+                        "callee" to s.callee,
+                        "status" to s.status
+                    )
+                )
+            }
+            all.add(PerfEntry("kotlinCallResolveSlowSitesTop25", slow.sumOf { it.durationMs }, children = slow))
         }
 
         return buildString {
@@ -984,10 +1086,17 @@ fun analyzeKtFile(
                 when (decl) {
                     is KtClassOrObject -> {
                         try {
-                            val symbol = decl.symbol as? KaNamedClassSymbol ?: continue
-                            val result = extractClass(symbol)
+                            val symbolLookupStart = System.nanoTime()
+                            val symbol = decl.symbol as? KaNamedClassSymbol
+                            perf?.addPhaseTotal("kotlinDeclarations.symbolLookup", System.nanoTime() - symbolLookupStart)
+                            if (symbol == null) continue
+                            val extractClassStart = System.nanoTime()
+                            val result = extractClass(symbol, perf)
+                            perf?.addPhaseTotal("kotlinDeclarations.extractClass", System.nanoTime() - extractClassStart)
                             declarations.add(result)
-                            collectDependencySupertypes(symbol, deps, depTracker, path)
+                            val depStart = System.nanoTime()
+                            collectDependencySupertypes(symbol, deps, depTracker, path, perf)
+                            perf?.addPhaseTotal("kotlinDeclarations.collectDependencySupertypes", System.nanoTime() - depStart)
                             // Record same-package source siblings as direct
                             // deps: two files in the same package share an
                             // implicit namespace and a top-level change in
@@ -995,7 +1104,9 @@ fun analyzeKtFile(
                             // an import. We approximate "same package source"
                             // via supertype source origins, which the session
                             // resolver will have already walked.
+                            val sourceOriginsStart = System.nanoTime()
                             recordSupertypeSourceOrigins(symbol, depTracker, path)
+                            perf?.addPhaseTotal("kotlinDeclarations.recordSupertypeSourceOrigins", System.nanoTime() - sourceOriginsStart)
                         } catch (t: Throwable) {
                             // Skip this class but keep going. Preserves any
                             // earlier classes in this file and lets
@@ -1065,31 +1176,64 @@ fun analyzeKtFile(
                         // (see FirPropertyImpl bug above). Catching here lets
                         // us skip the one bad expression and continue. Same
                         // resilience as the old expressionType path.
+                        var line = 0
+                        var col = 0
+                        var callee = ""
+                        var status = "unknown"
+                        val siteStart = System.nanoTime()
                         try {
                             val offset = expr.textRange.startOffset
-                            val line = document.getLineNumber(offset) + 1
-                            val col = offset - document.getLineStartOffset(line - 1) + 1
+                            line = document.getLineNumber(offset) + 1
+                            col = offset - document.getLineStartOffset(line - 1) + 1
                             val key = "$line:$col"
-                            if (key in expressions) continue
+                            if (key in expressions) {
+                                perf?.count("kotlinCallResolveDuplicate")
+                                status = "duplicate"
+                                continue
+                            }
+                            callee = expr.calleeExpression?.text ?: ""
+                            perf?.count("kotlinCallResolveAttempt")
 
                             // Primary: resolve against the symbol graph for a
                             // fully-qualified callable FQN. This is the only
                             // value the downstream rules consume (coroutines
                             // knownSuspendFQNs, deprecation LookupAnnotations).
                             var callTarget: String? = null
+                            var fallbackReason = "unresolved"
+                            val resolveStart = System.nanoTime()
                             val callInfo = expr.resolveToCall()
+                            val resolveNs = System.nanoTime() - resolveStart
+                            perf?.count("kotlinCallResolveResolveToCall", resolveNs)
                             if (callInfo != null) {
+                                perf?.count("kotlinCallResolveNonNull")
                                 val memberCall: KaCallableMemberCall<*, *>? =
                                     callInfo.singleFunctionCallOrNull()
                                         ?: callInfo.singleVariableAccessCall()
                                 if (memberCall != null) {
+                                    perf?.count("kotlinCallResolveMemberCall")
                                     val symbol = memberCall.partiallyAppliedSymbol.symbol
                                     val cid = symbol.callableId
                                     if (cid != null) {
+                                        perf?.count("kotlinCallResolveCallableId")
                                         val fqn = cid.asSingleFqName().asString()
-                                        if (fqn.isNotEmpty()) callTarget = fqn
+                                        if (fqn.isNotEmpty()) {
+                                            callTarget = fqn
+                                            status = "resolved"
+                                            perf?.count("kotlinCallResolveResolved")
+                                        } else {
+                                            fallbackReason = "empty-callable-id"
+                                        }
+                                    } else {
+                                        perf?.count("kotlinCallResolveNoCallableId")
+                                        fallbackReason = "no-callable-id"
                                     }
+                                } else {
+                                    perf?.count("kotlinCallResolveNoMember")
+                                    fallbackReason = "no-member-call"
                                 }
+                            } else {
+                                perf?.count("kotlinCallResolveNull")
+                                fallbackReason = "resolve-null"
                             }
                             // Fallback: lexical callee text. Preserves parity
                             // with the old code for calls the symbol graph
@@ -1098,8 +1242,14 @@ fun analyzeKtFile(
                             // oracle lookups still have something to match on.
                             // Cheap: just a PSI text read, no type resolution.
                             if (callTarget == null) {
-                                callTarget = expr.calleeExpression?.text
-                                if (callTarget.isNullOrEmpty()) continue
+                                callTarget = callee
+                                if (callTarget.isNullOrEmpty()) {
+                                    perf?.count("kotlinCallResolveNoFallback")
+                                    status = "empty-$fallbackReason"
+                                    continue
+                                }
+                                perf?.count("kotlinCallResolveLexicalFallback")
+                                status = "fallback-$fallbackReason"
                             }
 
                             // type="" and nullable=false preserve the
@@ -1112,9 +1262,13 @@ fun analyzeKtFile(
                                 callTarget = callTarget
                             )
                         } catch (_: Throwable) {
+                            perf?.count("kotlinCallResolveException")
+                            status = "exception"
                             // Silent: logging per-expression crashes would
                             // swamp stderr on affected repos. The per-file
                             // summary counts how many files were touched.
+                        } finally {
+                            perf?.recordCallSite(path, line, col, callee, System.nanoTime() - siteStart, status)
                         }
                     }
                     callResolveNs += System.nanoTime() - callResolveStart
@@ -1465,7 +1619,7 @@ fun buildCacheDepsJson(tracker: DepTracker): String {
 }
 
 @OptIn(KaExperimentalApi::class)
-fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(symbol: KaNamedClassSymbol): ClassResult {
+fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(symbol: KaNamedClassSymbol, perf: KotlinPerf? = null): ClassResult {
     val fqn = symbol.classId?.asFqNameString() ?: symbol.name.asString()
     val kind = when {
         symbol.classKind == KaClassKind.INTERFACE && symbol.modality == KaSymbolModality.SEALED -> "sealed interface"
@@ -1477,24 +1631,34 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(symbol: KaNamedClas
         else -> "class"
     }
 
+    val superTypesStart = System.nanoTime()
     val supertypes = symbol.superTypes.mapNotNull { type ->
         (type as? KaClassType)?.classId?.asFqNameString()
     }.filter { it != "kotlin.Any" }
+    perf?.addPhaseTotal("kotlinExtractClass.superTypes", System.nanoTime() - superTypesStart)
 
     val members = mutableListOf<MemberResult>()
 
-    for (decl in symbol.memberScope.declarations) {
+    val memberScopeStart = System.nanoTime()
+    val memberDecls = symbol.memberScope.declarations.toList()
+    perf?.addPhaseTotal("kotlinExtractClass.memberScope", System.nanoTime() - memberScopeStart)
+
+    for (decl in memberDecls) {
         when (decl) {
             is KaNamedFunctionSymbol -> {
                 if (decl.origin != KaSymbolOrigin.INTERSECTION_OVERRIDE &&
                     decl.origin != KaSymbolOrigin.SUBSTITUTION_OVERRIDE) {
-                    members.add(extractFunction(decl))
+                    val memberStart = System.nanoTime()
+                    members.add(extractFunction(decl, perf))
+                    perf?.addPhaseTotal("kotlinExtractClass.memberFunctions", System.nanoTime() - memberStart)
                 }
             }
             is KaPropertySymbol -> {
                 if (decl.origin != KaSymbolOrigin.INTERSECTION_OVERRIDE &&
                     decl.origin != KaSymbolOrigin.SUBSTITUTION_OVERRIDE) {
-                    members.add(extractProperty(decl))
+                    val memberStart = System.nanoTime()
+                    members.add(extractProperty(decl, perf))
+                    perf?.addPhaseTotal("kotlinExtractClass.memberProperties", System.nanoTime() - memberStart)
                 }
             }
             is KaEnumEntrySymbol -> {
@@ -1510,7 +1674,9 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(symbol: KaNamedClas
         }
     }
 
+    val annotationsStart = System.nanoTime()
     val annotations = symbol.annotations.mapNotNull { it.classId?.asFqNameString() }
+    perf?.addPhaseTotal("kotlinExtractClass.annotations", System.nanoTime() - annotationsStart)
 
     return ClassResult(
         fqn = fqn,
@@ -1528,22 +1694,28 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(symbol: KaNamedClas
 }
 
 @OptIn(KaExperimentalApi::class)
-fun org.jetbrains.kotlin.analysis.api.KaSession.extractFunction(symbol: KaNamedFunctionSymbol): MemberResult {
+fun org.jetbrains.kotlin.analysis.api.KaSession.extractFunction(symbol: KaNamedFunctionSymbol, perf: KotlinPerf? = null): MemberResult {
+    val signatureStart = System.nanoTime()
     val returnType = symbol.returnType.renderType()
+    val returnNullable = symbol.returnType.isMarkedNullable
     val params = symbol.valueParameters.map { param ->
+        val paramType = param.returnType
         ParamResult(
             name = param.name.asString(),
-            type = param.returnType.renderType(),
-            nullable = param.returnType.isMarkedNullable
+            type = paramType.renderType(),
+            nullable = paramType.isMarkedNullable
         )
     }
+    perf?.addPhaseTotal("kotlinExtractFunction.signature", System.nanoTime() - signatureStart)
+    val annotationsStart = System.nanoTime()
     val annotations = symbol.annotations.mapNotNull { it.classId?.asFqNameString() }
+    perf?.addPhaseTotal("kotlinExtractFunction.annotations", System.nanoTime() - annotationsStart)
 
     return MemberResult(
         name = symbol.name.asString(),
         kind = "function",
         returnType = returnType,
-        nullable = symbol.returnType.isMarkedNullable,
+        nullable = returnNullable,
         visibility = symbol.visibility.name.lowercase(),
         isOverride = symbol.isOverride,
         isAbstract = symbol.modality == KaSymbolModality.ABSTRACT,
@@ -1553,13 +1725,20 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractFunction(symbol: KaNamedF
 }
 
 @OptIn(KaExperimentalApi::class)
-fun org.jetbrains.kotlin.analysis.api.KaSession.extractProperty(symbol: KaPropertySymbol): MemberResult {
+fun org.jetbrains.kotlin.analysis.api.KaSession.extractProperty(symbol: KaPropertySymbol, perf: KotlinPerf? = null): MemberResult {
+    val annotationsStart = System.nanoTime()
     val annotations = symbol.annotations.mapNotNull { it.classId?.asFqNameString() }
+    perf?.addPhaseTotal("kotlinExtractProperty.annotations", System.nanoTime() - annotationsStart)
+    val signatureStart = System.nanoTime()
+    val returnType = symbol.returnType
+    val renderedReturnType = returnType.renderType()
+    val returnNullable = returnType.isMarkedNullable
+    perf?.addPhaseTotal("kotlinExtractProperty.signature", System.nanoTime() - signatureStart)
     return MemberResult(
         name = symbol.name.asString(),
         kind = "property",
-        returnType = symbol.returnType.renderType(),
-        nullable = symbol.returnType.isMarkedNullable,
+        returnType = renderedReturnType,
+        nullable = returnNullable,
         visibility = symbol.visibility.name.lowercase(),
         isOverride = symbol.isOverride,
         isAbstract = symbol.modality == KaSymbolModality.ABSTRACT,
@@ -1587,7 +1766,8 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.collectDependencySupertypes(
     symbol: KaNamedClassSymbol,
     deps: MutableMap<String, ClassResult>,
     depTracker: DepTracker? = null,
-    forFile: String? = null
+    forFile: String? = null,
+    perf: KotlinPerf? = null
 ) {
     for (supertype in symbol.superTypes) {
         val superClassType = supertype as? KaClassType ?: continue
@@ -1608,7 +1788,7 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.collectDependencySupertypes(
         // Library dependency: extract and record both globally (shared deps
         // map for the whole run) and per-file (so each cache entry is
         // self-contained).
-        val cls = deps.getOrPut(fqn) { extractClass(superSymbol) }
+        val cls = deps.getOrPut(fqn) { extractClass(superSymbol, perf) }
         if (depTracker != null && forFile != null) {
             depTracker.perFileDeps.getOrPut(forFile) { mutableMapOf() }[fqn] = cls
         }

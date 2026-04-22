@@ -329,10 +329,9 @@ func InvokeCachedWithOptions(
 		}
 	} else {
 		var written int
-		trackOracle(tracker, "writeFreshCacheEntries", func() error {
-			written, _ = WriteFreshEntriesToStore(s, cacheDir, freshData, depsFile)
-			return nil
-		})
+		writeTracker := tracker.Serial("writeFreshCacheEntries")
+		written, _ = WriteFreshEntriesToStoreWithTracker(s, cacheDir, freshData, depsFile, writeTracker)
+		writeTracker.End()
 		addOracleInstant(tracker, "freshCacheEntriesWritten", map[string]int64{"entries": int64(written)}, nil)
 		if verbose {
 			fmt.Fprintf(os.Stderr, "verbose: wrote %d new cache entries\n", written)

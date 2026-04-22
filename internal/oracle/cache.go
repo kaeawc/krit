@@ -31,6 +31,7 @@ import (
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/store"
 )
 
@@ -66,12 +67,12 @@ const CacheVersion = 2
 // are intentionally short because there can be tens of thousands of these
 // in a single repo.
 type CacheEntry struct {
-	V            int                     `json:"v"`
-	ContentHash  string                  `json:"content_hash"`
-	FilePath     string                  `json:"file_path"`
-	FileResult   *OracleFile             `json:"file_result"`
-	PerFileDeps  map[string]*OracleClass `json:"per_file_deps,omitempty"`
-	Closure      CacheClosure            `json:"closure"`
+	V           int                     `json:"v"`
+	ContentHash string                  `json:"content_hash"`
+	FilePath    string                  `json:"file_path"`
+	FileResult  *OracleFile             `json:"file_result"`
+	PerFileDeps map[string]*OracleClass `json:"per_file_deps,omitempty"`
+	Closure     CacheClosure            `json:"closure"`
 	// Approximation tags the dep-closure tracking method used when the
 	// entry was written. Any mismatch with the current runtime's
 	// approximation is treated as a miss — lets us upgrade the tracker
@@ -282,13 +283,25 @@ func IndexCacheHashes(cacheDir string) map[string]bool {
 // process crashes mid-write.
 func WriteEntry(cacheDir string, entry *CacheEntry) error {
 	entry.V = CacheVersion
+	data, err := marshalCacheEntry(entry)
+	if err != nil {
+		return err
+	}
+	return writeEntryData(cacheDir, entry, data)
+}
+
+func marshalCacheEntry(entry *CacheEntry) ([]byte, error) {
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return nil, fmt.Errorf("marshal cache entry: %w", err)
+	}
+	return data, nil
+}
+
+func writeEntryData(cacheDir string, entry *CacheEntry, data []byte) error {
 	target := entryPath(cacheDir, entry.ContentHash)
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(target), err)
-	}
-	data, err := json.Marshal(entry)
-	if err != nil {
-		return fmt.Errorf("marshal cache entry: %w", err)
 	}
 	if err := fsutil.WriteFileAtomic(target, data, 0o644); err != nil {
 		return fmt.Errorf("write entry: %w", err)
@@ -445,6 +458,116 @@ type CacheDepsEntry struct {
 	PerFileDeps map[string]*OracleClass `json:"perFileDeps"`
 }
 
+type freshEntryWriteStats struct {
+	requestedFiles       int64
+	crashFiles           int64
+	written              int64
+	skipped              int64
+	bytes                int64
+	depPaths             int64
+	uniqueDepPaths       map[string]struct{}
+	poisonWrites         int64
+	contentHashNs        int64
+	closureFingerprintNs int64
+	marshalNs            int64
+	storePutNs           int64
+	atomicWriteNs        int64
+	sizeTop              []freshEntrySize
+}
+
+type freshEntrySize struct {
+	path  string
+	bytes int64
+}
+
+func newFreshEntryWriteStats(fresh *OracleData, deps *CacheDepsFile) *freshEntryWriteStats {
+	stats := &freshEntryWriteStats{uniqueDepPaths: map[string]struct{}{}}
+	if fresh != nil {
+		stats.requestedFiles = int64(len(fresh.Files))
+	}
+	if deps != nil {
+		stats.crashFiles = int64(len(deps.Crashed))
+	}
+	return stats
+}
+
+func (s *freshEntryWriteStats) recordDepPaths(paths []string) {
+	s.depPaths += int64(len(paths))
+	for _, p := range paths {
+		s.uniqueDepPaths[p] = struct{}{}
+	}
+}
+
+func (s *freshEntryWriteStats) recordSize(path string, bytes int64) {
+	s.bytes += bytes
+	item := freshEntrySize{path: path, bytes: bytes}
+	if len(s.sizeTop) < 25 {
+		s.sizeTop = append(s.sizeTop, item)
+		return
+	}
+	minIdx := 0
+	minBytes := s.sizeTop[0].bytes
+	for i := 1; i < len(s.sizeTop); i++ {
+		if s.sizeTop[i].bytes < minBytes {
+			minIdx = i
+			minBytes = s.sizeTop[i].bytes
+		}
+	}
+	if bytes > minBytes {
+		s.sizeTop[minIdx] = item
+	}
+}
+
+func (s *freshEntryWriteStats) emit(t perf.Tracker, storeBacked bool) {
+	if t == nil || !t.IsEnabled() {
+		return
+	}
+	perf.AddEntryDetails(t, "freshEntryContentHash", time.Duration(s.contentHashNs), map[string]int64{"files": s.requestedFiles + s.crashFiles}, nil)
+	perf.AddEntryDetails(t, "freshEntryClosureFingerprint", time.Duration(s.closureFingerprintNs), map[string]int64{
+		"entries":        s.requestedFiles,
+		"depPaths":       s.depPaths,
+		"uniqueDepPaths": int64(len(s.uniqueDepPaths)),
+	}, nil)
+	perf.AddEntryDetails(t, "freshEntryMarshal", time.Duration(s.marshalNs), map[string]int64{"entries": s.written, "bytes": s.bytes}, nil)
+	if storeBacked {
+		perf.AddEntryDetails(t, "freshEntryStorePut", time.Duration(s.storePutNs), map[string]int64{"entries": s.written}, nil)
+	} else {
+		perf.AddEntryDetails(t, "freshEntryAtomicWrite", time.Duration(s.atomicWriteNs), map[string]int64{"entries": s.written}, nil)
+	}
+	perf.AddEntryDetails(t, "freshEntryPoisonWrites", 0, map[string]int64{"entries": s.poisonWrites}, nil)
+	perf.AddEntryDetails(t, "freshEntrySummary", 0, map[string]int64{
+		"requestedFiles": s.requestedFiles,
+		"crashFiles":     s.crashFiles,
+		"written":        s.written,
+		"skipped":        s.skipped,
+		"bytes":          s.bytes,
+		"depPaths":       s.depPaths,
+		"uniqueDepPaths": int64(len(s.uniqueDepPaths)),
+		"poisonWrites":   s.poisonWrites,
+	}, nil)
+	if len(s.sizeTop) > 0 {
+		sort.Slice(s.sizeTop, func(i, j int) bool {
+			return s.sizeTop[i].bytes > s.sizeTop[j].bytes
+		})
+		children := make([]perf.TimingEntry, 0, len(s.sizeTop))
+		var totalBytes int64
+		for _, item := range s.sizeTop {
+			totalBytes += item.bytes
+			children = append(children, perf.TimingEntry{
+				Name:       item.path,
+				DurationMs: 0,
+				Metrics:    map[string]int64{"bytes": item.bytes},
+				Attributes: map[string]string{"file": item.path},
+			})
+		}
+		perf.AddEntries(t, []perf.TimingEntry{{
+			Name:     "freshEntrySizeTop25",
+			Metrics:  map[string]int64{"bytes": totalBytes, "entries": int64(len(children))},
+			Children: children,
+		}})
+	}
+}
+
 // LoadCacheDeps reads the --cache-deps-out JSON produced by krit-types.
 func LoadCacheDeps(path string) (*CacheDepsFile, error) {
 	data, err := os.ReadFile(path)
@@ -470,14 +593,28 @@ func WriteFreshEntries(
 	fresh *OracleData,
 	deps *CacheDepsFile,
 ) (int, error) {
+	return WriteFreshEntriesWithTracker(cacheDir, fresh, deps, nil)
+}
+
+func WriteFreshEntriesWithTracker(
+	cacheDir string,
+	fresh *OracleData,
+	deps *CacheDepsFile,
+	tracker perf.Tracker,
+) (int, error) {
 	if fresh == nil {
 		return 0, nil
 	}
 	written := 0
+	stats := newFreshEntryWriteStats(fresh, deps)
+	defer stats.emit(tracker, false)
 	hashCache := make(map[string]string, len(fresh.Files))
 	for path, fr := range fresh.Files {
+		hashStart := time.Now()
 		hash, err := ContentHash(path)
+		stats.contentHashNs += time.Since(hashStart).Nanoseconds()
 		if err != nil {
+			stats.skipped++
 			continue
 		}
 		hashCache[path] = hash
@@ -491,10 +628,14 @@ func WriteFreshEntries(
 			depPaths = depEntry.DepPaths
 			perFileDeps = depEntry.PerFileDeps
 		}
+		stats.recordDepPaths(depPaths)
+		fpStart := time.Now()
 		fp, err := closureFingerprint(depPaths, hashCache)
+		stats.closureFingerprintNs += time.Since(fpStart).Nanoseconds()
 		if err != nil {
 			// A dep disappeared mid-run — skip this entry rather than
 			// writing one we know is stale.
+			stats.skipped++
 			continue
 		}
 		approx := ""
@@ -513,10 +654,24 @@ func WriteFreshEntries(
 			},
 			Approximation: approx,
 		}
-		if err := WriteEntry(cacheDir, entry); err != nil {
-			// Non-fatal: one bad write shouldn't tank the whole run.
+		entry.V = CacheVersion
+		marshalStart := time.Now()
+		data, err := marshalCacheEntry(entry)
+		stats.marshalNs += time.Since(marshalStart).Nanoseconds()
+		if err != nil {
+			stats.skipped++
 			continue
 		}
+		writeStart := time.Now()
+		if err := writeEntryData(cacheDir, entry, data); err != nil {
+			stats.atomicWriteNs += time.Since(writeStart).Nanoseconds()
+			// Non-fatal: one bad write shouldn't tank the whole run.
+			stats.skipped++
+			continue
+		}
+		stats.atomicWriteNs += time.Since(writeStart).Nanoseconds()
+		stats.recordSize(path, int64(len(data)))
+		stats.written++
 		written++
 	}
 	// Poison-entry markers for files that deterministically crashed
@@ -526,8 +681,11 @@ func WriteFreshEntries(
 	if deps != nil {
 		approx := deps.Approximation
 		for path, errMsg := range deps.Crashed {
+			hashStart := time.Now()
 			hash, err := ContentHash(path)
+			stats.contentHashNs += time.Since(hashStart).Nanoseconds()
 			if err != nil {
+				stats.skipped++
 				continue
 			}
 			entry := &CacheEntry{
@@ -542,9 +700,24 @@ func WriteFreshEntries(
 					Fingerprint: "",
 				},
 			}
-			if err := WriteEntry(cacheDir, entry); err != nil {
+			entry.V = CacheVersion
+			marshalStart := time.Now()
+			data, err := marshalCacheEntry(entry)
+			stats.marshalNs += time.Since(marshalStart).Nanoseconds()
+			if err != nil {
+				stats.skipped++
 				continue
 			}
+			writeStart := time.Now()
+			if err := writeEntryData(cacheDir, entry, data); err != nil {
+				stats.atomicWriteNs += time.Since(writeStart).Nanoseconds()
+				stats.skipped++
+				continue
+			}
+			stats.atomicWriteNs += time.Since(writeStart).Nanoseconds()
+			stats.recordSize(path, int64(len(data)))
+			stats.poisonWrites++
+			stats.written++
 			written++
 		}
 	}
@@ -593,10 +766,14 @@ func LoadEntryFromStore(s *store.FileStore, contentHash string) (*CacheEntry, er
 // WriteEntryToStore persists a CacheEntry in s keyed by its content hash.
 func WriteEntryToStore(s *store.FileStore, entry *CacheEntry) error {
 	entry.V = CacheVersion
-	data, err := json.Marshal(entry)
+	data, err := marshalCacheEntry(entry)
 	if err != nil {
-		return fmt.Errorf("marshal oracle entry: %w", err)
+		return err
 	}
+	return writeEntryDataToStore(s, entry, data)
+}
+
+func writeEntryDataToStore(s *store.FileStore, entry *CacheEntry, data []byte) error {
 	return s.Put(oracleStoreKey(entry.ContentHash), data)
 }
 
@@ -651,21 +828,36 @@ func WriteFreshEntriesToStore(
 	fresh *OracleData,
 	deps *CacheDepsFile,
 ) (int, error) {
+	return WriteFreshEntriesToStoreWithTracker(s, cacheDir, fresh, deps, nil)
+}
+
+func WriteFreshEntriesToStoreWithTracker(
+	s *store.FileStore,
+	cacheDir string,
+	fresh *OracleData,
+	deps *CacheDepsFile,
+	tracker perf.Tracker,
+) (int, error) {
 	if s == nil {
-		return WriteFreshEntries(cacheDir, fresh, deps)
+		return WriteFreshEntriesWithTracker(cacheDir, fresh, deps, tracker)
 	}
 	if fresh == nil {
 		return 0, nil
 	}
 	written := 0
+	stats := newFreshEntryWriteStats(fresh, deps)
+	defer stats.emit(tracker, true)
 	hashCache := make(map[string]string, len(fresh.Files))
 	approx := ""
 	if deps != nil {
 		approx = deps.Approximation
 	}
 	for path, fr := range fresh.Files {
+		hashStart := time.Now()
 		hash, err := ContentHash(path)
+		stats.contentHashNs += time.Since(hashStart).Nanoseconds()
 		if err != nil {
+			stats.skipped++
 			continue
 		}
 		hashCache[path] = hash
@@ -679,8 +871,12 @@ func WriteFreshEntriesToStore(
 			depPaths = depEntry.DepPaths
 			perFileDeps = depEntry.PerFileDeps
 		}
+		stats.recordDepPaths(depPaths)
+		fpStart := time.Now()
 		fp, err := closureFingerprint(depPaths, hashCache)
+		stats.closureFingerprintNs += time.Since(fpStart).Nanoseconds()
 		if err != nil {
+			stats.skipped++
 			continue
 		}
 		entry := &CacheEntry{
@@ -695,15 +891,32 @@ func WriteFreshEntriesToStore(
 				Fingerprint: fp,
 			},
 		}
-		if err := WriteEntryToStore(s, entry); err != nil {
+		entry.V = CacheVersion
+		marshalStart := time.Now()
+		data, err := marshalCacheEntry(entry)
+		stats.marshalNs += time.Since(marshalStart).Nanoseconds()
+		if err != nil {
+			stats.skipped++
 			continue
 		}
+		putStart := time.Now()
+		if err := writeEntryDataToStore(s, entry, data); err != nil {
+			stats.storePutNs += time.Since(putStart).Nanoseconds()
+			stats.skipped++
+			continue
+		}
+		stats.storePutNs += time.Since(putStart).Nanoseconds()
+		stats.recordSize(path, int64(len(data)))
+		stats.written++
 		written++
 	}
 	if deps != nil {
 		for path, errMsg := range deps.Crashed {
+			hashStart := time.Now()
 			hash, err := ContentHash(path)
+			stats.contentHashNs += time.Since(hashStart).Nanoseconds()
 			if err != nil {
+				stats.skipped++
 				continue
 			}
 			entry := &CacheEntry{
@@ -715,9 +928,24 @@ func WriteFreshEntriesToStore(
 				Approximation: approx,
 				Closure:       CacheClosure{},
 			}
-			if err := WriteEntryToStore(s, entry); err != nil {
+			entry.V = CacheVersion
+			marshalStart := time.Now()
+			data, err := marshalCacheEntry(entry)
+			stats.marshalNs += time.Since(marshalStart).Nanoseconds()
+			if err != nil {
+				stats.skipped++
 				continue
 			}
+			putStart := time.Now()
+			if err := writeEntryDataToStore(s, entry, data); err != nil {
+				stats.storePutNs += time.Since(putStart).Nanoseconds()
+				stats.skipped++
+				continue
+			}
+			stats.storePutNs += time.Since(putStart).Nanoseconds()
+			stats.recordSize(path, int64(len(data)))
+			stats.poisonWrites++
+			stats.written++
 			written++
 		}
 	}

@@ -561,6 +561,16 @@ data class SlowCallSite(
     val status: String
 )
 
+data class CallCalleePerf(
+    val callee: String,
+    var count: Long = 0,
+    var resolved: Long = 0,
+    var fallback: Long = 0,
+    var exception: Long = 0,
+    var durationNs: Long = 0,
+    var maxNs: Long = 0
+)
+
 data class CallFilter(
     val enabled: Boolean,
     val calleeNames: Set<String>,
@@ -610,6 +620,7 @@ class KotlinPerf(val enabled: Boolean = false) {
         "gte100ms" to 0L
     )
     private val slowCallSites = mutableListOf<SlowCallSite>()
+    private val callCallees = linkedMapOf<String, CallCalleePerf>()
 
     fun <T> track(name: String, block: () -> T): T {
         if (!enabled) return block()
@@ -669,6 +680,20 @@ class KotlinPerf(val enabled: Boolean = false) {
         }
         if (durationNs > minNs) {
             slowCallSites[minIdx] = SlowCallSite(path, line, col, callee.take(160), durationNs, status)
+        }
+    }
+
+    fun recordCallCallee(callee: String, durationNs: Long, status: String) {
+        if (!enabled) return
+        val key = callee.ifEmpty { "<empty>" }.take(160)
+        val agg = callCallees.getOrPut(key) { CallCalleePerf(key) }
+        agg.count++
+        agg.durationNs += durationNs
+        if (durationNs > agg.maxNs) agg.maxNs = durationNs
+        when {
+            status == "resolved" -> agg.resolved++
+            status.startsWith("fallback-") -> agg.fallback++
+            status == "exception" -> agg.exception++
         }
     }
 
@@ -749,6 +774,22 @@ class KotlinPerf(val enabled: Boolean = false) {
             }
             all.add(PerfEntry("kotlinCallResolveSlowSitesTop25", slow.sumOf { it.durationMs }, children = slow))
         }
+        if (callCallees.isNotEmpty()) {
+            val byDuration = callCallees.values
+                .sortedWith(compareByDescending<CallCalleePerf> { it.durationNs }.thenBy { it.callee })
+                .take(25)
+                .map { it.toPerfEntry() }
+            all.add(PerfEntry("kotlinCallResolveTopCallees", byDuration.sumOf { it.durationMs }, children = byDuration))
+
+            val byFallback = callCallees.values
+                .filter { it.fallback > 0 }
+                .sortedWith(compareByDescending<CallCalleePerf> { it.fallback }.thenByDescending { it.durationNs }.thenBy { it.callee })
+                .take(25)
+                .map { it.toPerfEntry() }
+            if (byFallback.isNotEmpty()) {
+                all.add(PerfEntry("kotlinCallResolveTopFallbackCallees", byFallback.sumOf { it.durationMs }, children = byFallback))
+            }
+        }
 
         return buildString {
             append("[")
@@ -759,6 +800,24 @@ class KotlinPerf(val enabled: Boolean = false) {
             append("]")
         }
     }
+}
+
+fun CallCalleePerf.toPerfEntry(): PerfEntry {
+    val fallbackRatePermille = if (count == 0L) 0L else (fallback * 1000L) / count
+    return PerfEntry(
+        callee,
+        durationNs / 1_000_000,
+        metrics = mapOf(
+            "durationMs" to durationNs / 1_000_000,
+            "count" to count,
+            "resolved" to resolved,
+            "fallback" to fallback,
+            "exception" to exception,
+            "maxMs" to maxNs / 1_000_000,
+            "fallbackRatePermille" to fallbackRatePermille
+        ),
+        attributes = mapOf("callee" to callee)
+    )
 }
 
 fun appendPerfEntry(sb: StringBuilder, entry: PerfEntry) {
@@ -1224,6 +1283,9 @@ fun analyzeKtFile(
                         var col = 0
                         var callee = ""
                         var status = "unknown"
+                        var recordCalleeAggregate = false
+                        var calleeAggregateStart = 0L
+                        var calleeAggregateNs = 0L
                         val siteStart = System.nanoTime()
                         try {
                             val offset = expr.textRange.startOffset
@@ -1243,6 +1305,7 @@ fun analyzeKtFile(
                                 continue
                             }
                             perf?.count("kotlinCallResolveAttempted")
+                            recordCalleeAggregate = true
 
                             // Primary: resolve against the symbol graph for a
                             // fully-qualified callable FQN. This is the only
@@ -1251,8 +1314,10 @@ fun analyzeKtFile(
                             var callTarget: String? = null
                             var fallbackReason = "unresolved"
                             val resolveStart = System.nanoTime()
+                            calleeAggregateStart = resolveStart
                             val callInfo = expr.resolveToCall()
                             val resolveNs = System.nanoTime() - resolveStart
+                            calleeAggregateNs = resolveNs
                             perf?.count("kotlinCallResolveResolveToCall", resolveNs)
                             if (callInfo != null) {
                                 perf?.count("kotlinCallResolveNonNull")
@@ -1319,6 +1384,16 @@ fun analyzeKtFile(
                             // swamp stderr on affected repos. The per-file
                             // summary counts how many files were touched.
                         } finally {
+                            if (recordCalleeAggregate) {
+                                val aggregateNs = if (calleeAggregateNs > 0L) {
+                                    calleeAggregateNs
+                                } else if (calleeAggregateStart > 0L) {
+                                    System.nanoTime() - calleeAggregateStart
+                                } else {
+                                    0L
+                                }
+                                perf?.recordCallCallee(callee, aggregateNs, status)
+                            }
                             perf?.recordCallSite(path, line, col, callee, System.nanoTime() - siteStart, status)
                         }
                     }

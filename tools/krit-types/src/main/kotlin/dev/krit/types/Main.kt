@@ -334,6 +334,7 @@ class DaemonSession(
         val files = mutableMapOf<String, FileResult>()
         val deps = mutableMapOf<String, ClassResult>()
         val tracker = DepTracker()
+        val importCache = ImportLookupCache()
         val perf = KotlinPerf(request.timings)
         val activePerf = if (perf.enabled) perf else null
         val callFilter = request.callFilter ?: args.callFilter
@@ -397,7 +398,7 @@ class DaemonSession(
         perf.track("kotlinDaemonAnalyzeFiles") {
             for (ktFile in filesToAnalyze) {
                 try {
-                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, callFilter)
+                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, callFilter, importCache)
                     if (ok) processed++ else skipped++
                 } catch (e: Exception) {
                     skipped++
@@ -572,14 +573,71 @@ data class CallCalleePerf(
     var maxNs: Long = 0
 )
 
+data class RuleTargetProfile(
+    val ruleID: String,
+    val allCalls: Boolean,
+    val calleeNames: Set<String>,
+    val targetFqns: Set<String>,
+    val annotatedIdentifiers: Set<String>,
+    val derivedCalleeNames: Set<String>,
+    val disabledReason: String
+)
+
+data class SkippedCalleePerf(
+    val callee: String,
+    var count: Long = 0,
+    var durationNs: Long = 0,
+    var maxNs: Long = 0
+)
+
+data class LexicalContextPerf(
+    val key: String,
+    val callee: String,
+    val receiverKind: String,
+    val importState: String,
+    val packageName: String,
+    var count: Long = 0,
+    var attempted: Long = 0,
+    var skipped: Long = 0,
+    var durationNs: Long = 0,
+    var maxNs: Long = 0
+)
+
+data class RuleTargetPerf(
+    val ruleID: String,
+    var count: Long = 0,
+    var attempted: Long = 0,
+    var skipped: Long = 0,
+    var resolved: Long = 0,
+    var fallback: Long = 0,
+    var exception: Long = 0,
+    var durationNs: Long = 0,
+    var maxNs: Long = 0
+)
+
 data class CallFilter(
     val enabled: Boolean,
     val calleeNames: Set<String>,
-    val targetFqns: Set<String> = emptySet()
+    val targetFqns: Set<String> = emptySet(),
+    val ruleProfiles: List<RuleTargetProfile> = emptyList()
 ) {
     fun shouldResolve(callee: String): Boolean {
         if (!enabled) return true
         return calleeNames.contains(callee)
+    }
+
+    fun matchingRuleIDs(callee: String): List<String> {
+        if (ruleProfiles.isEmpty()) return emptyList()
+        val out = mutableListOf<String>()
+        for (profile in ruleProfiles) {
+            if (profile.allCalls ||
+                profile.calleeNames.contains(callee) ||
+                profile.derivedCalleeNames.contains(callee)
+            ) {
+                out.add(profile.ruleID)
+            }
+        }
+        return out
     }
 }
 
@@ -589,11 +647,73 @@ fun loadCallFilter(path: String?): CallFilter? {
         val json = File(path).readText()
         val names = extractJsonStringArray(json, "calleeNames") ?: emptyList()
         val fqns = extractJsonStringArray(json, "targetFqns") ?: emptyList()
-        CallFilter(enabled = true, calleeNames = names.toSet(), targetFqns = fqns.toSet())
+        val ruleProfiles = extractRuleTargetProfiles(json)
+        CallFilter(enabled = true, calleeNames = names.toSet(), targetFqns = fqns.toSet(), ruleProfiles = ruleProfiles)
     } catch (e: Exception) {
         System.err.println("Failed to read --call-filter $path: ${e.message}")
         null
     }
+}
+
+fun extractRuleTargetProfiles(json: String): List<RuleTargetProfile> {
+    val objects = extractJsonObjectArray(json, "ruleProfiles") ?: return emptyList()
+    return objects.mapNotNull { obj ->
+        val ruleID = extractJsonString(obj, "ruleID") ?: return@mapNotNull null
+        RuleTargetProfile(
+            ruleID = ruleID,
+            allCalls = extractJsonBoolean(obj, "allCalls") ?: false,
+            calleeNames = (extractJsonStringArray(obj, "calleeNames") ?: emptyList()).toSet(),
+            targetFqns = (extractJsonStringArray(obj, "targetFQNs") ?: emptyList()).toSet(),
+            annotatedIdentifiers = (extractJsonStringArray(obj, "annotatedIdentifiers") ?: emptyList()).toSet(),
+            derivedCalleeNames = (extractJsonStringArray(obj, "derivedCalleeNames") ?: emptyList()).toSet(),
+            disabledReason = extractJsonString(obj, "disabledReason") ?: ""
+        )
+    }
+}
+
+fun extractJsonObjectArray(json: String, key: String): List<String>? {
+    val keyPattern = """"$key""""
+    val keyIdx = json.indexOf(keyPattern)
+    if (keyIdx < 0) return null
+    val arrayStart = json.indexOf('[', keyIdx)
+    if (arrayStart < 0) return null
+    val out = mutableListOf<String>()
+    var depth = 0
+    var objStart = -1
+    var inString = false
+    var escaped = false
+    var i = arrayStart + 1
+    while (i < json.length) {
+        val c = json[i]
+        if (inString) {
+            if (escaped) {
+                escaped = false
+            } else if (c == '\\') {
+                escaped = true
+            } else if (c == '"') {
+                inString = false
+            }
+            i++
+            continue
+        }
+        when (c) {
+            '"' -> inString = true
+            '{' -> {
+                if (depth == 0) objStart = i
+                depth++
+            }
+            '}' -> {
+                depth--
+                if (depth == 0 && objStart >= 0) {
+                    out.add(json.substring(objStart, i + 1))
+                    objStart = -1
+                }
+            }
+            ']' -> if (depth == 0) return out
+        }
+        i++
+    }
+    return out
 }
 
 fun KotlinPerf.recordCallFilterSummary(filter: CallFilter?) {
@@ -603,7 +723,8 @@ fun KotlinPerf.recordCallFilterSummary(filter: CallFilter?) {
         mapOf(
             "enabled" to (if (filter.enabled) 1L else 0L),
             "calleeNames" to filter.calleeNames.size.toLong(),
-            "targetFqns" to filter.targetFqns.size.toLong()
+            "targetFqns" to filter.targetFqns.size.toLong(),
+            "ruleProfiles" to filter.ruleProfiles.size.toLong()
         )
     )
 }
@@ -647,6 +768,10 @@ class KotlinPerf(val enabled: Boolean = false) {
     )
     private val slowCallSites = mutableListOf<SlowCallSite>()
     private val callCallees = linkedMapOf<String, CallCalleePerf>()
+    private val skippedCallees = linkedMapOf<String, SkippedCalleePerf>()
+    private val lexicalContexts = linkedMapOf<String, LexicalContextPerf>()
+    private val ruleTargets = linkedMapOf<String, RuleTargetPerf>()
+    private val memoProbeKeys = linkedMapOf<String, MutableSet<String>>()
 
     fun <T> track(name: String, block: () -> T): T {
         if (!enabled) return block()
@@ -721,6 +846,72 @@ class KotlinPerf(val enabled: Boolean = false) {
             status.startsWith("fallback-") -> agg.fallback++
             status == "exception" -> agg.exception++
         }
+    }
+
+    fun recordSkippedCallee(callee: String, durationNs: Long) {
+        if (!enabled) return
+        val key = callee.ifEmpty { "<empty>" }.take(160)
+        val agg = skippedCallees.getOrPut(key) { SkippedCalleePerf(key) }
+        agg.count++
+        agg.durationNs += durationNs
+        if (durationNs > agg.maxNs) agg.maxNs = durationNs
+    }
+
+    fun recordLexicalContext(
+        callee: String,
+        receiverKind: String,
+        importState: String,
+        packageName: String,
+        durationNs: Long,
+        status: String
+    ) {
+        if (!enabled) return
+        val normalizedCallee = callee.ifEmpty { "<empty>" }.take(160)
+        val normalizedPackage = packageName.ifEmpty { "<default>" }.take(160)
+        val key = "$normalizedCallee|$receiverKind|$importState|$normalizedPackage"
+        val agg = lexicalContexts.getOrPut(key) {
+            LexicalContextPerf(key, normalizedCallee, receiverKind, importState, normalizedPackage)
+        }
+        agg.count++
+        agg.durationNs += durationNs
+        if (durationNs > agg.maxNs) agg.maxNs = durationNs
+        if (status == "skipped-filter") {
+            agg.skipped++
+        } else {
+            agg.attempted++
+        }
+    }
+
+    fun recordRuleTargets(ruleIDs: List<String>, durationNs: Long, status: String) {
+        if (!enabled || ruleIDs.isEmpty()) return
+        for (ruleID in ruleIDs) {
+            val agg = ruleTargets.getOrPut(ruleID) { RuleTargetPerf(ruleID) }
+            agg.count++
+            agg.durationNs += durationNs
+            if (durationNs > agg.maxNs) agg.maxNs = durationNs
+            when {
+                status == "skipped-filter" -> agg.skipped++
+                status == "resolved" -> { agg.attempted++; agg.resolved++ }
+                status.startsWith("fallback-") -> { agg.attempted++; agg.fallback++ }
+                status == "exception" -> { agg.attempted++; agg.exception++ }
+                else -> agg.attempted++
+            }
+        }
+    }
+
+    fun recordMemoProbe(name: String, key: String) {
+        if (!enabled) return
+        val keys = memoProbeKeys.getOrPut(name) { mutableSetOf() }
+        if (keys.add(key)) {
+            count("kotlinMemoProbe.$name.miss")
+        } else {
+            count("kotlinMemoProbe.$name.hit")
+        }
+    }
+
+    fun recordMemoResult(name: String, hit: Boolean) {
+        if (!enabled) return
+        count("kotlinMemoProbe.$name.${if (hit) "hit" else "miss"}")
     }
 
     fun recordFile(file: FilePerf) {
@@ -823,6 +1014,35 @@ class KotlinPerf(val enabled: Boolean = false) {
             if (byFallback.isNotEmpty()) {
                 all.add(PerfEntry("kotlinCallResolveTopFallbackCallees", byFallback.sumOf { it.durationMs }, children = byFallback))
             }
+
+            val falseBroad = callCallees.values
+                .filter { it.count >= 5 && it.fallback > 0 && (it.fallback * 1000L) / it.count >= 500L }
+                .sortedWith(compareByDescending<CallCalleePerf> { it.durationNs }.thenByDescending { it.fallback }.thenBy { it.callee })
+                .take(25)
+                .map { it.toPerfEntry() }
+            if (falseBroad.isNotEmpty()) {
+                all.add(PerfEntry("kotlinCallResolveFalseBroadCallees", falseBroad.sumOf { it.durationMs }, children = falseBroad))
+            }
+        }
+        if (skippedCallees.isNotEmpty()) {
+            val skipped = skippedCallees.values
+                .sortedWith(compareByDescending<SkippedCalleePerf> { it.count }.thenByDescending { it.durationNs }.thenBy { it.callee })
+                .take(25)
+                .map { it.toPerfEntry() }
+            all.add(PerfEntry("kotlinCallResolveTopSkippedCallees", skipped.sumOf { it.durationMs }, children = skipped))
+        }
+        if (lexicalContexts.isNotEmpty()) {
+            val contexts = lexicalContexts.values
+                .sortedWith(compareByDescending<LexicalContextPerf> { it.durationNs }.thenByDescending { it.count }.thenBy { it.key })
+                .take(25)
+                .map { it.toPerfEntry() }
+            all.add(PerfEntry("kotlinCallResolveLexicalContextTop25", contexts.sumOf { it.durationMs }, children = contexts))
+        }
+        if (ruleTargets.isNotEmpty()) {
+            val targets = ruleTargets.values
+                .sortedWith(compareByDescending<RuleTargetPerf> { it.durationNs }.thenByDescending { it.count }.thenBy { it.ruleID })
+                .map { it.toPerfEntry() }
+            all.add(PerfEntry("kotlinCallResolveRuleTargetAttribution", targets.sumOf { it.durationMs }, children = targets))
         }
 
         return buildString {
@@ -851,6 +1071,57 @@ fun CallCalleePerf.toPerfEntry(): PerfEntry {
             "fallbackRatePermille" to fallbackRatePermille
         ),
         attributes = mapOf("callee" to callee)
+    )
+}
+
+fun SkippedCalleePerf.toPerfEntry(): PerfEntry {
+    return PerfEntry(
+        callee,
+        durationNs / 1_000_000,
+        metrics = mapOf(
+            "durationMs" to durationNs / 1_000_000,
+            "count" to count,
+            "maxMs" to maxNs / 1_000_000
+        ),
+        attributes = mapOf("callee" to callee)
+    )
+}
+
+fun LexicalContextPerf.toPerfEntry(): PerfEntry {
+    return PerfEntry(
+        key,
+        durationNs / 1_000_000,
+        metrics = mapOf(
+            "durationMs" to durationNs / 1_000_000,
+            "count" to count,
+            "attempted" to attempted,
+            "skipped" to skipped,
+            "maxMs" to maxNs / 1_000_000
+        ),
+        attributes = mapOf(
+            "callee" to callee,
+            "receiverKind" to receiverKind,
+            "importState" to importState,
+            "package" to packageName
+        )
+    )
+}
+
+fun RuleTargetPerf.toPerfEntry(): PerfEntry {
+    return PerfEntry(
+        ruleID,
+        durationNs / 1_000_000,
+        metrics = mapOf(
+            "durationMs" to durationNs / 1_000_000,
+            "count" to count,
+            "attempted" to attempted,
+            "skipped" to skipped,
+            "resolved" to resolved,
+            "fallback" to fallback,
+            "exception" to exception,
+            "maxMs" to maxNs / 1_000_000
+        ),
+        attributes = mapOf("rule" to ruleID)
     )
 }
 
@@ -1173,6 +1444,10 @@ class DepTracker {
     }
 }
 
+class ImportLookupCache {
+    val sourcePathByFqn: MutableMap<String, String?> = mutableMapOf()
+}
+
 fun KotlinPerf.recordCacheDepsSummary(tracker: DepTracker) {
     if (!enabled) return
     addInstant(
@@ -1220,6 +1495,31 @@ fun sourceFilePathOf(symbol: KaSymbol?): String? {
     return vf.path
 }
 
+fun lexicalReceiverKind(expr: KtCallExpression): String {
+    val parent = expr.parent
+    return when {
+        parent is KtDotQualifiedExpression && parent.selectorExpression == expr -> "dot"
+        parent is KtSafeQualifiedExpression && parent.selectorExpression == expr -> "safe"
+        else -> "none"
+    }
+}
+
+fun importStateForCallee(ktFile: KtFile, callee: String): String {
+    if (callee.isEmpty()) return "empty"
+    var hasWildcard = false
+    for (import in ktFile.importDirectives) {
+        val aliasName = import.aliasName
+        if (aliasName == callee) return "alias"
+        val imported = import.importedFqName?.asString() ?: continue
+        if (import.isAllUnder) {
+            hasWildcard = true
+            continue
+        }
+        if (imported.substringAfterLast('.') == callee) return "explicit"
+    }
+    return if (hasWildcard) "wildcard" else "none"
+}
+
 @OptIn(KaExperimentalApi::class)
 fun analyzeKtFile(
     ktFile: KtFile,
@@ -1228,7 +1528,8 @@ fun analyzeKtFile(
     includeExpressions: Boolean,
     depTracker: DepTracker? = null,
     perf: KotlinPerf? = null,
-    callFilter: CallFilter? = null
+    callFilter: CallFilter? = null,
+    importCache: ImportLookupCache? = null
 ): Boolean {
     val path = ktFile.virtualFilePath
     val fileStart = System.nanoTime()
@@ -1302,17 +1603,40 @@ fun analyzeKtFile(
             // path as a dep. This is the primary "direct dependency" signal.
             if (depTracker != null) {
                 val importStart = System.nanoTime()
+                val uniqueImports = linkedMapOf<String, org.jetbrains.kotlin.name.FqName>()
                 for (import in ktFile.importDirectives) {
                     val importedFqName = import.importedFqName ?: continue
+                    perf?.count("kotlinImportDeps.import")
+                    uniqueImports[importedFqName.asString()] = importedFqName
+                }
+                for ((importedFqNameString, importedFqName) in uniqueImports) {
+                    perf?.count("kotlinImportDeps.uniqueImport")
                     try {
-                        val classId = org.jetbrains.kotlin.name.ClassId.topLevel(importedFqName)
-                        val findClassStart = System.nanoTime()
-                        val sym = findClass(classId)
-                        perf?.count("kotlinImportDeps.findClass", System.nanoTime() - findClassStart)
-                        if (sym == null) continue
-                        val sourcePathStart = System.nanoTime()
-                        sourceFilePathOf(sym)?.let { depTracker.recordDepPath(path, it) }
-                        perf?.count("kotlinImportDeps.sourceFilePath", System.nanoTime() - sourcePathStart)
+                        var sourcePath: String?
+                        val cache = importCache
+                        if (cache != null && cache.sourcePathByFqn.containsKey(importedFqNameString)) {
+                            perf?.count("kotlinImportDeps.cacheHit")
+                            sourcePath = cache.sourcePathByFqn[importedFqNameString]
+                            if (sourcePath == null) perf?.count("kotlinImportDeps.cacheNullHit")
+                        } else {
+                            perf?.count("kotlinImportDeps.cacheMiss")
+                            val classId = org.jetbrains.kotlin.name.ClassId.topLevel(importedFqName)
+                            val findClassStart = System.nanoTime()
+                            val sym = findClass(classId)
+                            perf?.count("kotlinImportDeps.findClass", System.nanoTime() - findClassStart)
+                            if (sym == null) {
+                                perf?.count("kotlinImportDeps.findClassNull")
+                                if (cache != null) cache.sourcePathByFqn[importedFqNameString] = null
+                                continue
+                            }
+                            val sourcePathStart = System.nanoTime()
+                            sourcePath = sourceFilePathOf(sym)
+                            perf?.count("kotlinImportDeps.sourceFilePath", System.nanoTime() - sourcePathStart)
+                            if (sourcePath == null) perf?.count("kotlinImportDeps.sourcePathNull")
+                            if (cache != null) cache.sourcePathByFqn[importedFqNameString] = sourcePath
+                        }
+                        perf?.recordMemoProbe("importFqn", importedFqNameString)
+                        sourcePath?.let { depTracker.recordDepPath(path, it) }
                     } catch (_: Throwable) {}
                 }
                 importDepsNs += System.nanoTime() - importStart
@@ -1361,6 +1685,9 @@ fun analyzeKtFile(
                         var recordCalleeAggregate = false
                         var calleeAggregateStart = 0L
                         var calleeAggregateNs = 0L
+                        var receiverKind = "unknown"
+                        var importState = "unknown"
+                        var ruleTargetIDs: List<String> = emptyList()
                         val siteStart = System.nanoTime()
                         try {
                             val locationStart = System.nanoTime()
@@ -1369,6 +1696,7 @@ fun analyzeKtFile(
                             col = offset - document.getLineStartOffset(line - 1) + 1
                             val key = "$line:$col"
                             perf?.count("kotlinCallResolve.location", System.nanoTime() - locationStart)
+                            perf?.recordMemoProbe("callSite", "$path:$key:${expr.calleeExpression?.text ?: ""}")
                             if (key in expressions) {
                                 perf?.count("kotlinCallResolveDuplicate")
                                 status = "duplicate"
@@ -1377,12 +1705,18 @@ fun analyzeKtFile(
                             val calleeTextStart = System.nanoTime()
                             callee = expr.calleeExpression?.text ?: ""
                             perf?.count("kotlinCallResolve.calleeText", System.nanoTime() - calleeTextStart)
+                            val lexicalStart = System.nanoTime()
+                            receiverKind = lexicalReceiverKind(expr)
+                            importState = importStateForCallee(ktFile, callee)
+                            ruleTargetIDs = callFilter?.matchingRuleIDs(callee) ?: emptyList()
+                            perf?.count("kotlinCallResolve.lexicalContext", System.nanoTime() - lexicalStart)
                             perf?.count("kotlinCallResolveAttempt")
                             val filterStart = System.nanoTime()
                             val shouldResolve = callFilter == null || callFilter.shouldResolve(callee)
                             perf?.count("kotlinCallResolve.filterCheck", System.nanoTime() - filterStart)
                             if (!shouldResolve) {
                                 perf?.count("kotlinCallResolveSkippedByFilter")
+                                perf?.recordSkippedCallee(callee, System.nanoTime() - siteStart)
                                 status = "skipped-filter"
                                 continue
                             }
@@ -1483,6 +1817,9 @@ fun analyzeKtFile(
                                 perf?.recordCallCallee(callee, aggregateNs, status)
                             }
                             perf?.recordCallSite(path, line, col, callee, System.nanoTime() - siteStart, status)
+                            val siteNs = System.nanoTime() - siteStart
+                            perf?.recordLexicalContext(callee, receiverKind, importState, pkg, siteNs, status)
+                            perf?.recordRuleTargets(ruleTargetIDs, siteNs, status)
                         }
                     }
                     callResolveNs += System.nanoTime() - callResolveStart
@@ -1674,6 +2011,7 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
 
     val files = mutableMapOf<String, FileResult>()
     val deps = mutableMapOf<String, ClassResult>()
+    val importCache = ImportLookupCache()
 
     val allKtFiles = perf.track("kotlinPsiRoots") {
         sourceModule.psiRoots.filterIsInstance<KtFile>()
@@ -1740,7 +2078,7 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
     var skipped = 0
     perf.track("kotlinAnalyzeFiles") {
         for ((i, ktFile) in ktFiles.withIndex()) {
-            val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, args.callFilter)
+            val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, args.callFilter, importCache)
             if (ok) processed++ else skipped++
             if ((i + 1) % progressStep == 0) {
                 System.err.println("  ... ${i + 1}/$total (${processed} processed, ${skipped} skipped)")
@@ -1843,6 +2181,8 @@ fun buildCacheDepsJson(tracker: DepTracker): String {
 @OptIn(KaExperimentalApi::class)
 fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(symbol: KaNamedClassSymbol, perf: KotlinPerf? = null): ClassResult {
     val fqn = symbol.classId?.asFqNameString() ?: symbol.name.asString()
+    perf?.count("kotlinDeclarationProfile.classShell")
+    perf?.recordMemoProbe("classShell", fqn)
     val kind = when {
         symbol.classKind == KaClassKind.INTERFACE && symbol.modality == KaSymbolModality.SEALED -> "sealed interface"
         symbol.classKind == KaClassKind.CLASS && symbol.modality == KaSymbolModality.SEALED -> "sealed class"
@@ -1856,13 +2196,19 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(symbol: KaNamedClas
     val superTypesStart = System.nanoTime()
     val supertypes = symbol.superTypes.mapNotNull { type ->
         (type as? KaClassType)?.classId?.asFqNameString()
-    }.filter { it != "kotlin.Any" }
+    }.filter { it != "kotlin.Any" }.also { values ->
+        for (value in values) {
+            perf?.count("kotlinDeclarationProfile.supertypes")
+            perf?.recordMemoProbe("renderType", value)
+        }
+    }
     perf?.addPhaseTotal("kotlinExtractClass.superTypes", System.nanoTime() - superTypesStart)
 
     val members = mutableListOf<MemberResult>()
 
     val memberScopeStart = System.nanoTime()
     val memberDecls = symbol.memberScope.declarations.toList()
+    perf?.count("kotlinDeclarationProfile.memberScope")
     perf?.addPhaseTotal("kotlinExtractClass.memberScope", System.nanoTime() - memberScopeStart)
 
     for (decl in memberDecls) {
@@ -1871,6 +2217,7 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(symbol: KaNamedClas
                 if (decl.origin != KaSymbolOrigin.INTERSECTION_OVERRIDE &&
                     decl.origin != KaSymbolOrigin.SUBSTITUTION_OVERRIDE) {
                     val memberStart = System.nanoTime()
+                    perf?.count("kotlinDeclarationProfile.memberFunctions")
                     members.add(extractFunction(decl, perf))
                     perf?.addPhaseTotal("kotlinExtractClass.memberFunctions", System.nanoTime() - memberStart)
                 }
@@ -1879,6 +2226,7 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(symbol: KaNamedClas
                 if (decl.origin != KaSymbolOrigin.INTERSECTION_OVERRIDE &&
                     decl.origin != KaSymbolOrigin.SUBSTITUTION_OVERRIDE) {
                     val memberStart = System.nanoTime()
+                    perf?.count("kotlinDeclarationProfile.memberProperties")
                     members.add(extractProperty(decl, perf))
                     perf?.addPhaseTotal("kotlinExtractClass.memberProperties", System.nanoTime() - memberStart)
                 }
@@ -1898,6 +2246,10 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(symbol: KaNamedClas
 
     val annotationsStart = System.nanoTime()
     val annotations = symbol.annotations.mapNotNull { it.classId?.asFqNameString() }
+    for (annotation in annotations) {
+        perf?.count("kotlinDeclarationProfile.classAnnotations")
+        perf?.recordMemoProbe("annotationFqn", annotation)
+    }
     perf?.addPhaseTotal("kotlinExtractClass.annotations", System.nanoTime() - annotationsStart)
 
     return ClassResult(
@@ -1919,18 +2271,27 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(symbol: KaNamedClas
 fun org.jetbrains.kotlin.analysis.api.KaSession.extractFunction(symbol: KaNamedFunctionSymbol, perf: KotlinPerf? = null): MemberResult {
     val signatureStart = System.nanoTime()
     val returnType = symbol.returnType.renderType()
+    perf?.count("kotlinDeclarationProfile.fullSignatures")
+    perf?.recordMemoProbe("renderType", returnType)
     val returnNullable = symbol.returnType.isMarkedNullable
     val params = symbol.valueParameters.map { param ->
         val paramType = param.returnType
+        val rendered = paramType.renderType()
+        perf?.count("kotlinDeclarationProfile.fullSignatures")
+        perf?.recordMemoProbe("renderType", rendered)
         ParamResult(
             name = param.name.asString(),
-            type = paramType.renderType(),
+            type = rendered,
             nullable = paramType.isMarkedNullable
         )
     }
     perf?.addPhaseTotal("kotlinExtractFunction.signature", System.nanoTime() - signatureStart)
     val annotationsStart = System.nanoTime()
     val annotations = symbol.annotations.mapNotNull { it.classId?.asFqNameString() }
+    for (annotation in annotations) {
+        perf?.count("kotlinDeclarationProfile.memberAnnotations")
+        perf?.recordMemoProbe("annotationFqn", annotation)
+    }
     perf?.addPhaseTotal("kotlinExtractFunction.annotations", System.nanoTime() - annotationsStart)
 
     return MemberResult(
@@ -1950,10 +2311,16 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractFunction(symbol: KaNamedF
 fun org.jetbrains.kotlin.analysis.api.KaSession.extractProperty(symbol: KaPropertySymbol, perf: KotlinPerf? = null): MemberResult {
     val annotationsStart = System.nanoTime()
     val annotations = symbol.annotations.mapNotNull { it.classId?.asFqNameString() }
+    for (annotation in annotations) {
+        perf?.count("kotlinDeclarationProfile.memberAnnotations")
+        perf?.recordMemoProbe("annotationFqn", annotation)
+    }
     perf?.addPhaseTotal("kotlinExtractProperty.annotations", System.nanoTime() - annotationsStart)
     val signatureStart = System.nanoTime()
     val returnType = symbol.returnType
     val renderedReturnType = returnType.renderType()
+    perf?.count("kotlinDeclarationProfile.fullSignatures")
+    perf?.recordMemoProbe("renderType", renderedReturnType)
     val returnNullable = returnType.isMarkedNullable
     perf?.addPhaseTotal("kotlinExtractProperty.signature", System.nanoTime() - signatureStart)
     return MemberResult(
@@ -2016,6 +2383,7 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.collectDependencySupertypes(
         // map for the whole run) and per-file (so each cache entry is
         // self-contained).
         val extractStart = System.nanoTime()
+        perf?.recordMemoResult("libraryClassResult", deps.containsKey(fqn))
         val cls = deps.getOrPut(fqn) { extractClass(superSymbol, perf) }
         perf?.count("kotlinDependencySupertypes.libraryExtract", System.nanoTime() - extractStart)
         if (depTracker != null && forFile != null) {

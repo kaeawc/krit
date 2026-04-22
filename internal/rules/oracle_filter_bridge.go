@@ -79,9 +79,18 @@ func BuildOracleCallTargetFilterV2ForFiles(enabled []*v2.Rule, files []*scanner.
 		if spec == nil {
 			continue
 		}
+		profile := oracle.CallTargetRuleProfile{
+			RuleID:               r.ID,
+			AllCalls:             spec.AllCalls,
+			CalleeNames:          append([]string(nil), spec.CalleeNames...),
+			TargetFQNs:           append([]string(nil), spec.TargetFQNs...),
+			AnnotatedIdentifiers: append([]string(nil), spec.AnnotatedIdentifiers...),
+		}
 		if spec.AllCalls {
 			summary.Enabled = false
 			summary.DisabledBy = append(summary.DisabledBy, r.ID)
+			profile.DisabledReason = "allCalls"
+			summary.RuleProfiles = append(summary.RuleProfiles, profile)
 			continue
 		}
 		summary.CalleeNames = append(summary.CalleeNames, spec.CalleeNames...)
@@ -90,16 +99,22 @@ func BuildOracleCallTargetFilterV2ForFiles(enabled []*v2.Rule, files []*scanner.
 			if len(files) == 0 {
 				summary.Enabled = false
 				summary.DisabledBy = append(summary.DisabledBy, r.ID)
+				profile.DisabledReason = "missingFiles"
+				summary.RuleProfiles = append(summary.RuleProfiles, profile)
 				continue
 			}
 			names, uncertain := deriveAnnotatedDeclarationCalleeNames(files, spec.AnnotatedIdentifiers)
 			if uncertain {
 				summary.Enabled = false
 				summary.DisabledBy = append(summary.DisabledBy, r.ID)
+				profile.DisabledReason = "uncertainAnnotatedCallees"
+				summary.RuleProfiles = append(summary.RuleProfiles, profile)
 				continue
 			}
 			summary.CalleeNames = append(summary.CalleeNames, names...)
+			profile.DerivedCalleeNames = append(profile.DerivedCalleeNames, names...)
 		}
+		summary.RuleProfiles = append(summary.RuleProfiles, profile)
 	}
 	return oracle.FinalizeCallTargetFilter(summary)
 }

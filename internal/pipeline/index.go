@@ -874,6 +874,7 @@ func maxIntLocal(a, b int) int {
 }
 
 func buildOracleCallTargetFilterForInvocation(activeRules []*v2.Rule, loadFiles func() []*scanner.File, tracker perf.Tracker, verbose bool) *oracle.CallTargetFilterSummary {
+	recordOracleRuleNeedProfile(activeRules, tracker)
 	if strings.EqualFold(os.Getenv("KRIT_ORACLE_CALL_FILTER"), "off") {
 		perf.AddEntryDetails(tracker, "oracleCallFilterSummary", 0, map[string]int64{"enabled": 0}, map[string]string{"disabled": "env"})
 		return nil
@@ -897,10 +898,11 @@ func buildOracleCallTargetFilterForInvocation(activeRules []*v2.Rule, loadFiles 
 		enabled = 1
 	}
 	perf.AddEntryDetails(tracker, "oracleCallFilterSummary", 0, map[string]int64{
-		"enabled":     enabled,
-		"calleeNames": int64(len(callFilter.CalleeNames)),
-		"targetFqns":  int64(len(callFilter.TargetFQNs)),
-		"disabledBy":  int64(len(callFilter.DisabledBy)),
+		"enabled":      enabled,
+		"calleeNames":  int64(len(callFilter.CalleeNames)),
+		"targetFqns":   int64(len(callFilter.TargetFQNs)),
+		"ruleProfiles": int64(len(callFilter.RuleProfiles)),
+		"disabledBy":   int64(len(callFilter.DisabledBy)),
 	}, callTargetFilterPerfAttrs(callFilter))
 	if verbose {
 		if callFilter.Enabled {
@@ -915,6 +917,60 @@ func buildOracleCallTargetFilterForInvocation(activeRules []*v2.Rule, loadFiles 
 		return nil
 	}
 	return &callFilter
+}
+
+func recordOracleRuleNeedProfile(activeRules []*v2.Rule, tracker perf.Tracker) {
+	var active, needsOracle, needsTypeInfo, needsResolver int64
+	var oracleAllFiles, oracleFiltered int64
+	var callTargetRules, callTargetAllCalls, callTargetCalleeRules, callTargetFqnRules, callTargetAnnotatedRules int64
+	for _, r := range activeRules {
+		if r == nil {
+			continue
+		}
+		active++
+		if r.Needs.Has(v2.NeedsResolver) {
+			needsResolver++
+		}
+		if r.Needs.Has(v2.NeedsOracle) {
+			needsOracle++
+			if r.Oracle == nil || r.Oracle.AllFiles {
+				oracleAllFiles++
+			} else if len(r.Oracle.Identifiers) > 0 {
+				oracleFiltered++
+			}
+		}
+		if r.Needs.Has(v2.NeedsTypeInfo) {
+			needsTypeInfo++
+		}
+		if r.OracleCallTargets != nil {
+			callTargetRules++
+			if r.OracleCallTargets.AllCalls {
+				callTargetAllCalls++
+			}
+			if len(r.OracleCallTargets.CalleeNames) > 0 {
+				callTargetCalleeRules++
+			}
+			if len(r.OracleCallTargets.TargetFQNs) > 0 {
+				callTargetFqnRules++
+			}
+			if len(r.OracleCallTargets.AnnotatedIdentifiers) > 0 {
+				callTargetAnnotatedRules++
+			}
+		}
+	}
+	perf.AddEntryDetails(tracker, "oracleRuleNeedProfile", 0, map[string]int64{
+		"activeRules":              active,
+		"needsResolver":            needsResolver,
+		"needsOracle":              needsOracle,
+		"needsTypeInfo":            needsTypeInfo,
+		"oracleAllFilesRules":      oracleAllFiles,
+		"oracleFilteredRules":      oracleFiltered,
+		"callTargetRules":          callTargetRules,
+		"callTargetAllCallsRules":  callTargetAllCalls,
+		"callTargetCalleeRules":    callTargetCalleeRules,
+		"callTargetFqnRules":       callTargetFqnRules,
+		"callTargetAnnotatedRules": callTargetAnnotatedRules,
+	}, nil)
 }
 
 func callTargetFilterPerfAttrs(callFilter oracle.CallTargetFilterSummary) map[string]string {

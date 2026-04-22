@@ -45,7 +45,7 @@ func flatForEachRelevantDeclarationChild(file *scanner.File, idx uint32, fn func
 		}
 		switch file.FlatType(child) {
 		case "property_declaration", "function_declaration", "class_declaration",
-			"object_declaration", "class_body", "class_member_declarations",
+			"object_declaration", "type_alias", "class_body", "class_member_declarations",
 			"statements", "function_body", "lambda_literal",
 			"control_structure_body", "catch_block", "finally_block",
 			"primary_constructor", "secondary_constructor",
@@ -170,4 +170,3 @@ func applyModifierText(flags *modifierFlags, text string) {
 		flags.enum = true
 	}
 }
-

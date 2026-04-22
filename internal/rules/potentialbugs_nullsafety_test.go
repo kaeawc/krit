@@ -590,10 +590,10 @@ fun lookup(other: Other, key: String) {
 // --- CastNullableToNonNullableType ---
 
 func TestCastNullableToNonNullableType_Positive(t *testing.T) {
-	findings := runRuleByName(t, "CastNullableToNonNullableType", `
+	findings := runRuleByNameWithResolver(t, "CastNullableToNonNullableType", `
 package test
-fun convert(obj: Any?) {
-    val str = obj? as String
+fun convert(obj: String?) {
+    val str = obj as String
 }
 `)
 	if len(findings) == 0 {
@@ -601,8 +601,42 @@ fun convert(obj: Any?) {
 	}
 }
 
+func TestCastNullableToNonNullableType_InferredNullablePositive(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "CastNullableToNonNullableType", `
+package test
+fun convert(flag: Boolean): String {
+    val value = if (flag) "ok" else null
+    return value as String
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for inferred nullable value cast to non-nullable, got none")
+	}
+}
+
+func TestCastNullableToNonNullableType_MultilineGenericPositive(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "CastNullableToNonNullableType", `
+package test
+fun convert(values: List<String>?) {
+    val cast =
+        (values) as
+            List<String>
+    println(cast)
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for multiline nullable generic cast, got none")
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected fix for multiline nullable generic cast")
+	}
+	if findings[0].Fix.Replacement != "as?" {
+		t.Fatalf("expected fix to replace only operator with as?, got %q", findings[0].Fix.Replacement)
+	}
+}
+
 func TestCastNullableToNonNullableType_Negative(t *testing.T) {
-	findings := runRuleByName(t, "CastNullableToNonNullableType", `
+	findings := runRuleByNameWithResolver(t, "CastNullableToNonNullableType", `
 package test
 fun convert(obj: Any?) {
     val str = obj as? String
@@ -610,6 +644,42 @@ fun convert(obj: Any?) {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for safe cast as?, got %d", len(findings))
+	}
+}
+
+func TestCastNullableToNonNullableType_NegativeNullableTarget(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "CastNullableToNonNullableType", `
+package test
+fun convert(obj: String?) {
+    val str = obj as String?
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for nullable target cast, got %d", len(findings))
+	}
+}
+
+func TestCastNullableToNonNullableType_NegativeNullLiteral(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "CastNullableToNonNullableType", `
+package test
+fun convert() {
+    val str = null as String
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for null literal cast, got %d", len(findings))
+	}
+}
+
+func TestCastNullableToNonNullableType_NegativeUnresolvedSource(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "CastNullableToNonNullableType", `
+package test
+fun convert() {
+    val str = missing as String
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for unresolved source nullability, got %d", len(findings))
 	}
 }
 

@@ -135,6 +135,104 @@ fun example() {
 	}
 }
 
+func TestIsNullableFlat_InferredNullableIfExpression(t *testing.T) {
+	src := `
+fun example(flag: Boolean) {
+    val local = if (flag) "ok" else null
+    val value = local
+}
+`
+	file := parseTestFile(t, src)
+	resolver := buildTestResolver(t, file)
+
+	var refIdx uint32
+	var count int
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if refIdx != 0 || file.FlatType(idx) != "simple_identifier" || file.FlatNodeText(idx) != "local" {
+			return
+		}
+		count++
+		if count == 2 {
+			refIdx = idx
+		}
+	})
+	if refIdx == 0 {
+		t.Fatal("expected to find the rhs `local` reference")
+	}
+
+	got := resolver.IsNullableFlat(refIdx, file)
+	if got == nil {
+		t.Fatal("expected IsNullableFlat to return a result, got nil")
+	}
+	if !*got {
+		t.Error("expected `local` reference inferred from if/else null to be nullable")
+	}
+}
+
+func TestIsNullableFlat_LocalDeclarationShadowsParent(t *testing.T) {
+	src := `
+fun example(input: String?) {
+    run {
+        val input: String = "local"
+        val value = input
+    }
+}
+`
+	file := parseTestFile(t, src)
+	resolver := buildTestResolver(t, file)
+
+	var refIdx uint32
+	var count int
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if refIdx != 0 || file.FlatType(idx) != "simple_identifier" || file.FlatNodeText(idx) != "input" {
+			return
+		}
+		count++
+		if count == 3 {
+			refIdx = idx
+		}
+	})
+	if refIdx == 0 {
+		t.Fatal("expected to find the shadowed `input` reference")
+	}
+
+	got := resolver.IsNullableFlat(refIdx, file)
+	if got == nil {
+		t.Fatal("expected IsNullableFlat to return a result, got nil")
+	}
+	if *got {
+		t.Error("expected shadowing local `input` reference to be non-null")
+	}
+}
+
+func TestResolveFlatNode_TypeAliasCarriesNullableTarget(t *testing.T) {
+	src := `
+typealias NullableName = String?
+
+fun example(input: String?) {
+    val value = input as NullableName
+}
+`
+	file := parseTestFile(t, src)
+	resolver := buildTestResolver(t, file)
+
+	typeIdx := flatFirstOfTypeWithText(file, "user_type", "NullableName")
+	if typeIdx == 0 {
+		t.Fatal("expected to find NullableName user_type")
+	}
+
+	got := resolver.ResolveFlatNode(typeIdx, file)
+	if got == nil {
+		t.Fatal("expected resolved alias target, got nil")
+	}
+	if got.Name != "String" {
+		t.Errorf("expected alias target String, got %q", got.Name)
+	}
+	if !got.IsNullable() {
+		t.Error("expected alias target to be nullable")
+	}
+}
+
 // TestInferLambdaLastExpressionFlat_LazyWithCallExpression replaces
 // `TestPropertyInference_LazyDelegate_NodeVsFlatLambdaLastExpression`.
 // Verifies that `val answer by lazy { ... provideLabel() }` infers `answer`'s

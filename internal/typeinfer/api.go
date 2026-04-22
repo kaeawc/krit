@@ -29,6 +29,8 @@ type defaultResolver struct {
 	sealedVariants map[string][]string // sealed type name -> variant names
 	// Enum entries
 	enumEntries map[string][]string // enum type name -> entry names
+	// Type aliases by simple name and FQN.
+	typeAliases map[string]*ResolvedType
 	// Top-level and class-level function return types
 	functions map[string]*ResolvedType // function name -> return type
 	// Extension functions from source
@@ -44,6 +46,7 @@ func NewResolver() *defaultResolver {
 		classFQN:       make(map[string]*ClassInfo),
 		sealedVariants: make(map[string][]string),
 		enumEntries:    make(map[string][]string),
+		typeAliases:    make(map[string]*ResolvedType),
 		functions:      make(map[string]*ResolvedType),
 	}
 }
@@ -231,6 +234,14 @@ func (r *defaultResolver) resolveTypeNodeFlat(idx uint32, file *scanner.File, it
 		}
 	}
 
+	if alias := r.resolveTypeAlias(simpleName, it); alias != nil {
+		result := *alias
+		if hasTypeArgs {
+			r.attachFlatTypeArgs(&result, idx, file, it)
+		}
+		return &result
+	}
+
 	if fqn, ok := PrimitiveTypes[simpleName]; ok {
 		result := &ResolvedType{Name: simpleName, FQN: fqn, Kind: TypePrimitive}
 		if hasTypeArgs {
@@ -259,6 +270,21 @@ func (r *defaultResolver) resolveTypeNodeFlat(idx uint32, file *scanner.File, it
 		r.attachFlatTypeArgs(result, idx, file, it)
 	}
 	return result
+}
+
+func (r *defaultResolver) resolveTypeAlias(simpleName string, it *ImportTable) *ResolvedType {
+	if r == nil || simpleName == "" {
+		return nil
+	}
+	if alias := r.typeAliases[simpleName]; alias != nil {
+		return alias
+	}
+	if it != nil {
+		if fqn := it.Resolve(simpleName); fqn != "" {
+			return r.typeAliases[fqn]
+		}
+	}
+	return nil
 }
 
 func (r *defaultResolver) attachFlatTypeArgs(result *ResolvedType, idx uint32, file *scanner.File, it *ImportTable) {
@@ -299,7 +325,7 @@ func (r *defaultResolver) resolvePropertyTypeFlat(idx uint32, file *scanner.File
 			"long_literal", "real_literal", "null_literal", "parenthesized_expression", "additive_expression",
 			"multiplicative_expression", "comparison_expression", "equality_expression", "conjunction_expression",
 			"disjunction_expression", "prefix_expression", "range_expression", "jump_expression", "this_expression",
-			"simple_identifier":
+			"simple_identifier", "if_expression", "when_expression", "as_expression":
 			return r.ResolveFlatNode(child, file)
 		}
 	}
@@ -388,16 +414,10 @@ func (r *defaultResolver) inferExpressionTypeFlat(idx uint32, file *scanner.File
 		return r.makeResolvedType("IntRange", it, false)
 	case "jump_expression":
 		return r.makeResolvedType("Nothing", it, false)
+	case "control_structure_body", "function_body", "statements", "expression_statement":
+		return r.inferLastExpressionTypeFlat(idx, file, it)
 	case "if_expression":
-		for i := 0; i < file.FlatChildCount(idx); i++ {
-			child := file.FlatChild(idx, i)
-			if file.FlatType(child) == "control_structure_body" {
-				typ := r.inferExpressionTypeFlat(child, file, it)
-				if typ != nil && typ.Kind != TypeUnknown {
-					return typ
-				}
-			}
-		}
+		return r.inferIfExpressionTypeFlat(idx, file, it)
 	case "as_expression":
 		foundAs := false
 		isSafe := false
@@ -424,6 +444,73 @@ func (r *defaultResolver) inferExpressionTypeFlat(idx uint32, file *scanner.File
 		}
 	}
 	return UnknownType()
+}
+
+func (r *defaultResolver) inferLastExpressionTypeFlat(idx uint32, file *scanner.File, it *ImportTable) *ResolvedType {
+	var last uint32
+	for i := 0; i < file.FlatChildCount(idx); i++ {
+		child := file.FlatChild(idx, i)
+		if child == 0 {
+			continue
+		}
+		if !file.FlatIsNamed(child) && !flatTypeCanBeExpressionTerminal(file.FlatType(child)) {
+			continue
+		}
+		last = child
+	}
+	if last == 0 {
+		if strings.TrimSpace(file.FlatNodeText(idx)) == "null" {
+			typ := UnknownType()
+			typ.Nullable = true
+			return typ
+		}
+		return UnknownType()
+	}
+	return r.inferExpressionTypeFlat(last, file, it)
+}
+
+func flatTypeCanBeExpressionTerminal(nodeType string) bool {
+	switch nodeType {
+	case "null_literal", "string_literal", "line_string_literal", "multi_line_string_literal",
+		"integer_literal", "long_literal", "real_literal", "boolean_literal", "character_literal":
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *defaultResolver) inferIfExpressionTypeFlat(idx uint32, file *scanner.File, it *ImportTable) *ResolvedType {
+	var merged *ResolvedType
+	sawNullable := false
+	for i := 0; i < file.FlatChildCount(idx); i++ {
+		child := file.FlatChild(idx, i)
+		if file.FlatType(child) != "control_structure_body" {
+			continue
+		}
+		typ := r.inferExpressionTypeFlat(child, file, it)
+		if typ == nil {
+			continue
+		}
+		if typ.IsNullable() {
+			sawNullable = true
+		}
+		if typ.Kind != TypeUnknown && merged == nil {
+			copy := *typ
+			merged = &copy
+		}
+	}
+	if merged == nil {
+		if sawNullable {
+			typ := UnknownType()
+			typ.Nullable = true
+			return typ
+		}
+		return UnknownType()
+	}
+	if sawNullable {
+		merged.Nullable = true
+	}
+	return merged
 }
 
 func (r *defaultResolver) inferCallExpressionTypeFlat(idx uint32, file *scanner.File, it *ImportTable) *ResolvedType {
@@ -622,6 +709,45 @@ func flatExplicitTypeNode(file *scanner.File, idx uint32) uint32 {
 	return 0
 }
 
+func flatTypeAliasName(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 {
+		return ""
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			return ""
+		}
+		if file.FlatType(child) == "simple_identifier" || file.FlatType(child) == "type_identifier" {
+			return file.FlatNodeText(child)
+		}
+	}
+	return ""
+}
+
+func flatTypeAliasTargetType(file *scanner.File, idx uint32) uint32 {
+	if file == nil || idx == 0 {
+		return 0
+	}
+	seenEquals := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			seenEquals = true
+			continue
+		}
+		if !seenEquals || !file.FlatIsNamed(child) {
+			continue
+		}
+		switch file.FlatType(child) {
+		case "user_type", "nullable_type", "type_identifier", "function_type", "parenthesized_type":
+			return child
+		}
+		if inner := flatFirstResolvableTypeChild(file, child); inner != 0 {
+			return inner
+		}
+	}
+	return 0
+}
+
 func flatNavigationReceiver(file *scanner.File, idx uint32) uint32 {
 	if file == nil || idx == 0 {
 		return 0
@@ -780,4 +906,3 @@ func cleanAnnotationValue(value string) string {
 	}
 	return value
 }
-

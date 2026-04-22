@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/oracle"
@@ -972,48 +971,47 @@ type CastNullableToNonNullableTypeRule struct {
 	BaseRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence — needs the
-// resolver to decide whether the source expression is nullable; without it,
-// reverts to a heuristic. Classified per roadmap/17.
+// Confidence reports a tier-2 (medium) base confidence. The rule is
+// resolver-backed so it only reports when source nullability is known.
 func (r *CastNullableToNonNullableTypeRule) Confidence() float64 { return 0.75 }
-
-var castNullableRe = regexp.MustCompile(`\?\s+as\s+[A-Z]\w+\s*$|[?!]\s+as\s+[A-Z]`)
 
 func (r *CastNullableToNonNullableTypeRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
-	text := file.FlatNodeText(idx)
-	// Skip safe casts
-	if strings.Contains(text, "as?") {
+	cast, ok := unsafeCastExpressionPartsFlat(file, idx)
+	if !ok || cast.safe {
 		return
 	}
-	// Check if the left-hand side is nullable (ends with ? or !!)
-	parts := strings.SplitN(text, " as ", 2)
-	if len(parts) != 2 {
+
+	if unsafeCastIsNullLiteralFlat(file, cast.source) {
 		return
 	}
-	lhs := strings.TrimSpace(parts[0])
-	rhs := strings.TrimSpace(parts[1])
-	if (strings.HasSuffix(lhs, "?") || strings.HasSuffix(lhs, "!!") || strings.HasSuffix(lhs, ")")) && !strings.HasSuffix(rhs, "?") {
-		// If resolver is available, check if source expression is actually nullable
-		if ctx.Resolver != nil && file.FlatChildCount(idx) >= 2 {
-			isNull := ctx.Resolver.IsNullableFlat(file.FlatChild(idx, 0), file)
-			if isNull != nil && !*isNull {
-				return // source is known non-null, cast is safe
-			}
-		}
-		f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-			"Casting a nullable type to a non-nullable type. Use 'as?' instead.")
-		// Fix: replace "as Type" with "as? Type"
-		fixed := lhs + " as? " + rhs
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   int(file.FlatStartByte(idx)),
-			EndByte:     int(file.FlatEndByte(idx)),
-			Replacement: fixed,
-		}
-		ctx.Emit(f)
+	if unsafeCastTypeNodeIsNullableFlat(file, cast.target) {
 		return
 	}
+	if ctx.Resolver == nil {
+		return
+	}
+	targetType := ctx.Resolver.ResolveFlatNode(cast.target, file)
+	if targetType == nil || targetType.Kind == typeinfer.TypeUnknown {
+		return
+	}
+	if targetType.IsNullable() {
+		return
+	}
+	sourceNullable := ctx.Resolver.IsNullableFlat(cast.source, file)
+	if sourceNullable == nil || !*sourceNullable {
+		return
+	}
+
+	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"Casting a nullable type to a non-nullable type. Use 'as?' instead.")
+	f.Fix = &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   int(file.FlatStartByte(cast.op)),
+		EndByte:     int(file.FlatEndByte(cast.op)),
+		Replacement: "as?",
+	}
+	ctx.Emit(f)
 }
 
 // ---------------------------------------------------------------------------

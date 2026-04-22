@@ -24,6 +24,7 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 		{"IgnoredReturnValue", []string{"CheckReturnValue", "CheckResult"}, []string{"CheckReturnValue", "CheckResult"}},
 		{"UnreachableCode", []string{"return", "throw", "break", "continue"}, nil},
 		{"UseIsNullOrEmpty", []string{"isEmpty", "count", ".size", ".length", "\"\""}, nil},
+		{"CastNullableToNonNullableType", []string{" as "}, nil},
 	}
 
 	byID := map[string]*v2.Rule{}

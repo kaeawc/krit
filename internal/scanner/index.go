@@ -278,10 +278,12 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 	// tolerate nil receivers to match the pre-pack fs-backend shape.
 	store := newPackStore(cacheDir)
 	var (
-		symbols  []Symbol
-		refs     []Reference
-		aggBloom *bloom.BloomFilter
-		bloomMu  sync.Mutex
+		symbols       []Symbol
+		refs          []Reference
+		aggBloom      *bloom.BloomFilter
+		bloomMu       sync.Mutex
+		pendingWrites []encodedShardWrite
+		pendingMu     sync.Mutex
 	)
 
 	mergeBloom := func(bf *bloom.BloomFilter) {
@@ -312,13 +314,22 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 			syms, refs = job.Fresh()
 			shardBf = buildShardBloomFromRefs(refs)
 			encoded, _ := encodeShardBloom(shardBf)
-			_ = store.SaveShard(&fileShard{
+			blob, err := encodeShardBlob(&fileShard{
+				Version:     crossFileShardVersion,
 				Path:        job.Path,
 				ContentHash: job.ContentHash,
 				Symbols:     syms,
 				References:  refs,
 				Bloom:       encoded,
 			})
+			if err == nil {
+				pendingMu.Lock()
+				pendingWrites = append(pendingWrites, encodedShardWrite{
+					key:  shardKey(job.Path, job.ContentHash),
+					blob: blob,
+				})
+				pendingMu.Unlock()
+			}
 		}
 		return syms, refs, shardBf
 	}
@@ -418,6 +429,20 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 		})
 	}
 	runPhase("xmlReferenceCollection", xmlJobs, 0, localBufferRefPerJob)
+
+	if len(pendingWrites) > 0 {
+		writeShards := func() {
+			_ = store.SaveEncodedShards(pendingWrites)
+		}
+		if tracker != nil && tracker.IsEnabled() {
+			_ = tracker.Track("shardWrite", func() error {
+				writeShards()
+				return nil
+			})
+		} else {
+			writeShards()
+		}
+	}
 
 	return symbols, refs, aggBloom
 }

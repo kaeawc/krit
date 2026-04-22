@@ -206,14 +206,32 @@ func Invoke(jarPath string, sourceDirs []string, outputPath string, verbose bool
 // cross-file resolution works; the flag only narrows which files
 // contribute expressions/declarations to the output JSON.
 func InvokeWithFiles(jarPath string, sourceDirs []string, outputPath, filesListPath string, verbose bool) (string, error) {
+	return InvokeWithFilesWithOptions(jarPath, sourceDirs, outputPath, filesListPath, verbose, InvocationOptions{})
+}
+
+// InvokeWithFilesWithOptions is InvokeWithFiles plus optional perf
+// instrumentation. The krit-types output schema stays unchanged; Kotlin-side
+// timings are captured through a temporary --timings-out sidecar when a
+// tracker is enabled.
+func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath, filesListPath string, verbose bool, opts InvocationOptions) (string, error) {
+	tracker := opts.tracker()
 	// Check java is available
-	javaPath, err := exec.LookPath("java")
-	if err != nil {
-		return "", fmt.Errorf("java not found in PATH: %w", err)
+	var javaPath string
+	if err := trackOracle(tracker, "javaLookup", func() error {
+		var err error
+		javaPath, err = exec.LookPath("java")
+		if err != nil {
+			return fmt.Errorf("java not found in PATH: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return "", err
 	}
 
 	// Ensure output directory exists
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+	if err := trackOracle(tracker, "outputDirCreate", func() error {
+		return os.MkdirAll(filepath.Dir(outputPath), 0755)
+	}); err != nil {
 		return "", fmt.Errorf("create output dir: %w", err)
 	}
 
@@ -234,6 +252,17 @@ func InvokeWithFiles(jarPath string, sourceDirs []string, outputPath, filesListP
 	if filesListPath != "" {
 		args = append(args, "--files", filesListPath)
 	}
+	var cleanupTimings func()
+	if tracker.IsEnabled() {
+		timingsPath, cleanup, err := tempTimingsPath()
+		if err != nil {
+			return "", err
+		}
+		cleanupTimings = cleanup
+		defer cleanupTimings()
+		args = append(args, "--timings-out", timingsPath)
+		defer addKotlinTimingsFromFile(tracker, timingsPath)
+	}
 
 	if verbose {
 		fmt.Fprintf(os.Stderr, "verbose: Running krit-types: %s %s\n", javaPath, strings.Join(args, " "))
@@ -245,7 +274,13 @@ func InvokeWithFiles(jarPath string, sourceDirs []string, outputPath, filesListP
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	return runOracleProcess(ctx, javaPath, args, outputPath, timeout, graceExit, verbose)
+	var res string
+	err := trackOracle(tracker, "kritTypesProcess", func() error {
+		var err error
+		res, err = runOracleProcess(ctx, javaPath, args, outputPath, timeout, graceExit, verbose)
+		return err
+	})
+	return res, err
 }
 
 // runOracleProcess is the exec+wait+grace-period+stderr-capture core shared by

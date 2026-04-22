@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/store"
 )
 
@@ -161,39 +162,75 @@ func InvokeCached(
 	verbose bool,
 	s *store.FileStore,
 ) (string, error) {
+	return InvokeCachedWithOptions(jarPath, sourceDirs, repoDir, outputPath, filterListPath, verbose, s, InvocationOptions{})
+}
+
+// InvokeCachedWithOptions is InvokeCached plus optional deep perf
+// instrumentation for the cache/filter/JVM path.
+func InvokeCachedWithOptions(
+	jarPath string,
+	sourceDirs []string,
+	repoDir string,
+	outputPath string,
+	filterListPath string,
+	verbose bool,
+	s *store.FileStore,
+	opts InvocationOptions,
+) (string, error) {
+	tracker := opts.tracker()
 	if repoDir == "" {
 		// Fall back to the filter-only path — we need a repo root to anchor
 		// the cache dir, and without it the caching layer can't do its
 		// job safely. Still honor the filter so we don't re-analyze files
 		// no rule cares about.
-		return InvokeWithFiles(jarPath, sourceDirs, outputPath, filterListPath, verbose)
+		addOracleInstant(tracker, "cacheBypass", nil, map[string]string{"reason": "missingRepoDir"})
+		return InvokeWithFilesWithOptions(jarPath, sourceDirs, outputPath, filterListPath, verbose, opts)
 	}
-	cacheDir, err := CacheDir(repoDir)
-	if err != nil {
+	var cacheDir string
+	if err := trackOracle(tracker, "cacheDirInit", func() error {
+		var err error
+		cacheDir, err = CacheDir(repoDir)
+		return err
+	}); err != nil {
 		if verbose {
 			fmt.Fprintf(os.Stderr, "verbose: cache dir init failed (%v), falling back to full run\n", err)
 		}
-		return InvokeWithFiles(jarPath, sourceDirs, outputPath, filterListPath, verbose)
+		addOracleInstant(tracker, "cacheBypass", nil, map[string]string{"reason": "cacheDirInit"})
+		return InvokeWithFilesWithOptions(jarPath, sourceDirs, outputPath, filterListPath, verbose, opts)
 	}
 
-	ktFiles, err := CollectKtFiles(sourceDirs)
-	if err != nil || len(ktFiles) == 0 {
+	var ktFiles []string
+	if err := trackOracle(tracker, "collectKtFiles", func() error {
+		var err error
+		ktFiles, err = CollectKtFiles(sourceDirs)
+		return err
+	}); err != nil || len(ktFiles) == 0 {
 		if verbose {
 			fmt.Fprintf(os.Stderr, "verbose: no .kt files discovered for cache; running full oracle\n")
 		}
-		return InvokeWithFiles(jarPath, sourceDirs, outputPath, filterListPath, verbose)
+		if err != nil {
+			addOracleInstant(tracker, "cacheBypass", nil, map[string]string{"reason": "collectKtFiles", "error": err.Error()})
+		} else {
+			addOracleInstant(tracker, "cacheBypass", map[string]int64{"files": 0}, map[string]string{"reason": "noKtFiles"})
+		}
+		return InvokeWithFilesWithOptions(jarPath, sourceDirs, outputPath, filterListPath, verbose, opts)
 	}
+	addOracleInstant(tracker, "ktFilesDiscovered", map[string]int64{"files": int64(len(ktFiles)), "sourceDirs": int64(len(sourceDirs))}, nil)
 
 	// Apply the rule-classification filter (if any) before cache lookup:
 	// files not in the filter set are dropped from both the hit-lookup and
 	// the miss-analysis stages because no enabled rule has declared a need
 	// for them. This makes the filter and the cache stack multiplicatively.
 	if filterListPath != "" {
-		wanted, ferr := readFilterListFile(filterListPath)
+		var wanted map[string]bool
+		var ferr error
+		start := time.Now()
+		wanted, ferr = readFilterListFile(filterListPath)
 		if ferr != nil {
 			if verbose {
 				fmt.Fprintf(os.Stderr, "verbose: read filter list %s: %v (ignoring filter)\n", filterListPath, ferr)
 			}
+			addOracleEntry(tracker, "readOracleFilterList", start, nil, map[string]string{"error": ferr.Error()})
 		} else {
 			before := len(ktFiles)
 			filtered := ktFiles[:0]
@@ -203,6 +240,11 @@ func InvokeCached(
 				}
 			}
 			ktFiles = filtered
+			addOracleEntry(tracker, "applyOracleFilterList", start, map[string]int64{
+				"before": int64(before),
+				"after":  int64(len(ktFiles)),
+				"wanted": int64(len(wanted)),
+			}, nil)
 			if verbose {
 				fmt.Fprintf(os.Stderr, "verbose: cache filter intersection: %d/%d files after oracle-filter\n", len(ktFiles), before)
 			}
@@ -212,6 +254,11 @@ func InvokeCached(
 	startClassify := time.Now()
 	hits, misses := ClassifyFilesWithStore(s, cacheDir, ktFiles)
 	classifyElapsed := time.Since(startClassify)
+	perf.AddEntryDetails(tracker, "cacheClassify", classifyElapsed, map[string]int64{
+		"files":  int64(len(ktFiles)),
+		"hits":   int64(len(hits)),
+		"misses": int64(len(misses)),
+	}, nil)
 	if verbose {
 		fmt.Fprintf(os.Stderr, "verbose: cache classify: %d hits, %d misses (%s, %d files)\n",
 			len(hits), len(misses), classifyElapsed, len(ktFiles))
@@ -219,13 +266,25 @@ func InvokeCached(
 
 	// Fast path: all hits. Assemble, write, return — no JVM launched.
 	if len(misses) == 0 {
-		merged := AssembleOracle(hits, nil)
-		if err := writeOracleJSON(outputPath, merged); err != nil {
+		var merged *OracleData
+		trackOracle(tracker, "assembleOracleFromCache", func() error {
+			merged = AssembleOracle(hits, nil)
+			return nil
+		})
+		if err := trackOracle(tracker, "writeOracleJSON", func() error {
+			return writeOracleJSON(outputPath, merged)
+		}); err != nil {
 			return "", err
 		}
 		if verbose {
-			count, bytes, _ := CacheStats(cacheDir)
+			var count int
+			var bytes int64
+			trackOracle(tracker, "cacheStats", func() error {
+				count, bytes, _ = CacheStats(cacheDir)
+				return nil
+			})
 			fmt.Fprintf(os.Stderr, "verbose: oracle served entirely from cache (%d entries, %d bytes)\n", count, bytes)
+			addOracleInstant(tracker, "cacheStatsValues", map[string]int64{"entries": int64(count), "bytes": bytes}, nil)
 		}
 		return outputPath, nil
 	}
@@ -235,8 +294,12 @@ func InvokeCached(
 	// across invocations — and fall back to the one-shot jar on any
 	// daemon failure. Tempfiles are prepared unconditionally because
 	// the fallback path needs them.
-	missListPath, missFreshPath, missDepsPath, err := prepareMissTemps(misses)
-	if err != nil {
+	var missListPath, missFreshPath, missDepsPath string
+	if err := trackOracle(tracker, "prepareMissTemps", func() error {
+		var err error
+		missListPath, missFreshPath, missDepsPath, err = prepareMissTemps(misses)
+		return err
+	}); err != nil {
 		return "", err
 	}
 	defer func() {
@@ -247,7 +310,7 @@ func InvokeCached(
 
 	freshData, depsFile, usedDaemon, err := runMissAnalysis(
 		jarPath, sourceDirs, misses,
-		missListPath, missFreshPath, missDepsPath, verbose,
+		missListPath, missFreshPath, missDepsPath, verbose, tracker,
 	)
 	if err != nil {
 		return "", err
@@ -265,7 +328,12 @@ func InvokeCached(
 			fmt.Fprintf(os.Stderr, "verbose: no cache deps returned; cache not updated\n")
 		}
 	} else {
-		written, _ := WriteFreshEntriesToStore(s, cacheDir, freshData, depsFile)
+		var written int
+		trackOracle(tracker, "writeFreshCacheEntries", func() error {
+			written, _ = WriteFreshEntriesToStore(s, cacheDir, freshData, depsFile)
+			return nil
+		})
+		addOracleInstant(tracker, "freshCacheEntriesWritten", map[string]int64{"entries": int64(written)}, nil)
 		if verbose {
 			fmt.Fprintf(os.Stderr, "verbose: wrote %d new cache entries\n", written)
 		}
@@ -291,42 +359,58 @@ func InvokeCached(
 		}
 	}
 	skipped := 0
-	for _, p := range misses {
-		if analyzed[p] {
-			continue
-		}
-		hash, herr := ContentHash(p)
-		if herr != nil {
-			continue
-		}
-		entry := &CacheEntry{
-			V:           CacheVersion,
-			ContentHash: hash,
-			FilePath:    p,
-			Crashed:     true,
-			CrashError:  "jar-skipped: file not in Analysis API KtFile set (typically oversized source)",
-		}
-		writeErr := func() error {
-			if s != nil {
-				return WriteEntryToStore(s, entry)
+	trackOracle(tracker, "writeSkippedPoisonEntries", func() error {
+		for _, p := range misses {
+			if analyzed[p] {
+				continue
 			}
-			return WriteEntry(cacheDir, entry)
-		}()
-		if writeErr == nil {
-			skipped++
+			hash, herr := ContentHash(p)
+			if herr != nil {
+				continue
+			}
+			entry := &CacheEntry{
+				V:           CacheVersion,
+				ContentHash: hash,
+				FilePath:    p,
+				Crashed:     true,
+				CrashError:  "jar-skipped: file not in Analysis API KtFile set (typically oversized source)",
+			}
+			writeErr := func() error {
+				if s != nil {
+					return WriteEntryToStore(s, entry)
+				}
+				return WriteEntry(cacheDir, entry)
+			}()
+			if writeErr == nil {
+				skipped++
+			}
 		}
-	}
+		return nil
+	})
+	addOracleInstant(tracker, "skippedPoisonEntriesWritten", map[string]int64{"entries": int64(skipped)}, nil)
 	if skipped > 0 && verbose {
 		fmt.Fprintf(os.Stderr, "verbose: wrote %d jar-skipped poison entries\n", skipped)
 	}
 
-	merged := AssembleOracle(hits, freshData)
-	if err := writeOracleJSON(outputPath, merged); err != nil {
+	var merged *OracleData
+	trackOracle(tracker, "assembleOracle", func() error {
+		merged = AssembleOracle(hits, freshData)
+		return nil
+	})
+	if err := trackOracle(tracker, "writeOracleJSON", func() error {
+		return writeOracleJSON(outputPath, merged)
+	}); err != nil {
 		return "", err
 	}
 	if verbose {
-		count, bytes, _ := CacheStats(cacheDir)
+		var count int
+		var bytes int64
+		trackOracle(tracker, "cacheStats", func() error {
+			count, bytes, _ = CacheStats(cacheDir)
+			return nil
+		})
 		fmt.Fprintf(os.Stderr, "verbose: cache now has %d entries, %d bytes total\n", count, bytes)
+		addOracleInstant(tracker, "cacheStatsValues", map[string]int64{"entries": int64(count), "bytes": bytes}, nil)
 	}
 	return outputPath, nil
 }
@@ -377,12 +461,22 @@ func runKritTypesCached(
 	sourceDirs []string,
 	missListPath, freshOutPath, depsOutPath string,
 	verbose bool,
+	tracker perf.Tracker,
 ) error {
-	javaPath, err := exec.LookPath("java")
-	if err != nil {
-		return fmt.Errorf("java not found in PATH: %w", err)
+	var javaPath string
+	if err := trackOracle(tracker, "javaLookup", func() error {
+		var err error
+		javaPath, err = exec.LookPath("java")
+		if err != nil {
+			return fmt.Errorf("java not found in PATH: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(freshOutPath), 0o755); err != nil {
+	if err := trackOracle(tracker, "freshOutputDirCreate", func() error {
+		return os.MkdirAll(filepath.Dir(freshOutPath), 0o755)
+	}); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
@@ -396,6 +490,16 @@ func runKritTypesCached(
 		"--files", missListPath,
 		"--cache-deps-out", depsOutPath,
 	}
+	var timingsPath string
+	if tracker != nil && tracker.IsEnabled() {
+		path, cleanup, err := tempTimingsPath()
+		if err != nil {
+			return err
+		}
+		timingsPath = path
+		defer cleanup()
+		args = append(args, "--timings-out", timingsPath)
+	}
 	if verbose {
 		fmt.Fprintf(os.Stderr, "verbose: Running krit-types (cached): %s %s\n", javaPath, strings.Join(args, " "))
 	}
@@ -405,7 +509,15 @@ func runKritTypesCached(
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	_, err = runOracleProcess(ctx, javaPath, args, freshOutPath, timeout, grace, verbose)
+	var err error
+	trackErr := trackOracle(tracker, "kritTypesProcess", func() error {
+		_, err = runOracleProcess(ctx, javaPath, args, freshOutPath, timeout, grace, verbose)
+		return err
+	})
+	if trackErr != nil {
+		return trackErr
+	}
+	addKotlinTimingsFromFile(tracker, timingsPath)
 	return err
 }
 
@@ -433,21 +545,31 @@ func runMissAnalysis(
 	misses []string,
 	missListPath, missFreshPath, missDepsPath string,
 	verbose bool,
+	tracker perf.Tracker,
 ) (*OracleData, *CacheDepsFile, bool, error) {
 	fallback := func(reason string) (*OracleData, *CacheDepsFile, bool, error) {
 		if verbose {
 			fmt.Fprintf(os.Stderr, "verbose: daemon cache path falling back to one-shot: %s\n", reason)
 		}
-		if err := runKritTypesCached(jarPath, sourceDirs, missListPath, missFreshPath, missDepsPath, verbose); err != nil {
+		addOracleInstant(tracker, "missAnalysisFallback", nil, map[string]string{"reason": reason})
+		if err := runKritTypesCached(jarPath, sourceDirs, missListPath, missFreshPath, missDepsPath, verbose, tracker); err != nil {
 			return nil, nil, false, err
 		}
-		fresh, err := readOracleJSON(missFreshPath)
-		if err != nil {
+		var fresh *OracleData
+		if err := trackOracle(tracker, "readFreshOracleJSON", func() error {
+			var err error
+			fresh, err = readOracleJSON(missFreshPath)
+			return err
+		}); err != nil {
 			return nil, nil, false, fmt.Errorf("read fresh oracle: %w", err)
 		}
 		// Same swallowed-error policy as the pre-daemon code — missing
 		// or malformed cache-deps is non-fatal, we just skip cache writes.
-		deps, _ := LoadCacheDeps(missDepsPath)
+		var deps *CacheDepsFile
+		trackOracle(tracker, "readCacheDepsJSON", func() error {
+			deps, _ = LoadCacheDeps(missDepsPath)
+			return nil
+		})
 		return fresh, deps, false, nil
 	}
 
@@ -458,8 +580,12 @@ func runMissAnalysis(
 		return fallback("KRIT_DAEMON_CACHE=off")
 	}
 
-	d, err := ConnectOrStartDaemon(jarPath, sourceDirs, nil, verbose)
-	if err != nil {
+	var d *Daemon
+	if err := trackOracle(tracker, "daemonConnectOrStart", func() error {
+		var err error
+		d, err = ConnectOrStartDaemon(jarPath, sourceDirs, nil, verbose)
+		return err
+	}); err != nil {
 		return fallback(fmt.Sprintf("ConnectOrStartDaemon: %v", err))
 	}
 	// Release (not Close): drops the TCP connection but leaves the
@@ -471,12 +597,24 @@ func runMissAnalysis(
 	defer d.Release()
 
 	if !d.MatchesRepo(sourceDirs) {
+		addOracleInstant(tracker, "daemonRepoMismatch", map[string]int64{"misses": int64(len(misses))}, nil)
 		return fallback("daemon sourceDirs mismatch")
 	}
 
-	fresh, deps, err := d.AnalyzeWithDeps(misses)
-	if err != nil {
+	var fresh *OracleData
+	var deps *CacheDepsFile
+	var kotlinTimings []perf.TimingEntry
+	if err := trackOracle(tracker, "daemonAnalyzeWithDeps", func() error {
+		var err error
+		fresh, deps, kotlinTimings, err = d.AnalyzeWithDepsWithTimings(misses, tracker != nil && tracker.IsEnabled())
+		return err
+	}); err != nil {
 		return fallback(fmt.Sprintf("AnalyzeWithDeps: %v", err))
+	}
+	if len(kotlinTimings) > 0 {
+		kt := tracker.Serial("kotlinTimings")
+		perf.AddEntries(kt, kotlinTimings)
+		kt.End()
 	}
 
 	// AnalyzeWithDeps no longer returns ErrDaemonFileNotInSession — instead

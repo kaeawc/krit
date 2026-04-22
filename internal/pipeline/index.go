@@ -484,16 +484,30 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 
 		// If no cached oracle, try to run krit-types automatically
 		if oraclePath == "" {
-			oracleTracker.Track("jvmAnalyze", func() error {
-				jarPath := oracle.FindJar(scanPaths)
+			jvmTracker := oracleTracker.Serial("jvmAnalyze")
+			_ = func() error {
+				var jarPath string
+				jvmTracker.Track("findJar", func() error {
+					jarPath = oracle.FindJar(scanPaths)
+					return nil
+				})
 				if jarPath == "" {
 					return nil
 				}
-				sourceDirs := oracle.FindSourceDirs(scanPaths)
+				var sourceDirs []string
+				jvmTracker.Track("findSourceDirs", func() error {
+					sourceDirs = oracle.FindSourceDirs(scanPaths)
+					return nil
+				})
 				if len(sourceDirs) == 0 {
 					return nil
 				}
-				cacheDest := oracle.CachePath(scanPaths)
+				perf.AddEntryDetails(jvmTracker, "sourceDirsFound", 0, map[string]int64{"sourceDirs": int64(len(sourceDirs))}, nil)
+				var cacheDest string
+				jvmTracker.Track("resolveOracleCachePath", func() error {
+					cacheDest = oracle.CachePath(scanPaths)
+					return nil
+				})
 				if cacheDest == "" {
 					cacheDest = filepath.Join(os.TempDir(), "krit-types.json")
 				}
@@ -509,9 +523,25 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 				// reproduction.
 				var filterListPath string
 				if !in.NoOracleFilter {
-					filterRules := rules.BuildOracleFilterRulesV2(in.ActiveRules)
-					lightFiles := loadFilesForOracleFilter(in.KotlinFilePaths)
-					summary := oracle.CollectOracleFiles(filterRules, lightFiles)
+					var filterRules []oracle.OracleFilterRule
+					jvmTracker.Track("oracleFilterBuildRules", func() error {
+						filterRules = rules.BuildOracleFilterRulesV2(in.ActiveRules)
+						return nil
+					})
+					var lightFiles []*scanner.File
+					jvmTracker.Track("oracleFilterLoadFiles", func() error {
+						lightFiles = loadFilesForOracleFilter(in.KotlinFilePaths)
+						return nil
+					})
+					var summary oracle.OracleFilterSummary
+					jvmTracker.Track("oracleFilterCollect", func() error {
+						summary = oracle.CollectOracleFiles(filterRules, lightFiles)
+						return nil
+					})
+					perf.AddEntryDetails(jvmTracker, "oracleFilterSummary", 0, map[string]int64{
+						"totalFiles":  int64(summary.TotalFiles),
+						"markedFiles": int64(summary.MarkedFiles),
+					}, map[string]string{"fingerprint": summary.Fingerprint})
 					if in.Verbose {
 						switch {
 						case summary.AllFiles:
@@ -528,13 +558,18 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 						}
 					}
 					if summary.Fingerprint != "" {
-						perf.AddEntry(oracleTracker, "filterFingerprint/"+summary.Fingerprint, 0)
+						perf.AddEntry(jvmTracker, "filterFingerprint/"+summary.Fingerprint, 0)
 					}
 					// Skip the filter entirely if it doesn't reduce the
 					// file set (no benefit, just overhead of writing the
 					// temp file and a krit-types flag).
 					if !summary.AllFiles && summary.MarkedFiles < summary.TotalFiles {
-						fp, werr := oracle.WriteFilterListFile(summary, "")
+						var fp string
+						werr := jvmTracker.Track("oracleFilterWriteList", func() error {
+							var err error
+							fp, err = oracle.WriteFilterListFile(summary, "")
+							return err
+						})
 						if werr != nil {
 							fmt.Fprintf(os.Stderr, "warning: oracle filter list: %v\n", werr)
 						} else if fp != "" {
@@ -551,9 +586,14 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 				var res string
 				var err error
 				if in.NoCacheOracle {
-					res, err = oracle.InvokeWithFiles(jarPath, sourceDirs, cacheDest, filterListPath, in.Verbose)
+					res, err = oracle.InvokeWithFilesWithOptions(jarPath, sourceDirs, cacheDest, filterListPath, in.Verbose, oracle.InvocationOptions{Tracker: jvmTracker})
 				} else {
-					res, err = oracle.InvokeCached(jarPath, sourceDirs, oracle.FindRepoDir(scanPaths), cacheDest, filterListPath, in.Verbose, in.Store)
+					var repoDir string
+					jvmTracker.Track("findRepoDir", func() error {
+						repoDir = oracle.FindRepoDir(scanPaths)
+						return nil
+					})
+					res, err = oracle.InvokeCachedWithOptions(jarPath, sourceDirs, repoDir, cacheDest, filterListPath, in.Verbose, in.Store, oracle.InvocationOptions{Tracker: jvmTracker})
 				}
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "warning: krit-types: %v\n", err)
@@ -561,7 +601,8 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 				}
 				oraclePath = res
 				return nil
-			})
+			}()
+			jvmTracker.End()
 		}
 
 		if oraclePath != "" {

@@ -54,15 +54,27 @@ fun main(args: Array<String>) {
 
 fun runOneShot(parsed: ParsedArgs) {
     val disposable = Disposer.newDisposable("krit-types")
+    val perf = KotlinPerf(parsed.timingsOut != null)
     try {
-        val json = analyzeAndExport(disposable, parsed)
+        val json = analyzeAndExport(disposable, parsed, perf)
         if (parsed.output != null) {
-            File(parsed.output).writeText(json)
+            perf.track("kotlinOutputWrite") {
+                File(parsed.output).writeText(json)
+            }
             System.err.println("Wrote ${parsed.output}")
         } else {
-            println(json)
+            perf.track("kotlinStdoutWrite") {
+                println(json)
+            }
         }
     } finally {
+        if (parsed.timingsOut != null) {
+            try {
+                File(parsed.timingsOut).writeText(perf.toJson())
+            } catch (e: Exception) {
+                System.err.println("Failed to write --timings-out ${parsed.timingsOut}: ${e.message}")
+            }
+        }
         Disposer.dispose(disposable)
     }
 }
@@ -321,12 +333,22 @@ class DaemonSession(
         val files = mutableMapOf<String, FileResult>()
         val deps = mutableMapOf<String, ClassResult>()
         val tracker = DepTracker()
+        val perf = KotlinPerf(request.timings)
 
         if (requestedFiles.isNullOrEmpty()) {
-            return buildDaemonResponseWithDeps(request.id, files, deps, errors, tracker)
+            return buildDaemonResponseWithDeps(request.id, files, deps, errors, tracker, perf)
         }
 
-        val ktFiles = sourceModule.psiRoots.filterIsInstance<KtFile>()
+        val ktFiles = perf.track("kotlinDaemonPsiRoots") {
+            sourceModule.psiRoots.filterIsInstance<KtFile>()
+        }
+        perf.addInstant(
+            "kotlinDaemonRequestSummary",
+            mapOf(
+                "requested" to requestedFiles.size.toLong(),
+                "sessionFiles" to ktFiles.size.toLong()
+            )
+        )
         val filesToAnalyze = mutableListOf<KtFile>()
 
         // NO mtime skipping here (intentional difference from handleAnalyze).
@@ -336,37 +358,62 @@ class DaemonSession(
         // would return an empty FileResult, which the Go side would
         // misinterpret as "jar skipped this file" and write a poison entry
         // over the existing real cache entry — silent data corruption.
-        for (requestedPath in requestedFiles) {
-            val resolvedPath = File(requestedPath).canonicalPath
-            val ktFile = ktFiles.find { file ->
-                file.virtualFilePath == resolvedPath ||
-                    file.virtualFilePath.endsWith(requestedPath) ||
-                    file.virtualFilePath == requestedPath
-            }
-            if (ktFile != null) {
-                filesToAnalyze.add(ktFile)
-                // Update the timestamp so the legacy handleAnalyze path's
-                // mtime skip logic stays consistent if it's called later on
-                // the same session.
-                val fileOnDisk = File(ktFile.virtualFilePath)
-                if (fileOnDisk.exists()) {
-                    fileTimestamps[ktFile.virtualFilePath] = fileOnDisk.lastModified()
+        perf.track("kotlinDaemonMatchRequestedFiles") {
+            for (requestedPath in requestedFiles) {
+                val resolvedPath = File(requestedPath).canonicalPath
+                val ktFile = ktFiles.find { file ->
+                    file.virtualFilePath == resolvedPath ||
+                        file.virtualFilePath.endsWith(requestedPath) ||
+                        file.virtualFilePath == requestedPath
                 }
-            } else {
-                errors[requestedPath] = "File not found in source module"
+                if (ktFile != null) {
+                    filesToAnalyze.add(ktFile)
+                    // Update the timestamp so the legacy handleAnalyze path's
+                    // mtime skip logic stays consistent if it's called later on
+                    // the same session.
+                    val fileOnDisk = File(ktFile.virtualFilePath)
+                    if (fileOnDisk.exists()) {
+                        fileTimestamps[ktFile.virtualFilePath] = fileOnDisk.lastModified()
+                    }
+                } else {
+                    errors[requestedPath] = "File not found in source module"
+                }
             }
         }
+        perf.addInstant(
+            "kotlinDaemonMatchSummary",
+            mapOf(
+                "matched" to filesToAnalyze.size.toLong(),
+                "missing" to errors.size.toLong()
+            )
+        )
 
-        for (ktFile in filesToAnalyze) {
-            try {
-                analyzeKtFile(ktFile, files, deps, args.expressions, tracker)
-            } catch (e: Exception) {
-                errors[ktFile.virtualFilePath] = e.message ?: "Analysis failed"
-                System.err.println("Error analyzing ${ktFile.virtualFilePath}: ${e.message}")
+        var processed = 0
+        var skipped = 0
+        perf.track("kotlinDaemonAnalyzeFiles") {
+            for (ktFile in filesToAnalyze) {
+                try {
+                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, perf)
+                    if (ok) processed++ else skipped++
+                } catch (e: Exception) {
+                    skipped++
+                    errors[ktFile.virtualFilePath] = e.message ?: "Analysis failed"
+                    System.err.println("Error analyzing ${ktFile.virtualFilePath}: ${e.message}")
+                }
             }
         }
+        perf.addInstant(
+            "kotlinDaemonAnalyzeSummary",
+            mapOf(
+                "files" to filesToAnalyze.size.toLong(),
+                "processed" to processed.toLong(),
+                "skipped" to skipped.toLong(),
+                "outputFiles" to files.size.toLong(),
+                "dependencyTypes" to deps.size.toLong()
+            )
+        )
 
-        return buildDaemonResponseWithDeps(request.id, files, deps, errors, tracker)
+        return buildDaemonResponseWithDeps(request.id, files, deps, errors, tracker, perf)
     }
 
     @OptIn(KaExperimentalApi::class)
@@ -401,7 +448,8 @@ class DaemonSession(
 data class DaemonRequest(
     val id: Long,
     val method: String,
-    val files: List<String>? = null
+    val files: List<String>? = null,
+    val timings: Boolean = false
 )
 
 fun parseRequest(json: String): DaemonRequest {
@@ -409,7 +457,8 @@ fun parseRequest(json: String): DaemonRequest {
     val id = extractJsonLong(json, "id") ?: throw IllegalArgumentException("Missing 'id' field")
     val method = extractJsonString(json, "method") ?: throw IllegalArgumentException("Missing 'method' field")
     val files = extractJsonStringArray(json, "files")
-    return DaemonRequest(id, method, files)
+    val timings = extractJsonBoolean(json, "timings") ?: false
+    return DaemonRequest(id, method, files, timings)
 }
 
 fun extractJsonLong(json: String, key: String): Long? {
@@ -428,6 +477,11 @@ fun extractJsonStringArray(json: String, key: String): List<String>? {
     val content = match.groupValues[1].trim()
     if (content.isEmpty()) return emptyList()
     return content.split(",").map { it.trim().removeSurrounding("\"") }
+}
+
+fun extractJsonBoolean(json: String, key: String): Boolean? {
+    val pattern = Regex(""""$key"\s*:\s*(true|false)""")
+    return pattern.find(json)?.groupValues?.get(1)?.toBooleanStrictOrNull()
 }
 
 // escJsonStr returns the INTERIOR of a JSON string literal (no surrounding
@@ -459,6 +513,137 @@ fun escJsonStr(s: String): String {
         }
     }
     return sb.toString()
+}
+
+// --- Perf timing sidecar ---
+
+data class PerfEntry(
+    val name: String,
+    val durationMs: Long,
+    val metrics: Map<String, Long> = emptyMap(),
+    val attributes: Map<String, String> = emptyMap(),
+    val children: List<PerfEntry> = emptyList()
+)
+
+data class FilePerf(
+    val path: String,
+    val totalNs: Long,
+    val analysisSessionNs: Long,
+    val declarationsNs: Long,
+    val importDepsNs: Long,
+    val callCollectNs: Long,
+    val callResolveNs: Long,
+    val declarations: Long,
+    val calls: Long,
+    val expressions: Long,
+    val ok: Boolean
+)
+
+class KotlinPerf(val enabled: Boolean = false) {
+    private val entries = mutableListOf<PerfEntry>()
+    private val fileTimings = mutableListOf<FilePerf>()
+    private val phaseTotals = linkedMapOf<String, Long>()
+
+    fun <T> track(name: String, block: () -> T): T {
+        if (!enabled) return block()
+        val start = System.nanoTime()
+        try {
+            return block()
+        } finally {
+            add(name, System.nanoTime() - start)
+        }
+    }
+
+    fun add(name: String, durationNs: Long, metrics: Map<String, Long> = emptyMap(), attributes: Map<String, String> = emptyMap()) {
+        if (!enabled) return
+        entries.add(PerfEntry(name, durationNs / 1_000_000, metrics, attributes))
+    }
+
+    fun addInstant(name: String, metrics: Map<String, Long> = emptyMap(), attributes: Map<String, String> = emptyMap()) {
+        if (!enabled) return
+        entries.add(PerfEntry(name, 0, metrics, attributes))
+    }
+
+    fun recordFile(file: FilePerf) {
+        if (!enabled) return
+        fileTimings.add(file)
+        phaseTotals["kotlinFileAnalysisSession"] = (phaseTotals["kotlinFileAnalysisSession"] ?: 0L) + file.analysisSessionNs
+        phaseTotals["kotlinFileDeclarations"] = (phaseTotals["kotlinFileDeclarations"] ?: 0L) + file.declarationsNs
+        phaseTotals["kotlinFileImportDeps"] = (phaseTotals["kotlinFileImportDeps"] ?: 0L) + file.importDepsNs
+        phaseTotals["kotlinFileCallCollect"] = (phaseTotals["kotlinFileCallCollect"] ?: 0L) + file.callCollectNs
+        phaseTotals["kotlinFileCallResolve"] = (phaseTotals["kotlinFileCallResolve"] ?: 0L) + file.callResolveNs
+    }
+
+    fun toJson(): String {
+        if (!enabled) return "[]"
+        val all = mutableListOf<PerfEntry>()
+        all.addAll(entries)
+
+        val fileCount = fileTimings.size.toLong()
+        if (fileCount > 0) {
+            for ((name, ns) in phaseTotals) {
+                all.add(PerfEntry(name, ns / 1_000_000, mapOf("files" to fileCount)))
+            }
+
+            val slow = fileTimings.sortedByDescending { it.totalNs }.take(25).map { f ->
+                PerfEntry(
+                    f.path,
+                    f.totalNs / 1_000_000,
+                    metrics = mapOf(
+                        "analysisSessionMs" to f.analysisSessionNs / 1_000_000,
+                        "declarationsMs" to f.declarationsNs / 1_000_000,
+                        "importDepsMs" to f.importDepsNs / 1_000_000,
+                        "callCollectMs" to f.callCollectNs / 1_000_000,
+                        "callResolveMs" to f.callResolveNs / 1_000_000,
+                        "declarations" to f.declarations,
+                        "calls" to f.calls,
+                        "expressions" to f.expressions
+                    ),
+                    attributes = mapOf("ok" to f.ok.toString())
+                )
+            }
+            all.add(PerfEntry("kotlinSlowFilesTop25", slow.sumOf { it.durationMs }, children = slow))
+        }
+
+        return buildString {
+            append("[")
+            all.forEachIndexed { i, entry ->
+                if (i > 0) append(",")
+                appendPerfEntry(this, entry)
+            }
+            append("]")
+        }
+    }
+}
+
+fun appendPerfEntry(sb: StringBuilder, entry: PerfEntry) {
+    sb.append("{")
+    sb.append(""""name":${esc(entry.name)},"durationMs":${entry.durationMs}""")
+    if (entry.metrics.isNotEmpty()) {
+        sb.append(""","metrics":{""")
+        entry.metrics.entries.forEachIndexed { i, (k, v) ->
+            if (i > 0) sb.append(",")
+            sb.append("${esc(k)}:$v")
+        }
+        sb.append("}")
+    }
+    if (entry.attributes.isNotEmpty()) {
+        sb.append(""","attributes":{""")
+        entry.attributes.entries.forEachIndexed { i, (k, v) ->
+            if (i > 0) sb.append(",")
+            sb.append("${esc(k)}:${esc(v)}")
+        }
+        sb.append("}")
+    }
+    if (entry.children.isNotEmpty()) {
+        sb.append(""","children":[""")
+        entry.children.forEachIndexed { i, child ->
+            if (i > 0) sb.append(",")
+            appendPerfEntry(sb, child)
+        }
+        sb.append("]")
+    }
+    sb.append("}")
 }
 
 // --- Build session (shared between one-shot and daemon) ---
@@ -577,9 +762,13 @@ fun buildDaemonResponseWithDeps(
     files: Map<String, FileResult>,
     deps: Map<String, ClassResult>,
     errors: Map<String, String>,
-    tracker: DepTracker
+    tracker: DepTracker,
+    perf: KotlinPerf? = null
 ): String {
     val sb = StringBuilder()
+    val cacheDepsJson = perf?.track("kotlinDaemonCacheDepsJsonBuild") {
+        buildCacheDepsJson(tracker)
+    } ?: buildCacheDepsJson(tracker)
     sb.append("""{"id":$id,"result":""")
     sb.append(buildJsonCompact(files, deps))
     if (errors.isNotEmpty()) {
@@ -591,7 +780,11 @@ fun buildDaemonResponseWithDeps(
         sb.append("}")
     }
     sb.append(""","cacheDeps":""")
-    sb.append(buildCacheDepsJson(tracker))
+    sb.append(cacheDepsJson)
+    if (perf != null && perf.enabled) {
+        sb.append(""","timings":""")
+        sb.append(perf.toJson())
+    }
     sb.append("}")
     return sb.toString()
 }
@@ -759,9 +952,19 @@ fun analyzeKtFile(
     files: MutableMap<String, FileResult>,
     deps: MutableMap<String, ClassResult>,
     includeExpressions: Boolean,
-    depTracker: DepTracker? = null
+    depTracker: DepTracker? = null,
+    perf: KotlinPerf? = null
 ): Boolean {
     val path = ktFile.virtualFilePath
+    val fileStart = System.nanoTime()
+    var analysisSessionNs = 0L
+    var declarationsNs = 0L
+    var importDepsNs = 0L
+    var callCollectNs = 0L
+    var callResolveNs = 0L
+    var declarationCount = 0L
+    var callCount = 0L
+    var expressionCount = 0L
     // Initialize this file's tracker bucket even if we end up recording 0
     // deps — downstream cache writer treats "no entry" as "not analyzed",
     // not "zero deps".
@@ -770,10 +973,13 @@ fun analyzeKtFile(
         depTracker.perFileDeps.getOrPut(path) { mutableMapOf() }
     }
     try {
-        analyze(ktFile) {
+        val sessionStart = System.nanoTime()
+        try {
+            analyze(ktFile) {
             val pkg = ktFile.packageFqName.asString()
             val declarations = mutableListOf<ClassResult>()
 
+            val declarationsStart = System.nanoTime()
             for (decl in ktFile.declarations) {
                 when (decl) {
                     is KtClassOrObject -> {
@@ -802,6 +1008,8 @@ fun analyzeKtFile(
                     }
                 }
             }
+            declarationsNs += System.nanoTime() - declarationsStart
+            declarationCount = declarations.size.toLong()
 
             // Walk imports so same-package and cross-package direct
             // references show up in the dep closure. Import directives
@@ -809,6 +1017,7 @@ fun analyzeKtFile(
             // KaClassLikeSymbol contribute that symbol's containing file
             // path as a dep. This is the primary "direct dependency" signal.
             if (depTracker != null) {
+                val importStart = System.nanoTime()
                 for (import in ktFile.importDirectives) {
                     val importedFqName = import.importedFqName ?: continue
                     try {
@@ -817,6 +1026,7 @@ fun analyzeKtFile(
                         sourceFilePathOf(sym)?.let { depTracker.recordDepPath(path, it) }
                     } catch (_: Throwable) {}
                 }
+                importDepsNs += System.nanoTime() - importStart
             }
 
             val expressions = mutableMapOf<String, ExpressionResult>()
@@ -838,13 +1048,17 @@ fun analyzeKtFile(
                     // ExpressionResult output had zero production callers
                     // (Oracle.LookupExpression has no rules consuming it).
                     val callExprs = mutableListOf<KtCallExpression>()
+                    val callCollectStart = System.nanoTime()
                     ktFile.accept(object : KtTreeVisitorVoid() {
                         override fun visitCallExpression(expression: KtCallExpression) {
                             super.visitCallExpression(expression)
                             callExprs.add(expression)
                         }
                     })
+                    callCollectNs += System.nanoTime() - callCollectStart
+                    callCount = callExprs.size.toLong()
 
+                    val callResolveStart = System.nanoTime()
                     for (expr in callExprs) {
                         // Per-expression try-catch: the FIR lazy resolver can
                         // crash while building the containing function's FIR
@@ -903,8 +1117,10 @@ fun analyzeKtFile(
                             // summary counts how many files were touched.
                         }
                     }
+                    callResolveNs += System.nanoTime() - callResolveStart
                 }
             }
+            expressionCount = expressions.size.toLong()
 
         // TODO: Collect compiler diagnostics for unreachable code detection.
         // When implemented, add diagnostic collection here and pass to FileResult:
@@ -943,7 +1159,25 @@ fun analyzeKtFile(
             // scope) become permanent cache misses and pin the warm-no-edit
             // wall time at the JVM+session cold-start cost (~4 s).
             files[path] = FileResult(pkg, declarations, expressions)
+            }
+        } finally {
+            analysisSessionNs += System.nanoTime() - sessionStart
         }
+        perf?.recordFile(
+            FilePerf(
+                path,
+                System.nanoTime() - fileStart,
+                analysisSessionNs,
+                declarationsNs,
+                importDepsNs,
+                callCollectNs,
+                callResolveNs,
+                declarationCount,
+                callCount,
+                expressionCount,
+                true
+            )
+        )
         return true
     } catch (t: Throwable) {
         // Per-file fallback: a crash that escaped the inner per-expression /
@@ -958,6 +1192,21 @@ fun analyzeKtFile(
             "krit-types: skipping $path: ${t.javaClass.simpleName}: $firstMsg"
         )
         depTracker?.recordCrash(path, "${t.javaClass.simpleName}: $firstMsg")
+        perf?.recordFile(
+            FilePerf(
+                path,
+                System.nanoTime() - fileStart,
+                analysisSessionNs,
+                declarationsNs,
+                importDepsNs,
+                callCollectNs,
+                callResolveNs,
+                declarationCount,
+                callCount,
+                expressionCount,
+                false
+            )
+        )
         return false
     }
 }
@@ -972,7 +1221,8 @@ data class ParsedArgs(
     val port: Int = -1,  // -1 = stdin/stdout mode, 0 = auto-assign TCP, >0 = specific port
     val exclude: List<String> = DEFAULT_EXCLUDE_GLOBS,
     val filesList: String? = null,      // --files LISTFILE: restrict analyze to these paths
-    val cacheDepsOut: String? = null    // --cache-deps-out PATH: emit per-file dep-closure JSON
+    val cacheDepsOut: String? = null,   // --cache-deps-out PATH: emit per-file dep-closure JSON
+    val timingsOut: String? = null      // --timings-out PATH: emit perf.TimingEntry-compatible JSON
 )
 
 val DEFAULT_EXCLUDE_GLOBS: List<String> = listOf("**/testData/**", "**/test-resources/**")
@@ -988,6 +1238,7 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
     var exclude: List<String> = DEFAULT_EXCLUDE_GLOBS
     var filesList: String? = null
     var cacheDepsOut: String? = null
+    var timingsOut: String? = null
 
     var i = 0
     while (i < args.size) {
@@ -1011,13 +1262,14 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
             }
             "--files" -> { i++; if (i >= args.size) return null; filesList = args[i] }
             "--cache-deps-out" -> { i++; if (i >= args.size) return null; cacheDepsOut = args[i] }
+            "--timings-out" -> { i++; if (i >= args.size) return null; timingsOut = args[i] }
             "--help", "-h" -> return null
             else -> { System.err.println("Unknown argument: ${args[i]}"); return null }
         }
         i++
     }
     if (sources.isEmpty()) { System.err.println("Error: --sources is required"); return null }
-    return ParsedArgs(sources, classpath, jdkHome, output, expressions, daemon, port, exclude, filesList, cacheDepsOut)
+    return ParsedArgs(sources, classpath, jdkHome, output, expressions, daemon, port, exclude, filesList, cacheDepsOut, timingsOut)
 }
 
 fun printUsage() {
@@ -1035,34 +1287,62 @@ fun printUsage() {
         |  --exclude GLOB[,GLOB]   Skip files whose paths match any glob (default: **/testData/**,**/test-resources/**; pass "" to disable)
         |  --files LISTFILE        Restrict analysis to absolute paths in LISTFILE (one per line)
         |  --cache-deps-out PATH   Emit per-file dep-closure + per-file-deps JSON alongside --output
+        |  --timings-out PATH      Emit perf timing JSON sidecar
         |  --help                  Show this help
     """.trimMargin())
 }
 
 @OptIn(KaExperimentalApi::class)
-fun analyzeAndExport(disposable: Disposable, args: ParsedArgs): String {
-    val sourceModule = buildSession(disposable, args)
+fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf = KotlinPerf()): String {
+    val sourceModule = perf.track("kotlinBuildSession") {
+        buildSession(disposable, args)
+    }
 
     val files = mutableMapOf<String, FileResult>()
     val deps = mutableMapOf<String, ClassResult>()
 
-    val allKtFiles = sourceModule.psiRoots.filterIsInstance<KtFile>()
-    val excludedKtFiles = filterExcludedKtFiles(allKtFiles, args.exclude)
+    val allKtFiles = perf.track("kotlinPsiRoots") {
+        sourceModule.psiRoots.filterIsInstance<KtFile>()
+    }
+    perf.addInstant("kotlinPsiRootSummary", mapOf("ktFiles" to allKtFiles.size.toLong()))
+    val excludedKtFiles = perf.track("kotlinExcludeFilter") {
+        filterExcludedKtFiles(allKtFiles, args.exclude)
+    }
+    perf.addInstant(
+        "kotlinExcludeSummary",
+        mapOf(
+            "before" to allKtFiles.size.toLong(),
+            "after" to excludedKtFiles.size.toLong(),
+            "patterns" to args.exclude.size.toLong()
+        )
+    )
 
     // --files LISTFILE: if set, restrict to the intersection of the source
     // module's KtFiles and the paths in the list. This is the cache-miss
     // re-analysis path used by the Go cache layer.
     val ktFiles: List<KtFile> = if (args.filesList != null) {
         val wanted = HashSet<String>()
-        try {
-            File(args.filesList).forEachLine { line ->
-                val t = line.trim()
-                if (t.isNotEmpty()) wanted.add(t)
+        perf.track("kotlinFilesListRead") {
+            try {
+                File(args.filesList).forEachLine { line ->
+                    val t = line.trim()
+                    if (t.isNotEmpty()) wanted.add(t)
+                }
+            } catch (e: Exception) {
+                System.err.println("Failed to read --files list ${args.filesList}: ${e.message}")
             }
-        } catch (e: Exception) {
-            System.err.println("Failed to read --files list ${args.filesList}: ${e.message}")
         }
-        val restricted = excludedKtFiles.filter { wanted.contains(it.virtualFilePath) }
+        val restricted = perf.track("kotlinFilesRestriction") {
+            excludedKtFiles.filter { wanted.contains(it.virtualFilePath) }
+        }
+        perf.addInstant(
+            "kotlinFilesRestrictionSummary",
+            mapOf(
+                "restricted" to restricted.size.toLong(),
+                "available" to excludedKtFiles.size.toLong(),
+                "requested" to wanted.size.toLong()
+            )
+        )
         System.err.println("--files: restricting to ${restricted.size} of ${excludedKtFiles.size} files (${wanted.size} requested)")
         restricted
     } else {
@@ -1084,13 +1364,25 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs): String {
     val progressStep = (total / 20).coerceAtLeast(1000)
     var processed = 0
     var skipped = 0
-    for ((i, ktFile) in ktFiles.withIndex()) {
-        val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker)
-        if (ok) processed++ else skipped++
-        if ((i + 1) % progressStep == 0) {
-            System.err.println("  ... ${i + 1}/$total (${processed} processed, ${skipped} skipped)")
+    perf.track("kotlinAnalyzeFiles") {
+        for ((i, ktFile) in ktFiles.withIndex()) {
+            val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, perf)
+            if (ok) processed++ else skipped++
+            if ((i + 1) % progressStep == 0) {
+                System.err.println("  ... ${i + 1}/$total (${processed} processed, ${skipped} skipped)")
+            }
         }
     }
+    perf.addInstant(
+        "kotlinAnalyzeSummary",
+        mapOf(
+            "files" to total.toLong(),
+            "processed" to processed.toLong(),
+            "skipped" to skipped.toLong(),
+            "outputFiles" to files.size.toLong(),
+            "dependencyTypes" to deps.size.toLong()
+        )
+    )
     if (skipped > 0) {
         System.err.println("Analyzed $processed files, skipped $skipped files due to Analysis API errors.")
     } else {
@@ -1104,11 +1396,18 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs): String {
     // dependencies map so cold-start assembly can union without a second
     // pass through the JVM.
     if (tracker != null && args.cacheDepsOut != null) {
-        File(args.cacheDepsOut).writeText(buildCacheDepsJson(tracker))
+        val cacheDepsJson = perf.track("kotlinCacheDepsJsonBuild") {
+            buildCacheDepsJson(tracker)
+        }
+        perf.track("kotlinCacheDepsWrite") {
+            File(args.cacheDepsOut).writeText(cacheDepsJson)
+        }
         System.err.println("Wrote ${args.cacheDepsOut}")
     }
 
-    return buildJson(files, deps)
+    return perf.track("kotlinOracleJsonBuild") {
+        buildJson(files, deps)
+    }
 }
 
 // buildCacheDepsJson serializes a DepTracker's recorded per-file

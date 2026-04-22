@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/perf"
 )
 
 // jarCachePath returns a cache path keyed by the JAR's content hash, with the
@@ -63,7 +64,7 @@ type Daemon struct {
 	conn    net.Conn // TCP connection when using persistent daemon mode
 	logFile *os.File // daemon log file, closed on Close()
 	mu      sync.Mutex
-	port    int  // TCP port for persistent daemon mode (0 = pipe mode)
+	port    int // TCP port for persistent daemon mode (0 = pipe mode)
 	nextID  int
 	started bool
 	shared  bool // true if this daemon was connected to (not started by us)
@@ -116,6 +117,9 @@ type daemonResponse struct {
 	// CacheDeps is the per-file dependency closure block emitted only by
 	// the analyzeWithDeps method. Nil for legacy methods.
 	CacheDeps *json.RawMessage `json:"cacheDeps,omitempty"`
+	// Timings is an optional perf.TimingEntry array emitted by newer
+	// krit-types daemon methods for request-level deep dives.
+	Timings *json.RawMessage `json:"timings,omitempty"`
 }
 
 // ErrDaemonFileNotInSession is returned by Daemon.AnalyzeWithDeps when
@@ -462,30 +466,45 @@ func (d *Daemon) AnalyzeAll() (*OracleData, error) {
 // the condition and trigger a daemon Rebuild + retry before falling
 // through to one-shot.
 func (d *Daemon) AnalyzeWithDeps(files []string) (*OracleData, *CacheDepsFile, error) {
+	data, deps, _, err := d.AnalyzeWithDepsWithTimings(files, false)
+	return data, deps, err
+}
+
+// AnalyzeWithDepsWithTimings is AnalyzeWithDeps plus optional Kotlin-side
+// timing entries returned by newer daemon processes.
+func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool) (*OracleData, *CacheDepsFile, []perf.TimingEntry, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	params := map[string]interface{}{
-		"files": files,
+		"files":   files,
+		"timings": collectTimings,
 	}
 
 	resp, err := d.send("analyzeWithDeps", params)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	if resp.CacheDeps == nil {
-		return nil, nil, fmt.Errorf("daemon response missing cacheDeps field (old daemon version?)")
+		return nil, nil, nil, fmt.Errorf("daemon response missing cacheDeps field (old daemon version?)")
 	}
 
 	oracleData, err := unmarshalOracleData(resp.Result)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unmarshal oracle data: %w", err)
+		return nil, nil, nil, fmt.Errorf("unmarshal oracle data: %w", err)
 	}
 
 	var cacheDeps CacheDepsFile
 	if err := json.Unmarshal([]byte(*resp.CacheDeps), &cacheDeps); err != nil {
-		return nil, nil, fmt.Errorf("unmarshal cacheDeps: %w", err)
+		return nil, nil, nil, fmt.Errorf("unmarshal cacheDeps: %w", err)
+	}
+
+	var timings []perf.TimingEntry
+	if resp.Timings != nil {
+		if err := json.Unmarshal([]byte(*resp.Timings), &timings); err != nil {
+			return nil, nil, nil, fmt.Errorf("unmarshal timings: %w", err)
+		}
 	}
 
 	// If the daemon reported any files it couldn't find in its source
@@ -515,7 +534,7 @@ func (d *Daemon) AnalyzeWithDeps(files []string) (*OracleData, *CacheDepsFile, e
 		}
 	}
 
-	return oracleData, &cacheDeps, nil
+	return oracleData, &cacheDeps, timings, nil
 }
 
 // Rebuild tells the daemon to rebuild its Analysis API session (after file changes).

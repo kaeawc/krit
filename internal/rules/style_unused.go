@@ -328,33 +328,297 @@ type UnusedVariableRule struct {
 // false-positives on substring collisions. Classified per roadmap/17.
 func (r *UnusedVariableRule) Confidence() float64 { return 0.75 }
 
-// countIdentifierOccurrences counts word-boundary occurrences of name in s.
-// A match requires that the character before and after the match is not
-// part of an identifier.
-func countIdentifierOccurrences(s, name string) int {
-	if name == "" || len(s) < len(name) {
-		return 0
+type unusedVariableDecl struct {
+	name     string
+	stmt     uint32
+	nameNode uint32
+	emitNode uint32
+	scope    uint32
+}
+
+func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDecl, bool) {
+	var target unusedVariableDecl
+	if file == nil || idx == 0 {
+		return target, false
 	}
-	isIdent := func(b byte) bool {
-		return b == '_' || (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
+	nodeType := file.FlatType(idx)
+	stmt := idx
+	nameNode := uint32(0)
+	switch nodeType {
+	case "property_declaration":
+		if _, ok := file.FlatFindChild(idx, "multi_variable_declaration"); ok {
+			return target, false
+		}
+		varDecl, _ := file.FlatFindChild(idx, "variable_declaration")
+		if varDecl == 0 {
+			return target, false
+		}
+		nameNode, _ = file.FlatFindChild(varDecl, "simple_identifier")
+	case "variable_declaration":
+		parent, ok := file.FlatParent(idx)
+		if !ok || file.FlatType(parent) != "multi_variable_declaration" {
+			return target, false
+		}
+		prop, ok := flatEnclosingAncestor(file, idx, "property_declaration")
+		if !ok {
+			return target, false
+		}
+		stmt = prop
+		nameNode, _ = file.FlatFindChild(idx, "simple_identifier")
+	default:
+		return target, false
 	}
-	count := 0
-	for i := 0; i+len(name) <= len(s); {
-		j := strings.Index(s[i:], name)
-		if j < 0 {
+	if nameNode == 0 {
+		return target, false
+	}
+	name := file.FlatNodeString(nameNode, nil)
+	if name == "" {
+		return target, false
+	}
+	if !unusedVariableIsLocalProperty(file, stmt) {
+		return target, false
+	}
+	scope, ok := unusedVariableLexicalScope(file, stmt)
+	if !ok {
+		return target, false
+	}
+	return unusedVariableDecl{
+		name:     name,
+		stmt:     stmt,
+		nameNode: nameNode,
+		emitNode: idx,
+		scope:    scope,
+	}, true
+}
+
+func unusedVariableIsLocalProperty(file *scanner.File, idx uint32) bool {
+	parent, ok := file.FlatParent(idx)
+	if !ok {
+		return false
+	}
+	parentType := file.FlatType(parent)
+	if parentType == "source_file" ||
+		parentType == "class_body" || parentType == "enum_class_body" ||
+		parentType == "companion_object" || parentType == "object_declaration" ||
+		parentType == "class_member_declarations" {
+		return false
+	}
+	propLine := file.FlatRow(idx)
+	depth := 0
+	for i := propLine - 1; i >= 0 && i >= propLine-200; i-- {
+		line := file.Lines[i]
+		depth += strings.Count(line, "}") - strings.Count(line, "{")
+		if depth < 0 {
+			trimmed := strings.TrimSpace(line)
+			if strings.Contains(trimmed, "companion object") ||
+				strings.HasPrefix(trimmed, "object ") ||
+				strings.Contains(trimmed, " object ") {
+				return false
+			}
 			break
 		}
-		pos := i + j
-		start := pos
-		end := pos + len(name)
-		beforeOK := start == 0 || !isIdent(s[start-1])
-		afterOK := end == len(s) || !isIdent(s[end])
-		if beforeOK && afterOK {
-			count++
-		}
-		i = end
 	}
-	return count
+	for a, ok := file.FlatParent(idx); ok; a, ok = file.FlatParent(a) {
+		t := file.FlatType(a)
+		if t == "delegation_specifier" || t == "explicit_delegation" {
+			return false
+		}
+		if t == "class_body" || t == "enum_class_body" ||
+			t == "companion_object" || t == "object_declaration" ||
+			t == "class_member_declarations" {
+			return false
+		}
+		if t == "function_body" || t == "function_declaration" ||
+			t == "anonymous_function" || t == "source_file" {
+			break
+		}
+	}
+	trimmed := strings.TrimSpace(file.FlatNodeText(idx))
+	return strings.HasPrefix(trimmed, "val ") || strings.HasPrefix(trimmed, "var ")
+}
+
+func unusedVariableLexicalScope(file *scanner.File, stmt uint32) (uint32, bool) {
+	scope, ok := file.FlatParent(stmt)
+	if !ok {
+		return 0, false
+	}
+	for {
+		switch file.FlatType(scope) {
+		case "statements", "function_body", "lambda_literal", "control_structure_body", "source_file":
+			return scope, true
+		}
+		next, ok := file.FlatParent(scope)
+		if !ok {
+			return 0, false
+		}
+		scope = next
+	}
+}
+
+func unusedVariableHasReference(file *scanner.File, target unusedVariableDecl) bool {
+	found := false
+	stmtEnd := file.FlatEndByte(target.stmt)
+	file.FlatWalkAllNodes(target.scope, func(candidate uint32) {
+		if found || file.FlatStartByte(candidate) <= stmtEnd {
+			return
+		}
+		if !unusedVariableReferenceNameMatches(file, candidate, target.name) {
+			return
+		}
+		if !unusedVariableIsReferenceIdentifier(file, candidate) {
+			return
+		}
+		if unusedVariableCrossesUnsupportedOwner(file, candidate, target.scope) {
+			return
+		}
+		if unusedVariableIsShadowedAtReference(file, target, candidate) {
+			return
+		}
+		found = true
+	})
+	return found
+}
+
+func unusedVariableReferenceNameMatches(file *scanner.File, idx uint32, name string) bool {
+	switch file.FlatType(idx) {
+	case "simple_identifier", "interpolated_identifier":
+		return file.FlatNodeTextEquals(idx, name)
+	default:
+		return false
+	}
+}
+
+func unusedVariableIsReferenceIdentifier(file *scanner.File, idx uint32) bool {
+	parent, ok := file.FlatParent(idx)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(parent) {
+	case "variable_declaration", "parameter", "function_declaration", "class_declaration",
+		"object_declaration", "type_alias", "import_header", "package_header",
+		"user_type", "nullable_type", "type_reference", "value_argument_label",
+		"navigation_suffix", "annotation", "label":
+		return false
+	}
+	if next, ok := file.FlatNextSibling(idx); ok && file.FlatType(next) == "=" {
+		if file.FlatType(parent) == "value_argument" {
+			return false
+		}
+	}
+	for a, ok := file.FlatParent(idx); ok; a, ok = file.FlatParent(a) {
+		switch file.FlatType(a) {
+		case "user_type", "nullable_type", "type_reference", "type_arguments",
+			"type_projection", "function_type", "receiver_type", "annotation",
+			"import_header", "package_header":
+			return false
+		case "property_declaration", "function_declaration", "lambda_literal",
+			"statements", "control_structure_body", "function_body", "source_file":
+			return true
+		}
+	}
+	return true
+}
+
+func unusedVariableCrossesUnsupportedOwner(file *scanner.File, idx, scope uint32) bool {
+	for a, ok := file.FlatParent(idx); ok && a != scope; a, ok = file.FlatParent(a) {
+		switch file.FlatType(a) {
+		case "class_declaration", "object_declaration", "companion_object",
+			"function_declaration", "anonymous_function":
+			return true
+		}
+	}
+	return false
+}
+
+func unusedVariableIsShadowedAtReference(file *scanner.File, target unusedVariableDecl, ref uint32) bool {
+	refStart := file.FlatStartByte(ref)
+	shadowed := false
+	file.FlatWalkAllNodes(target.scope, func(candidate uint32) {
+		if shadowed || candidate == target.stmt || candidate == target.nameNode {
+			return
+		}
+		if unusedVariableNodeContains(file, target.stmt, candidate) {
+			return
+		}
+		if file.FlatStartByte(candidate) <= file.FlatStartByte(target.stmt) ||
+			file.FlatStartByte(candidate) >= refStart {
+			return
+		}
+		if !unusedVariableDeclaresName(file, candidate, target.name) {
+			return
+		}
+		candidateStmt := unusedVariableShadowDeclarationStatement(file, candidate)
+		if candidateStmt != 0 && unusedVariableNodeContains(file, candidateStmt, ref) {
+			return
+		}
+		shadowScope := unusedVariableShadowScope(file, candidate)
+		if shadowScope == 0 || !unusedVariableNodeContains(file, shadowScope, ref) {
+			return
+		}
+		shadowed = true
+	})
+	return shadowed
+}
+
+func unusedVariableDeclaresName(file *scanner.File, idx uint32, name string) bool {
+	switch file.FlatType(idx) {
+	case "property_declaration":
+		if _, ok := file.FlatFindChild(idx, "multi_variable_declaration"); ok {
+			return false
+		}
+		varDecl, _ := file.FlatFindChild(idx, "variable_declaration")
+		if varDecl == 0 {
+			return false
+		}
+		ident, _ := file.FlatFindChild(varDecl, "simple_identifier")
+		return ident != 0 && file.FlatNodeTextEquals(ident, name)
+	case "variable_declaration", "parameter":
+		ident, _ := file.FlatFindChild(idx, "simple_identifier")
+		return ident != 0 && file.FlatNodeTextEquals(ident, name)
+	default:
+		return false
+	}
+}
+
+func unusedVariableShadowDeclarationStatement(file *scanner.File, idx uint32) uint32 {
+	switch file.FlatType(idx) {
+	case "property_declaration":
+		return idx
+	case "variable_declaration":
+		if prop, ok := flatEnclosingAncestor(file, idx, "property_declaration"); ok {
+			return prop
+		}
+		return idx
+	case "parameter":
+		return idx
+	default:
+		return 0
+	}
+}
+
+func unusedVariableShadowScope(file *scanner.File, idx uint32) uint32 {
+	switch file.FlatType(idx) {
+	case "property_declaration", "variable_declaration":
+		scope, ok := unusedVariableLexicalScope(file, idx)
+		if ok {
+			return scope
+		}
+	case "parameter":
+		for a, ok := file.FlatParent(idx); ok; a, ok = file.FlatParent(a) {
+			switch file.FlatType(a) {
+			case "lambda_literal", "function_declaration", "anonymous_function":
+				return a
+			case "source_file":
+				return 0
+			}
+		}
+	}
+	return 0
+}
+
+func unusedVariableNodeContains(file *scanner.File, ancestor, idx uint32) bool {
+	return file.FlatStartByte(ancestor) <= file.FlatStartByte(idx) &&
+		file.FlatEndByte(ancestor) >= file.FlatEndByte(idx)
 }
 
 // UnusedPrivateClassRule detects private classes that are never referenced.

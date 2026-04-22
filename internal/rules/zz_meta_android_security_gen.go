@@ -17,7 +17,7 @@ func (r *AddJavascriptInterfaceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8cbb170a95b2012",
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *ByteOrderMarkRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "e8cbb170a95b2012",
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -42,8 +42,8 @@ func (r *DrawAllocationRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.85,
-		SourceHash:    "e8cbb170a95b2012",
+		Confidence:    0.75,
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *EasterEggRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8cbb170a95b2012",
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *ExportedContentProviderRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8cbb170a95b2012",
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *ExportedReceiverRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8cbb170a95b2012",
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *FieldGetterRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8cbb170a95b2012",
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *FloatMathRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8cbb170a95b2012",
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -120,8 +120,8 @@ func (r *GetInstanceRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.85,
-		SourceHash:    "e8cbb170a95b2012",
+		Confidence:    0.75,
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -134,7 +134,7 @@ func (r *GrantAllUrisRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8cbb170a95b2012",
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -147,7 +147,7 @@ func (r *HandlerLeakRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8cbb170a95b2012",
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -160,7 +160,7 @@ func (r *RecycleRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "e8cbb170a95b2012",
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -172,8 +172,8 @@ func (r *SecureRandomRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.85,
-		SourceHash:    "e8cbb170a95b2012",
+		Confidence:    0.75,
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -185,8 +185,8 @@ func (r *TrustedServerRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.95,
-		SourceHash:    "e8cbb170a95b2012",
+		Confidence:    0.75,
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -198,8 +198,8 @@ func (r *WorldReadableFilesRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.95,
-		SourceHash:    "e8cbb170a95b2012",
+		Confidence:    0.75,
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }
 
@@ -211,7 +211,7 @@ func (r *WorldWriteableFilesRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.95,
-		SourceHash:    "e8cbb170a95b2012",
+		Confidence:    0.75,
+		SourceHash:    "f5a8d3bf3f91b2bd",
 	}
 }

@@ -786,67 +786,128 @@ func (r *FieldGetterRule) check(ctx *v2.Context) {
 }
 
 
-// FloatMathRule detects deprecated FloatMath usage.
-type FloatMathRule struct{ AndroidRule }
+// FloatMathRule detects deprecated FloatMath usage via AST dispatch.
+type FloatMathRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
 
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
+// Confidence reports a tier-2 (medium) base confidence for structural match.
+// With type resolver verifying FQN: 1.0. Classified per roadmap/17.
 func (r *FloatMathRule) Confidence() float64 { return 0.75 }
 
+func (r *FloatMathRule) NodeTypes() []string { return []string{"navigation_expression"} }
+
 func (r *FloatMathRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if strings.Contains(line, "FloatMath.") {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"FloatMath is deprecated. Use kotlin.math or java.lang.Math instead."))
+	if !floatMathReceiverIsFloatMath(ctx.File, ctx.Idx) {
+		return
+	}
+	ctx.Emit(r.Finding(ctx.File, ctx.File.FlatRow(ctx.Idx)+1, ctx.File.FlatCol(ctx.Idx)+1,
+		"FloatMath is deprecated. Use kotlin.math or java.lang.Math instead."))
+}
+
+
+// HandlerLeakRule detects non-static inner Handler classes via AST dispatch.
+type HandlerLeakRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence for structural match.
+// With type resolver verifying Handler inheritance: 0.90+. Classified per roadmap/17.
+func (r *HandlerLeakRule) Confidence() float64 { return 0.75 }
+
+func (r *HandlerLeakRule) NodeTypes() []string { return []string{"class_declaration", "object_literal"} }
+
+func (r *HandlerLeakRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
+	nodeType := file.FlatType(idx)
+
+	if nodeType == "class_declaration" {
+		if !file.FlatHasModifier(idx, "inner") {
+			return
+		}
+		for i := 0; i < file.FlatChildCount(idx); i++ {
+			child := file.FlatChild(idx, i)
+			if handlerSupertypeIsHandler(file, child) {
+				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"This Handler class should be static or leaks might occur. Use a WeakReference to the outer class."))
+				return
+			}
+		}
+		return
+	}
+
+	if nodeType == "object_literal" {
+		for i := 0; i < file.FlatChildCount(idx); i++ {
+			child := file.FlatChild(idx, i)
+			if handlerSupertypeIsHandler(file, child) {
+				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Anonymous Handler may leak the enclosing class. Use a static inner class with a WeakReference."))
+				return
+			}
 		}
 	}
 }
 
-
-// HandlerLeakRule detects non-static inner Handler classes that may leak.
-type HandlerLeakRule struct{ AndroidRule }
-
-var handlerClassRe = regexp.MustCompile(`(?:inner\s+)?class\s+\w+.*:\s*Handler\s*\(`)
-var handlerInnerRe = regexp.MustCompile(`\binner\s+class\s+\w+`)
-
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *HandlerLeakRule) Confidence() float64 { return 0.75 }
-
-func (r *HandlerLeakRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if handlerClassRe.MatchString(line) && handlerInnerRe.MatchString(line) {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"This Handler class should be static or leaks might occur. Use a WeakReference to the outer class."))
-		}
-		// Also detect anonymous Handler() object expressions
-		if strings.Contains(line, "object : Handler(") {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"Anonymous Handler may leak the enclosing class. Use a static inner class with a WeakReference."))
+// handlerSupertypeIsHandler extracts supertype from delegation_specifier and checks if it's "Handler".
+func handlerSupertypeIsHandler(file *scanner.File, delegIdx uint32) bool {
+	if delegIdx == 0 || file.FlatType(delegIdx) != "delegation_specifier" {
+		return false
+	}
+	// Find user_type or constructor_invocation->user_type
+	ut, _ := file.FlatFindChild(delegIdx, "user_type")
+	if ut == 0 {
+		if ci, ok := file.FlatFindChild(delegIdx, "constructor_invocation"); ok {
+			ut, _ = file.FlatFindChild(ci, "user_type")
 		}
 	}
+	if ut == 0 {
+		return false
+	}
+	// Extract the last type_identifier (simple name of the type)
+	var lastIdent string
+	for i := 0; i < file.FlatChildCount(ut); i++ {
+		child := file.FlatChild(ut, i)
+		if file.FlatType(child) == "type_identifier" {
+			lastIdent = file.FlatNodeText(child)
+		}
+	}
+	return lastIdent == "Handler"
+}
+
+// floatMathReceiverIsFloatMath checks if navigation_expression starts with "FloatMath" receiver.
+func floatMathReceiverIsFloatMath(file *scanner.File, navExprIdx uint32) bool {
+	if navExprIdx == 0 || file.FlatType(navExprIdx) != "navigation_expression" {
+		return false
+	}
+	// Get first named child (the receiver)
+	if file.FlatNamedChildCount(navExprIdx) == 0 {
+		return false
+	}
+	first := file.FlatNamedChild(navExprIdx, 0)
+	if first == 0 {
+		return false
+	}
+	// Check if it's a simple_identifier with text "FloatMath"
+	if file.FlatType(first) == "simple_identifier" {
+		return file.FlatNodeText(first) == "FloatMath"
+	}
+	return false
 }
 
 
 // RecycleRule detects missing recycle()/close() calls for resources.
-type RecycleRule struct{ AndroidRule }
-
-var recycleTargets = []string{
-	"obtainStyledAttributes", "obtainAttributes",
-	"obtainTypedArray", "obtain(",
+type RecycleRule struct {
+	FlatDispatchBase
+	AndroidRule
 }
-var recycleTypes = []string{
-	"TypedArray", "Cursor", "VelocityTracker", "Parcel",
+
+var recycleTypeSet = map[string]struct{}{
+	"TypedArray":      {},
+	"Cursor":          {},
+	"VelocityTracker": {},
+	"Parcel":          {},
 }
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
@@ -859,35 +920,109 @@ func (r *RecycleRule) Confidence() float64 { return 0.75 }
 
 func (r *RecycleRule) check(ctx *v2.Context) {
 	file := ctx.File
-	fullContent := strings.Join(file.Lines, "\n")
+	idx := ctx.Idx
 
-	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "//") {
+	// Extract property type and check if it's recyclable
+	typeStr := extractPropertyTypeFlat(file, idx)
+	if typeStr == "" {
+		return
+	}
+
+	// Parse the type (may be wrapped in angle brackets or have space)
+	typeStr = strings.TrimSpace(typeStr)
+	typeStr = strings.TrimPrefix(typeStr, ":")
+	typeStr = strings.TrimSpace(typeStr)
+
+	// Check if it's one of the recyclable types (avoid matching generics like Flow<TypedArray>)
+	var recycleType string
+	for t := range recycleTypeSet {
+		if typeStr == t {
+			recycleType = t
+			break
+		}
+	}
+	if recycleType == "" {
+		return
+	}
+
+	// Extract variable name using standard identifier extraction
+	varName := extractIdentifierFlat(file, idx)
+	if varName == "" {
+		return
+	}
+
+	// Check if cleanup exists in the same scope
+	if !recycleVariableHasCleanupFlat(file, idx, varName) {
+		ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
+			recycleType+" acquired but no cleanup found. Ensure recycle()/close()/.use {} is called in the same scope."))
+	}
+}
+
+func extractPropertyTypeFlat(file *scanner.File, idx uint32) string {
+	if file == nil || file.FlatType(idx) != "property_declaration" {
+		return ""
+	}
+	// In property_declaration, the type annotation is inside variable_declaration
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "variable_declaration" {
 			continue
 		}
-		for _, target := range recycleTargets {
-			if strings.Contains(line, target) {
-				// Check if recycle() or close() appears in the same function scope
-				if !strings.Contains(fullContent, "recycle()") && !strings.Contains(fullContent, ".close()") {
-					ctx.Emit(r.Finding(file, i+1, 1,
-						"Resource obtained but recycle()/close() not found. Ensure the resource is properly released."))
-				}
+		// Look for colon followed by a type node in variable_declaration
+		colonSeen := false
+		for typeChild := file.FlatFirstChild(child); typeChild != 0; typeChild = file.FlatNextSib(typeChild) {
+			childType := file.FlatType(typeChild)
+			if childType == ":" {
+				colonSeen = true
+				continue
 			}
-		}
-		for _, typ := range recycleTypes {
-			// Detect variable declarations like: val x = TypedArray or val x: TypedArray
-			if strings.Contains(line, typ) && (strings.Contains(line, "val ") || strings.Contains(line, "var ")) {
-				if !strings.Contains(fullContent, ".recycle()") && !strings.Contains(fullContent, ".close()") &&
-					!strings.Contains(fullContent, ".use {") && !strings.Contains(fullContent, ".use{") {
-					ctx.Emit(r.Finding(file, i+1, 1,
-						typ+" acquired but no recycle()/close()/use{} found. Ensure the resource is properly released."))
+			if colonSeen {
+				// Return the first type-like node after colon
+				if childType == "user_type" || childType == "simple_identifier" ||
+					childType == "nullable_type" || childType == "function_type" ||
+					childType == "parenthesized_type" || childType == "type_identifier" {
+					return file.FlatNodeString(typeChild, nil)
 				}
 			}
 		}
 	}
+	return ""
 }
 
+func extractPropertyNameFlat(file *scanner.File, idx uint32) string {
+	if file == nil || file.FlatType(idx) != "property_declaration" {
+		return ""
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "simple_identifier" {
+			return file.FlatNodeText(child)
+		}
+	}
+	return ""
+}
+
+func recycleVariableHasCleanupFlat(file *scanner.File, idx uint32, varName string) bool {
+	scope, ok := file.FlatParent(idx)
+	if !ok {
+		return false
+	}
+
+	end := file.FlatEndByte(idx)
+	for i := 0; i < file.FlatChildCount(scope); i++ {
+		child := file.FlatChild(scope, i)
+		if file.FlatStartByte(child) <= end {
+			continue
+		}
+
+		childText := file.FlatNodeText(child)
+		if strings.Contains(childText, varName+".recycle()") ||
+			strings.Contains(childText, varName+".close()") ||
+			strings.Contains(childText, varName+".use") {
+			return true
+		}
+	}
+
+	return false
+}
 
 // =============================================================================
 // I18N Rules
@@ -911,4 +1046,5 @@ func (r *ByteOrderMarkRule) check(ctx *v2.Context) {
 		return
 	}
 }
+
 

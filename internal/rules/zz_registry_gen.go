@@ -3641,7 +3641,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"simple_identifier", "type_identifier", "class_declaration", "object_declaration", "object_literal"}, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &WorldReadableFilesRule{AndroidRule: AndroidRule{
@@ -3650,7 +3650,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"simple_identifier"}, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &WorldWriteableFilesRule{AndroidRule: AndroidRule{
@@ -3659,7 +3659,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"simple_identifier"}, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &DrawAllocationRule{AndroidRule: AndroidRule{

@@ -1392,7 +1392,7 @@ func wrongConstantAllowedSetFromAnnotation(file *scanner.File, ann, classNode ui
 		return wrongConstantAllowedSet{Values: values, Flag: wrongConstantAnnotationFlag(file, ann)}, len(values) > 0
 	}
 	annotationClass := flatFindSameFileClassLikeDeclaration(file, name)
-	if annotationClass == 0 || !strings.Contains(file.FlatNodeText(annotationClass), "annotation class") {
+	if annotationClass == 0 || !file.FlatHasModifier(annotationClass, "annotation") {
 		return wrongConstantAllowedSet{}, false
 	}
 	if mods, ok := file.FlatFindChild(annotationClass, "modifiers"); ok {

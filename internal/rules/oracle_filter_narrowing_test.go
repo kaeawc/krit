@@ -25,6 +25,7 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 		{"NullableToStringCall", []string{"toString", "$"}, []string{"toString"}},
 		{"UnreachableCode", []string{"return", "throw", "break", "continue"}, nil},
 		{"UseIsNullOrEmpty", []string{"isEmpty", "count", ".size", ".length", "\"\""}, nil},
+		{"CastNullableToNonNullableType", []string{" as "}, nil},
 	}
 
 	byID := map[string]*v2.Rule{}

@@ -20,6 +20,8 @@ func (r *defaultResolver) indexDeclarationsFlat(idx uint32, file *scanner.File, 
 		r.indexClassFlat(idx, file, it, pkg)
 	case "object_declaration":
 		r.indexObjectFlat(idx, file, it, pkg)
+	case "type_alias":
+		r.indexTypeAliasFlat(idx, file, it, pkg)
 	}
 
 	switch file.FlatType(idx) {
@@ -36,7 +38,7 @@ func (r *defaultResolver) indexDeclarationsFlat(idx uint32, file *scanner.File, 
 				}
 				switch file.FlatType(child) {
 				case "property_declaration", "function_declaration", "class_declaration",
-					"object_declaration", "class_body", "class_member_declarations",
+					"object_declaration", "type_alias", "class_body", "class_member_declarations",
 					"statements", "function_body", "lambda_literal", "control_structure_body",
 					"catch_block", "finally_block", "primary_constructor", "secondary_constructor",
 					"anonymous_initializer":
@@ -48,6 +50,30 @@ func (r *defaultResolver) indexDeclarationsFlat(idx uint32, file *scanner.File, 
 		flatForEachRelevantDeclarationChild(file, idx, func(child uint32) {
 			r.indexDeclarationsFlat(child, file, scope, it, pkg)
 		})
+	}
+}
+
+func (r *defaultResolver) indexTypeAliasFlat(aliasIdx uint32, file *scanner.File, it *ImportTable, pkg string) {
+	if file == nil || aliasIdx == 0 || r == nil {
+		return
+	}
+	name := flatTypeAliasName(file, aliasIdx)
+	targetIdx := flatTypeAliasTargetType(file, aliasIdx)
+	if name == "" || targetIdx == 0 {
+		return
+	}
+	targetType := r.resolveTypeNodeFlat(targetIdx, file, it)
+	if targetType == nil || targetType.Kind == TypeUnknown {
+		return
+	}
+	targetCopy := *targetType
+	if r.typeAliases == nil {
+		r.typeAliases = make(map[string]*ResolvedType)
+	}
+	r.typeAliases[name] = &targetCopy
+	if pkg != "" {
+		fqnCopy := targetCopy
+		r.typeAliases[pkg+"."+name] = &fqnCopy
 	}
 }
 
@@ -550,4 +576,3 @@ func (r *defaultResolver) extractFunctionReturnTypeFlat(funcIdx uint32, file *sc
 	}
 	return nil
 }
-

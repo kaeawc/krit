@@ -269,5 +269,8 @@ func buildTestResolver(t *testing.T, file *scanner.File) *defaultResolver {
 	for name, retType := range fi.Functions {
 		resolver.functions[name] = retType
 	}
+	for name, targetType := range fi.TypeAliases {
+		resolver.typeAliases[name] = targetType
+	}
 	return resolver
 }

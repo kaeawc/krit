@@ -106,7 +106,7 @@ func (r *defaultResolver) buildScopesFlat(idx uint32, file *scanner.File, scope 
 			if name == "" {
 				name = flatFirstIdentifierText(file, idx)
 			}
-			if name != "" && scope.Lookup(name) == nil {
+			if _, exists := scope.Entries[name]; name != "" && !exists {
 				scope.Declare(name, r.resolvePropertyTypeFlat(idx, file, it))
 			}
 		}

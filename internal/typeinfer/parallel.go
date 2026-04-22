@@ -18,6 +18,7 @@ type FileTypeInfo struct {
 	Classes     []*ClassInfo
 	SealedSubs  map[string][]string      // supertype name → subclass names
 	EnumEntries map[string][]string      // enum class name → entry names
+	TypeAliases map[string]*ResolvedType // alias name or FQN → target type
 	Functions   map[string]*ResolvedType // function name → return type
 	Extensions  []*ExtensionFuncInfo     // extension functions
 }
@@ -39,6 +40,7 @@ func IndexFileParallel(file *scanner.File) *FileTypeInfo {
 		classFQN:       make(map[string]*ClassInfo),
 		sealedVariants: make(map[string][]string),
 		enumEntries:    make(map[string][]string),
+		typeAliases:    make(map[string]*ResolvedType),
 		functions:      make(map[string]*ResolvedType),
 	}
 
@@ -64,6 +66,7 @@ func IndexFileParallel(file *scanner.File) *FileTypeInfo {
 		Classes:     classes,
 		SealedSubs:  tmp.sealedVariants,
 		EnumEntries: tmp.enumEntries,
+		TypeAliases: tmp.typeAliases,
 		Functions:   tmp.functions,
 		Extensions:  tmp.extensions,
 	}
@@ -124,6 +127,10 @@ func (r *defaultResolver) IndexFilesParallelWithTracker(files []*scanner.File, w
 
 			for typeName, entries := range fi.EnumEntries {
 				r.enumEntries[typeName] = entries
+			}
+
+			for name, targetType := range fi.TypeAliases {
+				r.typeAliases[name] = targetType
 			}
 
 			for name, retType := range fi.Functions {

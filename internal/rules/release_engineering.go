@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/kaeawc/krit/internal/module"
+	"github.com/kaeawc/krit/internal/rules/semantics"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -861,6 +862,7 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *v2.Context) {
 				name:    name,
 				owner:   flatEnclosingOwnerName(file, idx),
 				file:    file.Path,
+				node:    idx,
 				minArgs: flatFunctionMinArgumentCount(file, idx),
 				maxArgs: flatFunctionMaxArgumentCount(file, idx),
 			})
@@ -904,44 +906,50 @@ type visibleForTestingTarget struct {
 	name    string
 	owner   string
 	file    string
+	node    uint32
 	minArgs int
 	maxArgs int
 }
 
 func resolveVisibleForTestingCallTarget(file *scanner.File, call uint32, targetsByName map[string][]visibleForTestingTarget) (visibleForTestingTarget, float64, bool) {
-	name := flatCallExpressionName(file, call)
-	if name == "" {
+	callTarget, ok := semantics.ResolveCallTarget(&v2.Context{File: file}, call)
+	if !ok || callTarget.CalleeName == "" {
 		return visibleForTestingTarget{}, 0, false
 	}
-	candidates := targetsByName[name]
+	candidates := targetsByName[callTarget.CalleeName]
 	if len(candidates) == 0 {
 		return visibleForTestingTarget{}, 0, false
 	}
-	argCount := flatCallArgumentCount(file, call)
+	argCount := len(callTarget.Arguments)
 
-	receiver := flatReceiverNameFromCall(file, call)
+	receiver := semantics.ReferenceName(file, callTarget.Receiver.Node)
 	if receiver != "" {
 		if target, ok := uniqueVisibleForTestingTarget(candidates, func(t visibleForTestingTarget) bool {
 			return visibleForTestingArityMatches(t, argCount) &&
 				(t.owner == receiver || strings.HasSuffix(t.owner, "."+receiver))
 		}); ok {
-			return target, 0.85, true
+			confidence, ok := semantics.ConfidenceForEvidence(0.85, semantics.EvidenceQualifiedReceiver)
+			return target, confidence, ok
 		}
 	}
 
 	callOwner := flatEnclosingOwnerName(file, call)
 	if callOwner != "" {
 		if target, ok := uniqueVisibleForTestingTarget(candidates, func(t visibleForTestingTarget) bool {
-			return visibleForTestingArityMatches(t, argCount) && t.file == file.Path && t.owner == callOwner
+			return visibleForTestingArityMatches(t, argCount) && t.file == file.Path &&
+				t.owner == callOwner && semantics.SameEnclosingOwner(file, t.node, call)
 		}); ok {
-			return target, 0.90, true
+			confidence, ok := semantics.ConfidenceForEvidence(0.90, semantics.EvidenceSameOwner)
+			return target, confidence, ok
 		}
 	}
 
 	if target, ok := uniqueVisibleForTestingTarget(candidates, func(t visibleForTestingTarget) bool {
-		return visibleForTestingArityMatches(t, argCount) && t.file == file.Path && t.owner == "" && callOwner == ""
+		return visibleForTestingArityMatches(t, argCount) && t.file == file.Path &&
+			t.owner == "" && callOwner == "" && semantics.SameFileDeclarationMatch(&v2.Context{File: file}, t.node, call)
 	}); ok {
-		return target, 0.80, true
+		confidence, ok := semantics.ConfidenceForEvidence(0.80, semantics.EvidenceSameFileDeclaration)
+		return target, confidence, ok
 	}
 
 	return visibleForTestingTarget{}, 0, false

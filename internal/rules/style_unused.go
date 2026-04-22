@@ -31,53 +31,82 @@ type UnusedParameterRule struct {
 // usage.
 func (r *UnusedParameterRule) Confidence() float64 { return 0.95 }
 
-func unusedParameterHasReferenceFlat(file *scanner.File, body uint32, paramIdx uint32, paramName string) bool {
+type unusedParameterReferenceMatch uint8
+
+const (
+	unusedParameterNoMatch unusedParameterReferenceMatch = iota
+	unusedParameterMatchesParam
+	unusedParameterMatchesOtherDeclaration
+	unusedParameterUnknownMatch
+)
+
+func unusedParameterUsageFlat(file *scanner.File, body uint32, paramIdx uint32, paramName string) (used bool, unknown bool) {
 	if file == nil || body == 0 || paramIdx == 0 || paramName == "" {
-		return false
+		return false, false
 	}
-	found := false
-	file.FlatWalkAllNodes(body, func(candidate uint32) {
-		if found {
-			return
+	for _, nodeType := range []string{"simple_identifier", "interpolated_identifier", "line_str_ref", "multi_line_str_ref"} {
+		file.FlatWalkNodes(body, nodeType, func(candidate uint32) {
+			if used || unknown {
+				return
+			}
+			switch unusedParameterResolveReferenceFlat(file, body, paramIdx, candidate, paramName) {
+			case unusedParameterMatchesParam:
+				used = true
+			case unusedParameterUnknownMatch:
+				unknown = true
+			}
+		})
+		if used || unknown {
+			break
 		}
-		refName := unusedParameterReferenceNameFlat(file, candidate)
-		if refName != paramName {
-			return
+	}
+	return used, unknown
+}
+
+func unusedParameterResolveReferenceFlat(file *scanner.File, body uint32, paramIdx uint32, ref uint32, paramName string) unusedParameterReferenceMatch {
+	if unusedParameterReferenceNameFlat(file, ref) != paramName {
+		return unusedParameterNoMatch
+	}
+	if unusedParameterInsideNestedFunctionFlat(file, ref, body) {
+		return unusedParameterMatchesOtherDeclaration
+	}
+	if file.FlatType(ref) == "simple_identifier" {
+		reference, known := unusedParameterIdentifierIsReferenceFlat(file, ref)
+		if !known {
+			return unusedParameterUnknownMatch
 		}
-		if file.FlatType(candidate) == "simple_identifier" &&
-			!unusedParameterIdentifierIsReferenceFlat(file, candidate) {
-			return
+		if !reference {
+			return unusedParameterNoMatch
 		}
-		if unusedParameterInsideNestedFunctionFlat(file, candidate, body) {
-			return
-		}
-		if unusedParameterReferenceShadowedFlat(file, body, candidate, paramName) {
-			return
-		}
-		found = true
-	})
-	return found
+	}
+	if unusedParameterReferenceShadowedFlat(file, body, ref, paramName) {
+		return unusedParameterMatchesOtherDeclaration
+	}
+	if unusedParameterSameFileDeclarationMatchFlat(file, body, paramIdx, ref, paramName) {
+		return unusedParameterMatchesParam
+	}
+	return unusedParameterUnknownMatch
 }
 
 func unusedParameterReferenceNameFlat(file *scanner.File, idx uint32) string {
 	switch file.FlatType(idx) {
 	case "simple_identifier":
-		return file.FlatNodeText(idx)
+		return strings.Trim(file.FlatNodeText(idx), "`")
 	case "interpolated_identifier", "line_str_ref", "multi_line_str_ref":
 		text := strings.TrimSpace(file.FlatNodeText(idx))
 		text = strings.TrimPrefix(text, "$")
 		text = strings.TrimPrefix(text, "{")
 		text = strings.TrimSuffix(text, "}")
-		return text
+		return strings.Trim(text, "`")
 	default:
 		return ""
 	}
 }
 
-func unusedParameterIdentifierIsReferenceFlat(file *scanner.File, ident uint32) bool {
+func unusedParameterIdentifierIsReferenceFlat(file *scanner.File, ident uint32) (isReference bool, known bool) {
 	parent, ok := file.FlatParent(ident)
 	if !ok {
-		return false
+		return false, false
 	}
 	switch file.FlatType(parent) {
 	case "parameter", "class_parameter", "variable_declaration",
@@ -86,21 +115,21 @@ func unusedParameterIdentifierIsReferenceFlat(file *scanner.File, ident uint32) 
 		"type_parameter", "type_parameters", "function_value_parameters",
 		"lambda_parameters", "value_argument_label", "import_header",
 		"package_header", "navigation_suffix":
-		return false
+		return false, true
 	case "value_argument":
 		if file.FlatNamedChildCount(parent) >= 2 && file.FlatNamedChild(parent, 0) == ident {
-			return false
+			return false, true
 		}
 	}
 	for cur, ok := file.FlatParent(ident); ok; cur, ok = file.FlatParent(cur) {
 		switch file.FlatType(cur) {
 		case "user_type", "nullable_type", "function_type", "type_parameter", "type_parameters":
-			return false
+			return false, true
 		case "function_body", "lambda_literal", "function_declaration":
-			return true
+			return true, true
 		}
 	}
-	return true
+	return false, false
 }
 
 func unusedParameterInsideNestedFunctionFlat(file *scanner.File, ident uint32, body uint32) bool {
@@ -229,6 +258,12 @@ func unusedParameterDeclarationNodeHasNameFlat(file *scanner.File, node uint32, 
 func unusedParameterDeclarationScopeContainsRefFlat(file *scanner.File, stop uint32, decl uint32, ref uint32) bool {
 	scope := unusedParameterLexicalScopeFlat(file, stop, decl)
 	return scope != 0 && unusedParameterNodeContainsFlat(file, scope, ref)
+}
+
+func unusedParameterSameFileDeclarationMatchFlat(file *scanner.File, body uint32, paramIdx uint32, ref uint32, name string) bool {
+	return extractIdentifierFlat(file, paramIdx) == name &&
+		unusedParameterNodeContainsFlat(file, body, ref) &&
+		!unusedParameterReferenceShadowedFlat(file, body, ref, name)
 }
 
 func unusedParameterLexicalScopeFlat(file *scanner.File, stop uint32, node uint32) uint32 {

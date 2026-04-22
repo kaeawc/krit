@@ -16921,7 +16921,11 @@ func registerAllRules() {
 							strings.Contains(paramText, "\"UNUSED_PARAMETER\"")) {
 						continue
 					}
-					if !unusedParameterHasReferenceFlat(file, summary.body, param.idx, paramName) {
+					used, unknown := unusedParameterUsageFlat(file, summary.body, param.idx, paramName)
+					if unknown {
+						continue
+					}
+					if !used {
 						ctx.EmitAt(file.FlatRow(param.idx)+1, 1,
 							fmt.Sprintf("Parameter '%s' is unused.", paramName))
 					}

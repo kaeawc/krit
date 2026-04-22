@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -532,10 +533,12 @@ func runKritTypesCached(
 	defer cancel()
 
 	var runErr error
+	var proc oracleProcessResult
 	trackErr := trackOracle(tracker, "kritTypesProcess", func() error {
-		_, runErr = runOracleProcess(ctx, javaPath, args, freshOutPath, timeout, grace, verbose)
+		proc, runErr = runOracleProcessMeasured(ctx, javaPath, args, freshOutPath, timeout, grace, verbose)
 		return runErr
 	})
+	addOracleProcessResources(tracker, "kritTypesProcessResources", proc.PeakRSSMB)
 	if trackErr != nil {
 		return trackErr
 	}
@@ -552,11 +555,14 @@ type kritTypesCachedRunner func(
 ) error
 
 type shardResult struct {
-	Fresh   *OracleData
-	Deps    *CacheDepsFile
-	DepsErr error
-	Err     error
-	Files   int
+	Fresh      *OracleData
+	Deps       *CacheDepsFile
+	DepsErr    error
+	Err        error
+	Files      int
+	Cost       int64
+	Bytes      int64
+	CallTokens int64
 }
 
 func configuredKritTypesShards(misses int) int {
@@ -577,7 +583,32 @@ func configuredKritTypesShards(misses int) int {
 	return n
 }
 
+type kaaMissCost struct {
+	Path       string
+	Cost       int64
+	Bytes      int64
+	CallTokens int64
+}
+
+type kaaMissGroup struct {
+	Paths      []string
+	Cost       int64
+	Bytes      int64
+	CallTokens int64
+}
+
+const kaaCallTokenCostBytes int64 = 512
+
 func splitMissesForKAA(paths []string, shards int) [][]string {
+	groups := splitMissesForKAAWithStats(paths, shards)
+	out := make([][]string, len(groups))
+	for i, group := range groups {
+		out[i] = group.Paths
+	}
+	return out
+}
+
+func splitMissesForKAAWithStats(paths []string, shards int) []kaaMissGroup {
 	if len(paths) == 0 {
 		return nil
 	}
@@ -587,11 +618,67 @@ func splitMissesForKAA(paths []string, shards int) [][]string {
 	if shards > len(paths) {
 		shards = len(paths)
 	}
-	groups := make([][]string, shards)
-	for i, p := range paths {
-		groups[i%shards] = append(groups[i%shards], p)
+	costs := make([]kaaMissCost, 0, len(paths))
+	for _, p := range paths {
+		costs = append(costs, estimateKAAMissCost(p))
+	}
+	sort.SliceStable(costs, func(i, j int) bool {
+		if costs[i].Cost != costs[j].Cost {
+			return costs[i].Cost > costs[j].Cost
+		}
+		return costs[i].Path < costs[j].Path
+	})
+
+	groups := make([]kaaMissGroup, shards)
+	loads := make([]int64, shards)
+	for _, c := range costs {
+		k := indexOfMinInt64(loads)
+		groups[k].Paths = append(groups[k].Paths, c.Path)
+		groups[k].Cost += c.Cost
+		groups[k].Bytes += c.Bytes
+		groups[k].CallTokens += c.CallTokens
+		loads[k] += c.Cost
 	}
 	return groups
+}
+
+func estimateKAAMissCost(path string) kaaMissCost {
+	c := kaaMissCost{Path: path, Cost: 1}
+	if st, err := os.Stat(path); err == nil && st.Size() > 0 {
+		c.Bytes = st.Size()
+	}
+	if data, err := os.ReadFile(path); err == nil {
+		c.Bytes = int64(len(data))
+		c.CallTokens = roughKAACallTokens(data)
+	}
+	c.Cost = c.Bytes + c.CallTokens*kaaCallTokenCostBytes
+	if c.Cost <= 0 {
+		c.Cost = 1
+	}
+	return c
+}
+
+func roughKAACallTokens(data []byte) int64 {
+	var n int64
+	for _, b := range data {
+		if b == '(' {
+			n++
+		}
+	}
+	return n
+}
+
+func indexOfMinInt64(values []int64) int {
+	if len(values) == 0 {
+		return 0
+	}
+	best := 0
+	for i := 1; i < len(values); i++ {
+		if values[i] < values[best] {
+			best = i
+		}
+	}
+	return best
 }
 
 func runKritTypesCachedSharded(
@@ -620,13 +707,22 @@ func runKritTypesCachedShardedWithRunner(
 	if tracker == nil {
 		tracker = perf.New(false)
 	}
-	groups := splitMissesForKAA(misses, shards)
+	groups := splitMissesForKAAWithStats(misses, shards)
 	if len(groups) == 0 {
 		return mergeOracleData(), nil, nil
 	}
+	var totalCost, totalBytes, totalCallTokens int64
+	for _, group := range groups {
+		totalCost += group.Cost
+		totalBytes += group.Bytes
+		totalCallTokens += group.CallTokens
+	}
 	addOracleInstant(tracker, "shardedMissAnalysisSummary", map[string]int64{
-		"shards": int64(len(groups)),
-		"files":  int64(len(misses)),
+		"shards":     int64(len(groups)),
+		"files":      int64(len(misses)),
+		"cost":       totalCost,
+		"bytes":      totalBytes,
+		"callTokens": totalCallTokens,
 	}, nil)
 
 	results := make([]shardResult, len(groups))
@@ -638,9 +734,18 @@ func runKritTypesCachedShardedWithRunner(
 			defer wg.Done()
 			child := tracker.Serial(fmt.Sprintf("kritTypesShard/%d", i))
 			defer child.End()
-			results[i].Files = len(group)
+			results[i].Files = len(group.Paths)
+			results[i].Cost = group.Cost
+			results[i].Bytes = group.Bytes
+			results[i].CallTokens = group.CallTokens
+			addOracleInstant(child, "shardInputSummary", map[string]int64{
+				"files":      int64(len(group.Paths)),
+				"cost":       group.Cost,
+				"bytes":      group.Bytes,
+				"callTokens": group.CallTokens,
+			}, nil)
 
-			listPath, freshPath, depsPath, err := prepareMissTemps(group)
+			listPath, freshPath, depsPath, err := prepareMissTemps(group.Paths)
 			if err != nil {
 				results[i].Err = err
 				return
@@ -673,10 +778,13 @@ func runKritTypesCachedShardedWithRunner(
 				return nil
 			})
 			results[i] = shardResult{
-				Fresh:   fresh,
-				Deps:    deps,
-				DepsErr: depsErr,
-				Files:   len(group),
+				Fresh:      fresh,
+				Deps:       deps,
+				DepsErr:    depsErr,
+				Files:      len(group.Paths),
+				Cost:       group.Cost,
+				Bytes:      group.Bytes,
+				CallTokens: group.CallTokens,
 			}
 		}()
 	}

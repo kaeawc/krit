@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -34,7 +35,7 @@ func TestConfiguredKritTypesShards(t *testing.T) {
 	}
 }
 
-func TestSplitMissesForKAA_RoundRobinDeterministic(t *testing.T) {
+func TestSplitMissesForKAA_EqualCostDeterministic(t *testing.T) {
 	paths := []string{"A.kt", "B.kt", "C.kt", "D.kt", "E.kt"}
 	got := splitMissesForKAA(paths, 2)
 	want := [][]string{{"A.kt", "C.kt", "E.kt"}, {"B.kt", "D.kt"}}
@@ -46,6 +47,35 @@ func TestSplitMissesForKAA_RoundRobinDeterministic(t *testing.T) {
 	want = [][]string{{"A.kt"}, {"B.kt"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("capped split = %#v, want %#v", got, want)
+	}
+}
+
+func TestSplitMissesForKAA_CostBalancedDeterministic(t *testing.T) {
+	dir := t.TempDir()
+	heavy := writeShardCostFile(t, dir, "heavy.kt", strings.Repeat("x", 1000))
+	medium := writeShardCostFile(t, dir, "medium.kt", strings.Repeat("x", 700))
+	smallA := writeShardCostFile(t, dir, "small-a.kt", strings.Repeat("x", 200))
+	smallB := writeShardCostFile(t, dir, "small-b.kt", strings.Repeat("x", 100))
+
+	got := splitMissesForKAA([]string{smallA, heavy, smallB, medium}, 2)
+	want := [][]string{{heavy}, {medium, smallA, smallB}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("cost-balanced split = %#v, want %#v", got, want)
+	}
+}
+
+func TestEstimateKAAMissCostWeightsCallTokens(t *testing.T) {
+	dir := t.TempDir()
+	plain := writeShardCostFile(t, dir, "plain.kt", strings.Repeat("x", 600))
+	callHeavy := writeShardCostFile(t, dir, "calls.kt", strings.Repeat("f()\n", 4))
+
+	plainCost := estimateKAAMissCost(plain)
+	callCost := estimateKAAMissCost(callHeavy)
+	if callCost.CallTokens != 4 {
+		t.Fatalf("call tokens = %d, want 4", callCost.CallTokens)
+	}
+	if callCost.Cost <= plainCost.Cost {
+		t.Fatalf("expected call-heavy file to outrank plain file, call=%+v plain=%+v", callCost, plainCost)
 	}
 }
 
@@ -216,6 +246,15 @@ func TestRunKritTypesCachedShardedWithRunner_ReturnsShardError(t *testing.T) {
 	if !strings.Contains(err.Error(), "krit-types shard") || !strings.Contains(err.Error(), "simulated shard failure") {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func writeShardCostFile(t *testing.T, dir, name, body string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+	return path
 }
 
 func nonEmptyLines(s string) []string {

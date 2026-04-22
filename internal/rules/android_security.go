@@ -922,11 +922,8 @@ func (r *RecycleRule) check(ctx *v2.Context) {
 	file := ctx.File
 	idx := ctx.Idx
 
-	fmt.Fprintf(os.Stderr, "RecycleRule.check called for node type: %s\n", file.FlatType(idx))
-
 	// Extract property type and check if it's recyclable
 	typeStr := extractPropertyTypeFlat(file, idx)
-	fmt.Fprintf(os.Stderr, "  extracted type: %q\n", typeStr)
 	if typeStr == "" {
 		return
 	}
@@ -965,26 +962,28 @@ func extractPropertyTypeFlat(file *scanner.File, idx uint32) string {
 	if file == nil || file.FlatType(idx) != "property_declaration" {
 		return ""
 	}
+	// In property_declaration, the type annotation is inside variable_declaration
 	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatType(child) != "type_annotation" {
+		if file.FlatType(child) != "variable_declaration" {
 			continue
 		}
-		// type_annotation contains colon + type. Find the type (named child after colon).
+		// Look for colon followed by a type node in variable_declaration
+		colonSeen := false
 		for typeChild := file.FlatFirstChild(child); typeChild != 0; typeChild = file.FlatNextSib(typeChild) {
-			if !file.FlatIsNamed(typeChild) {
+			childType := file.FlatType(typeChild)
+			if childType == ":" {
+				colonSeen = true
 				continue
 			}
-			// Get the actual type node (simple_identifier, user_type, type_identifier)
-			childType := file.FlatType(typeChild)
-			if childType == "simple_identifier" || childType == "user_type" || childType == "type_identifier" {
-				return file.FlatNodeString(typeChild, nil)
+			if colonSeen {
+				// Return the first type-like node after colon
+				if childType == "user_type" || childType == "simple_identifier" ||
+					childType == "nullable_type" || childType == "function_type" ||
+					childType == "parenthesized_type" || childType == "type_identifier" {
+					return file.FlatNodeString(typeChild, nil)
+				}
 			}
 		}
-		// Fallback: if no clear type node found, extract from full text
-		text := strings.TrimSpace(file.FlatNodeText(child))
-		text = strings.TrimPrefix(text, ":")
-		text = strings.TrimSpace(text)
-		return text
 	}
 	return ""
 }

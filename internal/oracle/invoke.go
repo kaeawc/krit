@@ -249,6 +249,9 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 		"--sources", strings.Join(sourceDirs, ","),
 		"--output", outputPath,
 	}
+	extraJVMArgs := configuredExtraJVMArgs(opts)
+	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgs)
+	recordKritTypesJVMArgs(tracker, extraJVMArgs)
 	if filesListPath != "" {
 		args = append(args, "--files", filesListPath)
 	}

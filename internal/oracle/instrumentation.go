@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/kaeawc/krit/internal/perf"
@@ -12,9 +13,10 @@ import (
 // InvocationOptions carries optional diagnostics for oracle invocations.
 // A nil or disabled tracker keeps the existing low-overhead behavior.
 type InvocationOptions struct {
-	Tracker     perf.Tracker
-	CacheWriter *OracleCacheWriter
-	CallFilter  *CallTargetFilterSummary
+	Tracker      perf.Tracker
+	CacheWriter  *OracleCacheWriter
+	CallFilter   *CallTargetFilterSummary
+	ExtraJVMArgs []string
 }
 
 func (o InvocationOptions) tracker() perf.Tracker {
@@ -37,6 +39,50 @@ func addOracleEntry(t perf.Tracker, name string, start time.Time, metrics map[st
 
 func addOracleInstant(t perf.Tracker, name string, metrics map[string]int64, attrs map[string]string) {
 	perf.AddEntryDetails(t, name, 0, metrics, attrs)
+}
+
+func extraJVMArgsFromEnv() []string {
+	raw := strings.TrimSpace(os.Getenv("KRIT_TYPES_EXTRA_JVM_ARGS"))
+	if raw == "" {
+		return nil
+	}
+	return strings.Fields(raw)
+}
+
+func configuredExtraJVMArgs(opts InvocationOptions) []string {
+	if len(opts.ExtraJVMArgs) > 0 {
+		return append([]string(nil), opts.ExtraJVMArgs...)
+	}
+	return extraJVMArgsFromEnv()
+}
+
+func appendExtraJVMArgsBeforeJar(args []string, extra []string) []string {
+	if len(extra) == 0 {
+		return args
+	}
+	idx := len(args)
+	for i, arg := range args {
+		if arg == "-jar" {
+			idx = i
+			break
+		}
+	}
+	out := make([]string, 0, len(args)+len(extra))
+	out = append(out, args[:idx]...)
+	out = append(out, extra...)
+	out = append(out, args[idx:]...)
+	return out
+}
+
+func recordKritTypesJVMArgs(t perf.Tracker, extra []string) {
+	if t == nil || !t.IsEnabled() {
+		return
+	}
+	addOracleInstant(t, "kritTypesJVMArgs", map[string]int64{
+		"extraArgs": int64(len(extra)),
+	}, map[string]string{
+		"args": strings.Join(extra, " "),
+	})
 }
 
 func addKotlinTimingsFromFile(t perf.Tracker, path string) {

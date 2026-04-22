@@ -283,11 +283,14 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	defer cancel()
 
 	var res string
+	var proc oracleProcessResult
 	processErr := trackOracle(tracker, "kritTypesProcess", func() error {
 		var err error
-		res, err = runOracleProcess(ctx, javaPath, args, outputPath, timeout, graceExit, verbose)
+		proc, err = runOracleProcessMeasured(ctx, javaPath, args, outputPath, timeout, graceExit, verbose)
+		res = proc.OutputPath
 		return err
 	})
+	addOracleProcessResources(tracker, "kritTypesProcessResources", proc.PeakRSSMB)
 	return res, processErr
 }
 
@@ -305,6 +308,19 @@ func runOracleProcess(
 	graceExit time.Duration,
 	verbose bool,
 ) (string, error) {
+	res, err := runOracleProcessMeasured(ctx, binaryPath, args, outputPath, timeout, graceExit, verbose)
+	return res.OutputPath, err
+}
+
+func runOracleProcessMeasured(
+	ctx context.Context,
+	binaryPath string,
+	args []string,
+	outputPath string,
+	timeout time.Duration,
+	graceExit time.Duration,
+	verbose bool,
+) (oracleProcessResult, error) {
 	tail := &stderrTail{}
 	var stderrWriter io.Writer = tail
 	if verbose {
@@ -315,28 +331,36 @@ func runOracleProcess(
 	cmd.Stderr = stderrWriter
 
 	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("krit-types start: %w", err)
+		return oracleProcessResult{}, fmt.Errorf("krit-types start: %w", err)
 	}
 
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	done := make(chan oracleProcessWaitResult, 1)
+	go func() {
+		err := cmd.Wait()
+		done <- oracleProcessWaitResult{
+			Err:       err,
+			PeakRSSMB: processStatePeakRSSMB(cmd.ProcessState),
+		}
+	}()
 
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
 	var outputSeenAt time.Time
+	result := oracleProcessResult{OutputPath: outputPath}
 	for {
 		select {
-		case err := <-done:
+		case wait := <-done:
+			result.PeakRSSMB = wait.PeakRSSMB
 			if ctx.Err() == context.DeadlineExceeded {
-				return "", fmt.Errorf("krit-types timed out after %s\nstderr tail:\n%s",
+				return result, fmt.Errorf("krit-types timed out after %s\nstderr tail:\n%s",
 					timeout, firstLines(tail.String(), 10))
 			}
-			if err != nil {
-				return "", fmt.Errorf("krit-types failed: %w\nstderr tail:\n%s",
-					err, firstLines(tail.String(), 10))
+			if wait.Err != nil {
+				return result, fmt.Errorf("krit-types failed: %w\nstderr tail:\n%s",
+					wait.Err, firstLines(tail.String(), 10))
 			}
-			return outputPath, nil
+			return result, nil
 		case <-ticker.C:
 			if !outputSeenAt.IsZero() {
 				if time.Since(outputSeenAt) >= graceExit {
@@ -344,8 +368,9 @@ func runOracleProcess(
 						fmt.Fprintf(os.Stderr, "verbose: krit-types wrote output but subprocess did not exit within %s grace period; force-killing\n", graceExit)
 					}
 					_ = cmd.Process.Kill()
-					<-done // drain Wait() so exec doesn't leak the pipe
-					return outputPath, nil
+					wait := <-done // drain Wait() so exec doesn't leak the pipe
+					result.PeakRSSMB = wait.PeakRSSMB
+					return result, nil
 				}
 				continue
 			}

@@ -16,4 +16,12 @@ class MyClass {
             i++
         }
     }
+
+    fun getterInNestedLoop(matrix: Array<IntArray>) {
+        for (row in matrix) {
+            for (value in row) {
+                val childCount = view.getChildCount()
+            }
+        }
+    }
 }

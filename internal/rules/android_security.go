@@ -746,9 +746,14 @@ func drawAllocationIsAllocCall(file *scanner.File, call uint32) bool {
 
 
 // FieldGetterRule detects using getter instead of direct field access in loops.
-type FieldGetterRule struct{ AndroidRule }
+type FieldGetterRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
 
-var fieldGetterCallRe = regexp.MustCompile(`\.get[A-Z]\w*\(`)
+func (r *FieldGetterRule) NodeTypes() []string {
+	return []string{"call_expression"}
+}
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -760,29 +765,93 @@ func (r *FieldGetterRule) Confidence() float64 { return 0.75 }
 
 func (r *FieldGetterRule) check(ctx *v2.Context) {
 	file := ctx.File
-	inLoop := false
-	braceDepth := 0
-	loopStartDepth := 0
-	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if !inLoop {
-			if strings.HasPrefix(trimmed, "for ") || strings.HasPrefix(trimmed, "for(") ||
-				strings.HasPrefix(trimmed, "while ") || strings.HasPrefix(trimmed, "while(") {
-				inLoop = true
-				loopStartDepth = braceDepth
-			}
-		}
-		braceDepth += strings.Count(line, "{") - strings.Count(line, "}")
-		if inLoop {
-			if fieldGetterCallRe.MatchString(line) && !strings.HasPrefix(trimmed, "//") {
-				ctx.Emit(r.Finding(file, i+1, 1,
-					"Getter call inside loop. Use direct field access for better performance."))
-			}
-			if braceDepth <= loopStartDepth {
-				inLoop = false
-			}
+	if file == nil || ctx.Idx == 0 {
+		return
+	}
+
+	callIdx := ctx.Idx
+	if file.FlatType(callIdx) != "call_expression" {
+		return
+	}
+
+	// Check if this call is inside a for or while loop
+	if !isCallInLoop(file, callIdx) {
+		return
+	}
+
+	navExpr, args := flatCallExpressionParts(file, callIdx)
+	if navExpr == 0 {
+		return
+	}
+
+	methodName := flatNavigationExpressionLastIdentifier(file, navExpr)
+	if methodName == "" || !isFieldGetterName(methodName) || nonFieldGetters[methodName] {
+		return
+	}
+
+	// Check that there are no arguments
+	if !hasZeroArguments(file, args) {
+		return
+	}
+
+	ctx.EmitAt(file.FlatRow(callIdx)+1, file.FlatCol(callIdx)+1,
+		"Getter call inside loop. Use direct field access for better performance.")
+}
+
+// isCallInLoop checks if a call_expression node is within a for_statement or while_statement
+func isCallInLoop(file *scanner.File, callIdx uint32) bool {
+	if file == nil || callIdx == 0 {
+		return false
+	}
+	// Walk up the tree to find if we're inside a loop
+	for current, ok := file.FlatParent(callIdx); ok; current, ok = file.FlatParent(current) {
+		parentType := file.FlatType(current)
+		if parentType == "for_statement" || parentType == "while_statement" || parentType == "do_while_statement" {
+			return true
 		}
 	}
+	return false
+}
+
+// Non-field-getter methods that start with "get" but should be filtered out.
+var nonFieldGetters = map[string]bool{
+	"getOrDefault": true,
+	"getOrNull":    true,
+	"getOrElse":    true,
+	"getOrPut":     true,
+	"getValue":     true,
+	"getKey":       true,
+}
+
+// isFieldGetterName checks if a method name matches get[A-Z] pattern
+func isFieldGetterName(methodName string) bool {
+	if len(methodName) < 4 {
+		return false
+	}
+	if !strings.HasPrefix(methodName, "get") {
+		return false
+	}
+	secondChar := methodName[3]
+	// Must be followed by uppercase letter
+	return secondChar >= 'A' && secondChar <= 'Z'
+}
+
+// hasZeroArguments checks if the value_arguments is empty
+func hasZeroArguments(file *scanner.File, args uint32) bool {
+	if args == 0 {
+		return true
+	}
+	if file == nil {
+		return false
+	}
+	// Count named children of value_arguments
+	namedCount := 0
+	for child := file.FlatFirstChild(args); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatIsNamed(child) {
+			namedCount++
+		}
+	}
+	return namedCount == 0
 }
 
 

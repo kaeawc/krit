@@ -15114,6 +15114,7 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"disjunction_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
 			Needs:             v2.NeedsTypeInfo,
+			Oracle:            &v2.OracleFilter{Identifiers: []string{"isEmpty", "count", ".size", ".length", "\"\""}},
 			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"count", "isEmpty"}},
 			OriginalV1:        r,
 			Check: func(ctx *v2.Context) {

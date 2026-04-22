@@ -773,8 +773,8 @@ type UseIsNullOrEmptyRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence — suggests
-// isNullOrEmpty() for `x == null || x.isEmpty()`; needs resolver to confirm
-// x is String/Collection, falls back to name heuristic. Classified per
+// isNullOrEmpty() for `x == null || x.isEmpty()` after semantic receiver
+// checks, with lower-confidence same-file declaration fallback. Classified per
 // roadmap/17.
 func (r *UseIsNullOrEmptyRule) Confidence() float64 { return 0.75 }
 

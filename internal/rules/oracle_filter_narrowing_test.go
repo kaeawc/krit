@@ -23,6 +23,7 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 		{"Deprecation", []string{"Deprecated"}, []string{"Deprecated"}},
 		{"IgnoredReturnValue", []string{"CheckReturnValue", "CheckResult"}, []string{"CheckReturnValue", "CheckResult"}},
 		{"UnreachableCode", []string{"return", "throw", "break", "continue"}, nil},
+		{"UseIsNullOrEmpty", []string{"isEmpty", "count", ".size", ".length", "\"\""}, nil},
 	}
 
 	byID := map[string]*v2.Rule{}

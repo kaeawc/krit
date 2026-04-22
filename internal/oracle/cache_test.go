@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/perf"
 )
 
 // writeTempFile writes content to a new file under dir and returns the
@@ -242,8 +244,8 @@ func TestAssembleOracle_UnionsHitsAndFresh(t *testing.T) {
 		FilePath:   "/tmp/A.kt",
 		FileResult: &OracleFile{Package: "a"},
 		PerFileDeps: map[string]*OracleClass{
-			"kotlin.Any":   {FQN: "kotlin.Any", Kind: "class"},
-			"kotlin.Unit":  {FQN: "kotlin.Unit", Kind: "class"},
+			"kotlin.Any":  {FQN: "kotlin.Any", Kind: "class"},
+			"kotlin.Unit": {FQN: "kotlin.Unit", Kind: "class"},
 		},
 	}
 	fresh := &OracleData{
@@ -347,4 +349,71 @@ func TestPoisonEntry_WriteReadClassify(t *testing.T) {
 	if len(misses2) != 1 {
 		t.Fatalf("content change should invalidate poison; got hits=%d misses=%d", len(hits2), len(misses2))
 	}
+}
+
+func TestWriteFreshEntriesWithTracker_EmitsAggregateBreakdown(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatalf("cache dir: %v", err)
+	}
+	dep := writeTempFile(t, tmp, "Dep.kt", "class Dep\n")
+	src := writeTempFile(t, tmp, "A.kt", "class A : Dep()\n")
+	fresh := &OracleData{
+		Version: 1,
+		Files: map[string]*OracleFile{
+			src: {Package: "x"},
+		},
+		Dependencies: map[string]*OracleClass{},
+	}
+	deps := &CacheDepsFile{
+		Version:       1,
+		Approximation: "symbol-resolved-sources",
+		Files: map[string]*CacheDepsEntry{
+			src: {DepPaths: []string{dep}, PerFileDeps: map[string]*OracleClass{}},
+		},
+	}
+	tracker := perf.New(true)
+	written, err := WriteFreshEntriesWithTracker(cacheDir, fresh, deps, tracker)
+	if err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if written != 1 {
+		t.Fatalf("expected 1 entry written, got %d", written)
+	}
+
+	timings := tracker.GetTimings()
+	for _, name := range []string{
+		"freshEntryContentHash",
+		"freshEntryClosureFingerprint",
+		"freshEntryMarshal",
+		"freshEntryAtomicWrite",
+		"freshEntryPoisonWrites",
+		"freshEntrySummary",
+		"freshEntrySizeTop25",
+	} {
+		if !hasTiming(timings, name) {
+			t.Fatalf("expected timing %q in %#v", name, timings)
+		}
+	}
+	summary := findTiming(timings, "freshEntrySummary")
+	if summary.Metrics["written"] != 1 || summary.Metrics["depPaths"] != 1 || summary.Metrics["uniqueDepPaths"] != 1 {
+		t.Fatalf("unexpected summary metrics: %#v", summary.Metrics)
+	}
+}
+
+func hasTiming(entries []perf.TimingEntry, name string) bool {
+	return findTiming(entries, name).Name != ""
+}
+
+func findTiming(entries []perf.TimingEntry, name string) perf.TimingEntry {
+	for _, entry := range entries {
+		if entry.Name == name {
+			return entry
+		}
+		if child := findTiming(entry.Children, name); child.Name != "" {
+			return child
+		}
+	}
+	return perf.TimingEntry{}
 }

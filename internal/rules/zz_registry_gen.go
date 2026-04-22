@@ -16923,7 +16923,7 @@ func registerAllRules() {
 		r := &UnusedParameterRule{BaseRule: BaseRule{RuleName: "UnusedParameter", RuleSetName: "style", Sev: "warning", Desc: "Detects function parameters that are never used in the function body."}, AllowedNames: regexp.MustCompile(`^(ignored|expected|_)$`)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -16980,8 +16980,6 @@ func registerAllRules() {
 				if hasSiblingOverloadFlat(file, idx, summary.name) {
 					return
 				}
-				paramsText := file.FlatNodeText(summary.paramsNode)
-				searchText := bodyText + "\n" + paramsText
 				for _, param := range summary.params {
 					paramName := param.name
 					if paramName == "" {
@@ -16996,8 +16994,11 @@ func registerAllRules() {
 							strings.Contains(paramText, "\"UNUSED_PARAMETER\"")) {
 						continue
 					}
-					count := strings.Count(searchText, paramName)
-					if count <= 1 {
+					used, unknown := unusedParameterUsageFlat(file, summary.body, param.idx, paramName)
+					if unknown {
+						continue
+					}
+					if !used {
 						ctx.EmitAt(file.FlatRow(param.idx)+1, 1,
 							fmt.Sprintf("Parameter '%s' is unused.", paramName))
 					}

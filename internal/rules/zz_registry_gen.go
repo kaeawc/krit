@@ -957,7 +957,13 @@ func registerAllRules() {
 		r := &WrongViewCastRule{AndroidRule: alcRule("WrongViewCast", "Mismatched view type", ALSError, 9)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression", "as_expression", "cast_expression", "local_variable_declaration"},
+			Needs:     v2.NeedsTypeInfo,
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			OracleCallTargets: &v2.OracleCallTargetFilter{
+				CalleeNames: []string{"findViewById", "requireViewById"},
+			},
+			Confidence: r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
 	}

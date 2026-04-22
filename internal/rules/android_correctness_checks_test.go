@@ -1,6 +1,18 @@
 package rules_test
 
-import "testing"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/oracle"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
+)
 
 func TestOverrideAbstract(t *testing.T) {
 	t.Run("triggers", func(t *testing.T) {
@@ -120,29 +132,205 @@ fun update() {
 
 func TestWrongViewCast(t *testing.T) {
 	t.Run("triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "WrongViewCast", `
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "TextView",
+			ID:   "@+id/tv_title",
+			Line: 4,
+		})
+		findings := runWrongViewCastWithResourceIndex(t, `
 package test
 
 fun setup() {
     val tv = findViewById<ImageView>(R.id.tv_title)
 }
-`)
+`, idx)
 		if len(findings) == 0 {
 			t.Fatal("expected findings")
 		}
 	})
 	t.Run("clean", func(t *testing.T) {
-		findings := runRuleByName(t, "WrongViewCast", `
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "TextView",
+			ID:   "@+id/tv_title",
+			Line: 4,
+		})
+		findings := runWrongViewCastWithResourceIndex(t, `
 package test
 
 fun setup() {
     val tv = findViewById<TextView>(R.id.tv_title)
 }
-`)
+`, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+}
+
+func TestWrongViewCast_ASTAndResourceEvidence(t *testing.T) {
+	t.Run("resource backed generic mismatch without prefix", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "ImageView",
+			ID:   "@+id/avatar",
+			Line: 4,
+		})
+		findings := runWrongViewCastWithResourceIndex(t, `
+package test
+
+fun setup() {
+    val avatar = findViewById<TextView>(R.id.avatar)
+}
+`, idx)
+		if len(findings) != 1 || !strings.Contains(findings[0].Message, "ImageView") {
+			t.Fatalf("expected ImageView resource mismatch finding, got %#v", findings)
+		}
+		if findings[0].Confidence < 0.9 {
+			t.Fatalf("expected high-confidence resource finding, got %.2f", findings[0].Confidence)
+		}
+	})
+
+	t.Run("resource backed as-cast mismatch", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "ImageView",
+			ID:   "@+id/avatar",
+			Line: 4,
+		})
+		findings := runWrongViewCastWithResourceIndex(t, `
+package test
+
+fun setup() {
+    val avatar = findViewById(R.id.avatar) as TextView
+}
+`, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected as-cast resource mismatch finding, got %#v", findings)
+		}
+	})
+
+	t.Run("multiline generic call", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "ImageView",
+			ID:   "@+id/avatar",
+			Line: 4,
+		})
+		findings := runWrongViewCastWithResourceIndex(t, `
+package test
+
+fun setup() {
+    val avatar = findViewById<TextView>(
+        R.id.avatar
+    )
+}
+`, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected multiline resource mismatch finding, got %#v", findings)
+		}
+	})
+
+	t.Run("resource evidence is required over prefix fallback", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "TextView",
+			ID:   "@+id/btn_submit",
+			Line: 4,
+		})
+		findings := runWrongViewCastWithResourceIndex(t, `
+package test
+
+fun setup() {
+    val submit = findViewById<TextView>(R.id.btn_submit)
+}
+`, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected resource-compatible cast to stay clean despite prefix, got %#v", findings)
+		}
+	})
+
+	t.Run("unresolved resource skips instead of prefix fallback", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "TextView",
+			ID:   "@+id/title",
+			Line: 4,
+		})
+		findings := runWrongViewCastWithResourceIndex(t, `
+package test
+
+fun setup() {
+    val avatar = findViewById<TextView>(R.id.iv_avatar)
+}
+`, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected unresolved resource to skip prefix fallback with index present, got %#v", findings)
+		}
+	})
+
+	t.Run("unresolved call target skips even with resource mismatch", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "ImageView",
+			ID:   "@+id/avatar",
+			Line: 4,
+		})
+		findings := runWrongViewCastWithoutCallTargets(t, `
+package test
+
+fun setup() {
+    val avatar = findViewById<TextView>(R.id.avatar)
+}
+`, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected unresolved findViewById call target to skip, got %#v", findings)
+		}
+	})
+
+	t.Run("unrelated local function is ignored", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongViewCast", `
+package test
+
+fun <T> findViewById(id: Int): T = TODO()
+
+fun setup() {
+    val view = findViewById<TextView>(R.id.btn_submit)
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected local findViewById to be ignored, got %#v", findings)
+		}
+	})
+
+	t.Run("comments and strings are ignored", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongViewCast", `
+package test
+
+fun setup() {
+    // val view = findViewById<TextView>(R.id.btn_submit)
+    val sample = "findViewById<TextView>(R.id.btn_submit)"
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected comments and strings to be ignored, got %#v", findings)
+		}
+	})
+}
+
+func TestWrongViewCast_JavaForms(t *testing.T) {
+	idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+		Type: "ImageView",
+		ID:   "@+id/iv_avatar",
+		Line: 4,
+	})
+	findings := runWrongViewCastOnJava(t, `
+package test;
+
+class Demo {
+  void setup() {
+    TextView title = findViewById(R.id.btn_submit);
+    ImageView image = (ImageView) findViewById(R.id.tv_title);
+    TextView required = ViewCompat.requireViewById(root, R.id.iv_avatar);
+  }
+}
+`, idx)
+	if len(findings) != 1 {
+		t.Fatalf("expected only qualified ViewCompat Java finding, got %d: %#v", len(findings), findings)
+	}
 }
 
 func TestDeprecated(t *testing.T) {
@@ -170,6 +358,90 @@ fun doWork() {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+}
+
+func runWrongViewCastWithResourceIndex(t *testing.T, code string, idx *android.ResourceIndex) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := runWrongViewCastResolverWithCallTargets(t, file, map[string]string{
+		"findViewById":    "android.app.Activity.findViewById",
+		"requireViewById": "androidx.core.view.ViewCompat.requireViewById",
+	})
+	return runWrongViewCastOnFile(t, file, idx, resolver)
+}
+
+func runWrongViewCastWithoutCallTargets(t *testing.T, code string, idx *android.ResourceIndex) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	return runWrongViewCastOnFile(t, file, idx, nil)
+}
+
+func runWrongViewCastOnJava(t *testing.T, code string, idx *android.ResourceIndex) []scanner.Finding {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "Test.java")
+	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseJavaFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runWrongViewCastOnFile(t, file, idx, nil)
+}
+
+func runWrongViewCastResolverWithCallTargets(t *testing.T, file *scanner.File, targets map[string]string) typeinfer.TypeResolver {
+	t.Helper()
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		text := file.FlatNodeText(idx)
+		for callee, target := range targets {
+			if strings.Contains(text, callee) {
+				key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+				fake.CallTargets[file.Path][key] = target
+			}
+		}
+	})
+	return oracle.NewCompositeResolver(fake, resolver)
+}
+
+func runWrongViewCastOnFile(t *testing.T, file *scanner.File, idx *android.ResourceIndex, resolver typeinfer.TypeResolver) []scanner.Finding {
+	t.Helper()
+	var rule *v2rules.Rule
+	for _, r := range v2rules.Registry {
+		if r.ID == "WrongViewCast" {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("WrongViewCast not found in registry")
+	}
+	wants := make(map[string]bool, len(rule.NodeTypes))
+	for _, typ := range rule.NodeTypes {
+		wants[typ] = true
+	}
+	collector := scanner.NewFindingCollector(0)
+	for i := range file.FlatTree.Nodes {
+		flatIdx := uint32(i)
+		if !wants[file.FlatType(flatIdx)] {
+			continue
+		}
+		node := file.FlatTree.Nodes[i]
+		rule.Check(&v2rules.Context{
+			File:              file,
+			Idx:               flatIdx,
+			Node:              &node,
+			Rule:              rule,
+			ResourceIndex:     idx,
+			DefaultConfidence: rule.Confidence,
+			Collector:         collector,
+			Resolver:          resolver,
+		})
+	}
+	return collector.Columns().Findings()
 }
 
 func TestRange(t *testing.T) {

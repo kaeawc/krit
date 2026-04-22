@@ -117,12 +117,7 @@ func TestParseCache_Java_GrammarVersionMismatch(t *testing.T) {
 	}
 
 	hash := hashutil.HashHex([]byte(src))
-	entryPath := pc.javaEntryPath(hash)
-
-	data, err := os.ReadFile(entryPath)
-	if err != nil {
-		t.Fatalf("read entry: %v", err)
-	}
+	data, packPath := packedBlobForHash(t, pc.java, hash)
 	if !cacheutil.IsZstdFrame(data) {
 		t.Fatalf("java parse cache entry is not zstd-framed: %x", data[:min(4, len(data))])
 	}
@@ -137,8 +132,8 @@ func TestParseCache_Java_GrammarVersionMismatch(t *testing.T) {
 	if _, ok := pc2.LoadJava("", []byte(src)); ok {
 		t.Fatal("expected miss after Java grammar-version mismatch")
 	}
-	if _, err := os.Stat(entryPath); !os.IsNotExist(err) {
-		t.Fatalf("expected stale Java entry removed after sidecar mismatch, stat err=%v", err)
+	if _, err := os.Stat(packPath); !os.IsNotExist(err) {
+		t.Fatalf("expected stale Java pack removed after sidecar mismatch, stat err=%v", err)
 	}
 }
 

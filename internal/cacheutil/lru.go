@@ -50,6 +50,8 @@ type SizeCapLRU struct {
 	Ext          string  // entry file extension, including leading dot
 	CapBytes     int64   // size cap in bytes; <=0 disables eviction
 	LowWaterFrac float64 // evict to this fraction of CapBytes (default 0.80)
+	Remove       func(hash string) error
+	TrustIndex   bool // skip per-entry filesystem validation for packed stores
 
 	mu      sync.Mutex
 	entries map[string]lruEntry
@@ -114,6 +116,13 @@ func (l *SizeCapLRU) loadLocked() error {
 	}
 	if side.Version != lruSidecarVersion {
 		return l.rebuildLocked()
+	}
+	if l.TrustIndex {
+		for hash, e := range side.Entries {
+			l.entries[hash] = e
+			l.total += e.Size
+		}
+		return nil
 	}
 
 	// Cross-check against the filesystem: drop entries whose on-disk
@@ -287,8 +296,14 @@ func (l *SizeCapLRU) MaybeEvict() (int, error) {
 		if l.total <= target {
 			break
 		}
-		path := ShardedEntryPath(l.EntriesRoot, p.hash, l.Ext)
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		var err error
+		if l.Remove != nil {
+			err = l.Remove(p.hash)
+		} else {
+			path := ShardedEntryPath(l.EntriesRoot, p.hash, l.Ext)
+			err = os.Remove(path)
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			// Non-fatal: leave the in-memory entry so it doesn't
 			// double-count in total, but don't abort eviction on one
 			// bad file.

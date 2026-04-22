@@ -13,6 +13,8 @@ import (
 type VersionedDir struct {
 	Root       string        // absolute path to the cache root
 	EntriesDir string        // subdir under Root whose contents are nuked on mismatch (default: "entries")
+	ExtraDirs  []string      // additional subdirs under Root whose contents are nuked on mismatch
+	ExtraFiles []string      // additional files under Root whose contents are nuked on mismatch
 	Tokens     []SchemaToken // written to {Root}/{Name} sidecar files
 }
 
@@ -60,6 +62,22 @@ func (v VersionedDir) Open() (entriesDir string, err error) {
 		}
 		if err := os.MkdirAll(entriesPath, 0o755); err != nil {
 			return "", fmt.Errorf("cacheutil: mkdir entries after nuke: %w", err)
+		}
+		for _, extra := range v.ExtraDirs {
+			if extra == "" {
+				continue
+			}
+			if err := os.RemoveAll(filepath.Join(v.Root, extra)); err != nil {
+				return "", fmt.Errorf("cacheutil: remove extra dir %s: %w", extra, err)
+			}
+		}
+		for _, extra := range v.ExtraFiles {
+			if extra == "" {
+				continue
+			}
+			if err := os.Remove(filepath.Join(v.Root, extra)); err != nil && !os.IsNotExist(err) {
+				return "", fmt.Errorf("cacheutil: remove extra file %s: %w", extra, err)
+			}
 		}
 	}
 

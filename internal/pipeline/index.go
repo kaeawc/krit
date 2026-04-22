@@ -675,14 +675,11 @@ func loadFilesForOracleFilter(paths []string) []*scanner.File {
 	return out
 }
 
-// runCodeIndexBuild is a verbatim port of the pre-refactor
-// hasIndexBackedCrossFileRule branch in cmd/krit/main.go. It collects
-// Java files, parses them in parallel, and invokes
-// scanner.BuildIndexWithTracker to produce the cross-file code index.
-// Tracker labels ("javaIndexing", "codeIndexBuild", inner "indexBuild")
-// and verbose stderr lines match the pre-refactor output byte-for-byte.
-// The caller supplies the "crossFileAnalysis" parent tracker so rule
-// execution siblings can continue to nest under it.
+// runCodeIndexBuild collects Java files, parses them in parallel, and
+// invokes scanner.BuildIndexWithTracker to produce the cross-file code
+// index. Tracker labels ("javaIndexing", "codeIndexBuild", inner
+// "indexBuild") stay under the caller-supplied "crossFileAnalysis"
+// parent so rule execution siblings can continue to nest under it.
 func (p IndexPhase) runCodeIndexBuild(in IndexInput, result *IndexResult) {
 	if in.CrossFileParentTracker == nil {
 		return
@@ -699,25 +696,28 @@ func (p IndexPhase) runCodeIndexBuild(in IndexInput, result *IndexResult) {
 	var javaFilePaths []string
 	var parsedJavaFiles []*scanner.File
 
-	_ = crossTracker.Track("javaIndexing", func() error {
-		var err error
-		javaFilePaths, err = scanner.CollectJavaFiles(paths, nil) // err non-fatal: Java indexing is best-effort
-		if err != nil && in.Verbose {
-			fmt.Fprintf(os.Stderr, "verbose: Java file collection: %v\n", err)
+	javaTracker := crossTracker.Serial("javaIndexing")
+	javaPerf := &scanner.JavaIndexPerf{}
+	collectStart := time.Now()
+	var err error
+	javaFilePaths, err = scanner.CollectJavaFiles(paths, nil) // err non-fatal: Java indexing is best-effort
+	perf.AddEntry(javaTracker, "collectJavaFiles", time.Since(collectStart))
+	if err != nil && in.Verbose {
+		fmt.Fprintf(os.Stderr, "verbose: Java file collection: %v\n", err)
+	}
+	if len(javaFilePaths) > 0 {
+		crossWorkers = phaseWorkerCount("crossFileAnalysis", in.CrossFileJobsFlag, len(parsedFiles)+len(javaFilePaths))
+		var javaErrs []error
+		parsedJavaFiles, javaErrs = scanner.ScanJavaFilesCachedForIndex(javaFilePaths, crossWorkers, in.ParseCache, javaPerf)
+		if len(javaErrs) > 0 && in.Verbose {
+			fmt.Fprintf(os.Stderr, "verbose: Java file parsing: %d errors\n", len(javaErrs))
 		}
-		if len(javaFilePaths) > 0 {
-			crossWorkers = phaseWorkerCount("crossFileAnalysis", in.CrossFileJobsFlag, len(parsedFiles)+len(javaFilePaths))
-			var javaErrs []error
-			parsedJavaFiles, javaErrs = scanner.ScanJavaFilesCached(javaFilePaths, crossWorkers, in.ParseCache)
-			if len(javaErrs) > 0 && in.Verbose {
-				fmt.Fprintf(os.Stderr, "verbose: Java file parsing: %d errors\n", len(javaErrs))
-			}
-			if in.Verbose {
-				fmt.Fprintf(os.Stderr, "verbose: Parsed %d Java files for cross-reference indexing\n", len(parsedJavaFiles))
-			}
+		if in.Verbose {
+			fmt.Fprintf(os.Stderr, "verbose: Parsed %d Java files for cross-reference indexing\n", len(parsedJavaFiles))
 		}
-		return nil
-	})
+	}
+	addJavaIndexPerfEntries(javaTracker, javaPerf.Snapshot())
+	javaTracker.End()
 
 	var codeIndex *scanner.CodeIndex
 	_ = crossTracker.Track("codeIndexBuild", func() error {
@@ -741,6 +741,26 @@ func (p IndexPhase) runCodeIndexBuild(in IndexInput, result *IndexResult) {
 
 	result.CodeIndex = codeIndex
 	result.JavaFiles = parsedJavaFiles
+}
+
+func addJavaIndexPerfEntries(tracker perf.Tracker, s scanner.JavaIndexPerfSnapshot) {
+	perf.AddEntryDetails(tracker, "fileRead", time.Duration(s.FileReadNs), map[string]int64{
+		"files": s.Files,
+		"bytes": s.Bytes,
+	}, nil)
+	perf.AddEntry(tracker, "parseCacheLoad", time.Duration(s.ParseCacheLoadNs))
+	perf.AddEntryDetails(tracker, "parseCacheHitSummary", 0, map[string]int64{
+		"hits":   s.CacheHits,
+		"misses": s.CacheMisses,
+	}, nil)
+	perf.AddEntry(tracker, "treeSitterParse", time.Duration(s.TreeSitterParseNs))
+	perf.AddEntry(tracker, "flattenTree", time.Duration(s.FlattenTreeNs))
+	perf.AddEntry(tracker, "queueParseCacheSave", time.Duration(s.QueueParseCacheSaveNs))
+	perf.AddEntry(tracker, "referenceExtraction", time.Duration(s.ReferenceExtractionNs))
+	perf.AddEntryDetails(tracker, "filesSummary", 0, map[string]int64{
+		"files": s.Files,
+		"bytes": s.Bytes,
+	}, nil)
 }
 
 // runModuleIndexBuild is a verbatim port of the pre-refactor

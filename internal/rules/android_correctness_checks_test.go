@@ -177,8 +177,10 @@ func TestRange(t *testing.T) {
 		findings := runRuleByName(t, "Range", `
 package test
 
+fun bounded(@IntRange(from = 0, to = 10) value: Int) {}
+
 fun apply() {
-    view.setAlpha(300)
+    bounded(11)
 }
 `)
 		if len(findings) == 0 {
@@ -189,8 +191,10 @@ fun apply() {
 		findings := runRuleByName(t, "Range", `
 package test
 
+fun bounded(@IntRange(from = 0, to = 10) value: Int) {}
+
 fun apply() {
-    view.setAlpha(128)
+    bounded(10)
 }
 `)
 		if len(findings) != 0 {

@@ -35,6 +35,21 @@ class Holder(private val text: String?) {
         }
     }
 
+    fun primitiveArray(values: IntArray?) {
+        if (values == null || values.isEmpty()) {
+            println("primitive array")
+        }
+        if (values == null || values.size == 0) {
+            println("primitive array")
+        }
+    }
+
+    fun sequence(values: Sequence<String>?) {
+        if (values == null || values.count() == 0) {
+            println("sequence")
+        }
+    }
+
     fun commentsAndStrings(x: String?) {
         // x == null || x.isEmpty()
         val text = "x == null || x.isEmpty()"

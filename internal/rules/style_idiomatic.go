@@ -67,6 +67,7 @@ const (
 type flatNullOrEmptyCheck struct {
 	receiver uint32
 	kind     nullOrEmptyCheckKind
+	evidence semantics.SemanticEvidence
 }
 
 func flatUseIsNullOrEmpty(ctx *v2.Context, base BaseRule) {
@@ -86,7 +87,13 @@ func flatUseIsNullOrEmpty(ctx *v2.Context, base BaseRule) {
 	if emptyCheck.receiver == 0 || !flatSameReferencePath(file, nullReceiver, emptyCheck.receiver) {
 		return
 	}
-	if !flatNullOrEmptyReceiverSupported(ctx, nullReceiver, emptyCheck.kind) {
+	receiverEvidence, ok := flatNullOrEmptyReceiverSupported(ctx, nullReceiver, emptyCheck.kind)
+	if !ok {
+		return
+	}
+	evidence := flatNullOrEmptyEvidence(emptyCheck.evidence, receiverEvidence)
+	confidence, ok := flatNullOrEmptyConfidence(ctx, evidence)
+	if !ok {
 		return
 	}
 	if flatInsideNullOrEmptyHelper(file, ctx.Idx) {
@@ -104,6 +111,7 @@ func flatUseIsNullOrEmpty(ctx *v2.Context, base BaseRule) {
 		EndByte:     int(file.FlatEndByte(ctx.Idx)),
 		Replacement: receiverText + ".isNullOrEmpty()",
 	}
+	f.Confidence = confidence
 	ctx.Emit(f)
 }
 
@@ -148,7 +156,8 @@ func flatNullOrEmptyCallCheck(ctx *v2.Context, call uint32) flatNullOrEmptyCheck
 	if flatCallExpressionName(file, call) != "isEmpty" || !flatCallHasNoValueArgs(file, call) {
 		return flatNullOrEmptyCheck{}
 	}
-	if !flatResolvedEmptyCallTargetAllowed(ctx, call, "isEmpty") {
+	evidence, ok := flatResolvedEmptyCallTargetEvidence(ctx, call, "isEmpty")
+	if !ok {
 		return flatNullOrEmptyCheck{}
 	}
 	navExpr, _ := flatCallExpressionParts(file, call)
@@ -156,7 +165,7 @@ func flatNullOrEmptyCallCheck(ctx *v2.Context, call uint32) flatNullOrEmptyCheck
 	if receiver == 0 {
 		return flatNullOrEmptyCheck{}
 	}
-	return flatNullOrEmptyCheck{receiver: flatUnwrapParenExpr(file, receiver), kind: nullOrEmptyCheckIsEmpty}
+	return flatNullOrEmptyCheck{receiver: flatUnwrapParenExpr(file, receiver), kind: nullOrEmptyCheckIsEmpty, evidence: evidence}
 }
 
 func flatNullOrEmptyEqualityCheck(ctx *v2.Context, node uint32) flatNullOrEmptyCheck {
@@ -166,10 +175,10 @@ func flatNullOrEmptyEqualityCheck(ctx *v2.Context, node uint32) flatNullOrEmptyC
 		return flatNullOrEmptyCheck{}
 	}
 	if flatIsEmptyStringLiteral(file, right) {
-		return flatNullOrEmptyCheck{receiver: flatUnwrapParenExpr(file, left), kind: nullOrEmptyCheckEmptyString}
+		return flatNullOrEmptyCheck{receiver: flatUnwrapParenExpr(file, left), kind: nullOrEmptyCheckEmptyString, evidence: semantics.EvidenceQualifiedReceiver}
 	}
 	if flatIsEmptyStringLiteral(file, left) {
-		return flatNullOrEmptyCheck{receiver: flatUnwrapParenExpr(file, right), kind: nullOrEmptyCheckEmptyString}
+		return flatNullOrEmptyCheck{receiver: flatUnwrapParenExpr(file, right), kind: nullOrEmptyCheckEmptyString, evidence: semantics.EvidenceQualifiedReceiver}
 	}
 	if flatIsZeroLiteral(file, right) {
 		return flatNullOrEmptySizeLikeCheck(ctx, left)
@@ -188,7 +197,8 @@ func flatNullOrEmptySizeLikeCheck(ctx *v2.Context, node uint32) flatNullOrEmptyC
 		if flatCallExpressionName(file, node) != "count" || !flatCallHasNoValueArgs(file, node) {
 			return flatNullOrEmptyCheck{}
 		}
-		if !flatResolvedEmptyCallTargetAllowed(ctx, node, "count") {
+		evidence, ok := flatResolvedEmptyCallTargetEvidence(ctx, node, "count")
+		if !ok {
 			return flatNullOrEmptyCheck{}
 		}
 		navExpr, _ := flatCallExpressionParts(file, node)
@@ -196,17 +206,17 @@ func flatNullOrEmptySizeLikeCheck(ctx *v2.Context, node uint32) flatNullOrEmptyC
 		if receiver == 0 {
 			return flatNullOrEmptyCheck{}
 		}
-		return flatNullOrEmptyCheck{receiver: flatUnwrapParenExpr(file, receiver), kind: nullOrEmptyCheckCount}
+		return flatNullOrEmptyCheck{receiver: flatUnwrapParenExpr(file, receiver), kind: nullOrEmptyCheckCount, evidence: evidence}
 	case "navigation_expression":
 		propName := flatNullOrEmptyNavSelector(file, node)
 		switch propName {
 		case "size":
 			if receiver := flatNavigationReceiver(file, node); receiver != 0 {
-				return flatNullOrEmptyCheck{receiver: flatUnwrapParenExpr(file, receiver), kind: nullOrEmptyCheckSize}
+				return flatNullOrEmptyCheck{receiver: flatUnwrapParenExpr(file, receiver), kind: nullOrEmptyCheckSize, evidence: semantics.EvidenceQualifiedReceiver}
 			}
 		case "length":
 			if receiver := flatNavigationReceiver(file, node); receiver != 0 {
-				return flatNullOrEmptyCheck{receiver: flatUnwrapParenExpr(file, receiver), kind: nullOrEmptyCheckLength}
+				return flatNullOrEmptyCheck{receiver: flatUnwrapParenExpr(file, receiver), kind: nullOrEmptyCheckLength, evidence: semantics.EvidenceQualifiedReceiver}
 			}
 		}
 	}
@@ -246,46 +256,83 @@ func flatCallHasNoValueArgs(file *scanner.File, call uint32) bool {
 	return args == 0 || file.FlatNamedChildCount(args) == 0
 }
 
-func flatResolvedEmptyCallTargetAllowed(ctx *v2.Context, call uint32, name string) bool {
+func flatResolvedEmptyCallTargetEvidence(ctx *v2.Context, call uint32, name string) (semantics.SemanticEvidence, bool) {
 	target, ok := semantics.ResolveCallTarget(ctx, call)
 	if !ok || target.CalleeName != name {
-		return false
+		return semantics.EvidenceUnresolved, false
 	}
 	if !target.Resolved {
-		return true
+		return semantics.EvidenceUnresolved, true
 	}
 	qn := target.QualifiedName
-	return strings.HasPrefix(qn, "kotlin.") || strings.HasPrefix(qn, "java.")
+	if strings.HasPrefix(qn, "kotlin.") || strings.HasPrefix(qn, "java.") {
+		return semantics.EvidenceResolved, true
+	}
+	return semantics.EvidenceUnresolved, false
 }
 
-func flatNullOrEmptyReceiverSupported(ctx *v2.Context, receiver uint32, kind nullOrEmptyCheckKind) bool {
+func flatNullOrEmptyReceiverSupported(ctx *v2.Context, receiver uint32, kind nullOrEmptyCheckKind) (semantics.SemanticEvidence, bool) {
 	if ctx == nil || ctx.File == nil || receiver == 0 {
-		return false
+		return semantics.EvidenceUnresolved, false
 	}
 	if ctx.Resolver != nil {
 		nullable, nullableOK := semantics.IsNullableExpression(ctx, receiver)
 		typ, typeOK := semantics.ExpressionType(ctx, receiver)
 		if nullableOK && typeOK && nullable && flatNullOrEmptyKindSupportsFamily(kind, flatNullOrEmptyTypeFamily(typ)) {
-			return true
+			return semantics.EvidenceQualifiedReceiver, true
 		}
 	}
 	explicitType, nullable, ok := flatNullOrEmptyExplicitReceiverType(ctx.File, receiver)
 	if !ok || !nullable {
-		return false
+		return semantics.EvidenceUnresolved, false
 	}
-	return flatNullOrEmptyKindSupportsFamily(kind, flatNullOrEmptyTypeFamilyFromName(explicitType))
+	if !flatNullOrEmptyKindSupportsFamily(kind, flatNullOrEmptyTypeFamilyFromName(explicitType)) {
+		return semantics.EvidenceUnresolved, false
+	}
+	return semantics.EvidenceSameFileDeclaration, true
+}
+
+func flatNullOrEmptyEvidence(callEvidence semantics.SemanticEvidence, receiverEvidence semantics.SemanticEvidence) semantics.SemanticEvidence {
+	if callEvidence == semantics.EvidenceResolved {
+		return semantics.EvidenceResolved
+	}
+	if receiverEvidence == semantics.EvidenceQualifiedReceiver {
+		return semantics.EvidenceQualifiedReceiver
+	}
+	if receiverEvidence == semantics.EvidenceSameFileDeclaration {
+		return semantics.EvidenceSameFileDeclaration
+	}
+	return semantics.EvidenceUnresolved
+}
+
+func flatNullOrEmptyConfidence(ctx *v2.Context, evidence semantics.SemanticEvidence) (float64, bool) {
+	base := 0.75
+	if ctx != nil {
+		if ctx.Rule != nil && ctx.Rule.Confidence != 0 {
+			base = ctx.Rule.Confidence
+		} else if ctx.DefaultConfidence != 0 {
+			base = ctx.DefaultConfidence
+		}
+	}
+	if evidence == semantics.EvidenceSameFileDeclaration {
+		if base > 0.65 {
+			return 0.65, true
+		}
+		return base, true
+	}
+	return semantics.ConfidenceForEvidence(base, evidence)
 }
 
 func flatNullOrEmptyKindSupportsFamily(kind nullOrEmptyCheckKind, family string) bool {
 	switch kind {
 	case nullOrEmptyCheckIsEmpty:
-		return family == "string" || family == "collection" || family == "map" || family == "array" || family == "sequence"
+		return family == "string" || family == "collection" || family == "map" || family == "array"
 	case nullOrEmptyCheckSize:
 		return family == "collection" || family == "map" || family == "array"
 	case nullOrEmptyCheckLength:
 		return family == "string"
 	case nullOrEmptyCheckCount:
-		return family == "string" || family == "collection" || family == "array" || family == "sequence"
+		return family == "string" || family == "collection" || family == "array"
 	case nullOrEmptyCheckEmptyString:
 		return family == "string"
 	default:
@@ -321,10 +368,7 @@ func flatNullOrEmptyTypeFamilyFromName(name string) string {
 		return "collection"
 	case "Map", "kotlin.collections.Map", "MutableMap", "kotlin.collections.MutableMap", "java.util.Map":
 		return "map"
-	case "Sequence", "kotlin.sequences.Sequence":
-		return "sequence"
-	}
-	if name == "Array" || name == "kotlin.Array" || strings.HasSuffix(name, "Array") {
+	case "Array", "kotlin.Array":
 		return "array"
 	}
 	return ""
@@ -453,6 +497,9 @@ func flatNullOrEmptyDeclarationType(file *scanner.File, decl uint32) (string, bo
 }
 
 func flatSameReferencePath(file *scanner.File, left uint32, right uint32) bool {
+	if !semantics.SameEnclosingOwner(file, left, right) {
+		return false
+	}
 	leftPath := flatNullOrEmptyReferencePath(file, left)
 	rightPath := flatNullOrEmptyReferencePath(file, right)
 	if len(leftPath) == 0 || len(leftPath) != len(rightPath) {

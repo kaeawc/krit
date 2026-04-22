@@ -292,7 +292,7 @@ func IsNullableExpression(ctx *v2.Context, expr uint32) (bool, bool) {
 }
 
 // IsSupportedIsNullOrEmptyReceiver reports whether expr is a string,
-// collection, array, map, or sequence receiver supported by isNullOrEmpty.
+// collection, array, or map receiver supported by isNullOrEmpty.
 func IsSupportedIsNullOrEmptyReceiver(ctx *v2.Context, expr uint32) bool {
 	typ, ok := ExpressionType(ctx, expr)
 	if !ok {
@@ -309,7 +309,6 @@ func IsSupportedIsNullOrEmptyReceiver(ctx *v2.Context, expr uint32) bool {
 		"kotlin.collections.MutableSet", "MutableSet",
 		"kotlin.collections.MutableMap", "MutableMap",
 		"kotlin.Array", "Array",
-		"kotlin.sequences.Sequence", "Sequence",
 	)
 }
 

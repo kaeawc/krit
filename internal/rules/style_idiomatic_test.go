@@ -178,6 +178,13 @@ class Holder(val text: String?) {
     fun unresolved(value: MissingType?) {
         if (value == null || value.isEmpty()) println("empty")
     }
+    fun primitiveArray(values: IntArray?) {
+        if (values == null || values.isEmpty()) println("empty")
+        if (values == null || values.size == 0) println("empty")
+    }
+    fun sequence(values: Sequence<String>?) {
+        if (values == null || values.count() == 0) println("empty")
+    }
     fun commentsAndStrings(x: String?) {
         // x == null || x.isEmpty()
         val s = "x == null || x.isEmpty()"

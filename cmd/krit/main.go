@@ -771,6 +771,11 @@ potential-bugs:
 	var ruleHash string
 	var cacheStats *cache.CacheStats
 	useCache := !*noCacheFlag
+	oracleStore := resolvedStore(storeDirFlag)
+	var oracleCacheWriter *oracle.OracleCacheWriter
+	if resolver != nil && !*noTypeOracleFlag && !*noCacheOracleFlag {
+		oracleCacheWriter = oracle.NewOracleCacheWriter(*jobsFlag)
+	}
 	{
 		oracleIdxInput := pipeline.IndexInput{
 			// ParseResult carries only ActiveRules here: IndexPhase runs
@@ -778,19 +783,20 @@ potential-bugs:
 			// SkipResolverIndex) so it doesn't need KotlinFiles. Paths
 			// and ActiveRules are threaded via the OracleScanPaths and
 			// ParseResult.ActiveRules knobs instead.
-			ParseResult:     pipeline.ParseResult{ActiveRules: activeRules},
-			Logger:          nil, // oracle logs directly to stderr, matching pre-refactor
-			Tracker:         tracker,
-			OracleEnabled:   resolver != nil && !*noTypeOracleFlag,
-			BaseResolver:    resolver,
-			OracleScanPaths: flag.Args(),
-			KotlinFilePaths: files,
-			InputTypesPath:  *inputTypesFlag,
-			NoCacheOracle:   *noCacheOracleFlag,
-			NoOracleFilter:  *noOracleFilterFlag,
-			UseDaemon:       *daemonFlag,
-			Store:           resolvedStore(storeDirFlag),
-			Verbose:         *verboseFlag,
+			ParseResult:       pipeline.ParseResult{ActiveRules: activeRules},
+			Logger:            nil, // oracle logs directly to stderr, matching pre-refactor
+			Tracker:           tracker,
+			OracleEnabled:     resolver != nil && !*noTypeOracleFlag,
+			BaseResolver:      resolver,
+			OracleScanPaths:   flag.Args(),
+			KotlinFilePaths:   files,
+			InputTypesPath:    *inputTypesFlag,
+			NoCacheOracle:     *noCacheOracleFlag,
+			NoOracleFilter:    *noOracleFilterFlag,
+			UseDaemon:         *daemonFlag,
+			Store:             oracleStore,
+			OracleCacheWriter: oracleCacheWriter,
+			Verbose:           *verboseFlag,
 
 			CacheEnabled:             useCache,
 			CacheFilePath:            cacheFilePath,
@@ -891,7 +897,8 @@ potential-bugs:
 			return
 		}
 		cachesClosed = true
-		if parseCache != nil || xmlParseCache != nil || resourceCache != nil {
+		hasOracleCacheWrites := oracleCacheWriter != nil && oracleCacheWriter.Stats().Queued > 0
+		if parseCache != nil || xmlParseCache != nil || resourceCache != nil || hasOracleCacheWrites {
 			cacheFlushTracker := tracker.Serial("cacheBackgroundFlush")
 			if parseCache != nil {
 				var closeErr error
@@ -917,7 +924,18 @@ potential-bugs:
 				}
 				perf.AddEntry(cacheFlushTracker, "resourceCacheFlush", time.Since(start))
 			}
+			if hasOracleCacheWrites {
+				oracleFlushTracker := cacheFlushTracker.Serial("oracleCacheFlush")
+				err := oracleCacheWriter.Close()
+				oracleCacheWriter.AddPerfEntries(oracleFlushTracker, oracleStore != nil)
+				oracleFlushTracker.End()
+				if err != nil && *verboseFlag {
+					fmt.Fprintf(os.Stderr, "verbose: oracle cache flush failed: %v\n", err)
+				}
+			}
 			cacheFlushTracker.End()
+		} else if oracleCacheWriter != nil {
+			_ = oracleCacheWriter.Close()
 		}
 	}
 	exit := func(code int) {

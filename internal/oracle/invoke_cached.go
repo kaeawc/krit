@@ -330,13 +330,23 @@ func InvokeCachedWithOptions(
 			fmt.Fprintf(os.Stderr, "verbose: no cache deps returned; cache not updated\n")
 		}
 	} else {
-		var written int
-		writeTracker := tracker.Serial("writeFreshCacheEntries")
-		written, _ = WriteFreshEntriesToStoreWithTracker(s, cacheDir, freshData, depsFile, writeTracker)
-		writeTracker.End()
-		addOracleInstant(tracker, "freshCacheEntriesWritten", map[string]int64{"entries": int64(written)}, nil)
-		if verbose {
-			fmt.Fprintf(os.Stderr, "verbose: wrote %d new cache entries\n", written)
+		if opts.CacheWriter != nil {
+			start := time.Now()
+			queued, _ := opts.CacheWriter.QueueFreshEntriesToStore(s, cacheDir, freshData, depsFile)
+			perf.AddEntryDetails(tracker, "queueFreshCacheEntries", time.Since(start), map[string]int64{"queued": int64(queued)}, nil)
+			addOracleInstant(tracker, "freshCacheEntriesQueued", map[string]int64{"entries": int64(queued)}, nil)
+			if verbose {
+				fmt.Fprintf(os.Stderr, "verbose: queued %d new cache entries\n", queued)
+			}
+		} else {
+			var written int
+			writeTracker := tracker.Serial("writeFreshCacheEntries")
+			written, _ = WriteFreshEntriesToStoreWithTracker(s, cacheDir, freshData, depsFile, writeTracker)
+			writeTracker.End()
+			addOracleInstant(tracker, "freshCacheEntriesWritten", map[string]int64{"entries": int64(written)}, nil)
+			if verbose {
+				fmt.Fprintf(os.Stderr, "verbose: wrote %d new cache entries\n", written)
+			}
 		}
 	}
 

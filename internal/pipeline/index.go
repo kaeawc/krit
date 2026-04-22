@@ -101,6 +101,9 @@ type IndexInput struct {
 	UseDaemon bool
 	// Store is the optional unified store for oracle cache entries.
 	Store *store.FileStore
+	// OracleCacheWriter, when non-nil, defers cold oracle cache-entry
+	// persistence until the caller flushes it later in the run.
+	OracleCacheWriter *oracle.OracleCacheWriter
 	// Verbose gates oracle stderr diagnostics. Matches --verbose.
 	Verbose bool
 
@@ -593,7 +596,7 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 						repoDir = oracle.FindRepoDir(scanPaths)
 						return nil
 					})
-					res, err = oracle.InvokeCachedWithOptions(jarPath, sourceDirs, repoDir, cacheDest, filterListPath, in.Verbose, in.Store, oracle.InvocationOptions{Tracker: jvmTracker})
+					res, err = oracle.InvokeCachedWithOptions(jarPath, sourceDirs, repoDir, cacheDest, filterListPath, in.Verbose, in.Store, oracle.InvocationOptions{Tracker: jvmTracker, CacheWriter: in.OracleCacheWriter})
 				}
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "warning: krit-types: %v\n", err)

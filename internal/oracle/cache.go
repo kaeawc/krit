@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -529,6 +530,134 @@ type freshEntryWriteStats struct {
 type freshEntrySize struct {
 	path  string
 	bytes int64
+}
+
+type freshOracleEntryJob struct {
+	path          string
+	fileResult    *OracleFile
+	depPaths      []string
+	perFileDeps   map[string]*OracleClass
+	approximation string
+	crashed       bool
+	crashError    string
+}
+
+type oracleCacheHashMemo struct {
+	mu     sync.RWMutex
+	values map[string]string
+}
+
+func newOracleCacheHashMemo(size int) *oracleCacheHashMemo {
+	if size < 1 {
+		size = 1
+	}
+	return &oracleCacheHashMemo{values: make(map[string]string, size)}
+}
+
+func (m *oracleCacheHashMemo) contentHash(path string) (string, error) {
+	if m == nil {
+		return ContentHash(path)
+	}
+	m.mu.RLock()
+	if h, ok := m.values[path]; ok {
+		m.mu.RUnlock()
+		return h, nil
+	}
+	m.mu.RUnlock()
+
+	h, err := ContentHash(path)
+	if err != nil {
+		return "", err
+	}
+
+	m.mu.Lock()
+	if existing, ok := m.values[path]; ok {
+		m.mu.Unlock()
+		return existing, nil
+	}
+	m.values[path] = h
+	m.mu.Unlock()
+	return h, nil
+}
+
+func closureFingerprintWithMemo(depPaths []string, memo *oracleCacheHashMemo) (string, error) {
+	if memo == nil {
+		return closureFingerprint(depPaths, nil)
+	}
+	if len(depPaths) == 0 {
+		return hashutil.HashHex(nil), nil
+	}
+	perDep := make([]string, 0, len(depPaths))
+	for _, p := range depPaths {
+		h, err := memo.contentHash(p)
+		if err != nil {
+			return "", err
+		}
+		perDep = append(perDep, h)
+	}
+	sort.Strings(perDep)
+	h := hashutil.Hasher().New()
+	for _, p := range perDep {
+		_, _ = h.Write([]byte(p))
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func freshOracleEntryJobs(fresh *OracleData, deps *CacheDepsFile) []freshOracleEntryJob {
+	if fresh == nil {
+		return nil
+	}
+	count := len(fresh.Files)
+	if deps != nil {
+		count += len(deps.Crashed)
+	}
+	jobs := make([]freshOracleEntryJob, 0, count)
+	approx := ""
+	if deps != nil {
+		approx = deps.Approximation
+	}
+	for path, fr := range fresh.Files {
+		var depEntry *CacheDepsEntry
+		if deps != nil {
+			depEntry = deps.Files[path]
+		}
+		var depPaths []string
+		var perFileDeps map[string]*OracleClass
+		if depEntry != nil {
+			depPaths = append([]string(nil), depEntry.DepPaths...)
+			perFileDeps = cloneOracleClassMap(depEntry.PerFileDeps)
+		}
+		jobs = append(jobs, freshOracleEntryJob{
+			path:          path,
+			fileResult:    fr,
+			depPaths:      depPaths,
+			perFileDeps:   perFileDeps,
+			approximation: approx,
+		})
+	}
+	if deps != nil {
+		for path, errMsg := range deps.Crashed {
+			jobs = append(jobs, freshOracleEntryJob{
+				path:          path,
+				approximation: approx,
+				crashed:       true,
+				crashError:    errMsg,
+			})
+		}
+	}
+	return jobs
+}
+
+func cloneOracleClassMap(in map[string]*OracleClass) map[string]*OracleClass {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]*OracleClass, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func newFreshEntryWriteStats(fresh *OracleData, deps *CacheDepsFile) *freshEntryWriteStats {

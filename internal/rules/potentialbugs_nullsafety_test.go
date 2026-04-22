@@ -44,6 +44,31 @@ func runRuleByNameWithResolver(t *testing.T, ruleName string, code string) []sca
 	return nil
 }
 
+func runRuleByNameWithCallTarget(t *testing.T, ruleName string, code string, callText string, callTarget string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if strings.TrimSpace(file.FlatNodeText(idx)) == callText {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = callTarget
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range v2rules.Registry {
+		if r.ID == ruleName {
+			d := rules.NewDispatcherV2([]*v2rules.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", ruleName)
+	return nil
+}
+
 func TestUnsafeCast_Negative(t *testing.T) {
 	findings := runRuleByName(t, "UnsafeCast", `
 package test
@@ -463,10 +488,10 @@ fun normalize(query: String?): String {
 // --- NullableToStringCall ---
 
 func TestNullableToStringCall_Positive(t *testing.T) {
-	findings := runRuleByName(t, "NullableToStringCall", `
+	findings := runRuleByNameWithResolver(t, "NullableToStringCall", `
 package test
 fun display(value: Int?) {
-    val text = value?.toString()
+    val text = value.toString()
 }
 `)
 	if len(findings) == 0 {
@@ -474,8 +499,61 @@ fun display(value: Int?) {
 	}
 }
 
+func TestNullableToStringCall_PositiveComplexReceiver(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NullableToStringCall", `
+package test
+class User
+class Repo {
+    fun findUser(): User? = null
+}
+fun display(repo: Repo) {
+    val text = repo.findUser().toString()
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for nullable complex receiver toString(), got none")
+	}
+}
+
+func TestNullableToStringCall_PositiveMultiline(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NullableToStringCall", `
+package test
+fun display(value: Int?) {
+    val text = value
+        .toString()
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for multiline nullable toString(), got none")
+	}
+}
+
+func TestNullableToStringCall_PositiveStringTemplate(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NullableToStringCall", `
+package test
+fun display(value: Int?) {
+    val text = "value=$value"
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for nullable string template interpolation, got none")
+	}
+}
+
+func TestNullableToStringCall_PositiveResolvedKotlinTarget(t *testing.T) {
+	findings := runRuleByNameWithCallTarget(t, "NullableToStringCall", `
+package test
+fun display(value: Int?) {
+    val text = value.toString()
+}
+`, "value.toString()", "kotlin.toString")
+	if len(findings) == 0 {
+		t.Fatal("expected finding for oracle-resolved Kotlin toString target, got none")
+	}
+}
+
 func TestNullableToStringCall_Negative(t *testing.T) {
-	findings := runRuleByName(t, "NullableToStringCall", `
+	findings := runRuleByNameWithResolver(t, "NullableToStringCall", `
 package test
 fun display(value: Int) {
     val text = value.toString()
@@ -483,6 +561,71 @@ fun display(value: Int) {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for non-nullable toString(), got %d", len(findings))
+	}
+}
+
+func TestNullableToStringCall_NegativeSafeCall(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NullableToStringCall", `
+package test
+fun display(value: Int?) {
+    val text = value?.toString()
+    val fallback = value?.toString() ?: ""
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for safe-call toString(), got %d", len(findings))
+	}
+}
+
+func TestNullableToStringCall_NegativeStringLiteralAndComment(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NullableToStringCall", `
+package test
+fun display(value: Int?) {
+    // value.toString()
+    val text = "value.toString()"
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for comments or string literals, got %d", len(findings))
+	}
+}
+
+func TestNullableToStringCall_NegativeCustomNullableExtension(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NullableToStringCall", `
+package test
+class User
+fun User?.toString(): String = ""
+fun display(user: User?) {
+    val text = user.toString()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for custom nullable toString extension, got %d", len(findings))
+	}
+}
+
+func TestNullableToStringCall_NegativeResolvedCustomTarget(t *testing.T) {
+	findings := runRuleByNameWithCallTarget(t, "NullableToStringCall", `
+package test
+class User
+fun display(user: User?) {
+    val text = user.toString()
+}
+`, "user.toString()", "test.User.toString")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for oracle-resolved custom toString target, got %d", len(findings))
+	}
+}
+
+func TestNullableToStringCall_NegativeUnresolvedTemplateExpression(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NullableToStringCall", `
+package test
+fun display() {
+    val text = "value=$missing"
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for unresolved template expression, got %d", len(findings))
 	}
 }
 

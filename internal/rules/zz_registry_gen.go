@@ -10294,9 +10294,12 @@ func registerAllRules() {
 		r := &NullableToStringCallRule{BaseRule: BaseRule{RuleName: "NullableToStringCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects .toString() calls on nullable receivers that may produce the string \"null\"."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75,
-			Needs: v2.NeedsResolver, OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression", "string_literal"}, Confidence: 0.75,
+			Needs:             v2.NeedsTypeInfo,
+			Oracle:            &v2.OracleFilter{Identifiers: []string{"toString", "$"}},
+			OriginalV1:        r,
+			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"toString"}},
+			Check:             r.check,
 		})
 	}
 

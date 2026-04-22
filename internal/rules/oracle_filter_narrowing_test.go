@@ -22,6 +22,7 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 	}{
 		{"Deprecation", []string{"Deprecated"}, []string{"Deprecated"}},
 		{"IgnoredReturnValue", []string{"CheckReturnValue", "CheckResult"}, []string{"CheckReturnValue", "CheckResult"}},
+		{"NullableToStringCall", []string{"toString", "$"}, []string{"toString"}},
 		{"UnreachableCode", []string{"return", "throw", "break", "continue"}, nil},
 	}
 
@@ -51,14 +52,21 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 		}
 		if len(tc.callTargets) > 0 {
 			if r.OracleCallTargets == nil {
-				t.Errorf("%s: OracleCallTargets is nil; expected annotated declaration narrowing", tc.id)
+				t.Errorf("%s: OracleCallTargets is nil; expected call-target narrowing", tc.id)
 			} else if r.OracleCallTargets.AllCalls {
-				t.Errorf("%s: OracleCallTargets.AllCalls=true; expected annotated declaration narrowing", tc.id)
-			} else if !slices.Equal(r.OracleCallTargets.AnnotatedIdentifiers, tc.callTargets) {
-				t.Errorf("%s: OracleCallTargets.AnnotatedIdentifiers = %v, want %v", tc.id, r.OracleCallTargets.AnnotatedIdentifiers, tc.callTargets)
+				t.Errorf("%s: OracleCallTargets.AllCalls=true; expected call-target narrowing", tc.id)
+			} else if !slices.Equal(oracleCallTargetIdentifiers(r.OracleCallTargets), tc.callTargets) {
+				t.Errorf("%s: OracleCallTargets identifiers = %v, want %v", tc.id, oracleCallTargetIdentifiers(r.OracleCallTargets), tc.callTargets)
 			}
 		}
 	}
+}
+
+func oracleCallTargetIdentifiers(filter *v2.OracleCallTargetFilter) []string {
+	if len(filter.AnnotatedIdentifiers) > 0 {
+		return filter.AnnotatedIdentifiers
+	}
+	return filter.CalleeNames
 }
 
 func TestOracleCallTargetFilterDefaultRulesEnabled(t *testing.T) {

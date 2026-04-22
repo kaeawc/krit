@@ -4,8 +4,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/rules/semantics"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 type permissionAPI struct {
@@ -31,8 +33,6 @@ var permissionGuardTokens = []string{
 	"ContextCompat.requestPermissions",
 	"ActivityCompat.requestPermissions",
 }
-
-var leakyTagArgRe = regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_])(view|activity|context|fragment|adapter|drawable|bitmap|cursor)([^A-Za-z0-9_]|$)`)
 
 type ViewConstructorRule struct {
 	FlatDispatchBase
@@ -147,41 +147,202 @@ func viewConstructorSupertypeNameFlat(file *scanner.File, deleg uint32) string {
 }
 
 type ViewTagRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
 
-var setTagRe = regexp.MustCompile(`\.setTag\s*\(`)
-var setTagSingleArgRe = regexp.MustCompile(`\.setTag\s*\(\s*([A-Za-z_][A-Za-z0-9_\.]*)\s*\)`)
+func (r *ViewTagRule) NodeTypes() []string { return []string{"call_expression"} }
 
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *ViewTagRule) Confidence() float64 { return 0.75 }
+// Confidence reports a high-confidence semantic check. The rule now anchors
+// on setTag call expressions, verifies the receiver is a View, and classifies
+// the tagged value by resolved type instead of variable names.
+func (r *ViewTagRule) Confidence() float64 { return 0.85 }
+
+var viewTagReceiverTypes = []string{
+	"android.view.View",
+}
+
+var viewTagFrameworkHeavyTypes = []string{
+	"android.app.Activity",
+	"android.app.Fragment",
+	"android.content.Context",
+	"android.database.Cursor",
+	"android.graphics.Bitmap",
+	"android.graphics.drawable.Drawable",
+	"android.support.v4.app.Fragment",
+	"android.support.v7.widget.RecyclerView.Adapter",
+	"android.view.View",
+	"android.widget.Adapter",
+	"android.widget.ListAdapter",
+	"androidx.fragment.app.Fragment",
+	"androidx.recyclerview.widget.RecyclerView.Adapter",
+}
+
+const viewTagLeakMessage = "View.setTag() with a framework object may cause memory leaks across configuration changes."
 
 func (r *ViewTagRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if scanner.IsCommentLine(line) || !setTagRe.MatchString(line) {
-			continue
-		}
-		loc := setTagRe.FindStringIndex(line)
-		if loc == nil {
-			continue
-		}
-		if enclosingAncestor(file, nodeAtPoint(file, i+1, loc[0]+1), "call_expression") == 0 {
-			continue
-		}
-		matches := setTagSingleArgRe.FindStringSubmatch(line)
-		if matches == nil || !leakyTagArgRe.MatchString(matches[1]) {
-			continue
-		}
-		ctx.Emit(r.Finding(file, i+1, 1,
-			"View.setTag() with a framework object may cause memory leaks across configuration changes."))
+	if ctx == nil || ctx.File == nil || ctx.Idx == 0 || ctx.File.FlatType(ctx.Idx) != "call_expression" {
+		return
 	}
+	target, ok := semantics.ResolveCallTarget(ctx, ctx.Idx)
+	if !ok || target.CalleeName != "setTag" || len(target.Arguments) != 1 {
+		return
+	}
+	if !viewTagReceiverIsView(ctx, target) {
+		return
+	}
+	arg := target.Arguments[0]
+	if !arg.Valid() || !viewTagArgumentIsFrameworkHeavy(ctx, arg.Node) {
+		return
+	}
+	ctx.EmitAt(ctx.File.FlatRow(ctx.Idx)+1, ctx.File.FlatCol(ctx.Idx)+1, viewTagLeakMessage)
+}
+
+func viewTagReceiverIsView(ctx *v2.Context, target semantics.CallTarget) bool {
+	if target.Resolved {
+		return viewTagCallTargetIsViewSetTag(target.QualifiedName)
+	}
+	if !target.Receiver.Valid() {
+		return false
+	}
+	typ, ok := semantics.ExpressionType(ctx, target.Receiver.Node)
+	if !ok {
+		return false
+	}
+	return viewTagTypeMatches(ctx, typ.Type, viewTagReceiverTypes)
+}
+
+func viewTagArgumentIsFrameworkHeavy(ctx *v2.Context, expr uint32) bool {
+	typ, ok := semantics.ExpressionType(ctx, expr)
+	if !ok {
+		return false
+	}
+	return viewTagTypeMatches(ctx, typ.Type, viewTagFrameworkHeavyTypes)
+}
+
+func viewTagCallTargetIsViewSetTag(target string) bool {
+	target = strings.TrimSpace(target)
+	if cut := strings.Index(target, "("); cut >= 0 {
+		target = target[:cut]
+	}
+	for _, suffix := range []string{".setTag", "#setTag"} {
+		if !strings.HasSuffix(target, suffix) {
+			continue
+		}
+		owner := strings.TrimSuffix(target, suffix)
+		return viewTagFQNMatchesAny(owner, viewTagReceiverTypes) ||
+			viewTagKnownSubtypeOfAny(owner, viewTagReceiverTypes)
+	}
+	return false
+}
+
+func viewTagTypeMatches(ctx *v2.Context, typ *typeinfer.ResolvedType, targets []string) bool {
+	if typ == nil || typ.Kind == typeinfer.TypeUnknown {
+		return false
+	}
+	if viewTagResolvedTypeMatches(typ, targets) {
+		return true
+	}
+	if ctx == nil || ctx.Resolver == nil || ctx.File == nil {
+		return false
+	}
+	if typ.FQN != "" {
+		if viewTagClassHierarchyMatches(ctx, typ.FQN, targets, nil) {
+			return true
+		}
+	}
+	if typ.Name != "" {
+		if fqn := ctx.Resolver.ResolveImport(typ.Name, ctx.File); fqn != "" {
+			return viewTagFQNMatchesAny(fqn, targets) ||
+				viewTagKnownSubtypeOfAny(fqn, targets) ||
+				viewTagClassHierarchyMatches(ctx, fqn, targets, nil)
+		}
+		if info := ctx.Resolver.ClassHierarchy(typ.Name); info != nil && info.File != "" {
+			return viewTagClassInfoMatches(ctx, info, targets, map[string]bool{})
+		}
+	}
+	return false
+}
+
+func viewTagResolvedTypeMatches(typ *typeinfer.ResolvedType, targets []string) bool {
+	if typ == nil {
+		return false
+	}
+	if viewTagFQNMatchesAny(typ.FQN, targets) || viewTagKnownSubtypeOfAny(typ.FQN, targets) {
+		return true
+	}
+	for _, super := range typ.Supertypes {
+		if viewTagFQNMatchesAny(super, targets) || viewTagKnownSubtypeOfAny(super, targets) {
+			return true
+		}
+	}
+	return false
+}
+
+func viewTagClassHierarchyMatches(ctx *v2.Context, typeName string, targets []string, visited map[string]bool) bool {
+	if ctx == nil || ctx.Resolver == nil || typeName == "" {
+		return false
+	}
+	info := ctx.Resolver.ClassHierarchy(typeName)
+	if info == nil {
+		return false
+	}
+	if visited == nil {
+		visited = map[string]bool{}
+	}
+	return viewTagClassInfoMatches(ctx, info, targets, visited)
+}
+
+func viewTagClassInfoMatches(ctx *v2.Context, info *typeinfer.ClassInfo, targets []string, visited map[string]bool) bool {
+	if info == nil {
+		return false
+	}
+	key := info.FQN
+	if key == "" {
+		key = info.Name
+	}
+	if key != "" {
+		if visited[key] {
+			return false
+		}
+		visited[key] = true
+	}
+	if viewTagFQNMatchesAny(info.FQN, targets) || viewTagKnownSubtypeOfAny(info.FQN, targets) {
+		return true
+	}
+	for _, super := range info.Supertypes {
+		if viewTagFQNMatchesAny(super, targets) || viewTagKnownSubtypeOfAny(super, targets) {
+			return true
+		}
+		if viewTagClassHierarchyMatches(ctx, super, targets, visited) {
+			return true
+		}
+	}
+	return false
+}
+
+func viewTagFQNMatchesAny(fqn string, targets []string) bool {
+	if fqn == "" {
+		return false
+	}
+	for _, target := range targets {
+		if fqn == target {
+			return true
+		}
+	}
+	return false
+}
+
+func viewTagKnownSubtypeOfAny(fqn string, targets []string) bool {
+	if fqn == "" {
+		return false
+	}
+	for _, target := range targets {
+		if typeinfer.IsKnownSubtype(fqn, target) {
+			return true
+		}
+	}
+	return false
 }
 
 type WrongImportRule struct {

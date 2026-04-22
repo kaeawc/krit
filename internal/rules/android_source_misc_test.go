@@ -2,6 +2,11 @@ package rules_test
 
 import (
 	"testing"
+
+	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // =====================================================================
@@ -211,11 +216,34 @@ class NotAView(val x: Int) {
 // ViewTagRule ("ViewTag")
 // =====================================================================
 
+func runViewTagRule(t *testing.T, code string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	return runViewTagRuleWithResolver(t, file, resolver)
+}
+
+func runViewTagRuleWithResolver(t *testing.T, file *scanner.File, resolver typeinfer.TypeResolver) []scanner.Finding {
+	t.Helper()
+	for _, r := range v2rules.Registry {
+		if r.ID == "ViewTag" {
+			dispatcher := rules.NewDispatcherV2([]*v2rules.Rule{r}, resolver)
+			cols := dispatcher.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatal("ViewTag rule not found")
+	return nil
+}
+
 func TestViewTagRule(t *testing.T) {
-	t.Run("setTag with activity triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "ViewTag", `
+	t.Run("one-arg setTag with Activity triggers", func(t *testing.T) {
+		findings := runViewTagRule(t, `
 package test
-fun foo() {
+import android.app.Activity
+import android.view.View
+fun foo(view: View, activity: Activity) {
     view.setTag(activity)
 }
 `)
@@ -224,11 +252,15 @@ fun foo() {
 		}
 	})
 
-	t.Run("setTag with drawable triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "ViewTag", `
+	t.Run("multiline setTag with Drawable triggers", func(t *testing.T) {
+		findings := runViewTagRule(t, `
 package test
-fun foo() {
-    view.setTag(drawable)
+import android.graphics.drawable.Drawable
+import android.view.View
+fun foo(view: View, drawable: Drawable) {
+    view.setTag(
+        drawable
+    )
 }
 `)
 		if len(findings) != 1 {
@@ -236,11 +268,30 @@ fun foo() {
 		}
 	})
 
-	t.Run("setTag with plain int does not trigger", func(t *testing.T) {
-		findings := runRuleByName(t, "ViewTag", `
+	t.Run("call result resolving to Context triggers", func(t *testing.T) {
+		file := parseInline(t, `
 package test
 fun foo() {
-    holder.setTag(42)
+    view.setTag(fragment.requireContext())
+}
+`)
+		resolver := typeinfer.NewFakeResolver()
+		resolver.NodeTypes["view"] = &typeinfer.ResolvedType{Name: "View", FQN: "android.view.View", Kind: typeinfer.TypeClass}
+		resolver.NodeTypes["fragment.requireContext()"] = &typeinfer.ResolvedType{Name: "Context", FQN: "android.content.Context", Kind: typeinfer.TypeClass}
+		findings := runViewTagRuleWithResolver(t, file, resolver)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("keyed setTag overload does not trigger", func(t *testing.T) {
+		findings := runViewTagRule(t, `
+package test
+import android.app.Activity
+import android.view.View
+object R { object id { const val owner = 1 } }
+fun foo(view: View, activity: Activity) {
+    view.setTag(R.id.owner, activity)
 }
 `)
 		if len(findings) != 0 {
@@ -248,11 +299,94 @@ fun foo() {
 		}
 	})
 
-	t.Run("setTag with activityManager does not trigger", func(t *testing.T) {
-		findings := runRuleByName(t, "ViewTag", `
+	t.Run("unrelated setTag method does not trigger", func(t *testing.T) {
+		findings := runViewTagRule(t, `
+package test
+import android.app.Activity
+class TagStore { fun setTag(value: Activity) {} }
+fun foo(store: TagStore, activity: Activity) {
+    store.setTag(activity)
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("string literal and string variable do not trigger", func(t *testing.T) {
+		findings := runViewTagRule(t, `
+package test
+import android.view.View
+fun foo(view: View, contextName: String) {
+    view.setTag("activity")
+    view.setTag(contextName)
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("comments and strings do not trigger", func(t *testing.T) {
+		findings := runViewTagRule(t, `
 package test
 fun foo() {
-    view.setTag(activityManager)
+    // view.setTag(activity)
+    val sample = "view.setTag(activity)"
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("aliases resolve framework types", func(t *testing.T) {
+		findings := runViewTagRule(t, `
+package test
+import android.app.Activity as AndroidActivity
+import android.view.View as AndroidView
+fun foo(view: AndroidView, activity: AndroidActivity) {
+    view.setTag(activity)
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("local shadowed names do not trigger", func(t *testing.T) {
+		findings := runViewTagRule(t, `
+package test
+class View { fun setTag(value: Any) {} }
+class Activity
+fun foo(view: View, activity: Activity) {
+    view.setTag(activity)
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("unresolved receiver does not trigger", func(t *testing.T) {
+		findings := runViewTagRule(t, `
+package test
+import android.app.Activity
+fun foo(activity: Activity) {
+    owner.setTag(activity)
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("unresolved argument does not trigger", func(t *testing.T) {
+		findings := runViewTagRule(t, `
+package test
+import android.view.View
+fun foo(view: View) {
+    view.setTag(activity)
 }
 `)
 		if len(findings) != 0 {

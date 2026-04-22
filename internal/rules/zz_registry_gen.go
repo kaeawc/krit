@@ -7833,8 +7833,13 @@ func registerAllRules() {
 		r := &SwallowedExceptionRule{BaseRule: BaseRule{RuleName: "SwallowedException", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects catch blocks that silently swallow the caught exception without logging, handling, or rethrowing."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"catch_block"}, Confidence: 0.75, OriginalV1: r,
-			Check: r.checkSwallowedException,
+			NodeTypes:         []string{"catch_block"},
+			Needs:             v2.NeedsTypeInfo,
+			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: swallowedExceptionCallTargetCallees()},
+			TypeInfo:          v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true},
+			Confidence:        0.75,
+			OriginalV1:        r,
+			Check:             r.checkSwallowedException,
 		})
 	}
 	{

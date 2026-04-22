@@ -3601,7 +3601,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"class_declaration"}, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &ExportedReceiverRule{AndroidRule: AndroidRule{
@@ -3610,7 +3610,7 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"class_declaration"}, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
 	}
 	{
 		r := &GrantAllUrisRule{AndroidRule: AndroidRule{

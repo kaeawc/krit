@@ -21,7 +21,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kaeawc/krit/internal/fsutil"
@@ -520,6 +522,180 @@ func runKritTypesCached(
 	return err
 }
 
+type kritTypesCachedRunner func(
+	jarPath string,
+	sourceDirs []string,
+	missListPath, freshOutPath, depsOutPath string,
+	verbose bool,
+	tracker perf.Tracker,
+) error
+
+type shardResult struct {
+	Fresh   *OracleData
+	Deps    *CacheDepsFile
+	DepsErr error
+	Err     error
+	Files   int
+}
+
+func configuredKritTypesShards(misses int) int {
+	if misses <= 1 {
+		return 1
+	}
+	raw := strings.TrimSpace(os.Getenv("KRIT_TYPES_SHARDS"))
+	if raw == "" {
+		return 1
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 1 {
+		return 1
+	}
+	if n > misses {
+		return misses
+	}
+	return n
+}
+
+func splitMissesForKAA(paths []string, shards int) [][]string {
+	if len(paths) == 0 {
+		return nil
+	}
+	if shards < 1 {
+		shards = 1
+	}
+	if shards > len(paths) {
+		shards = len(paths)
+	}
+	groups := make([][]string, shards)
+	for i, p := range paths {
+		groups[i%shards] = append(groups[i%shards], p)
+	}
+	return groups
+}
+
+func runKritTypesCachedSharded(
+	jarPath string,
+	sourceDirs []string,
+	misses []string,
+	shards int,
+	verbose bool,
+	tracker perf.Tracker,
+) (*OracleData, *CacheDepsFile, error) {
+	return runKritTypesCachedShardedWithRunner(jarPath, sourceDirs, misses, shards, verbose, tracker, runKritTypesCached)
+}
+
+func runKritTypesCachedShardedWithRunner(
+	jarPath string,
+	sourceDirs []string,
+	misses []string,
+	shards int,
+	verbose bool,
+	tracker perf.Tracker,
+	runner kritTypesCachedRunner,
+) (*OracleData, *CacheDepsFile, error) {
+	if tracker == nil {
+		tracker = perf.New(false)
+	}
+	groups := splitMissesForKAA(misses, shards)
+	if len(groups) == 0 {
+		return mergeOracleData(), nil, nil
+	}
+	addOracleInstant(tracker, "shardedMissAnalysisSummary", map[string]int64{
+		"shards": int64(len(groups)),
+		"files":  int64(len(misses)),
+	}, nil)
+
+	results := make([]shardResult, len(groups))
+	var wg sync.WaitGroup
+	for i, group := range groups {
+		i, group := i, group
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			child := tracker.Serial(fmt.Sprintf("kritTypesShard/%d", i))
+			defer child.End()
+			results[i].Files = len(group)
+
+			listPath, freshPath, depsPath, err := prepareMissTemps(group)
+			if err != nil {
+				results[i].Err = err
+				return
+			}
+			defer func() {
+				_ = os.Remove(listPath)
+				_ = os.Remove(freshPath)
+				_ = os.Remove(depsPath)
+			}()
+
+			if err := runner(jarPath, sourceDirs, listPath, freshPath, depsPath, verbose, child); err != nil {
+				results[i].Err = err
+				return
+			}
+
+			var fresh *OracleData
+			if err := trackOracle(child, "readFreshOracleJSON", func() error {
+				var readErr error
+				fresh, readErr = readOracleJSON(freshPath)
+				return readErr
+			}); err != nil {
+				results[i].Err = fmt.Errorf("shard %d read fresh oracle: %w", i, err)
+				return
+			}
+
+			var deps *CacheDepsFile
+			var depsErr error
+			trackOracle(child, "readCacheDepsJSON", func() error {
+				deps, depsErr = LoadCacheDeps(depsPath)
+				return nil
+			})
+			results[i] = shardResult{
+				Fresh:   fresh,
+				Deps:    deps,
+				DepsErr: depsErr,
+				Files:   len(group),
+			}
+		}()
+	}
+	wg.Wait()
+
+	for i, result := range results {
+		if result.Err != nil {
+			return nil, nil, fmt.Errorf("krit-types shard %d failed: %w", i, result.Err)
+		}
+	}
+
+	var fresh *OracleData
+	if err := trackOracle(tracker, "mergeShardOracleJSON", func() error {
+		parts := make([]*OracleData, 0, len(results))
+		for _, result := range results {
+			parts = append(parts, result.Fresh)
+		}
+		fresh = mergeOracleData(parts...)
+		return nil
+	}); err != nil {
+		return nil, nil, err
+	}
+
+	var deps *CacheDepsFile
+	if err := trackOracle(tracker, "mergeShardCacheDeps", func() error {
+		parts := make([]*CacheDepsFile, 0, len(results))
+		for i, result := range results {
+			if result.DepsErr != nil {
+				addOracleInstant(tracker, "shardedCacheDepsReadError", map[string]int64{"shard": int64(i)}, map[string]string{"error": result.DepsErr.Error()})
+				deps = nil
+				return nil
+			}
+			parts = append(parts, result.Deps)
+		}
+		deps = mergeCacheDeps(parts...)
+		return nil
+	}); err != nil {
+		return nil, nil, err
+	}
+
+	return fresh, deps, nil
+}
+
 // runMissAnalysis runs the miss-list analysis via the persistent daemon
 // when reachable, or falls back to the one-shot JVM launch on any daemon
 // failure. Returns (freshData, depsFile, usedDaemon, err).
@@ -569,6 +745,22 @@ func runMissAnalysis(
 			deps, _ = LoadCacheDeps(missDepsPath)
 			return nil
 		})
+		return fresh, deps, false, nil
+	}
+
+	shards := configuredKritTypesShards(len(misses))
+	if shards > 1 {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "verbose: sharding miss analysis across %d krit-types JVM workers (%d files)\n", shards, len(misses))
+		}
+		// KRIT_TYPES_SHARDS is an explicit one-shot JVM experiment: bypass
+		// the daemon so the miss list is actually processed by multiple
+		// independent Analysis API workers.
+		fresh, deps, err := runKritTypesCachedSharded(jarPath, sourceDirs, misses, shards, verbose, tracker)
+		if err != nil {
+			addOracleInstant(tracker, "shardedMissAnalysisFallback", nil, map[string]string{"error": err.Error()})
+			return fallback(fmt.Sprintf("sharded miss analysis failed: %v", err))
+		}
 		return fresh, deps, false, nil
 	}
 

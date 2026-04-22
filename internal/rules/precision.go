@@ -24,7 +24,6 @@ var heuristicRuleNames = map[string]bool{
 	"LayoutInflation":                  true,
 	"LongMethod":                       true,
 	"MagicNumber":                      true,
-	"MissingPermission":                true,
 	"UnsafeCallOnNullableType":         true,
 	"UnsafeCast":                       true,
 	"ViewTag":                          true,

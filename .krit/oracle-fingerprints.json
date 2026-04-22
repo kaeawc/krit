@@ -12,10 +12,10 @@
     {
       "repo": "playground/kotlin-webservice",
       "ruleSet": "all-rules",
-      "fingerprint": "ddfde3219f52cead",
-      "markedFiles": 4,
+      "fingerprint": "99aa06d3014798d8",
+      "markedFiles": 9,
       "totalFiles": 9,
-      "allFiles": false
+      "allFiles": true
     },
     {
       "repo": "playground/android-app",
@@ -28,10 +28,10 @@
     {
       "repo": "playground/android-app",
       "ruleSet": "all-rules",
-      "fingerprint": "25edbf491adb517d",
-      "markedFiles": 6,
+      "fingerprint": "99aa06d3014798d8",
+      "markedFiles": 8,
       "totalFiles": 8,
-      "allFiles": false
+      "allFiles": true
     }
   ]
 }

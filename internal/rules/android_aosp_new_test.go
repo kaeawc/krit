@@ -131,7 +131,8 @@ func TestMissingPermission(t *testing.T) {
 	t.Run("requestLocationUpdates without check triggers", func(t *testing.T) {
 		findings := runRuleByName(t, "MissingPermission", `
 package test
-fun startTracking() {
+import android.location.LocationManager
+fun startTracking(locationManager: LocationManager) {
     locationManager.requestLocationUpdates("gps", 1000, 10f, listener)
 }`)
 		if len(findings) != 1 {
@@ -142,7 +143,8 @@ fun startTracking() {
 	t.Run("getLastKnownLocation without check triggers", func(t *testing.T) {
 		findings := runRuleByName(t, "MissingPermission", `
 package test
-fun getLocation() {
+import android.location.LocationManager
+fun getLocation(locationManager: LocationManager) {
     val loc = locationManager.getLastKnownLocation("gps")
 }`)
 		if len(findings) != 1 {
@@ -153,7 +155,8 @@ fun getLocation() {
 	t.Run("with checkSelfPermission is clean", func(t *testing.T) {
 		findings := runRuleByName(t, "MissingPermission", `
 package test
-fun startTracking() {
+import android.location.LocationManager
+fun startTracking(locationManager: LocationManager) {
     if (checkSelfPermission(ACCESS_FINE_LOCATION) == PERMISSION_GRANTED) {
         locationManager.requestLocationUpdates("gps", 1000, 10f, listener)
     }
@@ -166,7 +169,8 @@ fun startTracking() {
 	t.Run("with ContextCompat.checkSelfPermission is clean", func(t *testing.T) {
 		findings := runRuleByName(t, "MissingPermission", `
 package test
-fun startTracking() {
+import android.location.LocationManager
+fun startTracking(locationManager: LocationManager) {
     if (ContextCompat.checkSelfPermission(this, ACCESS_FINE_LOCATION) == PERMISSION_GRANTED) {
         locationManager.requestLocationUpdates("gps", 1000, 10f, listener)
     }
@@ -179,12 +183,13 @@ fun startTracking() {
 	t.Run("permission check in another function does not suppress later call", func(t *testing.T) {
 		findings := runRuleByName(t, "MissingPermission", `
 package test
+import android.location.LocationManager
 fun preparePermissions() {
     if (checkSelfPermission(ACCESS_FINE_LOCATION) == PERMISSION_GRANTED) {
         println("ready")
     }
 }
-fun startTracking() {
+fun startTracking(locationManager: LocationManager) {
     locationManager.requestLocationUpdates("gps", 1000, 10f, listener)
 }
 `)
@@ -196,6 +201,7 @@ fun startTracking() {
 	t.Run("Camera.open without check triggers", func(t *testing.T) {
 		findings := runRuleByName(t, "MissingPermission", `
 package test
+import android.hardware.Camera
 fun openCamera() {
     val camera = Camera.open()
 }`)

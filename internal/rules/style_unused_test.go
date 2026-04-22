@@ -56,6 +56,140 @@ fun greet(name: String) {
 	}
 }
 
+func TestUnusedParameter_StructuralUsage(t *testing.T) {
+	tests := []struct {
+		name     string
+		code     string
+		wantHits int
+	}{
+		{
+			name: "substring collision does not count",
+			code: `
+package test
+fun ok(id: String) {
+    val guid = "x"
+    println(guid)
+}
+`,
+			wantHits: 1,
+		},
+		{
+			name: "comments and strings do not count",
+			code: `
+package test
+fun bad(id: String) {
+    // id
+    println("id")
+}
+`,
+			wantHits: 1,
+		},
+		{
+			name: "lambda capture counts",
+			code: `
+package test
+fun ok(id: String) {
+    listOf(1).map { id.length + it }
+}
+`,
+			wantHits: 0,
+		},
+		{
+			name: "string interpolation counts",
+			code: `
+package test
+fun ok(endpoint: String) {
+    println("https://example.com/$endpoint")
+}
+`,
+			wantHits: 0,
+		},
+		{
+			name: "lambda parameter shadows function parameter",
+			code: `
+package test
+fun bad(id: String) {
+    listOf("x").forEach { id -> println(id) }
+}
+`,
+			wantHits: 1,
+		},
+		{
+			name: "local destructuring shadows function parameter",
+			code: `
+package test
+data class PairBox(val id: String, val value: String)
+fun bad(id: String, box: PairBox) {
+    run {
+        val (id, value) = box
+        println(id + value)
+    }
+}
+`,
+			wantHits: 1,
+		},
+		{
+			name: "nested function body does not count",
+			code: `
+package test
+fun bad(id: String) {
+    fun nested() {
+        println(id)
+    }
+    nested()
+}
+`,
+			wantHits: 1,
+		},
+		{
+			name: "override is excluded",
+			code: `
+package test
+interface Base {
+    fun render(id: String)
+}
+class Impl : Base {
+    override fun render(id: String) {
+        println("unused by override")
+    }
+}
+`,
+			wantHits: 0,
+		},
+		{
+			name: "entrypoint annotation is excluded",
+			code: `
+package test
+annotation class Subscribe
+@Subscribe
+fun onEvent(event: String) {
+    println("framework")
+}
+`,
+			wantHits: 0,
+		},
+		{
+			name: "allowed name is excluded",
+			code: `
+package test
+fun ok(ignored: String, expected: Int, _: Boolean) {
+    println("placeholder")
+}
+`,
+			wantHits: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings := runRuleByName(t, "UnusedParameter", tt.code)
+			if len(findings) != tt.wantHits {
+				t.Fatalf("expected %d findings, got %d: %#v", tt.wantHits, len(findings), findings)
+			}
+		})
+	}
+}
+
 // --- UnusedVariable ---
 
 func TestUnusedVariable_Positive(t *testing.T) {

@@ -17,7 +17,7 @@ func (r *AllProjectsBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *BuildConfigDebugInLibraryRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *BuildConfigDebugInvertedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *CommentedOutCodeBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *CommentedOutImportRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.9,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *ConventionPluginDeadCodeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *DebugToastInProductionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.85,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *GradleBuildContainsTodoRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -121,7 +121,7 @@ func (r *HardcodedEnvironmentNameRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -133,8 +133,8 @@ func (r *HardcodedLocalhostUrlRule) Meta() registry.RuleDescriptor {
 		Description:   "Detects hardcoded localhost or 10.0.2.2 URLs in non-test production source files.",
 		DefaultActive: true,
 		FixLevel:      "",
-		Confidence:    0.85,
-		SourceHash:    "c7515f93c237456d",
+		Confidence:    0.95,
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -147,7 +147,7 @@ func (r *HardcodedLogTagRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.8,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -160,7 +160,7 @@ func (r *MergeConflictMarkerLeftoverRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.99,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -173,7 +173,7 @@ func (r *NonAsciiIdentifierRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *OpenForTestingCallerInNonTestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -199,7 +199,7 @@ func (r *PrintStackTraceInProductionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.85,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -212,7 +212,7 @@ func (r *PrintlnInProductionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.85,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -225,7 +225,7 @@ func (r *TestFixtureAccessedFromProductionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.8,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -237,8 +237,8 @@ func (r *TestOnlyImportInProductionRule) Meta() registry.RuleDescriptor {
 		Description:   "Detects test framework imports (JUnit, Mockito, MockK, etc.) in non-test source files.",
 		DefaultActive: true,
 		FixLevel:      "",
-		Confidence:    0.9,
-		SourceHash:    "c7515f93c237456d",
+		Confidence:    0.95,
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -251,7 +251,7 @@ func (r *TimberTreeNotPlantedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }
 
@@ -264,6 +264,6 @@ func (r *VisibleForTestingCallerInNonTestRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.8,
-		SourceHash:    "c7515f93c237456d",
+		SourceHash:    "7e8f1b6013c88ba4",
 	}
 }

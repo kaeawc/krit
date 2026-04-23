@@ -17,7 +17,7 @@ func (r *CanBeNonNullableRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "80f909071fe03dcf",
+		SourceHash:    "f7316df7ff49a697",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *DestructuringDeclarationWithTooManyEntriesRule) Meta() registry.RuleDes
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "80f909071fe03dcf",
+		SourceHash:    "f7316df7ff49a697",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "maxDestructuringEntries",
@@ -54,8 +54,8 @@ func (r *DoubleNegativeExpressionRule) Meta() registry.RuleDescriptor {
 		Description:   "Detects double negative expressions like !isNotEmpty() that should use the positive variant.",
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
-		Confidence:    0.75,
-		SourceHash:    "80f909071fe03dcf",
+		Confidence:    0.9,
+		SourceHash:    "f7316df7ff49a697",
 	}
 }
 
@@ -67,8 +67,8 @@ func (r *DoubleNegativeLambdaRule) Meta() registry.RuleDescriptor {
 		Description:   "Detects double negative lambda patterns like filterNot { !predicate } that should use filter.",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.75,
-		SourceHash:    "80f909071fe03dcf",
+		Confidence:    0.9,
+		SourceHash:    "f7316df7ff49a697",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "negativeFunctions",
@@ -92,7 +92,7 @@ func (r *MultilineLambdaItParameterRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "80f909071fe03dcf",
+		SourceHash:    "f7316df7ff49a697",
 	}
 }
 
@@ -105,7 +105,7 @@ func (r *MultilineRawStringIndentationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "80f909071fe03dcf",
+		SourceHash:    "f7316df7ff49a697",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "indentSize",
@@ -138,7 +138,7 @@ func (r *NullableBooleanCheckRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "80f909071fe03dcf",
+		SourceHash:    "f7316df7ff49a697",
 	}
 }
 
@@ -151,7 +151,7 @@ func (r *RangeUntilInsteadOfRangeToRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "80f909071fe03dcf",
+		SourceHash:    "f7316df7ff49a697",
 	}
 }
 
@@ -164,7 +164,7 @@ func (r *StringShouldBeRawStringRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "80f909071fe03dcf",
+		SourceHash:    "f7316df7ff49a697",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "maxEscapedCharacterCount",
@@ -189,7 +189,7 @@ func (r *TrimMultilineRawStringRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		SourceHash:    "80f909071fe03dcf",
+		SourceHash:    "f7316df7ff49a697",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "trimmingMethods",

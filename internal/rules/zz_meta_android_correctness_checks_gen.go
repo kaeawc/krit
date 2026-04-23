@@ -17,7 +17,7 @@ func (r *AccidentalOctalRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *AppCompatMethodRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -42,8 +42,8 @@ func (r *CustomViewStyleableRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		Confidence:    0.9,
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *DalvikOverrideRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *DeprecatedRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *InnerclassSeparatorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *LocalSuppressRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *ObjectAnimatorBindingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -121,7 +121,7 @@ func (r *OnClickRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -134,7 +134,7 @@ func (r *OverrideAbstractRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -147,7 +147,7 @@ func (r *ParcelCreatorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -160,7 +160,7 @@ func (r *PluralsCandidateRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -173,7 +173,7 @@ func (r *PropertyEscapeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -186,7 +186,7 @@ func (r *RangeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -199,7 +199,7 @@ func (r *ResourceAsColorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -212,7 +212,7 @@ func (r *ResourceTypeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -225,7 +225,7 @@ func (r *ShortAlarmRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -238,7 +238,7 @@ func (r *SupportAnnotationUsageRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -251,7 +251,7 @@ func (r *SwitchIntDefRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -264,7 +264,7 @@ func (r *TextViewEditsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }
 
@@ -277,6 +277,6 @@ func (r *WrongViewCastRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "0382b4c105c727de",
+		SourceHash:    "75e853ce7aa74229",
 	}
 }

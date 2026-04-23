@@ -45,3 +45,34 @@ class Runner : Runnable {
 
     private fun doWork() {}
 }
+
+// Caught var passed as argument — should not flag
+fun logWithException() {
+    try {
+        doSomething()
+    } catch (e: Exception) {
+        log(TAG, "msg", e)
+    }
+}
+
+// Caught var wrapped in Result — should not flag
+fun wrapResult() {
+    try {
+        doSomething()
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+}
+
+// Caught var rethrown in wrapper — should not flag
+fun rethrow() {
+    try {
+        doSomething()
+    } catch (e: Exception) {
+        throw Wrapper(e)
+    }
+}
+
+private fun doSomething() {}
+private fun log(tag: String, msg: String, e: Exception) {}
+private const val TAG = "tag"

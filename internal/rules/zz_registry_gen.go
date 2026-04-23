@@ -1609,33 +1609,38 @@ func registerAllRules() {
 			NodeTypes: []string{"string_literal", "line_string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				// Skip triple-quoted (raw) strings — they don't process escapes.
-				if strings.HasPrefix(text, `"""`) {
+				if file.FlatType(idx) != "string_literal" {
 					return
 				}
-				// Strip surrounding quotes to get raw content.
-				if len(text) >= 2 && text[0] == '"' {
-					text = text[1:]
-					if len(text) > 0 && text[len(text)-1] == '"' {
-						text = text[:len(text)-1]
-					}
+				// Raw strings (""" """) don't process escapes — structural
+				// check via stringLiteralIsRaw, not a raw-text prefix match.
+				if stringLiteralIsRaw(file, idx) {
+					return
 				}
-				for i := 0; i < len(text)-1; i++ {
-					if text[i] != '\\' {
+				// Walk string_content children for escape sequences. Content
+				// nodes give us the exact unescaped source span; stitching
+				// them together avoids parsing around the surrounding quotes.
+				for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+					if file.FlatType(child) != "string_content" {
 						continue
 					}
-					next := text[i+1]
-					switch next {
-					case 'n', 't', 'r', '\\', '"', '\'', '$', 'b', 'u', 'f':
-						i++
-					default:
-						if next >= '0' && next <= '9' {
-							i++
+					seg := file.FlatNodeText(child)
+					for i := 0; i < len(seg)-1; i++ {
+						if seg[i] != '\\' {
 							continue
 						}
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Invalid escape sequence '\\"+string(next)+"' in string literal.")
-						i++
+						next := seg[i+1]
+						switch next {
+						case 'n', 't', 'r', '\\', '"', '\'', '$', 'b', 'u', 'f':
+							i++
+						default:
+							if next >= '0' && next <= '9' {
+								i++
+								continue
+							}
+							ctx.EmitAt(file.FlatRow(idx)+1, 1, "Invalid escape sequence '\\"+string(next)+"' in string literal.")
+							i++
+						}
 					}
 				}
 			},
@@ -5033,26 +5038,35 @@ func registerAllRules() {
 		r := &GridLayoutRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "GridLayout", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "GridLayout", Brief: "GridLayout without columnCount", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 4, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.85, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !gridLayoutCreateRe.MatchString(text) {
+				if flatCallExpressionName(file, idx) != "GridLayout" {
 					return
 				}
-				startByte := int(file.FlatStartByte(idx))
-				endByte := int(file.FlatEndByte(idx))
-				contextStart := startByte - 200
-				if contextStart < 0 {
-					contextStart = 0
+				// Prefer a structural check against the enclosing statement
+				// group: if any sibling or descendant expression names
+				// `columnCount`, treat it as configured. Fall back to a
+				// bounded byte-window scan when we can't find a statement
+				// container (e.g. the call appears at top-level).
+				var container uint32
+				for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+					t := file.FlatType(p)
+					if t == "statements" || t == "function_body" || t == "class_body" || t == "source_file" {
+						container = p
+						break
+					}
 				}
-				contextEnd := endByte + 200
-				if contextEnd > len(file.Content) {
-					contextEnd = len(file.Content)
-				}
-				context := string(file.Content[contextStart:contextEnd])
-				if strings.Contains(context, "columnCount") {
-					return
+				if container != 0 {
+					hasColumnCount := false
+					file.FlatWalkNodes(container, "simple_identifier", func(ident uint32) {
+						if !hasColumnCount && file.FlatNodeText(ident) == "columnCount" {
+							hasColumnCount = true
+						}
+					})
+					if hasColumnCount {
+						return
+					}
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1, "GridLayout should specify a columnCount. Without it, all children will be in a single row.")
 			},

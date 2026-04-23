@@ -709,6 +709,21 @@ func infixLeftStringLiteralContent(file *scanner.File, idx uint32) string {
 	return stringLiteralContent(file, left)
 }
 
+// stringLiteralIsRaw returns true when the string_literal node is a
+// triple-quoted raw string (`"""..."""`). Raw strings don't process
+// backslash escapes, so rules that analyze escape sequences should
+// skip them.
+func stringLiteralIsRaw(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "string_literal" {
+		return false
+	}
+	start := file.FlatStartByte(idx)
+	if int(start)+3 > len(file.Content) {
+		return false
+	}
+	return file.Content[start] == '"' && file.Content[start+1] == '"' && file.Content[start+2] == '"'
+}
+
 // propertyInitializerExpression returns the initializer expression node
 // of a property_declaration — the first named child after the `=`
 // token — or 0 when the property has no initializer.

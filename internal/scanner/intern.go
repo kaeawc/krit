@@ -88,6 +88,12 @@ func internString(s string) string {
 	return globalStringPool.Intern(s)
 }
 
+// InternString returns a canonical copy of s from the global string pool.
+// Other packages can use this to reduce duplicate string allocations.
+func InternString(s string) string {
+	return globalStringPool.Intern(s)
+}
+
 func internBytes(b []byte) string {
 	if len(b) == 0 {
 		return ""

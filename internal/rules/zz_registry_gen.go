@@ -559,11 +559,15 @@ func registerAllRules() {
 			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "/sdcard") || strings.Contains(text, "/mnt/sdcard") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Hardcoded /sdcard path. Use Environment.getExternalStorageDirectory() instead.")
+				if flatContainsStringInterpolation(file, idx) {
+					return
 				}
+				content := stringLiteralContent(file, idx)
+				if !strings.Contains(content, "/sdcard") && !strings.Contains(content, "/mnt/sdcard") {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"Hardcoded /sdcard path. Use Environment.getExternalStorageDirectory() instead.")
 			},
 		})
 	}
@@ -622,14 +626,38 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "assignment"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "setJavaScriptEnabled(true)") || strings.Contains(text, "javaScriptEnabled = true") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Using setJavaScriptEnabled(true). Review for XSS vulnerabilities.")
+				switch file.FlatType(idx) {
+				case "call_expression":
+					if flatCallExpressionName(file, idx) != "setJavaScriptEnabled" {
+						return
+					}
+					args := flatCallKeyArguments(file, idx)
+					firstArg := flatPositionalValueArgument(file, args, 0)
+					if firstArg == 0 {
+						return
+					}
+					expr := flatValueArgumentExpression(file, firstArg)
+					if !isBooleanLiteralTrue(file, expr) {
+						return
+					}
+				case "assignment":
+					// Target's final simple_identifier must be `javaScriptEnabled`
+					target, _ := file.FlatFindChild(idx, "directly_assignable_expression")
+					if target == 0 || finalSimpleIdentifier(file, target) != "javaScriptEnabled" {
+						return
+					}
+					// RHS must be the boolean literal `true`.
+					if !isBooleanLiteralTrue(file, assignmentRHS(file, idx)) {
+						return
+					}
+				default:
+					return
 				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"Using setJavaScriptEnabled(true). Review for XSS vulnerabilities.")
 			},
 		})
 	}

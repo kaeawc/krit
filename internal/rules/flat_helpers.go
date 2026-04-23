@@ -372,3 +372,63 @@ func flatUnwrapParenExpr(file *scanner.File, idx uint32) uint32 {
 	}
 	return idx
 }
+
+// isBooleanLiteralTrue returns true if the node is a boolean_literal whose
+// token is `true`. Accepts 0 and returns false (caller convenience).
+func isBooleanLiteralTrue(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "boolean_literal" {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "true" {
+			return true
+		}
+	}
+	return false
+}
+
+// finalSimpleIdentifier returns the identifier text at the end of a
+// navigation chain or directly_assignable_expression — the rightmost
+// simple_identifier reachable by walking named children. For
+// `w.settings.javaScriptEnabled` this returns `javaScriptEnabled`.
+func finalSimpleIdentifier(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 {
+		return ""
+	}
+	// Walk children looking for the last simple_identifier (direct or in a
+	// navigation_suffix).
+	last := ""
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "simple_identifier":
+			last = file.FlatNodeText(child)
+		case "navigation_suffix":
+			if inner, ok := file.FlatFindChild(child, "simple_identifier"); ok {
+				last = file.FlatNodeText(inner)
+			}
+		case "navigation_expression", "directly_assignable_expression":
+			if nested := finalSimpleIdentifier(file, child); nested != "" {
+				last = nested
+			}
+		}
+	}
+	return last
+}
+
+// assignmentRHS returns the expression on the right of `=` in an assignment.
+func assignmentRHS(file *scanner.File, idx uint32) uint32 {
+	if file == nil || idx == 0 || file.FlatType(idx) != "assignment" {
+		return 0
+	}
+	seenEquals := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			seenEquals = true
+			continue
+		}
+		if seenEquals && file.FlatIsNamed(child) {
+			return child
+		}
+	}
+	return 0
+}

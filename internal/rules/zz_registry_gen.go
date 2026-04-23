@@ -8901,7 +8901,8 @@ func registerAllRules() {
 				if receiver == "" || receiver == "Timber" {
 					return
 				}
-				if !isLikelyLogReceiver(receiver) && !fileImportsKnownLoggerAPI(file) && !receiverHasKnownLoggerTypeFlat(file, idx, receiver) {
+				knownLoggerImport, loggerAliases := buildLoggerImportsFromAST(file)
+				if !isLikelyLogReceiver(receiver, loggerAliases) && !knownLoggerImport && !receiverHasKnownLoggerTypeFlat(file, idx, receiver) {
 					return
 				}
 				messageNode := logLevelGuardMessageNodeFlat(file, idx)

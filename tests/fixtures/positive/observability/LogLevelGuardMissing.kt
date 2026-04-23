@@ -68,3 +68,7 @@ fun logLocalAuditPayload(thing: Thing) {
 fun logKotlinLoggerPayload(logger: mu.KLogger, thing: Thing) {
     logger.debug { "payload=${serialize(thing)}" }
 }
+
+fun logAliasedLoggerPayload(audit: Slf4jLogger, thing: Thing) {
+    audit.debug("payload=${serialize(thing)}")
+}

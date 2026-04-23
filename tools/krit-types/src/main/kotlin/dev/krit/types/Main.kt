@@ -254,7 +254,8 @@ fun handleCheckpoint(request: DaemonRequest): String {
 class DaemonSession(
     private var disposable: Disposable,
     val sourceModule: KaSourceModule,
-    val args: ParsedArgs
+    val args: ParsedArgs,
+    val memo: AnalysisMemo = AnalysisMemo()
 ) {
     // file path -> last analyzed mtime
     private val fileTimestamps = mutableMapOf<String, Long>()
@@ -309,7 +310,7 @@ class DaemonSession(
 
         for (ktFile in filesToAnalyze) {
             try {
-                analyzeKtFile(ktFile, files, deps, args.expressions, callFilter = callFilter, declarationProfile = args.declarationProfile)
+                analyzeKtFile(ktFile, files, deps, args.expressions, memo = memo, callFilter = callFilter, declarationProfile = args.declarationProfile)
             } catch (e: Exception) {
                 errors[ktFile.virtualFilePath] = e.message ?: "Analysis failed"
                 System.err.println("Error analyzing ${ktFile.virtualFilePath}: ${e.message}")
@@ -334,7 +335,6 @@ class DaemonSession(
         val files = mutableMapOf<String, FileResult>()
         val deps = mutableMapOf<String, ClassResult>()
         val tracker = DepTracker()
-        val importCache = ImportLookupCache()
         val perf = KotlinPerf(request.timings)
         val activePerf = if (perf.enabled) perf else null
         val callFilter = request.callFilter ?: args.callFilter
@@ -398,7 +398,7 @@ class DaemonSession(
         perf.track("kotlinDaemonAnalyzeFiles") {
             for (ktFile in filesToAnalyze) {
                 try {
-                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, callFilter, importCache, args.declarationProfile)
+                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, callFilter, memo, args.declarationProfile)
                     if (ok) processed++ else skipped++
                 } catch (e: Exception) {
                     skipped++
@@ -434,7 +434,7 @@ class DaemonSession(
 
         for (ktFile in ktFiles) {
             try {
-                analyzeKtFile(ktFile, files, deps, args.expressions, callFilter = callFilter, declarationProfile = args.declarationProfile)
+                analyzeKtFile(ktFile, files, deps, args.expressions, memo = memo, callFilter = callFilter, declarationProfile = args.declarationProfile)
                 val fileOnDisk = File(ktFile.virtualFilePath)
                 if (fileOnDisk.exists()) {
                     fileTimestamps[ktFile.virtualFilePath] = fileOnDisk.lastModified()
@@ -1637,8 +1637,10 @@ class DepTracker {
     }
 }
 
-class ImportLookupCache {
-    val sourcePathByFqn: MutableMap<String, String?> = mutableMapOf()
+class AnalysisMemo {
+    val importSourcePathByFqn: HashMap<String, String?> = hashMapOf()
+    val renderedTypeByKey: HashMap<String, String> = hashMapOf()
+    val annotationFqnsByKey: HashMap<String, List<String>> = hashMapOf()
 }
 
 fun KotlinPerf.recordCacheDepsSummary(tracker: DepTracker) {
@@ -1826,7 +1828,7 @@ fun analyzeKtFile(
     depTracker: DepTracker? = null,
     perf: KotlinPerf? = null,
     callFilter: CallFilter? = null,
-    importCache: ImportLookupCache? = null,
+    memo: AnalysisMemo? = null,
     declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full()
 ): Boolean {
     val path = ktFile.virtualFilePath
@@ -1863,12 +1865,12 @@ fun analyzeKtFile(
                             perf?.addPhaseTotal("kotlinDeclarations.symbolLookup", System.nanoTime() - symbolLookupStart)
                             if (symbol == null) continue
                             val extractClassStart = System.nanoTime()
-                            val result = extractClass(symbol, perf, declarationProfile)
+                            val result = extractClass(symbol, perf, declarationProfile, memo)
                             perf?.addPhaseTotal("kotlinDeclarations.extractClass", System.nanoTime() - extractClassStart)
                             declarations.add(result)
                             val depStart = System.nanoTime()
                             if (declarationProfile.sourceDependencyClosure) {
-                                collectDependencySupertypes(symbol, deps, depTracker, path, perf, declarationProfile)
+                                collectDependencySupertypes(symbol, deps, depTracker, path, perf, declarationProfile, memo)
                             }
                             perf?.addPhaseTotal("kotlinDeclarations.collectDependencySupertypes", System.nanoTime() - depStart)
                             // Record same-package source siblings as direct
@@ -1913,10 +1915,10 @@ fun analyzeKtFile(
                     perf?.count("kotlinImportDeps.uniqueImport")
                     try {
                         var sourcePath: String?
-                        val cache = importCache
-                        if (cache != null && cache.sourcePathByFqn.containsKey(importedFqNameString)) {
+                        val importMemo = memo?.importSourcePathByFqn
+                        if (importMemo != null && importMemo.containsKey(importedFqNameString)) {
                             perf?.count("kotlinImportDeps.cacheHit")
-                            sourcePath = cache.sourcePathByFqn[importedFqNameString]
+                            sourcePath = importMemo[importedFqNameString]
                             if (sourcePath == null) perf?.count("kotlinImportDeps.cacheNullHit")
                         } else {
                             perf?.count("kotlinImportDeps.cacheMiss")
@@ -1926,14 +1928,14 @@ fun analyzeKtFile(
                             perf?.count("kotlinImportDeps.findClass", System.nanoTime() - findClassStart)
                             if (sym == null) {
                                 perf?.count("kotlinImportDeps.findClassNull")
-                                if (cache != null) cache.sourcePathByFqn[importedFqNameString] = null
+                                importMemo?.put(importedFqNameString, null)
                                 continue
                             }
                             val sourcePathStart = System.nanoTime()
                             sourcePath = sourceFilePathOf(sym)
                             perf?.count("kotlinImportDeps.sourceFilePath", System.nanoTime() - sourcePathStart)
                             if (sourcePath == null) perf?.count("kotlinImportDeps.sourcePathNull")
-                            if (cache != null) cache.sourcePathByFqn[importedFqNameString] = sourcePath
+                            importMemo?.put(importedFqNameString, sourcePath)
                         }
                         perf?.recordMemoProbe("importFqn", importedFqNameString)
                         sourcePath?.let { depTracker.recordDepPath(path, it) }
@@ -2384,7 +2386,7 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
 
     val files = mutableMapOf<String, FileResult>()
     val deps = mutableMapOf<String, ClassResult>()
-    val importCache = ImportLookupCache()
+    val memo = AnalysisMemo()
 
     val allKtFiles = perf.track("kotlinPsiRoots") {
         sourceModule.psiRoots.filterIsInstance<KtFile>()
@@ -2451,7 +2453,7 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
     var skipped = 0
     perf.track("kotlinAnalyzeFiles") {
         for ((i, ktFile) in ktFiles.withIndex()) {
-            val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, args.callFilter, importCache, args.declarationProfile)
+            val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, args.callFilter, memo, args.declarationProfile)
             if (ok) processed++ else skipped++
             if ((i + 1) % progressStep == 0) {
                 System.err.println("  ... ${i + 1}/$total (${processed} processed, ${skipped} skipped)")
@@ -2551,11 +2553,18 @@ fun buildCacheDepsJson(tracker: DepTracker): String {
     return sb.toString()
 }
 
+fun KaType.renderTypeCached(memo: AnalysisMemo?): String {
+    if (memo == null) return renderType()
+    val key = toString()
+    return memo.renderedTypeByKey.getOrPut(key) { renderType() }
+}
+
 @OptIn(KaExperimentalApi::class)
 fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(
     symbol: KaNamedClassSymbol,
     perf: KotlinPerf? = null,
-    profile: DeclarationExportProfile = DeclarationExportProfile.full()
+    profile: DeclarationExportProfile = DeclarationExportProfile.full(),
+    memo: AnalysisMemo? = null
 ): ClassResult {
     val fqn = symbol.classId?.asFqNameString() ?: symbol.name.asString()
     perf?.count("kotlinDeclarationProfile.classShell")
@@ -2599,7 +2608,7 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(
                         decl.origin != KaSymbolOrigin.SUBSTITUTION_OVERRIDE) {
                         val memberStart = System.nanoTime()
                         perf?.count("kotlinDeclarationProfile.memberFunctions")
-                        members.add(extractFunction(decl, perf, profile))
+                        members.add(extractFunction(decl, perf, profile, memo))
                         perf?.addPhaseTotal("kotlinExtractClass.memberFunctions", System.nanoTime() - memberStart)
                     }
                 }
@@ -2608,7 +2617,7 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(
                         decl.origin != KaSymbolOrigin.SUBSTITUTION_OVERRIDE) {
                         val memberStart = System.nanoTime()
                         perf?.count("kotlinDeclarationProfile.memberProperties")
-                        members.add(extractProperty(decl, perf, profile))
+                        members.add(extractProperty(decl, perf, profile, memo))
                         perf?.addPhaseTotal("kotlinExtractClass.memberProperties", System.nanoTime() - memberStart)
                     }
                 }
@@ -2656,20 +2665,21 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(
 fun org.jetbrains.kotlin.analysis.api.KaSession.extractFunction(
     symbol: KaNamedFunctionSymbol,
     perf: KotlinPerf? = null,
-    profile: DeclarationExportProfile = DeclarationExportProfile.full()
+    profile: DeclarationExportProfile = DeclarationExportProfile.full(),
+    memo: AnalysisMemo? = null
 ): MemberResult {
     val returnType: String
     val returnNullable: Boolean
     val params: List<ParamResult>
     if (profile.memberSignatures) {
         val signatureStart = System.nanoTime()
-        returnType = symbol.returnType.renderType()
+        returnType = symbol.returnType.renderTypeCached(memo)
         perf?.count("kotlinDeclarationProfile.fullSignatures")
         perf?.recordMemoProbe("renderType", returnType)
         returnNullable = symbol.returnType.isMarkedNullable
         params = symbol.valueParameters.map { param ->
             val paramType = param.returnType
-            val rendered = paramType.renderType()
+            val rendered = paramType.renderTypeCached(memo)
             perf?.count("kotlinDeclarationProfile.fullSignatures")
             perf?.recordMemoProbe("renderType", rendered)
             ParamResult(
@@ -2713,7 +2723,8 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractFunction(
 fun org.jetbrains.kotlin.analysis.api.KaSession.extractProperty(
     symbol: KaPropertySymbol,
     perf: KotlinPerf? = null,
-    profile: DeclarationExportProfile = DeclarationExportProfile.full()
+    profile: DeclarationExportProfile = DeclarationExportProfile.full(),
+    memo: AnalysisMemo? = null
 ): MemberResult {
     val annotations = if (profile.memberAnnotations) {
         val annotationsStart = System.nanoTime()
@@ -2731,7 +2742,7 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractProperty(
     if (profile.memberSignatures) {
         val signatureStart = System.nanoTime()
         val returnType = symbol.returnType
-        renderedReturnType = returnType.renderType()
+        renderedReturnType = returnType.renderTypeCached(memo)
         perf?.count("kotlinDeclarationProfile.fullSignatures")
         perf?.recordMemoProbe("renderType", renderedReturnType)
         returnNullable = returnType.isMarkedNullable
@@ -2775,7 +2786,8 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.collectDependencySupertypes(
     depTracker: DepTracker? = null,
     forFile: String? = null,
     perf: KotlinPerf? = null,
-    declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full()
+    declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full(),
+    memo: AnalysisMemo? = null
 ) {
     for (supertype in symbol.superTypes) {
         perf?.count("kotlinDependencySupertypes.visit")
@@ -2803,7 +2815,7 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.collectDependencySupertypes(
         // self-contained).
         val extractStart = System.nanoTime()
         perf?.recordMemoResult("libraryClassResult", deps.containsKey(fqn))
-        val cls = deps.getOrPut(fqn) { extractClass(superSymbol, perf, declarationProfile) }
+        val cls = deps.getOrPut(fqn) { extractClass(superSymbol, perf, declarationProfile, memo) }
         perf?.count("kotlinDependencySupertypes.libraryExtract", System.nanoTime() - extractStart)
         if (depTracker != null && forFile != null) {
             depTracker.perFileDeps.getOrPut(forFile) { mutableMapOf() }[fqn] = cls

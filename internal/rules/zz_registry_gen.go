@@ -11183,79 +11183,54 @@ func registerAllRules() {
 			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "===") && !strings.Contains(text, "!==") {
+				left, op, right := equalityOperands(file, idx)
+				if op == 0 {
 					return
 				}
-				if file.FlatChildCount(idx) >= 3 {
-					left := strings.TrimSpace(file.FlatNodeText(file.FlatChild(idx, 0)))
-					right := strings.TrimSpace(file.FlatNodeText(file.FlatChild(idx, file.FlatChildCount(idx)-1)))
-					if left == "null" || right == "null" {
-						return
-					}
-				}
-				trimmed := strings.TrimSpace(text)
-				if (strings.HasPrefix(trimmed, "this === ") || strings.HasPrefix(trimmed, "this !== ")) &&
-					isInsideEqualsMethodFlatType(file, idx) {
+				opType := file.FlatType(op)
+				if opType != "===" && opType != "!==" {
 					return
 				}
-				if parent, ok := file.FlatParent(idx); ok {
-					if pt := file.FlatType(parent); pt == "disjunction_expression" || pt == "conjunction_expression" {
-						parentText := file.FlatNodeText(parent)
-						if strings.Contains(parentText, ".equals(") ||
-							strings.Contains(parentText, ".hasSameContent(") ||
-							strings.Contains(parentText, ".contentEquals(") ||
-							strings.Contains(parentText, ".contentDeepEquals(") ||
-							strings.Contains(parentText, ".sameContentAs(") {
-							return
-						}
-					}
+				if left == 0 || right == 0 {
+					return
 				}
-				if file.FlatChildCount(idx) >= 3 {
-					leftText := strings.TrimSpace(file.FlatNodeText(file.FlatChild(idx, 0)))
-					rightText := strings.TrimSpace(file.FlatNodeText(file.FlatChild(idx, file.FlatChildCount(idx)-1)))
-					if looksLikeEnumConstantRef(leftText) || looksLikeEnumConstantRef(rightText) {
+				// Skip null checks (referential against null is intentional).
+				if file.FlatType(left) == "null" || file.FlatType(right) == "null" {
+					return
+				}
+				// `this === other` inside equals() is idiomatic identity shortcut.
+				if file.FlatType(left) == "this_expression" && isInsideEqualsMethodFlatType(file, idx) {
+					return
+				}
+				// Under a boolean expression that already calls an equals-family
+				// method, the referential compare is the short-circuit fast path.
+				if enclosingBoolExprHasEqualsCall(file, idx, equalsFamilyCallNames) {
+					return
+				}
+				// Enum constants — the identity compare is correct.
+				if looksLikeEnumConstantRef(file.FlatNodeText(left)) || looksLikeEnumConstantRef(file.FlatNodeText(right)) {
+					return
+				}
+				if ctx.Resolver != nil {
+					leftType := ctx.Resolver.ResolveFlatNode(left, file)
+					rightType := ctx.Resolver.ResolveFlatNode(right, file)
+					leftKnown := leftType != nil && leftType.Kind != typeinfer.TypeUnknown
+					rightKnown := rightType != nil && rightType.Kind != typeinfer.TypeUnknown
+					if (leftKnown || rightKnown) && !typeinfer.IsKnownValueType(leftType) && !typeinfer.IsKnownValueType(rightType) {
 						return
-					}
-				}
-				if ctx.Resolver != nil && file.FlatChildCount(idx) >= 3 {
-					leftIdx := file.FlatChild(idx, 0)
-					rightIdx := file.FlatChild(idx, file.FlatChildCount(idx)-1)
-					if leftIdx != 0 && rightIdx != 0 {
-						leftType := ctx.Resolver.ResolveFlatNode(leftIdx, file)
-						rightType := ctx.Resolver.ResolveFlatNode(rightIdx, file)
-						leftKnown := leftType != nil && leftType.Kind != typeinfer.TypeUnknown
-						rightKnown := rightType != nil && rightType.Kind != typeinfer.TypeUnknown
-						if leftKnown || rightKnown {
-							isValueType := typeinfer.IsKnownValueType(leftType) || typeinfer.IsKnownValueType(rightType)
-							if !isValueType {
-								return
-							}
-						}
 					}
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"Referential equality (===, !==) should be avoided. Use structural equality (==, !=) instead.")
-				if file.FlatChildCount(idx) >= 3 {
-					op := file.FlatChild(idx, 1)
-					if op != 0 {
-						opText := file.FlatNodeText(op)
-						var repl string
-						switch opText {
-						case "===":
-							repl = "=="
-						case "!==":
-							repl = "!="
-						}
-						if repl != "" {
-							f.Fix = &scanner.Fix{
-								ByteMode:    true,
-								StartByte:   int(file.FlatStartByte(op)),
-								EndByte:     int(file.FlatEndByte(op)),
-								Replacement: repl,
-							}
-						}
-					}
+				repl := "=="
+				if opType == "!==" {
+					repl = "!="
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(op)),
+					EndByte:     int(file.FlatEndByte(op)),
+					Replacement: repl,
 				}
 				ctx.Emit(f)
 			},

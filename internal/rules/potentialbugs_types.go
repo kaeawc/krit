@@ -70,6 +70,71 @@ type AvoidReferentialEqualityRule struct {
 	ForbiddenTypePatterns []string
 }
 
+// equalsFamilyCallNames is the set of callees whose presence in a
+// boolean expression means an accompanying referential compare is
+// almost certainly the short-circuit fast-path, not a mistake.
+var equalsFamilyCallNames = map[string]bool{
+	"equals":            true,
+	"hasSameContent":    true,
+	"contentEquals":     true,
+	"contentDeepEquals": true,
+	"sameContentAs":     true,
+}
+
+// equalityOperands returns (left, operator, right) of an equality_expression.
+// The operator is the unnamed token child whose type is one of `==`, `!=`,
+// `===`, `!==`. Returns zeros if the expression doesn't have all three parts.
+func equalityOperands(file *scanner.File, idx uint32) (left, op, right uint32) {
+	if file == nil || file.FlatType(idx) != "equality_expression" {
+		return 0, 0, 0
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		t := file.FlatType(child)
+		switch t {
+		case "==", "!=", "===", "!==":
+			op = child
+		default:
+			if file.FlatIsNamed(child) {
+				if left == 0 {
+					left = child
+				} else {
+					right = child
+				}
+			}
+		}
+	}
+	return left, op, right
+}
+
+// enclosingBoolExprHasEqualsCall returns true when the referential-equality
+// node sits under a conjunction/disjunction whose other operand is a call
+// to one of the named equals-family functions. Structural replacement for
+// the old `strings.Contains(parentText, ".equals(")` heuristic — by walking
+// the AST we avoid matching `.equals(` that appears in a string literal or
+// a comment.
+func enclosingBoolExprHasEqualsCall(file *scanner.File, idx uint32, names map[string]bool) bool {
+	parent, ok := file.FlatParent(idx)
+	if !ok {
+		return false
+	}
+	pt := file.FlatType(parent)
+	if pt != "disjunction_expression" && pt != "conjunction_expression" {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(parent, func(n uint32) {
+		if found || n == idx {
+			return
+		}
+		if file.FlatType(n) == "call_expression" {
+			if _, ok := names[flatCallExpressionName(file, n)]; ok {
+				found = true
+			}
+		}
+	})
+	return found
+}
+
 
 // Confidence reports a tier-2 (medium) base confidence — flags === / !==
 // on value types; needs resolver to confirm operand types, falls back to a

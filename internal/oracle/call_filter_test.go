@@ -3,6 +3,7 @@ package oracle
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -102,6 +103,37 @@ func TestWriteCallTargetFilterFile(t *testing.T) {
 	}
 	if len(payload.RuleProfiles[0].DerivedCalleeNames) != 1 || payload.RuleProfiles[0].DerivedCalleeNames[0] != "oldCall" {
 		t.Fatalf("derived callee names = %+v, want [oldCall]", payload.RuleProfiles[0].DerivedCalleeNames)
+	}
+}
+
+func TestDaemonParamsIncludeRuleProfilesJSON(t *testing.T) {
+	// Verify that a summary with rule profiles serializes correctly so the
+	// Kotlin daemon's extractJsonObjectArray can find "callFilterRuleProfiles".
+	summary := FinalizeCallTargetFilter(CallTargetFilterSummary{
+		Enabled:     true,
+		CalleeNames: []string{"launch"},
+		RuleProfiles: []CallTargetRuleProfile{{
+			RuleID:      "CoroutineSuspend",
+			AllCalls:    false,
+			CalleeNames: []string{"launch"},
+			TargetFQNs:  []string{"kotlinx.coroutines.launch"},
+		}},
+	})
+
+	params := map[string]interface{}{
+		"callFilterCalleeNames": summary.CalleeNames,
+		"callFilterRuleProfiles": summary.RuleProfiles,
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, `"callFilterRuleProfiles"`) {
+		t.Fatalf("serialized params missing callFilterRuleProfiles key: %s", s)
+	}
+	if !strings.Contains(s, `"CoroutineSuspend"`) {
+		t.Fatalf("serialized params missing ruleID: %s", s)
 	}
 }
 

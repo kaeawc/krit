@@ -125,6 +125,30 @@ class CallFilterTest {
     }
 
     @Test
+    fun parseRequestForwardsRuleProfilesToCallFilter() {
+        val json = """{"id":1,"method":"analyzeWithDeps","params":{"files":[],"timings":false,"callFilterCalleeNames":["launch"],"callFilterLexicalHintsByCallee":{"launch":["kotlinx.coroutines"]},"callFilterLexicalSkipByCallee":{},"callFilterRuleProfiles":[{"ruleID":"CoroutineSuspend","allCalls":false,"calleeNames":["launch"],"lexicalHintsByCallee":{"launch":["kotlinx.coroutines"]},"annotatedIdentifiers":[],"derivedCalleeNames":[]}]}}"""
+
+        val request = parseRequest(json)
+
+        val filter = request.callFilter ?: error("callFilter must not be null")
+        assertEquals(1, filter.ruleProfiles.size, "expected one rule profile")
+        val profile = filter.ruleProfiles[0]
+        assertEquals("CoroutineSuspend", profile.ruleID)
+        assertEquals(setOf("launch"), profile.calleeNames)
+        assertEquals(setOf("kotlinx.coroutines"), profile.lexicalHintsByCallee["launch"])
+    }
+
+    @Test
+    fun parseRequestWithNoRuleProfilesYieldsEmptyList() {
+        val json = """{"id":2,"method":"analyzeWithDeps","params":{"files":[],"timings":false,"callFilterCalleeNames":["delay"]}}"""
+
+        val request = parseRequest(json)
+
+        val filter = request.callFilter ?: error("callFilter must not be null")
+        assertTrue(filter.ruleProfiles.isEmpty(), "expected no rule profiles when key is absent")
+    }
+
+    @Test
     fun parsesLexicalHintMapFromFilterJson() {
         val json = """{"lexicalHintsByCallee":{"launch":["kotlinx.coroutines","CoroutineScope"],"open":["android.hardware.Camera"]}}"""
 

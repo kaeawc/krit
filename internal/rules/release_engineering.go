@@ -717,24 +717,6 @@ func (r *HardcodedLocalhostUrlRule) check(ctx *v2.Context) {
 		"Hardcoded localhost URL in production source; use a build config or environment variable."))
 }
 
-// stringLiteralContent returns the concatenated text of every
-// string_content child under a string_literal node, which is the
-// runtime value of a non-interpolated string. Callers should first
-// verify there is no interpolation (flatContainsStringInterpolation)
-// since this ignores interpolated segments entirely.
-func stringLiteralContent(file *scanner.File, idx uint32) string {
-	if file == nil || file.FlatType(idx) != "string_literal" {
-		return ""
-	}
-	var b strings.Builder
-	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatType(child) == "string_content" {
-			b.WriteString(file.FlatNodeText(child))
-		}
-	}
-	return b.String()
-}
-
 func isDebugSourceFile(path string) bool {
 	return strings.Contains(path, "/debug/") || strings.Contains(path, "/src/debug/")
 }

@@ -831,10 +831,8 @@ func registerAllRules() {
 				}
 				// `String.format(...)` is the only one with a required
 				// receiver. For the rest, we flag any receiver or none.
-				if name == "format" {
-					if !isReceiverString(file, idx) {
-						return
-					}
+				if name == "format" && !isReceiverNamed(file, idx, "String") {
+					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,
 					"The result of this call is not used. Check if the return value should be consumed.")

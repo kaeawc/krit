@@ -756,6 +756,24 @@ func flatNavigationChainIdentifiers(file *scanner.File, idx uint32) []string {
 	return walk(idx)
 }
 
+// stringLiteralContent returns the concatenated text of every
+// string_content child under a string_literal node, which is the
+// runtime value of a non-interpolated string. Callers should first
+// verify there is no interpolation (flatContainsStringInterpolation)
+// since this ignores interpolated segments entirely.
+func stringLiteralContent(file *scanner.File, idx uint32) string {
+	if file == nil || file.FlatType(idx) != "string_literal" {
+		return ""
+	}
+	var b strings.Builder
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "string_content" {
+			b.WriteString(file.FlatNodeText(child))
+		}
+	}
+	return b.String()
+}
+
 // stringLiteralIsRaw returns true when the string_literal node is a
 // triple-quoted raw string (`"""..."""`). Raw strings don't process
 // backslash escapes, so rules that analyze escape sequences should
@@ -931,20 +949,6 @@ func enclosingFunctionHasCallNamed(file *scanner.File, fn, except uint32, names 
 		}
 	})
 	return found
-}
-
-// isReceiverString returns true when the call_expression at idx is
-// invoked on the simple name `String` (e.g. `String.format(...)`).
-func isReceiverString(file *scanner.File, idx uint32) bool {
-	navExpr, _ := flatCallExpressionParts(file, idx)
-	if navExpr == 0 {
-		return false
-	}
-	first := file.FlatFirstChild(navExpr)
-	for first != 0 && !file.FlatIsNamed(first) {
-		first = file.FlatNextSib(first)
-	}
-	return first != 0 && file.FlatType(first) == "simple_identifier" && file.FlatNodeText(first) == "String"
 }
 
 // hasAnnotationNamed returns true when the declaration at idx has a

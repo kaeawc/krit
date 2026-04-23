@@ -117,6 +117,65 @@ func TestAdaptiveShardJVMArgs_OptsOverrideEnv(t *testing.T) {
 	}
 }
 
+func TestConfiguredKritTypesParallelFilesDefault(t *testing.T) {
+	t.Setenv("KRIT_TYPES_PARALLEL_FILES", "")
+	t.Setenv("KRIT_TYPES_SHARDS", "")
+
+	if got := configuredKritTypesParallelFiles(); got != defaultKritTypesParallelFiles {
+		t.Fatalf("default parallel files = %d, want %d", got, defaultKritTypesParallelFiles)
+	}
+	want := []string{"--experimental-parallel-files", "4"}
+	if got := experimentalParallelFilesArg(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("experimentalParallelFilesArg = %#v, want %#v", got, want)
+	}
+}
+
+func TestConfiguredKritTypesParallelFilesEnvOverride(t *testing.T) {
+	t.Setenv("KRIT_TYPES_PARALLEL_FILES", "2")
+	t.Setenv("KRIT_TYPES_SHARDS", "")
+
+	if got := configuredKritTypesParallelFiles(); got != 2 {
+		t.Fatalf("parallel files override = %d, want 2", got)
+	}
+	want := []string{"--experimental-parallel-files", "2"}
+	if got := experimentalParallelFilesArg(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("experimentalParallelFilesArg = %#v, want %#v", got, want)
+	}
+}
+
+func TestConfiguredKritTypesParallelFilesCanDisable(t *testing.T) {
+	for _, value := range []string{"0", "1", "auto"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("KRIT_TYPES_PARALLEL_FILES", value)
+			t.Setenv("KRIT_TYPES_SHARDS", "")
+
+			if got := configuredKritTypesParallelFiles(); got != 0 {
+				t.Fatalf("disabled parallel files = %d, want 0", got)
+			}
+			if got := experimentalParallelFilesArg(); got != nil {
+				t.Fatalf("experimentalParallelFilesArg = %#v, want nil", got)
+			}
+		})
+	}
+}
+
+func TestConfiguredKritTypesParallelFilesShardGuard(t *testing.T) {
+	t.Setenv("KRIT_TYPES_PARALLEL_FILES", "")
+	t.Setenv("KRIT_TYPES_SHARDS", "4")
+
+	if got := configuredKritTypesParallelFiles(); got != 0 {
+		t.Fatalf("parallel files with explicit shards = %d, want 0", got)
+	}
+	if got := experimentalParallelFilesArg(); got != nil {
+		t.Fatalf("experimentalParallelFilesArg = %#v, want nil", got)
+	}
+
+	t.Setenv("KRIT_TYPES_PARALLEL_FILES", "3")
+	if got := configuredKritTypesParallelFiles(); got != 3 {
+		t.Fatalf("explicit parallel files with shards = %d, want 3", got)
+	}
+}
+
 func TestAppendExtraJVMArgsBeforeJar(t *testing.T) {
 	args := []string{"-Xms1g", "-jar", "krit-types.jar", "--daemon"}
 	got := appendExtraJVMArgsBeforeJar(args, []string{"-Xmx2g", "-XX:ActiveProcessorCount=6"})

@@ -595,6 +595,33 @@ func configuredKritTypesShards(misses int) int {
 	return n
 }
 
+func configuredDaemonCacheMode() string {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("KRIT_DAEMON_CACHE"))) {
+	case "off", "false", "0", "one-shot", "oneshot":
+		return "off"
+	case "on", "true", "1", "daemon":
+		return "on"
+	default:
+		return ""
+	}
+}
+
+func shouldUseOneShotMissAnalysis(poolSize int) (bool, string) {
+	switch configuredDaemonCacheMode() {
+	case "off":
+		return true, "KRIT_DAEMON_CACHE=off"
+	case "on":
+		return false, ""
+	}
+	if poolSize > 1 {
+		return false, ""
+	}
+	if workers := configuredKritTypesParallelFiles(); workers > 1 {
+		return true, fmt.Sprintf("default parallel one-shot (%d workers)", workers)
+	}
+	return false, ""
+}
+
 type kaaMissCost struct {
 	Path       string
 	Cost       int64
@@ -858,19 +885,21 @@ func runKritTypesCachedShardedWithRunner(
 	return fresh, deps, nil
 }
 
-// runMissAnalysis runs the miss-list analysis via the persistent daemon
-// when reachable, or falls back to the one-shot JVM launch on any daemon
-// failure. Returns (freshData, depsFile, usedDaemon, err).
+// runMissAnalysis runs the miss-list analysis. The default cold-miss path is
+// one-shot krit-types with in-JVM file parallelism; explicit daemon settings
+// can still route misses through persistent daemon workers. Returns
+// (freshData, depsFile, usedDaemon, err).
 //
-// The daemon path is preferred because it amortizes the Analysis API
-// session build (~20-28 s on kotlin/kotlin) across invocations. The
-// fallback preserves the exact same output as the pre-daemon path:
-// runKritTypesCached writes tempfiles which are then loaded via
-// readOracleJSON + LoadCacheDeps.
+// The daemon path remains useful for explicit warm-miss experiments because it
+// amortizes the Analysis API session build (~20-28 s on kotlin/kotlin) across
+// invocations. The one-shot path preserves the exact same output shape:
+// runKritTypesCached writes tempfiles which are then loaded via readOracleJSON
+// + LoadCacheDeps.
 //
-// Daemon path is default-on. Set KRIT_DAEMON_CACHE=off to force the
-// one-shot path for diagnostics. ConnectOrStartDaemon already handles
-// the "no daemon running" case by starting one.
+// Set KRIT_DAEMON_CACHE=on to force the persistent daemon path. Set
+// KRIT_DAEMON_CACHE=off to force one-shot even when parallel file analysis is
+// disabled. ConnectOrStartDaemon handles the "no daemon running" case by
+// starting one when the daemon path is selected.
 //
 // On file-not-in-session errors from the daemon (the daemon's
 // sourceModule was built before the file existed), this function
@@ -946,14 +975,11 @@ func runMissAnalysis(
 		return fresh, deps, false, nil
 	}
 
-	// Opt-out knob: KRIT_DAEMON_CACHE=off forces the one-shot path
-	// for diagnostics and baseline reproduction. Any other value
-	// (including unset) takes the daemon path.
-	if strings.EqualFold(os.Getenv("KRIT_DAEMON_CACHE"), "off") {
-		return fallback("KRIT_DAEMON_CACHE=off")
+	poolSize := configuredDaemonPoolSize(len(misses))
+	if useOneShot, reason := shouldUseOneShotMissAnalysis(poolSize); useOneShot {
+		return fallback(reason)
 	}
 
-	poolSize := configuredDaemonPoolSize(len(misses))
 	if shouldUseDaemonPool(len(misses), poolSize) {
 		var pool *DaemonPool
 		if err := trackOracle(tracker, "daemonPoolConnectOrStart", func() error {

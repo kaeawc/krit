@@ -1139,6 +1139,64 @@ class KotlinPerf(val enabled: Boolean = false) {
         phaseTotals["kotlinFileCallResolve"] = (phaseTotals["kotlinFileCallResolve"] ?: 0L) + file.callResolveNs
     }
 
+    fun mergeFrom(other: KotlinPerf) {
+        if (!enabled || !other.enabled) return
+        entries.addAll(other.entries)
+        fileTimings.addAll(other.fileTimings)
+        for ((name, value) in other.phaseTotals) {
+            phaseTotals[name] = (phaseTotals[name] ?: 0L) + value
+        }
+        for ((name, summary) in other.counters) {
+            val agg = counters.getOrPut(name) { CounterSummary() }
+            agg.count += summary.count
+            agg.durationNs += summary.durationNs
+            if (summary.maxNs > agg.maxNs) agg.maxNs = summary.maxNs
+        }
+        for ((bucket, count) in other.callLatencyBuckets) {
+            callLatencyBuckets[bucket] = (callLatencyBuckets[bucket] ?: 0L) + count
+        }
+        slowCallSites.addAll(other.slowCallSites)
+        for ((callee, summary) in other.callCallees) {
+            val agg = callCallees.getOrPut(callee) { CallCalleePerf(callee) }
+            agg.count += summary.count
+            agg.resolved += summary.resolved
+            agg.fallback += summary.fallback
+            agg.exception += summary.exception
+            agg.durationNs += summary.durationNs
+            if (summary.maxNs > agg.maxNs) agg.maxNs = summary.maxNs
+        }
+        for ((callee, summary) in other.skippedCallees) {
+            val agg = skippedCallees.getOrPut(callee) { SkippedCalleePerf(callee) }
+            agg.count += summary.count
+            agg.durationNs += summary.durationNs
+            if (summary.maxNs > agg.maxNs) agg.maxNs = summary.maxNs
+        }
+        for ((key, summary) in other.lexicalContexts) {
+            val agg = lexicalContexts.getOrPut(key) {
+                LexicalContextPerf(summary.key, summary.callee, summary.receiverKind, summary.importState, summary.packageName)
+            }
+            agg.count += summary.count
+            agg.attempted += summary.attempted
+            agg.skipped += summary.skipped
+            agg.durationNs += summary.durationNs
+            if (summary.maxNs > agg.maxNs) agg.maxNs = summary.maxNs
+        }
+        for ((ruleID, summary) in other.ruleTargets) {
+            val agg = ruleTargets.getOrPut(ruleID) { RuleTargetPerf(ruleID) }
+            agg.count += summary.count
+            agg.attempted += summary.attempted
+            agg.skipped += summary.skipped
+            agg.resolved += summary.resolved
+            agg.fallback += summary.fallback
+            agg.exception += summary.exception
+            agg.durationNs += summary.durationNs
+            if (summary.maxNs > agg.maxNs) agg.maxNs = summary.maxNs
+        }
+        for ((name, keys) in other.memoProbeKeys) {
+            memoProbeKeys.getOrPut(name) { mutableSetOf() }.addAll(keys)
+        }
+    }
+
     fun toJson(): String {
         if (!enabled) return "[]"
         val all = mutableListOf<PerfEntry>()
@@ -2069,8 +2127,9 @@ fun analyzeKtFile(
                             // for call sites whose result is already known from
                             // a prior request in this JVM session (e.g. unchanged
                             // call sites in a re-analyzed file after a single edit).
-                            val memoKey = if (callTargetMemo != null) CallTargetMemoKey(fileContentHash, line, col, callee) else null
-                            val memoHit = memoKey?.let { callTargetMemo.get(it) }
+                            val targetMemo = callTargetMemo
+                            val memoKey = if (targetMemo != null) CallTargetMemoKey(fileContentHash, line, col, callee) else null
+                            val memoHit = memoKey?.let { targetMemo?.get(it) }
                             if (memoHit != null) {
                                 perf?.count("kotlinCallResolveMemoHit")
                                 expressions[key] = memoHit
@@ -2160,7 +2219,7 @@ fun analyzeKtFile(
                                 annotations = callTargetAnnotations
                             )
                             expressions[key] = result
-                            if (memoKey != null) callTargetMemo.put(memoKey, result)
+                            if (memoKey != null) targetMemo?.put(memoKey, result)
                         } catch (_: Throwable) {
                             perf?.count("kotlinCallResolveException")
                             status = "exception"
@@ -2328,9 +2387,21 @@ data class DeclarationExportProfile(
             sourceDependencyClosure = true
         )
 
+        /** Explicitly disables all declaration export sections. */
+        fun none(): DeclarationExportProfile = DeclarationExportProfile(
+            classShell = false,
+            supertypes = false,
+            classAnnotations = false,
+            members = false,
+            memberSignatures = false,
+            memberAnnotations = false,
+            sourceDependencyClosure = false
+        )
+
         /** Parses the comma-separated --declaration-profile CLI value. Unknown names are ignored. */
         fun parse(value: String): DeclarationExportProfile {
             val trimmed = value.trim()
+            if (trimmed == "none") return none()
             if (trimmed.isEmpty()) return DeclarationExportProfile()
             val names = trimmed.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
             return DeclarationExportProfile(
@@ -2427,7 +2498,7 @@ fun printUsage() {
         |  --cache-deps-out PATH   Emit per-file dep-closure + per-file-deps JSON alongside --output
         |  --timings-out PATH      Emit perf timing JSON sidecar
         |  --call-filter PATH      JSON callee filter for call-target resolution
-        |  --declaration-profile CSV  Comma-separated declaration export features
+        |  --declaration-profile CSV  Comma-separated declaration export features, or "none"
         |                          (classShell,supertypes,classAnnotations,members,
         |                          memberSignatures,memberAnnotations,sourceDependencyClosure).
         |                          Omit for full extraction (pre-profile default).
@@ -2531,6 +2602,7 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
             val localFiles: Map<String, FileResult>,
             val localDeps: Map<String, ClassResult>,
             val localTracker: DepTracker?,
+            val localPerf: KotlinPerf?,
             val processed: Int,
             val skipped: Int
         )
@@ -2547,14 +2619,15 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
                 val localFiles = mutableMapOf<String, FileResult>()
                 val localDeps = mutableMapOf<String, ClassResult>()
                 val localTracker: DepTracker? = if (args.cacheDepsOut != null) DepTracker() else null
+                val localPerf = if (activePerf != null) KotlinPerf(true) else null
                 val localMemo = AnalysisMemo()
                 var localProcessed = 0
                 var localSkipped = 0
                 for (ktFile in chunk) {
-                    val ok = analyzeKtFile(ktFile, localFiles, localDeps, args.expressions, localTracker, null, args.callFilter, localMemo, args.declarationProfile)
+                    val ok = analyzeKtFile(ktFile, localFiles, localDeps, args.expressions, localTracker, localPerf, args.callFilter, localMemo, args.declarationProfile)
                     if (ok) localProcessed++ else localSkipped++
                 }
-                WorkerResult(localFiles, localDeps, localTracker, localProcessed, localSkipped)
+                WorkerResult(localFiles, localDeps, localTracker, localPerf, localProcessed, localSkipped)
             }
         }
         executor.shutdown()
@@ -2566,6 +2639,7 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
                 deps.putAll(result.localDeps)
                 processed += result.processed
                 skipped += result.skipped
+                result.localPerf?.let { perf.mergeFrom(it) }
                 val lt = result.localTracker
                 if (tracker != null && lt != null) {
                     for ((path, paths) in lt.depPathsByFile) {

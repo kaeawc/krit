@@ -73,6 +73,8 @@ var declarationProfileFeatureNames = []string{
 	"sourceDependencyClosure",
 }
 
+const declarationProfileNoneCLIValue = "none"
+
 // enabledFeatures returns the subset of feature names that are enabled,
 // sorted in the canonical order above.
 func (p DeclarationProfile) enabledFeatures() []string {
@@ -108,7 +110,11 @@ func (p DeclarationProfile) CLIValue() string {
 	if p.IsFull() {
 		return ""
 	}
-	return strings.Join(p.enabledFeatures(), ",")
+	features := p.enabledFeatures()
+	if len(features) == 0 {
+		return declarationProfileNoneCLIValue
+	}
+	return strings.Join(features, ",")
 }
 
 // DeclarationProfileSummary is the plumbing wrapper passed through
@@ -178,10 +184,11 @@ func MergeDeclarationProfiles(profiles ...DeclarationProfile) DeclarationProfile
 // want "no flag passed ⇒ full" must check upstream.
 func ParseDeclarationProfile(value string) DeclarationProfile {
 	profile := DeclarationProfile{}
-	if strings.TrimSpace(value) == "" {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || trimmed == declarationProfileNoneCLIValue {
 		return profile
 	}
-	for _, raw := range strings.Split(value, ",") {
+	for _, raw := range strings.Split(trimmed, ",") {
 		switch strings.TrimSpace(raw) {
 		case "classShell":
 			profile.ClassShell = true

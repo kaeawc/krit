@@ -669,6 +669,28 @@ func ifExpressionHasElse(file *scanner.File, idx uint32) bool {
 	return false
 }
 
+// propertyDeclarationIsVar returns true when the property_declaration's
+// binding_pattern_kind child carries the `var` keyword. `val` returns
+// false. Used instead of `strings.Contains(propText, "var ")`, which
+// false-positives on property types or initializers that contain the
+// substring "var " (e.g. `val x = "the var keyword"` or
+// `val foo: MutableList<Bar> = ...` containing "var" in a word).
+func propertyDeclarationIsVar(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "property_declaration" {
+		return false
+	}
+	bpk, _ := file.FlatFindChild(idx, "binding_pattern_kind")
+	if bpk == 0 {
+		return false
+	}
+	for c := file.FlatFirstChild(bpk); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "var" {
+			return true
+		}
+	}
+	return false
+}
+
 // classHasCallOn returns true when some call_expression inside the
 // class at classIdx has a receiver identifier equal to receiverName
 // and a callee name in the given set. Used by rules that want to

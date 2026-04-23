@@ -11370,10 +11370,13 @@ func registerAllRules() {
 				if isTestFile(file.Path) {
 					return
 				}
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "var ") {
+				if !propertyDeclarationIsVar(file, idx) {
 					return
 				}
+				// text is still used downstream for the resolver-less
+				// heuristic factory check (see firstExplicitMutableTypeText
+				// and initializerLooksLikeMutableFactory below).
+				text := file.FlatNodeText(idx)
 				mutableTypes := r.configuredMutableTypes()
 				varDecl, _ := file.FlatFindChild(idx, "variable_declaration")
 				if varDecl == 0 {
@@ -13827,8 +13830,11 @@ func registerAllRules() {
 				if file.FlatHasChildOfType(idx, "enum") {
 					return
 				}
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "serialVersionUID") {
+				// Exact AST lookup: does the class (or its companion object)
+				// declare a property named serialVersionUID? No text
+				// scanning — a string literal or comment mentioning the
+				// name no longer suppresses the warning by accident.
+				if classDeclaresStaticProperty(file, idx, "serialVersionUID") {
 					return
 				}
 				name := extractIdentifierFlat(file, idx)
@@ -14766,7 +14772,7 @@ func registerAllRules() {
 		r := &WildcardImportRule{BaseRule: BaseRule{RuleName: "WildcardImport", RuleSetName: "style", Sev: "warning", Desc: "Detects wildcard import statements that should be replaced with explicit imports."}, ExcludeImports: []string{"java.util.*"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"import_header"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"import_header"}, Confidence: 0.95, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Skip test files and test-fixture Kotlin sources. Fixtures routinely
@@ -14775,18 +14781,24 @@ func registerAllRules() {
 				if isTestFile(file.Path) {
 					return
 				}
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, ".*") {
-					imp := strings.TrimPrefix(strings.TrimSpace(text), "import ")
-					// Skip imports matching exclude list
-					for _, excl := range r.ExcludeImports {
-						if strings.Contains(imp, excl) {
-							return
-						}
-					}
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Wildcard import '%s' should be replaced with explicit imports.", imp))
+				// Wildcard imports carry a `wildcard_import` child node in
+				// tree-sitter-kotlin — an unambiguous structural signal.
+				if !file.FlatHasChildOfType(idx, "wildcard_import") {
+					return
 				}
+				ident, _ := file.FlatFindChild(idx, "identifier")
+				if ident == 0 {
+					return
+				}
+				fqn := file.FlatNodeText(ident)
+				imp := fqn + ".*"
+				for _, excl := range r.ExcludeImports {
+					if strings.Contains(imp, excl) {
+						return
+					}
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					fmt.Sprintf("Wildcard import '%s' should be replaced with explicit imports.", imp))
 			},
 		})
 	}

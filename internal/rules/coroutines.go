@@ -37,11 +37,7 @@ func hasAncestorCallNamedFlat(file *scanner.File, idx uint32, name string) bool 
 		if file.FlatType(p) != "call_expression" {
 			continue
 		}
-		if flatCallExpressionName(file, p) == name {
-			return true
-		}
-		text := strings.TrimSpace(file.FlatNodeText(p))
-		if strings.HasPrefix(text, name+"(") || strings.Contains(text, "."+name+"(") {
+		if flatCallNameAny(file, p) == name {
 			return true
 		}
 	}

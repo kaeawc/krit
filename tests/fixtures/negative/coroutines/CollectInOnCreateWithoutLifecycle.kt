@@ -22,6 +22,11 @@ class CollectInOnCreateWithoutLifecycleActivity : AppCompatActivity() {
                 vm.state.collect { render(it) }
             }
         }
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                vm.state.collect { render(it) }
+            }
+        }
     }
 
     private fun render(state: Int) {}

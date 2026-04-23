@@ -2,7 +2,6 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -246,26 +245,21 @@ func (*LongMethodRule) Description() string {
 // roadmap/17.
 func (r *LongMethodRule) Confidence() float64 { return 0.75 }
 
-var longMethodDeclKeywordRe = regexp.MustCompile(`(^|\s)fun\b`)
-
+// longMethodDeclarationLineFlat returns the 1-based line number of the `fun`
+// keyword within a function_declaration node. It walks the node's direct
+// children looking for the anonymous "fun" token, which is structurally
+// reliable for annotated functions (e.g. @Override\nsuspend fun) where the
+// node's start row is the annotation row, not the fun keyword row.
 func longMethodDeclarationLineFlat(file *scanner.File, idx uint32) int {
 	if file == nil {
 		return 1
 	}
-	startRow := file.FlatRow(idx)
-	endRow := flatEndRow(file, idx)
-	if startRow < 0 {
-		startRow = 0
-	}
-	if endRow >= len(file.Lines) {
-		endRow = len(file.Lines) - 1
-	}
-	for row := startRow; row <= endRow && row < len(file.Lines); row++ {
-		if longMethodDeclKeywordRe.MatchString(strings.TrimSpace(file.Lines[row])) {
-			return row + 1
+	for c := file.FlatFirstChild(idx); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatNodeTextEquals(c, "fun") {
+			return file.FlatRow(c) + 1
 		}
 	}
-	return startRow + 1
+	return file.FlatRow(idx) + 1
 }
 
 // countSignificantLines returns the number of non-blank, non-comment lines

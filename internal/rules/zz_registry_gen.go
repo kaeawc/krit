@@ -900,27 +900,36 @@ func registerAllRules() {
 		r := &UniqueConstantsRule{AndroidRule: alcRule("UniqueConstants", "Overlapping enumeration constants", ALSError, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"annotation"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"annotation"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "IntDef") && !strings.Contains(text, "StringDef") {
+				ctor, _ := file.FlatFindChild(idx, "constructor_invocation")
+				if ctor == 0 {
 					return
 				}
-				parts := strings.Split(text, ",")
+				name := annotationConstructorName(file, ctor)
+				if name != "IntDef" && name != "StringDef" {
+					return
+				}
+				args, _ := file.FlatFindChild(ctor, "value_arguments")
+				if args == 0 {
+					return
+				}
 				seen := make(map[string]bool)
-				for _, p := range parts {
-					p = strings.TrimSpace(p)
-					for _, tok := range strings.Fields(p) {
-						tok = strings.Trim(tok, "()[]{}\"")
-						if len(tok) > 0 && tok[0] >= '0' && tok[0] <= '9' {
-							if seen[tok] {
-								ctx.EmitAt(file.FlatRow(idx)+1, 1, "Duplicate constant value "+tok+" in annotation definition.")
-								return
-							}
-							seen[tok] = true
-						}
+				for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+					if file.FlatType(arg) != "value_argument" {
+						continue
 					}
+					expr := flatValueArgumentExpression(file, arg)
+					key, display := annotationConstantKey(file, expr)
+					if key == "" {
+						continue
+					}
+					if seen[key] {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Duplicate constant value "+display+" in annotation definition.")
+						return
+					}
+					seen[key] = true
 				}
 			},
 		})
@@ -937,12 +946,11 @@ func registerAllRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				// Check if the function has a @WorkerThread annotation in its preceding sibling.
-				prev, ok := file.FlatPrevSibling(idx)
-				if !ok {
-					return
-				}
-				if !strings.Contains(file.FlatNodeText(prev), "WorkerThread") {
+				// Check if the function has a @WorkerThread annotation. The
+				// modifiers live either as a direct `modifiers` child of the
+				// function_declaration or — in some tree-sitter grammar
+				// versions — as the immediately preceding sibling node.
+				if !hasAnnotationNamed(file, idx, "WorkerThread") {
 					return
 				}
 				// Walk all call_expression nodes in the function body.

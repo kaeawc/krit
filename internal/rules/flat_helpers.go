@@ -415,6 +415,96 @@ func finalSimpleIdentifier(file *scanner.File, idx uint32) string {
 	return last
 }
 
+// hasAnnotationNamed returns true when the declaration at idx has a
+// modifier-list annotation whose final name is exactly `name`. Checks
+// both the declaration's `modifiers` child and its immediately preceding
+// sibling (some grammar versions emit modifiers as a sibling node).
+func hasAnnotationNamed(file *scanner.File, idx uint32, name string) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	check := func(container uint32) bool {
+		if container == 0 {
+			return false
+		}
+		found := false
+		file.FlatWalkNodes(container, "annotation", func(ann uint32) {
+			if found {
+				return
+			}
+			ctor, _ := file.FlatFindChild(ann, "constructor_invocation")
+			if ctor != 0 {
+				if annotationConstructorName(file, ctor) == name {
+					found = true
+				}
+				return
+			}
+			// Marker annotation (no constructor call): `@Foo`
+			userType, _ := file.FlatFindChild(ann, "user_type")
+			if userType != 0 {
+				if ident := flatLastChildOfType(file, userType, "type_identifier"); ident != 0 {
+					if file.FlatNodeText(ident) == name {
+						found = true
+					}
+				}
+			}
+		})
+		return found
+	}
+	if mods, ok := file.FlatFindChild(idx, "modifiers"); ok && check(mods) {
+		return true
+	}
+	if prev, ok := file.FlatPrevSibling(idx); ok && check(prev) {
+		return true
+	}
+	return false
+}
+
+// annotationConstructorName returns the final identifier of an annotation's
+// constructor_invocation. For `@foo.bar.IntDef(...)` this returns "IntDef".
+func annotationConstructorName(file *scanner.File, ctor uint32) string {
+	if file == nil || ctor == 0 {
+		return ""
+	}
+	userType, _ := file.FlatFindChild(ctor, "user_type")
+	if userType == 0 {
+		return ""
+	}
+	ident := flatLastChildOfType(file, userType, "type_identifier")
+	if ident == 0 {
+		return ""
+	}
+	return file.FlatNodeText(ident)
+}
+
+// annotationConstantKey returns (canonicalKey, display) for a constant
+// appearing in an annotation argument. Supports numeric literals (key is
+// the literal text), string literals (key is the interpolation-free
+// content prefixed with `"s:"`), and simple identifiers / qualified
+// navigation expressions (key is the dotted FQN prefixed with `"id:"`).
+// Returns ("", "") for expressions we don't recognize as a simple
+// constant reference.
+func annotationConstantKey(file *scanner.File, expr uint32) (key, display string) {
+	if file == nil || expr == 0 {
+		return "", ""
+	}
+	switch file.FlatType(expr) {
+	case "integer_literal", "long_literal", "hex_literal", "bin_literal":
+		t := file.FlatNodeText(expr)
+		return "n:" + t, t
+	case "string_literal":
+		if flatContainsStringInterpolation(file, expr) {
+			return "", ""
+		}
+		c := stringLiteralContent(file, expr)
+		return "s:" + c, `"` + c + `"`
+	case "simple_identifier", "navigation_expression":
+		t := strings.TrimSpace(file.FlatNodeText(expr))
+		return "id:" + t, t
+	}
+	return "", ""
+}
+
 // assignmentRHS returns the expression on the right of `=` in an assignment.
 func assignmentRHS(file *scanner.File, idx uint32) uint32 {
 	if file == nil || idx == 0 || file.FlatType(idx) != "assignment" {

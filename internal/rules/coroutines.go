@@ -362,8 +362,6 @@ var flowTypeNames = map[string]bool{
 	"MutableStateFlow": true, "MutableSharedFlow": true,
 }
 
-var suspendKeywordRe = regexp.MustCompile(`\bsuspend\s+`)
-
 // Confidence reports a tier-2 (medium) base confidence. Coroutines rule. Detection matches kotlinx.coroutines call shapes via
 // name lists and structural patterns; project wrappers can escape or
 // collide. Classified per roadmap/17.

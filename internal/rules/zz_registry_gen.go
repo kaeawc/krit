@@ -6250,21 +6250,10 @@ func registerAllRules() {
 					return
 				}
 				hasFlowReturn := false
-				for i := 0; i < file.FlatChildCount(idx); i++ {
-					child := file.FlatChild(idx, i)
-					if file.FlatType(child) == "user_type" || file.FlatType(child) == "nullable_type" {
-						typeText := file.FlatNodeText(child)
-						baseName := typeText
-						if i2 := strings.Index(baseName, "<"); i2 >= 0 {
-							baseName = baseName[:i2]
-						}
-						if i2 := strings.Index(baseName, "?"); i2 >= 0 {
-							baseName = baseName[:i2]
-						}
-						baseName = strings.TrimSpace(baseName)
-						if flowTypeNames[baseName] {
+				if userType, ok := file.FlatFindChild(idx, "user_type"); ok {
+					if typeIdent, ok := file.FlatFindChild(userType, "type_identifier"); ok {
+						if flowTypeNames[file.FlatNodeText(typeIdent)] {
 							hasFlowReturn = true
-							break
 						}
 					}
 				}
@@ -6273,13 +6262,16 @@ func registerAllRules() {
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, 1,
 					"Suspend function returns a Flow type. A function that returns Flow should not be suspend. The flow builder is cold and does not require a coroutine.")
-				line := file.Lines[file.FlatRow(idx)]
-				if loc := suspendKeywordRe.FindStringIndex(line); loc != nil {
-					lineStart := file.LineOffset(file.FlatRow(idx))
+				suspendNode := file.FlatFindModifierNode(idx, "suspend")
+				if suspendNode != 0 {
+					endByte := int(file.FlatEndByte(suspendNode))
+					if endByte < len(file.Content) && file.Content[endByte] == ' ' {
+						endByte++
+					}
 					f.Fix = &scanner.Fix{
 						ByteMode:    true,
-						StartByte:   lineStart + loc[0],
-						EndByte:     lineStart + loc[1],
+						StartByte:   int(file.FlatStartByte(suspendNode)),
+						EndByte:     endByte,
 						Replacement: "",
 					}
 				}
@@ -6421,13 +6413,16 @@ func registerAllRules() {
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, 1,
 					"Suspend function with CoroutineScope receiver. A function should either be suspend or be an extension on CoroutineScope, not both.")
-				line := file.Lines[file.FlatRow(idx)]
-				if loc := suspendKeywordRe.FindStringIndex(line); loc != nil {
-					lineStart := file.LineOffset(file.FlatRow(idx))
+				suspendNode := file.FlatFindModifierNode(idx, "suspend")
+				if suspendNode != 0 {
+					endByte := int(file.FlatEndByte(suspendNode))
+					if endByte < len(file.Content) && file.Content[endByte] == ' ' {
+						endByte++
+					}
 					f.Fix = &scanner.Fix{
 						ByteMode:    true,
-						StartByte:   lineStart + loc[0],
-						EndByte:     lineStart + loc[1],
+						StartByte:   int(file.FlatStartByte(suspendNode)),
+						EndByte:     endByte,
 						Replacement: "",
 					}
 				}

@@ -2246,7 +2246,10 @@ data class ParsedArgs(
     val cacheDepsOut: String? = null,   // --cache-deps-out PATH: emit per-file dep-closure JSON
     val timingsOut: String? = null,     // --timings-out PATH: emit perf.TimingEntry-compatible JSON
     val callFilter: CallFilter? = null, // --call-filter JSON: narrow resolveToCall by lexical callee
-    val declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full()
+    val declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full(),
+    // Experiment 2 probe: run analyzeKtFile on N parallel platform threads within one KAA session.
+    // 0 or 1 = sequential (default). Safety is NOT established — use only for benchmarking.
+    val parallelFiles: Int = 0
 )
 
 /**
@@ -2314,6 +2317,7 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
     var timingsOut: String? = null
     var callFilterPath: String? = null
     var declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full()
+    var parallelFiles = 0
 
     var i = 0
     while (i < args.size) {
@@ -2344,13 +2348,21 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
                 if (i >= args.size) return null
                 declarationProfile = DeclarationExportProfile.parse(args[i])
             }
+            "--experimental-parallel-files" -> {
+                i++
+                if (i >= args.size) return null
+                parallelFiles = args[i].toIntOrNull() ?: run {
+                    System.err.println("Error: --experimental-parallel-files requires an integer")
+                    return null
+                }
+            }
             "--help", "-h" -> return null
             else -> { System.err.println("Unknown argument: ${args[i]}"); return null }
         }
         i++
     }
     if (sources.isEmpty()) { System.err.println("Error: --sources is required"); return null }
-    return ParsedArgs(sources, classpath, jdkHome, output, expressions, daemon, port, exclude, filesList, cacheDepsOut, timingsOut, loadCallFilter(callFilterPath), declarationProfile)
+    return ParsedArgs(sources, classpath, jdkHome, output, expressions, daemon, port, exclude, filesList, cacheDepsOut, timingsOut, loadCallFilter(callFilterPath), declarationProfile, parallelFiles)
 }
 
 fun printUsage() {
@@ -2374,6 +2386,11 @@ fun printUsage() {
         |                          (classShell,supertypes,classAnnotations,members,
         |                          memberSignatures,memberAnnotations,sourceDependencyClosure).
         |                          Omit for full extraction (pre-profile default).
+        |  --experimental-parallel-files N
+        |                          EXPERIMENT ONLY: run analyzeKtFile on N parallel platform threads
+        |                          within one KAA session. Thread-safety of FIR/PSI is NOT established.
+        |                          Use only to probe correctness and measure wall-time vs sequential.
+        |                          0 or 1 = sequential (default).
         |  --help                  Show this help
     """.trimMargin())
 }
@@ -2453,12 +2470,83 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
     val progressStep = (total / 20).coerceAtLeast(1000)
     var processed = 0
     var skipped = 0
-    perf.track("kotlinAnalyzeFiles") {
-        for ((i, ktFile) in ktFiles.withIndex()) {
-            val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, args.callFilter, memo, args.declarationProfile)
-            if (ok) processed++ else skipped++
-            if ((i + 1) % progressStep == 0) {
-                System.err.println("  ... ${i + 1}/$total (${processed} processed, ${skipped} skipped)")
+
+    val workers = if (args.parallelFiles > 1) args.parallelFiles.coerceAtMost(total) else 0
+    if (workers > 1) {
+        // Experiment 2: in-JVM platform thread pool probe.
+        // Each worker uses its own local maps so shared mutable state is
+        // never accessed concurrently. Results are merged sequentially after
+        // all futures complete. This isolates correctness failures: if
+        // output diverges from the sequential baseline, the cause is a KAA
+        // session lock ordering issue, not a merge bug.
+        perf.addInstant("kotlinParallelFilesConfig", mapOf("workers" to workers.toLong(), "files" to total.toLong()))
+        System.err.println("Experiment: running $total files across $workers platform threads (--experimental-parallel-files)")
+
+        data class WorkerResult(
+            val localFiles: Map<String, FileResult>,
+            val localDeps: Map<String, ClassResult>,
+            val localTracker: DepTracker?,
+            val processed: Int,
+            val skipped: Int
+        )
+
+        val executor = java.util.concurrent.Executors.newFixedThreadPool(workers)
+        // Partition files round-robin so chunks are balanced without reading file sizes.
+        val chunks = Array(workers) { mutableListOf<KtFile>() }
+        for ((idx, ktFile) in ktFiles.withIndex()) {
+            chunks[idx % workers].add(ktFile)
+        }
+
+        val futures = chunks.map { chunk ->
+            executor.submit<WorkerResult> {
+                val localFiles = mutableMapOf<String, FileResult>()
+                val localDeps = mutableMapOf<String, ClassResult>()
+                val localTracker: DepTracker? = if (args.cacheDepsOut != null) DepTracker() else null
+                val localMemo = AnalysisMemo()
+                var localProcessed = 0
+                var localSkipped = 0
+                for (ktFile in chunk) {
+                    val ok = analyzeKtFile(ktFile, localFiles, localDeps, args.expressions, localTracker, null, args.callFilter, localMemo, args.declarationProfile)
+                    if (ok) localProcessed++ else localSkipped++
+                }
+                WorkerResult(localFiles, localDeps, localTracker, localProcessed, localSkipped)
+            }
+        }
+        executor.shutdown()
+
+        perf.track("kotlinAnalyzeFiles") {
+            for (future in futures) {
+                val result = future.get()
+                files.putAll(result.localFiles)
+                deps.putAll(result.localDeps)
+                processed += result.processed
+                skipped += result.skipped
+                val lt = result.localTracker
+                if (tracker != null && lt != null) {
+                    for ((path, paths) in lt.depPathsByFile) {
+                        tracker.depPathsByFile.getOrPut(path) { LinkedHashSet() }.addAll(paths)
+                    }
+                    for ((path, map) in lt.perFileDeps) {
+                        tracker.perFileDeps.getOrPut(path) { mutableMapOf() }.putAll(map)
+                    }
+                    tracker.crashedFiles.putAll(lt.crashedFiles)
+                }
+            }
+        }
+        perf.addInstant("kotlinParallelFilesSummary", mapOf(
+            "workers" to workers.toLong(),
+            "files" to total.toLong(),
+            "processed" to processed.toLong(),
+            "skipped" to skipped.toLong()
+        ))
+    } else {
+        perf.track("kotlinAnalyzeFiles") {
+            for ((i, ktFile) in ktFiles.withIndex()) {
+                val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, args.callFilter, memo, args.declarationProfile)
+                if (ok) processed++ else skipped++
+                if ((i + 1) % progressStep == 0) {
+                    System.err.println("  ... ${i + 1}/$total (${processed} processed, ${skipped} skipped)")
+                }
             }
         }
     }

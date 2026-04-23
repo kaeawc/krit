@@ -426,6 +426,15 @@ var logMethodNames = map[string]bool{
 	"v": true, "d": true, "i": true, "w": true, "e": true, "wtf": true,
 }
 
+// composeSemanticsEscapeHatches are the Compose call names that opt an
+// otherwise-accessible component OUT of TalkBack exposure. Used by
+// decorative-image a11y rules to skip calls that already declare the
+// intent.
+var composeSemanticsEscapeHatches = map[string]bool{
+	"clearAndSetSemantics": true,
+	"invisibleToUser":      true,
+}
+
 // isReceiverNamed returns true when the call_expression at idx is invoked
 // through a navigation whose first identifier equals `name`. Matches
 // `Toast.makeText(...)` when called with `name == "Toast"`. Returns false
@@ -609,6 +618,82 @@ var checkResultCalleeNames = map[string]bool{
 	"format":    true,
 	"trim":      true,
 	"replace":   true,
+}
+
+// callSubtreeHasNamedArgument returns true when any call_expression in
+// the subtree rooted at `root` (including root itself) has a named
+// value_argument with the given name. Used to check whether a nested
+// call in a trailing lambda supplies an argument that the outer call
+// appears to be missing.
+func callSubtreeHasNamedArgument(file *scanner.File, root uint32, name string) bool {
+	if file == nil || root == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(root, "call_expression", func(call uint32) {
+		if found {
+			return
+		}
+		_, args := flatCallExpressionParts(file, call)
+		if args == 0 {
+			return
+		}
+		if flatNamedValueArgument(file, args, name) != 0 {
+			found = true
+		}
+	})
+	return found
+}
+
+// namedArgRHSIsNullLiteral returns true when the RHS of a named
+// value_argument (`name = <expr>`) is the bare `null` keyword. Unlike
+// flatValueArgumentExpression, this walks past unnamed token children
+// so that tree-sitter's `null` keyword (which is not a "named" node) is
+// detected.
+func namedArgRHSIsNullLiteral(file *scanner.File, arg uint32) bool {
+	if file == nil || arg == 0 {
+		return false
+	}
+	seenEquals := false
+	for child := file.FlatFirstChild(arg); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			seenEquals = true
+			continue
+		}
+		if !seenEquals {
+			continue
+		}
+		if file.FlatType(child) == "null" {
+			return true
+		}
+		// Any other non-trivia child means the RHS is a concrete expression
+		// (not null) — bail out.
+		if file.FlatIsNamed(child) {
+			return false
+		}
+	}
+	return false
+}
+
+// subtreeHasCalleeIn walks every call_expression inside `root` and
+// returns true when any callee name is in `names`. The root node itself
+// is excluded — a call's callee is not "inside" the call. Callers use
+// this to ask "does this call's arguments or trailing lambda invoke any
+// of these APIs?".
+func subtreeHasCalleeIn(file *scanner.File, root uint32, names map[string]bool) bool {
+	if file == nil || root == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(root, "call_expression", func(call uint32) {
+		if found || call == root {
+			return
+		}
+		if names[flatCallExpressionName(file, call)] {
+			found = true
+		}
+	})
+	return found
 }
 
 // enclosingFunctionHasCallNamed walks every call_expression under the

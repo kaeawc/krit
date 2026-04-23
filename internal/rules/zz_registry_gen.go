@@ -131,22 +131,11 @@ func registerAllRules() {
 				if cdArg == 0 {
 					return
 				}
-				argText := strings.TrimSpace(file.FlatNodeText(cdArg))
-				if !strings.Contains(argText, "null") {
+				if !namedArgRHSIsNullLiteral(file, cdArg) {
 					return
 				}
-				callText := file.FlatNodeText(idx)
-				if strings.Contains(callText, "clearAndSetSemantics") ||
-					strings.Contains(callText, "invisibleToUser") {
+				if subtreeHasCalleeIn(file, idx, composeSemanticsEscapeHatches) {
 					return
-				}
-				modArg := flatNamedValueArgument(file, args, "modifier")
-				if modArg != 0 {
-					modText := file.FlatNodeText(modArg)
-					if strings.Contains(modText, "clearAndSetSemantics") ||
-						strings.Contains(modText, "invisibleToUser") {
-						return
-					}
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"Decorative image with `contentDescription = null` should use `Modifier.clearAndSetSemantics {}` or `semantics { invisibleToUser() }` to hide from TalkBack.")
@@ -159,27 +148,40 @@ func registerAllRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				name := flatCallName(file, idx)
+				// In the trailing-lambda idiom `IconButton(args) { ... }`,
+				// tree-sitter emits an outer call_expression whose first
+				// named child is the inner `IconButton(args)` call_expression.
+				// Skip the inner call so we evaluate each user-visible call
+				// exactly once, at the outer form where the trailing-lambda
+				// children are actually reachable.
+				if parent, ok := file.FlatParent(idx); ok && file.FlatType(parent) == "call_expression" {
+					first := file.FlatFirstChild(parent)
+					for first != 0 && !file.FlatIsNamed(first) {
+						first = file.FlatNextSib(first)
+					}
+					if first == idx {
+						return
+					}
+				}
+				name := flatCallNameAny(file, idx)
 				if !composeContentDescriptionCalls[name] {
 					return
 				}
 				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					// Outer trailing-lambda form — args live on the nested inner call.
+					args = flatCallKeyArguments(file, idx)
+				}
 				if name == "IconButton" {
-					if args != 0 && flatNamedValueArgument(file, args, "contentDescription") != 0 {
+					// The IconButton itself rarely declares contentDescription —
+					// the Icon child inside its content lambda carries it. Fire
+					// only when NO descendant call_expression anywhere in the
+					// IconButton's subtree uses a contentDescription arg.
+					if callSubtreeHasNamedArgument(file, idx, "contentDescription") {
 						return
-					}
-					text := file.FlatNodeText(idx)
-					if strings.Contains(text, "contentDescription") {
-						return
-					}
-					if parent, ok := file.FlatParent(idx); ok && file.FlatType(parent) == "call_expression" {
-						parentText := file.FlatNodeText(parent)
-						if strings.Contains(parentText, "contentDescription") {
-							return
-						}
 					}
 					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 						"IconButton's Icon is missing `contentDescription`. Set a description for accessibility.")
@@ -190,16 +192,13 @@ func registerAllRules() {
 				}
 				cdArg := flatNamedValueArgument(file, args, "contentDescription")
 				if cdArg != 0 {
-					argText := strings.TrimSpace(file.FlatNodeText(cdArg))
-					if !strings.Contains(argText, "= null") {
+					// Only fire when the value is specifically `null`; any other
+					// expression (even a "" string) is the developer's call.
+					if !namedArgRHSIsNullLiteral(file, cdArg) {
 						return
 					}
-					modArg := flatNamedValueArgument(file, args, "modifier")
-					if modArg != 0 {
-						modText := file.FlatNodeText(modArg)
-						if strings.Contains(modText, "invisibleToUser") || strings.Contains(modText, "clearAndSetSemantics") {
-							return
-						}
+					if subtreeHasCalleeIn(file, idx, composeSemanticsEscapeHatches) {
+						return
 					}
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,

@@ -7,6 +7,15 @@ import (
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
+// controlBodyHasBraces returns true when the control_structure_body node
+// at body has an opening brace token as its first child — i.e. the body is
+// a `{ ... }` block. A body without a brace child is a single expression
+// form (`if (x) foo()`), regardless of whitespace or comments.
+func controlBodyHasBraces(file *scanner.File, body uint32) bool {
+	first := file.FlatFirstChild(body)
+	return first != 0 && file.FlatType(first) == "{"
+}
+
 // BracesOnIfStatementsRule enforces braces on if statements.
 type BracesOnIfStatementsRule struct {
 	FlatDispatchBase
@@ -51,9 +60,7 @@ func (r *BracesOnIfStatementsRule) check(ctx *v2.Context) {
 		return
 	}
 
-	bodyText := file.FlatNodeText(body)
-	trimmed := strings.TrimSpace(bodyText)
-	if strings.HasPrefix(trimmed, "{") {
+	if controlBodyHasBraces(file, body) {
 		return // already has braces
 	}
 
@@ -90,8 +97,7 @@ func (r *BracesOnIfStatementsRule) checkConsistentIfFlat(ctx *v2.Context) {
 	for current != 0 && file.FlatType(current) == "if_expression" {
 		for child := file.FlatFirstChild(current); child != 0; child = file.FlatNextSib(child) {
 			if file.FlatType(child) == "control_structure_body" {
-				text := strings.TrimSpace(file.FlatNodeText(child))
-				branches = append(branches, branchInfo{body: child, hasBrace: strings.HasPrefix(text, "{")})
+				branches = append(branches, branchInfo{body: child, hasBrace: controlBodyHasBraces(file, child)})
 			}
 		}
 		// (The original code had a dead inner loop here that scanned for
@@ -166,8 +172,7 @@ func (r *BracesOnWhenStatementsRule) check(ctx *v2.Context) {
 		return
 	}
 
-	bodyText := strings.TrimSpace(file.FlatNodeText(body))
-	if strings.HasPrefix(bodyText, "{") {
+	if controlBodyHasBraces(file, body) {
 		return // already has braces
 	}
 
@@ -213,8 +218,7 @@ func (r *BracesOnWhenStatementsRule) checkConsistentWhenFlat(ctx *v2.Context) {
 		if file.FlatType(child) == "when_entry" {
 			body, _ := file.FlatFindChild(child, "control_structure_body")
 			if body != 0 {
-				text := strings.TrimSpace(file.FlatNodeText(body))
-				entries = append(entries, entryInfo{body: body, hasBrace: strings.HasPrefix(text, "{")})
+				entries = append(entries, entryInfo{body: body, hasBrace: controlBodyHasBraces(file, body)})
 			}
 		}
 	}
@@ -258,8 +262,7 @@ func (r *MandatoryBracesLoopsRule) check(ctx *v2.Context) {
 	if body == 0 {
 		return
 	}
-	bodyText := strings.TrimSpace(file.FlatNodeText(body))
-	if !strings.HasPrefix(bodyText, "{") {
+	if !controlBodyHasBraces(file, body) {
 		f := r.Finding(file, file.FlatRow(idx)+1, 1,
 			"Loop body should use braces.")
 		raw := file.FlatNodeText(body)

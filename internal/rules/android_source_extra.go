@@ -1767,9 +1767,8 @@ type ResourceNameRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ResourceNameRule) Confidence() float64 { return 0.75 }
+func (r *ResourceNameRule) Confidence() float64 { return 0.9 }
 
-var resourceRefRe = regexp.MustCompile(`R\.(layout|drawable|string|color|dimen|style|menu|anim|xml|raw|id)\.([a-zA-Z_]\w*)`)
 var snakeCaseRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 type ProguardRule struct {
@@ -1856,6 +1855,4 @@ type UnknownIdInLayoutRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *UnknownIdInLayoutRule) Confidence() float64 { return 0.75 }
-
-var idRefRe = regexp.MustCompile(`R\.id\.([a-zA-Z_]\w*)`)
+func (r *UnknownIdInLayoutRule) Confidence() float64 { return 0.9 }

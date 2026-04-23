@@ -5100,15 +5100,23 @@ func registerAllRules() {
 		r := &ResourceNameRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ResourceName", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ResourceName", Brief: "Resource name not in snake_case", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 4, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"navigation_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				for _, m := range resourceRefRe.FindAllStringSubmatch(text, -1) {
-					if !snakeCaseRe.MatchString(m[2]) {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Resource name `R."+m[1]+"."+m[2]+"` should use snake_case.")
-						return
-					}
+				// Structural R.<kind>.<name> decomposition. Require the nav
+				// chain to be exactly three segments rooted at `R`, with
+				// the middle segment in the resource-type allow-list. The
+				// previous regex matched anywhere in the text, including
+				// across unrelated chains and string content.
+				segments := flatNavigationChainIdentifiers(file, idx)
+				if len(segments) != 3 || segments[0] != "R" {
+					return
+				}
+				if !androidResourceTypes[segments[1]] {
+					return
+				}
+				if !snakeCaseRe.MatchString(segments[2]) {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Resource name `R."+segments[1]+"."+segments[2]+"` should use snake_case.")
 				}
 			},
 		})
@@ -5175,15 +5183,16 @@ func registerAllRules() {
 		r := &UnknownIdInLayoutRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "UnknownIdInLayout", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "UnknownIdInLayout", Brief: "Reference to unknown @id in layout", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"navigation_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				for _, m := range idRefRe.FindAllStringSubmatch(text, -1) {
-					if strings.Contains(m[1], "__") || strings.HasPrefix(m[1], "_") {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Suspicious ID reference `R.id."+m[1]+"`. Verify this ID exists in your layout resources.")
-						return
-					}
+				segments := flatNavigationChainIdentifiers(file, idx)
+				if len(segments) != 3 || segments[0] != "R" || segments[1] != "id" {
+					return
+				}
+				name := segments[2]
+				if strings.Contains(name, "__") || strings.HasPrefix(name, "_") {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Suspicious ID reference `R.id."+name+"`. Verify this ID exists in your layout resources.")
 				}
 			},
 		})

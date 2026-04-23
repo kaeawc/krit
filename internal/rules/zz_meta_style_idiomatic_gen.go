@@ -17,7 +17,7 @@ func (r *UseAnyOrNoneInsteadOfFindRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "4028c03413755b50",
+		SourceHash:    "f5fcc5d208c668be",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *UseCheckNotNullRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "4028c03413755b50",
+		SourceHash:    "f5fcc5d208c668be",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *UseCheckOrErrorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "4028c03413755b50",
+		SourceHash:    "f5fcc5d208c668be",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *UseEmptyCounterpartRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "4028c03413755b50",
+		SourceHash:    "f5fcc5d208c668be",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *UseIsNullOrEmptyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "4028c03413755b50",
+		SourceHash:    "f5fcc5d208c668be",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *UseOrEmptyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "4028c03413755b50",
+		SourceHash:    "f5fcc5d208c668be",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *UseRequireNotNullRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "4028c03413755b50",
+		SourceHash:    "f5fcc5d208c668be",
 	}
 }
 
@@ -108,6 +108,6 @@ func (r *UseRequireRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "4028c03413755b50",
+		SourceHash:    "f5fcc5d208c668be",
 	}
 }

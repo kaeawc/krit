@@ -626,44 +626,93 @@ func flatThrowPattern(ctx *v2.Context, nodeType, nodeText string, exceptionType,
 	if condNode == 0 || bodyNode == 0 {
 		return
 	}
-	condText := strings.TrimSpace(file.FlatNodeText(condNode))
-	isNegated := false
-	innerCond := condText
-	if strings.HasPrefix(condText, "!") {
-		isNegated = true
-		innerCond = strings.TrimSpace(condText[1:])
-		if strings.HasPrefix(innerCond, "(") && strings.HasSuffix(innerCond, ")") {
-			innerCond = innerCond[1 : len(innerCond)-1]
+
+	// Require negated condition via AST: prefix_expression whose first child is "!".
+	if file.FlatType(condNode) != "prefix_expression" || file.FlatChildCount(condNode) < 2 {
+		return
+	}
+	opNode := file.FlatChild(condNode, 0)
+	if opNode == 0 || !file.FlatNodeTextEquals(opNode, "!") {
+		return
+	}
+	innerCondNode := file.FlatChild(condNode, 1)
+	if innerCondNode == 0 {
+		return
+	}
+	// Unwrap a single parenthesized_expression: !(cond) → cond.
+	if file.FlatType(innerCondNode) == "parenthesized_expression" {
+		if inner := file.FlatNamedChild(innerCondNode, 0); inner != 0 {
+			innerCondNode = inner
 		}
-	} else if file.FlatType(condNode) == "prefix_expression" && file.FlatChildCount(condNode) >= 2 {
-		opNode := file.FlatChild(condNode, 0)
-		if opNode != 0 && file.FlatNodeTextEquals(opNode, "!") {
-			isNegated = true
-			if argNode := file.FlatChild(condNode, 1); argNode != 0 {
-				innerCond = file.FlatNodeText(argNode)
+	}
+
+	// Unwrap control_structure_body to get the actual body node.
+	actualBody := bodyNode
+	if file.FlatType(bodyNode) == "control_structure_body" {
+		if inner := file.FlatNamedChild(bodyNode, 0); inner != 0 {
+			actualBody = inner
+		}
+	}
+
+	// isThrowJump reports whether node is a jump_expression whose first token is "throw".
+	isThrowJump := func(node uint32) bool {
+		if file.FlatType(node) != "jump_expression" {
+			return false
+		}
+		first := file.FlatFirstChild(node)
+		return first != 0 && file.FlatNodeTextEquals(first, "throw")
+	}
+
+	// Locate a single throw jump_expression: either the body is one directly,
+	// or the body is a block containing exactly one named statement which is a throw.
+	var throwNode uint32
+	switch file.FlatType(actualBody) {
+	case "jump_expression":
+		if isThrowJump(actualBody) {
+			throwNode = actualBody
+		}
+	case "block":
+		// Accept only if the block contains exactly one named statement, a throw.
+		namedCount := file.FlatNamedChildCount(actualBody)
+		if namedCount == 1 {
+			child := file.FlatNamedChild(actualBody, 0)
+			if isThrowJump(child) {
+				throwNode = child
 			}
 		}
 	}
-	if !isNegated {
+	if throwNode == 0 {
 		return
 	}
-	bodyText := strings.TrimSpace(file.FlatNodeText(bodyNode))
-	if strings.HasPrefix(bodyText, "{") && strings.HasSuffix(bodyText, "}") {
-		bodyText = strings.TrimSpace(bodyText[1 : len(bodyText)-1])
+
+	// Find the call_expression inside the throw jump_expression.
+	var callNode uint32
+	for child := file.FlatFirstChild(throwNode); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "call_expression" {
+			callNode = child
+			break
+		}
 	}
-	if !strings.HasPrefix(bodyText, "throw ") {
+	if callNode == 0 {
 		return
 	}
-	throwTarget := strings.TrimSpace(bodyText[6:])
-	if !strings.HasPrefix(throwTarget, exceptionType) {
+
+	// Match exception type by name equality, not text prefix.
+	if flatCallExpressionName(file, callNode) != exceptionType {
 		return
 	}
+
+	innerCond := strings.TrimSpace(file.FlatNodeText(innerCondNode))
 	f := base.Finding(file, file.FlatRow(idx)+1, 1, fmt.Sprintf("Use '%s()' instead of 'if (...) throw %s'.", replacement, exceptionType))
-	if argStart := strings.Index(throwTarget, "("); argStart >= 0 {
-		if argEnd := strings.LastIndex(throwTarget, ")"); argEnd > argStart {
-			arg := strings.TrimSpace(throwTarget[argStart+1 : argEnd])
-			if strings.HasPrefix(arg, "\"") && strings.HasSuffix(arg, "\"") {
-				f.Fix = &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(idx)), EndByte: int(file.FlatEndByte(idx)), Replacement: fmt.Sprintf("%s(%s) { %s }", replacement, innerCond, arg)}
+
+	// Extract the first string literal argument for the fix.
+	_, argsNode := flatCallExpressionParts(file, callNode)
+	if argsNode != 0 && file.FlatNamedChildCount(argsNode) > 0 {
+		firstArg := file.FlatNamedChild(argsNode, 0)
+		if firstArg != 0 {
+			argText := strings.TrimSpace(file.FlatNodeText(firstArg))
+			if strings.HasPrefix(argText, "\"") && strings.HasSuffix(argText, "\"") {
+				f.Fix = &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(idx)), EndByte: int(file.FlatEndByte(idx)), Replacement: fmt.Sprintf("%s(%s) { %s }", replacement, innerCond, argText)}
 			}
 		}
 	}

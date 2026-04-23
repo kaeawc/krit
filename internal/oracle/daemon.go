@@ -56,6 +56,88 @@ func cracCheckpointPath(jarPath string) (string, error) {
 	return jarCachePath(jarPath, ".crac")
 }
 
+// aotConfigPath returns the path for a Project Leyden AOT configuration file
+// keyed by the JAR's content hash. Used during the record phase (JDK 25+).
+func aotConfigPath(jarPath string) (string, error) {
+	return jarCachePath(jarPath, ".aotconf")
+}
+
+// aotCachePath returns the path for a Project Leyden AOT cache file keyed by
+// the JAR's content hash. Used during the create and use phases (JDK 25+).
+func aotCachePath(jarPath string) (string, error) {
+	return jarCachePath(jarPath, ".aot")
+}
+
+var (
+	jdkVersionOnce  sync.Once
+	jdkVersionCache int
+)
+
+// cachedJDKMajorVersion returns the major version of the java binary in PATH,
+// caching the result after the first call to avoid repeated subprocess spawns.
+func cachedJDKMajorVersion() int {
+	jdkVersionOnce.Do(func() {
+		javaPath, err := exec.LookPath("java")
+		if err != nil {
+			return
+		}
+		jdkVersionCache = jdkMajorVersion(javaPath)
+	})
+	return jdkVersionCache
+}
+
+// jdkMajorVersion parses the major version from the output of "java -version".
+// Returns 0 on any error; callers should treat 0 as "unknown, fall back to
+// compatible behavior".
+func jdkMajorVersion(javaPath string) int {
+	// java -version writes to stderr; CombinedOutput captures both.
+	out, _ := exec.Command(javaPath, "-version").CombinedOutput()
+	s := string(out)
+	// Version string is quoted: openjdk version "25.0.2" or java version "1.8.0_352"
+	start := strings.Index(s, `"`)
+	if start < 0 {
+		return 0
+	}
+	end := strings.Index(s[start+1:], `"`)
+	if end < 0 {
+		return 0
+	}
+	parts := strings.SplitN(s[start+1:start+1+end], ".", 3)
+	// Strip any pre-release suffix (e.g. "24-ea" → "24")
+	majorStr := strings.SplitN(parts[0], "-", 2)[0]
+	major, err := strconv.Atoi(majorStr)
+	if err != nil {
+		return 0
+	}
+	// Old-style 1.X versioning (JDK 8 is "1.8.0")
+	if major == 1 && len(parts) >= 2 {
+		if minor, err := strconv.Atoi(parts[1]); err == nil {
+			return minor
+		}
+	}
+	return major
+}
+
+// buildLeydenAOTCache runs the Leyden AOT create step: it compiles the AOT
+// cache from an existing configuration file and exits immediately without
+// running the application. Fast (seconds), must complete before daemon launch.
+func buildLeydenAOTCache(javaPath, jarPath, configPath, cachePath string, verbose bool) error {
+	args := []string{
+		"-XX:AOTMode=create",
+		"-XX:AOTConfiguration=" + configPath,
+		"-XX:AOTCache=" + cachePath,
+		"-jar", jarPath,
+	}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "verbose: Leyden AOT: building cache %s → %s\n", configPath, cachePath)
+	}
+	cmd := exec.Command(javaPath, args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("leyden AOT create: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // Daemon manages a long-lived krit-types JVM process for on-demand type resolution.
 type Daemon struct {
 	cmd     *exec.Cmd
@@ -168,33 +250,40 @@ func StartDaemon(jarPath string, sourceDirs []string, classpath []string, verbos
 		}
 	}
 
-	// CRaC: attempt restore from a checkpoint directory.
-	// Only works on CRaC-enabled JDKs (Azul Zulu, Liberica NIK); ignored otherwise.
-	cracPath, cracErr := cracCheckpointPath(jarPath)
-	useCRaCRestore := false
-	if cracErr == nil {
-		if info, statErr := os.Stat(cracPath); statErr == nil && info.IsDir() {
-			// Checkpoint directory exists — try restoring.
-			// We launch a separate attempt; if it fails we fall back to cold start.
-			restoreArgs := []string{"-XX:CRaCRestoreFrom=" + cracPath}
-			restoreCmd := exec.Command(javaPath, restoreArgs...)
-			if restoreCmd.Start() == nil {
-				// If the restore process starts, we use it instead.
-				useCRaCRestore = true
+	// Project Leyden AOT (JDK 25+): ahead-of-time class loading & linking replaces
+	// CRaC for cold-start optimization. Three-phase lifecycle managed via file presence:
+	//   Phase 1 – no config: add record flags so the profile is written at daemon exit
+	//   Phase 2 – config exists, no cache: compile the AOT cache synchronously, then use it
+	//   Phase 3 – cache exists: load pre-linked classes directly (~500ms cold start)
+	if cachedJDKMajorVersion() >= 25 {
+		leydenConfig, configErr := aotConfigPath(jarPath)
+		leydenCache, cacheErr := aotCachePath(jarPath)
+		if configErr == nil && cacheErr == nil {
+			if _, statErr := os.Stat(leydenCache); statErr == nil {
+				// Phase 3: use existing AOT cache
+				args = append(args, "-XX:AOTCache="+leydenCache)
 				if verbose {
-					fmt.Fprintf(os.Stderr, "verbose: CRaC: restoring from %s\n", cracPath)
+					fmt.Fprintf(os.Stderr, "verbose: Leyden AOT: using cache %s\n", leydenCache)
 				}
-				// But we cannot easily reuse exec.Cmd after Start — abandon this
-				// path and fall through to cold start.  CRaC restore replaces the
-				// process image, so the child IS the daemon.  However, Go cannot
-				// attach pipes to an already-started process.  Kill it and fall back.
-				restoreCmd.Process.Kill()
-				restoreCmd.Wait() //nolint:errcheck
-				useCRaCRestore = false
+			} else if _, statErr := os.Stat(leydenConfig); statErr == nil {
+				// Phase 2: build cache from recorded config, then use it
+				if err := buildLeydenAOTCache(javaPath, jarPath, leydenConfig, leydenCache, verbose); err == nil {
+					args = append(args, "-XX:AOTCache="+leydenCache)
+					if verbose {
+						fmt.Fprintf(os.Stderr, "verbose: Leyden AOT: built and using cache %s\n", leydenCache)
+					}
+				} else if verbose {
+					fmt.Fprintf(os.Stderr, "verbose: Leyden AOT: cache build failed (%v), starting without AOT\n", err)
+				}
+			} else {
+				// Phase 1: record class loading profile at daemon exit
+				args = append(args, "-XX:AOTMode=record", "-XX:AOTConfiguration="+leydenConfig)
+				if verbose {
+					fmt.Fprintf(os.Stderr, "verbose: Leyden AOT: recording class profile → %s\n", leydenConfig)
+				}
 			}
 		}
 	}
-	_ = useCRaCRestore // reserved for future pipe-based CRaC restore
 
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgsFromEnv())
 	args = append(args, "-jar", jarPath, "--daemon")
@@ -1032,6 +1121,34 @@ func StartDaemonWithPortSlot(jarPath string, sourceDirs []string, classpath []st
 			args = append(args, "-XX:SharedArchiveFile="+archivePath, "-Xshare:auto")
 		} else {
 			args = append(args, "-XX:ArchiveClassesAtExit="+archivePath, "-Xshare:auto")
+		}
+	}
+
+	// Project Leyden AOT (JDK 25+): same three-phase lifecycle as StartDaemon.
+	if cachedJDKMajorVersion() >= 25 {
+		leydenConfig, configErr := aotConfigPath(jarPath)
+		leydenCache, cacheErr := aotCachePath(jarPath)
+		if configErr == nil && cacheErr == nil {
+			if _, statErr := os.Stat(leydenCache); statErr == nil {
+				args = append(args, "-XX:AOTCache="+leydenCache)
+				if verbose {
+					fmt.Fprintf(os.Stderr, "verbose: Leyden AOT: using cache %s\n", leydenCache)
+				}
+			} else if _, statErr := os.Stat(leydenConfig); statErr == nil {
+				if err := buildLeydenAOTCache(javaPath, jarPath, leydenConfig, leydenCache, verbose); err == nil {
+					args = append(args, "-XX:AOTCache="+leydenCache)
+					if verbose {
+						fmt.Fprintf(os.Stderr, "verbose: Leyden AOT: built and using cache %s\n", leydenCache)
+					}
+				} else if verbose {
+					fmt.Fprintf(os.Stderr, "verbose: Leyden AOT: cache build failed (%v), starting without AOT\n", err)
+				}
+			} else {
+				args = append(args, "-XX:AOTMode=record", "-XX:AOTConfiguration="+leydenConfig)
+				if verbose {
+					fmt.Fprintf(os.Stderr, "verbose: Leyden AOT: recording class profile → %s\n", leydenConfig)
+				}
+			}
 		}
 	}
 

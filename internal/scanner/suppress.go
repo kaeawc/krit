@@ -307,7 +307,7 @@ var kotlinCompilerWarningAliases = map[string][]string{
 	"UNUSED_EXPRESSION":          {"UnusedPrivateProperty"},
 	"UNUSED_ANONYMOUS_PARAMETER": {"UnusedParameter"},
 	"NAME_SHADOWING":             {"NoNameShadowing"},
-	"UNCHECKED_CAST":             {"UnsafeCast"},
+	"UNCHECKED_CAST":             {"UnsafeCast", "DontDowncastCollectionTypes"},
 	"UNUSED_VALUE":               {"UnusedPrivateProperty"},
 	"UNUSED_IMPORT":              {"UnusedImport"},
 	// IntelliJ/Kotlin inspection id (lowercase) used by Signal via

@@ -10862,62 +10862,7 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: 0.75, OriginalV1: r,
 			Needs: v2.NeedsResolver,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				m := mutableCollectionCastRe.FindStringSubmatch(text)
-				if m == nil {
-					return
-				}
-				targetType := m[1]
-				if ctx.Resolver != nil {
-					sourceIdx := file.FlatChild(idx, 0)
-					if sourceIdx != 0 {
-						sourceType := ctx.Resolver.ResolveFlatNode(sourceIdx, file)
-						if sourceType.Kind != typeinfer.TypeUnknown {
-							expectedImmutable := ""
-							for immutable, mutable := range immutableToMutableMap {
-								if mutable == targetType {
-									expectedImmutable = immutable
-									break
-								}
-							}
-							if expectedImmutable != "" && sourceType.Name != expectedImmutable {
-								info := ctx.Resolver.ClassHierarchy(sourceType.Name)
-								if info != nil {
-									isCollectionSupertype := false
-									for _, st := range info.Supertypes {
-										parts := strings.Split(st, ".")
-										stName := parts[len(parts)-1]
-										if stName == expectedImmutable {
-											isCollectionSupertype = true
-											break
-										}
-									}
-									if !isCollectionSupertype {
-										return
-									}
-								}
-							}
-						}
-					}
-				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					fmt.Sprintf("Don't downcast collection type to '%s'. This can lead to unexpected mutations.", targetType))
-				parts := strings.SplitN(text, " as ", 2)
-				if len(parts) == 2 {
-					expr := strings.TrimSpace(parts[0])
-					if method, ok := mutableCollectionToMethodMap[targetType]; ok {
-						f.Fix = &scanner.Fix{
-							ByteMode:    true,
-							StartByte:   int(file.FlatStartByte(idx)),
-							EndByte:     int(file.FlatEndByte(idx)),
-							Replacement: expr + "." + method,
-						}
-					}
-				}
-				ctx.Emit(f)
-			},
+			Check: r.check,
 		})
 	}
 	{

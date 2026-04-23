@@ -1,8 +1,7 @@
 package rules
 
 import (
-	"regexp"
-
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -117,12 +116,67 @@ type UselessPostfixExpressionRule struct {
 	BaseRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Potential-bugs properties rule. Detection is structural with heuristic
-// fallbacks for flow-dependent cases. Classified per roadmap/17.
-func (r *UselessPostfixExpressionRule) Confidence() float64 { return 0.75 }
+// Confidence: tier-1 — the rule fires on a jump_expression whose `return`
+// keyword is followed by a postfix_expression over a bare
+// simple_identifier. That shape is unambiguous: the mutation happens
+// after the value is produced, so the increment/decrement has no
+// observable effect. Tree-sitter gives us this shape directly; no text
+// heuristics are involved.
+func (r *UselessPostfixExpressionRule) Confidence() float64 { return 0.95 }
 
-var uselessPostfixRe = regexp.MustCompile(`\breturn\s+\w+(\+\+|--)`)
-var uselessPostfixFixRe = regexp.MustCompile(`(\s*)return\s+(\w+)(\+\+|--)`)
+// checkUselessPostfixFlat runs on jump_expression. Fires when the shape is
+// `return <simple_identifier>++` or `return <simple_identifier>--`. The
+// operand is intentionally required to be a simple_identifier (not a
+// navigation_expression like `xs.size++`) because the fix — splitting into
+// `x++` plus `return x` — is only safe when the incremented target is a
+// single named variable.
+func (r *UselessPostfixExpressionRule) checkUselessPostfixFlat(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
+	first := file.FlatFirstChild(idx)
+	if first == 0 || file.FlatType(first) != "return" {
+		return
+	}
+	operand := file.FlatNextSib(first)
+	for operand != 0 && !file.FlatIsNamed(operand) {
+		operand = file.FlatNextSib(operand)
+	}
+	if operand == 0 || file.FlatType(operand) != "postfix_expression" {
+		return
+	}
+	target := file.FlatFirstChild(operand)
+	for target != 0 && !file.FlatIsNamed(target) {
+		target = file.FlatNextSib(target)
+	}
+	if target == 0 || file.FlatType(target) != "simple_identifier" {
+		return
+	}
+	op := file.FlatNextSib(target)
+	for op != 0 && file.FlatIsNamed(op) {
+		op = file.FlatNextSib(op)
+	}
+	if op == 0 {
+		return
+	}
+	opText := file.FlatType(op)
+	if opText != "++" && opText != "--" {
+		return
+	}
+
+	varName := file.FlatNodeText(target)
+	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"Useless postfix expression in return statement. The increment/decrement has no effect.")
+	// Replace the jump_expression's bytes (which start at `return`, so the
+	// leading indent on the line is preserved). The second line is emitted
+	// without indent — matching the rule's original behavior and its fix
+	// fixture, which an external formatter is expected to re-indent.
+	f.Fix = &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   int(file.FlatStartByte(idx)),
+		EndByte:     int(file.FlatEndByte(idx)),
+		Replacement: varName + opText + "\n" + "return " + varName,
+	}
+	ctx.Emit(f)
+}
 
 func propertyDeclarationNameFlat(file *scanner.File, idx uint32) string {
 	if file == nil || idx == 0 {

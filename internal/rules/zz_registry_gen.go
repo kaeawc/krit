@@ -11169,28 +11169,8 @@ func registerAllRules() {
 		r := &UselessPostfixExpressionRule{BaseRule: BaseRule{RuleName: "UselessPostfixExpression", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects postfix increment or decrement in return statements where the operation has no effect."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"jump_expression"}, Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !uselessPostfixRe.MatchString(text) {
-					return
-				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Useless postfix expression in return statement. The increment/decrement has no effect.")
-				if m := uselessPostfixFixRe.FindStringSubmatch(text); m != nil {
-					indent := m[1]
-					varName := m[2]
-					op := m[3]
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(idx)),
-						EndByte:     int(file.FlatEndByte(idx)),
-						Replacement: indent + varName + op + "\n" + indent + "return " + varName,
-					}
-				}
-				ctx.Emit(f)
-			},
+			NodeTypes: []string{"jump_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: r.checkUselessPostfixFlat,
 		})
 	}
 
@@ -11544,8 +11524,7 @@ func registerAllRules() {
 			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !whenElseRe.MatchString(text) {
+				if !whenHasElseBranchFlat(file, idx) {
 					return
 				}
 				if ctx.Resolver != nil {
@@ -11556,9 +11535,10 @@ func registerAllRules() {
 							return
 						}
 						file.FlatForEachChild(entry, func(cond uint32) {
-							condText := strings.TrimSpace(file.FlatNodeText(cond))
-							if strings.HasPrefix(strings.TrimSpace(condText), "is ") {
-								typeName := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(condText), "is "))
+							if file.FlatType(cond) != "when_condition" {
+								return
+							}
+							if typeName := whenConditionTypeTestName(file, cond); typeName != "" {
 								coveredTypes[typeName] = true
 							}
 						})

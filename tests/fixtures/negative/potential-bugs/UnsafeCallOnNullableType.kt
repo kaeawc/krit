@@ -10,17 +10,17 @@ class PostFilterSafePatterns {
     data class Item(val name: String?, val age: Int?)
 
     // Same field checked in filter lambda (implicit "it")
-    fun safeWithFilter(list: List<Item>) {
-        list.filter { it.name != null }.map { it.name!! }
+    fun safeWithFilter(list: List<Item>): List<String?> {
+        return list.filter { it.name != null }.map { it.name!! }
     }
 
     // filterNotNull guarantees elements are non-null
-    fun safeWithFilterNotNull(list: List<String?>) {
-        list.filterNotNull().map { it!! }
+    fun safeWithFilterNotNull(list: List<String?>): List<String> {
+        return list.filterNotNull().map { it!! }
     }
 
     // Named lambda parameter in filter, same field checked
-    fun safeWithNamedParam(list: List<Item>) {
-        list.filter { item -> item.name != null }.map { it.name!! }
+    fun safeWithNamedParam(list: List<Item>): List<String?> {
+        return list.filter { item -> item.name != null }.map { it.name!! }
     }
 }

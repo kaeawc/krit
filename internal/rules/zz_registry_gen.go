@@ -8116,40 +8116,45 @@ func registerAllRules() {
 			NodeTypes: []string{"if_expression"}, Confidence: 0.95, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				elseIdx := strings.LastIndex(text, "else")
-				if elseIdx < 0 {
-					return
-				}
-				afterElse := text[elseIdx+4:]
-				braceStart := strings.Index(afterElse, "{")
-				if braceStart < 0 {
-					return
-				}
-				braceEnd := strings.Index(afterElse[braceStart:], "}")
-				if braceEnd < 0 {
-					return
-				}
-				body := afterElse[braceStart+1 : braceStart+braceEnd]
-				cleaned := stripComments(body)
-				if strings.TrimSpace(cleaned) == "" {
-					beforeElse := text[:elseIdx]
-					elseLine := file.FlatRow(idx) + strings.Count(beforeElse, "\n") + 1
-					f := r.Finding(file, elseLine, 1,
-						"Empty else block detected.")
-					elseByteStart := int(file.FlatStartByte(idx)) + elseIdx
-					for elseByteStart > 0 && (file.Content[elseByteStart-1] == ' ' || file.Content[elseByteStart-1] == '\t' || file.Content[elseByteStart-1] == '\n' || file.Content[elseByteStart-1] == '\r') {
-						elseByteStart--
+				// Find the `else` token and its companion control_structure_body.
+				var elseTok, elseBody uint32
+				sawElse := false
+				for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+					if file.FlatType(child) == "else" {
+						elseTok = child
+						sawElse = true
+						continue
 					}
-					elseByteEnd := int(file.FlatStartByte(idx)) + elseIdx + 4 + braceStart + braceEnd + 1
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   elseByteStart,
-						EndByte:     elseByteEnd,
-						Replacement: "",
+					if sawElse && file.FlatType(child) == "control_structure_body" {
+						elseBody = child
+						break
 					}
-					ctx.Emit(f)
 				}
+				if elseBody == 0 {
+					return
+				}
+				// Must be a braced body — `else expr` form is never "empty".
+				if !controlBodyHasBraces(file, elseBody) {
+					return
+				}
+				// Empty iff no `statements` child — comments and whitespace
+				// inside the braces don't produce a statements node.
+				if file.FlatHasChildOfType(elseBody, "statements") {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(elseTok)+1, 1,
+					"Empty else block detected.")
+				elseByteStart := int(file.FlatStartByte(elseTok))
+				for elseByteStart > 0 && (file.Content[elseByteStart-1] == ' ' || file.Content[elseByteStart-1] == '\t' || file.Content[elseByteStart-1] == '\n' || file.Content[elseByteStart-1] == '\r') {
+					elseByteStart--
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   elseByteStart,
+					EndByte:     int(file.FlatEndByte(elseBody)),
+					Replacement: "",
+				}
+				ctx.Emit(f)
 			},
 		})
 	}

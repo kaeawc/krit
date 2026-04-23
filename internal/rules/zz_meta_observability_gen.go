@@ -17,7 +17,7 @@ func (r *LogLevelGuardMissingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d1f20e8c2716b5f",
+		SourceHash:    "365227c37945263c",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *LogWithoutCorrelationIdRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d1f20e8c2716b5f",
+		SourceHash:    "365227c37945263c",
 	}
 }
 
@@ -43,6 +43,6 @@ func (r *LoggerWithoutLoggerFieldRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1d1f20e8c2716b5f",
+		SourceHash:    "365227c37945263c",
 	}
 }

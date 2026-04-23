@@ -259,6 +259,8 @@ class DaemonSession(
 ) {
     // file path -> last analyzed mtime
     private val fileTimestamps = mutableMapOf<String, Long>()
+    // cross-request call-target memo; keyed by content hash + position + callee
+    val callTargetMemo = CallTargetMemo()
 
     companion object {
         fun build(args: ParsedArgs): DaemonSession {
@@ -310,7 +312,7 @@ class DaemonSession(
 
         for (ktFile in filesToAnalyze) {
             try {
-                analyzeKtFile(ktFile, files, deps, args.expressions, memo = memo, callFilter = callFilter, declarationProfile = args.declarationProfile)
+                analyzeKtFile(ktFile, files, deps, args.expressions, memo = memo, callFilter = callFilter, declarationProfile = args.declarationProfile, callTargetMemo = callTargetMemo)
             } catch (e: Exception) {
                 errors[ktFile.virtualFilePath] = e.message ?: "Analysis failed"
                 System.err.println("Error analyzing ${ktFile.virtualFilePath}: ${e.message}")
@@ -399,7 +401,7 @@ class DaemonSession(
         perf.track("kotlinDaemonAnalyzeFiles") {
             for (ktFile in filesToAnalyze) {
                 try {
-                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, callFilter, memo, declarationProfile)
+                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, callFilter, memo, declarationProfile, callTargetMemo)
                     if (ok) processed++ else skipped++
                 } catch (e: Exception) {
                     skipped++
@@ -435,7 +437,7 @@ class DaemonSession(
 
         for (ktFile in ktFiles) {
             try {
-                analyzeKtFile(ktFile, files, deps, args.expressions, memo = memo, callFilter = callFilter, declarationProfile = args.declarationProfile)
+                analyzeKtFile(ktFile, files, deps, args.expressions, memo = memo, callFilter = callFilter, declarationProfile = args.declarationProfile, callTargetMemo = callTargetMemo)
                 val fileOnDisk = File(ktFile.virtualFilePath)
                 if (fileOnDisk.exists()) {
                     fileTimestamps[ktFile.virtualFilePath] = fileOnDisk.lastModified()
@@ -737,6 +739,25 @@ data class LexicalCallSite(
     val imports: Set<String>,
     val discarded: Boolean
 )
+
+// Daemon-only in-memory memo for call-target resolution.
+// Spans requests within one JVM session; dies with the process.
+// Key includes file content hash so stale entries become unreachable
+// on content change without explicit eviction.
+data class CallTargetMemoKey(
+    val fileHash: Int,
+    val line: Int,
+    val col: Int,
+    val callee: String
+)
+
+class CallTargetMemo {
+    private val table = HashMap<CallTargetMemoKey, ExpressionResult>()
+
+    fun get(key: CallTargetMemoKey): ExpressionResult? = table[key]
+    fun put(key: CallTargetMemoKey, result: ExpressionResult) { table[key] = result }
+    fun size(): Int = table.size
+}
 
 data class CallFilter(
     val enabled: Boolean,
@@ -1835,7 +1856,8 @@ fun analyzeKtFile(
     perf: KotlinPerf? = null,
     callFilter: CallFilter? = null,
     memo: AnalysisMemo? = null,
-    declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full()
+    declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full(),
+    callTargetMemo: CallTargetMemo? = null
 ): Boolean {
     val path = ktFile.virtualFilePath
     val fileStart = System.nanoTime()
@@ -1981,6 +2003,9 @@ fun analyzeKtFile(
 
                     val callResolveStart = System.nanoTime()
                     val lexicalImports = ktFile.lexicalImportSet()
+                    // Stable hash over file content; stale memo entries for
+                    // changed content become unreachable (different hash).
+                    val fileContentHash = ktFile.text.hashCode()
                     for (expr in callExprs) {
                         // Per-expression try-catch: the FIR lazy resolver can
                         // crash while building the containing function's FIR
@@ -2039,6 +2064,20 @@ fun analyzeKtFile(
                             }
                             perf?.count("kotlinCallResolveAttempted")
                             recordCalleeAggregate = true
+
+                            // Daemon-only in-memory memo: skip resolveToCall()
+                            // for call sites whose result is already known from
+                            // a prior request in this JVM session (e.g. unchanged
+                            // call sites in a re-analyzed file after a single edit).
+                            val memoKey = if (callTargetMemo != null) CallTargetMemoKey(fileContentHash, line, col, callee) else null
+                            val memoHit = memoKey?.let { callTargetMemo.get(it) }
+                            if (memoHit != null) {
+                                perf?.count("kotlinCallResolveMemoHit")
+                                expressions[key] = memoHit
+                                status = "memo-hit"
+                                continue
+                            }
+                            if (memoKey != null) perf?.count("kotlinCallResolveMemoMiss")
 
                             // Primary: resolve against the symbol graph for a
                             // fully-qualified callable FQN. This is the only
@@ -2114,12 +2153,14 @@ fun analyzeKtFile(
                             // ExpressionResult shape for schema stability. The
                             // type/nullable fields had no production consumers;
                             // only callTarget and annotations are read downstream.
-                            expressions[key] = ExpressionResult(
+                            val result = ExpressionResult(
                                 type = "",
                                 nullable = false,
                                 callTarget = callTarget,
                                 annotations = callTargetAnnotations
                             )
+                            expressions[key] = result
+                            if (memoKey != null) callTargetMemo.put(memoKey, result)
                         } catch (_: Throwable) {
                             perf?.count("kotlinCallResolveException")
                             status = "exception"

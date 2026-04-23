@@ -362,11 +362,6 @@ var flowTypeNames = map[string]bool{
 	"MutableStateFlow": true, "MutableSharedFlow": true,
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Coroutines rule. Detection matches kotlinx.coroutines call shapes via
-// name lists and structural patterns; project wrappers can escape or
-// collide. Classified per roadmap/17.
-func (r *SuspendFunWithFlowReturnTypeRule) Confidence() float64 { return 0.75 }
-
 // CoroutineLaunchedInTestWithoutRunTestRule detects launch/async in @Test without runTest.
 type CoroutineLaunchedInTestWithoutRunTestRule struct {
 	FlatDispatchBase

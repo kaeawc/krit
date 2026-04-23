@@ -6243,7 +6243,7 @@ func registerAllRules() {
 		r := &SuspendFunWithFlowReturnTypeRule{BaseRule: BaseRule{RuleName: "SuspendFunWithFlowReturnType", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects suspend functions that return a Flow type, since Flow builders are cold and do not require suspend."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.85, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !hasSuspendModifierFlat(file, idx) {
@@ -9509,7 +9509,7 @@ func registerAllRules() {
 		r := &TooGenericExceptionCaughtRule{BaseRule: BaseRule{RuleName: "TooGenericExceptionCaught", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects catching overly generic exception types like Exception or Throwable."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"catch_block"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"catch_block"}, OriginalV1: r,
 			Needs: v2.NeedsResolver,
 			Check: r.checkNode,
 		})
@@ -10216,7 +10216,7 @@ func registerAllRules() {
 		r := &UnsafeCallOnNullableTypeRule{BaseRule: BaseRule{RuleName: "UnsafeCallOnNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects usage of the !! not-null assertion operator which may throw NullPointerException."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75,
+			NodeTypes: []string{"postfix_expression"}, Confidence: 0.85,
 			Needs: v2.NeedsResolver, OriginalV1: r,
 			Check: r.check,
 		})
@@ -10843,7 +10843,7 @@ func registerAllRules() {
 		r := &WrongEqualsTypeParameterRule{BaseRule: BaseRule{RuleName: "WrongEqualsTypeParameter", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects equals() with a parameter type other than Any?, which does not properly override the contract."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.85, OriginalV1: r,
 			Check: r.check,
 		})
 	}
@@ -10851,7 +10851,7 @@ func registerAllRules() {
 		r := &CharArrayToStringCallRule{BaseRule: BaseRule{RuleName: "CharArrayToStringCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects charArray.toString() calls that return the array's address instead of its content."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, OriginalV1: r,
 			Needs: v2.NeedsResolver,
 			Check: r.check,
 		})
@@ -10860,7 +10860,7 @@ func registerAllRules() {
 		r := &DontDowncastCollectionTypesRule{BaseRule: BaseRule{RuleName: "DontDowncastCollectionTypes", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects downcasting read-only collection types to mutable variants like 'as MutableList'."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"as_expression"}, OriginalV1: r,
 			Needs: v2.NeedsResolver,
 			Check: r.check,
 		})

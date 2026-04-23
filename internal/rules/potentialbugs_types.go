@@ -216,11 +216,6 @@ type WrongEqualsTypeParameterRule struct {
 	BaseRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Potential-bugs types rule. Detection pattern-matches type-related
-// constructs; resolver usage when available improves precision but
-// fallback is heuristic. Classified per roadmap/17.
-func (r *WrongEqualsTypeParameterRule) Confidence() float64 { return 0.75 }
-
 func (r *WrongEqualsTypeParameterRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
 	if !file.FlatHasModifier(idx, "override") {
@@ -291,11 +286,6 @@ type CharArrayToStringCallRule struct {
 	BaseRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence — flags
-// toString() on CharArray receivers; receiver type detection is
-// resolver-dependent. Classified per roadmap/17.
-func (r *CharArrayToStringCallRule) Confidence() float64 { return 0.75 }
-
 func (r *CharArrayToStringCallRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
 	if flatCallExpressionName(file, idx) != "toString" {
@@ -336,21 +326,23 @@ func (r *CharArrayToStringCallRule) check(ctx *v2.Context) {
 		resolved := ctx.Resolver.ResolveByNameFlat(simpleName, idx, file)
 		if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
 			if resolved.Name == "CharArray" || resolved.FQN == "kotlin.CharArray" {
-				r.emitCharArrayFinding(ctx, idx, file, receiver)
+				// Resolver confirmed CharArray type — high confidence.
+				r.emitCharArrayFinding(ctx, idx, file, receiver, 0.9)
 			}
 			return
 		}
 	}
-	// No resolver: heuristic fallback
+	// No resolver: heuristic fallback on variable name / declaration.
 	if charArrayReceiverFlat(file, receiver) {
-		r.emitCharArrayFinding(ctx, idx, file, receiver)
+		r.emitCharArrayFinding(ctx, idx, file, receiver, 0.8)
 	}
 }
 
-func (r *CharArrayToStringCallRule) emitCharArrayFinding(ctx *v2.Context, callIdx uint32, file *scanner.File, receiver uint32) {
+func (r *CharArrayToStringCallRule) emitCharArrayFinding(ctx *v2.Context, callIdx uint32, file *scanner.File, receiver uint32, confidence float64) {
 	receiverText := file.FlatNodeText(receiver)
 	f := r.Finding(file, file.FlatRow(callIdx)+1, file.FlatCol(callIdx)+1,
 		"Calling toString() on a CharArray does not return the string representation. Use String(charArray) instead.")
+	f.Confidence = confidence
 	f.Fix = &scanner.Fix{
 		ByteMode:    true,
 		StartByte:   int(file.FlatStartByte(callIdx)),
@@ -440,11 +432,6 @@ type DontDowncastCollectionTypesRule struct {
 }
 
 
-// Confidence reports a tier-2 (medium) base confidence — flags downcasts
-// like List -> MutableList; source type determination requires the
-// resolver. Classified per roadmap/17.
-func (r *DontDowncastCollectionTypesRule) Confidence() float64 { return 0.75 }
-
 var mutableCollectionToMethodMap = map[string]string{
 	"MutableList":         "toMutableList()",
 	"MutableSet":          "toMutableSet()",
@@ -513,6 +500,7 @@ func (r *DontDowncastCollectionTypesRule) check(ctx *v2.Context) {
 	}
 
 	// If KAA available: only emit when source is the corresponding immutable interface.
+	resolverConfirmed := false
 	if ctx.Resolver != nil && sourceIdx != 0 {
 		sourceType := ctx.Resolver.ResolveFlatNode(sourceIdx, file)
 		if sourceType.Kind != typeinfer.TypeUnknown {
@@ -544,11 +532,17 @@ func (r *DontDowncastCollectionTypesRule) check(ctx *v2.Context) {
 					}
 				}
 			}
+			resolverConfirmed = true
 		}
 	}
 
 	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 		fmt.Sprintf("Don't downcast collection type to '%s'. This can lead to unexpected mutations.", targetType))
+	if resolverConfirmed {
+		f.Confidence = 0.9
+	} else {
+		f.Confidence = 0.8
+	}
 
 	if sourceIdx != 0 {
 		expr := file.FlatNodeText(sourceIdx)

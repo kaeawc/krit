@@ -62,11 +62,6 @@ type TooGenericExceptionCaughtRule struct {
 	AllowedExceptionNameRegex *regexp.Regexp // exception var names matching this are allowed
 }
 
-// Confidence reports a tier-2 (medium) base confidence — matches on
-// exception-type names; with the resolver it can respect custom
-// hierarchies, without it flags by name only. Classified per roadmap/17.
-func (r *TooGenericExceptionCaughtRule) Confidence() float64 { return 0.75 }
-
 var genericCaughtTypes = []string{
 	"Exception", "Throwable", "Error", "RuntimeException",
 	"NullPointerException", "ArrayIndexOutOfBoundsException",
@@ -137,42 +132,50 @@ func (r *TooGenericExceptionCaughtRule) checkNode(ctx *v2.Context) {
 		exNames = genericCaughtTypes
 	}
 	if caughtType == "" {
-		// Fallback: scan node text for generic types
+		// Fallback: scan node text for generic types — name-only heuristic.
 		text := file.FlatNodeText(idx)
 		for _, t := range exNames {
 			if strings.Contains(text, ": "+t) || strings.Contains(text, ":"+t) {
-				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Caught too-generic exception type '%s'.", t)))
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					fmt.Sprintf("Caught too-generic exception type '%s'.", t))
+				f.Confidence = 0.8
+				ctx.Emit(f)
 				return
 			}
 		}
 		return
 	}
 
-	// Direct match against the configured list
+	// Direct match against the configured list — AST name match, no type resolution.
 	exSet := r.exceptionNameSet()
 	if exSet[caughtType] {
-		ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Caught too-generic exception type '%s'.", caughtType)))
+		f := r.Finding(file, file.FlatRow(idx)+1, 1,
+			fmt.Sprintf("Caught too-generic exception type '%s'.", caughtType))
+		f.Confidence = 0.8
+		ctx.Emit(f)
 		return
 	}
 
-	// With resolver, check if the caught type is a known subtype of a generic exception
+	// With resolver, check if the caught type is a known subtype of a generic exception.
 	if ctx.Resolver != nil {
 		for _, generic := range exNames {
 			if ctx.Resolver.IsExceptionSubtype(generic, caughtType) {
 				// generic IS-A caughtType means caughtType is more general
-				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Caught too-generic exception type '%s' (catches subtypes like '%s').", caughtType, generic)))
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					fmt.Sprintf("Caught too-generic exception type '%s' (catches subtypes like '%s').", caughtType, generic))
+				f.Confidence = 0.9
+				ctx.Emit(f)
 				return
 			}
 		}
 	} else {
-		// Fallback without resolver: use global table
+		// Fallback without resolver: use global subtype table — name-only.
 		for _, generic := range exNames {
 			if typeinfer.IsSubtypeOfException(generic, caughtType) {
-				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Caught too-generic exception type '%s' (catches subtypes like '%s').", caughtType, generic)))
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					fmt.Sprintf("Caught too-generic exception type '%s' (catches subtypes like '%s').", caughtType, generic))
+				f.Confidence = 0.8
+				ctx.Emit(f)
 				return
 			}
 		}

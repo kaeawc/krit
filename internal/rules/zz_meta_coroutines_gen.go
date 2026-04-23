@@ -17,7 +17,7 @@ func (r *ChannelReceiveWithoutCloseRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *CollectInOnCreateWithoutLifecycleRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *CollectionsSynchronizedListIterationRule) Meta() registry.RuleDescripto
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *ConcurrentModificationIterationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *CoroutineLaunchedInTestWithoutRunTestRule) Meta() registry.RuleDescript
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *CoroutineScopeCreatedButNeverCancelledRule) Meta() registry.RuleDescrip
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -95,7 +95,7 @@ func (r *DeferredAwaitInFinallyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *FlowWithoutFlowOnRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -121,7 +121,7 @@ func (r *GlobalCoroutineUsageRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -134,7 +134,7 @@ func (r *GlobalScopeLaunchInViewModelRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -147,7 +147,7 @@ func (r *InjectDispatcherRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "dispatcherNames",
@@ -171,7 +171,7 @@ func (r *LaunchWithoutCoroutineExceptionHandlerRule) Meta() registry.RuleDescrip
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -184,7 +184,7 @@ func (r *MainDispatcherInLibraryCodeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -197,7 +197,7 @@ func (r *MutableStateInObjectRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -210,7 +210,7 @@ func (r *RedundantSuspendModifierRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -223,7 +223,7 @@ func (r *SharedFlowWithoutReplayRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -236,7 +236,7 @@ func (r *SleepInsteadOfDelayRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -249,7 +249,7 @@ func (r *StateFlowCompareByReferenceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -262,7 +262,7 @@ func (r *StateFlowMutableLeakRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -275,7 +275,7 @@ func (r *SupervisorScopeInEventHandlerRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -288,7 +288,7 @@ func (r *SuspendFunInFinallySectionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -301,7 +301,7 @@ func (r *SuspendFunSwallowedCancellationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -314,7 +314,7 @@ func (r *SuspendFunWithCoroutineScopeReceiverRule) Meta() registry.RuleDescripto
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -327,7 +327,7 @@ func (r *SuspendFunWithFlowReturnTypeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -340,7 +340,7 @@ func (r *SynchronizedOnBoxedPrimitiveRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -353,7 +353,7 @@ func (r *SynchronizedOnNonFinalRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -366,7 +366,7 @@ func (r *SynchronizedOnStringRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -379,7 +379,7 @@ func (r *VolatileMissingOnDclRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }
 
@@ -392,6 +392,6 @@ func (r *WithContextInSuspendFunctionNoopRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "10e1f2a14e4d81c5",
+		SourceHash:    "c10aaa51562ab07d",
 	}
 }

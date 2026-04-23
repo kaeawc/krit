@@ -16,4 +16,10 @@ class DontDowncastCollectionTypes {
         val mutable = list as MutableList<String>
         mutable.add("new")
     }
+
+    fun suppressedValStatement(list: List<String>) {
+        @Suppress("UNCHECKED_CAST")
+        val mutable = list as MutableList<String>
+        mutable.add("new")
+    }
 }

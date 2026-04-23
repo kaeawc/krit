@@ -1551,19 +1551,16 @@ func registerAllRules() {
 				if firstArg == 0 {
 					return
 				}
-				for expr := file.FlatFirstChild(firstArg); expr != 0; expr = file.FlatNextSib(expr) {
-					if !file.FlatIsNamed(expr) {
-						continue
-					}
-					t := file.FlatType(expr)
-					if t != "line_string_literal" && t != "string_literal" {
-						return
-					}
-					argText := file.FlatNodeText(expr)
-					if strings.Contains(argText, "/") && !strings.Contains(argText, "$") {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Use '$' instead of '/' as inner class separator in class names.")
-					}
+				expr := flatValueArgumentExpression(file, firstArg)
+				if expr == 0 || file.FlatType(expr) != "string_literal" {
 					return
+				}
+				if flatContainsStringInterpolation(file, expr) {
+					return
+				}
+				content := stringLiteralContent(file, expr)
+				if strings.Contains(content, "/") && !strings.Contains(content, "$") {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Use '$' instead of '/' as inner class separator in class names.")
 				}
 			},
 		})
@@ -4503,24 +4500,50 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"as_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				matches := serviceCastRe.FindStringSubmatch(text)
-				if matches == nil {
+				// First named child is the source expression; we want
+				// `getSystemService(...)` calls only.
+				call := file.FlatFirstChild(idx)
+				for call != 0 && !file.FlatIsNamed(call) {
+					call = file.FlatNextSib(call)
+				}
+				if call == 0 || file.FlatType(call) != "call_expression" {
 					return
 				}
-				svcConst := matches[1]
-				castType := matches[2]
+				if flatCallExpressionName(file, call) != "getSystemService" {
+					return
+				}
+				// Pull the service constant's final identifier. Accepts both
+				// `CONNECTIVITY_SERVICE` (simple_identifier) and
+				// `Context.CONNECTIVITY_SERVICE` (navigation_expression).
+				args := flatCallKeyArguments(file, call)
+				firstArg := flatPositionalValueArgument(file, args, 0)
+				expr := flatValueArgumentExpression(file, firstArg)
+				svcConst := ""
+				switch file.FlatType(expr) {
+				case "simple_identifier":
+					svcConst = file.FlatNodeText(expr)
+				case "navigation_expression":
+					svcConst = flatNavigationExpressionLastIdentifier(file, expr)
+				}
 				expectedType, ok := serviceCastMap[svcConst]
 				if !ok {
 					return
 				}
-				if castType != expectedType {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Service cast mismatch: "+svcConst+" should be cast to "+expectedType+", not "+castType+".")
+				// Target type of the cast — last type_identifier of user_type.
+				castType := ""
+				if userType, ok := file.FlatFindChild(idx, "user_type"); ok {
+					if ident := flatLastChildOfType(file, userType, "type_identifier"); ident != 0 {
+						castType = file.FlatNodeText(ident)
+					}
 				}
+				if castType == "" || castType == expectedType {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"Service cast mismatch: "+svcConst+" should be cast to "+expectedType+", not "+castType+".")
 			},
 		})
 	}

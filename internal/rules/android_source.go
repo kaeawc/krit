@@ -312,8 +312,6 @@ var serviceCastMap = map[string]string{
 	"WINDOW_SERVICE":          "WindowManager",
 }
 
-var serviceCastRe = regexp.MustCompile(`getSystemService\s*\(\s*(?:\w+\.)?(\w+_SERVICE)\s*\)\s*(?:as\s+(\w+))`)
-
 // =====================================================================
 // 9. ToastRule (ShowToast)
 // =====================================================================

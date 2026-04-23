@@ -1245,17 +1245,21 @@ type ResourceAsColorRule struct {
 // Classified per roadmap/17.
 func (r *ResourceAsColorRule) Confidence() float64 { return 0.75 }
 
-type SupportAnnotationUsageRule struct {
-	FlatDispatchBase
-	AndroidRule
-}
-
+// ioCallNames is the set of known IO/network type and method names whose
+// presence in a @MainThread function indicates a likely thread violation.
 var ioCallNames = map[string]bool{
 	"HttpURLConnection": true, "OkHttpClient": true,
 	"FileInputStream": true, "FileOutputStream": true,
-	"Socket": true, "URL": true, "URLConnection": true,
-	"BufferedReader": true, "InputStreamReader": true,
-	"OutputStreamWriter": true, "DataInputStream": true,
+	"BufferedReader": true, "BufferedWriter": true,
+	"URLConnection": true, "HttpClient": true,
+	"Retrofit": true, "FileReader": true, "FileWriter": true,
+	"RandomAccessFile": true, "openConnection": true,
+	"Socket": true, "ServerSocket": true, "DatagramSocket": true,
+}
+
+type SupportAnnotationUsageRule struct {
+	FlatDispatchBase
+	AndroidRule
 }
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
@@ -1668,18 +1672,22 @@ var knownLintIssueIDs = map[string]bool{"NewApi": true, "InlinedApi": true, "Ove
 // Classified per roadmap/17.
 func (r *LocalSuppressRule) Confidence() float64 { return 0.75 }
 
-type PluralsCandidateRule struct {
-	FlatDispatchBase
-	AndroidRule
-}
-
+// pluralsCountNames is the set of identifiers whose presence as a when-subject
+// suggests manual pluralization.
 var pluralsCountNames = map[string]bool{
 	"count": true, "num": true, "size": true,
 	"quantity": true, "amount": true, "number": true,
 }
+
+// pluralsStringCalls is the set of call names that suggest string-resource usage.
 var pluralsStringCalls = map[string]bool{
 	"getString": true, "getQuantityString": true, "format": true,
 	"getText": true, "getResources": true,
+}
+
+type PluralsCandidateRule struct {
+	FlatDispatchBase
+	AndroidRule
 }
 
 // Confidence reports a tier-2 (medium) base confidence. This is an

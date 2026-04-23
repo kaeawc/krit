@@ -263,8 +263,7 @@ func buildMagicNumberAncestorContext(file *scanner.File, idx uint32) *magicNumbe
 					ctx.nearestCallName = name
 				}
 			}
-			text := file.FlatNodeText(p)
-			if strings.Contains(text, "TimeUnit.") || strings.Contains(text, "Duration.") {
+			if callExpressionHasQualifiedArg(file, p, "TimeUnit") || callExpressionHasQualifiedArg(file, p, "Duration") {
 				ctx.anyTimeUnitCall = true
 			}
 		case "function_declaration", "class_declaration":
@@ -370,14 +369,21 @@ func isHttpStatusExceptionArg(file *scanner.File, idx uint32) bool {
 			if callee == "" {
 				return false
 			}
-			if idx := strings.LastIndex(callee, "."); idx >= 0 {
-				callee = callee[idx+1:]
+			if dot := strings.LastIndex(callee, "."); dot >= 0 {
+				callee = callee[dot+1:]
 			}
 			return strings.HasSuffix(callee, "Exception") || strings.HasSuffix(callee, "Error")
 		}
 		if file.FlatType(p) == "constructor_invocation" || file.FlatType(p) == "delegation_specifier" {
-			text := file.FlatNodeText(p)
-			return strings.Contains(text, "Exception(") || strings.Contains(text, "Error(")
+			// Get the type reference (first named child) and check its name suffix.
+			for child := file.FlatFirstChild(p); child != 0; child = file.FlatNextSib(child) {
+				if !file.FlatIsNamed(child) {
+					continue
+				}
+				name := file.FlatNodeText(child)
+				return strings.HasSuffix(name, "Exception") || strings.HasSuffix(name, "Error")
+			}
+			return false
 		}
 		if file.FlatType(p) == "function_declaration" {
 			return false
@@ -412,17 +418,40 @@ var jvmBuilderMethods = map[string]bool{
 // literal argument in a call_expression whose argument list contains a
 // TimeUnit.X reference — the pair makes the value self-documenting.
 func isDurationLiteralWithTimeUnit(file *scanner.File, idx uint32) bool {
-	// Walk up to find the enclosing call_expression.
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		if file.FlatType(p) == "call_expression" {
-			text := file.FlatNodeText(p)
-			if strings.Contains(text, "TimeUnit.") || strings.Contains(text, "Duration.") {
-				return true
-			}
-			return false
+			return callExpressionHasQualifiedArg(file, p, "TimeUnit") ||
+				callExpressionHasQualifiedArg(file, p, "Duration")
 		}
 		if file.FlatType(p) == "function_declaration" || file.FlatType(p) == "class_declaration" {
 			return false
+		}
+	}
+	return false
+}
+
+// callExpressionHasQualifiedArg returns true if any value_argument of the
+// call_expression at idx is a navigation_expression whose first identifier
+// matches qualifier (e.g. "TimeUnit", "Duration").
+func callExpressionHasQualifiedArg(file *scanner.File, callIdx uint32, qualifier string) bool {
+	args, ok := file.FlatFindChild(callIdx, "value_arguments")
+	if !ok {
+		return false
+	}
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		for expr := file.FlatFirstChild(arg); expr != 0; expr = file.FlatNextSib(expr) {
+			if !file.FlatIsNamed(expr) {
+				continue
+			}
+			if file.FlatType(expr) == "navigation_expression" {
+				first := file.FlatFirstChild(expr)
+				if first != 0 && file.FlatNodeText(first) == qualifier {
+					return true
+				}
+			}
 		}
 	}
 	return false

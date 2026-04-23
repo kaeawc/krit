@@ -163,11 +163,6 @@ type WrongThreadRule struct {
 	AndroidRule
 }
 
-var wrongThreadUIMethods = map[string]bool{
-	"setText": true, "setImageResource": true, "setVisibility": true,
-	"addView": true, "removeView": true, "invalidate": true,
-}
-
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
 // patterns (call names, string literal contents, hardcoded allow-

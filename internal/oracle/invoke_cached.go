@@ -903,9 +903,23 @@ func runMissAnalysis(
 		// KRIT_TYPES_SHARDS is an explicit one-shot JVM experiment: bypass
 		// the daemon so the miss list is actually processed by multiple
 		// independent Analysis API workers.
+		//
+		// Apply adaptive JVM resource policy: cap each shard's processor count
+		// to avoid saturating all cores across concurrent JVM workers. Env
+		// overrides (KRIT_TYPES_EXTRA_JVM_ARGS) are appended after policy args
+		// so benchmarks can supersede the computed cap.
+		shardArgs := adaptiveShardJVMArgs(shards, opts)
+		addOracleInstant(tracker, "adaptiveShardJVMArgs", map[string]int64{
+			"shards":              int64(shards),
+			"activeProcessorCount": int64(activeProcessorCountForKritTypesShard(shards)),
+			"argCount":            int64(len(shardArgs)),
+		}, map[string]string{
+			"jvmArgs": strings.Join(shardArgs, " "),
+		})
 		runner := func(jarPath string, sourceDirs []string, missListPath, freshOutPath, depsOutPath string, verbose bool, tracker perf.Tracker) error {
 			shardOpts := opts
 			shardOpts.Tracker = tracker
+			shardOpts.ExtraJVMArgs = shardArgs
 			return runKritTypesCached(jarPath, sourceDirs, missListPath, freshOutPath, depsOutPath, verbose, tracker, shardOpts)
 		}
 		fresh, deps, err := runKritTypesCachedShardedWithRunner(jarPath, sourceDirs, misses, shards, verbose, tracker, runner)

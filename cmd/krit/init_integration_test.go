@@ -111,19 +111,18 @@ func TestQuestionnaireViewRendersFixture(t *testing.T) {
 	m.selected = "balanced"
 	// Seed a fake scan result so the live total line renders.
 	m.scans["balanced"] = &onboarding.ScanResult{Total: 42, ByRule: map[string]int{}}
-	m.startQuestionnaire()
+
+	qm := newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
 	// Fixtures are loaded asynchronously; execute the Cmd inline for tests.
 	cmd := loadFixturesCmd(m.registry.Questions, m.opts.RepoRoot)
-	msg := cmd().(fixturesLoadedMsg)
-	for k, v := range msg.cache {
-		m.fixtureCache[k] = v
-	}
-	m.syncFixtureViewport()
+	loaded, _ := qm.Update(cmd().(fixturesLoadedMsg))
+	qm = loaded.(questionnaireModel)
+	m.phase = qm
 
-	if m.phase != phaseQuestionnaire {
-		t.Fatalf("phase = %v, want questionnaire", m.phase)
+	if _, ok := m.phase.(questionnaireModel); !ok {
+		t.Fatalf("phase = %T, want questionnaireModel", m.phase)
 	}
-	if len(m.fixtureCache) == 0 {
+	if len(m.phase.(questionnaireModel).fixtureCache) == 0 {
 		t.Fatal("fixture cache was not populated")
 	}
 
@@ -162,29 +161,33 @@ func TestQuestionnaireViewToggleNegative(t *testing.T) {
 	m.height = 40
 	m.selected = "balanced"
 	m.scans["balanced"] = &onboarding.ScanResult{Total: 42, ByRule: map[string]int{}}
-	m.startQuestionnaire()
+
+	qm := newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+	m.phase = qm
 
 	// Advance past parent questions until we're on a rule question
 	// with a real fixture.
-	for i := 0; i < len(m.visibleQs); i++ {
-		q := &reg.Questions[m.visibleQs[i]]
+	for i := 0; i < len(qm.visibleQs); i++ {
+		q := &reg.Questions[qm.visibleQs[i]]
 		if q.PositiveFixture != nil {
-			m.qIdx = i
+			qm.qIdx = i
 			break
 		}
 	}
 
-	q := &reg.Questions[m.visibleQs[m.qIdx]]
+	q := &reg.Questions[qm.visibleQs[qm.qIdx]]
 	if q.PositiveFixture == nil {
 		t.Skip("no rule question with positive fixture found in registry")
 	}
 
 	// Yes → rule active → should show diff.
-	m.qCursor = 0
+	qm.qCursor = 0
+	m.phase = qm
 	yesView := m.View()
 
 	// No → rule inactive → should show "rule disabled".
-	m.qCursor = 1
+	qm.qCursor = 1
+	m.phase = qm
 	noView := m.View()
 
 	if yesView == noView {
@@ -229,22 +232,24 @@ func TestExplorerPhasePopulatesAndToggles(t *testing.T) {
 		Total:  10,
 		ByRule: map[string]int{"MagicNumber": 10},
 	}
-	m.startExplorer()
 
-	if m.phase != phaseExplorer {
-		t.Fatalf("phase = %v, want explorer", m.phase)
+	em := newExplorerModel(m.selected, m.scans, m.opts.RepoRoot, m.width, m.height)
+	m.phase = em
+
+	if _, ok := m.phase.(explorerModel); !ok {
+		t.Fatalf("phase = %T, want explorerModel", m.phase)
 	}
-	if len(m.ruleItems) == 0 {
+	if len(em.ruleItems) == 0 {
 		t.Fatal("ruleItems not populated from registry")
 	}
 	// MagicNumber should be in the list and live-counted.
 	found := false
-	for i, item := range m.ruleItems {
+	for i, item := range em.ruleItems {
 		if item.name == "MagicNumber" {
 			if item.count != 10 {
 				t.Errorf("MagicNumber count = %d, want 10", item.count)
 			}
-			m.explorerCursor = i
+			em.explorerCursor = i
 			found = true
 			break
 		}
@@ -252,20 +257,22 @@ func TestExplorerPhasePopulatesAndToggles(t *testing.T) {
 	if !found {
 		t.Fatal("MagicNumber not found in ruleItems")
 	}
+	m.phase = em
 
 	// Initial live total matches the scan total (no toggles yet).
-	if m.liveTotal != 10 {
-		t.Errorf("liveTotal = %d, want 10", m.liveTotal)
+	if em.liveTotal != 10 {
+		t.Errorf("liveTotal = %d, want 10", em.liveTotal)
 	}
 
 	// Simulate pressing space to toggle MagicNumber off.
-	mInterface, _ := m.updateExplorer(tea.KeyMsg{Type: tea.KeySpace})
-	m2 := mInterface.(initModel)
-	if m2.ruleActive["MagicNumber"] != false {
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	mAfter := next.(initModel)
+	emAfter := mAfter.phase.(explorerModel)
+	if emAfter.ruleActive["MagicNumber"] != false {
 		t.Error("expected MagicNumber to be toggled off after space")
 	}
-	if m2.liveTotal != 0 {
-		t.Errorf("liveTotal after toggle = %d, want 0 (10 - 10)", m2.liveTotal)
+	if emAfter.liveTotal != 0 {
+		t.Errorf("liveTotal after toggle = %d, want 0 (10 - 10)", emAfter.liveTotal)
 	}
 }
 

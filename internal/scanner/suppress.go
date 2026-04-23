@@ -407,13 +407,14 @@ func flatProcessFileAnnotation(tree *FlatTree, idx uint32, content []byte, out *
 		return
 	}
 	rules := extractSuppressedRules(string(textBytes))
-	target := idx
-	for parent := tree.Nodes[target].Parent; parent != 0; parent = tree.Nodes[target].Parent {
-		target = parent
-	}
+	// file_annotation is a direct child of source_file (the root, always at
+	// index 0 in the FlatTree).  We want to suppress the whole file, so we
+	// use the root node's range directly instead of walking parents (the
+	// root's Parent field is also 0, making walk-until-parent==0 ambiguous).
+	var root uint32 = 0
 	out.suppressions = append(out.suppressions, Suppression{
-		StartByte: int(tree.Nodes[target].StartByte),
-		EndByte:   int(tree.Nodes[target].EndByte),
+		StartByte: int(tree.Nodes[root].StartByte),
+		EndByte:   int(tree.Nodes[root].EndByte),
 		Rules:     rules,
 	})
 }

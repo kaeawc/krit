@@ -626,8 +626,10 @@ func (r *UnsafeCallOnNullableTypeRule) Confidence() float64 { return 0.75 }
 
 func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
-	text := file.FlatNodeText(idx)
-	if !strings.HasSuffix(text, "!!") {
+
+	// Gate on the !! operator child — avoids false positives from string
+	// literals like "use !! to force" that contain the text but aren't the operator.
+	if !flatPostfixHasBangBang(file, idx) {
 		return
 	}
 
@@ -651,6 +653,11 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	if isInsidePreviewOrSampleFunctionFlat(file, idx) {
 		return
 	}
+
+	// Derive receiver from the first named child of the postfix_expression.
+	receiverIdx := flatFirstNamedChild(file, idx)
+	receiverText := file.FlatNodeText(receiverIdx)
+
 	// Skip proto-processor files: any Kotlin file importing Wire /
 	// com.google.protobuf / Signal's generated proto packages is treated
 	// as a "proto processor". Wire-generated fields are all nullable by
@@ -658,7 +665,7 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	// Skip only pure dotted field-chain receivers (2+ segments, no
 	// parentheses), preserving checks on single-identifier locals and
 	// method-call chains.
-	if fileImportsProto(file) && isDottedFieldChain(strings.TrimSuffix(text, "!!")) {
+	if fileImportsProto(file) && isDottedFieldChain(receiverText) {
 		return
 	}
 	// Skip idiomatic Android patterns where !! is the canonical way to
@@ -666,7 +673,7 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	//   - Bundle.getX(...)!!, requireArguments().getX()!!
 	//   - Parcel.readX()!! in Parcelable constructors
 	//   - Intent.getX(...)!! / Intent.extras!!
-	receiverText := strings.TrimSuffix(text, "!!")
+	//
 	// De-dup with MapGetWithNotNullAssertionOperator: map[key]!! / foo.get(k)!!
 	// is the sibling rule's concern.
 	if strings.HasSuffix(receiverText, "]") {
@@ -688,10 +695,6 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	// safe-call chain) is proven non-null by an enclosing `if (x != null)`
 	// or `if (x?.y != null)` branch, the `!!` is a smart-cast workaround
 	// rather than an unsafe assertion.
-	receiverIdx := uint32(0)
-	if file.FlatChildCount(idx) >= 1 {
-		receiverIdx = file.FlatChild(idx, 0)
-	}
 	if isGuardedNonNullFlat(file, idx, receiverIdx) {
 		return
 	}
@@ -717,8 +720,8 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 
 	// If resolver is available, check if the receiver is known non-null.
 	// If so, suppress the finding — it's not actually unsafe.
-	if ctx.Resolver != nil && file.FlatChildCount(idx) >= 1 {
-		isNull := ctx.Resolver.IsNullableFlat(file.FlatChild(idx, 0), file)
+	if ctx.Resolver != nil && receiverIdx != 0 {
+		isNull := ctx.Resolver.IsNullableFlat(receiverIdx, file)
 		if isNull != nil && !*isNull {
 			return // receiver is known non-null, !! is safe
 		}

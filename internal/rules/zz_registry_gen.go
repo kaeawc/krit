@@ -3601,7 +3601,10 @@ func registerAllRules() {
 			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, OriginalV1: r,
 			Oracle:            &v2.OracleFilter{Identifiers: []string{"addJavascriptInterface"}},
 			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"addJavascriptInterface"}},
-			Check:             r.check,
+			// Traverses the class hierarchy to confirm the receiver is a WebView subtype;
+			// only ClassShell+Supertypes needed, no member inspection.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
+			Check:                  r.check,
 		})
 	}
 	{
@@ -3647,7 +3650,14 @@ func registerAllRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 7,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: r.Confidence(), OriginalV1: r,
+			// Traverses the class hierarchy to confirm the receiver is a Context subtype;
+			// only ClassShell+Supertypes needed, no member inspection.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
+			Check:                  r.check,
+		})
 	}
 	{
 		r := &SecureRandomRule{AndroidRule: AndroidRule{

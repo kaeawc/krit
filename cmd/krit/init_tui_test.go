@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/muesli/reflow/wordwrap"
@@ -46,6 +47,72 @@ func newTestModel(t *testing.T) initModel {
 				{File: "/src/Baz.kt", Line: 7, Message: "Unsafe call on nullable receiver"},
 			},
 		},
+	}
+	return m
+}
+
+// startQM sets the questionnaire phase on m and returns the questionnaireModel.
+func startQM(m *initModel) questionnaireModel {
+	qm := newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+	m.phase = qm
+	return qm
+}
+
+// startEM sets the explorer phase on m and returns the explorerModel.
+func startEM(m *initModel) explorerModel {
+	em := newExplorerModel(m.selected, m.scans, m.opts.RepoRoot, m.width, m.height)
+	m.phase = em
+	return em
+}
+
+// startTM loads thresholds synchronously, sets phase, and returns thresholdsModel.
+func startTM(m *initModel) thresholdsModel {
+	tm := newThresholdsModel(m.selected, m.opts.RepoRoot, false)
+	loaded, _ := tm.Update(tm.Init()())
+	lm := loaded.(thresholdsModel)
+	m.phase = lm
+	return lm
+}
+
+// getQM extracts questionnaireModel from phase, failing if wrong type.
+func getQM(t *testing.T, m initModel) questionnaireModel {
+	t.Helper()
+	qm, ok := m.phase.(questionnaireModel)
+	if !ok {
+		t.Fatalf("expected questionnaireModel phase, got %T", m.phase)
+	}
+	return qm
+}
+
+// getEM extracts explorerModel from phase, failing if wrong type.
+func getEM(t *testing.T, m initModel) explorerModel {
+	t.Helper()
+	em, ok := m.phase.(explorerModel)
+	if !ok {
+		t.Fatalf("expected explorerModel phase, got %T", m.phase)
+	}
+	return em
+}
+
+// getTM extracts thresholdsModel from phase, failing if wrong type.
+func getTM(t *testing.T, m initModel) thresholdsModel {
+	t.Helper()
+	tm, ok := m.phase.(thresholdsModel)
+	if !ok {
+		t.Fatalf("expected thresholdsModel phase, got %T", m.phase)
+	}
+	return tm
+}
+
+// drainUpdate runs Update with msg and drains one returned Cmd level.
+func drainUpdate(m initModel, msg tea.Msg) initModel {
+	next, cmd := m.Update(msg)
+	m = next.(initModel)
+	if cmd != nil {
+		if inner := cmd(); inner != nil {
+			next, _ = m.Update(inner)
+			m = next.(initModel)
+		}
 	}
 	return m
 }
@@ -98,7 +165,7 @@ func pressNamedKeyDrain(m initModel, t tea.KeyType) initModel {
 
 func TestApplyAnswerInversionDisables(t *testing.T) {
 	m := newTestModel(t)
-	m.startQuestionnaire()
+	qm := startQM(&m)
 
 	// Find allow-bang-operator (should be cascaded out of visibleQs
 	// because strict-null-safety is its parent, but we can still call
@@ -114,25 +181,25 @@ func TestApplyAnswerInversionDisables(t *testing.T) {
 		t.Fatal("allow-bang-operator missing from registry")
 	}
 
-	initial := m.liveTotal
-	m.applyAnswer(q, true) // "yes, allow !!"
+	initial := qm.liveTotal
+	updated := qm.applyAnswer(q, true) // "yes, allow !!"
 
 	// The two rules in allow-bang-operator should subtract their
 	// counts from liveTotal since they're being disabled.
 	expectedDelta := m.scans["balanced"].ByRule["UnsafeCallOnNullableType"] +
 		m.scans["balanced"].ByRule["MapGetWithNotNullAssertionOperator"]
-	if initial-m.liveTotal != expectedDelta {
-		t.Errorf("expected liveTotal delta %d, got %d", expectedDelta, initial-m.liveTotal)
+	if initial-updated.liveTotal != expectedDelta {
+		t.Errorf("expected liveTotal delta %d, got %d", expectedDelta, initial-updated.liveTotal)
 	}
 
-	if len(m.answers) == 0 || m.answers[len(m.answers)-1].QuestionID != "allow-bang-operator" {
+	if len(updated.answers) == 0 || updated.answers[len(updated.answers)-1].QuestionID != "allow-bang-operator" {
 		t.Error("applyAnswer did not append the answer")
 	}
 }
 
 func TestApplyAnswerCascadeStrictYes(t *testing.T) {
 	m := newTestModel(t)
-	m.startQuestionnaire()
+	qm := newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
 
 	// Find enforce-compose-stability parent (cascades to 3 children).
 	var parent *onboarding.Question
@@ -149,18 +216,18 @@ func TestApplyAnswerCascadeStrictYes(t *testing.T) {
 		t.Fatal("enforce-compose-stability has no cascades")
 	}
 
-	before := len(m.answers)
-	m.applyAnswer(parent, true) // yes → cascades to children with strict defaults
+	before := len(qm.answers)
+	updated := qm.applyAnswer(parent, true) // yes → cascades to children with strict defaults
 
 	// We should have parent + all children in answers now.
-	got := len(m.answers) - before
+	got := len(updated.answers) - before
 	expected := 1 + len(parent.CascadesTo)
 	if got != expected {
 		t.Errorf("applyAnswer should have added %d answers, got %d", expected, got)
 	}
 
 	// Every cascaded child should be marked Cascaded:true with Parent set.
-	for _, a := range m.answers[before+1:] {
+	for _, a := range updated.answers[before+1:] {
 		if !a.Cascaded {
 			t.Errorf("child %s not marked Cascaded", a.QuestionID)
 		}
@@ -172,7 +239,7 @@ func TestApplyAnswerCascadeStrictYes(t *testing.T) {
 
 func TestApplyAnswerCascadeRelaxedBucket(t *testing.T) {
 	m := newTestModel(t)
-	m.startQuestionnaire()
+	qm := newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
 
 	var parent *onboarding.Question
 	for i := range m.registry.Questions {
@@ -185,10 +252,10 @@ func TestApplyAnswerCascadeRelaxedBucket(t *testing.T) {
 		t.Fatal("enforce-compose-stability missing")
 	}
 
-	before := len(m.answers)
-	m.applyAnswer(parent, false) // no → cascades to children with relaxed defaults
+	before := len(qm.answers)
+	updated := qm.applyAnswer(parent, false) // no → cascades to children with relaxed defaults
 
-	childAnswers := m.answers[before+1:]
+	childAnswers := updated.answers[before+1:]
 	// For enforce-compose-stability, every child has relaxed:false,
 	// so derived value should be false for all of them.
 	for _, a := range childAnswers {
@@ -202,63 +269,70 @@ func TestApplyAnswerCascadeRelaxedBucket(t *testing.T) {
 
 func TestUpdatePickerNavigation(t *testing.T) {
 	m := newTestModel(t)
-	m.phase = phasePicker
+	pm := newPickerModel(onboarding.ProfileNames, m.scans, 0, make(map[string]time.Duration), m.width)
+	m.phase = pm
 
 	// Down twice → index 2
 	m = pressKey(m, "j")
 	m = pressKey(m, "j")
-	if m.picker.cursor != 2 {
-		t.Errorf("picker.cursor = %d, want 2", m.picker.cursor)
+	if m.phase.(pickerModel).cursor != 2 {
+		t.Errorf("picker.cursor = %d, want 2", m.phase.(pickerModel).cursor)
 	}
 
 	// Up once → index 1
 	m = pressKey(m, "k")
-	if m.picker.cursor != 1 {
-		t.Errorf("picker.cursor = %d, want 1", m.picker.cursor)
+	if m.phase.(pickerModel).cursor != 1 {
+		t.Errorf("picker.cursor = %d, want 1", m.phase.(pickerModel).cursor)
 	}
 
 	// Can't go above 0.
-	m.picker.cursor = 0
+	pm2 := m.phase.(pickerModel)
+	pm2.cursor = 0
+	m.phase = pm2
 	m = pressKey(m, "k")
-	if m.picker.cursor != 0 {
-		t.Errorf("picker.cursor = %d, want 0 (clamped)", m.picker.cursor)
+	if m.phase.(pickerModel).cursor != 0 {
+		t.Errorf("picker.cursor = %d, want 0 (clamped)", m.phase.(pickerModel).cursor)
 	}
 
 	// Can't go below last profile.
-	m.picker.cursor = len(m.profiles) - 1
+	pm3 := m.phase.(pickerModel)
+	pm3.cursor = len(onboarding.ProfileNames) - 1
+	m.phase = pm3
 	m = pressKey(m, "j")
-	if m.picker.cursor != len(m.profiles)-1 {
-		t.Errorf("picker.cursor = %d, want %d (clamped)", m.picker.cursor, len(m.profiles)-1)
+	if m.phase.(pickerModel).cursor != len(onboarding.ProfileNames)-1 {
+		t.Errorf("picker.cursor = %d, want %d (clamped)", m.phase.(pickerModel).cursor, len(onboarding.ProfileNames)-1)
 	}
 }
 
 func TestUpdatePickerEnterToQuestionnaire(t *testing.T) {
 	m := newTestModel(t)
-	m.phase = phasePicker
-	m.picker.cursor = 1 // balanced
+	pm := newPickerModel(onboarding.ProfileNames, m.scans, 0, make(map[string]time.Duration), m.width)
+	pm.cursor = 1 // balanced
+	m.phase = pm
 
 	m = pressNamedKeyDrain(m, tea.KeyEnter)
-	if m.phase != phaseQuestionnaire {
-		t.Errorf("phase after enter = %v, want questionnaire", m.phase)
+	if _, ok := m.phase.(questionnaireModel); !ok {
+		t.Errorf("phase after enter = %T, want questionnaireModel", m.phase)
 	}
-	if m.selected != m.profiles[1] {
-		t.Errorf("selected = %q, want %q", m.selected, m.profiles[1])
+	if m.selected != onboarding.ProfileNames[1] {
+		t.Errorf("selected = %q, want %q", m.selected, onboarding.ProfileNames[1])
 	}
 }
 
 func TestUpdatePickerBrowseToExplorer(t *testing.T) {
 	m := newTestModel(t)
-	m.phase = phasePicker
-	m.picker.cursor = 1
+	pm := newPickerModel(onboarding.ProfileNames, m.scans, 0, make(map[string]time.Duration), m.width)
+	pm.cursor = 1
+	m.phase = pm
 
 	m = pressKeyDrain(m, "b")
-	if m.phase != phaseExplorer {
-		t.Errorf("phase after 'b' = %v, want explorer", m.phase)
+	if _, ok := m.phase.(explorerModel); !ok {
+		t.Errorf("phase after 'b' = %T, want explorerModel", m.phase)
 	}
-	if m.selected != m.profiles[1] {
-		t.Errorf("selected = %q, want %q", m.selected, m.profiles[1])
+	if m.selected != onboarding.ProfileNames[1] {
+		t.Errorf("selected = %q, want %q", m.selected, onboarding.ProfileNames[1])
 	}
-	if len(m.ruleItems) == 0 {
+	if len(m.phase.(explorerModel).ruleItems) == 0 {
 		t.Error("ruleItems not populated after transitioning to explorer")
 	}
 }
@@ -267,70 +341,73 @@ func TestUpdatePickerBrowseToExplorer(t *testing.T) {
 
 func TestUpdateQuestionnaireToggleYesNo(t *testing.T) {
 	m := newTestModel(t)
-	m.startQuestionnaire()
-	if m.phase != phaseQuestionnaire {
-		t.Fatalf("startQuestionnaire did not enter phase: %v", m.phase)
+	m.phase = newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+	if _, ok := m.phase.(questionnaireModel); !ok {
+		t.Fatalf("expected questionnaireModel phase: %T", m.phase)
 	}
 
 	// Press 'n' to move cursor to No.
 	m = pressKey(m, "n")
-	if m.qCursor != 1 {
-		t.Errorf("after 'n', qCursor = %d, want 1", m.qCursor)
+	if getQM(t, m).qCursor != 1 {
+		t.Errorf("after 'n', qCursor = %d, want 1", getQM(t, m).qCursor)
 	}
 
 	// Press 'y' to move back to Yes.
 	m = pressKey(m, "y")
-	if m.qCursor != 0 {
-		t.Errorf("after 'y', qCursor = %d, want 0", m.qCursor)
+	if getQM(t, m).qCursor != 0 {
+		t.Errorf("after 'y', qCursor = %d, want 0", getQM(t, m).qCursor)
 	}
 
 	// left / right arrows.
 	m = pressNamedKey(m, tea.KeyRight)
-	if m.qCursor != 1 {
-		t.Errorf("after right, qCursor = %d, want 1", m.qCursor)
+	if getQM(t, m).qCursor != 1 {
+		t.Errorf("after right, qCursor = %d, want 1", getQM(t, m).qCursor)
 	}
 	m = pressNamedKey(m, tea.KeyLeft)
-	if m.qCursor != 0 {
-		t.Errorf("after left, qCursor = %d, want 0", m.qCursor)
+	if getQM(t, m).qCursor != 0 {
+		t.Errorf("after left, qCursor = %d, want 0", getQM(t, m).qCursor)
 	}
 }
 
 func TestUpdateQuestionnaireEnterAdvances(t *testing.T) {
 	m := newTestModel(t)
-	m.startQuestionnaire()
-	before := m.qIdx
+	m.phase = newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+	before := getQM(t, m).qIdx
 
 	m = pressNamedKey(m, tea.KeyEnter)
-	if m.qIdx != before+1 {
-		t.Errorf("qIdx after enter = %d, want %d", m.qIdx, before+1)
+	qm := getQM(t, m)
+	if qm.qIdx != before+1 {
+		t.Errorf("qIdx after enter = %d, want %d", qm.qIdx, before+1)
 	}
-	if len(m.answers) == 0 {
+	if len(qm.answers) == 0 {
 		t.Error("enter did not record an answer")
 	}
 }
 
 func TestQuestionnairePreviewRespondsToYesNo(t *testing.T) {
 	m := newTestModel(t)
-	m.startQuestionnaire()
+	qm := newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
 
 	// Move to a non-parent question that has fixtures.
-	for m.qIdx < len(m.visibleQs) {
-		q := &m.registry.Questions[m.visibleQs[m.qIdx]]
+	for qm.qIdx < len(qm.visibleQs) {
+		q := &m.registry.Questions[qm.visibleQs[qm.qIdx]]
 		if q.Kind != "parent" && q.PositiveFixture != nil {
 			break
 		}
-		m.qIdx++
+		qm.qIdx++
 	}
-	if m.qIdx >= len(m.visibleQs) {
+	if qm.qIdx >= len(qm.visibleQs) {
 		t.Skip("no non-parent question with fixture found")
 	}
 
 	// Yes → rule active → should show diff content.
-	m.qCursor = 0
+	qm.qCursor = 0
+	m.phase = qm
 	viewYes := m.View()
 
 	// No → rule inactive → should show "rule disabled".
-	m.qCursor = 1
+	qm.qCursor = 1
+	m.phase = qm
 	viewNo := m.View()
 
 	if viewYes == viewNo {
@@ -342,71 +419,90 @@ func TestQuestionnairePreviewRespondsToYesNo(t *testing.T) {
 
 func TestUpdateThresholdsNavAndAdjust(t *testing.T) {
 	m := newTestModel(t)
-	m.startThresholds()
-	if m.phase != phaseThresholds {
-		t.Fatalf("startThresholds did not enter phase: %v", m.phase)
+	startTM(&m)
+	if _, ok := m.phase.(thresholdsModel); !ok {
+		t.Fatalf("phase is %T, want thresholdsModel", m.phase)
 	}
-	if len(m.thresholdValues) != len(thresholdSpecs) {
-		t.Fatalf("thresholdValues len = %d, want %d", len(m.thresholdValues), len(thresholdSpecs))
+	if len(getTM(t, m).values) != len(thresholdSpecs) {
+		t.Fatalf("thresholdValues len = %d, want %d", len(getTM(t, m).values), len(thresholdSpecs))
 	}
 
 	// Down arrow → cursor advances.
 	m = pressKey(m, "j")
-	if m.thresholdCursor != 1 {
-		t.Errorf("after down, cursor = %d, want 1", m.thresholdCursor)
+	if getTM(t, m).cursor != 1 {
+		t.Errorf("after down, cursor = %d, want 1", getTM(t, m).cursor)
 	}
 
-	spec := thresholdSpecs[m.thresholdCursor]
-	initial := m.thresholdValues[m.thresholdCursor]
+	spec := thresholdSpecs[getTM(t, m).cursor]
+	initial := getTM(t, m).values[getTM(t, m).cursor]
 
 	// + bumps value by step.
 	m = pressKey(m, "+")
-	if m.thresholdValues[m.thresholdCursor] != initial+spec.step {
-		t.Errorf("after +, value = %d, want %d", m.thresholdValues[m.thresholdCursor], initial+spec.step)
+	if getTM(t, m).values[getTM(t, m).cursor] != initial+spec.step {
+		t.Errorf("after +, value = %d, want %d", getTM(t, m).values[getTM(t, m).cursor], initial+spec.step)
 	}
 
 	// - drops it back.
 	m = pressKey(m, "-")
-	if m.thresholdValues[m.thresholdCursor] != initial {
-		t.Errorf("after -, value = %d, want %d", m.thresholdValues[m.thresholdCursor], initial)
+	if getTM(t, m).values[getTM(t, m).cursor] != initial {
+		t.Errorf("after -, value = %d, want %d", getTM(t, m).values[getTM(t, m).cursor], initial)
 	}
 }
 
 func TestUpdateThresholdsClampsToMinMax(t *testing.T) {
 	m := newTestModel(t)
-	m.startThresholds()
+	startTM(&m)
 
 	spec := thresholdSpecs[0]
-	// Force value below min and invoke -.
-	m.thresholdValues[0] = spec.min
+
+	// Force value to min and invoke -.
+	tm := getTM(t, m)
+	tm.values[0] = spec.min
+	m.phase = tm
 	m = pressKey(m, "-")
-	if m.thresholdValues[0] != spec.min {
-		t.Errorf("value below min = %d, want %d (clamped)", m.thresholdValues[0], spec.min)
+	if getTM(t, m).values[0] != spec.min {
+		t.Errorf("value below min = %d, want %d (clamped)", getTM(t, m).values[0], spec.min)
 	}
 
-	// Force value above max and invoke +.
-	m.thresholdValues[0] = spec.max
+	// Force value to max and invoke +.
+	tm2 := getTM(t, m)
+	tm2.values[0] = spec.max
+	m.phase = tm2
 	m = pressKey(m, "+")
-	if m.thresholdValues[0] != spec.max {
-		t.Errorf("value above max = %d, want %d (clamped)", m.thresholdValues[0], spec.max)
+	if getTM(t, m).values[0] != spec.max {
+		t.Errorf("value above max = %d, want %d (clamped)", getTM(t, m).values[0], spec.max)
 	}
 }
 
 func TestUpdateThresholdsEnterProducesOverrides(t *testing.T) {
 	m := newTestModel(t)
-	m.startThresholds()
+	startTM(&m)
 
-	_, cmd := m.updateThresholds(tea.KeyMsg{Type: tea.KeyEnter})
-	// The model returned by Update is the one we care about; fetch it.
-	modelAfter, _ := m.updateThresholds(tea.KeyMsg{Type: tea.KeyEnter})
-	mAfter := modelAfter.(initModel)
-	if mAfter.phase != phaseWriting {
-		t.Errorf("phase after enter = %v, want writing", mAfter.phase)
-	}
-	if len(mAfter.thresholdOverrides) != len(thresholdSpecs) {
-		t.Errorf("thresholdOverrides len = %d, want %d", len(mAfter.thresholdOverrides), len(thresholdSpecs))
-	}
+	// Enter → thresholdsModel emits thresholdsDoneMsg → root transitions to writing
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2 := next.(initModel)
 	if cmd == nil {
+		t.Fatal("expected Cmd from enter, got nil")
+	}
+	// cmd produces thresholdsDoneMsg; feed it back to root
+	doneMsg := cmd()
+	if doneMsg == nil {
+		t.Fatal("Cmd returned nil message")
+	}
+	tdone, ok := doneMsg.(thresholdsDoneMsg)
+	if !ok {
+		t.Fatalf("expected thresholdsDoneMsg, got %T", doneMsg)
+	}
+	if len(tdone.overrides) != len(thresholdSpecs) {
+		t.Errorf("thresholdOverrides len = %d, want %d", len(tdone.overrides), len(thresholdSpecs))
+	}
+	// Feed thresholdsDoneMsg to root → phase becomes writing, writeConfigCmd returned
+	next2, writeCmd := m2.Update(doneMsg)
+	mFinal := next2.(initModel)
+	if _, ok := mFinal.phase.(writingPhaseModel); !ok {
+		t.Errorf("phase after enter = %T, want writingPhaseModel", mFinal.phase)
+	}
+	if writeCmd == nil {
 		t.Error("expected writeConfigCmd from enter, got nil")
 	}
 }
@@ -415,28 +511,36 @@ func TestUpdateThresholdsEnterProducesOverrides(t *testing.T) {
 
 func TestUpdateAutofixConfirmYesRuns(t *testing.T) {
 	m := newTestModel(t)
-	m.phase = phaseAutofixConfirm
-	m.autofixConfirm = newConfirmModel("krit init — autofix", "Apply safe autofixes now?", true)
+	m.phase = newAutofixConfirmPhase()
 	m.configPath = filepath.Join(t.TempDir(), "krit.yml")
 
-	_, cmd := m.updateAutofixConfirm(tea.KeyMsg{Type: tea.KeyEnter})
-	modelAfter, _ := m.updateAutofixConfirm(tea.KeyMsg{Type: tea.KeyEnter})
-	mAfter := modelAfter.(initModel)
-	if mAfter.phase != phaseAutofixRunning {
-		t.Errorf("phase = %v, want autofixRunning", mAfter.phase)
-	}
+	// Enter with cursor=0 (Yes default) → answered → autofixAnsweredMsg{true}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2 := next.(initModel)
 	if cmd == nil {
+		t.Fatal("expected Cmd, got nil")
+	}
+	answerMsg := cmd()
+	if answerMsg == nil {
+		t.Fatal("Cmd returned nil")
+	}
+	next2, autofixCmd := m2.Update(answerMsg)
+	mFinal := next2.(initModel)
+	if _, ok := mFinal.phase.(autofixRunningPhaseModel); !ok {
+		t.Errorf("phase = %T, want autofixRunningPhaseModel", mFinal.phase)
+	}
+	if autofixCmd == nil {
 		t.Error("expected autofixCmd, got nil")
 	}
 }
 
 func TestUpdateAutofixConfirmNoSkips(t *testing.T) {
 	m := newTestModel(t)
-	m.phase = phaseAutofixConfirm
+	m.phase = newAutofixConfirmPhase()
 	m = pressKey(m, "n")
-	m = pressNamedKey(m, tea.KeyEnter)
-	if m.phase != phaseBaselineConfirm {
-		t.Errorf("phase after no = %v, want baselineConfirm", m.phase)
+	m = pressNamedKeyDrain(m, tea.KeyEnter)
+	if _, ok := m.phase.(baselineConfirmPhaseModel); !ok {
+		t.Errorf("phase after no = %T, want baselineConfirmPhaseModel", m.phase)
 	}
 	if !m.autofixSkipped {
 		t.Error("autofixSkipped should be true after selecting No")
@@ -445,28 +549,28 @@ func TestUpdateAutofixConfirmNoSkips(t *testing.T) {
 
 func TestUpdateBaselineConfirmNoSkipsToDone(t *testing.T) {
 	m := newTestModel(t)
-	m.phase = phaseBaselineConfirm
+	m.phase = newBaselineConfirmPhase(0, 0, nil, false)
 	m = pressKey(m, "n")
-	m = pressNamedKey(m, tea.KeyEnter)
-	if m.phase != phaseDone {
-		t.Errorf("phase after no = %v, want done", m.phase)
+	m = pressNamedKeyDrain(m, tea.KeyEnter)
+	if _, ok := m.phase.(donePhaseModel); !ok {
+		t.Errorf("phase after no = %T, want donePhaseModel", m.phase)
 	}
 	if !m.baselineSkipped {
 		t.Error("baselineSkipped should be true after selecting No")
 	}
 }
 
-// ---------- startThresholds reads profile YAML ------------------------
+// ---------- startTM reads profile YAML ------------------------
 
 func TestStartThresholdsReadsProfileValues(t *testing.T) {
 	m := newTestModel(t)
-	m.startThresholds()
+	startTM(&m)
 
 	// balanced profile has LongMethod.allowedLines: 60.
 	var longMethodVal int
 	for i, spec := range thresholdSpecs {
 		if spec.rule == "LongMethod" && spec.field == "allowedLines" {
-			longMethodVal = m.thresholdValues[i]
+			longMethodVal = getTM(t, m).values[i]
 			break
 		}
 	}
@@ -478,7 +582,7 @@ func TestStartThresholdsReadsProfileValues(t *testing.T) {
 	var maxLineVal int
 	for i, spec := range thresholdSpecs {
 		if spec.rule == "MaxLineLength" {
-			maxLineVal = m.thresholdValues[i]
+			maxLineVal = getTM(t, m).values[i]
 			break
 		}
 	}
@@ -503,33 +607,40 @@ func TestAllPhasesRender(t *testing.T) {
 		setup func(*initModel)
 		want  string
 	}{
-		{"scanning", func(m *initModel) { m.phase = phaseScanning }, "starting strict scan"},
-		{"picker", func(m *initModel) { m.phase = phasePicker }, "profile picker"},
-		{"questionnaire", func(m *initModel) { m.startQuestionnaire() }, "questionnaire"},
-		{"thresholds", func(m *initModel) { m.startThresholds() }, "thresholds"},
-		{"explorer", func(m *initModel) { m.startExplorer() }, "rule explorer"},
-		{"writing", func(m *initModel) { m.phase = phaseWriting }, "writing config"},
+		{"scanning", func(m *initModel) {
+			m.phase = newScanningModel(m.opts, m.target)
+		}, "starting strict scan"},
+		{"picker", func(m *initModel) {
+			m.phase = newPickerModel(onboarding.ProfileNames, m.scans, 0, make(map[string]time.Duration), m.width)
+		}, "profile picker"},
+		{"questionnaire", func(m *initModel) {
+			m.phase = newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+		}, "questionnaire"},
+		{"thresholds", func(m *initModel) {
+			tm := newThresholdsModel(m.selected, m.opts.RepoRoot, false)
+			loaded, _ := tm.Update(tm.Init()())
+			m.phase = loaded
+		}, "thresholds"},
+		{"explorer", func(m *initModel) {
+			m.phase = newExplorerModel(m.selected, m.scans, m.opts.RepoRoot, m.width, m.height)
+		}, "rule explorer"},
+		{"writing", func(m *initModel) { m.phase = writingPhaseModel{} }, "writing config"},
 		{"autofixConfirm", func(m *initModel) {
-			m.phase = phaseAutofixConfirm
-			m.autofixConfirm = newConfirmModel("krit init — autofix", "Apply safe autofixes now?", true)
+			m.phase = newAutofixConfirmPhase()
 		}, "Apply safe autofixes"},
-		{"autofixRunning", func(m *initModel) { m.phase = phaseAutofixRunning }, "applying safe autofixes"},
+		{"autofixRunning", func(m *initModel) { m.phase = autofixRunningPhaseModel{} }, "applying safe autofixes"},
 		{"baselineConfirm", func(m *initModel) {
-			m.phase = phaseBaselineConfirm
-			m.fixedCount = 5
-			m.postfixTotal = 42
-			m.baselineConfirm = newConfirmModel(
-				"krit init — baseline",
-				"Write a baseline to suppress remaining findings?",
-				true,
-			)
+			m.phase = newBaselineConfirmPhase(5, 42, nil, false)
 		}, "baseline"},
-		{"baselineRunning", func(m *initModel) { m.phase = phaseBaselineRunning }, "writing"},
+		{"baselineRunning", func(m *initModel) { m.phase = baselineRunningPhaseModel{} }, "writing"},
 		{"done", func(m *initModel) {
-			m.phase = phaseDone
-			m.configPath = "/tmp/krit.yml"
-			m.baselineWritten = true
-			m.baselinePath = "/tmp/.krit/baseline.xml"
+			m.phase = donePhaseModel{
+				configPath:      "/tmp/krit.yml",
+				selected:        m.selected,
+				target:          m.target,
+				baselineWritten: true,
+				baselinePath:    "/tmp/.krit/baseline.xml",
+			}
 		}, "done"},
 	}
 
@@ -562,26 +673,29 @@ type tempError struct{ msg string }
 
 func (e *tempError) Error() string { return e.msg }
 
-// ---------- scanDoneMsg flow ------------------------------------------
+// ---------- scansDoneMsg flow ------------------------------------------
 
 func TestScanDoneAdvancesAndEventuallyShowsPicker(t *testing.T) {
 	m := newTestModel(t)
-	m.scans = make(map[string]*onboarding.ScanResult) // reset the seeded data
-	m.phase = phaseScanning
+	m.scans = make(map[string]*onboarding.ScanResult)
+	m.phase = newScanningModel(m.opts, m.target)
 
-	for i, p := range m.profiles {
-		modelAfter, _ := m.Update(scanDoneMsg{
-			profile: p,
-			result:  &onboarding.ScanResult{Total: i * 10, ByRule: map[string]int{}},
-		})
-		m = modelAfter.(initModel)
+	scans := make(map[string]*onboarding.ScanResult)
+	for i, p := range onboarding.ProfileNames {
+		scans[p] = &onboarding.ScanResult{Total: i * 10, ByRule: map[string]int{}}
 	}
+	modelAfter, _ := m.Update(scansDoneMsg{
+		scans:             scans,
+		scanTotalDuration: 0,
+		profileDurations:  make(map[string]time.Duration),
+	})
+	m = modelAfter.(initModel)
 
-	if m.phase != phasePicker {
-		t.Errorf("after 4 scans, phase = %v, want picker", m.phase)
+	if _, ok := m.phase.(pickerModel); !ok {
+		t.Errorf("after scansDoneMsg, phase = %T, want pickerModel", m.phase)
 	}
-	if len(m.scans) != len(m.profiles) {
-		t.Errorf("scans recorded = %d, want %d", len(m.scans), len(m.profiles))
+	if len(m.scans) != len(onboarding.ProfileNames) {
+		t.Errorf("scans recorded = %d, want %d", len(m.scans), len(onboarding.ProfileNames))
 	}
 }
 
@@ -914,16 +1028,16 @@ func TestRunInitSubcommandHeadlessDelegate(t *testing.T) {
 	}
 }
 
-// TestExplorerDedupesRuleNames ensures startExplorer collapses
+// TestExplorerDedupesRuleNames ensures startEM collapses
 // rules that happen to be registered under more than one
 // BaseRule{} literal (e.g. AppCompatResource appears twice today).
 // The user-facing explorer should show each name exactly once.
 func TestExplorerDedupesRuleNames(t *testing.T) {
 	m := newTestModel(t)
-	m.startExplorer()
+	em := startEM(&m)
 
-	seen := make(map[string]int, len(m.ruleItems))
-	for _, item := range m.ruleItems {
+	seen := make(map[string]int, len(em.ruleItems))
+	for _, item := range em.ruleItems {
 		seen[item.name]++
 	}
 	for name, count := range seen {
@@ -964,15 +1078,13 @@ func TestResolveKritBinEnv(t *testing.T) {
 func TestWriteExplorerCmdProducesOverrides(t *testing.T) {
 	m := newTestModel(t)
 	m.target = t.TempDir()
-	m.startExplorer()
+	em := startEM(&m)
 
-	// Find MagicNumber (active by default in the registry) and flip
-	// it off.
+	// Find MagicNumber (active by default in the registry) and flip it off.
 	flipped := false
-	for i, item := range m.ruleItems {
+	for _, item := range em.ruleItems {
 		if item.name == "MagicNumber" {
-			m.explorerCursor = i
-			m.ruleActive[item.name] = false
+			em.ruleActive["MagicNumber"] = false
 			flipped = true
 			break
 		}
@@ -980,8 +1092,12 @@ func TestWriteExplorerCmdProducesOverrides(t *testing.T) {
 	if !flipped {
 		t.Fatal("MagicNumber not found in ruleItems")
 	}
+	m.phase = em
 
-	cmd := m.writeExplorerCmd()
+	// Get overrides via explorer's commitCmd.
+	overrideMsg := em.commitCmd()().(explorerDoneMsg)
+
+	cmd := m.writeExplorerCmd(overrideMsg.overrides)
 	if cmd == nil {
 		t.Fatal("writeExplorerCmd returned nil Cmd")
 	}
@@ -1014,13 +1130,20 @@ func TestWriteExplorerCmdProducesOverrides(t *testing.T) {
 
 func TestScanDoneErrorQuits(t *testing.T) {
 	m := newTestModel(t)
-	m.phase = phaseScanning
+	m.phase = newScanningModel(m.opts, m.target)
+	// scanningModel.Update(scanDoneMsg{err}) emits scanErrorMsg via Cmd
 	next, cmd := m.Update(scanDoneMsg{profile: "strict", err: &tempError{msg: "scan failed"}})
-	mAfter := next.(initModel)
-	if mAfter.err == nil {
-		t.Error("expected err to be set on scanDoneMsg with error")
-	}
+	m = next.(initModel)
 	if cmd == nil {
+		t.Fatal("expected Cmd from scan error")
+	}
+	errMsg := cmd() // scanErrorMsg
+	next2, quitCmd := m.Update(errMsg)
+	mAfter := next2.(initModel)
+	if mAfter.err == nil {
+		t.Error("expected err to be set on scanErrorMsg")
+	}
+	if quitCmd == nil {
 		t.Error("expected tea.Quit cmd on scan error")
 	}
 }
@@ -1029,16 +1152,17 @@ func TestScanDoneErrorQuits(t *testing.T) {
 
 func TestExplorerViewShowsFindingSamples(t *testing.T) {
 	m := newTestModel(t)
-	m.startExplorer()
+	em := startEM(&m)
 
 	// Navigate to MagicNumber which has 2 findings in the test scan.
-	for i, item := range m.ruleItems {
+	for i, item := range em.ruleItems {
 		if item.name == "MagicNumber" {
-			m.explorerCursor = i
+			em.explorerCursor = i
 			break
 		}
 	}
-	view := m.viewExplorer()
+	m.phase = em
+	view := m.View()
 	if !strings.Contains(view, "10 finding(s) in this scan") {
 		t.Error("expected finding count for MagicNumber")
 	}
@@ -1052,16 +1176,17 @@ func TestExplorerViewShowsFindingSamples(t *testing.T) {
 
 func TestExplorerViewShowsDescription(t *testing.T) {
 	m := newTestModel(t)
-	m.startExplorer()
+	em := startEM(&m)
 
 	// LongMethod has a Description() — find it.
-	for i, item := range m.ruleItems {
+	for i, item := range em.ruleItems {
 		if item.name == "LongMethod" {
-			m.explorerCursor = i
+			em.explorerCursor = i
 			break
 		}
 	}
-	view := m.viewExplorer()
+	m.phase = em
+	view := m.View()
 	if !strings.Contains(view, "Flags functions that exceed") {
 		t.Error("expected LongMethod description in right pane")
 	}
@@ -1069,26 +1194,28 @@ func TestExplorerViewShowsDescription(t *testing.T) {
 
 func TestExplorerFixtureDiffView(t *testing.T) {
 	m := newTestModel(t)
-	m.startExplorer()
+	em := startEM(&m)
 
 	// Pre-populate fixture cache for the first rule with similar fixture data
 	// (>40% similarity triggers diff view; dissimilar triggers stacked view).
-	first := m.ruleItems[0]
-	m.explorerFixtureCache[first.name] = fixturePair{
+	first := em.ruleItems[0]
+	em.explorerFixtureCache[first.name] = fixturePair{
 		positive: "package test\nimport foo\nval x = 42\nval y = 1",
 		negative: "package test\nimport foo\nval x = CONSTANT\nval y = 1",
 	}
 
 	// Rule active → should show fixture content with highlighting.
-	m.ruleActive[first.name] = true
-	view := m.viewExplorer()
+	em.ruleActive[first.name] = true
+	m.phase = em
+	view := m.View()
 	if !strings.Contains(view, "val x") {
 		t.Error("expected fixture code when rule is active")
 	}
 
 	// Rule inactive → should show "rule disabled".
-	m.ruleActive[first.name] = false
-	view = m.viewExplorer()
+	em.ruleActive[first.name] = false
+	m.phase = em
+	view = m.View()
 	if !strings.Contains(view, "rule disabled") {
 		t.Error("expected 'rule disabled' when rule is inactive")
 	}
@@ -1096,7 +1223,7 @@ func TestExplorerFixtureDiffView(t *testing.T) {
 
 func TestExplorerFixtureLoadedMsg(t *testing.T) {
 	m := newTestModel(t)
-	m.startExplorer()
+	startEM(&m)
 
 	pair := fixturePair{
 		positive: "fun test() {}",
@@ -1107,7 +1234,8 @@ func TestExplorerFixtureLoadedMsg(t *testing.T) {
 		pair:     pair,
 	})
 	mAfter := next.(initModel)
-	cached, ok := mAfter.explorerFixtureCache["MagicNumber"]
+	em := getEM(t, mAfter)
+	cached, ok := em.explorerFixtureCache["MagicNumber"]
 	if !ok {
 		t.Fatal("expected MagicNumber in explorerFixtureCache after msg")
 	}
@@ -1118,9 +1246,8 @@ func TestExplorerFixtureLoadedMsg(t *testing.T) {
 
 func TestExplorerRuleRefPopulated(t *testing.T) {
 	m := newTestModel(t)
-	m.startExplorer()
-
-	for _, item := range m.ruleItems {
+	em := startEM(&m)
+	for _, item := range em.ruleItems {
 		if item.ruleRef == nil {
 			t.Errorf("ruleRef nil for rule %q", item.name)
 		}
@@ -1129,8 +1256,8 @@ func TestExplorerRuleRefPopulated(t *testing.T) {
 
 func TestExplorerViewHintLine(t *testing.T) {
 	m := newTestModel(t)
-	m.startExplorer()
-	view := m.viewExplorer()
+	startEM(&m)
+	view := m.View()
 	if !strings.Contains(view, "space toggle") {
 		t.Error("expected 'space toggle' in bottom hint line")
 	}
@@ -1204,7 +1331,7 @@ func TestRenderFixtureContentNoFixture(t *testing.T) {
 
 func TestQuestionnaireViewportScrollForwarded(t *testing.T) {
 	m := newTestModel(t)
-	m.startQuestionnaire()
+	m.phase = newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
 
 	// Press down — should forward to viewport (no error, model returned).
 	m = pressKey(m, "j")
@@ -1215,19 +1342,17 @@ func TestQuestionnaireViewportScrollForwarded(t *testing.T) {
 
 func TestParentQuestionShowsChildFixture(t *testing.T) {
 	m := newTestModel(t)
-	m.startQuestionnaire()
+	qm := newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+
 	// Load fixtures inline for test.
 	cmd := loadFixturesCmd(m.registry.Questions, m.opts.RepoRoot)
-	msg := cmd().(fixturesLoadedMsg)
-	for k, v := range msg.cache {
-		m.fixtureCache[k] = v
-	}
-	m.syncFixtureViewport()
+	loaded, _ := qm.Update(cmd().(fixturesLoadedMsg))
+	qm = loaded.(questionnaireModel)
 
 	// Find the "enforce-compose-stability" parent question.
 	var parentIdx int
 	found := false
-	for i, qi := range m.visibleQs {
+	for i, qi := range qm.visibleQs {
 		q := &m.registry.Questions[qi]
 		if q.ID == "enforce-compose-stability" {
 			parentIdx = i
@@ -1239,8 +1364,9 @@ func TestParentQuestionShowsChildFixture(t *testing.T) {
 		t.Skip("enforce-compose-stability not in visible questions")
 	}
 
-	m.qIdx = parentIdx
-	m.qCursor = 0 // Yes → rule active
+	qm.qIdx = parentIdx
+	qm.qCursor = 0 // Yes → rule active
+	m.phase = qm
 	view := m.View()
 
 	// Should NOT show "no fixture" — should show child's fixture content.

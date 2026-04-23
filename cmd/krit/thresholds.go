@@ -10,138 +10,167 @@ import (
 	"github.com/kaeawc/krit/internal/onboarding"
 )
 
-// startThresholds loads the current threshold values from the
-// selected profile YAML and enters phaseThresholds. If --yes was
-// passed, the phase is skipped and we transition straight to
-// phaseWriting so CI runs don't stall.
-func (m *initModel) startThresholds() {
-	m.thresholdCursor = 0
-	m.thresholdValues = make([]int, len(thresholdSpecs))
+// thresholdSpec describes one tunable numeric rule threshold.
+type thresholdSpec struct {
+	ruleset string
+	rule    string
+	field   string
+	label   string
+	min     int
+	max     int
+	step    int
+}
 
-	profileYAML, err := os.ReadFile(onboarding.ProfilePath(m.opts.RepoRoot, m.selected))
-	if err == nil {
-		values := extractThresholdValues(profileYAML)
-		for i, spec := range thresholdSpecs {
-			key := spec.ruleset + "." + spec.rule + "." + spec.field
-			if v, ok := values[key]; ok {
-				m.thresholdValues[i] = v
-				continue
+var thresholdSpecs = []thresholdSpec{
+	{"complexity", "LongMethod", "allowedLines", "LongMethod — max lines per function", 10, 500, 10},
+	{"complexity", "CyclomaticComplexMethod", "allowedComplexity", "CyclomaticComplexMethod — max complexity", 2, 50, 1},
+	{"complexity", "LongParameterList", "allowedFunctionParameters", "LongParameterList — max function params", 2, 20, 1},
+	{"complexity", "LargeClass", "allowedLines", "LargeClass — max lines per class", 100, 3000, 50},
+	{"complexity", "NestedBlockDepth", "allowedDepth", "NestedBlockDepth — max nesting", 1, 10, 1},
+	{"complexity", "TooManyFunctions", "allowedFunctionsPerFile", "TooManyFunctions — max per file", 2, 80, 1},
+	{"complexity", "ComplexCondition", "allowedConditions", "ComplexCondition — max boolean ops", 1, 10, 1},
+	{"style", "ReturnCount", "max", "ReturnCount — max returns per function", 1, 10, 1},
+	{"style", "ThrowsCount", "max", "ThrowsCount — max throws per function", 1, 10, 1},
+	{"style", "MaxLineLength", "maxLineLength", "MaxLineLength — max columns per line", 60, 250, 10},
+}
+
+// thresholdsModel drives the threshold slider phase. It loads the
+// current values from the selected profile YAML asynchronously (Phase 4)
+// so the UI is never blocked by file I/O.
+type thresholdsModel struct {
+	selected  string
+	repoRoot  string
+	acceptAll bool
+
+	values  []int
+	cursor  int
+	loaded  bool
+}
+
+// thresholdsLoadedMsg carries the values read from the profile YAML.
+type thresholdsLoadedMsg struct {
+	values []int
+}
+
+func newThresholdsModel(selected, repoRoot string, acceptAll bool) thresholdsModel {
+	return thresholdsModel{
+		selected:  selected,
+		repoRoot:  repoRoot,
+		acceptAll: acceptAll,
+	}
+}
+
+// Init reads the profile YAML asynchronously.
+func (m thresholdsModel) Init() tea.Cmd {
+	selected := m.selected
+	repoRoot := m.repoRoot
+	return func() tea.Msg {
+		values := make([]int, len(thresholdSpecs))
+		profileYAML, err := os.ReadFile(onboarding.ProfilePath(repoRoot, selected))
+		if err == nil {
+			extracted := extractThresholdValues(profileYAML)
+			for i, spec := range thresholdSpecs {
+				key := spec.ruleset + "." + spec.rule + "." + spec.field
+				if v, ok := extracted[key]; ok {
+					values[i] = v
+					continue
+				}
+				values[i] = (spec.min + spec.max) / 2
 			}
-			// Fallback to the spec's lower-middle as a last resort;
-			// this only kicks in if the profile file is missing or
-			// malformed, which is an error elsewhere.
-			m.thresholdValues[i] = (spec.min + spec.max) / 2
+		} else {
+			for i, spec := range thresholdSpecs {
+				values[i] = (spec.min + spec.max) / 2
+			}
 		}
+		return thresholdsLoadedMsg{values: values}
 	}
-
-	if m.acceptAll {
-		m.phase = phaseWriting
-		return
-	}
-	m.phase = phaseThresholds
 }
 
-// extractThresholdValues walks a profile YAML and returns a
-// flat map of ruleset.rule.field -> int for every threshold spec
-// the TUI cares about. Missing values are simply absent from the
-// returned map.
-func extractThresholdValues(profileYAML []byte) map[string]int {
-	out := make(map[string]int)
-	var tree map[string]interface{}
-	if err := yamlUnmarshal(profileYAML, &tree); err != nil {
-		return out
-	}
-	for _, spec := range thresholdSpecs {
-		rs, _ := tree[spec.ruleset].(map[string]interface{})
-		if rs == nil {
-			continue
+func (m thresholdsModel) Update(msg tea.Msg) (phaseModel, tea.Cmd) {
+	switch msg := msg.(type) {
+	case thresholdsLoadedMsg:
+		m.values = msg.values
+		m.loaded = true
+		if m.acceptAll {
+			return m, m.commitCmd()
 		}
-		rule, _ := rs[spec.rule].(map[string]interface{})
-		if rule == nil {
-			continue
-		}
-		if v, ok := toInt(rule[spec.field]); ok {
-			out[spec.ruleset+"."+spec.rule+"."+spec.field] = v
-		}
-	}
-	return out
-}
+		return m, nil
 
-func toInt(v interface{}) (int, bool) {
-	switch x := v.(type) {
-	case int:
-		return x, true
-	case int64:
-		return int(x), true
-	case float64:
-		return int(x), true
-	}
-	return 0, false
-}
-
-// yamlUnmarshal is a small indirection so init.go does not directly
-// import gopkg.in/yaml.v3 (the onboarding package already does it,
-// keeping imports clean). This is a thin wrapper around yaml.v3.
-func yamlUnmarshal(data []byte, out *map[string]interface{}) error {
-	return onboarding.YAMLUnmarshalMap(data, out)
-}
-
-func (m initModel) updateThresholds(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if len(thresholdSpecs) == 0 {
-		m.phase = phaseWriting
-		return m, m.writeConfigCmd()
-	}
-	spec := thresholdSpecs[m.thresholdCursor]
-	switch msg.String() {
-	case "up", "k":
-		if m.thresholdCursor > 0 {
-			m.thresholdCursor--
+	case tea.KeyMsg:
+		if !m.loaded {
+			return m, nil
 		}
-	case "down", "j":
-		if m.thresholdCursor < len(thresholdSpecs)-1 {
-			m.thresholdCursor++
-		}
-	case "left", "h", "-":
-		v := m.thresholdValues[m.thresholdCursor] - spec.step
-		if v < spec.min {
-			v = spec.min
-		}
-		m.thresholdValues[m.thresholdCursor] = v
-	case "right", "l", "+", "=":
-		v := m.thresholdValues[m.thresholdCursor] + spec.step
-		if v > spec.max {
-			v = spec.max
-		}
-		m.thresholdValues[m.thresholdCursor] = v
-	case "enter", " ", "s":
-		// Write overrides and advance.
-		m.thresholdOverrides = m.thresholdOverrides[:0]
-		for i, s := range thresholdSpecs {
-			m.thresholdOverrides = append(m.thresholdOverrides, onboarding.ThresholdOverride{
-				Ruleset: s.ruleset,
-				Rule:    s.rule,
-				Field:   s.field,
-				Value:   m.thresholdValues[i],
-			})
-		}
-		m.phase = phaseWriting
-		return m, m.writeConfigCmd()
+		return m.updateKey(msg)
 	}
 	return m, nil
 }
 
-func (m initModel) viewThresholds() string {
+func (m thresholdsModel) updateKey(msg tea.KeyMsg) (phaseModel, tea.Cmd) {
+	if len(thresholdSpecs) == 0 {
+		return m, m.commitCmd()
+	}
+	spec := thresholdSpecs[m.cursor]
+	switch msg.String() {
+	case "up", "k":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case "down", "j":
+		if m.cursor < len(thresholdSpecs)-1 {
+			m.cursor++
+		}
+	case "left", "h", "-":
+		v := m.values[m.cursor] - spec.step
+		if v < spec.min {
+			v = spec.min
+		}
+		m.values[m.cursor] = v
+	case "right", "l", "+", "=":
+		v := m.values[m.cursor] + spec.step
+		if v > spec.max {
+			v = spec.max
+		}
+		m.values[m.cursor] = v
+	case "enter", " ", "s":
+		return m, m.commitCmd()
+	}
+	return m, nil
+}
+
+func (m thresholdsModel) commitCmd() tea.Cmd {
+	overrides := make([]onboarding.ThresholdOverride, len(thresholdSpecs))
+	for i, s := range thresholdSpecs {
+		val := 0
+		if i < len(m.values) {
+			val = m.values[i]
+		}
+		overrides[i] = onboarding.ThresholdOverride{
+			Ruleset: s.ruleset,
+			Rule:    s.rule,
+			Field:   s.field,
+			Value:   val,
+		}
+	}
+	return func() tea.Msg {
+		return thresholdsDoneMsg{overrides: overrides}
+	}
+}
+
+func (m thresholdsModel) View() string {
+	if !m.loaded {
+		return titleStyle.Render("krit init — thresholds") + "\n\n" +
+			dimStyle.Render("loading profile values...")
+	}
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("krit init — thresholds"))
 	b.WriteString("\n")
 	b.WriteString(dimStyle.Render("Adjust numeric thresholds for the main complexity/style rules. The generated krit.yml will include whatever values you set here."))
 	b.WriteString("\n\n")
-
 	for i, spec := range thresholdSpecs {
-		val := m.thresholdValues[i]
+		val := m.values[i]
 		bar := renderSliderBar(val, spec.min, spec.max, 30)
 		line := fmt.Sprintf("%-45s %6d  %s", spec.label, val, bar)
-		if i == m.thresholdCursor {
+		if i == m.cursor {
 			b.WriteString(selectedStyle.Render("▸ " + line))
 		} else {
 			b.WriteString("  " + line)
@@ -178,4 +207,46 @@ func renderSliderBar(val, min, max, width int) string {
 		}
 	}
 	return b.String()
+}
+
+// extractThresholdValues walks a profile YAML and returns a flat map
+// of ruleset.rule.field -> int for every threshold spec.
+func extractThresholdValues(profileYAML []byte) map[string]int {
+	out := make(map[string]int)
+	var tree map[string]interface{}
+	if err := yamlUnmarshal(profileYAML, &tree); err != nil {
+		return out
+	}
+	for _, spec := range thresholdSpecs {
+		rs, _ := tree[spec.ruleset].(map[string]interface{})
+		if rs == nil {
+			continue
+		}
+		rule, _ := rs[spec.rule].(map[string]interface{})
+		if rule == nil {
+			continue
+		}
+		if v, ok := toInt(rule[spec.field]); ok {
+			out[spec.ruleset+"."+spec.rule+"."+spec.field] = v
+		}
+	}
+	return out
+}
+
+func toInt(v interface{}) (int, bool) {
+	switch x := v.(type) {
+	case int:
+		return x, true
+	case int64:
+		return int(x), true
+	case float64:
+		return int(x), true
+	}
+	return 0, false
+}
+
+// yamlUnmarshal is a thin wrapper around yaml.v3 so this file does not
+// directly import the YAML package.
+func yamlUnmarshal(data []byte, out *map[string]interface{}) error {
+	return onboarding.YAMLUnmarshalMap(data, out)
 }

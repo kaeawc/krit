@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -43,6 +44,61 @@ func addOracleEntry(t perf.Tracker, name string, start time.Time, metrics map[st
 
 func addOracleInstant(t perf.Tracker, name string, metrics map[string]int64, attrs map[string]string) {
 	perf.AddEntryDetails(t, name, 0, metrics, attrs)
+}
+
+// activeProcessorCountForKritTypesShard returns the -XX:ActiveProcessorCount
+// value for a single sharded KAA worker. Zero means no cap (shards <= 1).
+//
+// The formula divides available logical CPUs evenly across shards, then backs
+// off by one to leave headroom for the Go runtime, OS scheduling, I/O, and GC.
+// Backing off prevents the sharded JVMs from fully saturating all cores, which
+// empirically reduced user CPU without increasing wall time on 16-core M3 Max.
+func activeProcessorCountForKritTypesShard(shards int) int {
+	if shards <= 1 {
+		return 0
+	}
+	cpus := runtime.GOMAXPROCS(0)
+	if cpus <= 0 {
+		cpus = runtime.NumCPU()
+	}
+	perShard := (cpus + shards - 1) / shards
+	if perShard > 1 {
+		perShard--
+	}
+	if perShard < 1 {
+		perShard = 1
+	}
+	return perShard
+}
+
+// jvmArgsForKritTypesShard returns the adaptive JVM flags for a sharded
+// krit-types worker. Returns nil when shards <= 1 (no policy applies).
+func jvmArgsForKritTypesShard(shards int) []string {
+	active := activeProcessorCountForKritTypesShard(shards)
+	if active <= 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf("-XX:ActiveProcessorCount=%d", active)}
+}
+
+// adaptiveShardJVMArgs merges the adaptive per-shard policy args with any
+// caller- or env-supplied overrides. Policy args come first; overrides follow
+// so they can supersede individual flags (e.g. a manual ActiveProcessorCount
+// in KRIT_TYPES_EXTRA_JVM_ARGS shadows the computed one in the JVM last-wins
+// sense — identical flags, last one wins for most JVM implementations).
+func adaptiveShardJVMArgs(shards int, opts InvocationOptions) []string {
+	adaptive := jvmArgsForKritTypesShard(shards)
+	override := configuredExtraJVMArgs(opts)
+	if len(adaptive) == 0 {
+		return override
+	}
+	if len(override) == 0 {
+		return adaptive
+	}
+	out := make([]string, 0, len(adaptive)+len(override))
+	out = append(out, adaptive...)
+	out = append(out, override...)
+	return out
 }
 
 func extraJVMArgsFromEnv() []string {

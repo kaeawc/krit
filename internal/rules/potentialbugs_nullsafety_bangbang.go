@@ -233,11 +233,6 @@ func isPostFilterSmartCastFlat(file *scanner.File, idx uint32, receiverText stri
 		default:
 			continue
 		}
-		filterNeedles := []string{
-			".filter { it." + field + " != null }",
-			".filter { it." + field + " != null}",
-			".filter { it." + field + "!= null }",
-		}
 		cur := navExpr
 		for i := 0; i < 8; i++ {
 			if cur == 0 || file.FlatNamedChildCount(cur) == 0 {
@@ -251,15 +246,11 @@ func isPostFilterSmartCastFlat(file *scanner.File, idx uint32, receiverText stri
 				recvCallee, _ := file.FlatFindChild(recv, "navigation_expression")
 				if recvCallee != 0 {
 					last := flatNavigationExpressionLastIdentifier(file, recvCallee)
+					if last == "filterNotNull" && base == "it" {
+						return true
+					}
 					if last == "filter" || last == "filterKeys" || last == "filterValues" {
-						recvText := file.FlatNodeText(recv)
-						for _, needle := range filterNeedles {
-							if strings.Contains(recvText, needle) {
-								return true
-							}
-						}
-						if strings.Contains(recvText, ".filter {") &&
-							strings.Contains(recvText, "it."+field+" != null") {
+						if filterLambdaGuardsField(file, recv, field) {
 							return true
 						}
 					}
@@ -275,6 +266,81 @@ func isPostFilterSmartCastFlat(file *scanner.File, idx uint32, receiverText stri
 		}
 	}
 	return false
+}
+
+// filterLambdaGuardsField walks the lambda body of a filter/filterKeys/filterValues
+// call_expression and returns true if it finds an equality_expression proving
+// that <lambdaParam>.<field> != null. Handles both implicit "it" and named params.
+func filterLambdaGuardsField(file *scanner.File, filterCall uint32, field string) bool {
+	// Locate the lambda_literal child (trailing lambda may be nested inside
+	// call_suffix and/or annotated_lambda in the tree-sitter Kotlin grammar).
+	var lambdaLiteral uint32
+	file.FlatWalkAllNodes(filterCall, func(candidate uint32) {
+		if lambdaLiteral != 0 || candidate == filterCall {
+			return
+		}
+		if file.FlatType(candidate) == "lambda_literal" {
+			lambdaLiteral = candidate
+		}
+	})
+	if lambdaLiteral == 0 {
+		return false
+	}
+
+	// Determine the lambda parameter name; default is the implicit "it".
+	paramName := "it"
+	for child := file.FlatFirstChild(lambdaLiteral); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "lambda_parameters" {
+			continue
+		}
+		for inner := file.FlatFirstChild(child); inner != 0; inner = file.FlatNextSib(inner) {
+			if !file.FlatIsNamed(inner) {
+				continue
+			}
+			name := ""
+			if file.FlatType(inner) == "simple_identifier" {
+				name = file.FlatNodeText(inner)
+			} else {
+				for param := file.FlatFirstChild(inner); param != 0; param = file.FlatNextSib(param) {
+					if file.FlatType(param) == "simple_identifier" {
+						name = file.FlatNodeText(param)
+						break
+					}
+				}
+			}
+			if name != "" {
+				paramName = name
+				break
+			}
+		}
+		break
+	}
+
+	// Walk the lambda body for: <paramName>.<field> != null
+	found := false
+	file.FlatWalkAllNodes(lambdaLiteral, func(candidate uint32) {
+		if found || file.FlatType(candidate) != "equality_expression" || file.FlatChildCount(candidate) < 3 {
+			return
+		}
+		lhs := flatUnwrapParenExpr(file, file.FlatChild(candidate, 0))
+		op := file.FlatChild(candidate, 1)
+		rhs := flatUnwrapParenExpr(file, file.FlatChild(candidate, 2))
+		if lhs == 0 || op == 0 || rhs == 0 {
+			return
+		}
+		if strings.TrimSpace(file.FlatNodeText(op)) != "!=" || !flatIsNullLiteral(file, rhs) {
+			return
+		}
+		if file.FlatType(lhs) != "navigation_expression" {
+			return
+		}
+		recv := flatNavigationExpressionReceiver(file, lhs)
+		sel := flatNavigationExpressionLastIdentifier(file, lhs)
+		if recv != 0 && sel == field && strings.TrimSpace(file.FlatNodeText(recv)) == paramName {
+			found = true
+		}
+	})
+	return found
 }
 
 func isMapContainsKeyGuardedFlat(file *scanner.File, idx uint32, receiver, key uint32) bool {

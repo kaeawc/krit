@@ -163,6 +163,101 @@ func TestNegativeFixtures(t *testing.T) {
 	t.Logf("ran %d negative fixture tests", count)
 }
 
+// fixtureNames collects rule fixture coverage under dir. It recognises two
+// fixture forms:
+//
+//  1. A flat .kt file:  <dir>/<category>/<RuleName>.kt
+//  2. A sub-directory:  <dir>/<category>/<any-name>/   (used for Gradle rules
+//     whose fixture files are .gradle.kts, not .kt)
+//
+// Sub-directory names are normalised (lower-case, non-alphanumeric stripped)
+// and matched case-insensitively against each rule ID so that, e.g.,
+// "all-projects-block" maps to "AllProjectsBlock".
+func fixtureNames(t *testing.T, dir string) map[string]bool {
+	t.Helper()
+	out := make(map[string]bool)
+
+	// Normalise a string to lowercase alphanumeric only for fuzzy matching.
+	norm := func(s string) string {
+		var b strings.Builder
+		for _, r := range strings.ToLower(s) {
+			if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+				b.WriteRune(r)
+			}
+		}
+		return b.String()
+	}
+
+	// First pass: collect flat .kt fixtures (exact rule-name match) and all
+	// sub-directory normalised names.
+	subdirNorms := make(map[string]bool)
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, path)
+		depth := len(strings.Split(rel, string(os.PathSeparator)))
+		if info.IsDir() {
+			if depth == 2 { // <category>/<subdir> — Gradle-style fixture dir
+				subdirNorms[norm(info.Name())] = true
+			}
+			return nil
+		}
+		if strings.HasSuffix(path, ".kt") && depth == 2 { // <category>/<RuleName>.kt
+			out[strings.TrimSuffix(info.Name(), ".kt")] = true
+		}
+		return nil
+	})
+
+	// Second pass: resolve sub-directory fixtures against registered rule IDs.
+	for _, r := range v2rules.Registry {
+		if subdirNorms[norm(r.ID)] {
+			out[r.ID] = true
+		}
+	}
+	return out
+}
+
+// TestNonAndroidRulesHaveFixtures enforces that every non-Android rule that
+// can run against a single file has both a positive and a negative fixture.
+// Rules requiring NeedsCrossFile, NeedsModuleIndex, or NeedsParsedFiles are
+// excluded because the existing TestPositiveFixtures/TestNegativeFixtures
+// already skip them. Rules in the "android-lint" category (AndroidDeps != 0
+// or Category == "android-lint") are tracked separately in the android-lint
+// cluster.
+func TestNonAndroidRulesHaveFixtures(t *testing.T) {
+	root := fixtureRoot(t)
+	positiveFixtures := fixtureNames(t, filepath.Join(root, "positive"))
+	negativeFixtures := fixtureNames(t, filepath.Join(root, "negative"))
+
+	var missingPositive, missingNegative []string
+	for _, r := range v2rules.Registry {
+		// Skip Android-specific rules (by explicit deps or category).
+		if r.AndroidDeps != 0 || r.Category == "android-lint" {
+			continue
+		}
+		// Skip rules that require multi-file analysis.
+		if r.Needs.Has(v2rules.NeedsCrossFile) || r.Needs.Has(v2rules.NeedsModuleIndex) || r.Needs.Has(v2rules.NeedsParsedFiles) {
+			continue
+		}
+		if !positiveFixtures[r.ID] {
+			missingPositive = append(missingPositive, r.ID)
+		}
+		if !negativeFixtures[r.ID] {
+			missingNegative = append(missingNegative, r.ID)
+		}
+	}
+
+	if len(missingPositive) > 0 {
+		t.Errorf("rules missing positive fixture (%d) — add tests/fixtures/positive/<category>/<RuleName>.kt:\n  %s",
+			len(missingPositive), strings.Join(missingPositive, "\n  "))
+	}
+	if len(missingNegative) > 0 {
+		t.Errorf("rules missing negative fixture (%d) — add tests/fixtures/negative/<category>/<RuleName>.kt:\n  %s",
+			len(missingNegative), strings.Join(missingNegative, "\n  "))
+	}
+}
+
 func TestDescriptionOfReturnsDescription(t *testing.T) {
 	// Every rule in the registry should have a non-empty Description
 	// since Description is a field on v2.Rule.

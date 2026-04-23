@@ -107,31 +107,67 @@ func flatFirstStringTemplateNode(file *scanner.File, idx uint32) uint32 {
 	return match
 }
 
-func isLikelyLogReceiver(receiver string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(receiver))
-	if normalized == "" {
+var knownLoggerPackagePrefixes = []string{
+	"org.slf4j.",
+	"ch.qos.logback.",
+	"org.apache.logging.log4j.",
+	"mu.",
+	"io.github.oshai.kotlinlogging.",
+}
+
+// buildLoggerImportsFromAST walks import_header AST nodes and returns whether
+// any known logger package is imported, plus a map of alias/simple-name to FQN
+// for all known logger imports (used to resolve aliased logger receivers).
+func buildLoggerImportsFromAST(file *scanner.File) (bool, map[string]string) {
+	if file == nil {
+		return false, nil
+	}
+	found := false
+	aliases := make(map[string]string)
+	file.FlatWalkNodes(0, "import_header", func(node uint32) {
+		text := strings.TrimSpace(file.FlatNodeText(node))
+		text = strings.TrimPrefix(text, "import ")
+		text = strings.TrimSuffix(text, ";")
+		text = strings.TrimSpace(text)
+
+		fqn := text
+		alias := ""
+		if idx := strings.Index(text, " as "); idx >= 0 {
+			fqn = strings.TrimSpace(text[:idx])
+			alias = strings.TrimSpace(text[idx+4:])
+		}
+
+		for _, prefix := range knownLoggerPackagePrefixes {
+			if strings.HasPrefix(fqn, prefix) {
+				found = true
+				key := alias
+				if key == "" {
+					parts := strings.Split(fqn, ".")
+					if len(parts) > 0 {
+						key = parts[len(parts)-1]
+					}
+				}
+				if key != "" {
+					aliases[key] = fqn
+				}
+				break
+			}
+		}
+	})
+	return found, aliases
+}
+
+func isLikelyLogReceiver(receiver string, aliases map[string]string) bool {
+	if receiver == "" {
 		return false
 	}
-	return normalized == "log" || strings.Contains(normalized, "logger")
+	_, ok := aliases[receiver]
+	return ok
 }
 
 func fileImportsKnownLoggerAPI(file *scanner.File) bool {
-	if file == nil {
-		return false
-	}
-
-	content := string(file.Content)
-	upper := len(content)
-	if upper > 8000 {
-		upper = 8000
-	}
-	header := content[:upper]
-
-	return strings.Contains(header, "import org.slf4j.") ||
-		strings.Contains(header, "import ch.qos.logback.") ||
-		strings.Contains(header, "import org.apache.logging.log4j.") ||
-		strings.Contains(header, "import mu.") ||
-		strings.Contains(header, "import io.github.oshai.kotlinlogging.")
+	found, _ := buildLoggerImportsFromAST(file)
+	return found
 }
 
 func receiverHasKnownLoggerTypeFlat(file *scanner.File, idx uint32, receiver string) bool {

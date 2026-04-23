@@ -6,10 +6,7 @@ func TestLogLevelGuardMissing_Positive(t *testing.T) {
 	findings := runRuleByName(t, "LogLevelGuardMissing", `
 package test
 
-interface Logger {
-    val isDebugEnabled: Boolean
-    fun debug(message: String)
-}
+import org.slf4j.Logger
 
 data class Thing(val payload: String)
 
@@ -64,11 +61,8 @@ func TestLogLevelGuardMissing_PositiveWhenMarkerOverloadInterpolatesCall(t *test
 	findings := runRuleByName(t, "LogLevelGuardMissing", `
 package test
 
-interface Marker
-
-interface Logger {
-    fun debug(marker: Marker, message: String)
-}
+import org.slf4j.Logger
+import org.slf4j.Marker
 
 data class Thing(val payload: String)
 
@@ -423,10 +417,7 @@ func TestLogLevelGuardMissing_PositiveWhenSubjectlessWhenHasOptionalCondition(t 
 	findings := runRuleByName(t, "LogLevelGuardMissing", `
 package test
 
-interface Logger {
-    val isDebugEnabled: Boolean
-    fun debug(message: String)
-}
+import org.slf4j.Logger
 
 data class Thing(val payload: String)
 
@@ -471,10 +462,7 @@ func TestLogLevelGuardMissing_PositiveWhenSubjectWhenHasOptionalCondition(t *tes
 	findings := runRuleByName(t, "LogLevelGuardMissing", `
 package test
 
-interface Logger {
-    fun isDebugEnabled(): Boolean
-    fun debug(message: String)
-}
+import org.slf4j.Logger
 
 data class Thing(val payload: String)
 
@@ -545,10 +533,7 @@ func TestLogLevelGuardMissing_PositiveWhenOnlyOptionallyGuarded(t *testing.T) {
 	findings := runRuleByName(t, "LogLevelGuardMissing", `
 package test
 
-interface Logger {
-    val isDebugEnabled: Boolean
-    fun debug(message: String)
-}
+import org.slf4j.Logger
 
 data class Thing(val payload: String)
 
@@ -569,10 +554,7 @@ func TestLogLevelGuardMissing_PositiveWhenMixedBooleanConditionOnlyOptionallyGua
 	findings := runRuleByName(t, "LogLevelGuardMissing", `
 package test
 
-interface Logger {
-    val isDebugEnabled: Boolean
-    fun debug(message: String)
-}
+import org.slf4j.Logger
 
 data class Thing(val payload: String)
 
@@ -802,10 +784,7 @@ func TestLogLevelGuardMissing_PositiveWhenEarlyReturnOnlyOptionallyGuards(t *tes
 	findings := runRuleByName(t, "LogLevelGuardMissing", `
 package test
 
-interface Logger {
-    val isDebugEnabled: Boolean
-    fun debug(message: String)
-}
+import org.slf4j.Logger
 
 data class Thing(val payload: String)
 
@@ -965,6 +944,68 @@ fun logPayload(logger: mu.KLogger, thing: Thing) {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLogLevelGuardMissing_NegativeCatalogLoggerNotLogReceiver(t *testing.T) {
+	findings := runRuleByName(t, "LogLevelGuardMissing", `
+package test
+
+interface CatalogLogger {
+    fun debug(message: String)
+}
+
+data class Thing(val payload: String)
+
+fun serialize(thing: Thing): String = thing.payload.uppercase()
+
+fun send(catalogLogger: CatalogLogger, thing: Thing) {
+    catalogLogger.debug("payload=${serialize(thing)}")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLogLevelGuardMissing_NegativeDialoggerNotLogReceiver(t *testing.T) {
+	findings := runRuleByName(t, "LogLevelGuardMissing", `
+package test
+
+interface Dialogger {
+    fun debug(message: String)
+    fun show(message: String)
+}
+
+data class Thing(val payload: String)
+
+fun serialize(thing: Thing): String = thing.payload.uppercase()
+
+fun show(dialogger: Dialogger, thing: Thing) {
+    dialogger.debug("payload=${serialize(thing)}")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLogLevelGuardMissing_PositiveAliasedLoggerImport(t *testing.T) {
+	findings := runRuleByName(t, "LogLevelGuardMissing", `
+package test
+
+import org.slf4j.Logger as L
+
+data class Thing(val payload: String)
+
+fun serialize(thing: Thing): String = thing.payload.uppercase()
+
+fun logPayload(l: L, thing: Thing) {
+    l.debug("payload=${serialize(thing)}")
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
 	}
 }
 

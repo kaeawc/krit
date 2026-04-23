@@ -167,3 +167,19 @@ class AuditService(
         audit.debug("payload=${serialize(thing)}")
     }
 }
+
+interface CatalogLogger {
+    fun debug(message: String)
+}
+
+interface Dialogger {
+    fun debug(message: String)
+}
+
+fun send(catalogLogger: CatalogLogger, thing: Thing) {
+    catalogLogger.debug("payload=${serialize(thing)}")
+}
+
+fun show(dialogger: Dialogger, thing: Thing) {
+    dialogger.debug("payload=${serialize(thing)}")
+}

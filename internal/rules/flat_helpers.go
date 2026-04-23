@@ -415,6 +415,90 @@ func finalSimpleIdentifier(file *scanner.File, idx uint32) string {
 	return last
 }
 
+// classHasSupertypeNamed returns true when the class_declaration at idx
+// lists a supertype whose final type_identifier equals `name`. For
+// `class Foo : pkg.Parcelable`, `name == "Parcelable"` matches.
+func classHasSupertypeNamed(file *scanner.File, idx uint32, name string) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "class_declaration" {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "delegation_specifier" {
+			continue
+		}
+		userType, _ := file.FlatFindChild(child, "user_type")
+		if userType == 0 {
+			continue
+		}
+		if ident := flatLastChildOfType(file, userType, "type_identifier"); ident != 0 {
+			if file.FlatNodeText(ident) == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// classDeclaresStaticProperty returns true when the class at idx declares
+// a property named `name` at class-top-level or inside a companion_object
+// (which is how Kotlin models static fields like Parcelable.CREATOR).
+func classDeclaresStaticProperty(file *scanner.File, idx uint32, name string) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	body, _ := file.FlatFindChild(idx, "class_body")
+	if body == 0 {
+		return false
+	}
+	if classBodyHasProperty(file, body, name) {
+		return true
+	}
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "companion_object" {
+			innerBody, _ := file.FlatFindChild(child, "class_body")
+			if classBodyHasProperty(file, innerBody, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// classBodyHasProperty returns true when body contains a property_declaration
+// whose variable_declaration's simple_identifier matches `name`.
+func classBodyHasProperty(file *scanner.File, body uint32, name string) bool {
+	if file == nil || body == 0 {
+		return false
+	}
+	found := false
+	for child := file.FlatFirstChild(body); child != 0 && !found; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "property_declaration" {
+			continue
+		}
+		if propertyDeclarationName(file, child) == name {
+			found = true
+		}
+	}
+	return found
+}
+
+// propertyDeclarationName returns the identifier name of a property_declaration,
+// or "" if the node isn't a property_declaration or has no variable_declaration.
+func propertyDeclarationName(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 || file.FlatType(idx) != "property_declaration" {
+		return ""
+	}
+	varDecl, _ := file.FlatFindChild(idx, "variable_declaration")
+	if varDecl == 0 {
+		return ""
+	}
+	ident, _ := file.FlatFindChild(varDecl, "simple_identifier")
+	if ident == 0 {
+		return ""
+	}
+	return file.FlatNodeText(ident)
+}
+
 // commitOrApplyNames is the set of callees that finalize a
 // SharedPreferences.Editor chain.
 var commitOrApplyNames = map[string]bool{

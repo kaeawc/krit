@@ -1190,11 +1190,16 @@ func registerAllRules() {
 		r := &ParcelCreatorRule{AndroidRule: alcRule("ParcelCreator", "Missing Parcelable CREATOR field", ALSError, 3)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "Parcelable") || strings.Contains(text, "@Parcelize") || strings.Contains(text, "Parcelize") || strings.Contains(text, "CREATOR") {
+				if !classHasSupertypeNamed(file, idx, "Parcelable") {
+					return
+				}
+				if hasAnnotationNamed(file, idx, "Parcelize") {
+					return
+				}
+				if classDeclaresStaticProperty(file, idx, "CREATOR") {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1, "Parcelable class missing CREATOR field. Use @Parcelize or add a CREATOR companion.")

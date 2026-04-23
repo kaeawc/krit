@@ -664,8 +664,8 @@ func registerAllRules() {
 				switch name {
 				case "toLowerCase", "toUpperCase", "lowercase", "uppercase":
 					// Only flag the zero-argument form that uses the default locale.
-					args, hasArgs := file.FlatFindChild(idx, "value_arguments")
-					if !hasArgs {
+					_, args := flatCallExpressionParts(file, idx)
+					if args == 0 {
 						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Implicitly using the default locale. Use lowercase(Locale) or uppercase(Locale) instead.")
 						return
 					}
@@ -944,7 +944,7 @@ func registerAllRules() {
 		r := &SQLiteStringRule{AndroidRule: alcRule("SQLiteString", "Using STRING instead of TEXT in SQLite", ALSWarning, 5)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"line_string_literal", "multi_line_string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"string_literal", "line_string_literal", "multi_line_string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := strings.ToUpper(file.FlatNodeText(idx))
@@ -1022,8 +1022,8 @@ func registerAllRules() {
 					return
 				}
 				// Require at least two args (pattern + Locale). Single-arg form uses default locale.
-				args, hasArgs := file.FlatFindChild(idx, "value_arguments")
-				if !hasArgs {
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs.")
 					return
 				}
@@ -1050,8 +1050,8 @@ func registerAllRules() {
 					return
 				}
 				// Only flag when the first argument is a raw string literal (hardcoded text).
-				args, hasArgs := file.FlatFindChild(idx, "value_arguments")
-				if !hasArgs {
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
 					return
 				}
 				firstArg := flatPositionalValueArgument(file, args, 0)
@@ -1307,8 +1307,8 @@ func registerAllRules() {
 					return
 				}
 				// Find first value_argument that is a navigation_expression starting with "R".
-				args, hasArgs := file.FlatFindChild(idx, "value_arguments")
-				if !hasArgs {
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
 					return
 				}
 				for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
@@ -1347,8 +1347,8 @@ func registerAllRules() {
 				if name != "setBackgroundColor" && name != "setTextColor" && name != "setColor" {
 					return
 				}
-				args, hasArgs := file.FlatFindChild(idx, "value_arguments")
-				if !hasArgs {
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
 					return
 				}
 				firstArg := flatPositionalValueArgument(file, args, 0)
@@ -1359,9 +1359,17 @@ func registerAllRules() {
 					if !file.FlatIsNamed(expr) || file.FlatType(expr) != "navigation_expression" {
 						continue
 					}
-					first := file.FlatFirstChild(expr)
-					if first != 0 && file.FlatNodeText(first) == "R" {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Passing a resource ID where a color value is expected. Use ContextCompat.getColor() instead.")
+					// Drill to the leftmost identifier of a chained navigation_expression.
+					root := expr
+					for {
+						first := file.FlatFirstChild(root)
+						if first == 0 || file.FlatType(first) != "navigation_expression" {
+							if first != 0 && file.FlatNodeText(first) == "R" {
+								ctx.EmitAt(file.FlatRow(idx)+1, 1, "Passing a resource ID where a color value is expected. Use ContextCompat.getColor() instead.")
+							}
+							break
+						}
+						root = first
 					}
 					return
 				}
@@ -1535,10 +1543,14 @@ func registerAllRules() {
 		r := &PropertyEscapeRule{AndroidRule: alcRule("PropertyEscape", "Invalid property file escapes", ALSError, 5)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"line_string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"string_literal", "line_string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
+				// Skip triple-quoted (raw) strings — they don't process escapes.
+				if strings.HasPrefix(text, `"""`) {
+					return
+				}
 				// Strip surrounding quotes to get raw content.
 				if len(text) >= 2 && text[0] == '"' {
 					text = text[1:]
@@ -1577,12 +1589,13 @@ func registerAllRules() {
 				if name != "setRepeating" && name != "setInexactRepeating" {
 					return
 				}
-				// The interval is the second positional argument. Parse it as an integer.
-				args, hasArgs := file.FlatFindChild(idx, "value_arguments")
-				if !hasArgs {
+				// setRepeating(type, triggerAtMillis, intervalMillis, operation) —
+				// the interval is the third positional argument.
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
 					return
 				}
-				intervalArg := flatPositionalValueArgument(file, args, 1)
+				intervalArg := flatPositionalValueArgument(file, args, 2)
 				if intervalArg == 0 {
 					return
 				}
@@ -1611,9 +1624,21 @@ func registerAllRules() {
 			NodeTypes: []string{"annotation"}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				// Get annotation name — first simple_identifier or type_identifier child.
-				var annotName string
+				// Tree-sitter-kotlin nests the annotation name + args under
+				// a constructor_invocation child of the annotation node.
+				var ctor uint32
 				for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+					if file.FlatIsNamed(child) && file.FlatType(child) == "constructor_invocation" {
+						ctor = child
+						break
+					}
+				}
+				nameHost := idx
+				if ctor != 0 {
+					nameHost = ctor
+				}
+				var annotName string
+				for child := file.FlatFirstChild(nameHost); child != 0; child = file.FlatNextSib(child) {
 					if !file.FlatIsNamed(child) {
 						continue
 					}
@@ -1630,8 +1655,9 @@ func registerAllRules() {
 				if annotName != "SuppressLint" {
 					return
 				}
-				// Extract string argument values.
-				args, hasArgs := file.FlatFindChild(idx, "value_arguments")
+				// Extract string argument values from value_arguments (under
+				// constructor_invocation when present, else directly on annotation).
+				args, hasArgs := file.FlatFindChild(nameHost, "value_arguments")
 				if !hasArgs {
 					return
 				}
@@ -1666,9 +1692,17 @@ func registerAllRules() {
 				idx, file := ctx.Idx, ctx.File
 				nodeType := file.FlatType(idx)
 				if nodeType == "if_expression" {
-					// Look for: if (someVar == 1) ...
-					cond, hasCond := file.FlatFindChild(idx, "condition")
-					if !hasCond {
+					// Look for `X == 1` in the condition. Tree-sitter-kotlin exposes
+					// the condition as a field (not a node type), so inspect the first
+					// named child, which is the condition expression.
+					var cond uint32
+					for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+						if file.FlatIsNamed(child) && file.FlatType(child) != "control_structure_body" {
+							cond = child
+							break
+						}
+					}
+					if cond == 0 {
 						return
 					}
 					condText := file.FlatNodeText(cond)
@@ -1681,7 +1715,15 @@ func registerAllRules() {
 					if !hasSubject {
 						return
 					}
-					subjectName := strings.TrimSpace(file.FlatNodeText(subject))
+					// when_subject wraps `(expr)`; drill into the first named
+					// simple_identifier child.
+					var subjectName string
+					for child := file.FlatFirstChild(subject); child != 0; child = file.FlatNextSib(child) {
+						if file.FlatIsNamed(child) && file.FlatType(child) == "simple_identifier" {
+							subjectName = file.FlatNodeText(child)
+							break
+						}
+					}
 					if !pluralsCountNames[subjectName] {
 						return
 					}

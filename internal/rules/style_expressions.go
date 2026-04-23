@@ -138,33 +138,133 @@ func collectGuardClauseJumpsFlat(fn uint32, file *scanner.File) map[int]bool {
 	return result
 }
 
+var bareLoggingOrCheckNames = map[string]struct{}{
+	"println": {}, "print": {},
+	"require": {}, "check": {}, "checkNotNull": {}, "requireNotNull": {}, "error": {},
+	"assert": {}, "assertNotNull": {}, "assertNull": {},
+	"trace": {}, "debug": {}, "info": {}, "warn": {}, "fatal": {},
+}
+
+var loggerReceiverMethodNames = map[string]struct{}{
+	"v": {}, "d": {}, "i": {}, "w": {}, "e": {}, "wtf": {},
+	"trace": {}, "debug": {}, "info": {}, "warn": {}, "error": {}, "fatal": {},
+}
+
+// knownLoggerReceiverFQNs maps the simple receiver name you'd see in
+// source (`Log.d(...)`, `Timber.e(...)`) to the import FQN that must
+// be present for the receiver to refer to a known logging API. An
+// entry with an empty FQN (e.g. `SignalLogger`) means the receiver
+// is a project-specific logger pattern that we accept on identifier
+// shape alone — these must be filtered separately.
+var knownLoggerReceiverFQNs = map[string][]string{
+	"Log":    {"android.util.Log"},
+	"Timber": {"timber.log.Timber"},
+}
+
+// isLoggingOrCheckCallWithContentFlat reports whether a
+// `call_expression` node is a logging call or a precondition check
+// (`require`, `check`, …). The classification is AST-only:
+//   - Bare calls match a fixed allow-list of Kotlin stdlib / assertion
+//     / framework top-level names.
+//   - Qualified calls (`Log.d(...)`) require BOTH a `simple_identifier`
+//     receiver matching a known logger name AND the corresponding
+//     import FQN, or an import under one of the known logger packages
+//     (slf4j, log4j, kotlin-logging, …). We never accept a bare
+//     receiver prefix match against source text.
 func isLoggingOrCheckCallWithContentFlat(n uint32, file *scanner.File) bool {
-	if n == 0 || file.FlatType(n) != "call_expression" {
+	if n == 0 || file == nil || file.FlatType(n) != "call_expression" {
 		return false
 	}
-	if file.FlatChildCount(n) == 0 {
-		return false
-	}
-	t := file.FlatNodeText(file.FlatChild(n, 0))
-	name := t
-	if idx := strings.LastIndex(name, "."); idx >= 0 {
-		name = name[idx+1:]
-	}
-	name = strings.TrimSpace(name)
-	switch name {
-	case "v", "d", "i", "w", "e", "wtf",
-		"println", "print",
-		"require", "check", "checkNotNull", "requireNotNull", "error",
-		"assert", "assertNotNull", "assertNull",
-		"trace", "debug", "info", "warn", "fatal":
-		return true
-	}
-	for _, prefix := range []string{"Log.", "Timber.", "Logger.", "log.", "SignalLogger."} {
-		if strings.HasPrefix(t, prefix) {
-			return true
+	callee := uint32(0)
+	for child := file.FlatFirstChild(n); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
 		}
+		callee = child
+		break
+	}
+	if callee == 0 {
+		return false
+	}
+	switch file.FlatType(callee) {
+	case "simple_identifier":
+		_, ok := bareLoggingOrCheckNames[file.FlatNodeText(callee)]
+		return ok
+	case "navigation_expression":
+		method := flatNavigationExpressionLastIdentifier(file, callee)
+		if _, ok := loggerReceiverMethodNames[method]; !ok {
+			return false
+		}
+		recv := uint32(0)
+		for child := file.FlatFirstChild(callee); child != 0; child = file.FlatNextSib(child) {
+			if !file.FlatIsNamed(child) {
+				continue
+			}
+			recv = child
+			break
+		}
+		if recv == 0 || file.FlatType(recv) != "simple_identifier" {
+			return false
+		}
+		recvName := file.FlatNodeText(recv)
+		if fqns, ok := knownLoggerReceiverFQNs[recvName]; ok {
+			for _, fqn := range fqns {
+				if fileImportsFQN(file, fqn) {
+					return true
+				}
+			}
+			return false
+		}
+		if _, aliases := buildLoggerImportsFromAST(file); aliases != nil {
+			if _, ok := aliases[recvName]; ok {
+				return true
+			}
+		}
+		return false
 	}
 	return false
+}
+
+type importFQNCacheKey struct {
+	path string
+	fqn  string
+}
+
+var importFQNCache sync.Map
+
+// fileImportsFQN returns true when the file contains an import
+// header whose (alias-stripped) path matches exactly `fqn` or
+// `<package-of-fqn>.*`. Results are cached per (file, fqn) pair.
+func fileImportsFQN(file *scanner.File, fqn string) bool {
+	if file == nil || fqn == "" {
+		return false
+	}
+	key := importFQNCacheKey{path: file.Path, fqn: fqn}
+	if cached, ok := importFQNCache.Load(key); ok {
+		return cached.(bool)
+	}
+	wantWildcard := ""
+	if idx := strings.LastIndex(fqn, "."); idx > 0 {
+		wantWildcard = fqn[:idx] + ".*"
+	}
+	found := false
+	file.FlatWalkNodes(0, "import_header", func(node uint32) {
+		if found {
+			return
+		}
+		text := strings.TrimSpace(file.FlatNodeText(node))
+		text = strings.TrimPrefix(text, "import ")
+		text = strings.TrimSuffix(text, ";")
+		text = strings.TrimSpace(text)
+		if alias := strings.Index(text, " as "); alias >= 0 {
+			text = strings.TrimSpace(text[:alias])
+		}
+		if text == fqn || text == wantWildcard {
+			found = true
+		}
+	})
+	importFQNCache.Store(key, found)
+	return found
 }
 
 func collectWhenDispatchJumpsFlat(fn uint32, file *scanner.File) map[int]bool {

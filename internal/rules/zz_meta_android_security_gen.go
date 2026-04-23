@@ -42,7 +42,7 @@ func (r *DrawAllocationRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.75,
+		Confidence:    0.85,
 		SourceHash:    "4c680537c209f074",
 	}
 }
@@ -120,7 +120,7 @@ func (r *GetInstanceRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.75,
+		Confidence:    0.85,
 		SourceHash:    "4c680537c209f074",
 	}
 }
@@ -159,7 +159,7 @@ func (r *RecycleRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.75,
+		Confidence:    0.85,
 		SourceHash:    "4c680537c209f074",
 	}
 }
@@ -172,7 +172,7 @@ func (r *SecureRandomRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.75,
+		Confidence:    0.85,
 		SourceHash:    "4c680537c209f074",
 	}
 }
@@ -185,7 +185,7 @@ func (r *TrustedServerRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.75,
+		Confidence:    0.95,
 		SourceHash:    "4c680537c209f074",
 	}
 }
@@ -198,7 +198,7 @@ func (r *WorldReadableFilesRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.75,
+		Confidence:    0.95,
 		SourceHash:    "4c680537c209f074",
 	}
 }
@@ -211,7 +211,7 @@ func (r *WorldWriteableFilesRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.75,
+		Confidence:    0.95,
 		SourceHash:    "4c680537c209f074",
 	}
 }

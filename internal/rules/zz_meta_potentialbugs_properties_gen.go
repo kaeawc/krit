@@ -17,7 +17,7 @@ func (r *PropertyUsedBeforeDeclarationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "b8ea6b4f7d5cef21",
+		SourceHash:    "74e6fa3918235dac",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *UnconditionalJumpStatementInLoopRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "b8ea6b4f7d5cef21",
+		SourceHash:    "74e6fa3918235dac",
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *UnnamedParameterUseRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "b8ea6b4f7d5cef21",
+		SourceHash:    "74e6fa3918235dac",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowSingleParamUse",
@@ -67,7 +67,7 @@ func (r *UnusedUnaryOperatorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "b8ea6b4f7d5cef21",
+		SourceHash:    "74e6fa3918235dac",
 	}
 }
 
@@ -79,7 +79,7 @@ func (r *UselessPostfixExpressionRule) Meta() registry.RuleDescriptor {
 		Description:   "Detects postfix increment or decrement in return statements where the operation has no effect.",
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
-		Confidence:    0.75,
-		SourceHash:    "b8ea6b4f7d5cef21",
+		Confidence:    0.95,
+		SourceHash:    "74e6fa3918235dac",
 	}
 }

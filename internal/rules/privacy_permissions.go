@@ -116,9 +116,21 @@ func biometricPromptAllowsDeviceCredentialFlat(file *scanner.File, idx uint32) b
 			if args == 0 {
 				return
 			}
-			if strings.Contains(compactKotlinExpr(file.FlatNodeText(args)), "DEVICE_CREDENTIAL") {
-				allowsFallback = true
-			}
+			// Walk the argument AST looking for a `simple_identifier`
+			// node named DEVICE_CREDENTIAL. This matches the flag
+			// whether it appears bare, fully qualified
+			// (BiometricManager.Authenticators.DEVICE_CREDENTIAL), or
+			// OR'd with other constants — without substring matching
+			// the node text.
+			file.FlatWalkAllNodes(args, func(inner uint32) {
+				if allowsFallback {
+					return
+				}
+				if file.FlatType(inner) == "simple_identifier" &&
+					file.FlatNodeText(inner) == "DEVICE_CREDENTIAL" {
+					allowsFallback = true
+				}
+			})
 		}
 	})
 	return allowsFallback

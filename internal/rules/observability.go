@@ -2,6 +2,7 @@ package rules
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -115,12 +116,24 @@ var knownLoggerPackagePrefixes = []string{
 	"io.github.oshai.kotlinlogging.",
 }
 
+type loggerImportResult struct {
+	found   bool
+	aliases map[string]string
+}
+
+var loggerImportCache sync.Map
+
 // buildLoggerImportsFromAST walks import_header AST nodes and returns whether
 // any known logger package is imported, plus a map of alias/simple-name to FQN
 // for all known logger imports (used to resolve aliased logger receivers).
+// Results are cached per file path to avoid re-walking on every call.
 func buildLoggerImportsFromAST(file *scanner.File) (bool, map[string]string) {
 	if file == nil {
 		return false, nil
+	}
+	if cached, ok := loggerImportCache.Load(file.Path); ok {
+		r := cached.(loggerImportResult)
+		return r.found, r.aliases
 	}
 	found := false
 	aliases := make(map[string]string)
@@ -154,6 +167,7 @@ func buildLoggerImportsFromAST(file *scanner.File) (bool, map[string]string) {
 			}
 		}
 	})
+	loggerImportCache.Store(file.Path, loggerImportResult{found: found, aliases: aliases})
 	return found, aliases
 }
 

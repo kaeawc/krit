@@ -17,7 +17,7 @@ func (r *FragmentConstructorRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "22bdd474ede1d1b6",
+		SourceHash:    "1c0d335956aa84ba",
 	}
 }
 
@@ -30,7 +30,7 @@ func (r *GetSignaturesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "22bdd474ede1d1b6",
+		SourceHash:    "1c0d335956aa84ba",
 	}
 }
 
@@ -42,8 +42,8 @@ func (r *LogTagLengthRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: true,
 		FixLevel:      "",
-		Confidence:    0.75,
-		SourceHash:    "22bdd474ede1d1b6",
+		Confidence:    0.9,
+		SourceHash:    "1c0d335956aa84ba",
 	}
 }
 
@@ -56,7 +56,7 @@ func (r *LogTagMismatchRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "22bdd474ede1d1b6",
+		SourceHash:    "1c0d335956aa84ba",
 	}
 }
 
@@ -69,7 +69,7 @@ func (r *NonInternationalizedSmsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "22bdd474ede1d1b6",
+		SourceHash:    "1c0d335956aa84ba",
 	}
 }
 
@@ -82,7 +82,7 @@ func (r *ServiceCastRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "22bdd474ede1d1b6",
+		SourceHash:    "1c0d335956aa84ba",
 	}
 }
 
@@ -94,8 +94,8 @@ func (r *SparseArrayRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: true,
 		FixLevel:      "",
-		Confidence:    0.75,
-		SourceHash:    "22bdd474ede1d1b6",
+		Confidence:    0.9,
+		SourceHash:    "1c0d335956aa84ba",
 	}
 }
 
@@ -107,8 +107,8 @@ func (r *ToastRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: true,
 		FixLevel:      "",
-		Confidence:    0.75,
-		SourceHash:    "22bdd474ede1d1b6",
+		Confidence:    0.85,
+		SourceHash:    "1c0d335956aa84ba",
 	}
 }
 
@@ -120,7 +120,7 @@ func (r *UseValueOfRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: true,
 		FixLevel:      "",
-		Confidence:    0.75,
-		SourceHash:    "22bdd474ede1d1b6",
+		Confidence:    0.9,
+		SourceHash:    "1c0d335956aa84ba",
 	}
 }

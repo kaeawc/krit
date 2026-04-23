@@ -41,68 +41,63 @@ abstract class KritBinaryResolver : BuildService<KritBinaryResolver.Params> {
 
         binaryDir.mkdirs()
         val baseUrl = "https://github.com/kaeawc/krit/releases/download/v$version"
-        val url = "$baseUrl/${platform.archiveName}"
+        val archiveUrl = "$baseUrl/${platform.archiveName}"
         val checksumsUrl = "$baseUrl/checksums.txt"
-        downloadAndExtract(URL(url), binaryDir, platform.binaryName)
-        binary.setExecutable(true)
 
-        // Verify checksum (skip gracefully for dev builds)
-        verifyChecksum(binary, checksumsUrl, platform.archiveName)
+        val archiveBytes = downloadBytes(URL(archiveUrl))
+        verifyChecksum(archiveBytes, checksumsUrl, platform.archiveName)
+        extractBinary(archiveBytes, binaryDir, platform.binaryName)
+        binary.setExecutable(true)
 
         return binary
     }
 
-    private fun downloadAndExtract(url: URL, targetDir: File, binaryName: String) {
+    private fun downloadBytes(url: URL): ByteArray {
         val connection = url.openConnection()
         connection.connectTimeout = 30_000
         connection.readTimeout = 60_000
+        return BufferedInputStream(connection.getInputStream()).use { it.readBytes() }
+    }
 
-        BufferedInputStream(connection.getInputStream()).use { input ->
-            // The archive is a .tar.gz -- decompress gzip, then extract tar
-            val gzipInput = GZIPInputStream(input)
-            val tarBytes = gzipInput.readBytes()
+    private fun extractBinary(archiveBytes: ByteArray, targetDir: File, binaryName: String) {
+        // The archive is a .tar.gz -- decompress gzip, then extract tar
+        val tarBytes = GZIPInputStream(archiveBytes.inputStream()).readBytes()
 
-            // Simple tar extraction: find the binary entry and write it
-            // tar format: 512-byte header blocks followed by file data
-            var offset = 0
-            while (offset < tarBytes.size) {
-                // Read filename from header (first 100 bytes, null-terminated)
-                val nameEnd = tarBytes.indexOf(0, offset, offset + 100)
-                if (nameEnd == offset) break // empty header = end of archive
-                val name = String(tarBytes, offset, nameEnd - offset)
+        // tar format: 512-byte header blocks followed by file data
+        var offset = 0
+        while (offset < tarBytes.size) {
+            val nameEnd = tarBytes.indexOf(0, offset, offset + 100)
+            if (nameEnd == offset) break // empty header = end of archive
+            val name = String(tarBytes, offset, nameEnd - offset)
 
-                // Read file size from header (octal string at offset+124, 12 bytes)
-                val sizeStr = String(tarBytes, offset + 124, 11).trim()
-                if (sizeStr.isEmpty()) break
-                val fileSize = sizeStr.toLong(8)
+            val sizeStr = String(tarBytes, offset + 124, 11).trim()
+            if (sizeStr.isEmpty()) break
+            val fileSize = sizeStr.toLong(8)
 
-                val dataOffset = offset + 512
-                if (name.endsWith(binaryName) || name == binaryName) {
-                    FileOutputStream(File(targetDir, binaryName)).use { out ->
-                        out.write(tarBytes, dataOffset, fileSize.toInt())
-                    }
-                    return
+            val dataOffset = offset + 512
+            if (name.endsWith(binaryName) || name == binaryName) {
+                FileOutputStream(File(targetDir, binaryName)).use { out ->
+                    out.write(tarBytes, dataOffset, fileSize.toInt())
                 }
-
-                // Advance to next header (data is padded to 512-byte boundary)
-                val dataBlocks = (fileSize + 511) / 512
-                offset = dataOffset + (dataBlocks * 512).toInt()
+                return
             }
 
-            throw IllegalStateException("Binary '$binaryName' not found in archive from $url")
+            val dataBlocks = (fileSize + 511) / 512
+            offset = dataOffset + (dataBlocks * 512).toInt()
         }
+
+        throw IllegalStateException("Binary '$binaryName' not found in archive")
     }
 
     /**
-     * Verify the SHA-256 checksum of the downloaded binary against checksums.txt.
-     * Throws on mismatch; logs a warning and skips if checksums.txt is unavailable (dev builds).
+     * Verify SHA-256 of the archive bytes against checksums.txt before extraction.
+     * Throws on mismatch; skips gracefully if checksums.txt is unavailable (dev builds).
      */
-    private fun verifyChecksum(binaryFile: File, checksumsUrl: String, archiveName: String) {
+    private fun verifyChecksum(archiveBytes: ByteArray, checksumsUrl: String, archiveName: String) {
         val checksumsText = try {
             URL(checksumsUrl).readText()
         } catch (_: Exception) {
-            // checksums.txt not available (dev build) -- skip verification
-            return
+            return // checksums.txt not available (dev build) -- skip verification
         }
 
         val expectedLine = checksumsText.lines().find { it.contains(archiveName) }
@@ -111,14 +106,8 @@ abstract class KritBinaryResolver : BuildService<KritBinaryResolver.Params> {
         val expected = expectedLine.split("\\s+".toRegex())[0]
 
         val digest = MessageDigest.getInstance("SHA-256")
-        val actual = binaryFile.inputStream().use { stream ->
-            val buffer = ByteArray(8192)
-            var read: Int
-            while (stream.read(buffer).also { read = it } != -1) {
-                digest.update(buffer, 0, read)
-            }
-            digest.digest().joinToString("") { "%02x".format(it) }
-        }
+        digest.update(archiveBytes)
+        val actual = digest.digest().joinToString("") { "%02x".format(it) }
 
         require(expected == actual) {
             "Checksum mismatch for $archiveName: expected $expected, got $actual"

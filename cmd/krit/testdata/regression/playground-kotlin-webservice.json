@@ -1,6 +1,6 @@
 {
   "project": "../../playground/kotlin-webservice/",
-  "findings_count": 60,
+  "findings_count": 62,
   "findings": [
     {
       "rule": "WildcardImport",
@@ -427,6 +427,14 @@
       "message": "Utility class 'StringUtils' should have a private constructor."
     },
     {
+      "rule": "MayBeConstant",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 9,
+      "col": 0,
+      "message": "Property may be declared as 'const val'."
+    },
+    {
       "rule": "ObjectPropertyNaming",
       "ruleSet": "naming",
       "file": "src/main/kotlin/com/example/utils/StringUtils.kt",
@@ -449,6 +457,14 @@
       "line": 9,
       "col": 0,
       "message": "Private property 'MAX_LENGTH' is never used."
+    },
+    {
+      "rule": "MayBeConstant",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 10,
+      "col": 0,
+      "message": "Property may be declared as 'const val'."
     },
     {
       "rule": "ObjectPropertyNaming",

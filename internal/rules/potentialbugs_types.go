@@ -2,7 +2,6 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
@@ -69,6 +68,71 @@ type AvoidReferentialEqualityRule struct {
 	FlatDispatchBase
 	BaseRule
 	ForbiddenTypePatterns []string
+}
+
+// equalsFamilyCallNames is the set of callees whose presence in a
+// boolean expression means an accompanying referential compare is
+// almost certainly the short-circuit fast-path, not a mistake.
+var equalsFamilyCallNames = map[string]bool{
+	"equals":            true,
+	"hasSameContent":    true,
+	"contentEquals":     true,
+	"contentDeepEquals": true,
+	"sameContentAs":     true,
+}
+
+// equalityOperands returns (left, operator, right) of an equality_expression.
+// The operator is the unnamed token child whose type is one of `==`, `!=`,
+// `===`, `!==`. Returns zeros if the expression doesn't have all three parts.
+func equalityOperands(file *scanner.File, idx uint32) (left, op, right uint32) {
+	if file == nil || file.FlatType(idx) != "equality_expression" {
+		return 0, 0, 0
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		t := file.FlatType(child)
+		switch t {
+		case "==", "!=", "===", "!==":
+			op = child
+		default:
+			if file.FlatIsNamed(child) {
+				if left == 0 {
+					left = child
+				} else {
+					right = child
+				}
+			}
+		}
+	}
+	return left, op, right
+}
+
+// enclosingBoolExprHasEqualsCall returns true when the referential-equality
+// node sits under a conjunction/disjunction whose other operand is a call
+// to one of the named equals-family functions. Structural replacement for
+// the old `strings.Contains(parentText, ".equals(")` heuristic — by walking
+// the AST we avoid matching `.equals(` that appears in a string literal or
+// a comment.
+func enclosingBoolExprHasEqualsCall(file *scanner.File, idx uint32, names map[string]bool) bool {
+	parent, ok := file.FlatParent(idx)
+	if !ok {
+		return false
+	}
+	pt := file.FlatType(parent)
+	if pt != "disjunction_expression" && pt != "conjunction_expression" {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(parent, func(n uint32) {
+		if found || n == idx {
+			return
+		}
+		if file.FlatType(n) == "call_expression" {
+			if _, ok := names[flatCallExpressionName(file, n)]; ok {
+				found = true
+			}
+		}
+	})
+	return found
 }
 
 
@@ -595,4 +659,40 @@ type ElseCaseInsteadOfExhaustiveWhenRule struct {
 // roadmap/17.
 func (r *ElseCaseInsteadOfExhaustiveWhenRule) Confidence() float64 { return 0.75 }
 
-var whenElseRe = regexp.MustCompile(`(?m)^\s*else\s*->`)
+// whenHasElseBranchFlat returns true when the when_expression at idx has
+// an `else ->` branch. A when_entry for the else branch has an `else`
+// token child in place of a when_condition.
+func whenHasElseBranchFlat(file *scanner.File, idx uint32) bool {
+	if file == nil || file.FlatType(idx) != "when_expression" {
+		return false
+	}
+	for entry := file.FlatFirstChild(idx); entry != 0; entry = file.FlatNextSib(entry) {
+		if file.FlatType(entry) != "when_entry" {
+			continue
+		}
+		for child := file.FlatFirstChild(entry); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "else" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// whenConditionTypeTestName returns the type identifier from an
+// `is TypeName` when_condition, or "" if the condition is not a
+// type_test. Works on the condition node, not the whole entry.
+func whenConditionTypeTestName(file *scanner.File, condition uint32) string {
+	if file == nil || file.FlatType(condition) != "when_condition" {
+		return ""
+	}
+	typeTest, ok := file.FlatFindChild(condition, "type_test")
+	if !ok {
+		return ""
+	}
+	userType, ok := file.FlatFindChild(typeTest, "user_type")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(file.FlatNodeText(userType))
+}

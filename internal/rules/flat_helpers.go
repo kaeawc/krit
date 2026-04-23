@@ -372,3 +372,784 @@ func flatUnwrapParenExpr(file *scanner.File, idx uint32) uint32 {
 	}
 	return idx
 }
+
+// isBooleanLiteralTrue returns true if the node is a boolean_literal whose
+// token is `true`. Accepts 0 and returns false (caller convenience).
+func isBooleanLiteralTrue(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "boolean_literal" {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "true" {
+			return true
+		}
+	}
+	return false
+}
+
+// finalSimpleIdentifier returns the identifier text at the end of a
+// navigation chain or directly_assignable_expression — the rightmost
+// simple_identifier reachable by walking named children. For
+// `w.settings.javaScriptEnabled` this returns `javaScriptEnabled`.
+func finalSimpleIdentifier(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 {
+		return ""
+	}
+	// Walk children looking for the last simple_identifier (direct or in a
+	// navigation_suffix).
+	last := ""
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "simple_identifier":
+			last = file.FlatNodeText(child)
+		case "navigation_suffix":
+			if inner, ok := file.FlatFindChild(child, "simple_identifier"); ok {
+				last = file.FlatNodeText(inner)
+			}
+		case "navigation_expression", "directly_assignable_expression":
+			if nested := finalSimpleIdentifier(file, child); nested != "" {
+				last = nested
+			}
+		}
+	}
+	return last
+}
+
+// showCallName is a single-entry set for the `show` callee — used by
+// rules that want to check whether a fluent builder was ever "shown".
+var showCallName = map[string]bool{"show": true}
+
+// logMethodNames is the set of android.util.Log level methods. `wtf` is
+// included for completeness even though the AOSP tag rules historically
+// only covered v/d/i/w/e.
+var logMethodNames = map[string]bool{
+	"v": true, "d": true, "i": true, "w": true, "e": true, "wtf": true,
+}
+
+// composeSemanticsEscapeHatches are the Compose call names that opt an
+// otherwise-accessible component OUT of TalkBack exposure. Used by
+// decorative-image a11y rules to skip calls that already declare the
+// intent.
+var composeSemanticsEscapeHatches = map[string]bool{
+	"clearAndSetSemantics": true,
+	"invisibleToUser":      true,
+}
+
+// channelCloseNames is the set of Channel finalization methods that
+// release the receiver coroutine.
+var channelCloseNames = map[string]bool{"close": true}
+
+// coroutineScopeCancelNames is the set of CoroutineScope finalization
+// methods that stop the launched coroutines.
+var coroutineScopeCancelNames = map[string]bool{"cancel": true}
+
+// arrayOfCalleeNames matches the Kotlin stdlib arrayOf / *ArrayOf
+// factory functions used inside annotations.
+var arrayOfCalleeNames = map[string]bool{"arrayOf": true}
+
+// isReceiverNamed returns true when the call_expression at idx is invoked
+// through a navigation whose first identifier equals `name`. Matches
+// `Toast.makeText(...)` when called with `name == "Toast"`. Returns false
+// for nested qualifications like `a.b.makeText(...)` — only flat
+// qualification counts.
+func isReceiverNamed(file *scanner.File, idx uint32, name string) bool {
+	navExpr, _ := flatCallExpressionParts(file, idx)
+	if navExpr == 0 {
+		return false
+	}
+	first := file.FlatFirstChild(navExpr)
+	for first != 0 && !file.FlatIsNamed(first) {
+		first = file.FlatNextSib(first)
+	}
+	return first != 0 && file.FlatType(first) == "simple_identifier" && file.FlatNodeText(first) == name
+}
+
+// ancestorCallNameMatches walks upward looking for an enclosing
+// call_expression whose callee equals `name`. Used to detect the
+// fluent chain pattern `foo(...).show()` — where the inner call is
+// idx and the outer call_expression calls `show`.
+func ancestorCallNameMatches(file *scanner.File, idx uint32, name string) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "call_expression":
+			if flatCallExpressionName(file, parent) == name {
+				return true
+			}
+		case "function_declaration", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+// classOverriddenFunctions returns the set of function names declared
+// with the `override` modifier at class-top-level. Used by rules that
+// need to answer "did this subclass override method X?" without scanning
+// source text for `override fun X(`.
+func classOverriddenFunctions(file *scanner.File, classIdx uint32) map[string]bool {
+	out := map[string]bool{}
+	if file == nil || classIdx == 0 {
+		return out
+	}
+	body, _ := file.FlatFindChild(classIdx, "class_body")
+	if body == 0 {
+		return out
+	}
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "function_declaration" {
+			continue
+		}
+		if !file.FlatHasModifier(child, "override") {
+			continue
+		}
+		ident, _ := file.FlatFindChild(child, "simple_identifier")
+		if ident == 0 {
+			continue
+		}
+		out[file.FlatNodeText(ident)] = true
+	}
+	return out
+}
+
+// classHasSupertypeNamed returns true when the class_declaration at idx
+// lists a supertype whose final type_identifier equals `name`. Covers
+// both interface form (`: Foo`, delegation_specifier→user_type) and
+// class form with a constructor call (`: Foo()`,
+// delegation_specifier→constructor_invocation→user_type). Works for
+// qualified receivers like `: pkg.sub.Foo[()]`.
+func classHasSupertypeNamed(file *scanner.File, idx uint32, name string) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "class_declaration" {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "delegation_specifier" {
+			continue
+		}
+		userType, _ := file.FlatFindChild(child, "user_type")
+		if userType == 0 {
+			// `: Foo(args)` form — user_type lives under constructor_invocation.
+			if ctor, ok := file.FlatFindChild(child, "constructor_invocation"); ok {
+				userType, _ = file.FlatFindChild(ctor, "user_type")
+			}
+		}
+		if userType == 0 {
+			continue
+		}
+		if ident := flatLastChildOfType(file, userType, "type_identifier"); ident != 0 {
+			if file.FlatNodeText(ident) == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// classDeclaresStaticProperty returns true when the class at idx declares
+// a property named `name` at class-top-level or inside a companion_object
+// (which is how Kotlin models static fields like Parcelable.CREATOR).
+func classDeclaresStaticProperty(file *scanner.File, idx uint32, name string) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	body, _ := file.FlatFindChild(idx, "class_body")
+	if body == 0 {
+		return false
+	}
+	if classBodyHasProperty(file, body, name) {
+		return true
+	}
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "companion_object" {
+			innerBody, _ := file.FlatFindChild(child, "class_body")
+			if classBodyHasProperty(file, innerBody, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// classBodyHasProperty returns true when body contains a property_declaration
+// whose variable_declaration's simple_identifier matches `name`.
+func classBodyHasProperty(file *scanner.File, body uint32, name string) bool {
+	if file == nil || body == 0 {
+		return false
+	}
+	found := false
+	for child := file.FlatFirstChild(body); child != 0 && !found; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "property_declaration" {
+			continue
+		}
+		if propertyDeclarationName(file, child) == name {
+			found = true
+		}
+	}
+	return found
+}
+
+// propertyDeclarationName returns the identifier name of a property_declaration,
+// or "" if the node isn't a property_declaration or has no variable_declaration.
+func propertyDeclarationName(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 || file.FlatType(idx) != "property_declaration" {
+		return ""
+	}
+	varDecl, _ := file.FlatFindChild(idx, "variable_declaration")
+	if varDecl == 0 {
+		return ""
+	}
+	ident, _ := file.FlatFindChild(varDecl, "simple_identifier")
+	if ident == 0 {
+		return ""
+	}
+	return file.FlatNodeText(ident)
+}
+
+// commitOrApplyNames is the set of callees that finalize a
+// SharedPreferences.Editor chain.
+var commitOrApplyNames = map[string]bool{
+	"commit": true,
+	"apply":  true,
+}
+
+// commitTransactionNames is the set of callees that finalize a
+// FragmentTransaction chain.
+var commitTransactionNames = map[string]bool{
+	"commit":                     true,
+	"commitNow":                  true,
+	"commitAllowingStateLoss":    true,
+	"commitNowAllowingStateLoss": true,
+}
+
+// checkResultCalleeNames is the set of callees whose return value
+// should almost never be discarded (idempotent builders, pure string
+// operations, animator configurers that return `this`).
+var checkResultCalleeNames = map[string]bool{
+	"animate":   true,
+	"buildUpon": true,
+	"edit":      true,
+	"format":    true,
+	"trim":      true,
+	"replace":   true,
+}
+
+// callSubtreeHasNamedArgument returns true when any call_expression in
+// the subtree rooted at `root` (including root itself) has a named
+// value_argument with the given name. Used to check whether a nested
+// call in a trailing lambda supplies an argument that the outer call
+// appears to be missing.
+func callSubtreeHasNamedArgument(file *scanner.File, root uint32, name string) bool {
+	if file == nil || root == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(root, "call_expression", func(call uint32) {
+		if found {
+			return
+		}
+		_, args := flatCallExpressionParts(file, call)
+		if args == 0 {
+			return
+		}
+		if flatNamedValueArgument(file, args, name) != 0 {
+			found = true
+		}
+	})
+	return found
+}
+
+// ifExpressionHasElse returns true when an if_expression has an `else`
+// token child. An if_expression with only the then branch has children
+// (if, "(", condition, ")", control_structure_body); adding an else
+// inserts an `else` keyword followed by a second control_structure_body.
+func ifExpressionHasElse(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "if_expression" {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "else" {
+			return true
+		}
+	}
+	return false
+}
+
+// infixOperatorIs returns true when the infix_expression's middle
+// simple_identifier equals `op`. Kotlin models `a to b`, `a shl b`,
+// etc. as infix_expression with children (left, simple_identifier("op"),
+// right).
+func infixOperatorIs(file *scanner.File, idx uint32, op string) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "infix_expression" {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "simple_identifier" && file.FlatNodeText(child) == op {
+			return true
+		}
+	}
+	return false
+}
+
+// infixLeftStringLiteralContent returns the content of the left-hand
+// string_literal of an infix_expression like `"key" to value`, or "" if
+// the left operand is not a non-interpolated string.
+func infixLeftStringLiteralContent(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 || file.FlatType(idx) != "infix_expression" {
+		return ""
+	}
+	left := file.FlatFirstChild(idx)
+	for left != 0 && !file.FlatIsNamed(left) {
+		left = file.FlatNextSib(left)
+	}
+	if left == 0 || file.FlatType(left) != "string_literal" {
+		return ""
+	}
+	if flatContainsStringInterpolation(file, left) {
+		return ""
+	}
+	return stringLiteralContent(file, left)
+}
+
+// androidResourceTypes is the allow-list of Android R-class resource
+// directories recognized by naming-convention rules.
+var androidResourceTypes = map[string]bool{
+	"layout": true, "drawable": true, "string": true, "color": true,
+	"dimen": true, "style": true, "menu": true, "anim": true,
+	"xml": true, "raw": true, "id": true,
+}
+
+// flatNavigationChainIdentifiers returns the dotted segments of a
+// navigation_expression as a slice of identifier names. For
+// `R.layout.foo`, returns ["R", "layout", "foo"]. For a call-result
+// navigation (`foo().bar`), the first segment is "" because the
+// receiver isn't a bare identifier — callers should check len and
+// segments[0].
+func flatNavigationChainIdentifiers(file *scanner.File, idx uint32) []string {
+	if file == nil || idx == 0 || file.FlatType(idx) != "navigation_expression" {
+		return nil
+	}
+	var walk func(uint32) []string
+	walk = func(n uint32) []string {
+		if n == 0 {
+			return nil
+		}
+		switch file.FlatType(n) {
+		case "simple_identifier":
+			return []string{file.FlatNodeText(n)}
+		case "navigation_expression":
+			var out []string
+			for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+				switch file.FlatType(c) {
+				case "simple_identifier":
+					out = append(out, file.FlatNodeText(c))
+				case "navigation_expression":
+					out = append(out, walk(c)...)
+				case "navigation_suffix":
+					if ident, ok := file.FlatFindChild(c, "simple_identifier"); ok {
+						out = append(out, file.FlatNodeText(ident))
+					}
+				}
+			}
+			return out
+		}
+		return nil
+	}
+	return walk(idx)
+}
+
+// stringLiteralContent returns the concatenated text of every
+// string_content child under a string_literal node, which is the
+// runtime value of a non-interpolated string. Callers should first
+// verify there is no interpolation (flatContainsStringInterpolation)
+// since this ignores interpolated segments entirely.
+func stringLiteralContent(file *scanner.File, idx uint32) string {
+	if file == nil || file.FlatType(idx) != "string_literal" {
+		return ""
+	}
+	var b strings.Builder
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "string_content" {
+			b.WriteString(file.FlatNodeText(child))
+		}
+	}
+	return b.String()
+}
+
+// stringLiteralIsRaw returns true when the string_literal node is a
+// triple-quoted raw string (`"""..."""`). Raw strings don't process
+// backslash escapes, so rules that analyze escape sequences should
+// skip them.
+func stringLiteralIsRaw(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "string_literal" {
+		return false
+	}
+	start := file.FlatStartByte(idx)
+	if int(start)+3 > len(file.Content) {
+		return false
+	}
+	return file.Content[start] == '"' && file.Content[start+1] == '"' && file.Content[start+2] == '"'
+}
+
+// propertyInitializerExpression returns the initializer expression node
+// of a property_declaration — the first named child after the `=`
+// token — or 0 when the property has no initializer.
+func propertyInitializerExpression(file *scanner.File, idx uint32) uint32 {
+	if file == nil || idx == 0 || file.FlatType(idx) != "property_declaration" {
+		return 0
+	}
+	seenEquals := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			seenEquals = true
+			continue
+		}
+		if seenEquals && file.FlatIsNamed(child) {
+			return child
+		}
+	}
+	return 0
+}
+
+// propertyDeclarationIsVar returns true when the property_declaration's
+// binding_pattern_kind child carries the `var` keyword. `val` returns
+// false. Used instead of `strings.Contains(propText, "var ")`, which
+// false-positives on property types or initializers that contain the
+// substring "var " (e.g. `val x = "the var keyword"` or
+// `val foo: MutableList<Bar> = ...` containing "var" in a word).
+func propertyDeclarationIsVar(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "property_declaration" {
+		return false
+	}
+	bpk, _ := file.FlatFindChild(idx, "binding_pattern_kind")
+	if bpk == 0 {
+		return false
+	}
+	for c := file.FlatFirstChild(bpk); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "var" {
+			return true
+		}
+	}
+	return false
+}
+
+// classHasCallOn returns true when some call_expression inside the
+// class at classIdx has a receiver identifier equal to receiverName
+// and a callee name in the given set. Used by rules that want to
+// verify "did this class ever invoke X on property Y?" without
+// string-matching the class body text.
+func classHasCallOn(file *scanner.File, classIdx uint32, receiverName string, calleeNames map[string]bool) bool {
+	if file == nil || classIdx == 0 || receiverName == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(classIdx, "call_expression", func(call uint32) {
+		if found {
+			return
+		}
+		if !calleeNames[flatCallExpressionName(file, call)] {
+			return
+		}
+		if flatReceiverNameFromCall(file, call) == receiverName {
+			found = true
+		}
+	})
+	return found
+}
+
+// propertyInitializerCallCalleeName returns the callee name of the
+// property's initializer expression when the initializer is a
+// call_expression, otherwise "". For `val foo = Channel<Int>()` this
+// returns "Channel"; for `val foo = listOf(1,2,3)` it returns "listOf".
+func propertyInitializerCallCalleeName(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 || file.FlatType(idx) != "property_declaration" {
+		return ""
+	}
+	seenEquals := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			seenEquals = true
+			continue
+		}
+		if !seenEquals || !file.FlatIsNamed(child) {
+			continue
+		}
+		if file.FlatType(child) == "call_expression" {
+			return flatCallExpressionName(file, child)
+		}
+		return ""
+	}
+	return ""
+}
+
+// namedArgRHSIsNullLiteral returns true when the RHS of a named
+// value_argument (`name = <expr>`) is the bare `null` keyword. Unlike
+// flatValueArgumentExpression, this walks past unnamed token children
+// so that tree-sitter's `null` keyword (which is not a "named" node) is
+// detected.
+func namedArgRHSIsNullLiteral(file *scanner.File, arg uint32) bool {
+	if file == nil || arg == 0 {
+		return false
+	}
+	seenEquals := false
+	for child := file.FlatFirstChild(arg); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			seenEquals = true
+			continue
+		}
+		if !seenEquals {
+			continue
+		}
+		if file.FlatType(child) == "null" {
+			return true
+		}
+		// Any other non-trivia child means the RHS is a concrete expression
+		// (not null) — bail out.
+		if file.FlatIsNamed(child) {
+			return false
+		}
+	}
+	return false
+}
+
+// subtreeHasCalleeIn walks every call_expression inside `root` and
+// returns true when any callee name is in `names`. The root node itself
+// is excluded — a call's callee is not "inside" the call. Callers use
+// this to ask "does this call's arguments or trailing lambda invoke any
+// of these APIs?".
+func subtreeHasCalleeIn(file *scanner.File, root uint32, names map[string]bool) bool {
+	if file == nil || root == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(root, "call_expression", func(call uint32) {
+		if found || call == root {
+			return
+		}
+		if names[flatCallExpressionName(file, call)] {
+			found = true
+		}
+	})
+	return found
+}
+
+// enclosingFunctionHasCallNamed walks every call_expression under the
+// given function container and returns true when any call OTHER than
+// `except` has a callee in `names`. Used for "did the chain eventually
+// finalize?" checks without touching node text.
+func enclosingFunctionHasCallNamed(file *scanner.File, fn, except uint32, names map[string]bool) bool {
+	if file == nil || fn == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(fn, "call_expression", func(call uint32) {
+		if found || call == except {
+			return
+		}
+		if names[flatCallExpressionName(file, call)] {
+			found = true
+		}
+	})
+	return found
+}
+
+// hasAnnotationNamed returns true when the declaration at idx has a
+// modifier-list annotation whose final name is exactly `name`. Checks
+// both the declaration's `modifiers` child and its immediately preceding
+// sibling (some grammar versions emit modifiers as a sibling node).
+func hasAnnotationNamed(file *scanner.File, idx uint32, name string) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	check := func(container uint32) bool {
+		if container == 0 {
+			return false
+		}
+		found := false
+		file.FlatWalkNodes(container, "annotation", func(ann uint32) {
+			if found {
+				return
+			}
+			ctor, _ := file.FlatFindChild(ann, "constructor_invocation")
+			if ctor != 0 {
+				if annotationConstructorName(file, ctor) == name {
+					found = true
+				}
+				return
+			}
+			// Marker annotation (no constructor call): `@Foo`
+			userType, _ := file.FlatFindChild(ann, "user_type")
+			if userType != 0 {
+				if ident := flatLastChildOfType(file, userType, "type_identifier"); ident != 0 {
+					if file.FlatNodeText(ident) == name {
+						found = true
+					}
+				}
+			}
+		})
+		return found
+	}
+	if mods, ok := file.FlatFindChild(idx, "modifiers"); ok && check(mods) {
+		return true
+	}
+	if prev, ok := file.FlatPrevSibling(idx); ok && check(prev) {
+		return true
+	}
+	return false
+}
+
+// annotationFinalName returns the annotation's final simple name,
+// whether the annotation has a constructor call (`@Foo(...)`) or is a
+// marker (`@Foo`). Compared to annotationConstructorName, this
+// handles both forms transparently.
+func annotationFinalName(file *scanner.File, annotation uint32) string {
+	if file == nil || annotation == 0 || file.FlatType(annotation) != "annotation" {
+		return ""
+	}
+	if ctor, ok := file.FlatFindChild(annotation, "constructor_invocation"); ok {
+		if name := annotationConstructorName(file, ctor); name != "" {
+			return name
+		}
+	}
+	userType, _ := file.FlatFindChild(annotation, "user_type")
+	if userType == 0 {
+		return ""
+	}
+	if ident := flatLastChildOfType(file, userType, "type_identifier"); ident != 0 {
+		return file.FlatNodeText(ident)
+	}
+	return ""
+}
+
+// annotationHasClassLiteralArgIn returns true when the annotation has
+// an argument of the form `SomeName::class` whose final identifier is
+// in `names`. Used by rules like ForbiddenOptIn to match on marker
+// class references without string-scanning the annotation text.
+func annotationHasClassLiteralArgIn(file *scanner.File, annotation uint32, names map[string]bool) bool {
+	ctor, ok := file.FlatFindChild(annotation, "constructor_invocation")
+	if !ok {
+		return false
+	}
+	args, _ := file.FlatFindChild(ctor, "value_arguments")
+	if args == 0 {
+		return false
+	}
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		expr := flatValueArgumentExpression(file, arg)
+		// `Foo::class` is a class_literal with a child naming the type.
+		if expr == 0 || file.FlatType(expr) != "class_literal" {
+			continue
+		}
+		// Last simple_identifier of the class_literal is the class name.
+		name := ""
+		for c := file.FlatFirstChild(expr); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) == "simple_identifier" {
+				name = file.FlatNodeText(c)
+			}
+			if file.FlatType(c) == "navigation_expression" {
+				if n := flatNavigationExpressionLastIdentifier(file, c); n != "" {
+					name = n
+				}
+			}
+		}
+		if name != "" && names[name] {
+			return true
+		}
+	}
+	return false
+}
+
+// annotationHasStringArgIn returns true when the annotation has a
+// value_argument whose expression is a non-interpolated string_literal
+// with content in `names`. Used by rules like ForbiddenSuppress to
+// match on `@Suppress("RuleX")` arguments.
+func annotationHasStringArgIn(file *scanner.File, annotation uint32, names map[string]bool) bool {
+	ctor, ok := file.FlatFindChild(annotation, "constructor_invocation")
+	if !ok {
+		return false
+	}
+	args, _ := file.FlatFindChild(ctor, "value_arguments")
+	if args == 0 {
+		return false
+	}
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		expr := flatValueArgumentExpression(file, arg)
+		if expr == 0 || file.FlatType(expr) != "string_literal" {
+			continue
+		}
+		if flatContainsStringInterpolation(file, expr) {
+			continue
+		}
+		if names[stringLiteralContent(file, expr)] {
+			return true
+		}
+	}
+	return false
+}
+
+// annotationConstructorName returns the final identifier of an annotation's
+// constructor_invocation. For `@foo.bar.IntDef(...)` this returns "IntDef".
+func annotationConstructorName(file *scanner.File, ctor uint32) string {
+	if file == nil || ctor == 0 {
+		return ""
+	}
+	userType, _ := file.FlatFindChild(ctor, "user_type")
+	if userType == 0 {
+		return ""
+	}
+	ident := flatLastChildOfType(file, userType, "type_identifier")
+	if ident == 0 {
+		return ""
+	}
+	return file.FlatNodeText(ident)
+}
+
+// annotationConstantKey returns (canonicalKey, display) for a constant
+// appearing in an annotation argument. Supports numeric literals (key is
+// the literal text), string literals (key is the interpolation-free
+// content prefixed with `"s:"`), and simple identifiers / qualified
+// navigation expressions (key is the dotted FQN prefixed with `"id:"`).
+// Returns ("", "") for expressions we don't recognize as a simple
+// constant reference.
+func annotationConstantKey(file *scanner.File, expr uint32) (key, display string) {
+	if file == nil || expr == 0 {
+		return "", ""
+	}
+	switch file.FlatType(expr) {
+	case "integer_literal", "long_literal", "hex_literal", "bin_literal":
+		t := file.FlatNodeText(expr)
+		return "n:" + t, t
+	case "string_literal":
+		if flatContainsStringInterpolation(file, expr) {
+			return "", ""
+		}
+		c := stringLiteralContent(file, expr)
+		return "s:" + c, `"` + c + `"`
+	case "simple_identifier", "navigation_expression":
+		t := strings.TrimSpace(file.FlatNodeText(expr))
+		return "id:" + t, t
+	}
+	return "", ""
+}
+
+// assignmentRHS returns the expression on the right of `=` in an assignment.
+func assignmentRHS(file *scanner.File, idx uint32) uint32 {
+	if file == nil || idx == 0 || file.FlatType(idx) != "assignment" {
+		return 0
+	}
+	seenEquals := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			seenEquals = true
+			continue
+		}
+		if seenEquals && file.FlatIsNamed(child) {
+			return child
+		}
+	}
+	return 0
+}

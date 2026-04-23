@@ -3,7 +3,6 @@ package rules
 import (
 	"fmt"
 	"math"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1307,9 +1306,7 @@ type CustomViewStyleableRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *CustomViewStyleableRule) Confidence() float64 { return 0.75 }
-
-var obtainStyledAttrsRe = regexp.MustCompile(`obtainStyledAttributes\s*\(\s*\w+\s*,\s*R\.styleable\.(\w+)`)
+func (r *CustomViewStyleableRule) Confidence() float64 { return 0.9 }
 
 type DalvikOverrideRule struct {
 	FlatDispatchBase

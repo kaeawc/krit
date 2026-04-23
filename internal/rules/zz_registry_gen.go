@@ -131,22 +131,11 @@ func registerAllRules() {
 				if cdArg == 0 {
 					return
 				}
-				argText := strings.TrimSpace(file.FlatNodeText(cdArg))
-				if !strings.Contains(argText, "null") {
+				if !namedArgRHSIsNullLiteral(file, cdArg) {
 					return
 				}
-				callText := file.FlatNodeText(idx)
-				if strings.Contains(callText, "clearAndSetSemantics") ||
-					strings.Contains(callText, "invisibleToUser") {
+				if subtreeHasCalleeIn(file, idx, composeSemanticsEscapeHatches) {
 					return
-				}
-				modArg := flatNamedValueArgument(file, args, "modifier")
-				if modArg != 0 {
-					modText := file.FlatNodeText(modArg)
-					if strings.Contains(modText, "clearAndSetSemantics") ||
-						strings.Contains(modText, "invisibleToUser") {
-						return
-					}
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"Decorative image with `contentDescription = null` should use `Modifier.clearAndSetSemantics {}` or `semantics { invisibleToUser() }` to hide from TalkBack.")
@@ -159,27 +148,40 @@ func registerAllRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				name := flatCallName(file, idx)
+				// In the trailing-lambda idiom `IconButton(args) { ... }`,
+				// tree-sitter emits an outer call_expression whose first
+				// named child is the inner `IconButton(args)` call_expression.
+				// Skip the inner call so we evaluate each user-visible call
+				// exactly once, at the outer form where the trailing-lambda
+				// children are actually reachable.
+				if parent, ok := file.FlatParent(idx); ok && file.FlatType(parent) == "call_expression" {
+					first := file.FlatFirstChild(parent)
+					for first != 0 && !file.FlatIsNamed(first) {
+						first = file.FlatNextSib(first)
+					}
+					if first == idx {
+						return
+					}
+				}
+				name := flatCallNameAny(file, idx)
 				if !composeContentDescriptionCalls[name] {
 					return
 				}
 				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					// Outer trailing-lambda form — args live on the nested inner call.
+					args = flatCallKeyArguments(file, idx)
+				}
 				if name == "IconButton" {
-					if args != 0 && flatNamedValueArgument(file, args, "contentDescription") != 0 {
+					// The IconButton itself rarely declares contentDescription —
+					// the Icon child inside its content lambda carries it. Fire
+					// only when NO descendant call_expression anywhere in the
+					// IconButton's subtree uses a contentDescription arg.
+					if callSubtreeHasNamedArgument(file, idx, "contentDescription") {
 						return
-					}
-					text := file.FlatNodeText(idx)
-					if strings.Contains(text, "contentDescription") {
-						return
-					}
-					if parent, ok := file.FlatParent(idx); ok && file.FlatType(parent) == "call_expression" {
-						parentText := file.FlatNodeText(parent)
-						if strings.Contains(parentText, "contentDescription") {
-							return
-						}
 					}
 					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 						"IconButton's Icon is missing `contentDescription`. Set a description for accessibility.")
@@ -190,16 +192,13 @@ func registerAllRules() {
 				}
 				cdArg := flatNamedValueArgument(file, args, "contentDescription")
 				if cdArg != 0 {
-					argText := strings.TrimSpace(file.FlatNodeText(cdArg))
-					if !strings.Contains(argText, "= null") {
+					// Only fire when the value is specifically `null`; any other
+					// expression (even a "" string) is the developer's call.
+					if !namedArgRHSIsNullLiteral(file, cdArg) {
 						return
 					}
-					modArg := flatNamedValueArgument(file, args, "modifier")
-					if modArg != 0 {
-						modText := file.FlatNodeText(modArg)
-						if strings.Contains(modText, "invisibleToUser") || strings.Contains(modText, "clearAndSetSemantics") {
-							return
-						}
+					if subtreeHasCalleeIn(file, idx, composeSemanticsEscapeHatches) {
+						return
 					}
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -213,7 +212,7 @@ func registerAllRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallName(file, idx)
@@ -228,8 +227,8 @@ func registerAllRules() {
 				if firstArg == 0 {
 					return
 				}
-				argText := strings.TrimSpace(file.FlatNodeText(firstArg))
-				if !strings.HasPrefix(argText, "\"") {
+				expr := flatValueArgumentExpression(file, firstArg)
+				if expr == 0 || file.FlatType(expr) != "string_literal" {
 					return
 				}
 				fn, ok := flatEnclosingFunction(file, idx)
@@ -559,11 +558,15 @@ func registerAllRules() {
 			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "/sdcard") || strings.Contains(text, "/mnt/sdcard") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Hardcoded /sdcard path. Use Environment.getExternalStorageDirectory() instead.")
+				if flatContainsStringInterpolation(file, idx) {
+					return
 				}
+				content := stringLiteralContent(file, idx)
+				if !strings.Contains(content, "/sdcard") && !strings.Contains(content, "/mnt/sdcard") {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"Hardcoded /sdcard path. Use Environment.getExternalStorageDirectory() instead.")
 			},
 		})
 	}
@@ -622,14 +625,38 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "assignment"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "setJavaScriptEnabled(true)") || strings.Contains(text, "javaScriptEnabled = true") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Using setJavaScriptEnabled(true). Review for XSS vulnerabilities.")
+				switch file.FlatType(idx) {
+				case "call_expression":
+					if flatCallExpressionName(file, idx) != "setJavaScriptEnabled" {
+						return
+					}
+					args := flatCallKeyArguments(file, idx)
+					firstArg := flatPositionalValueArgument(file, args, 0)
+					if firstArg == 0 {
+						return
+					}
+					expr := flatValueArgumentExpression(file, firstArg)
+					if !isBooleanLiteralTrue(file, expr) {
+						return
+					}
+				case "assignment":
+					// Target's final simple_identifier must be `javaScriptEnabled`
+					target, _ := file.FlatFindChild(idx, "directly_assignable_expression")
+					if target == 0 || finalSimpleIdentifier(file, target) != "javaScriptEnabled" {
+						return
+					}
+					// RHS must be the boolean literal `true`.
+					if !isBooleanLiteralTrue(file, assignmentRHS(file, idx)) {
+						return
+					}
+				default:
+					return
 				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"Using setJavaScriptEnabled(true). Review for XSS vulnerabilities.")
 			},
 		})
 	}
@@ -723,23 +750,23 @@ func registerAllRules() {
 		r := &CommitPrefEditsRule{AndroidRule: alcRule("CommitPrefEdits", "Missing commit() on SharedPreferences editor", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.8, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, ".edit()") {
+				if flatCallExpressionName(file, idx) != "edit" {
 					return
 				}
-				parent, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
+				if args := flatCallKeyArguments(file, idx); args != 0 && file.FlatNamedChildCount(args) > 0 {
+					return // `edit(n)` on a Collection/Array — not SharedPreferences.edit().
+				}
+				fn, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
 				if !ok {
 					return
 				}
-				funcText := file.FlatNodeText(parent)
-				if strings.Contains(funcText, ".edit()") &&
-					!strings.Contains(funcText, ".commit()") &&
-					!strings.Contains(funcText, ".apply()") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "SharedPreferences.edit() without commit() or apply().")
+				if enclosingFunctionHasCallNamed(file, fn, idx, commitOrApplyNames) {
+					return
 				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, "SharedPreferences.edit() without commit() or apply().")
 			},
 		})
 	}
@@ -747,25 +774,20 @@ func registerAllRules() {
 		r := &CommitTransactionRule{AndroidRule: alcRule("CommitTransaction", "Missing commit() on FragmentTransaction", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.8, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "beginTransaction") && !strings.Contains(text, "FragmentTransaction") {
+				if flatCallExpressionName(file, idx) != "beginTransaction" {
 					return
 				}
-				parent, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
+				fn, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
 				if !ok {
 					return
 				}
-				funcText := file.FlatNodeText(parent)
-				if strings.Contains(funcText, "beginTransaction") &&
-					!strings.Contains(funcText, ".commit()") &&
-					!strings.Contains(funcText, ".commitNow()") &&
-					!strings.Contains(funcText, ".commitAllowingStateLoss()") &&
-					!strings.Contains(funcText, ".commitNowAllowingStateLoss()") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "FragmentTransaction without commit(). Call commit() or commitAllowingStateLoss().")
+				if enclosingFunctionHasCallNamed(file, fn, idx, commitTransactionNames) {
+					return
 				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, "FragmentTransaction without commit(). Call commit() or commitAllowingStateLoss().")
 			},
 		})
 	}
@@ -787,25 +809,33 @@ func registerAllRules() {
 		r := &CheckResultRule{AndroidRule: alcRule("CheckResult", "Ignoring results", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.8, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				parent, ok := file.FlatParent(idx)
-				if !ok || file.FlatType(parent) != "expression_statement" {
+				if !ok {
 					return
 				}
-				text := file.FlatNodeText(idx)
-				checkResultMethods := []string{
-					".animate(", ".buildUpon(", ".edit(",
-					"String.format(", ".format(",
-					".trim(", ".replace(",
+				// Require the call's result to be discarded — i.e. the
+				// call_expression is a standalone statement, not the target
+				// of an assignment or the operand of a larger expression.
+				switch file.FlatType(parent) {
+				case "statements", "function_body", "control_structure_body", "block":
+					// fall through
+				default:
+					return
 				}
-				for _, m := range checkResultMethods {
-					if strings.Contains(text, m) {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, "The result of this call is not used. Check if the return value should be consumed.")
-						return
-					}
+				name := flatCallExpressionName(file, idx)
+				if !checkResultCalleeNames[name] {
+					return
 				}
+				// `String.format(...)` is the only one with a required
+				// receiver. For the rest, we flag any receiver or none.
+				if name == "format" && !isReceiverNamed(file, idx, "String") {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"The result of this call is not used. Check if the return value should be consumed.")
 			},
 		})
 	}
@@ -872,27 +902,36 @@ func registerAllRules() {
 		r := &UniqueConstantsRule{AndroidRule: alcRule("UniqueConstants", "Overlapping enumeration constants", ALSError, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"annotation"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"annotation"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "IntDef") && !strings.Contains(text, "StringDef") {
+				ctor, _ := file.FlatFindChild(idx, "constructor_invocation")
+				if ctor == 0 {
 					return
 				}
-				parts := strings.Split(text, ",")
+				name := annotationConstructorName(file, ctor)
+				if name != "IntDef" && name != "StringDef" {
+					return
+				}
+				args, _ := file.FlatFindChild(ctor, "value_arguments")
+				if args == 0 {
+					return
+				}
 				seen := make(map[string]bool)
-				for _, p := range parts {
-					p = strings.TrimSpace(p)
-					for _, tok := range strings.Fields(p) {
-						tok = strings.Trim(tok, "()[]{}\"")
-						if len(tok) > 0 && tok[0] >= '0' && tok[0] <= '9' {
-							if seen[tok] {
-								ctx.EmitAt(file.FlatRow(idx)+1, 1, "Duplicate constant value "+tok+" in annotation definition.")
-								return
-							}
-							seen[tok] = true
-						}
+				for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+					if file.FlatType(arg) != "value_argument" {
+						continue
 					}
+					expr := flatValueArgumentExpression(file, arg)
+					key, display := annotationConstantKey(file, expr)
+					if key == "" {
+						continue
+					}
+					if seen[key] {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Duplicate constant value "+display+" in annotation definition.")
+						return
+					}
+					seen[key] = true
 				}
 			},
 		})
@@ -909,12 +948,11 @@ func registerAllRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				// Check if the function has a @WorkerThread annotation in its preceding sibling.
-				prev, ok := file.FlatPrevSibling(idx)
-				if !ok {
-					return
-				}
-				if !strings.Contains(file.FlatNodeText(prev), "WorkerThread") {
+				// Check if the function has a @WorkerThread annotation. The
+				// modifiers live either as a direct `modifiers` child of the
+				// function_declaration or — in some tree-sitter grammar
+				// versions — as the immediately preceding sibling node.
+				if !hasAnnotationNamed(file, idx, "WorkerThread") {
 					return
 				}
 				// Walk all call_expression nodes in the function body.
@@ -947,8 +985,14 @@ func registerAllRules() {
 			NodeTypes: []string{"string_literal", "line_string_literal", "multi_line_string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := strings.ToUpper(file.FlatNodeText(idx))
-				if strings.Contains(text, "CREATE TABLE") && strings.Contains(text, " STRING") {
+				if file.FlatType(idx) != "string_literal" {
+					return
+				}
+				if flatContainsStringInterpolation(file, idx) {
+					return
+				}
+				upper := strings.ToUpper(stringLiteralContent(file, idx))
+				if strings.Contains(upper, "CREATE TABLE") && strings.Contains(upper, " STRING") {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, "SQLite does not support STRING type. Use TEXT instead.")
 				}
 			},
@@ -1117,25 +1161,33 @@ func registerAllRules() {
 		r := &OverrideAbstractRule{AndroidRule: alcRule("OverrideAbstract", "Missing abstract method overrides", ALSError, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
+				// The class must itself be concrete. `abstract class Foo : Service`
+				// is by definition allowed to defer its abstract parent's
+				// members. file.FlatHasModifier walks the class's modifiers
+				// child directly — no risk of matching "abstract class" inside
+				// a nested declaration or doc comment.
+				if file.FlatHasModifier(idx, "abstract") {
+					return
+				}
 				var baseClass string
 				var required []string
 				for cls, reqs := range abstractClassRequirements {
-					if strings.Contains(text, ": "+cls+"(") || strings.Contains(text, ": "+cls+" ") || strings.Contains(text, ": "+cls+",") || strings.Contains(text, ": "+cls+"{") || strings.Contains(text, ": "+cls+"()") {
+					if classHasSupertypeNamed(file, idx, cls) {
 						baseClass = cls
 						required = reqs
 						break
 					}
 				}
-				if baseClass == "" || strings.Contains(text, "abstract class") {
+				if baseClass == "" {
 					return
 				}
+				overridden := classOverriddenFunctions(file, idx)
 				var missing []string
 				for _, method := range required {
-					if !strings.Contains(text, "override fun "+method+"(") && !strings.Contains(text, "override fun "+method+" (") {
+					if !overridden[method] {
 						missing = append(missing, method)
 					}
 				}
@@ -1149,11 +1201,16 @@ func registerAllRules() {
 		r := &ParcelCreatorRule{AndroidRule: alcRule("ParcelCreator", "Missing Parcelable CREATOR field", ALSError, 3)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "Parcelable") || strings.Contains(text, "@Parcelize") || strings.Contains(text, "Parcelize") || strings.Contains(text, "CREATOR") {
+				if !classHasSupertypeNamed(file, idx, "Parcelable") {
+					return
+				}
+				if hasAnnotationNamed(file, idx, "Parcelize") {
+					return
+				}
+				if classDeclaresStaticProperty(file, idx, "CREATOR") {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1, "Parcelable class missing CREATOR field. Use @Parcelize or add a CREATOR companion.")
@@ -1439,29 +1496,36 @@ func registerAllRules() {
 		r := &CustomViewStyleableRule{AndroidRule: alcRule("CustomViewStyleable", "Mismatched Styleable/Custom View Name", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				m := obtainStyledAttrsRe.FindStringSubmatch(text)
-				if m == nil {
+				if flatCallExpressionName(file, idx) != "obtainStyledAttributes" {
 					return
 				}
-				var className string
-				for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
-					if file.FlatType(parent) == "class_declaration" {
-						classText := file.FlatNodeText(parent)
-						if cm := classNameRe.FindStringSubmatch(classText); cm != nil {
-							className = cm[1]
-						}
-						break
-					}
+				// Second positional arg is R.styleable.<Name> — extract
+				// <Name> via AST navigation rather than regex-matching the
+				// whole call's text.
+				args := flatCallKeyArguments(file, idx)
+				secondArg := flatPositionalValueArgument(file, args, 1)
+				expr := flatValueArgumentExpression(file, secondArg)
+				if expr == 0 || file.FlatType(expr) != "navigation_expression" {
+					return
 				}
-				if className == "" || m[1] == className {
+				styleableName := flatNavigationExpressionLastIdentifier(file, expr)
+				if styleableName == "" {
+					return
+				}
+				// Enclosing class name via AST, not classNameRe text scan.
+				classIdx, ok := flatEnclosingAncestor(file, idx, "class_declaration")
+				if !ok {
+					return
+				}
+				className := extractIdentifierFlat(file, classIdx)
+				if className == "" || styleableName == className {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Custom view '%s' uses R.styleable.%s \u2014 expected R.styleable.%s to match the class name.", className, m[1], className))
+					fmt.Sprintf("Custom view '%s' uses R.styleable.%s \u2014 expected R.styleable.%s to match the class name.", className, styleableName, className))
 			},
 		})
 	}
@@ -1497,19 +1561,16 @@ func registerAllRules() {
 				if firstArg == 0 {
 					return
 				}
-				for expr := file.FlatFirstChild(firstArg); expr != 0; expr = file.FlatNextSib(expr) {
-					if !file.FlatIsNamed(expr) {
-						continue
-					}
-					t := file.FlatType(expr)
-					if t != "line_string_literal" && t != "string_literal" {
-						return
-					}
-					argText := file.FlatNodeText(expr)
-					if strings.Contains(argText, "/") && !strings.Contains(argText, "$") {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Use '$' instead of '/' as inner class separator in class names.")
-					}
+				expr := flatValueArgumentExpression(file, firstArg)
+				if expr == 0 || file.FlatType(expr) != "string_literal" {
 					return
+				}
+				if flatContainsStringInterpolation(file, expr) {
+					return
+				}
+				content := stringLiteralContent(file, expr)
+				if strings.Contains(content, "/") && !strings.Contains(content, "$") {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Use '$' instead of '/' as inner class separator in class names.")
 				}
 			},
 		})
@@ -1546,33 +1607,38 @@ func registerAllRules() {
 			NodeTypes: []string{"string_literal", "line_string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				// Skip triple-quoted (raw) strings — they don't process escapes.
-				if strings.HasPrefix(text, `"""`) {
+				if file.FlatType(idx) != "string_literal" {
 					return
 				}
-				// Strip surrounding quotes to get raw content.
-				if len(text) >= 2 && text[0] == '"' {
-					text = text[1:]
-					if len(text) > 0 && text[len(text)-1] == '"' {
-						text = text[:len(text)-1]
-					}
+				// Raw strings (""" """) don't process escapes — structural
+				// check via stringLiteralIsRaw, not a raw-text prefix match.
+				if stringLiteralIsRaw(file, idx) {
+					return
 				}
-				for i := 0; i < len(text)-1; i++ {
-					if text[i] != '\\' {
+				// Walk string_content children for escape sequences. Content
+				// nodes give us the exact unescaped source span; stitching
+				// them together avoids parsing around the surrounding quotes.
+				for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+					if file.FlatType(child) != "string_content" {
 						continue
 					}
-					next := text[i+1]
-					switch next {
-					case 'n', 't', 'r', '\\', '"', '\'', '$', 'b', 'u', 'f':
-						i++
-					default:
-						if next >= '0' && next <= '9' {
-							i++
+					seg := file.FlatNodeText(child)
+					for i := 0; i < len(seg)-1; i++ {
+						if seg[i] != '\\' {
 							continue
 						}
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Invalid escape sequence '\\"+string(next)+"' in string literal.")
-						i++
+						next := seg[i+1]
+						switch next {
+						case 'n', 't', 'r', '\\', '"', '\'', '$', 'b', 'u', 'f':
+							i++
+						default:
+							if next >= '0' && next <= '9' {
+								i++
+								continue
+							}
+							ctx.EmitAt(file.FlatRow(idx)+1, 1, "Invalid escape sequence '\\"+string(next)+"' in string literal.")
+							i++
+						}
 					}
 				}
 			},
@@ -4449,24 +4515,50 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"as_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				matches := serviceCastRe.FindStringSubmatch(text)
-				if matches == nil {
+				// First named child is the source expression; we want
+				// `getSystemService(...)` calls only.
+				call := file.FlatFirstChild(idx)
+				for call != 0 && !file.FlatIsNamed(call) {
+					call = file.FlatNextSib(call)
+				}
+				if call == 0 || file.FlatType(call) != "call_expression" {
 					return
 				}
-				svcConst := matches[1]
-				castType := matches[2]
+				if flatCallExpressionName(file, call) != "getSystemService" {
+					return
+				}
+				// Pull the service constant's final identifier. Accepts both
+				// `CONNECTIVITY_SERVICE` (simple_identifier) and
+				// `Context.CONNECTIVITY_SERVICE` (navigation_expression).
+				args := flatCallKeyArguments(file, call)
+				firstArg := flatPositionalValueArgument(file, args, 0)
+				expr := flatValueArgumentExpression(file, firstArg)
+				svcConst := ""
+				switch file.FlatType(expr) {
+				case "simple_identifier":
+					svcConst = file.FlatNodeText(expr)
+				case "navigation_expression":
+					svcConst = flatNavigationExpressionLastIdentifier(file, expr)
+				}
 				expectedType, ok := serviceCastMap[svcConst]
 				if !ok {
 					return
 				}
-				if castType != expectedType {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Service cast mismatch: "+svcConst+" should be cast to "+expectedType+", not "+castType+".")
+				// Target type of the cast — last type_identifier of user_type.
+				castType := ""
+				if userType, ok := file.FlatFindChild(idx, "user_type"); ok {
+					if ident := flatLastChildOfType(file, userType, "type_identifier"); ident != 0 {
+						castType = file.FlatNodeText(ident)
+					}
 				}
+				if castType == "" || castType == expectedType {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"Service cast mismatch: "+svcConst+" should be cast to "+expectedType+", not "+castType+".")
 			},
 		})
 	}
@@ -4479,36 +4571,28 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.85, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !toastMakeRe.MatchString(text) {
+				if flatCallExpressionName(file, idx) != "makeText" {
 					return
 				}
-				if strings.Contains(text, ".show()") {
+				if !isReceiverNamed(file, idx, "Toast") {
 					return
 				}
-				for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
-					pt := file.FlatType(parent)
-					if pt == "call_expression" || pt == "navigation_expression" {
-						parentText := file.FlatNodeText(parent)
-						if strings.Contains(parentText, ".show()") {
-							return
-						}
-					}
-					if pt == "function_declaration" || pt == "source_file" {
-						break
-					}
+				// Chained: `Toast.makeText(...).show()` — look upward for an
+				// enclosing call_expression whose callee is `show`.
+				if ancestorCallNameMatches(file, idx, "show") {
+					return
 				}
-				line := file.FlatRow(idx)
-				for j := line + 1; j < len(file.Lines) && j < line+10; j++ {
-					if strings.Contains(file.Lines[j], ".show()") {
+				// Stored then shown: walk the enclosing function's
+				// call_expression nodes for any `show` call. This catches
+				//   val t = Toast.makeText(...)
+				//   t.show()
+				// without a line-scan heuristic.
+				if fn, ok := flatEnclosingFunction(file, idx); ok {
+					if enclosingFunctionHasCallNamed(file, fn, idx, showCallName) {
 						return
-					}
-					trimmed := strings.TrimSpace(file.Lines[j])
-					if strings.HasPrefix(trimmed, "fun ") || strings.HasPrefix(trimmed, "override fun ") {
-						break
 					}
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,
@@ -4538,18 +4622,42 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				matches := sparseArrayRe.FindStringSubmatch(text)
-				if matches == nil {
+				if flatCallExpressionName(file, idx) != "HashMap" {
 					return
 				}
-				keyType := matches[1]
-				suggestion := "SparseArray"
-				if keyType == "Long" {
+				// First type argument's user_type's identifier is the key type.
+				suffix, _ := file.FlatFindChild(idx, "call_suffix")
+				if suffix == 0 {
+					return
+				}
+				typeArgs, _ := file.FlatFindChild(suffix, "type_arguments")
+				if typeArgs == 0 {
+					return
+				}
+				proj := file.FlatFirstChild(typeArgs)
+				for proj != 0 && file.FlatType(proj) != "type_projection" {
+					proj = file.FlatNextSib(proj)
+				}
+				if proj == 0 {
+					return
+				}
+				userType, _ := file.FlatFindChild(proj, "user_type")
+				ident := flatLastChildOfType(file, userType, "type_identifier")
+				if ident == 0 {
+					return
+				}
+				keyType := file.FlatNodeText(ident)
+				var suggestion string
+				switch keyType {
+				case "Int", "Integer":
+					suggestion = "SparseArray"
+				case "Long":
 					suggestion = "LongSparseArray"
+				default:
+					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,
 					"Use "+suggestion+" instead of HashMap<"+keyType+", ...> for better performance on Android.")
@@ -4565,49 +4673,39 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				first := file.FlatChild(idx, 0)
-				if first != 0 && file.FlatType(first) == "simple_identifier" {
-					typeName := file.FlatNodeText(first)
-					if !boxedPrimitiveConstructors[typeName] {
-						return
-					}
-					suffix, _ := file.FlatFindChild(idx, "call_suffix")
-					if suffix != 0 {
-						args, _ := file.FlatFindChild(suffix, "value_arguments")
-						if args != 0 {
-							argCount := 0
-							for i := 0; i < file.FlatChildCount(args); i++ {
-								if file.FlatType(file.FlatChild(args, i)) == "value_argument" {
-									argCount++
-								}
-							}
-							if argCount > 1 {
-								return
-							}
-						}
-					}
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Use "+typeName+".valueOf() instead of new "+typeName+"() constructor for better performance.")
+				// Only fire on calls whose callee is a bare boxed-primitive
+				// identifier — `Integer(42)`, not `Integer.valueOf(42)` (where
+				// flatCallExpressionName returns `valueOf`) nor any qualified
+				// form. This is the one case AOSP Lint flags.
+				typeName := flatCallExpressionName(file, idx)
+				if !boxedPrimitiveConstructors[typeName] {
 					return
 				}
-				text := file.FlatNodeText(idx)
-				matches := valueOfRe.FindStringSubmatch(text)
-				if matches == nil {
+				// Skip if the callee is actually qualified (e.g. `a.Integer(42)`).
+				// For unqualified calls the first named child is a bare
+				// simple_identifier; for qualified calls it's a navigation_expression.
+				firstNamed := file.FlatFirstChild(idx)
+				for firstNamed != 0 && !file.FlatIsNamed(firstNamed) {
+					firstNamed = file.FlatNextSib(firstNamed)
+				}
+				if firstNamed == 0 || file.FlatType(firstNamed) != "simple_identifier" {
 					return
 				}
-				typeName := matches[1]
-				if strings.Contains(text, "class "+typeName) || strings.Contains(text, "fun "+typeName) {
-					return
-				}
-				callPos := strings.Index(text, typeName+"(")
-				if callPos > 0 {
-					prev := text[callPos-1]
-					if prev == ':' || prev == '<' {
-						return
+				// Require exactly one positional argument — `Integer()` zero-arg
+				// and `Integer(x, radix)` multi-arg overloads are not the
+				// single-value boxing we want to flag.
+				args := flatCallKeyArguments(file, idx)
+				argCount := 0
+				for a := file.FlatFirstChild(args); a != 0; a = file.FlatNextSib(a) {
+					if file.FlatType(a) == "value_argument" {
+						argCount++
 					}
+				}
+				if argCount != 1 {
+					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,
 					"Use "+typeName+".valueOf() instead of new "+typeName+"() constructor for better performance.")
@@ -4626,12 +4724,19 @@ func registerAllRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				matches := logTagLiteralRe.FindStringSubmatch(text)
-				if matches == nil {
+				if !isReceiverNamed(file, idx, "Log") || !logMethodNames[flatCallExpressionName(file, idx)] {
 					return
 				}
-				tag := matches[1]
+				args := flatCallKeyArguments(file, idx)
+				firstArg := flatPositionalValueArgument(file, args, 0)
+				expr := flatValueArgumentExpression(file, firstArg)
+				if expr == 0 || file.FlatType(expr) != "string_literal" {
+					return
+				}
+				if flatContainsStringInterpolation(file, expr) {
+					return
+				}
+				tag := stringLiteralContent(file, expr)
 				if len(tag) > 23 {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,
 						"Log tag \""+tag+"\" exceeds the 23 character limit.")
@@ -4668,8 +4773,30 @@ func registerAllRules() {
 				if len(className) > 23 && strings.HasPrefix(className, tagValue) {
 					return
 				}
-				text := file.FlatNodeText(idx)
-				if !logTagRefRe.MatchString(text) {
+				// The class must actually contain a `Log.{v|d|i|w|e|s}(TAG, …)`
+				// call that would expose the mismatch. Walk call_expression
+				// nodes in the class body instead of regex-scanning the whole
+				// class text — the regex version matched `Log.d(TAG, x)`
+				// inside string literals or comments in unrelated methods.
+				classUsesTagInLog := false
+				file.FlatWalkNodes(idx, "call_expression", func(call uint32) {
+					if classUsesTagInLog {
+						return
+					}
+					if !isReceiverNamed(file, call, "Log") {
+						return
+					}
+					if !logMethodNames[flatCallExpressionName(file, call)] {
+						return
+					}
+					args := flatCallKeyArguments(file, call)
+					firstArg := flatPositionalValueArgument(file, args, 0)
+					expr := flatValueArgumentExpression(file, firstArg)
+					if expr != 0 && file.FlatType(expr) == "simple_identifier" && file.FlatNodeText(expr) == "TAG" {
+						classUsesTagInLog = true
+					}
+				})
+				if !classUsesTagInLog {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,
@@ -4768,7 +4895,7 @@ func registerAllRules() {
 		r := &WrongImportRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "WrongImport", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "WrongImport", Brief: "Importing android.R instead of app R", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"import_header"}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
 	}
@@ -4839,14 +4966,12 @@ func registerAllRules() {
 		r := &InstantiatableRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "Instantiatable", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "Instantiatable", Brief: "Registered class not instantiatable", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
 				isComponent := false
 				for _, base := range componentSuperclasses {
-					if strings.Contains(text, ": "+base+"(") || strings.Contains(text, ": "+base+" ") ||
-						strings.Contains(text, ": "+base+",") || strings.Contains(text, ": "+base+"{") {
+					if classHasSupertypeNamed(file, idx, base) {
 						isComponent = true
 						break
 					}
@@ -4854,21 +4979,19 @@ func registerAllRules() {
 				if !isComponent {
 					return
 				}
-				hasPrivateCtor := false
-				for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-					if file.FlatType(child) == "primary_constructor" {
-						ctorText := file.FlatNodeText(child)
-						if strings.Contains(ctorText, "private constructor") || strings.Contains(ctorText, "private ") {
-							hasPrivateCtor = true
-						}
-					}
-				}
-				if strings.Contains(text, "private class ") {
-					hasPrivateCtor = true
-				}
-				if hasPrivateCtor {
+				// The class itself carries `private` when the class is private.
+				if file.FlatHasModifier(idx, "private") {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,
 						"This class is registered as an Android component but cannot be instantiated. Remove the private constructor or add a public no-arg constructor.")
+					return
+				}
+				// Primary constructor's `private` modifier (e.g.
+				// `class Foo private constructor(...)`).
+				if pc, ok := file.FlatFindChild(idx, "primary_constructor"); ok {
+					if file.FlatHasModifier(pc, "private") {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1,
+							"This class is registered as an Android component but cannot be instantiated. Remove the private constructor or add a public no-arg constructor.")
+					}
 				}
 			},
 		})
@@ -4877,16 +5000,13 @@ func registerAllRules() {
 		r := &RtlAwareRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "RtlAware", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "RtlAware", Brief: "Using non-RTL-aware View methods", Category: ALCRTL, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				for old, repl := range rtlAwareMethods {
-					if strings.Contains(text, old) {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1,
-							"Use RTL-aware "+repl+" instead of "+old+" for bidirectional layout support.")
-						return
-					}
+				name := flatCallExpressionName(file, idx)
+				if repl, ok := rtlAwareMethods[name]; ok {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Use RTL-aware "+repl+" instead of "+name+" for bidirectional layout support.")
 				}
 			},
 		})
@@ -4895,12 +5015,15 @@ func registerAllRules() {
 		r := &RtlFieldAccessRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "RtlFieldAccess", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "RtlFieldAccess", Brief: "Direct field access of non-RTL-aware View fields", Category: ALCRTL, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
+				if flatContainsStringInterpolation(file, idx) {
+					return
+				}
+				content := stringLiteralContent(file, idx)
 				for _, field := range rtlFieldNames {
-					if text == "\""+field+"\"" {
+					if content == field {
 						ctx.EmitAt(file.FlatRow(idx)+1, 1,
 							"Direct access to View."+field+" via reflection is not RTL-aware. Use the corresponding getter method instead.")
 						return
@@ -4913,26 +5036,35 @@ func registerAllRules() {
 		r := &GridLayoutRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "GridLayout", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "GridLayout", Brief: "GridLayout without columnCount", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 4, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.85, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !gridLayoutCreateRe.MatchString(text) {
+				if flatCallExpressionName(file, idx) != "GridLayout" {
 					return
 				}
-				startByte := int(file.FlatStartByte(idx))
-				endByte := int(file.FlatEndByte(idx))
-				contextStart := startByte - 200
-				if contextStart < 0 {
-					contextStart = 0
+				// Prefer a structural check against the enclosing statement
+				// group: if any sibling or descendant expression names
+				// `columnCount`, treat it as configured. Fall back to a
+				// bounded byte-window scan when we can't find a statement
+				// container (e.g. the call appears at top-level).
+				var container uint32
+				for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+					t := file.FlatType(p)
+					if t == "statements" || t == "function_body" || t == "class_body" || t == "source_file" {
+						container = p
+						break
+					}
 				}
-				contextEnd := endByte + 200
-				if contextEnd > len(file.Content) {
-					contextEnd = len(file.Content)
-				}
-				context := string(file.Content[contextStart:contextEnd])
-				if strings.Contains(context, "columnCount") {
-					return
+				if container != 0 {
+					hasColumnCount := false
+					file.FlatWalkNodes(container, "simple_identifier", func(ident uint32) {
+						if !hasColumnCount && file.FlatNodeText(ident) == "columnCount" {
+							hasColumnCount = true
+						}
+					})
+					if hasColumnCount {
+						return
+					}
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1, "GridLayout should specify a columnCount. Without it, all children will be in a single row.")
 			},
@@ -4966,15 +5098,23 @@ func registerAllRules() {
 		r := &ResourceNameRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ResourceName", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ResourceName", Brief: "Resource name not in snake_case", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 4, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"navigation_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				for _, m := range resourceRefRe.FindAllStringSubmatch(text, -1) {
-					if !snakeCaseRe.MatchString(m[2]) {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Resource name `R."+m[1]+"."+m[2]+"` should use snake_case.")
-						return
-					}
+				// Structural R.<kind>.<name> decomposition. Require the nav
+				// chain to be exactly three segments rooted at `R`, with
+				// the middle segment in the resource-type allow-list. The
+				// previous regex matched anywhere in the text, including
+				// across unrelated chains and string content.
+				segments := flatNavigationChainIdentifiers(file, idx)
+				if len(segments) != 3 || segments[0] != "R" {
+					return
+				}
+				if !androidResourceTypes[segments[1]] {
+					return
+				}
+				if !snakeCaseRe.MatchString(segments[2]) {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Resource name `R."+segments[1]+"."+segments[2]+"` should use snake_case.")
 				}
 			},
 		})
@@ -4983,11 +5123,13 @@ func registerAllRules() {
 		r := &ProguardRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "Proguard", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "Proguard", Brief: "Obsolete proguard.cfg reference", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 4, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "proguard.cfg") {
+				if flatContainsStringInterpolation(file, idx) {
+					return
+				}
+				if strings.Contains(stringLiteralContent(file, idx), "proguard.cfg") {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Reference to obsolete `proguard.cfg`. Use `proguard-rules.pro` instead.")
 				}
 			},
@@ -5005,11 +5147,14 @@ func registerAllRules() {
 		r := &NfcTechWhitespaceRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "NfcTechWhitespace", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "NfcTechWhitespace", Brief: "Whitespace in NFC tech-list", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "<tech>") && nfcTechRe.MatchString(text) {
+				if flatContainsStringInterpolation(file, idx) {
+					return
+				}
+				content := stringLiteralContent(file, idx)
+				if strings.Contains(content, "<tech>") && nfcTechRe.MatchString(content) {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Whitespace in <tech> element value. NFC tech names must not have leading/trailing whitespace.")
 				}
 			},
@@ -5019,11 +5164,14 @@ func registerAllRules() {
 		r := &LibraryCustomViewRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "LibraryCustomView", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "LibraryCustomView", Brief: "Custom view using hardcoded namespace", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if hardcodedNsRe.MatchString(text) && !strings.Contains(text, "apk/res-auto") && !strings.Contains(text, "apk/res/android") {
+				if flatContainsStringInterpolation(file, idx) {
+					return
+				}
+				content := stringLiteralContent(file, idx)
+				if hardcodedNsRe.MatchString(content) && !strings.Contains(content, "apk/res-auto") && !strings.Contains(content, "apk/res/android") {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Use `http://schemas.android.com/apk/res-auto` instead of a hardcoded package namespace. Hardcoded namespaces don't work in library projects.")
 				}
 			},
@@ -5033,15 +5181,16 @@ func registerAllRules() {
 		r := &UnknownIdInLayoutRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "UnknownIdInLayout", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "UnknownIdInLayout", Brief: "Reference to unknown @id in layout", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"navigation_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				for _, m := range idRefRe.FindAllStringSubmatch(text, -1) {
-					if strings.Contains(m[1], "__") || strings.HasPrefix(m[1], "_") {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Suspicious ID reference `R.id."+m[1]+"`. Verify this ID exists in your layout resources.")
-						return
-					}
+				segments := flatNavigationChainIdentifiers(file, idx)
+				if len(segments) != 3 || segments[0] != "R" || segments[1] != "id" {
+					return
+				}
+				name := segments[2]
+				if strings.Contains(name, "__") || strings.HasPrefix(name, "_") {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Suspicious ID reference `R.id."+name+"`. Verify this ID exists in your layout resources.")
 				}
 			},
 		})
@@ -7045,11 +7194,14 @@ func registerAllRules() {
 		r := &ChannelReceiveWithoutCloseRule{BaseRule: BaseRule{RuleName: "ChannelReceiveWithoutClose", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Channel properties in a class that are never closed, leaking the receiver coroutine."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.85, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "Channel<") && !strings.Contains(text, "Channel(") {
+				// The property's initializer must be a direct call to
+				// `Channel(...)`. Previously any occurrence of "Channel<"
+				// or "Channel(" in the node text would trip — even in
+				// comments or a type annotation like `val x: MyChannel<String>`.
+				if propertyInitializerCallCalleeName(file, idx) != "Channel" {
 					return
 				}
 				propName := extractIdentifierFlat(file, idx)
@@ -7060,8 +7212,7 @@ func registerAllRules() {
 				if !ok {
 					return
 				}
-				classText := file.FlatNodeText(classDecl)
-				if strings.Contains(classText, propName+".close()") || strings.Contains(classText, propName+".close(") {
+				if classHasCallOn(file, classDecl, propName, channelCloseNames) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -7137,11 +7288,13 @@ func registerAllRules() {
 		r := &CoroutineScopeCreatedButNeverCancelledRule{BaseRule: BaseRule{RuleName: "CoroutineScopeCreatedButNeverCancelled", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects CoroutineScope properties in a class that are never cancelled, leaking coroutines."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.85, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "CoroutineScope(") {
+				// Initializer must be a direct `CoroutineScope(...)` call.
+				// Skip properties whose text merely mentions the type in
+				// an annotation or comment.
+				if propertyInitializerCallCalleeName(file, idx) != "CoroutineScope" {
 					return
 				}
 				propName := extractIdentifierFlat(file, idx)
@@ -7152,8 +7305,7 @@ func registerAllRules() {
 				if !ok {
 					return
 				}
-				classText := file.FlatNodeText(classDecl)
-				if strings.Contains(classText, propName+".cancel()") || strings.Contains(classText, propName+".cancel(") {
+				if classHasCallOn(file, classDecl, propName, coroutineScopeCancelNames) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -7985,40 +8137,45 @@ func registerAllRules() {
 			NodeTypes: []string{"if_expression"}, Confidence: 0.95, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				elseIdx := strings.LastIndex(text, "else")
-				if elseIdx < 0 {
-					return
-				}
-				afterElse := text[elseIdx+4:]
-				braceStart := strings.Index(afterElse, "{")
-				if braceStart < 0 {
-					return
-				}
-				braceEnd := strings.Index(afterElse[braceStart:], "}")
-				if braceEnd < 0 {
-					return
-				}
-				body := afterElse[braceStart+1 : braceStart+braceEnd]
-				cleaned := stripComments(body)
-				if strings.TrimSpace(cleaned) == "" {
-					beforeElse := text[:elseIdx]
-					elseLine := file.FlatRow(idx) + strings.Count(beforeElse, "\n") + 1
-					f := r.Finding(file, elseLine, 1,
-						"Empty else block detected.")
-					elseByteStart := int(file.FlatStartByte(idx)) + elseIdx
-					for elseByteStart > 0 && (file.Content[elseByteStart-1] == ' ' || file.Content[elseByteStart-1] == '\t' || file.Content[elseByteStart-1] == '\n' || file.Content[elseByteStart-1] == '\r') {
-						elseByteStart--
+				// Find the `else` token and its companion control_structure_body.
+				var elseTok, elseBody uint32
+				sawElse := false
+				for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+					if file.FlatType(child) == "else" {
+						elseTok = child
+						sawElse = true
+						continue
 					}
-					elseByteEnd := int(file.FlatStartByte(idx)) + elseIdx + 4 + braceStart + braceEnd + 1
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   elseByteStart,
-						EndByte:     elseByteEnd,
-						Replacement: "",
+					if sawElse && file.FlatType(child) == "control_structure_body" {
+						elseBody = child
+						break
 					}
-					ctx.Emit(f)
 				}
+				if elseBody == 0 {
+					return
+				}
+				// Must be a braced body — `else expr` form is never "empty".
+				if !controlBodyHasBraces(file, elseBody) {
+					return
+				}
+				// Empty iff no `statements` child — comments and whitespace
+				// inside the braces don't produce a statements node.
+				if file.FlatHasChildOfType(elseBody, "statements") {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(elseTok)+1, 1,
+					"Empty else block detected.")
+				elseByteStart := int(file.FlatStartByte(elseTok))
+				for elseByteStart > 0 && (file.Content[elseByteStart-1] == ' ' || file.Content[elseByteStart-1] == '\t' || file.Content[elseByteStart-1] == '\n' || file.Content[elseByteStart-1] == '\r') {
+					elseByteStart--
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   elseByteStart,
+					EndByte:     int(file.FlatEndByte(elseBody)),
+					Replacement: "",
+				}
+				ctx.Emit(f)
 			},
 		})
 	}
@@ -11169,28 +11326,8 @@ func registerAllRules() {
 		r := &UselessPostfixExpressionRule{BaseRule: BaseRule{RuleName: "UselessPostfixExpression", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects postfix increment or decrement in return statements where the operation has no effect."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"jump_expression"}, Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !uselessPostfixRe.MatchString(text) {
-					return
-				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Useless postfix expression in return statement. The increment/decrement has no effect.")
-				if m := uselessPostfixFixRe.FindStringSubmatch(text); m != nil {
-					indent := m[1]
-					varName := m[2]
-					op := m[3]
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(idx)),
-						EndByte:     int(file.FlatEndByte(idx)),
-						Replacement: indent + varName + op + "\n" + indent + "return " + varName,
-					}
-				}
-				ctx.Emit(f)
-			},
+			NodeTypes: []string{"jump_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: r.checkUselessPostfixFlat,
 		})
 	}
 
@@ -11203,79 +11340,54 @@ func registerAllRules() {
 			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "===") && !strings.Contains(text, "!==") {
+				left, op, right := equalityOperands(file, idx)
+				if op == 0 {
 					return
 				}
-				if file.FlatChildCount(idx) >= 3 {
-					left := strings.TrimSpace(file.FlatNodeText(file.FlatChild(idx, 0)))
-					right := strings.TrimSpace(file.FlatNodeText(file.FlatChild(idx, file.FlatChildCount(idx)-1)))
-					if left == "null" || right == "null" {
-						return
-					}
-				}
-				trimmed := strings.TrimSpace(text)
-				if (strings.HasPrefix(trimmed, "this === ") || strings.HasPrefix(trimmed, "this !== ")) &&
-					isInsideEqualsMethodFlatType(file, idx) {
+				opType := file.FlatType(op)
+				if opType != "===" && opType != "!==" {
 					return
 				}
-				if parent, ok := file.FlatParent(idx); ok {
-					if pt := file.FlatType(parent); pt == "disjunction_expression" || pt == "conjunction_expression" {
-						parentText := file.FlatNodeText(parent)
-						if strings.Contains(parentText, ".equals(") ||
-							strings.Contains(parentText, ".hasSameContent(") ||
-							strings.Contains(parentText, ".contentEquals(") ||
-							strings.Contains(parentText, ".contentDeepEquals(") ||
-							strings.Contains(parentText, ".sameContentAs(") {
-							return
-						}
-					}
+				if left == 0 || right == 0 {
+					return
 				}
-				if file.FlatChildCount(idx) >= 3 {
-					leftText := strings.TrimSpace(file.FlatNodeText(file.FlatChild(idx, 0)))
-					rightText := strings.TrimSpace(file.FlatNodeText(file.FlatChild(idx, file.FlatChildCount(idx)-1)))
-					if looksLikeEnumConstantRef(leftText) || looksLikeEnumConstantRef(rightText) {
+				// Skip null checks (referential against null is intentional).
+				if file.FlatType(left) == "null" || file.FlatType(right) == "null" {
+					return
+				}
+				// `this === other` inside equals() is idiomatic identity shortcut.
+				if file.FlatType(left) == "this_expression" && isInsideEqualsMethodFlatType(file, idx) {
+					return
+				}
+				// Under a boolean expression that already calls an equals-family
+				// method, the referential compare is the short-circuit fast path.
+				if enclosingBoolExprHasEqualsCall(file, idx, equalsFamilyCallNames) {
+					return
+				}
+				// Enum constants — the identity compare is correct.
+				if looksLikeEnumConstantRef(file.FlatNodeText(left)) || looksLikeEnumConstantRef(file.FlatNodeText(right)) {
+					return
+				}
+				if ctx.Resolver != nil {
+					leftType := ctx.Resolver.ResolveFlatNode(left, file)
+					rightType := ctx.Resolver.ResolveFlatNode(right, file)
+					leftKnown := leftType != nil && leftType.Kind != typeinfer.TypeUnknown
+					rightKnown := rightType != nil && rightType.Kind != typeinfer.TypeUnknown
+					if (leftKnown || rightKnown) && !typeinfer.IsKnownValueType(leftType) && !typeinfer.IsKnownValueType(rightType) {
 						return
-					}
-				}
-				if ctx.Resolver != nil && file.FlatChildCount(idx) >= 3 {
-					leftIdx := file.FlatChild(idx, 0)
-					rightIdx := file.FlatChild(idx, file.FlatChildCount(idx)-1)
-					if leftIdx != 0 && rightIdx != 0 {
-						leftType := ctx.Resolver.ResolveFlatNode(leftIdx, file)
-						rightType := ctx.Resolver.ResolveFlatNode(rightIdx, file)
-						leftKnown := leftType != nil && leftType.Kind != typeinfer.TypeUnknown
-						rightKnown := rightType != nil && rightType.Kind != typeinfer.TypeUnknown
-						if leftKnown || rightKnown {
-							isValueType := typeinfer.IsKnownValueType(leftType) || typeinfer.IsKnownValueType(rightType)
-							if !isValueType {
-								return
-							}
-						}
 					}
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"Referential equality (===, !==) should be avoided. Use structural equality (==, !=) instead.")
-				if file.FlatChildCount(idx) >= 3 {
-					op := file.FlatChild(idx, 1)
-					if op != 0 {
-						opText := file.FlatNodeText(op)
-						var repl string
-						switch opText {
-						case "===":
-							repl = "=="
-						case "!==":
-							repl = "!="
-						}
-						if repl != "" {
-							f.Fix = &scanner.Fix{
-								ByteMode:    true,
-								StartByte:   int(file.FlatStartByte(op)),
-								EndByte:     int(file.FlatEndByte(op)),
-								Replacement: repl,
-							}
-						}
-					}
+				repl := "=="
+				if opType == "!==" {
+					repl = "!="
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(op)),
+					EndByte:     int(file.FlatEndByte(op)),
+					Replacement: repl,
 				}
 				ctx.Emit(f)
 			},
@@ -11292,10 +11404,13 @@ func registerAllRules() {
 				if isTestFile(file.Path) {
 					return
 				}
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "var ") {
+				if !propertyDeclarationIsVar(file, idx) {
 					return
 				}
+				// text is still used downstream for the resolver-less
+				// heuristic factory check (see firstExplicitMutableTypeText
+				// and initializerLooksLikeMutableFactory below).
+				text := file.FlatNodeText(idx)
 				mutableTypes := r.configuredMutableTypes()
 				varDecl, _ := file.FlatFindChild(idx, "variable_declaration")
 				if varDecl == 0 {
@@ -11544,8 +11659,7 @@ func registerAllRules() {
 			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !whenElseRe.MatchString(text) {
+				if !whenHasElseBranchFlat(file, idx) {
 					return
 				}
 				if ctx.Resolver != nil {
@@ -11556,9 +11670,10 @@ func registerAllRules() {
 							return
 						}
 						file.FlatForEachChild(entry, func(cond uint32) {
-							condText := strings.TrimSpace(file.FlatNodeText(cond))
-							if strings.HasPrefix(strings.TrimSpace(condText), "is ") {
-								typeName := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(condText), "is "))
+							if file.FlatType(cond) != "when_condition" {
+								return
+							}
+							if typeName := whenConditionTypeTestName(file, cond); typeName != "" {
 								coveredTypes[typeName] = true
 							}
 						})
@@ -11627,12 +11742,13 @@ func registerAllRules() {
 				}
 				var emitted bool
 				file.FlatWalkNodes(args, "infix_expression", func(infix uint32) {
-					text := file.FlatNodeText(infix)
-					if !strings.Contains(text, " to ") {
+					if !infixOperatorIs(file, infix, "to") {
 						return
 					}
-					parts := strings.SplitN(text, " to ", 2)
-					keyText := strings.Trim(strings.TrimSpace(parts[0]), "\"")
+					keyText := infixLeftStringLiteralContent(file, infix)
+					if keyText == "" {
+						return
+					}
 					if piiKeyPattern.MatchString(keyText) {
 						ctx.EmitAt(file.FlatRow(infix)+1, file.FlatCol(infix)+1, "Analytics event parameter \""+keyText+"\" looks like PII. Avoid sending personally identifiable information to analytics services.")
 						emitted = true
@@ -11741,12 +11857,13 @@ func registerAllRules() {
 					return
 				}
 				file.FlatWalkNodes(args, "infix_expression", func(infix uint32) {
-					text := file.FlatNodeText(infix)
-					if !strings.Contains(text, " to ") {
+					if !infixOperatorIs(file, infix, "to") {
 						return
 					}
-					parts := strings.SplitN(text, " to ", 2)
-					keyText := strings.Trim(strings.TrimSpace(parts[0]), "\"")
+					keyText := infixLeftStringLiteralContent(file, infix)
+					if keyText == "" {
+						return
+					}
 					if piiKeyPattern.MatchString(keyText) {
 						ctx.EmitAt(file.FlatRow(infix)+1, file.FlatCol(infix)+1, "Remote Config default key \""+keyText+"\" looks like PII. Remote Config values are not encrypted at rest.")
 					}
@@ -12297,7 +12414,7 @@ func registerAllRules() {
 		r := &HardcodedLocalhostUrlRule{BaseRule: BaseRule{RuleName: "HardcodedLocalhostUrl", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects hardcoded localhost or 10.0.2.2 URLs in non-test production source files."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
 	}
@@ -12305,7 +12422,7 @@ func registerAllRules() {
 		r := &TestOnlyImportInProductionRule{BaseRule: BaseRule{RuleName: "TestOnlyImportInProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects test framework imports (JUnit, Mockito, MockK, etc.) in non-test source files."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, OriginalV1: r,
+			NodeTypes: []string{"import_header"}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
 	}
@@ -13749,8 +13866,11 @@ func registerAllRules() {
 				if file.FlatHasChildOfType(idx, "enum") {
 					return
 				}
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "serialVersionUID") {
+				// Exact AST lookup: does the class (or its companion object)
+				// declare a property named serialVersionUID? No text
+				// scanning — a string literal or comment mentioning the
+				// name no longer suppresses the warning by accident.
+				if classDeclaresStaticProperty(file, idx, "serialVersionUID") {
 					return
 				}
 				name := extractIdentifierFlat(file, idx)
@@ -13923,8 +14043,11 @@ func registerAllRules() {
 			NodeTypes: []string{"if_expression"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "else") {
+				// Only collapse plain if/then chains — if the if_expression
+				// has an `else` token child (or a second control_structure_body
+				// for the else branch), bail out so we don't suggest
+				// rewriting a conditional with its else branch.
+				if ifExpressionHasElse(file, idx) {
 					return
 				}
 				body, _ := file.FlatFindChild(idx, "control_structure_body")
@@ -14179,25 +14302,31 @@ func registerAllRules() {
 				if strings.HasSuffix(file.Path, ".kts") {
 					return
 				}
-				if parent, ok := file.FlatParent(idx); !ok || (file.FlatType(parent) != "source_file" && file.FlatType(parent) != "companion_object") {
+				if parent, ok := file.FlatParent(idx); !ok {
 					return
+				} else if pt := file.FlatType(parent); pt != "source_file" && pt != "companion_object" {
+					// Top-level, or companion-object-level, only — not
+					// inside nested class bodies or function bodies.
+					if pt == "class_body" {
+						if gp, ok := file.FlatParent(parent); !ok || file.FlatType(gp) != "companion_object" {
+							return
+						}
+					} else {
+						return
+					}
 				}
-				text := file.FlatNodeText(idx)
-				trimmed := strings.TrimSpace(text)
-				if !strings.HasPrefix(trimmed, "val ") {
+				// Must be `val` (not `var`) and not already `const`.
+				if propertyDeclarationIsVar(file, idx) {
 					return
 				}
 				if file.FlatHasModifier(idx, "const") {
 					return
 				}
-				if !strings.Contains(text, "=") {
+				initExpr := propertyInitializerExpression(file, idx)
+				if initExpr == 0 {
 					return
 				}
-				parts := strings.SplitN(text, "=", 2)
-				if len(parts) != 2 {
-					return
-				}
-				init := strings.TrimSpace(parts[1])
+				init := strings.TrimSpace(file.FlatNodeText(initExpr))
 				if isConstant(init) {
 					f := r.Finding(file, file.FlatRow(idx)+1, 1,
 						"Property may be declared as 'const val'.")
@@ -14570,56 +14699,16 @@ func registerAllRules() {
 		r := &DoubleNegativeExpressionRule{BaseRule: BaseRule{RuleName: "DoubleNegativeExpression", RuleSetName: "style", Sev: "warning", Desc: "Detects double negative expressions like !isNotEmpty() that should use the positive variant."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"prefix_expression"}, Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				sub := doubleNegFixRe.FindStringSubmatch(text)
-				if sub == nil {
-					return
-				}
-				var positive string
-				switch sub[3] {
-				case "Empty":
-					positive = sub[1] + "isEmpty()"
-				case "Blank":
-					positive = sub[1] + "isBlank()"
-				case "Null":
-					positive = sub[1] + "isNull()"
-				default:
-					positive = sub[1] + "is" + sub[3] + "()"
-				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Double negative expression. Simplify by using the positive variant.")
-				loc := doubleNegFixRe.FindStringIndex(text)
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   int(file.FlatStartByte(idx)) + loc[0],
-					EndByte:     int(file.FlatStartByte(idx)) + loc[1],
-					Replacement: positive,
-				}
-				ctx.Emit(f)
-			},
+			NodeTypes: []string{"prefix_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: r.checkDoubleNegativeExpressionFlat,
 		})
 	}
 	{
 		r := &DoubleNegativeLambdaRule{BaseRule: BaseRule{RuleName: "DoubleNegativeLambda", RuleSetName: "style", Sev: "warning", Desc: "Detects double negative lambda patterns like filterNot { !predicate } that should use filter."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if filterNotNegRe.MatchString(text) {
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-						"Double negative in '.filterNot { !... }'. Use '.filter { ... }' instead.")
-					return
-				}
-				if noneNegRe.MatchString(text) {
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-						"Double negative in '.none { !... }'. Use '.all { ... }' instead.")
-				}
-			},
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: r.checkDoubleNegativeLambdaFlat,
 		})
 	}
 	{
@@ -14725,7 +14814,7 @@ func registerAllRules() {
 		r := &WildcardImportRule{BaseRule: BaseRule{RuleName: "WildcardImport", RuleSetName: "style", Sev: "warning", Desc: "Detects wildcard import statements that should be replaced with explicit imports."}, ExcludeImports: []string{"java.util.*"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"import_header"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"import_header"}, Confidence: 0.95, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Skip test files and test-fixture Kotlin sources. Fixtures routinely
@@ -14734,18 +14823,24 @@ func registerAllRules() {
 				if isTestFile(file.Path) {
 					return
 				}
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, ".*") {
-					imp := strings.TrimPrefix(strings.TrimSpace(text), "import ")
-					// Skip imports matching exclude list
-					for _, excl := range r.ExcludeImports {
-						if strings.Contains(imp, excl) {
-							return
-						}
-					}
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Wildcard import '%s' should be replaced with explicit imports.", imp))
+				// Wildcard imports carry a `wildcard_import` child node in
+				// tree-sitter-kotlin — an unambiguous structural signal.
+				if !file.FlatHasChildOfType(idx, "wildcard_import") {
+					return
 				}
+				ident, _ := file.FlatFindChild(idx, "identifier")
+				if ident == 0 {
+					return
+				}
+				fqn := file.FlatNodeText(ident)
+				imp := fqn + ".*"
+				for _, excl := range r.ExcludeImports {
+					if strings.Contains(imp, excl) {
+						return
+					}
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					fmt.Sprintf("Wildcard import '%s' should be replaced with explicit imports.", imp))
 			},
 		})
 	}
@@ -14989,43 +15084,46 @@ func registerAllRules() {
 		r := &ForbiddenOptInRule{BaseRule: BaseRule{RuleName: "ForbiddenOptIn", RuleSetName: "style", Sev: "warning", Desc: "Detects @OptIn annotations that opt into experimental APIs."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"annotation"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"annotation"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "OptIn") {
-					// If marker classes are specified, only flag those
-					if len(r.MarkerClasses) > 0 {
-						found := false
-						for _, mc := range r.MarkerClasses {
-							if strings.Contains(text, mc) {
-								found = true
-								break
-							}
-						}
-						if !found {
-							return
-						}
-					}
-					f := r.Finding(file, file.FlatRow(idx)+1, 1,
-						"@OptIn annotation found. Consider removing or handling the experimental API differently.")
-					// Compute byte range to remove annotation line including trailing newline
-					optInStart := int(file.FlatStartByte(idx))
-					for optInStart > 0 && file.Content[optInStart-1] != '\n' {
-						optInStart--
-					}
-					optInEnd := int(file.FlatEndByte(idx))
-					if optInEnd < len(file.Content) && file.Content[optInEnd] == '\n' {
-						optInEnd++
-					}
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   optInStart,
-						EndByte:     optInEnd,
-						Replacement: "",
-					}
-					ctx.Emit(f)
+				if annotationFinalName(file, idx) != "OptIn" {
+					return
 				}
+				// When marker classes are configured, only flag @OptIn
+				// invocations whose argument's ::class receiver matches
+				// one of the configured markers by simple name.
+				if len(r.MarkerClasses) > 0 {
+					want := make(map[string]bool, len(r.MarkerClasses))
+					for _, mc := range r.MarkerClasses {
+						// Allow fully-qualified names; match on the final
+						// segment only.
+						if i := strings.LastIndex(mc, "."); i >= 0 {
+							mc = mc[i+1:]
+						}
+						want[mc] = true
+					}
+					if !annotationHasClassLiteralArgIn(file, idx, want) {
+						return
+					}
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"@OptIn annotation found. Consider removing or handling the experimental API differently.")
+				optInStart := int(file.FlatStartByte(idx))
+				for optInStart > 0 && file.Content[optInStart-1] != '\n' {
+					optInStart--
+				}
+				optInEnd := int(file.FlatEndByte(idx))
+				if optInEnd < len(file.Content) && file.Content[optInEnd] == '\n' {
+					optInEnd++
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   optInStart,
+					EndByte:     optInEnd,
+					Replacement: "",
+				}
+				ctx.Emit(f)
 			},
 		})
 	}
@@ -15033,43 +15131,40 @@ func registerAllRules() {
 		r := &ForbiddenSuppressRule{BaseRule: BaseRule{RuleName: "ForbiddenSuppress", RuleSetName: "style", Sev: "warning", Desc: "Detects @Suppress annotations that silence warnings instead of fixing the underlying issue."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"annotation"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"annotation"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "Suppress") {
-					// If specific rules are configured, only flag those
-					if len(r.Rules) > 0 {
-						found := false
-						for _, rule := range r.Rules {
-							if strings.Contains(text, rule) {
-								found = true
-								break
-							}
-						}
-						if !found {
-							return
-						}
-					}
-					f := r.Finding(file, file.FlatRow(idx)+1, 1,
-						"@Suppress annotation found. Consider fixing the underlying issue.")
-					// Compute byte range to remove annotation line including trailing newline
-					suppressStart := int(file.FlatStartByte(idx))
-					for suppressStart > 0 && file.Content[suppressStart-1] != '\n' {
-						suppressStart--
-					}
-					suppressEnd := int(file.FlatEndByte(idx))
-					if suppressEnd < len(file.Content) && file.Content[suppressEnd] == '\n' {
-						suppressEnd++
-					}
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   suppressStart,
-						EndByte:     suppressEnd,
-						Replacement: "",
-					}
-					ctx.Emit(f)
+				if annotationFinalName(file, idx) != "Suppress" {
+					return
 				}
+				// When specific rule names are configured, require the
+				// annotation to carry one of them as a string literal arg.
+				if len(r.Rules) > 0 {
+					want := make(map[string]bool, len(r.Rules))
+					for _, rule := range r.Rules {
+						want[rule] = true
+					}
+					if !annotationHasStringArgIn(file, idx, want) {
+						return
+					}
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"@Suppress annotation found. Consider fixing the underlying issue.")
+				suppressStart := int(file.FlatStartByte(idx))
+				for suppressStart > 0 && file.Content[suppressStart-1] != '\n' {
+					suppressStart--
+				}
+				suppressEnd := int(file.FlatEndByte(idx))
+				if suppressEnd < len(file.Content) && file.Content[suppressEnd] == '\n' {
+					suppressEnd++
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   suppressStart,
+					EndByte:     suppressEnd,
+					Replacement: "",
+				}
+				ctx.Emit(f)
 			},
 		})
 	}
@@ -15861,34 +15956,39 @@ func registerAllRules() {
 		r := &UseArrayLiteralsInAnnotationsRule{BaseRule: BaseRule{RuleName: "UseArrayLiteralsInAnnotations", RuleSetName: "style", Sev: "warning", Desc: "Detects arrayOf() calls in annotations that should use array literal [] syntax."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"annotation"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"annotation"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "arrayOf(") {
+				// Require an actual call to `arrayOf` somewhere under this
+				// annotation — not just the substring, which fired on
+				// `@Foo("arrayOf(x)" as String)` or KDoc-like usages.
+				var arrayOfCall uint32
+				file.FlatWalkNodes(idx, "call_expression", func(call uint32) {
+					if arrayOfCall != 0 {
+						return
+					}
+					if flatCallExpressionName(file, call) == "arrayOf" {
+						arrayOfCall = call
+					}
+				})
+				if arrayOfCall == 0 {
 					return
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, 1, "Use array literal '[]' syntax in annotations instead of 'arrayOf()'.")
-				nodeStart := int(file.FlatStartByte(idx))
-				loc := strings.Index(text, "arrayOf(")
-				if loc >= 0 {
-					depth := 1
-					start := loc + len("arrayOf(")
-					end := -1
-					for k := start; k < len(text); k++ {
-						if text[k] == '(' {
-							depth++
-						} else if text[k] == ')' {
-							depth--
-							if depth == 0 {
-								end = k
-								break
-							}
-						}
-					}
-					if end >= 0 {
-						inner := text[start:end]
-						f.Fix = &scanner.Fix{ByteMode: true, StartByte: nodeStart, EndByte: int(file.FlatEndByte(idx)), Replacement: text[:loc] + "[" + inner + "]" + text[end+1:]}
+				// Fix: replace the `arrayOf(args)` span with `[args]`. The
+				// args range is precisely the value_arguments node minus
+				// its outer parens, which we reconstruct from the AST
+				// rather than string-scanning for matching parens.
+				args := flatCallKeyArguments(file, arrayOfCall)
+				if args != 0 {
+					argsStart := int(file.FlatStartByte(args))
+					argsEnd := int(file.FlatEndByte(args))
+					inner := string(file.Content[argsStart+1 : argsEnd-1]) // strip the ( )
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   int(file.FlatStartByte(arrayOfCall)),
+						EndByte:     int(file.FlatEndByte(arrayOfCall)),
+						Replacement: "[" + inner + "]",
 					}
 				}
 				ctx.Emit(f)
@@ -16209,18 +16309,36 @@ func registerAllRules() {
 		r := &AlsoCouldBeApplyRule{BaseRule: BaseRule{RuleName: "AlsoCouldBeApply", RuleSetName: "style", Sev: "warning", Desc: "Detects .also {} blocks with multiple it. references that could use .apply {} instead."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, ".also") {
+				if flatCallExpressionName(file, idx) != "also" {
 					return
 				}
-				lambdaStart := strings.Index(text, "{")
-				if lambdaStart < 0 {
+				lambda := flatCallTrailingLambda(file, idx)
+				if lambda == 0 {
 					return
 				}
-				if strings.Count(text[lambdaStart:], "it.") >= 2 {
+				// Count `it.x` dereferences: a simple_identifier `it` whose
+				// NEXT named sibling is a navigation_suffix. This catches
+				// both `navigation_expression` (`it.name` read) and
+				// `directly_assignable_expression` (`it.name = …` LHS)
+				// forms. Two or more means "apply" would read more
+				// naturally than "also".
+				itDotCount := 0
+				file.FlatWalkNodes(lambda, "simple_identifier", func(ident uint32) {
+					if file.FlatNodeText(ident) != "it" {
+						return
+					}
+					next := file.FlatNextSib(ident)
+					for next != 0 && !file.FlatIsNamed(next) {
+						next = file.FlatNextSib(next)
+					}
+					if next != 0 && file.FlatType(next) == "navigation_suffix" {
+						itDotCount++
+					}
+				})
+				if itDotCount >= 2 {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, "'also' with multiple 'it.' references could be replaced with 'apply'.")
 				}
 			},

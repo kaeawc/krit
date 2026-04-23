@@ -1,6 +1,6 @@
 {
   "project": "../../playground/android-app/",
-  "findings_count": 49,
+  "findings_count": 48,
   "findings": [
     {
       "rule": "MagicNumber",
@@ -313,14 +313,6 @@
       "line": 79,
       "col": 0,
       "message": "Magic number '200'. Consider extracting it to a named constant."
-    },
-    {
-      "rule": "ServiceCast",
-      "ruleSet": "android-lint",
-      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
-      "line": 91,
-      "col": 0,
-      "message": "Service cast mismatch: POWER_SERVICE should be cast to PowerManager, not android."
     },
     {
       "rule": "UseEmptyCounterpart",

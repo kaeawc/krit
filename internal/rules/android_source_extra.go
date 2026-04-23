@@ -428,28 +428,34 @@ func viewTagKnownSubtypeOfAny(fqn string, targets []string) bool {
 }
 
 type WrongImportRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
 
-var wrongImportRe = regexp.MustCompile(`^import\s+android\.R\b`)
+// Confidence: tier-1 for this rule because the detection is purely
+// syntactic — an import_header's `identifier` child carries the exact
+// dotted FQN. No symbol resolution is needed and no source-text
+// heuristics are involved.
+func (r *WrongImportRule) Confidence() float64 { return 0.95 }
 
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *WrongImportRule) Confidence() float64 { return 0.75 }
-
+// check runs per import_header node. It flags `import android.R` and
+// any `import android.R.<anything>` (e.g. `android.R.layout`) because
+// these refer to the framework R class rather than the application's
+// generated R. Aliased imports (`import android.R as FR`) are flagged
+// all the same — the alias is syntactic sugar; the underlying import
+// is still wrong.
 func (r *WrongImportRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if wrongImportRe.MatchString(strings.TrimSpace(line)) {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"Importing android.R instead of the application's R class. This may cause resource resolution errors."))
-		}
+	idx, file := ctx.Idx, ctx.File
+	ident, ok := file.FlatFindChild(idx, "identifier")
+	if !ok {
+		return
 	}
+	fqn := file.FlatNodeText(ident)
+	if fqn != "android.R" && !strings.HasPrefix(fqn, "android.R.") {
+		return
+	}
+	ctx.EmitAt(file.FlatRow(idx)+1, 1,
+		"Importing android.R instead of the application's R class. This may cause resource resolution errors.")
 }
 
 type LayoutInflationRule struct {
@@ -1641,7 +1647,15 @@ type RtlAwareRule struct {
 // Classified per roadmap/17.
 func (r *RtlAwareRule) Confidence() float64 { return 0.75 }
 
-var rtlAwareMethods = map[string]string{".getLeft()": ".getStart()", ".getRight()": ".getEnd()", ".getPaddingLeft()": ".getPaddingStart()", ".getPaddingRight()": ".getPaddingEnd()", ".getLeft(": ".getStart(", ".getRight(": ".getEnd(", ".getPaddingLeft(": ".getPaddingStart(", ".getPaddingRight(": ".getPaddingEnd("}
+// rtlAwareMethods maps View member names to their RTL-aware replacements.
+// Keys are bare callee identifiers; the rule uses flatCallExpressionName
+// to match, so there is no need to encode leading `.` / trailing `(`.
+var rtlAwareMethods = map[string]string{
+	"getLeft":          "getStart()",
+	"getRight":         "getEnd()",
+	"getPaddingLeft":   "getPaddingStart()",
+	"getPaddingRight":  "getPaddingEnd()",
+}
 
 type RtlFieldAccessRule struct {
 	FlatDispatchBase
@@ -1669,9 +1683,7 @@ type GridLayoutRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *GridLayoutRule) Confidence() float64 { return 0.75 }
-
-var gridLayoutCreateRe = regexp.MustCompile(`GridLayout\s*\(`)
+func (r *GridLayoutRule) Confidence() float64 { return 0.85 }
 
 type LocaleFolderRule struct {
 	LineBase
@@ -1755,9 +1767,8 @@ type ResourceNameRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ResourceNameRule) Confidence() float64 { return 0.75 }
+func (r *ResourceNameRule) Confidence() float64 { return 0.9 }
 
-var resourceRefRe = regexp.MustCompile(`R\.(layout|drawable|string|color|dimen|style|menu|anim|xml|raw|id)\.([a-zA-Z_]\w*)`)
 var snakeCaseRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 type ProguardRule struct {
@@ -1844,6 +1855,4 @@ type UnknownIdInLayoutRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *UnknownIdInLayoutRule) Confidence() float64 { return 0.75 }
-
-var idRefRe = regexp.MustCompile(`R\.id\.([a-zA-Z_]\w*)`)
+func (r *UnknownIdInLayoutRule) Confidence() float64 { return 0.9 }

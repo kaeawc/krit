@@ -125,10 +125,7 @@ type SparseArrayRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *SparseArrayRule) Confidence() float64 { return 0.75 }
-
-
-var sparseArrayRe = regexp.MustCompile(`(?:^|[^a-zA-Z])HashMap\s*<\s*(Int|Integer|Long)\s*,`)
+func (r *SparseArrayRule) Confidence() float64 { return 0.9 }
 
 // =====================================================================
 // 4. UseValueOfRule
@@ -148,10 +145,8 @@ type UseValueOfRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *UseValueOfRule) Confidence() float64 { return 0.75 }
+func (r *UseValueOfRule) Confidence() float64 { return 0.9 }
 
-
-var valueOfRe = regexp.MustCompile(`\b(Integer|Long|Float|Double|Short|Byte|Boolean|Character)\s*\(`)
 var boxedPrimitiveConstructors = map[string]bool{
 	"Integer":   true,
 	"Long":      true,
@@ -180,10 +175,7 @@ type LogTagLengthRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *LogTagLengthRule) Confidence() float64 { return 0.75 }
-
-
-var logTagLiteralRe = regexp.MustCompile(`\bLog\.[vdiwes]\s*\(\s*"([^"]*)"`)
+func (r *LogTagLengthRule) Confidence() float64 { return 0.9 }
 
 // =====================================================================
 // 6. LogTagMismatchRule (LogDetector.WRONG_TAG)
@@ -206,7 +198,6 @@ func (r *LogTagMismatchRule) Confidence() float64 { return 0.75 }
 
 
 var (
-	logTagRefRe = regexp.MustCompile(`\bLog\.[vdiwes]\s*\(\s*TAG\b`)
 	tagConstRe  = regexp.MustCompile(`(?:const\s+val|val)\s+TAG\s*(?::\s*String)?\s*=\s*"([^"]*)"`)
 	classNameRe = regexp.MustCompile(`(?:class|object)\s+(\w+)`)
 )
@@ -321,8 +312,6 @@ var serviceCastMap = map[string]string{
 	"WINDOW_SERVICE":          "WindowManager",
 }
 
-var serviceCastRe = regexp.MustCompile(`getSystemService\s*\(\s*(?:\w+\.)?(\w+_SERVICE)\s*\)\s*(?:as\s+(\w+))`)
-
 // =====================================================================
 // 9. ToastRule (ShowToast)
 // =====================================================================
@@ -340,7 +329,4 @@ type ToastRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ToastRule) Confidence() float64 { return 0.75 }
-
-
-var toastMakeRe = regexp.MustCompile(`Toast\.makeText\s*\(`)
+func (r *ToastRule) Confidence() float64 { return 0.85 }

@@ -56,6 +56,9 @@ lint-catalog
 # Claude sub-agent worktrees (isolated per-task copies)
 .claude/worktrees/
 
+# Claire agent scratch directory (worktrees, per-task state)
+.claire/
+
 # Local roadmap scratch notes
 /roadmap/[0-9][0-9]-*.md
 

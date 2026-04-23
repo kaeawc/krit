@@ -17,7 +17,7 @@ func (r *CognitiveComplexMethodRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedComplexity",
@@ -42,7 +42,7 @@ func (r *ComplexConditionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedConditions",
@@ -67,7 +67,7 @@ func (r *ComplexInterfaceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedDefinitions",
@@ -110,7 +110,7 @@ func (r *CyclomaticComplexMethodRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedComplexity",
@@ -180,7 +180,7 @@ func (r *LabeledExpressionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "ignoredLabels",
@@ -204,7 +204,7 @@ func (r *LargeClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedLines",
@@ -227,7 +227,7 @@ func (r *LongMethodRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedLines",
@@ -250,7 +250,7 @@ func (r *LongParameterListRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedConstructorParameters",
@@ -311,7 +311,7 @@ func (r *MethodOverloadingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedOverloads",
@@ -336,7 +336,7 @@ func (r *NamedArgumentsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedArguments",
@@ -361,7 +361,7 @@ func (r *NestedBlockDepthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedDepth",
@@ -384,7 +384,7 @@ func (r *NestedScopeFunctionsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedDepth",
@@ -418,7 +418,7 @@ func (r *ReplaceSafeCallChainWithRunRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 	}
 }
 
@@ -431,7 +431,7 @@ func (r *StringLiteralDuplicationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedDuplications",
@@ -483,7 +483,7 @@ func (r *TooManyFunctionsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "f8879d537a9bf115",
+		SourceHash:    "17539c8d57297b72",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "allowedFunctionsPerClass",

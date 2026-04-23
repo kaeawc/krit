@@ -455,6 +455,7 @@ func (d *Daemon) AnalyzeAllWithCallFilter(callFilter *CallTargetFilterSummary) (
 			"callFilterCalleeNames":          callFilter.CalleeNames,
 			"callFilterLexicalHintsByCallee": callFilter.LexicalHintsByCallee,
 			"callFilterLexicalSkipByCallee":  callFilter.LexicalSkipByCallee,
+			"callFilterRuleProfiles":         callFilter.RuleProfiles,
 		}
 	}
 	result, err := d.sendResult("analyzeAll", params)
@@ -500,6 +501,7 @@ func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool,
 		params["callFilterCalleeNames"] = callFilter.CalleeNames
 		params["callFilterLexicalHintsByCallee"] = callFilter.LexicalHintsByCallee
 		params["callFilterLexicalSkipByCallee"] = callFilter.LexicalSkipByCallee
+		params["callFilterRuleProfiles"] = callFilter.RuleProfiles
 	}
 
 	resp, err := d.send("analyzeWithDeps", params)

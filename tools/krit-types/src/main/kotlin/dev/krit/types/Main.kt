@@ -468,12 +468,14 @@ fun parseRequest(json: String): DaemonRequest {
     val callFilterNames = extractJsonStringArray(json, "callFilterCalleeNames")
     val lexicalHints = extractJsonStringArrayMap(json, "callFilterLexicalHintsByCallee").orEmpty()
     val lexicalSkips = extractJsonStringArrayMap(json, "callFilterLexicalSkipByCallee").orEmpty()
+    val ruleProfiles = extractRuleTargetProfiles(json, "callFilterRuleProfiles")
     val callFilter = callFilterNames?.let {
         CallFilter(
             enabled = true,
             calleeNames = it.toSet(),
             lexicalHintsByCallee = lexicalHints.mapValues { entry -> entry.value.toSet() },
-            lexicalSkipByCallee = lexicalSkips.mapValues { entry -> entry.value.toSet() }
+            lexicalSkipByCallee = lexicalSkips.mapValues { entry -> entry.value.toSet() },
+            ruleProfiles = ruleProfiles
         )
     }
     return DaemonRequest(id, method, files, timings, callFilter)
@@ -834,8 +836,8 @@ fun loadCallFilter(path: String?): CallFilter? {
     }
 }
 
-fun extractRuleTargetProfiles(json: String): List<RuleTargetProfile> {
-    val objects = extractJsonObjectArray(json, "ruleProfiles") ?: return emptyList()
+fun extractRuleTargetProfiles(json: String, key: String = "ruleProfiles"): List<RuleTargetProfile> {
+    val objects = extractJsonObjectArray(json, key) ?: return emptyList()
     return objects.mapNotNull { obj ->
         val ruleID = extractJsonString(obj, "ruleID") ?: return@mapNotNull null
         RuleTargetProfile(

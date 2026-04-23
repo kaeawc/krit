@@ -24,20 +24,33 @@ type PrintStackTraceRule struct {
 // sharing the same simple name. Classified per roadmap/17.
 func (r *PrintStackTraceRule) Confidence() float64 { return 0.75 }
 
-// ---------------------------------------------------------------------------
-// asyncBoundaryBaseClasses are base classes where catching generic exceptions
-// is a best practice because they run on background threads and uncaught
-// exceptions would crash the app.
-var asyncBoundaryBaseClasses = map[string]bool{
-	"Job":             true,
-	"BaseJob":         true,
-	"Worker":          true,
-	"CoroutineWorker": true,
-	"Runnable":        true,
-	"Callable":        true,
-	"Thread":          true,
-	"AsyncTask":       true,
-	"TimerTask":       true,
+// asyncBoundaryFQNs is the canonical FQN allow-list of async execution boundaries.
+// Classes that extend one of these types are treated as async boundaries where
+// catching generic exceptions is a best practice.
+var asyncBoundaryFQNs = map[string]bool{
+	"kotlinx.coroutines.Job":              true,
+	"kotlinx.coroutines.AbstractCoroutine": true,
+	"androidx.work.Worker":                true,
+	"androidx.work.CoroutineWorker":       true,
+	"androidx.work.ListenableWorker":      true,
+	"java.util.concurrent.Callable":       true,
+	"java.lang.Runnable":                  true,
+	"android.os.AsyncTask":                true,
+}
+
+// asyncBoundarySimpleToFQN maps unqualified supertype names to their canonical FQN.
+// A "" FQN means the type is always available without an import (java.lang.*).
+var asyncBoundarySimpleToFQN = map[string]string{
+	"Job":               "kotlinx.coroutines.Job",
+	"AbstractCoroutine": "kotlinx.coroutines.AbstractCoroutine",
+	"Worker":            "androidx.work.Worker",
+	"CoroutineWorker":   "androidx.work.CoroutineWorker",
+	"ListenableWorker":  "androidx.work.ListenableWorker",
+	"Callable":          "java.util.concurrent.Callable",
+	"Runnable":          "java.lang.Runnable",
+	"Thread":            "java.lang.Thread",
+	"AsyncTask":         "android.os.AsyncTask",
+	"TimerTask":         "java.util.TimerTask",
 }
 
 // TooGenericExceptionCaughtRule detects catching Exception/Throwable.
@@ -102,7 +115,7 @@ func (r *TooGenericExceptionCaughtRule) checkNode(ctx *v2.Context) {
 	// Skip catches inside Job/Worker/Runnable classes — these are async
 	// execution boundaries where catching generic Exception is a best practice
 	// to prevent uncaught exception crashes.
-	if isInsideAsyncBoundaryFlat(file, idx) {
+	if isInsideAsyncBoundaryFlat(file, idx, ctx.Resolver) {
 		return
 	}
 	// Skip when the caught variable is passed as an argument to any function
@@ -215,7 +228,7 @@ func flatTypeLastIdentifier(file *scanner.File, idx uint32) string {
 	return last
 }
 
-func isInsideAsyncBoundaryFlat(file *scanner.File, idx uint32) bool {
+func isInsideAsyncBoundaryFlat(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) bool {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		if file.FlatType(p) == "lambda_literal" {
 			call := p
@@ -255,18 +268,54 @@ func isInsideAsyncBoundaryFlat(file *scanner.File, idx uint32) bool {
 			if typeName == "" {
 				continue
 			}
-			if asyncBoundaryBaseClasses[typeName] {
+			if resolver != nil {
+				// KAA path: resolve FQN via import table and check against FQN set.
+				fqn := resolver.ResolveImport(typeName, file)
+				if fqn == "" {
+					// Unresolvable — fall through to import-based heuristic.
+				} else if asyncBoundaryFQNs[fqn] {
+					return true
+				} else {
+					continue
+				}
+			}
+			// No-KAA fallback: match simple name AND verify the file imports
+			// the corresponding package. java.lang.* types need no import.
+			fqn, known := asyncBoundarySimpleToFQN[typeName]
+			if !known {
+				continue
+			}
+			if fqn == "java.lang.Runnable" || fqn == "java.lang.Thread" {
+				// java.lang is always available; no import required.
 				return true
 			}
-			if strings.HasSuffix(typeName, "Job") ||
-				strings.HasSuffix(typeName, "Worker") ||
-				strings.HasSuffix(typeName, "Task") {
+			if asyncBoundaryHasImport(file, fqn) {
 				return true
 			}
 		}
 		return false
 	}
 	return false
+}
+
+// asyncBoundaryHasImport reports whether the file contains an import for fqn.
+func asyncBoundaryHasImport(file *scanner.File, fqn string) bool {
+	found := false
+	file.FlatWalkNodes(0, "import_header", func(node uint32) {
+		if found {
+			return
+		}
+		var parts []string
+		file.FlatWalkAllNodes(node, func(child uint32) {
+			switch file.FlatType(child) {
+			case "simple_identifier", "type_identifier":
+				parts = append(parts, file.FlatNodeString(child, nil))
+			}
+		})
+		path := strings.Join(parts, ".")
+		found = path == fqn
+	})
+	return found
 }
 
 func isCatchPartOfTryExpressionFlat(file *scanner.File, catchNode uint32) bool {

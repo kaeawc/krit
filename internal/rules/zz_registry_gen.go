@@ -14128,80 +14128,146 @@ func registerAllRules() {
 		r := &SafeCastRule{BaseRule: BaseRule{RuleName: "SafeCast", RuleSetName: "style", Sev: "warning", Desc: "Detects is-check followed by unsafe cast patterns that should use safe cast as? instead."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"if_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"if_expression", "when_expression"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				var condNode uint32
-				var thenBody uint32
-				foundElse := false
-				for i := 0; i < file.FlatChildCount(idx); i++ {
-					child := file.FlatChild(idx, i)
-					switch file.FlatType(child) {
-					case "parenthesized_expression":
-						if condNode == 0 {
-							condNode = child
-						}
-					case "check_expression", "conjunction_expression", "disjunction_expression":
-						if condNode == 0 {
-							condNode = child
-						}
-					case "control_structure_body":
-						if !foundElse && thenBody == 0 {
-							thenBody = child
-						}
-					case "else":
-						foundElse = true
-					}
-				}
-				if condNode == 0 || thenBody == 0 {
-					return
-				}
-				var isVar, isType string
-				file.FlatWalkAllNodes(condNode, func(n uint32) {
-					if file.FlatType(n) == "check_expression" && isVar == "" {
-						t := file.FlatNodeText(n)
-						parts := strings.SplitN(t, " is ", 2)
-						if len(parts) == 2 {
-							isVar = strings.TrimSpace(parts[0])
-							isType = strings.TrimSpace(parts[1])
+				nodeType := file.FlatType(idx)
+				if nodeType == "if_expression" {
+					var condNode uint32
+					var thenBody uint32
+					foundElse := false
+					for i := 0; i < file.FlatChildCount(idx); i++ {
+						child := file.FlatChild(idx, i)
+						switch file.FlatType(child) {
+						case "parenthesized_expression":
+							if condNode == 0 {
+								condNode = child
+							}
+						case "check_expression", "conjunction_expression", "disjunction_expression":
+							if condNode == 0 {
+								condNode = child
+							}
+						case "control_structure_body":
+							if !foundElse && thenBody == 0 {
+								thenBody = child
+							}
+						case "else":
+							foundElse = true
 						}
 					}
-				})
-				if isVar == "" || isType == "" {
-					return
-				}
-				if strings.ContainsAny(isVar, "()[].") {
-					return
-				}
-				if condNode != 0 && (file.FlatType(condNode) == "conjunction_expression" ||
-					file.FlatType(condNode) == "disjunction_expression") {
-					return
-				}
-				found := false
-				file.FlatWalkAllNodes(thenBody, func(n uint32) {
-					if found {
+					if condNode == 0 || thenBody == 0 {
 						return
 					}
-					if file.FlatType(n) == "as_expression" {
-						t := file.FlatNodeText(n)
-						if strings.Contains(t, "as?") {
-							return
-						}
-						parts := strings.SplitN(t, " as ", 2)
-						if len(parts) == 2 {
-							asVar := strings.TrimSpace(parts[0])
-							asType := strings.TrimSpace(parts[1])
-							if asVar == isVar && asType == isType {
-								found = true
+					var isVar, isType string
+					file.FlatWalkAllNodes(condNode, func(n uint32) {
+						if file.FlatType(n) == "check_expression" && isVar == "" {
+							t := file.FlatNodeText(n)
+							parts := strings.SplitN(t, " is ", 2)
+							if len(parts) == 2 {
+								isVar = strings.TrimSpace(parts[0])
+								isType = strings.TrimSpace(parts[1])
 							}
 						}
+					})
+					if isVar == "" || isType == "" {
+						return
 					}
-				})
-				if !found {
-					return
+					if strings.ContainsAny(isVar, "()[].") {
+						return
+					}
+					if condNode != 0 && (file.FlatType(condNode) == "conjunction_expression" ||
+						file.FlatType(condNode) == "disjunction_expression") {
+						return
+					}
+					found := false
+					file.FlatWalkAllNodes(thenBody, func(n uint32) {
+						if found {
+							return
+						}
+						if file.FlatType(n) == "as_expression" {
+							t := file.FlatNodeText(n)
+							if strings.Contains(t, "as?") {
+								return
+							}
+							parts := strings.SplitN(t, " as ", 2)
+							if len(parts) == 2 {
+								asVar := strings.TrimSpace(parts[0])
+								asType := strings.TrimSpace(parts[1])
+								if asVar == isVar && asType == isType {
+									found = true
+								}
+							}
+						}
+					})
+					if !found {
+						return
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Consider using safe cast 'as?' instead of is-check followed by unsafe cast.")
+				} else if nodeType == "when_expression" {
+					for i := 0; i < file.FlatChildCount(idx); i++ {
+						entry := file.FlatChild(idx, i)
+						if file.FlatType(entry) != "when_entry" {
+							continue
+						}
+						var isVar, isType string
+						var entryBody uint32
+						inCondition := true
+						for j := 0; j < file.FlatChildCount(entry); j++ {
+							child := file.FlatChild(entry, j)
+							switch file.FlatType(child) {
+							case "->":
+								inCondition = false
+							case "control_structure_body":
+								entryBody = child
+							default:
+								if inCondition && isVar == "" {
+									file.FlatWalkAllNodes(child, func(n uint32) {
+										if file.FlatType(n) == "check_expression" && isVar == "" {
+											t := file.FlatNodeText(n)
+											parts := strings.SplitN(t, " is ", 2)
+											if len(parts) == 2 {
+												isVar = strings.TrimSpace(parts[0])
+												isType = strings.TrimSpace(parts[1])
+											}
+										}
+									})
+								}
+							}
+						}
+						if isVar == "" || isType == "" || entryBody == 0 {
+							continue
+						}
+						if strings.ContainsAny(isVar, "()[].") {
+							continue
+						}
+						found := false
+						file.FlatWalkAllNodes(entryBody, func(n uint32) {
+							if found {
+								return
+							}
+							if file.FlatType(n) == "as_expression" {
+								t := file.FlatNodeText(n)
+								if strings.Contains(t, "as?") {
+									return
+								}
+								parts := strings.SplitN(t, " as ", 2)
+								if len(parts) == 2 {
+									asVar := strings.TrimSpace(parts[0])
+									asType := strings.TrimSpace(parts[1])
+									if asVar == isVar && asType == isType {
+										found = true
+									}
+								}
+							}
+						})
+						if found {
+							ctx.EmitAt(file.FlatRow(idx)+1, 1,
+								"Consider using safe cast 'as?' instead of is-check followed by unsafe cast.")
+							return
+						}
+					}
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
-					"Consider using safe cast 'as?' instead of is-check followed by unsafe cast.")
 			},
 		})
 	}
@@ -16893,9 +16959,6 @@ func registerAllRules() {
 										break
 									}
 								}
-							}
-							if recType == "navigation_expression" {
-								return
 							}
 							recText := file.FlatNodeText(receiverNode)
 							if strings.Contains(recText, "?.") {

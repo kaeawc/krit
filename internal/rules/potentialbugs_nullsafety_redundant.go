@@ -920,6 +920,21 @@ func (r *UnnecessarySafeCallRule) check(ctx *v2.Context) {
 		return
 	}
 
+	// If the receiver is a function parameter with an explicit non-null type,
+	// the safe call is always unnecessary — emit directly without waiting for
+	// the resolver or the val-only heuristic (which won't find params).
+	if unnecessarySafeCallNonNullFunctionParamFlat(file, idx, name) {
+		f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			fmt.Sprintf("Unnecessary safe call (?.) on non-nullable parameter '%s'.", name))
+		qIdx := strings.Index(text, "?.")
+		if qIdx >= 0 {
+			start := int(file.FlatStartByte(idx))
+			f.Fix = &scanner.Fix{ByteMode: true, StartByte: start + qIdx, EndByte: start + qIdx + 2, Replacement: "."}
+		}
+		ctx.Emit(f)
+		return
+	}
+
 	// Skip if the name refers to a mutable var property — Kotlin does not
 	// smart-cast mutable properties because the value can change between
 	// the null check and the access.
@@ -1259,6 +1274,48 @@ func unnecessarySafeCallNullableFunctionParamFlat(file *scanner.File, idx uint32
 				}
 			}
 			return false
+		}
+		return false
+	}
+	return false
+}
+
+// unnecessarySafeCallNonNullFunctionParamFlat returns true when `name` is found
+// as a parameter of the enclosing function with an explicit non-null type
+// (i.e., the type annotation exists and does NOT end with "?"). This is the
+// positive complement of unnecessarySafeCallNullableFunctionParamFlat: it lets
+// check() emit a finding immediately rather than relying on the resolver or the
+// val-only heuristic, which cannot see function parameters.
+func unnecessarySafeCallNonNullFunctionParamFlat(file *scanner.File, idx uint32, name string) bool {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		if file.FlatType(p) != "function_declaration" {
+			continue
+		}
+		params, _ := file.FlatFindChild(p, "function_value_parameters")
+		if params == 0 {
+			return false
+		}
+		for i := 0; i < file.FlatChildCount(params); i++ {
+			param := file.FlatChild(params, i)
+			if file.FlatType(param) != "parameter" {
+				continue
+			}
+			paramName := extractIdentifierFlat(file, param)
+			if paramName != name {
+				continue
+			}
+			paramText := file.FlatNodeText(param)
+			colonIdx := strings.Index(paramText, ":")
+			if colonIdx < 0 {
+				// No type annotation — can't confirm non-null; be conservative.
+				return false
+			}
+			typeText := strings.TrimSpace(paramText[colonIdx+1:])
+			if eqIdx := strings.Index(typeText, "="); eqIdx >= 0 {
+				typeText = strings.TrimSpace(typeText[:eqIdx])
+			}
+			// Non-null iff type does not end with "?"
+			return !strings.HasSuffix(typeText, "?")
 		}
 		return false
 	}

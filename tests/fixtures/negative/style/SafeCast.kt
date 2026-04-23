@@ -32,3 +32,20 @@ fun castInElseBranch(x: Any) {
         println(s)
     }
 }
+
+// when-expression with safe cast already (no finding)
+fun processWhenSafe(x: Any) {
+    val s = x as? String
+    println(s ?: "not a string")
+}
+
+// when-expression with different types (no finding)
+fun processWhenDifferentTypes(x: Any) {
+    when (x) {
+        is String -> println(x.length)
+        else -> {
+            val n = x as Number
+            println(n)
+        }
+    }
+}

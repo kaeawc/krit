@@ -14,4 +14,9 @@ class UnnecessarySafeCall {
     fun dottedAccess(obj: Wrapper) {
         val value = obj.property?.name
     }
+
+    // Nullable parameter with default — safe call is justified
+    fun withNullableDefault(s: String? = null) {
+        val len = s?.length
+    }
 }

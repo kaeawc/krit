@@ -15914,34 +15914,39 @@ func registerAllRules() {
 		r := &UseArrayLiteralsInAnnotationsRule{BaseRule: BaseRule{RuleName: "UseArrayLiteralsInAnnotations", RuleSetName: "style", Sev: "warning", Desc: "Detects arrayOf() calls in annotations that should use array literal [] syntax."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"annotation"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"annotation"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "arrayOf(") {
+				// Require an actual call to `arrayOf` somewhere under this
+				// annotation — not just the substring, which fired on
+				// `@Foo("arrayOf(x)" as String)` or KDoc-like usages.
+				var arrayOfCall uint32
+				file.FlatWalkNodes(idx, "call_expression", func(call uint32) {
+					if arrayOfCall != 0 {
+						return
+					}
+					if flatCallExpressionName(file, call) == "arrayOf" {
+						arrayOfCall = call
+					}
+				})
+				if arrayOfCall == 0 {
 					return
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, 1, "Use array literal '[]' syntax in annotations instead of 'arrayOf()'.")
-				nodeStart := int(file.FlatStartByte(idx))
-				loc := strings.Index(text, "arrayOf(")
-				if loc >= 0 {
-					depth := 1
-					start := loc + len("arrayOf(")
-					end := -1
-					for k := start; k < len(text); k++ {
-						if text[k] == '(' {
-							depth++
-						} else if text[k] == ')' {
-							depth--
-							if depth == 0 {
-								end = k
-								break
-							}
-						}
-					}
-					if end >= 0 {
-						inner := text[start:end]
-						f.Fix = &scanner.Fix{ByteMode: true, StartByte: nodeStart, EndByte: int(file.FlatEndByte(idx)), Replacement: text[:loc] + "[" + inner + "]" + text[end+1:]}
+				// Fix: replace the `arrayOf(args)` span with `[args]`. The
+				// args range is precisely the value_arguments node minus
+				// its outer parens, which we reconstruct from the AST
+				// rather than string-scanning for matching parens.
+				args := flatCallKeyArguments(file, arrayOfCall)
+				if args != 0 {
+					argsStart := int(file.FlatStartByte(args))
+					argsEnd := int(file.FlatEndByte(args))
+					inner := string(file.Content[argsStart+1 : argsEnd-1]) // strip the ( )
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   int(file.FlatStartByte(arrayOfCall)),
+						EndByte:     int(file.FlatEndByte(arrayOfCall)),
+						Replacement: "[" + inner + "]",
 					}
 				}
 				ctx.Emit(f)
@@ -16262,18 +16267,36 @@ func registerAllRules() {
 		r := &AlsoCouldBeApplyRule{BaseRule: BaseRule{RuleName: "AlsoCouldBeApply", RuleSetName: "style", Sev: "warning", Desc: "Detects .also {} blocks with multiple it. references that could use .apply {} instead."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, ".also") {
+				if flatCallExpressionName(file, idx) != "also" {
 					return
 				}
-				lambdaStart := strings.Index(text, "{")
-				if lambdaStart < 0 {
+				lambda := flatCallTrailingLambda(file, idx)
+				if lambda == 0 {
 					return
 				}
-				if strings.Count(text[lambdaStart:], "it.") >= 2 {
+				// Count `it.x` dereferences: a simple_identifier `it` whose
+				// NEXT named sibling is a navigation_suffix. This catches
+				// both `navigation_expression` (`it.name` read) and
+				// `directly_assignable_expression` (`it.name = …` LHS)
+				// forms. Two or more means "apply" would read more
+				// naturally than "also".
+				itDotCount := 0
+				file.FlatWalkNodes(lambda, "simple_identifier", func(ident uint32) {
+					if file.FlatNodeText(ident) != "it" {
+						return
+					}
+					next := file.FlatNextSib(ident)
+					for next != 0 && !file.FlatIsNamed(next) {
+						next = file.FlatNextSib(next)
+					}
+					if next != 0 && file.FlatType(next) == "navigation_suffix" {
+						itDotCount++
+					}
+				})
+				if itDotCount >= 2 {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, "'also' with multiple 'it.' references could be replaced with 'apply'.")
 				}
 			},

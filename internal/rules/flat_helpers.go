@@ -443,6 +443,10 @@ var channelCloseNames = map[string]bool{"close": true}
 // methods that stop the launched coroutines.
 var coroutineScopeCancelNames = map[string]bool{"cancel": true}
 
+// arrayOfCalleeNames matches the Kotlin stdlib arrayOf / *ArrayOf
+// factory functions used inside annotations.
+var arrayOfCalleeNames = map[string]bool{"arrayOf": true}
+
 // isReceiverNamed returns true when the call_expression at idx is invoked
 // through a navigation whose first identifier equals `name`. Matches
 // `Toast.makeText(...)` when called with `name == "Toast"`. Returns false

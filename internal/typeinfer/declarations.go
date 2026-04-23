@@ -248,10 +248,12 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 		return
 	}
 
+	name = scanner.InternString(name)
 	fqn := name
 	if pkg != "" {
 		fqn = pkg + "." + name
 	}
+	fqn = scanner.InternString(fqn)
 
 	info := &ClassInfo{
 		Name:       name,
@@ -319,10 +321,12 @@ func (r *defaultResolver) indexObjectFlat(flatIdx uint32, file *scanner.File, it
 		return
 	}
 
+	name = scanner.InternString(name)
 	fqn := name
 	if pkg != "" {
 		fqn = pkg + "." + name
 	}
+	fqn = scanner.InternString(fqn)
 
 	supertypes := flatDeclarationSupertypes(file, flatIdx)
 	mods := flatReadModifierFlags(file, flatIdx)
@@ -408,7 +412,7 @@ func flatExtractSupertypes(file *scanner.File, idx uint32) []string {
 			}
 			text = strings.TrimSpace(text)
 			if text != "" {
-				supertypes = append(supertypes, text)
+				supertypes = append(supertypes, scanner.InternString(text))
 			}
 		}
 	})

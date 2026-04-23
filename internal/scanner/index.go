@@ -825,6 +825,7 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 			if name == "" {
 				return
 			}
+			name = internString(name)
 			sym := Symbol{
 				Name:       name,
 				Kind:       "function",
@@ -846,6 +847,7 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 			if name == "" {
 				return
 			}
+			name = internString(name)
 			kind := "class"
 			text := file.FlatNodeText(idx)
 			if strings.Contains(text, "interface ") {
@@ -868,6 +870,7 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 			if name == "" {
 				return
 			}
+			name = internString(name)
 			*symbols = append(*symbols, Symbol{
 				Name:       name,
 				Kind:       "object",
@@ -896,6 +899,7 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 			if name == "" || name == "_" {
 				return
 			}
+			name = internString(name)
 			*symbols = append(*symbols, Symbol{
 				Name:       name,
 				Kind:       "property",

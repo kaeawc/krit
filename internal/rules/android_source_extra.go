@@ -1647,7 +1647,15 @@ type RtlAwareRule struct {
 // Classified per roadmap/17.
 func (r *RtlAwareRule) Confidence() float64 { return 0.75 }
 
-var rtlAwareMethods = map[string]string{".getLeft()": ".getStart()", ".getRight()": ".getEnd()", ".getPaddingLeft()": ".getPaddingStart()", ".getPaddingRight()": ".getPaddingEnd()", ".getLeft(": ".getStart(", ".getRight(": ".getEnd(", ".getPaddingLeft(": ".getPaddingStart(", ".getPaddingRight(": ".getPaddingEnd("}
+// rtlAwareMethods maps View member names to their RTL-aware replacements.
+// Keys are bare callee identifiers; the rule uses flatCallExpressionName
+// to match, so there is no need to encode leading `.` / trailing `(`.
+var rtlAwareMethods = map[string]string{
+	"getLeft":          "getStart()",
+	"getRight":         "getEnd()",
+	"getPaddingLeft":   "getPaddingStart()",
+	"getPaddingRight":  "getPaddingEnd()",
+}
 
 type RtlFieldAccessRule struct {
 	FlatDispatchBase

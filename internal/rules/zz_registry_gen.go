@@ -988,8 +988,14 @@ func registerAllRules() {
 			NodeTypes: []string{"string_literal", "line_string_literal", "multi_line_string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := strings.ToUpper(file.FlatNodeText(idx))
-				if strings.Contains(text, "CREATE TABLE") && strings.Contains(text, " STRING") {
+				if file.FlatType(idx) != "string_literal" {
+					return
+				}
+				if flatContainsStringInterpolation(file, idx) {
+					return
+				}
+				upper := strings.ToUpper(stringLiteralContent(file, idx))
+				if strings.Contains(upper, "CREATE TABLE") && strings.Contains(upper, " STRING") {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, "SQLite does not support STRING type. Use TEXT instead.")
 				}
 			},
@@ -4958,14 +4964,12 @@ func registerAllRules() {
 		r := &InstantiatableRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "Instantiatable", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "Instantiatable", Brief: "Registered class not instantiatable", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
 				isComponent := false
 				for _, base := range componentSuperclasses {
-					if strings.Contains(text, ": "+base+"(") || strings.Contains(text, ": "+base+" ") ||
-						strings.Contains(text, ": "+base+",") || strings.Contains(text, ": "+base+"{") {
+					if classHasSupertypeNamed(file, idx, base) {
 						isComponent = true
 						break
 					}
@@ -4973,21 +4977,19 @@ func registerAllRules() {
 				if !isComponent {
 					return
 				}
-				hasPrivateCtor := false
-				for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-					if file.FlatType(child) == "primary_constructor" {
-						ctorText := file.FlatNodeText(child)
-						if strings.Contains(ctorText, "private constructor") || strings.Contains(ctorText, "private ") {
-							hasPrivateCtor = true
-						}
-					}
-				}
-				if strings.Contains(text, "private class ") {
-					hasPrivateCtor = true
-				}
-				if hasPrivateCtor {
+				// The class itself carries `private` when the class is private.
+				if file.FlatHasModifier(idx, "private") {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,
 						"This class is registered as an Android component but cannot be instantiated. Remove the private constructor or add a public no-arg constructor.")
+					return
+				}
+				// Primary constructor's `private` modifier (e.g.
+				// `class Foo private constructor(...)`).
+				if pc, ok := file.FlatFindChild(idx, "primary_constructor"); ok {
+					if file.FlatHasModifier(pc, "private") {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1,
+							"This class is registered as an Android component but cannot be instantiated. Remove the private constructor or add a public no-arg constructor.")
+					}
 				}
 			},
 		})
@@ -4996,16 +4998,13 @@ func registerAllRules() {
 		r := &RtlAwareRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "RtlAware", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "RtlAware", Brief: "Using non-RTL-aware View methods", Category: ALCRTL, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				for old, repl := range rtlAwareMethods {
-					if strings.Contains(text, old) {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1,
-							"Use RTL-aware "+repl+" instead of "+old+" for bidirectional layout support.")
-						return
-					}
+				name := flatCallExpressionName(file, idx)
+				if repl, ok := rtlAwareMethods[name]; ok {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						"Use RTL-aware "+repl+" instead of "+name+" for bidirectional layout support.")
 				}
 			},
 		})
@@ -5014,12 +5013,15 @@ func registerAllRules() {
 		r := &RtlFieldAccessRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "RtlFieldAccess", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "RtlFieldAccess", Brief: "Direct field access of non-RTL-aware View fields", Category: ALCRTL, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
+				if flatContainsStringInterpolation(file, idx) {
+					return
+				}
+				content := stringLiteralContent(file, idx)
 				for _, field := range rtlFieldNames {
-					if text == "\""+field+"\"" {
+					if content == field {
 						ctx.EmitAt(file.FlatRow(idx)+1, 1,
 							"Direct access to View."+field+" via reflection is not RTL-aware. Use the corresponding getter method instead.")
 						return

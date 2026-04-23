@@ -454,9 +454,41 @@ func ancestorCallNameMatches(file *scanner.File, idx uint32, name string) bool {
 	return false
 }
 
+// classOverriddenFunctions returns the set of function names declared
+// with the `override` modifier at class-top-level. Used by rules that
+// need to answer "did this subclass override method X?" without scanning
+// source text for `override fun X(`.
+func classOverriddenFunctions(file *scanner.File, classIdx uint32) map[string]bool {
+	out := map[string]bool{}
+	if file == nil || classIdx == 0 {
+		return out
+	}
+	body, _ := file.FlatFindChild(classIdx, "class_body")
+	if body == 0 {
+		return out
+	}
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "function_declaration" {
+			continue
+		}
+		if !file.FlatHasModifier(child, "override") {
+			continue
+		}
+		ident, _ := file.FlatFindChild(child, "simple_identifier")
+		if ident == 0 {
+			continue
+		}
+		out[file.FlatNodeText(ident)] = true
+	}
+	return out
+}
+
 // classHasSupertypeNamed returns true when the class_declaration at idx
-// lists a supertype whose final type_identifier equals `name`. For
-// `class Foo : pkg.Parcelable`, `name == "Parcelable"` matches.
+// lists a supertype whose final type_identifier equals `name`. Covers
+// both interface form (`: Foo`, delegation_specifier→user_type) and
+// class form with a constructor call (`: Foo()`,
+// delegation_specifier→constructor_invocation→user_type). Works for
+// qualified receivers like `: pkg.sub.Foo[()]`.
 func classHasSupertypeNamed(file *scanner.File, idx uint32, name string) bool {
 	if file == nil || idx == 0 || file.FlatType(idx) != "class_declaration" {
 		return false
@@ -466,6 +498,12 @@ func classHasSupertypeNamed(file *scanner.File, idx uint32, name string) bool {
 			continue
 		}
 		userType, _ := file.FlatFindChild(child, "user_type")
+		if userType == 0 {
+			// `: Foo(args)` form — user_type lives under constructor_invocation.
+			if ctor, ok := file.FlatFindChild(child, "constructor_invocation"); ok {
+				userType, _ = file.FlatFindChild(ctor, "user_type")
+			}
+		}
 		if userType == 0 {
 			continue
 		}

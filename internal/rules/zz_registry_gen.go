@@ -1158,25 +1158,33 @@ func registerAllRules() {
 		r := &OverrideAbstractRule{AndroidRule: alcRule("OverrideAbstract", "Missing abstract method overrides", ALSError, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
+				// The class must itself be concrete. `abstract class Foo : Service`
+				// is by definition allowed to defer its abstract parent's
+				// members. file.FlatHasModifier walks the class's modifiers
+				// child directly — no risk of matching "abstract class" inside
+				// a nested declaration or doc comment.
+				if file.FlatHasModifier(idx, "abstract") {
+					return
+				}
 				var baseClass string
 				var required []string
 				for cls, reqs := range abstractClassRequirements {
-					if strings.Contains(text, ": "+cls+"(") || strings.Contains(text, ": "+cls+" ") || strings.Contains(text, ": "+cls+",") || strings.Contains(text, ": "+cls+"{") || strings.Contains(text, ": "+cls+"()") {
+					if classHasSupertypeNamed(file, idx, cls) {
 						baseClass = cls
 						required = reqs
 						break
 					}
 				}
-				if baseClass == "" || strings.Contains(text, "abstract class") {
+				if baseClass == "" {
 					return
 				}
+				overridden := classOverriddenFunctions(file, idx)
 				var missing []string
 				for _, method := range required {
-					if !strings.Contains(text, "override fun "+method+"(") && !strings.Contains(text, "override fun "+method+" (") {
+					if !overridden[method] {
 						missing = append(missing, method)
 					}
 				}

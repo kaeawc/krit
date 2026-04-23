@@ -445,8 +445,6 @@ type DontDowncastCollectionTypesRule struct {
 // resolver. Classified per roadmap/17.
 func (r *DontDowncastCollectionTypesRule) Confidence() float64 { return 0.75 }
 
-var mutableCollectionCastRe = regexp.MustCompile(`\bas\s+(Mutable(?:List|Set|Map|Collection|Iterator|ListIterator|Iterable))\b`)
-
 var mutableCollectionToMethodMap = map[string]string{
 	"MutableList":         "toMutableList()",
 	"MutableSet":          "toMutableSet()",
@@ -462,6 +460,105 @@ var immutableToMutableMap = map[string]string{
 	"List": "MutableList", "Set": "MutableSet", "Map": "MutableMap",
 	"Collection": "MutableCollection", "Iterable": "MutableIterable",
 	"Iterator": "MutableIterator", "ListIterator": "MutableListIterator",
+}
+
+func (r *DontDowncastCollectionTypesRule) check(ctx *v2.Context) {
+	file, idx := ctx.File, ctx.Idx
+	if file == nil || idx == 0 {
+		return
+	}
+
+	// Walk as_expression children: find source expression (before 'as') and type node (after 'as').
+	var sourceIdx, typeNode uint32
+	seenAs := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		ct := file.FlatType(child)
+		if ct == "as" || ct == "as?" {
+			seenAs = true
+			continue
+		}
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		if !seenAs {
+			sourceIdx = child
+		} else if typeNode == 0 {
+			typeNode = child
+		}
+	}
+	if typeNode == 0 {
+		return
+	}
+
+	// Resolve the base user_type (unwrap nullable_type if needed).
+	baseType := typeNode
+	if file.FlatType(typeNode) == "nullable_type" {
+		inner, ok := file.FlatFindChild(typeNode, "user_type")
+		if !ok {
+			return
+		}
+		baseType = inner
+	}
+	if file.FlatType(baseType) != "user_type" {
+		return
+	}
+	typeIdent, ok := file.FlatFindChild(baseType, "type_identifier")
+	if !ok {
+		return
+	}
+	targetType := file.FlatNodeText(typeIdent)
+
+	if _, ok := mutableCollectionToMethodMap[targetType]; !ok {
+		return
+	}
+
+	// If KAA available: only emit when source is the corresponding immutable interface.
+	if ctx.Resolver != nil && sourceIdx != 0 {
+		sourceType := ctx.Resolver.ResolveFlatNode(sourceIdx, file)
+		if sourceType.Kind != typeinfer.TypeUnknown {
+			expectedImmutable := ""
+			for immutable, mutable := range immutableToMutableMap {
+				if mutable == targetType {
+					expectedImmutable = immutable
+					break
+				}
+			}
+			if expectedImmutable != "" && sourceType.Name != expectedImmutable {
+				info := ctx.Resolver.ClassHierarchy(sourceType.Name)
+				if info != nil {
+					isCollectionSupertype := false
+					for _, st := range info.Supertypes {
+						parts := strings.Split(st, ".")
+						stName := parts[len(parts)-1]
+						if stName == expectedImmutable {
+							isCollectionSupertype = true
+							break
+						}
+					}
+					if !isCollectionSupertype {
+						return
+					}
+				}
+			}
+		}
+	}
+
+	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		fmt.Sprintf("Don't downcast collection type to '%s'. This can lead to unexpected mutations.", targetType))
+
+	if sourceIdx != 0 {
+		expr := file.FlatNodeText(sourceIdx)
+		if method, ok := mutableCollectionToMethodMap[targetType]; ok {
+			f.Fix = &scanner.Fix{
+				ByteMode:    true,
+				StartByte:   int(file.FlatStartByte(idx)),
+				EndByte:     int(file.FlatEndByte(idx)),
+				Replacement: expr + "." + method,
+			}
+		}
+	}
+
+	ctx.Emit(f)
 }
 
 // ---------------------------------------------------------------------------

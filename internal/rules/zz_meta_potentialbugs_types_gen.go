@@ -17,7 +17,7 @@ func (r *AvoidReferentialEqualityRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "1a2df18fb989f80c",
+		SourceHash:    "297cdd027adb23d7",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "forbiddenTypePatterns",
@@ -41,7 +41,7 @@ func (r *CharArrayToStringCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "1a2df18fb989f80c",
+		SourceHash:    "297cdd027adb23d7",
 	}
 }
 
@@ -54,7 +54,7 @@ func (r *DontDowncastCollectionTypesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "1a2df18fb989f80c",
+		SourceHash:    "297cdd027adb23d7",
 	}
 }
 
@@ -67,7 +67,7 @@ func (r *DoubleMutabilityForCollectionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "1a2df18fb989f80c",
+		SourceHash:    "297cdd027adb23d7",
 		Options: []registry.ConfigOption{
 			{
 				Name:        "mutableTypes",
@@ -91,7 +91,7 @@ func (r *ElseCaseInsteadOfExhaustiveWhenRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1a2df18fb989f80c",
+		SourceHash:    "297cdd027adb23d7",
 	}
 }
 
@@ -104,7 +104,7 @@ func (r *EqualsAlwaysReturnsTrueOrFalseRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1a2df18fb989f80c",
+		SourceHash:    "297cdd027adb23d7",
 	}
 }
 
@@ -117,7 +117,7 @@ func (r *EqualsWithHashCodeExistRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		SourceHash:    "1a2df18fb989f80c",
+		SourceHash:    "297cdd027adb23d7",
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *ImplicitUnitReturnTypeRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		SourceHash:    "1a2df18fb989f80c",
+		SourceHash:    "297cdd027adb23d7",
 	}
 }
 
@@ -143,6 +143,6 @@ func (r *WrongEqualsTypeParameterRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		SourceHash:    "1a2df18fb989f80c",
+		SourceHash:    "297cdd027adb23d7",
 	}
 }

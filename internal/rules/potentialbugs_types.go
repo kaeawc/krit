@@ -1,11 +1,13 @@
 package rules
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // ---------------------------------------------------------------------------
@@ -219,9 +221,67 @@ type WrongEqualsTypeParameterRule struct {
 // fallback is heuristic. Classified per roadmap/17.
 func (r *WrongEqualsTypeParameterRule) Confidence() float64 { return 0.75 }
 
-var wrongEqualsRe = regexp.MustCompile(`(?:override\s+)?fun\s+equals\s*\(\s*(?:other|obj)\s*:\s*(\w+\??)`)
-
-var wrongEqualsFixRe = regexp.MustCompile(`(fun\s+equals\s*\(\s*(?:other|obj)\s*:\s*)\w+\??`)
+func (r *WrongEqualsTypeParameterRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
+	if !file.FlatHasModifier(idx, "override") {
+		return
+	}
+	if extractIdentifierFlat(file, idx) != "equals" {
+		return
+	}
+	params, ok := file.FlatFindChild(idx, "function_value_parameters")
+	if !ok {
+		return
+	}
+	var firstParam uint32
+	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "parameter" {
+			firstParam = child
+			break
+		}
+	}
+	if firstParam == 0 {
+		return
+	}
+	var typeNode uint32
+	isNullable := false
+	for child := file.FlatFirstChild(firstParam); child != 0; child = file.FlatNextSib(child) {
+		ct := file.FlatType(child)
+		if ct == "nullable_type" {
+			typeNode = child
+			isNullable = true
+			break
+		}
+		if ct == "user_type" {
+			typeNode = child
+			break
+		}
+	}
+	if typeNode == 0 {
+		return
+	}
+	typeText := file.FlatNodeText(typeNode)
+	typeName := typeText
+	if i := strings.Index(typeName, "?"); i >= 0 {
+		typeName = typeName[:i]
+	}
+	if i := strings.Index(typeName, "<"); i >= 0 {
+		typeName = typeName[:i]
+	}
+	typeName = strings.TrimSpace(typeName)
+	if isNullable && typeName == "Any" {
+		return
+	}
+	f := r.Finding(file, file.FlatRow(firstParam)+1, file.FlatCol(firstParam)+1,
+		fmt.Sprintf("equals() parameter type is '%s' instead of 'Any?'. This does not properly override Any.equals().", typeText))
+	f.Fix = &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   int(file.FlatStartByte(typeNode)),
+		EndByte:     int(file.FlatEndByte(typeNode)),
+		Replacement: "Any?",
+	}
+	ctx.Emit(f)
+}
 
 // ---------------------------------------------------------------------------
 // CharArrayToStringCallRule detects charArray.toString() calls.
@@ -231,30 +291,142 @@ type CharArrayToStringCallRule struct {
 	BaseRule
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence — flags
 // toString() on CharArray receivers; receiver type detection is
 // resolver-dependent. Classified per roadmap/17.
 func (r *CharArrayToStringCallRule) Confidence() float64 { return 0.75 }
 
-var charArrayToStringRe = regexp.MustCompile(`[Cc]har[Aa]rray[^.]*\.toString\(\)`)
-var charArrayToStringFixRe = regexp.MustCompile(`(\w+(?:\.\w+)*)\.toString\(\)`)
-
-func (r *CharArrayToStringCallRule) reportCharArrayFlat(ctx *v2.Context, text string) {
+func (r *CharArrayToStringCallRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Calling toString() on a CharArray does not return the string representation. Use String(charArray) instead.")
-	startByte := int(file.FlatStartByte(idx))
-	if loc := charArrayToStringFixRe.FindStringSubmatchIndex(text); loc != nil {
-		receiver := text[loc[2]:loc[3]]
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   startByte + loc[0],
-			EndByte:     startByte + loc[1],
-			Replacement: "String(" + receiver + ")",
+	if flatCallExpressionName(file, idx) != "toString" {
+		return
+	}
+	navExpr, args := flatCallExpressionParts(file, idx)
+	if navExpr == 0 {
+		return
+	}
+	// Verify 0 arguments
+	if args != 0 {
+		for child := file.FlatFirstChild(args); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "value_argument" {
+				return
+			}
 		}
 	}
+	// Get receiver: first named non-navigation_suffix child of navigation_expression
+	var receiver uint32
+	for child := file.FlatFirstChild(navExpr); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		if file.FlatType(child) != "navigation_suffix" {
+			receiver = child
+			break
+		}
+	}
+	if receiver == 0 {
+		return
+	}
+	if ctx.Resolver != nil {
+		receiverText := file.FlatNodeText(receiver)
+		simpleName := receiverText
+		if dotIdx := strings.LastIndex(simpleName, "."); dotIdx >= 0 {
+			simpleName = simpleName[dotIdx+1:]
+		}
+		resolved := ctx.Resolver.ResolveByNameFlat(simpleName, idx, file)
+		if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
+			if resolved.Name == "CharArray" || resolved.FQN == "kotlin.CharArray" {
+				r.emitCharArrayFinding(ctx, idx, file, receiver)
+			}
+			return
+		}
+	}
+	// No resolver: heuristic fallback
+	if charArrayReceiverFlat(file, receiver) {
+		r.emitCharArrayFinding(ctx, idx, file, receiver)
+	}
+}
+
+func (r *CharArrayToStringCallRule) emitCharArrayFinding(ctx *v2.Context, callIdx uint32, file *scanner.File, receiver uint32) {
+	receiverText := file.FlatNodeText(receiver)
+	f := r.Finding(file, file.FlatRow(callIdx)+1, file.FlatCol(callIdx)+1,
+		"Calling toString() on a CharArray does not return the string representation. Use String(charArray) instead.")
+	f.Fix = &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   int(file.FlatStartByte(callIdx)),
+		EndByte:     int(file.FlatEndByte(callIdx)),
+		Replacement: "String(" + receiverText + ")",
+	}
 	ctx.Emit(f)
+}
+
+// charArrayReceiverFlat returns true when receiver appears to be a CharArray:
+// either a direct charArrayOf() call, or a same-file identifier whose declaration
+// has a CharArray type annotation or charArrayOf() initializer.
+func charArrayReceiverFlat(file *scanner.File, receiver uint32) bool {
+	rt := file.FlatType(receiver)
+	receiverText := file.FlatNodeText(receiver)
+
+	// Direct charArrayOf() call expression
+	if rt == "call_expression" && strings.HasPrefix(receiverText, "charArrayOf") {
+		return true
+	}
+	if rt != "simple_identifier" {
+		return false
+	}
+
+	found := false
+	// Check function parameters with CharArray type annotation
+	file.FlatWalkNodes(0, "parameter", func(pIdx uint32) {
+		if found {
+			return
+		}
+		id, ok := file.FlatFindChild(pIdx, "simple_identifier")
+		if !ok || file.FlatNodeText(id) != receiverText {
+			return
+		}
+		for child := file.FlatFirstChild(pIdx); child != 0; child = file.FlatNextSib(child) {
+			ct := file.FlatType(child)
+			if ct == "user_type" || ct == "nullable_type" {
+				if strings.TrimSuffix(file.FlatNodeText(child), "?") == "CharArray" {
+					found = true
+					return
+				}
+			}
+		}
+	})
+	if found {
+		return true
+	}
+	// Check property/local variable declarations
+	file.FlatWalkNodes(0, "property_declaration", func(pIdx uint32) {
+		if found {
+			return
+		}
+		varDecl, ok := file.FlatFindChild(pIdx, "variable_declaration")
+		if !ok {
+			return
+		}
+		id, ok := file.FlatFindChild(varDecl, "simple_identifier")
+		if !ok || file.FlatNodeText(id) != receiverText {
+			return
+		}
+		// Explicit CharArray type annotation
+		for child := file.FlatFirstChild(varDecl); child != 0; child = file.FlatNextSib(child) {
+			ct := file.FlatType(child)
+			if ct == "user_type" || ct == "nullable_type" {
+				if strings.TrimSuffix(file.FlatNodeText(child), "?") == "CharArray" {
+					found = true
+					return
+				}
+			}
+		}
+		// charArrayOf() initializer
+		if strings.Contains(file.FlatNodeText(pIdx), "charArrayOf") {
+			found = true
+		}
+	})
+	return found
 }
 
 // ---------------------------------------------------------------------------

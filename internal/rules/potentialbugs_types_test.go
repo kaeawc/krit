@@ -307,6 +307,32 @@ fun bar() {
 	}
 }
 
+func TestCharArrayToStringCall_PositiveExplicitType(t *testing.T) {
+	findings := runRuleByName(t, "CharArrayToStringCall", `
+package test
+fun bar() {
+    val arr: CharArray = charArrayOf('a', 'b')
+    val s = arr.toString()
+}`)
+	if len(findings) == 0 {
+		t.Error("CharArrayToStringCall should flag toString() on explicitly-typed CharArray variable")
+	}
+}
+
+func TestCharArrayToStringCall_NegativeStringReceiver(t *testing.T) {
+	findings := runRuleByName(t, "CharArrayToStringCall", `
+package test
+fun bar() {
+    val s: String = "hello"
+    val t = s.toString()
+}`)
+	for _, f := range findings {
+		if f.Rule == "CharArrayToStringCall" {
+			t.Error("should not flag toString() on a String receiver")
+		}
+	}
+}
+
 // --- WrongEqualsTypeParameter ---
 
 func TestWrongEqualsTypeParameter_Positive(t *testing.T) {
@@ -333,6 +359,36 @@ class Foo {
 	for _, f := range findings {
 		if f.Rule == "WrongEqualsTypeParameter" {
 			t.Error("should not flag equals(other: Any?)")
+		}
+	}
+}
+
+func TestWrongEqualsTypeParameter_NegativeNotEquals(t *testing.T) {
+	findings := runRuleByName(t, "WrongEqualsTypeParameter", `
+package test
+class Foo {
+    fun notEquals(other: String): Boolean {
+        return false
+    }
+}`)
+	for _, f := range findings {
+		if f.Rule == "WrongEqualsTypeParameter" {
+			t.Error("should not flag a non-equals function")
+		}
+	}
+}
+
+func TestWrongEqualsTypeParameter_NegativeNoOverride(t *testing.T) {
+	findings := runRuleByName(t, "WrongEqualsTypeParameter", `
+package test
+class Foo {
+    fun equals(other: String): Boolean {
+        return false
+    }
+}`)
+	for _, f := range findings {
+		if f.Rule == "WrongEqualsTypeParameter" {
+			t.Error("should not flag equals without override modifier")
 		}
 	}
 }

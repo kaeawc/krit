@@ -45,11 +45,9 @@ type ParcelCreatorRule struct {
 func (r *ParcelCreatorRule) Confidence() float64 { return 0.75 }
 
 type SwitchIntDefRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
-
-var whenVisibilityRe = regexp.MustCompile(`when\s*\([^)]*visibility[^)]*\)\s*\{`)
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -59,58 +57,10 @@ var whenVisibilityRe = regexp.MustCompile(`when\s*\([^)]*visibility[^)]*\)\s*\{`
 // Classified per roadmap/17.
 func (r *SwitchIntDefRule) Confidence() float64 { return 0.75 }
 
-func (r *SwitchIntDefRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if !whenVisibilityRe.MatchString(line) {
-			continue
-		}
-		hasVisible, hasInvisible, hasGone, hasElse := false, false, false, false
-		depth := 0
-		for j := i; j < len(file.Lines); j++ {
-			l := file.Lines[j]
-			depth += strings.Count(l, "{") - strings.Count(l, "}")
-			if strings.Contains(l, "VISIBLE") && !strings.Contains(l, "INVISIBLE") {
-				hasVisible = true
-			}
-			if strings.Contains(l, "INVISIBLE") {
-				hasInvisible = true
-			}
-			if strings.Contains(l, "GONE") {
-				hasGone = true
-			}
-			if strings.Contains(l, "else") {
-				hasElse = true
-			}
-			if depth <= 0 && j > i {
-				break
-			}
-		}
-		if hasElse {
-			continue
-		}
-		var missing []string
-		if !hasVisible {
-			missing = append(missing, "VISIBLE")
-		}
-		if !hasInvisible {
-			missing = append(missing, "INVISIBLE")
-		}
-		if !hasGone {
-			missing = append(missing, "GONE")
-		}
-		if len(missing) > 0 && len(missing) < 3 {
-			ctx.Emit(r.Finding(file, i+1, 1, "when on visibility missing constants: "+strings.Join(missing, ", ")+". Add them or an else branch."))
-		}
-	}
-}
-
 type TextViewEditsRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
-
-var textViewEditsRe = regexp.MustCompile(`\beditText\w*\.setText\b`)
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -119,15 +69,6 @@ var textViewEditsRe = regexp.MustCompile(`\beditText\w*\.setText\b`)
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
 func (r *TextViewEditsRule) Confidence() float64 { return 0.75 }
-
-func (r *TextViewEditsRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if textViewEditsRe.MatchString(line) {
-			ctx.Emit(r.Finding(file, i+1, 1, "Using setText on an EditText. Consider using Editable or getText()."))
-		}
-	}
-}
 
 type WrongViewCastRule struct {
 	FlatDispatchBase
@@ -554,7 +495,7 @@ func wrongViewCastSimpleType(typ string) string {
 }
 
 type DeprecatedRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
 
@@ -572,22 +513,6 @@ var deprecatedApis = []deprecatedApiEntry{{"AsyncTask", "AsyncTask is deprecated
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
 func (r *DeprecatedRule) Confidence() float64 { return 0.75 }
-
-func (r *DeprecatedRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || scanner.IsCommentLine(line) || strings.HasPrefix(trimmed, "import ") {
-			continue
-		}
-		for _, entry := range deprecatedApis {
-			if strings.Contains(line, entry.Pattern) {
-				ctx.Emit(r.Finding(file, i+1, 1, entry.Message))
-				break
-			}
-		}
-	}
-}
 
 type RangeRule struct {
 	FlatDispatchBase
@@ -1293,12 +1218,11 @@ func rangeNumberText(file *scanner.File, idx uint32) string {
 }
 
 type ResourceTypeRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
 
 var resourceMethodExpected = map[string]string{"getString": "string", "getText": "string", "getQuantityString": "plurals", "getStringArray": "array", "getIntArray": "array", "getDrawable": "drawable", "setImageResource": "drawable", "setImageDrawable": "drawable", "setContentView": "layout", "inflate": "layout", "getColor": "color", "getColorStateList": "color", "getDimension": "dimen", "getDimensionPixelSize": "dimen", "getDimensionPixelOffset": "dimen", "getBoolean": "bool", "getInteger": "integer", "getAnimation": "anim", "getLayout": "layout"}
-var resourceCallRe = regexp.MustCompile(`\b(\w+)\s*\(\s*R\.(\w+)\.(\w+)`)
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -1308,26 +1232,10 @@ var resourceCallRe = regexp.MustCompile(`\b(\w+)\s*\(\s*R\.(\w+)\.(\w+)`)
 // Classified per roadmap/17.
 func (r *ResourceTypeRule) Confidence() float64 { return 0.75 }
 
-func (r *ResourceTypeRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if scanner.IsCommentLine(line) {
-			continue
-		}
-		for _, m := range resourceCallRe.FindAllStringSubmatch(line, -1) {
-			if expected, ok := resourceMethodExpected[m[1]]; ok && m[2] != expected {
-				ctx.Emit(r.Finding(file, i+1, 1, fmt.Sprintf("%s(R.%s.%s): expected R.%s resource, not R.%s.", m[1], m[2], m[3], expected, m[2])))
-			}
-		}
-	}
-}
-
 type ResourceAsColorRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
-
-var resAsColorRe = regexp.MustCompile(`\.(setBackgroundColor|setTextColor|setColor)\s*\(\s*R\.`)
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -1337,22 +1245,18 @@ var resAsColorRe = regexp.MustCompile(`\.(setBackgroundColor|setTextColor|setCol
 // Classified per roadmap/17.
 func (r *ResourceAsColorRule) Confidence() float64 { return 0.75 }
 
-func (r *ResourceAsColorRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if resAsColorRe.MatchString(line) {
-			ctx.Emit(r.Finding(file, i+1, 1, "Passing a resource ID where a color value is expected. Use ContextCompat.getColor() instead."))
-		}
-	}
-}
-
 type SupportAnnotationUsageRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
 
-var mainThreadAnnotRe = regexp.MustCompile(`@MainThread`)
-var ioMethodPatterns = []string{"HttpURLConnection", "OkHttpClient", "FileInputStream", "FileOutputStream", "BufferedReader", "BufferedWriter", "URLConnection", "HttpClient", "Retrofit", "Socket(", "ServerSocket(", "DatagramSocket(", "FileReader", "FileWriter", "RandomAccessFile", "openConnection("}
+var ioCallNames = map[string]bool{
+	"HttpURLConnection": true, "OkHttpClient": true,
+	"FileInputStream": true, "FileOutputStream": true,
+	"Socket": true, "URL": true, "URLConnection": true,
+	"BufferedReader": true, "InputStreamReader": true,
+	"OutputStreamWriter": true, "DataInputStream": true,
+}
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -1362,50 +1266,10 @@ var ioMethodPatterns = []string{"HttpURLConnection", "OkHttpClient", "FileInputS
 // Classified per roadmap/17.
 func (r *SupportAnnotationUsageRule) Confidence() float64 { return 0.75 }
 
-func (r *SupportAnnotationUsageRule) check(ctx *v2.Context) {
-	file := ctx.File
-	inMainThreadFun := false
-	mainThreadLine := 0
-	braceDepth := 0
-	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if mainThreadAnnotRe.MatchString(trimmed) {
-			inMainThreadFun = true
-			mainThreadLine = i + 1
-			continue
-		}
-		if inMainThreadFun && braceDepth == 0 {
-			if strings.Contains(line, "{") {
-				braceDepth = 1
-			}
-			if !strings.Contains(line, "fun ") && !strings.Contains(line, "{") && !strings.HasPrefix(trimmed, "@") && trimmed != "" {
-				inMainThreadFun = false
-			}
-			continue
-		}
-		if inMainThreadFun && braceDepth > 0 {
-			braceDepth += strings.Count(line, "{") - strings.Count(line, "}")
-			if braceDepth <= 0 {
-				inMainThreadFun = false
-				braceDepth = 0
-				continue
-			}
-			for _, pat := range ioMethodPatterns {
-				if strings.Contains(line, pat) {
-					ctx.Emit(r.Finding(file, i+1, 1, fmt.Sprintf("@MainThread function (line %d) performs IO/network operation (%s). This may block the UI thread.", mainThreadLine, pat)))
-					break
-				}
-			}
-		}
-	}
-}
-
 type AccidentalOctalRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
-
-var accidentalOctalRe = regexp.MustCompile(`\b0\d{2,}\b`)
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -1415,21 +1279,10 @@ var accidentalOctalRe = regexp.MustCompile(`\b0\d{2,}\b`)
 // Classified per roadmap/17.
 func (r *AccidentalOctalRule) Confidence() float64 { return 0.75 }
 
-func (r *AccidentalOctalRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if !scanner.IsCommentLine(line) && accidentalOctalRe.MatchString(line) && !strings.Contains(line, "0x") && !strings.Contains(line, "0b") {
-			ctx.Emit(r.Finding(file, i+1, 1, "Suspicious leading zero \u2014 this may be an accidental octal literal."))
-		}
-	}
-}
-
 type AppCompatMethodRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
-
-var appCompatMethodRe = regexp.MustCompile(`\b(getActionBar|setProgressBarVisibility|setProgressBarIndeterminateVisibility)\s*\(`)
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -1438,15 +1291,6 @@ var appCompatMethodRe = regexp.MustCompile(`\b(getActionBar|setProgressBarVisibi
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
 func (r *AppCompatMethodRule) Confidence() float64 { return 0.75 }
-
-func (r *AppCompatMethodRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if appCompatMethodRe.MatchString(line) && !strings.Contains(line, "getSupportActionBar") {
-			ctx.Emit(r.Finding(file, i+1, 1, "Use AppCompat equivalent methods for backward compatibility."))
-		}
-	}
-}
 
 type CustomViewStyleableRule struct {
 	FlatDispatchBase
@@ -1477,11 +1321,9 @@ type DalvikOverrideRule struct {
 func (r *DalvikOverrideRule) Confidence() float64 { return 0.75 }
 
 type InnerclassSeparatorRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
-
-var innerclassSepRe = regexp.MustCompile(`"[^"]*\w/\w+\w"`)
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -1490,15 +1332,6 @@ var innerclassSepRe = regexp.MustCompile(`"[^"]*\w/\w+\w"`)
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
 func (r *InnerclassSeparatorRule) Confidence() float64 { return 0.75 }
-
-func (r *InnerclassSeparatorRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if strings.Contains(line, "Class.forName") && innerclassSepRe.MatchString(line) && !strings.Contains(line, "$") {
-			ctx.Emit(r.Finding(file, i+1, 1, "Use '$' instead of '/' as inner class separator in class names."))
-		}
-	}
-}
 
 type ObjectAnimatorBindingRule struct {
 	FlatDispatchBase
@@ -1795,7 +1628,7 @@ type OnClickRule struct {
 func (r *OnClickRule) Confidence() float64 { return 0.75 }
 
 type PropertyEscapeRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
 
@@ -1807,50 +1640,10 @@ type PropertyEscapeRule struct {
 // Classified per roadmap/17.
 func (r *PropertyEscapeRule) Confidence() float64 { return 0.75 }
 
-func (r *PropertyEscapeRule) check(ctx *v2.Context) {
-	file := ctx.File
-	inMultilineString := false
-	for i, line := range file.Lines {
-		if scanner.IsCommentLine(line) {
-			continue
-		}
-		if strings.Count(line, `"""`)%2 != 0 {
-			inMultilineString = !inMultilineString
-		}
-		if inMultilineString {
-			continue
-		}
-		inString := false
-		for j := 0; j < len(line); j++ {
-			ch := line[j]
-			if ch == '"' && (j == 0 || line[j-1] != '\\') {
-				inString = !inString
-				continue
-			}
-			if inString && ch == '\\' && j+1 < len(line) {
-				next := line[j+1]
-				switch next {
-				case 'n', 't', 'r', '\\', '"', '\'', '$', 'b', 'u', 'f':
-					j++
-				default:
-					if next >= '0' && next <= '9' {
-						j++
-						continue
-					}
-					ctx.Emit(r.Finding(file, i+1, 1, "Invalid escape sequence '\\"+string(next)+"' in string literal."))
-					j++
-				}
-			}
-		}
-	}
-}
-
 type ShortAlarmRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
-
-var shortAlarmRe = regexp.MustCompile(`\b(setRepeating|setInexactRepeating)\s*\(`)
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -1860,21 +1653,11 @@ var shortAlarmRe = regexp.MustCompile(`\b(setRepeating|setInexactRepeating)\s*\(
 // Classified per roadmap/17.
 func (r *ShortAlarmRule) Confidence() float64 { return 0.75 }
 
-func (r *ShortAlarmRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if shortAlarmRe.MatchString(line) && (strings.Contains(line, "1000") || strings.Contains(line, "5000") || strings.Contains(line, "10000") || strings.Contains(line, "30000")) {
-			ctx.Emit(r.Finding(file, i+1, 1, "Short alarm interval. Consider using a minimum of 60 seconds for repeating alarms."))
-		}
-	}
-}
-
 type LocalSuppressRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
 
-var suppressLintRe = regexp.MustCompile(`@SuppressLint\s*\(\s*"([^"]+)"`)
 var knownLintIssueIDs = map[string]bool{"NewApi": true, "InlinedApi": true, "Override": true, "UnusedResources": true, "HardcodedText": true, "MissingTranslation": true, "ExtraTranslation": true, "MissingPermission": true, "ContentDescription": true, "ObsoleteLayoutParam": true, "ViewHolder": true, "LogConditional": true, "SdCardPath": true, "Wakelock": true, "SetJavaScriptEnabled": true, "ExportedService": true, "PackagedPrivateKey": true, "ValidFragment": true, "ViewConstructor": true, "WrongImport": true, "ServiceCast": true, "LayoutInflation": true, "ShowToast": true, "PackageManagerGetSignatures": true, "UseSparseArrays": true, "UseValueOf": true, "LongLogTag": true, "LogTagMismatch": true, "UnlocalizedSms": true, "ViewTag": true, "ShortAlarm": true, "UniqueConstants": true, "ShiftFlags": true, "AccidentalOctal": true, "AppCompatMethod": true, "CheckResult": true, "CommitPrefEdits": true, "CommitTransaction": true, "CustomViewStyleable": true, "CutPasteId": true, "DalvikOverride": true, "DefaultLocale": true, "Deprecated": true, "DeviceAdmin": true, "DuplicateActivity": true, "DuplicateIds": true, "DuplicateIncludedIds": true, "DuplicateUsesFeature": true, "ExtraText": true, "FullBackupContent": true, "GradleCompatible": true, "GradleDependency": true, "GradleDeprecated": true, "GradleDynamicVersion": true, "GradleGetter": true, "GradleIdeError": true, "GradleOverrides": true, "GradlePath": true, "IllegalResourceRef": true, "InconsistentArrays": true, "InconsistentLayout": true, "InnerclassSeparator": true, "InvalidResourceFolder": true, "ManifestOrder": true, "ManifestTypo": true, "MissingApplicationIcon": true, "MissingId": true, "MissingRegistered": true, "MissingVersion": true, "MockLocation": true, "MultipleUsesSdk": true, "NestedScrolling": true, "NotSibling": true, "ObjectAnimatorBinding": true, "OnClick": true, "OverrideAbstract": true, "ParcelCreator": true, "PluralsCandidate": true, "PropertyEscape": true, "ProtectedPermissions": true, "Range": true, "Registered": true, "RequiredSize": true, "ResAuto": true, "ResourceAsColor": true, "ResourceType": true, "ScrollViewCount": true, "ScrollViewSize": true, "ServiceExported": true, "SetTextI18n": true, "SimpleDateFormat": true, "SpUsage": true, "StopShip": true, "StringFormatCount": true, "StringFormatInvalid": true, "StringFormatMatches": true, "SupportAnnotationUsage": true, "SwitchIntDef": true, "TextFields": true, "TextViewEdits": true, "UnpackedNativeCode": true, "UnusedAttribute": true, "UnusedNamespace": true, "UseCompoundDrawables": true, "UsesMinSdkAttributes": true, "WrongCall": true, "WrongCase": true, "WrongFolder": true, "WrongManifestParent": true, "WrongRegion": true, "WrongThread": true, "WrongViewCast": true, "Assert": true, "SQLiteString": true, "LocalSuppress": true, "AddJavascriptInterface": true, "GetInstance": true, "EasterEgg": true, "ExportedContentProvider": true, "ExportedReceiver": true, "ExportedPreferenceActivity": true, "GrantAllUris": true, "HardcodedDebugMode": true, "InsecureBaseConfiguration": true, "SecureRandom": true, "TrustedServer": true, "UnprotectedSMSBroadcastReceiver": true, "UnsafeProtectedBroadcastReceiver": true, "UseCheckPermission": true, "WorldReadableFiles": true, "WorldWriteableFiles": true, "DisableBaselineAlignment": true, "DrawAllocation": true, "FieldGetter": true, "FloatMath": true, "HandlerLeak": true, "InefficientWeight": true, "MergeRootFrame": true, "NestedWeights": true, "Overdraw": true, "Recycle": true, "TooDeepLayout": true, "UselessLeaf": true, "ClickableViewAccessibility": true, "LabelFor": true, "ByteOrderMark": true, "RelativeOverlap": true, "IconColors": true, "IconDensities": true, "IconDipSize": true, "IconDuplicates": true, "IconDuplicatesConfig": true, "IconExpectedSize": true, "IconExtension": true, "IconLauncherShape": true, "IconLocation": true, "IconMissingDensityFolder": true, "IconMixedNinePatch": true, "IconNoDpi": true, "IconXmlAndPng": true, "ConvertToWebp": true, "GifUsage": true, "AppCompatResource": true, "AppIndexingError": true, "AppIndexingWarning": true, "BackButton": true, "ButtonCase": true, "ButtonOrder": true, "ButtonStyle": true, "GoogleAppIndexingDeepLinkError": true, "GoogleAppIndexingWarning": true, "NegativeMargin": true, "RtlCompat": true, "RtlEnabled": true, "RtlHardcoded": true, "RtlSymmetry": true, "RtlSuperscript": true, "AllowBackup": true, "AlwaysShowAction": true, "InvalidUsesTagAttribute": true, "OldTargetApi": true, "PermissionImpliesUnsupportedHardware": true, "UnsupportedChromeOsHardware": true, "MissingLeanbackLauncher": true, "MissingLeanbackSupport": true, "Typos": true, "TypographyDashes": true, "TypographyEllipsis": true, "TypographyFractions": true, "TypographyOther": true, "TypographyQuotes": true, "UnusedIds": true, "Autofill": true, "RestrictedApi": true, "VisibleForTests": true, "MissingInflatedId": true, "NotificationPermission": true, "ObsoleteSdkInt": true, "all": true}
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
@@ -1885,26 +1668,19 @@ var knownLintIssueIDs = map[string]bool{"NewApi": true, "InlinedApi": true, "Ove
 // Classified per roadmap/17.
 func (r *LocalSuppressRule) Confidence() float64 { return 0.75 }
 
-func (r *LocalSuppressRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		for _, m := range suppressLintRe.FindAllStringSubmatch(line, -1) {
-			if !knownLintIssueIDs[m[1]] {
-				ctx.Emit(r.Finding(file, i+1, 1, fmt.Sprintf("@SuppressLint(\"%s\"): '%s' is not a known Android Lint issue ID.", m[1], m[1])))
-			}
-		}
-	}
-}
-
 type PluralsCandidateRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
 
-var (
-	pluralsIfRe   = regexp.MustCompile(`if\s*\(\s*\w+\s*==\s*1\s*\)`)
-	pluralsWhenRe = regexp.MustCompile(`when\s*\(\s*(count|num|size|quantity|amount|number)\s*\)`)
-)
+var pluralsCountNames = map[string]bool{
+	"count": true, "num": true, "size": true,
+	"quantity": true, "amount": true, "number": true,
+}
+var pluralsStringCalls = map[string]bool{
+	"getString": true, "getQuantityString": true, "format": true,
+	"getText": true, "getResources": true,
+}
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -1913,39 +1689,3 @@ var (
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
 func (r *PluralsCandidateRule) Confidence() float64 { return 0.75 }
-
-func (r *PluralsCandidateRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if scanner.IsCommentLine(line) {
-			continue
-		}
-		if pluralsIfRe.MatchString(line) && containsStringFormatting(gatherWindow(file.Lines, i, 5)) {
-			ctx.Emit(r.Finding(file, i+1, 1, "Manual pluralization detected. Use getQuantityString() for proper plural handling."))
-		}
-		if pluralsWhenRe.MatchString(line) && containsStringFormatting(gatherWindow(file.Lines, i, 10)) {
-			ctx.Emit(r.Finding(file, i+1, 1, "Manual pluralization detected. Use getQuantityString() for proper plural handling."))
-		}
-	}
-}
-
-func gatherWindow(lines []string, i, radius int) string {
-	start := i - radius
-	if start < 0 {
-		start = 0
-	}
-	end := i + radius + 1
-	if end > len(lines) {
-		end = len(lines)
-	}
-	return strings.Join(lines[start:end], "\n")
-}
-
-func containsStringFormatting(text string) bool {
-	for _, ind := range []string{"\"${", "getString(", "string.", "String.format", "resources.", "R.string.", "\"item", "\"file", "\"message", "\"photo", "\"comment", "\"result", "\"day", "\"hour", "\"minute", "\"second", "plural", "Plural"} {
-		if strings.Contains(strings.ToLower(text), strings.ToLower(ind)) {
-			return true
-		}
-	}
-	return false
-}

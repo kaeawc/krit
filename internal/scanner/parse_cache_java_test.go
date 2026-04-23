@@ -349,3 +349,54 @@ func TestParseCache_GrammarVersions_Distinct(t *testing.T) {
 			KotlinGrammarVersion())
 	}
 }
+
+// TestScanJavaFilesCachedForIndex_ParallelPerfAggregation verifies that
+// JavaIndexPerf counters accumulate correctly across parallel workers.
+// Run with -race to detect atomic counter misuse.
+func TestScanJavaFilesCachedForIndex_ParallelPerfAggregation(t *testing.T) {
+	const fileCount = 16
+	dir := t.TempDir()
+
+	var totalBytes int64
+	paths := make([]string, fileCount)
+	for i := 0; i < fileCount; i++ {
+		src := largeJavaSource() + "// variant " + strconv.Itoa(i) + "\n"
+		path := writeJava(t, dir, "P"+strconv.Itoa(i)+".java", src)
+		paths[i] = path
+		totalBytes += int64(len(src))
+	}
+
+	stats := &JavaIndexPerf{}
+	files, errs := ScanJavaFilesCachedForIndex(paths, 4, nil, stats)
+	for _, err := range errs {
+		if err != nil {
+			t.Fatalf("unexpected parse error: %v", err)
+		}
+	}
+	if len(files) != fileCount {
+		t.Fatalf("got %d files, want %d", len(files), fileCount)
+	}
+
+	snap := stats.Snapshot()
+	if snap.Files != fileCount {
+		t.Fatalf("Files = %d, want %d", snap.Files, fileCount)
+	}
+	if snap.Bytes != totalBytes {
+		t.Fatalf("Bytes = %d, want %d", snap.Bytes, totalBytes)
+	}
+	if snap.CacheMisses != fileCount {
+		t.Fatalf("CacheMisses = %d, want %d", snap.CacheMisses, fileCount)
+	}
+	if snap.CacheHits != 0 {
+		t.Fatalf("CacheHits = %d, want 0", snap.CacheHits)
+	}
+	if snap.FileReadNs <= 0 {
+		t.Fatalf("FileReadNs not recorded: %d", snap.FileReadNs)
+	}
+	if snap.TreeSitterParseNs <= 0 {
+		t.Fatalf("TreeSitterParseNs not recorded: %d", snap.TreeSitterParseNs)
+	}
+	if snap.ReferenceExtractionNs <= 0 {
+		t.Fatalf("ReferenceExtractionNs not recorded: %d", snap.ReferenceExtractionNs)
+	}
+}

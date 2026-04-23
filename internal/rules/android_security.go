@@ -382,9 +382,10 @@ func (r *ExportedReceiverRule) check(ctx *v2.Context) {
 
 
 // GrantAllUrisRule detects overly broad URI permissions.
-type GrantAllUrisRule struct{ AndroidRule }
-
-var grantUriRe = regexp.MustCompile(`\bgrantUriPermission[s]?\b`)
+type GrantAllUrisRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -395,13 +396,94 @@ var grantUriRe = regexp.MustCompile(`\bgrantUriPermission[s]?\b`)
 func (r *GrantAllUrisRule) Confidence() float64 { return 0.75 }
 
 func (r *GrantAllUrisRule) check(ctx *v2.Context) {
+	file, idx := ctx.File, ctx.Idx
+	if file.FlatType(idx) != "call_expression" {
+		return
+	}
+	name := flatCallExpressionName(file, idx)
+	if name != "grantUriPermission" && name != "grantUriPermissions" {
+		return
+	}
+	confidence := grantUriPermissionConfidence(ctx, idx)
+	if confidence <= 0 {
+		return
+	}
+	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"Overly broad URI permission grant. Consider restricting to specific URIs.")
+	f.Confidence = confidence
+	ctx.Emit(f)
+}
+
+func grantUriPermissionConfidence(ctx *v2.Context, idx uint32) float64 {
 	file := ctx.File
-	for i, line := range file.Lines {
-		if grantUriRe.MatchString(line) {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"Overly broad URI permission grant. Consider restricting to specific URIs."))
+	navExpr, args := flatCallExpressionParts(file, idx)
+	if navExpr != 0 && ctx.Resolver != nil {
+		receiver := file.FlatNamedChild(navExpr, 0)
+		if receiver != 0 {
+			typ := ctx.Resolver.ResolveFlatNode(receiver, file)
+			if typ == nil || typ.Kind == typeinfer.TypeUnknown {
+				if file.FlatType(receiver) == "simple_identifier" {
+					typ = ctx.Resolver.ResolveByNameFlat(file.FlatNodeText(receiver), receiver, file)
+				}
+			}
+			if typ != nil && typ.Kind != typeinfer.TypeUnknown {
+				if grantUriTypeIsContext(ctx.Resolver, typ) {
+					return 1.0
+				}
+				return 0
+			}
 		}
 	}
+	if navExpr != 0 {
+		receiver := file.FlatNamedChild(navExpr, 0)
+		if receiver != 0 && file.FlatType(receiver) == "simple_identifier" {
+			recvName := file.FlatNodeText(receiver)
+			if recvName == "this" || recvName == "context" || recvName == "ctx" {
+				if missingPermissionHasImport(file, "android.content.Context") {
+					return 0.85
+				}
+			}
+		}
+	} else if missingPermissionHasImport(file, "android.content.Context") {
+		// Unqualified call in a file that imports Context — likely an Activity/Service.
+		_ = args
+		return 0.85
+	}
+	return 0.7
+}
+
+func grantUriTypeIsContext(resolver typeinfer.TypeResolver, typ *typeinfer.ResolvedType) bool {
+	if typ == nil {
+		return false
+	}
+	seen := make(map[string]bool)
+	var visit func(string) bool
+	visit = func(name string) bool {
+		if name == "" || seen[name] {
+			return false
+		}
+		seen[name] = true
+		if name == "Context" || name == "android.content.Context" {
+			return true
+		}
+		if resolver == nil {
+			return false
+		}
+		info := resolver.ClassHierarchy(name)
+		if info == nil {
+			return false
+		}
+		if info.Name == "Context" || info.FQN == "android.content.Context" {
+			return true
+		}
+		for _, supertype := range info.Supertypes {
+			if visit(supertype) {
+				return true
+			}
+		}
+		return false
+	}
+	return visit(typ.FQN) || visit(typ.Name)
 }
 
 

@@ -619,11 +619,6 @@ type UnsafeCallOnNullableTypeRule struct {
 	BaseRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Potential-bugs null safety rule. Detection leans on structural patterns
-// around nullable expressions and has a heuristic fallback when the
-// resolver is absent. Classified per roadmap/17.
-func (r *UnsafeCallOnNullableTypeRule) Confidence() float64 { return 0.75 }
-
 func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
 

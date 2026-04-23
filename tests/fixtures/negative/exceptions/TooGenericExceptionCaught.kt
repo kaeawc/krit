@@ -1,5 +1,6 @@
 package com.example.exceptions
 
+import android.util.Log
 import java.io.IOException
 import androidx.work.CoroutineWorker
 import android.content.Context
@@ -46,25 +47,16 @@ class Runner : Runnable {
     private fun doWork() {}
 }
 
-// Caught var passed as argument — should not flag
+// Caught var passed as argument to recognized logger — should not flag
 fun logWithException() {
     try {
         doSomething()
     } catch (e: Exception) {
-        log(TAG, "msg", e)
+        Log.w(TAG, "msg", e)
     }
 }
 
-// Caught var wrapped in Result — should not flag
-fun wrapResult() {
-    try {
-        doSomething()
-    } catch (e: Exception) {
-        Result.failure(e)
-    }
-}
-
-// Caught var rethrown in wrapper — should not flag
+// Caught var rethrown in custom wrapper — should not flag
 fun rethrow() {
     try {
         doSomething()
@@ -73,6 +65,10 @@ fun rethrow() {
     }
 }
 
-private fun doSomething() {}
-private fun log(tag: String, msg: String, e: Exception) {}
+private fun doSomething() {
+    error("stub")
+}
+
 private const val TAG = "tag"
+
+class Wrapper(cause: Throwable) : RuntimeException(cause)

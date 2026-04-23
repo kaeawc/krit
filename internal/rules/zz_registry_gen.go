@@ -751,23 +751,23 @@ func registerAllRules() {
 		r := &CommitPrefEditsRule{AndroidRule: alcRule("CommitPrefEdits", "Missing commit() on SharedPreferences editor", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.8, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, ".edit()") {
+				if flatCallExpressionName(file, idx) != "edit" {
 					return
 				}
-				parent, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
+				if args := flatCallKeyArguments(file, idx); args != 0 && file.FlatNamedChildCount(args) > 0 {
+					return // `edit(n)` on a Collection/Array — not SharedPreferences.edit().
+				}
+				fn, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
 				if !ok {
 					return
 				}
-				funcText := file.FlatNodeText(parent)
-				if strings.Contains(funcText, ".edit()") &&
-					!strings.Contains(funcText, ".commit()") &&
-					!strings.Contains(funcText, ".apply()") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "SharedPreferences.edit() without commit() or apply().")
+				if enclosingFunctionHasCallNamed(file, fn, idx, commitOrApplyNames) {
+					return
 				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, "SharedPreferences.edit() without commit() or apply().")
 			},
 		})
 	}
@@ -775,25 +775,20 @@ func registerAllRules() {
 		r := &CommitTransactionRule{AndroidRule: alcRule("CommitTransaction", "Missing commit() on FragmentTransaction", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.8, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "beginTransaction") && !strings.Contains(text, "FragmentTransaction") {
+				if flatCallExpressionName(file, idx) != "beginTransaction" {
 					return
 				}
-				parent, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
+				fn, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
 				if !ok {
 					return
 				}
-				funcText := file.FlatNodeText(parent)
-				if strings.Contains(funcText, "beginTransaction") &&
-					!strings.Contains(funcText, ".commit()") &&
-					!strings.Contains(funcText, ".commitNow()") &&
-					!strings.Contains(funcText, ".commitAllowingStateLoss()") &&
-					!strings.Contains(funcText, ".commitNowAllowingStateLoss()") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "FragmentTransaction without commit(). Call commit() or commitAllowingStateLoss().")
+				if enclosingFunctionHasCallNamed(file, fn, idx, commitTransactionNames) {
+					return
 				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, "FragmentTransaction without commit(). Call commit() or commitAllowingStateLoss().")
 			},
 		})
 	}
@@ -815,25 +810,35 @@ func registerAllRules() {
 		r := &CheckResultRule{AndroidRule: alcRule("CheckResult", "Ignoring results", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.8, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				parent, ok := file.FlatParent(idx)
-				if !ok || file.FlatType(parent) != "expression_statement" {
+				if !ok {
 					return
 				}
-				text := file.FlatNodeText(idx)
-				checkResultMethods := []string{
-					".animate(", ".buildUpon(", ".edit(",
-					"String.format(", ".format(",
-					".trim(", ".replace(",
+				// Require the call's result to be discarded — i.e. the
+				// call_expression is a standalone statement, not the target
+				// of an assignment or the operand of a larger expression.
+				switch file.FlatType(parent) {
+				case "statements", "function_body", "control_structure_body", "block":
+					// fall through
+				default:
+					return
 				}
-				for _, m := range checkResultMethods {
-					if strings.Contains(text, m) {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, "The result of this call is not used. Check if the return value should be consumed.")
+				name := flatCallExpressionName(file, idx)
+				if !checkResultCalleeNames[name] {
+					return
+				}
+				// `String.format(...)` is the only one with a required
+				// receiver. For the rest, we flag any receiver or none.
+				if name == "format" {
+					if !isReceiverString(file, idx) {
 						return
 					}
 				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"The result of this call is not used. Check if the return value should be consumed.")
 			},
 		})
 	}

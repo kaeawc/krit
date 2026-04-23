@@ -415,6 +415,68 @@ func finalSimpleIdentifier(file *scanner.File, idx uint32) string {
 	return last
 }
 
+// commitOrApplyNames is the set of callees that finalize a
+// SharedPreferences.Editor chain.
+var commitOrApplyNames = map[string]bool{
+	"commit": true,
+	"apply":  true,
+}
+
+// commitTransactionNames is the set of callees that finalize a
+// FragmentTransaction chain.
+var commitTransactionNames = map[string]bool{
+	"commit":                     true,
+	"commitNow":                  true,
+	"commitAllowingStateLoss":    true,
+	"commitNowAllowingStateLoss": true,
+}
+
+// checkResultCalleeNames is the set of callees whose return value
+// should almost never be discarded (idempotent builders, pure string
+// operations, animator configurers that return `this`).
+var checkResultCalleeNames = map[string]bool{
+	"animate":   true,
+	"buildUpon": true,
+	"edit":      true,
+	"format":    true,
+	"trim":      true,
+	"replace":   true,
+}
+
+// enclosingFunctionHasCallNamed walks every call_expression under the
+// given function container and returns true when any call OTHER than
+// `except` has a callee in `names`. Used for "did the chain eventually
+// finalize?" checks without touching node text.
+func enclosingFunctionHasCallNamed(file *scanner.File, fn, except uint32, names map[string]bool) bool {
+	if file == nil || fn == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(fn, "call_expression", func(call uint32) {
+		if found || call == except {
+			return
+		}
+		if names[flatCallExpressionName(file, call)] {
+			found = true
+		}
+	})
+	return found
+}
+
+// isReceiverString returns true when the call_expression at idx is
+// invoked on the simple name `String` (e.g. `String.format(...)`).
+func isReceiverString(file *scanner.File, idx uint32) bool {
+	navExpr, _ := flatCallExpressionParts(file, idx)
+	if navExpr == 0 {
+		return false
+	}
+	first := file.FlatFirstChild(navExpr)
+	for first != 0 && !file.FlatIsNamed(first) {
+		first = file.FlatNextSib(first)
+	}
+	return first != 0 && file.FlatType(first) == "simple_identifier" && file.FlatNodeText(first) == "String"
+}
+
 // hasAnnotationNamed returns true when the declaration at idx has a
 // modifier-list annotation whose final name is exactly `name`. Checks
 // both the declaration's `modifiers` child and its immediately preceding

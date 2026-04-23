@@ -963,7 +963,7 @@ func runMissAnalysis(
 		if verbose {
 			fmt.Fprintf(os.Stderr, "verbose: sharding daemon miss analysis across %d persistent workers (%d files)\n", len(pool.Members), len(misses))
 		}
-		fresh, deps, err := pool.AnalyzeWithDepsSharded(misses, tracker != nil && tracker.IsEnabled(), opts.CallFilter, tracker)
+		fresh, deps, err := pool.AnalyzeWithDepsSharded(misses, tracker != nil && tracker.IsEnabled(), opts.CallFilter, opts.DeclarationProfile, tracker)
 		if err != nil {
 			addOracleInstant(tracker, "daemonPoolMissAnalysisFallback", nil, map[string]string{"error": err.Error()})
 			return fallback(fmt.Sprintf("daemon pool AnalyzeWithDeps: %v", err))
@@ -1004,7 +1004,7 @@ func runMissAnalysis(
 	var kotlinTimings []perf.TimingEntry
 	if err := trackOracle(tracker, "daemonAnalyzeWithDeps", func() error {
 		var err error
-		fresh, deps, kotlinTimings, err = d.AnalyzeWithDepsWithTimings(misses, tracker != nil && tracker.IsEnabled(), opts.CallFilter)
+		fresh, deps, kotlinTimings, err = d.AnalyzeWithDepsWithTimings(misses, tracker != nil && tracker.IsEnabled(), opts.CallFilter, opts.DeclarationProfile)
 		return err
 	}); err != nil {
 		return fallback(fmt.Sprintf("AnalyzeWithDeps: %v", err))

@@ -101,7 +101,7 @@ func (p *DaemonPool) MatchesRepo(sourceDirs []string) bool {
 	return true
 }
 
-func (p *DaemonPool) AnalyzeWithDepsSharded(files []string, collectTimings bool, callFilter *CallTargetFilterSummary, tracker perf.Tracker) (*OracleData, *CacheDepsFile, error) {
+func (p *DaemonPool) AnalyzeWithDepsSharded(files []string, collectTimings bool, callFilter *CallTargetFilterSummary, declarationProfile *DeclarationProfileSummary, tracker perf.Tracker) (*OracleData, *CacheDepsFile, error) {
 	if p == nil || len(p.Members) == 0 {
 		return nil, nil, fmt.Errorf("daemon pool has no members")
 	}
@@ -130,7 +130,7 @@ func (p *DaemonPool) AnalyzeWithDepsSharded(files []string, collectTimings bool,
 			}
 			results[i].Files = len(group)
 			start := time.Now()
-			fresh, deps, kotlinTimings, err := member.AnalyzeWithDepsWithTimings(group, collectTimings, callFilter)
+			fresh, deps, kotlinTimings, err := member.AnalyzeWithDepsWithTimings(group, collectTimings, callFilter, declarationProfile)
 			perf.AddEntryDetails(child, "daemonAnalyzeWithDeps", time.Since(start), map[string]int64{"files": int64(len(group))}, nil)
 			if err != nil {
 				results[i].Err = err

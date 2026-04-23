@@ -338,6 +338,7 @@ class DaemonSession(
         val perf = KotlinPerf(request.timings)
         val activePerf = if (perf.enabled) perf else null
         val callFilter = request.callFilter ?: args.callFilter
+        val declarationProfile = request.declarationProfile ?: args.declarationProfile
         perf.recordCallFilterSummary(callFilter)
 
         if (requestedFiles.isNullOrEmpty()) {
@@ -398,7 +399,7 @@ class DaemonSession(
         perf.track("kotlinDaemonAnalyzeFiles") {
             for (ktFile in filesToAnalyze) {
                 try {
-                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, callFilter, memo, args.declarationProfile)
+                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, callFilter, memo, declarationProfile)
                     if (ok) processed++ else skipped++
                 } catch (e: Exception) {
                     skipped++
@@ -456,7 +457,8 @@ data class DaemonRequest(
     val method: String,
     val files: List<String>? = null,
     val timings: Boolean = false,
-    val callFilter: CallFilter? = null
+    val callFilter: CallFilter? = null,
+    val declarationProfile: DeclarationExportProfile? = null
 )
 
 fun parseRequest(json: String): DaemonRequest {
@@ -478,7 +480,9 @@ fun parseRequest(json: String): DaemonRequest {
             ruleProfiles = ruleProfiles
         )
     }
-    return DaemonRequest(id, method, files, timings, callFilter)
+    val declarationProfileStr = extractJsonString(json, "declarationProfile")
+    val declarationProfile = declarationProfileStr?.let { DeclarationExportProfile.parse(it) }
+    return DaemonRequest(id, method, files, timings, callFilter, declarationProfile)
 }
 
 fun extractJsonLong(json: String, key: String): Long? {

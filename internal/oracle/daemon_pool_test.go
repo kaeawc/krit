@@ -140,7 +140,7 @@ func TestDaemonPoolAnalyzeWithDepsShardedMergesOutputs(t *testing.T) {
 	pool := &DaemonPool{Members: []*Daemon{d0, d1}}
 
 	files := []string{"/tmp/A.kt", "/tmp/B.kt", "/tmp/C.kt", "/tmp/D.kt"}
-	fresh, deps, err := pool.AnalyzeWithDepsSharded(files, false, nil, perf.New(true))
+	fresh, deps, err := pool.AnalyzeWithDepsSharded(files, false, nil, nil, perf.New(true))
 	if err != nil {
 		t.Fatalf("AnalyzeWithDepsSharded: %v", err)
 	}

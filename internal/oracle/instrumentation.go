@@ -110,16 +110,33 @@ func extraJVMArgsFromEnv() []string {
 	return strings.Fields(raw)
 }
 
-// experimentalParallelFilesArg returns the --experimental-parallel-files N
-// args to append after -jar when KRIT_TYPES_PARALLEL_FILES is set to a
-// positive integer. Returns nil when unset or invalid (safe default = sequential).
-func experimentalParallelFilesArg() []string {
+const defaultKritTypesParallelFiles = 4
+
+// configuredKritTypesParallelFiles returns the in-JVM file worker count for
+// one-shot krit-types analysis. The default is 4, based on Signal-Android cold
+// KAA benchmarks. Explicit KRIT_TYPES_SHARDS disables the default to avoid
+// nesting file-level parallelism inside every JVM shard; setting
+// KRIT_TYPES_PARALLEL_FILES explicitly still wins.
+func configuredKritTypesParallelFiles() int {
 	raw := strings.TrimSpace(os.Getenv("KRIT_TYPES_PARALLEL_FILES"))
 	if raw == "" {
-		return nil
+		if strings.TrimSpace(os.Getenv("KRIT_TYPES_SHARDS")) != "" {
+			return 0
+		}
+		return defaultKritTypesParallelFiles
 	}
 	n, err := strconv.Atoi(raw)
 	if err != nil || n <= 1 {
+		return 0
+	}
+	return n
+}
+
+// experimentalParallelFilesArg returns the --experimental-parallel-files N
+// args to append after -jar. Returns nil when disabled.
+func experimentalParallelFilesArg() []string {
+	n := configuredKritTypesParallelFiles()
+	if n <= 1 {
 		return nil
 	}
 	return []string{"--experimental-parallel-files", strconv.Itoa(n)}

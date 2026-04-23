@@ -52,6 +52,17 @@ func TestParseDeclarationProfile_RoundTripsCLIValue(t *testing.T) {
 	}
 }
 
+func TestDeclarationProfile_ZeroRoundTripsExplicitNoneCLIValue(t *testing.T) {
+	zero := DeclarationProfile{}
+	cli := zero.CLIValue()
+	if cli != declarationProfileNoneCLIValue {
+		t.Fatalf("zero profile CLI value = %q, want %q", cli, declarationProfileNoneCLIValue)
+	}
+	if parsed := ParseDeclarationProfile(cli); parsed != zero {
+		t.Fatalf("zero profile round trip broken: got %+v want %+v", parsed, zero)
+	}
+}
+
 func TestParseDeclarationProfile_IgnoresUnknown(t *testing.T) {
 	got := ParseDeclarationProfile("classShell, bogus,members")
 	want := DeclarationProfile{ClassShell: true, Members: true}

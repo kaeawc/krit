@@ -36,6 +36,57 @@ func TestConfiguredKritTypesShards(t *testing.T) {
 	}
 }
 
+func TestShouldUseOneShotMissAnalysisDefaultsToParallelOneShot(t *testing.T) {
+	t.Setenv("KRIT_DAEMON_CACHE", "")
+	t.Setenv("KRIT_DAEMON_POOL", "")
+	t.Setenv("KRIT_TYPES_PARALLEL_FILES", "")
+	t.Setenv("KRIT_TYPES_SHARDS", "")
+
+	got, reason := shouldUseOneShotMissAnalysis(1)
+	if !got {
+		t.Fatalf("default miss analysis should use one-shot")
+	}
+	if !strings.Contains(reason, "default parallel one-shot") {
+		t.Fatalf("reason = %q, want default parallel one-shot", reason)
+	}
+}
+
+func TestShouldUseOneShotMissAnalysisHonorsDaemonOptIn(t *testing.T) {
+	t.Setenv("KRIT_DAEMON_CACHE", "on")
+	t.Setenv("KRIT_TYPES_PARALLEL_FILES", "")
+	t.Setenv("KRIT_TYPES_SHARDS", "")
+
+	got, reason := shouldUseOneShotMissAnalysis(1)
+	if got {
+		t.Fatalf("KRIT_DAEMON_CACHE=on should use daemon path, reason=%q", reason)
+	}
+}
+
+func TestShouldUseOneShotMissAnalysisHonorsDaemonPoolOptIn(t *testing.T) {
+	t.Setenv("KRIT_DAEMON_CACHE", "")
+	t.Setenv("KRIT_TYPES_PARALLEL_FILES", "")
+	t.Setenv("KRIT_TYPES_SHARDS", "")
+
+	got, reason := shouldUseOneShotMissAnalysis(2)
+	if got {
+		t.Fatalf("daemon pool should use daemon path, reason=%q", reason)
+	}
+}
+
+func TestShouldUseOneShotMissAnalysisHonorsExplicitOff(t *testing.T) {
+	t.Setenv("KRIT_DAEMON_CACHE", "off")
+	t.Setenv("KRIT_TYPES_PARALLEL_FILES", "0")
+	t.Setenv("KRIT_TYPES_SHARDS", "")
+
+	got, reason := shouldUseOneShotMissAnalysis(1)
+	if !got {
+		t.Fatal("KRIT_DAEMON_CACHE=off should force one-shot")
+	}
+	if reason != "KRIT_DAEMON_CACHE=off" {
+		t.Fatalf("reason = %q, want KRIT_DAEMON_CACHE=off", reason)
+	}
+}
+
 func TestJVMArgsForKritTypesShardCapsActiveProcessors(t *testing.T) {
 	old := runtime.GOMAXPROCS(10)
 	defer runtime.GOMAXPROCS(old)

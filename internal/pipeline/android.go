@@ -433,8 +433,24 @@ func androidIconProviderStartConcurrency(maxWorkers int) int {
 	return 1
 }
 
-func androidValuesScanKinds(_ rules.AndroidDataDependency) android.ValuesScanKind {
-	return android.ValuesScanAll
+func androidValuesScanKinds(deps rules.AndroidDataDependency) android.ValuesScanKind {
+	var kinds android.ValuesScanKind
+	if deps&rules.AndroidDepValuesStrings != 0 {
+		kinds |= android.ValuesScanStrings
+	}
+	if deps&rules.AndroidDepValuesDimensions != 0 {
+		kinds |= android.ValuesScanDimensions
+	}
+	if deps&rules.AndroidDepValuesPlurals != 0 {
+		kinds |= android.ValuesScanPlurals
+	}
+	if deps&rules.AndroidDepValuesArrays != 0 {
+		kinds |= android.ValuesScanArrays
+	}
+	if deps&rules.AndroidDepValuesExtraText != 0 {
+		kinds |= android.ValuesScanExtraText
+	}
+	return kinds
 }
 
 // ConvertManifestForRules adapts an android.ConvertedManifest (produced

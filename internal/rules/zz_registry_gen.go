@@ -11708,12 +11708,13 @@ func registerAllRules() {
 				}
 				var emitted bool
 				file.FlatWalkNodes(args, "infix_expression", func(infix uint32) {
-					text := file.FlatNodeText(infix)
-					if !strings.Contains(text, " to ") {
+					if !infixOperatorIs(file, infix, "to") {
 						return
 					}
-					parts := strings.SplitN(text, " to ", 2)
-					keyText := strings.Trim(strings.TrimSpace(parts[0]), "\"")
+					keyText := infixLeftStringLiteralContent(file, infix)
+					if keyText == "" {
+						return
+					}
 					if piiKeyPattern.MatchString(keyText) {
 						ctx.EmitAt(file.FlatRow(infix)+1, file.FlatCol(infix)+1, "Analytics event parameter \""+keyText+"\" looks like PII. Avoid sending personally identifiable information to analytics services.")
 						emitted = true
@@ -11822,12 +11823,13 @@ func registerAllRules() {
 					return
 				}
 				file.FlatWalkNodes(args, "infix_expression", func(infix uint32) {
-					text := file.FlatNodeText(infix)
-					if !strings.Contains(text, " to ") {
+					if !infixOperatorIs(file, infix, "to") {
 						return
 					}
-					parts := strings.SplitN(text, " to ", 2)
-					keyText := strings.Trim(strings.TrimSpace(parts[0]), "\"")
+					keyText := infixLeftStringLiteralContent(file, infix)
+					if keyText == "" {
+						return
+					}
 					if piiKeyPattern.MatchString(keyText) {
 						ctx.EmitAt(file.FlatRow(infix)+1, file.FlatCol(infix)+1, "Remote Config default key \""+keyText+"\" looks like PII. Remote Config values are not encrypted at rest.")
 					}
@@ -14266,25 +14268,31 @@ func registerAllRules() {
 				if strings.HasSuffix(file.Path, ".kts") {
 					return
 				}
-				if parent, ok := file.FlatParent(idx); !ok || (file.FlatType(parent) != "source_file" && file.FlatType(parent) != "companion_object") {
+				if parent, ok := file.FlatParent(idx); !ok {
 					return
+				} else if pt := file.FlatType(parent); pt != "source_file" && pt != "companion_object" {
+					// Top-level, or companion-object-level, only — not
+					// inside nested class bodies or function bodies.
+					if pt == "class_body" {
+						if gp, ok := file.FlatParent(parent); !ok || file.FlatType(gp) != "companion_object" {
+							return
+						}
+					} else {
+						return
+					}
 				}
-				text := file.FlatNodeText(idx)
-				trimmed := strings.TrimSpace(text)
-				if !strings.HasPrefix(trimmed, "val ") {
+				// Must be `val` (not `var`) and not already `const`.
+				if propertyDeclarationIsVar(file, idx) {
 					return
 				}
 				if file.FlatHasModifier(idx, "const") {
 					return
 				}
-				if !strings.Contains(text, "=") {
+				initExpr := propertyInitializerExpression(file, idx)
+				if initExpr == 0 {
 					return
 				}
-				parts := strings.SplitN(text, "=", 2)
-				if len(parts) != 2 {
-					return
-				}
-				init := strings.TrimSpace(parts[1])
+				init := strings.TrimSpace(file.FlatNodeText(initExpr))
 				if isConstant(init) {
 					f := r.Finding(file, file.FlatRow(idx)+1, 1,
 						"Property may be declared as 'const val'.")

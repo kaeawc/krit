@@ -673,6 +673,62 @@ func ifExpressionHasElse(file *scanner.File, idx uint32) bool {
 	return false
 }
 
+// infixOperatorIs returns true when the infix_expression's middle
+// simple_identifier equals `op`. Kotlin models `a to b`, `a shl b`,
+// etc. as infix_expression with children (left, simple_identifier("op"),
+// right).
+func infixOperatorIs(file *scanner.File, idx uint32, op string) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "infix_expression" {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "simple_identifier" && file.FlatNodeText(child) == op {
+			return true
+		}
+	}
+	return false
+}
+
+// infixLeftStringLiteralContent returns the content of the left-hand
+// string_literal of an infix_expression like `"key" to value`, or "" if
+// the left operand is not a non-interpolated string.
+func infixLeftStringLiteralContent(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 || file.FlatType(idx) != "infix_expression" {
+		return ""
+	}
+	left := file.FlatFirstChild(idx)
+	for left != 0 && !file.FlatIsNamed(left) {
+		left = file.FlatNextSib(left)
+	}
+	if left == 0 || file.FlatType(left) != "string_literal" {
+		return ""
+	}
+	if flatContainsStringInterpolation(file, left) {
+		return ""
+	}
+	return stringLiteralContent(file, left)
+}
+
+// propertyInitializerExpression returns the initializer expression node
+// of a property_declaration — the first named child after the `=`
+// token — or 0 when the property has no initializer.
+func propertyInitializerExpression(file *scanner.File, idx uint32) uint32 {
+	if file == nil || idx == 0 || file.FlatType(idx) != "property_declaration" {
+		return 0
+	}
+	seenEquals := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			seenEquals = true
+			continue
+		}
+		if seenEquals && file.FlatIsNamed(child) {
+			return child
+		}
+	}
+	return 0
+}
+
 // propertyDeclarationIsVar returns true when the property_declaration's
 // binding_pattern_kind child carries the `var` keyword. `val` returns
 // false. Used instead of `strings.Contains(propText, "var ")`, which

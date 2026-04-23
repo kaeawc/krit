@@ -4525,36 +4525,28 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.85, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !toastMakeRe.MatchString(text) {
+				if flatCallExpressionName(file, idx) != "makeText" {
 					return
 				}
-				if strings.Contains(text, ".show()") {
+				if !isReceiverNamed(file, idx, "Toast") {
 					return
 				}
-				for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
-					pt := file.FlatType(parent)
-					if pt == "call_expression" || pt == "navigation_expression" {
-						parentText := file.FlatNodeText(parent)
-						if strings.Contains(parentText, ".show()") {
-							return
-						}
-					}
-					if pt == "function_declaration" || pt == "source_file" {
-						break
-					}
+				// Chained: `Toast.makeText(...).show()` — look upward for an
+				// enclosing call_expression whose callee is `show`.
+				if ancestorCallNameMatches(file, idx, "show") {
+					return
 				}
-				line := file.FlatRow(idx)
-				for j := line + 1; j < len(file.Lines) && j < line+10; j++ {
-					if strings.Contains(file.Lines[j], ".show()") {
+				// Stored then shown: walk the enclosing function's
+				// call_expression nodes for any `show` call. This catches
+				//   val t = Toast.makeText(...)
+				//   t.show()
+				// without a line-scan heuristic.
+				if fn, ok := flatEnclosingFunction(file, idx); ok {
+					if enclosingFunctionHasCallNamed(file, fn, idx, showCallName) {
 						return
-					}
-					trimmed := strings.TrimSpace(file.Lines[j])
-					if strings.HasPrefix(trimmed, "fun ") || strings.HasPrefix(trimmed, "override fun ") {
-						break
 					}
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,

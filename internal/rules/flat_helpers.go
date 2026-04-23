@@ -415,6 +415,45 @@ func finalSimpleIdentifier(file *scanner.File, idx uint32) string {
 	return last
 }
 
+// showCallName is a single-entry set for the `show` callee — used by
+// rules that want to check whether a fluent builder was ever "shown".
+var showCallName = map[string]bool{"show": true}
+
+// isReceiverNamed returns true when the call_expression at idx is invoked
+// through a navigation whose first identifier equals `name`. Matches
+// `Toast.makeText(...)` when called with `name == "Toast"`. Returns false
+// for nested qualifications like `a.b.makeText(...)` — only flat
+// qualification counts.
+func isReceiverNamed(file *scanner.File, idx uint32, name string) bool {
+	navExpr, _ := flatCallExpressionParts(file, idx)
+	if navExpr == 0 {
+		return false
+	}
+	first := file.FlatFirstChild(navExpr)
+	for first != 0 && !file.FlatIsNamed(first) {
+		first = file.FlatNextSib(first)
+	}
+	return first != 0 && file.FlatType(first) == "simple_identifier" && file.FlatNodeText(first) == name
+}
+
+// ancestorCallNameMatches walks upward looking for an enclosing
+// call_expression whose callee equals `name`. Used to detect the
+// fluent chain pattern `foo(...).show()` — where the inner call is
+// idx and the outer call_expression calls `show`.
+func ancestorCallNameMatches(file *scanner.File, idx uint32, name string) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "call_expression":
+			if flatCallExpressionName(file, parent) == name {
+				return true
+			}
+		case "function_declaration", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
 // classHasSupertypeNamed returns true when the class_declaration at idx
 // lists a supertype whose final type_identifier equals `name`. For
 // `class Foo : pkg.Parcelable`, `name == "Parcelable"` matches.

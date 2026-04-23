@@ -340,7 +340,4 @@ type ToastRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *ToastRule) Confidence() float64 { return 0.75 }
-
-
-var toastMakeRe = regexp.MustCompile(`Toast\.makeText\s*\(`)
+func (r *ToastRule) Confidence() float64 { return 0.85 }

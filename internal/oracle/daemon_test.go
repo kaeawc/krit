@@ -1225,3 +1225,90 @@ func TestStartDaemonReady_Unmarshal(t *testing.T) {
 		t.Errorf("expected port 54321, got %d", ready.Port)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Project Leyden AOT helper tests
+// ---------------------------------------------------------------------------
+
+func TestJdkMajorVersion_Modern(t *testing.T) {
+	cases := []struct {
+		output string
+		want   int
+	}{
+		{`openjdk version "25.0.2" 2025-01-21`, 25},
+		{`openjdk version "21.0.3" 2024-04-16`, 21},
+		{`java version "17.0.9" 2023-10-17`, 17},
+		{`java version "11.0.21" 2023-10-17`, 11},
+		{`java version "1.8.0_392" 2023-10-17`, 8},
+		{`openjdk version "24-ea" 2025-03-18`, 24},
+		{``, 0},
+		{`garbage output no quotes`, 0},
+	}
+
+	for _, tc := range cases {
+		// Write a fake "java" script that outputs the test string to stderr.
+		dir := t.TempDir()
+		fakeJava := filepath.Join(dir, "java")
+		script := "#!/bin/sh\necho '" + tc.output + "' >&2\n"
+		if err := os.WriteFile(fakeJava, []byte(script), 0755); err != nil {
+			t.Fatalf("write fake java: %v", err)
+		}
+		got := jdkMajorVersion(fakeJava)
+		if got != tc.want {
+			t.Errorf("jdkMajorVersion(%q) = %d, want %d", tc.output, got, tc.want)
+		}
+	}
+}
+
+func TestAotConfigPath_KeyedByHash(t *testing.T) {
+	// Two different JAR contents must produce different config paths.
+	dir := t.TempDir()
+	jar1 := filepath.Join(dir, "a.jar")
+	jar2 := filepath.Join(dir, "b.jar")
+	if err := os.WriteFile(jar1, []byte("content-a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jar2, []byte("content-b"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	p1, err := aotConfigPath(jar1)
+	if err != nil {
+		t.Fatalf("aotConfigPath jar1: %v", err)
+	}
+	p2, err := aotConfigPath(jar2)
+	if err != nil {
+		t.Fatalf("aotConfigPath jar2: %v", err)
+	}
+	if p1 == p2 {
+		t.Errorf("expected different paths for different JARs, both got %q", p1)
+	}
+	if !strings.HasSuffix(p1, ".aotconf") {
+		t.Errorf("expected .aotconf suffix, got %q", p1)
+	}
+}
+
+func TestAotCachePath_KeyedByHash(t *testing.T) {
+	dir := t.TempDir()
+	jar := filepath.Join(dir, "test.jar")
+	if err := os.WriteFile(jar, []byte("jar-content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := aotCachePath(jar)
+	if err != nil {
+		t.Fatalf("aotCachePath: %v", err)
+	}
+	if !strings.HasSuffix(p, ".aot") {
+		t.Errorf("expected .aot suffix, got %q", p)
+	}
+
+	// Config and cache paths must differ for the same JAR.
+	c, err := aotConfigPath(jar)
+	if err != nil {
+		t.Fatalf("aotConfigPath: %v", err)
+	}
+	if p == c {
+		t.Errorf("aotCachePath and aotConfigPath should differ, both %q", p)
+	}
+}

@@ -249,8 +249,12 @@ func receiverHasKnownLoggerTypeInClassParametersFlat(file *scanner.File, classDe
 }
 
 func classParameterDefinesPropertyFlat(file *scanner.File, param uint32) bool {
-	text := strings.TrimSpace(file.FlatNodeText(param))
-	return strings.Contains(" "+text+" ", " val ") || strings.Contains(" "+text+" ", " var ")
+	for c := file.FlatFirstChild(param); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "binding_pattern_kind" {
+			return true
+		}
+	}
+	return false
 }
 
 func explicitTypeTextFlat(file *scanner.File, node uint32) string {
@@ -776,11 +780,15 @@ func isEarlyExitFlat(file *scanner.File, node uint32) bool {
 	}
 	switch file.FlatType(node) {
 	case "jump_expression":
-		text := strings.TrimSpace(file.FlatNodeText(node))
-		return strings.HasPrefix(text, "return") ||
-			strings.HasPrefix(text, "throw") ||
-			strings.HasPrefix(text, "break") ||
-			strings.HasPrefix(text, "continue")
+		first := file.FlatFirstChild(node)
+		if first == 0 {
+			return false
+		}
+		switch file.FlatType(first) {
+		case "return", "throw", "break", "continue":
+			return true
+		}
+		return false
 	case "control_structure_body":
 		stmts, _ := file.FlatFindChild(node, "statements")
 		if stmts != 0 {

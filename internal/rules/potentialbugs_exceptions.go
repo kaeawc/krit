@@ -124,18 +124,8 @@ func (r *TooGenericExceptionCaughtRule) checkNode(ctx *v2.Context) {
 	//   catch (e: Throwable) { Result.Failure(e) }     — wraps into result
 	//   catch (e: Exception) { throw Foo(e) }          — rewraps
 	// The exception is NOT being swallowed; information is preserved.
-	if caughtVar != "" {
-		text := file.FlatNodeText(idx)
-		braceIdx := strings.Index(text, "{")
-		if braceIdx >= 0 {
-			body := text[braceIdx+1:]
-			// Look for the variable being passed as an argument: `(...e...)`
-			// or `, e,` or `, e)` patterns.
-			argPattern := regexp.MustCompile(`[,(]\s*` + regexp.QuoteMeta(caughtVar) + `\s*[,)]`)
-			if argPattern.MatchString(body) {
-				return
-			}
-		}
+	if caughtVar != "" && catchBodyPassesVarAsArgFlat(file, idx, caughtVar) {
+		return
 	}
 	// Skip catches inside try expressions (return value is semantic fallback).
 	if isCatchPartOfTryExpressionFlat(file, idx) {
@@ -199,6 +189,34 @@ func extractCaughtVarNameFlat(file *scanner.File, catchNode uint32) string {
 		}
 	}
 	return ""
+}
+
+// catchBodyPassesVarAsArgFlat returns true if varName appears as a value_argument
+// anywhere inside the catch_block, or as the subject of a throw_expression.
+// This avoids regexp.MustCompile in the hot dispatch path.
+func catchBodyPassesVarAsArgFlat(file *scanner.File, catchNode uint32, varName string) bool {
+	found := false
+	file.FlatWalkAllNodes(catchNode, func(idx uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(idx) {
+		case "value_argument":
+			for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+				if file.FlatType(child) == "simple_identifier" && file.FlatNodeString(child, nil) == varName {
+					found = true
+					return
+				}
+			}
+		case "throw_expression":
+			file.FlatWalkAllNodes(idx, func(inner uint32) {
+				if !found && file.FlatType(inner) == "simple_identifier" && file.FlatNodeString(inner, nil) == varName {
+					found = true
+				}
+			})
+		}
+	})
+	return found
 }
 
 func extractCaughtTypeNameFlat(file *scanner.File, catchNode uint32) string {

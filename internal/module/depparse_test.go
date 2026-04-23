@@ -209,12 +209,9 @@ dependencies {
 }
 
 func TestParseSignalAppDeps(t *testing.T) {
-	buildPath := "/Users/jason/github/Signal-Android/app/build.gradle.kts"
-	if _, err := os.Stat(buildPath); os.IsNotExist(err) {
-		t.Skip("Signal-Android not found on disk")
-	}
+	root := filepath.Join("..", "..", "tests", "fixtures", "modules", "signal")
 
-	graph, err := DiscoverModules("/Users/jason/github/Signal-Android")
+	graph, err := DiscoverModules(root)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}
@@ -246,12 +243,9 @@ func TestParseSignalAppDeps(t *testing.T) {
 }
 
 func TestParseCircuitFoundationDeps(t *testing.T) {
-	buildPath := "/Users/jason/github/circuit/circuit-foundation/build.gradle.kts"
-	if _, err := os.Stat(buildPath); os.IsNotExist(err) {
-		t.Skip("circuit not found on disk")
-	}
+	root := filepath.Join("..", "..", "tests", "fixtures", "modules", "circuit")
 
-	graph, err := DiscoverModules("/Users/jason/github/circuit")
+	graph, err := DiscoverModules(root)
 	if err != nil {
 		t.Fatalf("DiscoverModules: %v", err)
 	}

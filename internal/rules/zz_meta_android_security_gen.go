@@ -159,7 +159,7 @@ func (r *RecycleRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: false,
 		FixLevel:      "",
-		Confidence:    0.85,
+		Confidence:    0.75,
 		SourceHash:    "4c680537c209f074",
 	}
 }

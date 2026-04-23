@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+
 func TestParseIncludesKtsSinglePerLine(t *testing.T) {
 	content := `
 include(":app")
@@ -130,12 +131,9 @@ func TestModulePathToDir(t *testing.T) {
 }
 
 func TestDiscoverModulesSignal(t *testing.T) {
-	settingsPath := "/Users/jason/github/Signal-Android/settings.gradle.kts"
-	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
-		t.Skip("Signal-Android not found on disk")
-	}
+	root := filepath.Join("..", "..", "tests", "fixtures", "modules", "signal")
 
-	graph, err := DiscoverModules("/Users/jason/github/Signal-Android")
+	graph, err := DiscoverModules(root)
 	if err != nil {
 		t.Fatalf("DiscoverModules failed: %v", err)
 	}
@@ -143,7 +141,7 @@ func TestDiscoverModulesSignal(t *testing.T) {
 		t.Fatal("expected non-nil graph")
 	}
 
-	// Signal-Android has 28 modules.
+	// Signal fixture has 28 modules.
 	if len(graph.Modules) < 25 {
 		t.Errorf("expected at least 25 modules, got %d", len(graph.Modules))
 	}
@@ -161,19 +159,17 @@ func TestDiscoverModulesSignal(t *testing.T) {
 	if paging == nil {
 		t.Fatal("expected :paging module")
 	}
-	expectedDir := filepath.Join("/Users/jason/github/Signal-Android", "paging", "lib")
+	absRoot, _ := filepath.Abs(root)
+	expectedDir := filepath.Join(absRoot, "paging", "lib")
 	if paging.Dir != expectedDir {
 		t.Errorf("paging dir = %q, want %q", paging.Dir, expectedDir)
 	}
 }
 
 func TestDiscoverModulesCircuit(t *testing.T) {
-	settingsPath := "/Users/jason/github/circuit/settings.gradle.kts"
-	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
-		t.Skip("circuit not found on disk")
-	}
+	root := filepath.Join("..", "..", "tests", "fixtures", "modules", "circuit")
 
-	graph, err := DiscoverModules("/Users/jason/github/circuit")
+	graph, err := DiscoverModules(root)
 	if err != nil {
 		t.Fatalf("DiscoverModules failed: %v", err)
 	}
@@ -181,7 +177,7 @@ func TestDiscoverModulesCircuit(t *testing.T) {
 		t.Fatal("expected non-nil graph")
 	}
 
-	// Circuit has 30+ modules in the multi-arg include.
+	// Circuit fixture has 30 modules in the multi-arg include.
 	if len(graph.Modules) < 25 {
 		t.Errorf("expected at least 25 modules, got %d", len(graph.Modules))
 	}

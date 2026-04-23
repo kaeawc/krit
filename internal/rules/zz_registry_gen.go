@@ -10849,32 +10849,7 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				if !file.FlatHasModifier(idx, "override") {
-					return
-				}
-				if extractIdentifierFlat(file, idx) != "equals" {
-					return
-				}
-				text := file.FlatNodeText(idx)
-				m := wrongEqualsRe.FindStringSubmatch(text)
-				if m == nil || m[1] == "Any?" {
-					return
-				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					fmt.Sprintf("equals() parameter type is '%s' instead of 'Any?'. This does not properly override Any.equals().", m[1]))
-				startByte := int(file.FlatStartByte(idx))
-				if loc := wrongEqualsFixRe.FindStringSubmatchIndex(text); loc != nil {
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   startByte + loc[0],
-						EndByte:     startByte + loc[1],
-						Replacement: text[loc[2]:loc[3]] + "Any?",
-					}
-				}
-				ctx.Emit(f)
-			},
+			Check: r.check,
 		})
 	}
 	{
@@ -10883,37 +10858,7 @@ func registerAllRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
 			Needs: v2.NeedsResolver,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.HasSuffix(text, ".toString()") && !strings.Contains(text, ".toString()") {
-					return
-				}
-				if ctx.Resolver != nil {
-					navExpr, _ := file.FlatFindChild(idx, "navigation_expression")
-					if navExpr != 0 && file.FlatChildCount(navExpr) >= 1 {
-						receiver := file.FlatChild(navExpr, 0)
-						if receiver != 0 {
-							receiverText := file.FlatNodeText(receiver)
-							simpleName := receiverText
-							if dotIdx := strings.LastIndex(simpleName, "."); dotIdx >= 0 {
-								simpleName = simpleName[dotIdx+1:]
-							}
-							resolved := ctx.Resolver.ResolveByNameFlat(simpleName, idx, file)
-							if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
-								if resolved.Name == "CharArray" || resolved.FQN == "kotlin.CharArray" {
-									r.reportCharArrayFlat(ctx, text)
-									return
-								}
-								return
-							}
-						}
-					}
-				}
-				if charArrayToStringRe.MatchString(text) {
-					r.reportCharArrayFlat(ctx, text)
-				}
-			},
+			Check: r.check,
 		})
 	}
 	{

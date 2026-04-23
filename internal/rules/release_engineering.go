@@ -675,34 +675,64 @@ func hasLoggingImport(file *scanner.File) bool {
 // HardcodedLocalhostUrlRule flags URL literals containing localhost or 10.0.2.2
 // in non-test non-debug source files.
 type HardcodedLocalhostUrlRule struct {
-	LineBase
+	FlatDispatchBase
 	BaseRule
 }
 
-func (r *HardcodedLocalhostUrlRule) Confidence() float64 { return 0.85 }
+// Confidence: tier-1 — we dispatch on string_literal and read the literal's
+// exact content via the AST's string_content children. A URL never crosses
+// into a raw-string template or an interpolated expression by accident; if
+// the literal has such an expression child, we refuse to match (we cannot
+// prove the runtime URL is `localhost`). No line scanning, no quote
+// gymnastics.
+func (r *HardcodedLocalhostUrlRule) Confidence() float64 { return 0.95 }
 
-var localhostUrlRe = regexp.MustCompile(`"https?://(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?(/[^"]*)?"|'https?://(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?(/[^']*)?'`)
+var localhostUrlRe = regexp.MustCompile(`^https?://(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?(/.*)?$`)
 
+// check runs per string_literal. The former implementation scanned
+// file.Lines for a regex that matched the literal together with its
+// surrounding quote characters — this was fragile across raw string
+// forms, multi-line strings, and comment contexts. Now we inspect the
+// AST node directly.
 func (r *HardcodedLocalhostUrlRule) check(ctx *v2.Context) {
 	file := ctx.File
 	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") {
 		return
 	}
-	if isTestFile(file.Path) {
+	if isTestFile(file.Path) || isDebugSourceFile(file.Path) {
 		return
 	}
-	if isDebugSourceFile(file.Path) {
+	idx := ctx.Idx
+	if flatContainsStringInterpolation(file, idx) {
+		return // interpolated content — cannot confirm runtime value.
+	}
+	content := stringLiteralContent(file, idx)
+	if content == "" {
 		return
 	}
+	if !localhostUrlRe.MatchString(content) {
+		return
+	}
+	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"Hardcoded localhost URL in production source; use a build config or environment variable."))
+}
 
-	for i, line := range file.Lines {
-		loc := localhostUrlRe.FindStringIndex(line)
-		if loc == nil {
-			continue
-		}
-		ctx.Emit(r.Finding(file, i+1, loc[0]+1,
-			"Hardcoded localhost URL in production source; use a build config or environment variable."))
+// stringLiteralContent returns the concatenated text of every
+// string_content child under a string_literal node, which is the
+// runtime value of a non-interpolated string. Callers should first
+// verify there is no interpolation (flatContainsStringInterpolation)
+// since this ignores interpolated segments entirely.
+func stringLiteralContent(file *scanner.File, idx uint32) string {
+	if file == nil || file.FlatType(idx) != "string_literal" {
+		return ""
 	}
+	var b strings.Builder
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "string_content" {
+			b.WriteString(file.FlatNodeText(child))
+		}
+	}
+	return b.String()
 }
 
 func isDebugSourceFile(path string) bool {
@@ -711,11 +741,11 @@ func isDebugSourceFile(path string) bool {
 
 // TestOnlyImportInProductionRule flags test-framework imports in non-test files.
 type TestOnlyImportInProductionRule struct {
-	LineBase
+	FlatDispatchBase
 	BaseRule
 }
 
-func (r *TestOnlyImportInProductionRule) Confidence() float64 { return 0.90 }
+func (r *TestOnlyImportInProductionRule) Confidence() float64 { return 0.95 }
 
 var testOnlyImportPrefixes = []string{
 	"org.mockito.",
@@ -733,6 +763,12 @@ var testOnlyImportPrefixes = []string{
 	"org.mockito_kotlin.",
 }
 
+// check runs per import_header. It reads the imported FQN directly from
+// the `identifier` child and flags it when the FQN is under any of the
+// test-framework package prefixes and the file is not itself a test
+// source. This replaces a per-line `strings.HasPrefix(trimmed, "import ")`
+// scan that also dealt with stripping trailing `as Alias` syntax — the
+// AST already separates the identifier from the import_alias child.
 func (r *TestOnlyImportInProductionRule) check(ctx *v2.Context) {
 	file := ctx.File
 	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") {
@@ -741,20 +777,17 @@ func (r *TestOnlyImportInProductionRule) check(ctx *v2.Context) {
 	if isTestFile(file.Path) {
 		return
 	}
-
-	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "import ") {
-			continue
-		}
-		pkg := strings.TrimSpace(strings.TrimPrefix(trimmed, "import "))
-		for _, prefix := range testOnlyImportPrefixes {
-			if strings.HasPrefix(pkg, prefix) {
-				col := strings.Index(line, "import")
-				ctx.Emit(r.Finding(file, i+1, col+1,
-					fmt.Sprintf("Test-only import %q in non-test file; move this code to a test source set.", pkg)))
-				break
-			}
+	idx := ctx.Idx
+	ident, ok := file.FlatFindChild(idx, "identifier")
+	if !ok {
+		return
+	}
+	fqn := file.FlatNodeText(ident)
+	for _, prefix := range testOnlyImportPrefixes {
+		if strings.HasPrefix(fqn, prefix) {
+			ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				fmt.Sprintf("Test-only import %q in non-test file; move this code to a test source set.", fqn)))
+			return
 		}
 	}
 }

@@ -4,6 +4,10 @@ class UnsafeCallOnNullableType {
     fun example(nullable: String?) {
         val len = nullable!!.length
     }
+
+    fun bareAssert(nullable: String?) {
+        val x = nullable!!
+    }
 }
 
 class PostFilterUnsafePatterns {

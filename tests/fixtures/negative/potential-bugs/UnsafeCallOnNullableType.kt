@@ -4,6 +4,18 @@ class UnsafeCallOnNullableType {
     fun example(nullable: String?) {
         val len = nullable?.length
     }
+
+    // String literal containing !! should not trigger
+    fun message() {
+        val msg = "use !! to force"
+    }
+
+    // a!!.b — only a!! fires, not a!!.b as the outer node
+    fun chainedAccess(a: String?) {
+        // This negative fixture verifies that navigation on a postfix
+        // expression is not double-reported at the navigation_expression level.
+        val x = a?.length
+    }
 }
 
 class PostFilterSafePatterns {

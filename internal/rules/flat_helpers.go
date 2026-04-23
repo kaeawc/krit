@@ -435,6 +435,14 @@ var composeSemanticsEscapeHatches = map[string]bool{
 	"invisibleToUser":      true,
 }
 
+// channelCloseNames is the set of Channel finalization methods that
+// release the receiver coroutine.
+var channelCloseNames = map[string]bool{"close": true}
+
+// coroutineScopeCancelNames is the set of CoroutineScope finalization
+// methods that stop the launched coroutines.
+var coroutineScopeCancelNames = map[string]bool{"cancel": true}
+
 // isReceiverNamed returns true when the call_expression at idx is invoked
 // through a navigation whose first identifier equals `name`. Matches
 // `Toast.makeText(...)` when called with `name == "Toast"`. Returns false
@@ -659,6 +667,55 @@ func ifExpressionHasElse(file *scanner.File, idx uint32) bool {
 		}
 	}
 	return false
+}
+
+// classHasCallOn returns true when some call_expression inside the
+// class at classIdx has a receiver identifier equal to receiverName
+// and a callee name in the given set. Used by rules that want to
+// verify "did this class ever invoke X on property Y?" without
+// string-matching the class body text.
+func classHasCallOn(file *scanner.File, classIdx uint32, receiverName string, calleeNames map[string]bool) bool {
+	if file == nil || classIdx == 0 || receiverName == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(classIdx, "call_expression", func(call uint32) {
+		if found {
+			return
+		}
+		if !calleeNames[flatCallExpressionName(file, call)] {
+			return
+		}
+		if flatReceiverNameFromCall(file, call) == receiverName {
+			found = true
+		}
+	})
+	return found
+}
+
+// propertyInitializerCallCalleeName returns the callee name of the
+// property's initializer expression when the initializer is a
+// call_expression, otherwise "". For `val foo = Channel<Int>()` this
+// returns "Channel"; for `val foo = listOf(1,2,3)` it returns "listOf".
+func propertyInitializerCallCalleeName(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 || file.FlatType(idx) != "property_declaration" {
+		return ""
+	}
+	seenEquals := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			seenEquals = true
+			continue
+		}
+		if !seenEquals || !file.FlatIsNamed(child) {
+			continue
+		}
+		if file.FlatType(child) == "call_expression" {
+			return flatCallExpressionName(file, child)
+		}
+		return ""
+	}
+	return ""
 }
 
 // namedArgRHSIsNullLiteral returns true when the RHS of a named

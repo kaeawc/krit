@@ -7165,11 +7165,14 @@ func registerAllRules() {
 		r := &ChannelReceiveWithoutCloseRule{BaseRule: BaseRule{RuleName: "ChannelReceiveWithoutClose", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Channel properties in a class that are never closed, leaking the receiver coroutine."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.85, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "Channel<") && !strings.Contains(text, "Channel(") {
+				// The property's initializer must be a direct call to
+				// `Channel(...)`. Previously any occurrence of "Channel<"
+				// or "Channel(" in the node text would trip — even in
+				// comments or a type annotation like `val x: MyChannel<String>`.
+				if propertyInitializerCallCalleeName(file, idx) != "Channel" {
 					return
 				}
 				propName := extractIdentifierFlat(file, idx)
@@ -7180,8 +7183,7 @@ func registerAllRules() {
 				if !ok {
 					return
 				}
-				classText := file.FlatNodeText(classDecl)
-				if strings.Contains(classText, propName+".close()") || strings.Contains(classText, propName+".close(") {
+				if classHasCallOn(file, classDecl, propName, channelCloseNames) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -7257,11 +7259,13 @@ func registerAllRules() {
 		r := &CoroutineScopeCreatedButNeverCancelledRule{BaseRule: BaseRule{RuleName: "CoroutineScopeCreatedButNeverCancelled", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects CoroutineScope properties in a class that are never cancelled, leaking coroutines."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.85, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, "CoroutineScope(") {
+				// Initializer must be a direct `CoroutineScope(...)` call.
+				// Skip properties whose text merely mentions the type in
+				// an annotation or comment.
+				if propertyInitializerCallCalleeName(file, idx) != "CoroutineScope" {
 					return
 				}
 				propName := extractIdentifierFlat(file, idx)
@@ -7272,8 +7276,7 @@ func registerAllRules() {
 				if !ok {
 					return
 				}
-				classText := file.FlatNodeText(classDecl)
-				if strings.Contains(classText, propName+".cancel()") || strings.Contains(classText, propName+".cancel(") {
+				if classHasCallOn(file, classDecl, propName, coroutineScopeCancelNames) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,

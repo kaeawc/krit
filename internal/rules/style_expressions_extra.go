@@ -344,27 +344,142 @@ type DoubleNegativeExpressionRule struct {
 	BaseRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection uses structural pattern matching on
-// expressions; the suggested rewrite's readability is a style call.
-// Classified per roadmap/17.
-func (r *DoubleNegativeExpressionRule) Confidence() float64 { return 0.75 }
+// Confidence: tier-1 — the detection is purely syntactic. prefix_expression
+// with a `!` operator applied to a no-arg call whose callee starts with
+// `isNot`/`isNon` is unambiguously a double negative.
+func (r *DoubleNegativeExpressionRule) Confidence() float64 { return 0.9 }
 
-var doubleNegFixRe = regexp.MustCompile(`!(\w*\.\s*)is(Not|Non)(\w+)\(\)`)
+// checkDoubleNegativeExpressionFlat runs on a prefix_expression. It fires
+// when the shape is `!<expr>.isNot<Suffix>()` or `!isNon<Suffix>()` — a
+// unary-bang applied to a zero-argument callable whose name begins with
+// `isNot` or `isNon`. Works for qualified (`xs.isNotEmpty()`) and
+// unqualified (`isNonBlank()`) callees via flatCallExpressionName.
+func (r *DoubleNegativeExpressionRule) checkDoubleNegativeExpressionFlat(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
+	first := file.FlatFirstChild(idx)
+	if first == 0 || file.FlatType(first) != "!" {
+		return
+	}
+	operand := file.FlatNextSib(first)
+	for operand != 0 && !file.FlatIsNamed(operand) {
+		operand = file.FlatNextSib(operand)
+	}
+	operand = flatUnwrapParenExpr(file, operand)
+	if operand == 0 || file.FlatType(operand) != "call_expression" {
+		return
+	}
+	args := flatCallKeyArguments(file, operand)
+	if args != 0 && file.FlatNamedChildCount(args) > 0 {
+		return // has arguments — not the zero-arg form we rewrite.
+	}
+	callee := flatCallExpressionName(file, operand)
+	kind, suffix := splitIsNotPrefix(callee)
+	if kind == "" {
+		return
+	}
 
-// DoubleNegativeLambdaRule detects `filterNot { !it }`, `none { }`, `takeUnless { }`.
+	receiverPrefix := ""
+	for child := file.FlatFirstChild(operand); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "navigation_expression" {
+			// everything before the final navigation_suffix is the receiver
+			last := flatLastChildOfType(file, child, "navigation_suffix")
+			if last != 0 {
+				receiverPrefix = strings.TrimSpace(string(file.Content[file.FlatStartByte(child):file.FlatStartByte(last)])) + "."
+			}
+			break
+		}
+	}
+
+	var positive string
+	switch suffix {
+	case "Empty":
+		positive = receiverPrefix + "isEmpty()"
+	case "Blank":
+		positive = receiverPrefix + "isBlank()"
+	case "Null":
+		positive = receiverPrefix + "isNull()"
+	default:
+		positive = receiverPrefix + "is" + suffix + "()"
+	}
+	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"Double negative expression. Simplify by using the positive variant.")
+	f.Fix = &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   int(file.FlatStartByte(idx)),
+		EndByte:     int(file.FlatEndByte(idx)),
+		Replacement: positive,
+	}
+	ctx.Emit(f)
+}
+
+// splitIsNotPrefix returns ("Not"|"Non", suffix) if name starts with
+// "isNot<Uppercase...>" or "isNon<Uppercase...>", else ("", "").
+func splitIsNotPrefix(name string) (kind, suffix string) {
+	for _, prefix := range []string{"isNot", "isNon"} {
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		rest := name[len(prefix):]
+		if rest == "" {
+			return "", ""
+		}
+		first := rest[0]
+		if first < 'A' || first > 'Z' {
+			return "", ""
+		}
+		return prefix[2:], rest
+	}
+	return "", ""
+}
+
+// DoubleNegativeLambdaRule detects `filterNot { !it }`, `none { !it }`.
 type DoubleNegativeLambdaRule struct {
 	FlatDispatchBase
 	BaseRule
 	NegativeFunctions []string
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection uses structural pattern matching on
-// expressions; the suggested rewrite's readability is a style call.
-// Classified per roadmap/17.
-func (r *DoubleNegativeLambdaRule) Confidence() float64 { return 0.75 }
+// Confidence: tier-1 syntactic — the shape `.filterNot { <negation> }` and
+// `.none { <negation> }` where the lambda body is a single prefix-bang
+// expression is an unambiguous double negative. We deliberately do NOT
+// flag multi-statement lambdas or compound expressions where `!` appears
+// inside a larger boolean expression.
+func (r *DoubleNegativeLambdaRule) Confidence() float64 { return 0.9 }
 
-var filterNotNegRe = regexp.MustCompile(`\.filterNot\s*\{[^}]*![^}]*\}`)
-var noneNegRe = regexp.MustCompile(`\.none\s*\{[^}]*![^}]*\}`)
+// checkDoubleNegativeLambdaFlat runs on a call_expression. Fires when the
+// callee is `filterNot` or `none` (qualified or unqualified) and the
+// trailing lambda body is a single unary-bang expression.
+func (r *DoubleNegativeLambdaRule) checkDoubleNegativeLambdaFlat(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
+	callee := flatCallExpressionName(file, idx)
+	var msg string
+	switch callee {
+	case "filterNot":
+		msg = "Double negative in '.filterNot { !... }'. Use '.filter { ... }' instead."
+	case "none":
+		msg = "Double negative in '.none { !... }'. Use '.all { ... }' instead."
+	default:
+		return
+	}
+	lambda := flatCallTrailingLambda(file, idx)
+	if lambda == 0 {
+		return
+	}
+	stmts, _ := file.FlatFindChild(lambda, "statements")
+	if stmts == 0 || file.FlatNamedChildCount(stmts) != 1 {
+		return // require a single-statement body
+	}
+	body := file.FlatNamedChild(stmts, 0)
+	body = flatUnwrapParenExpr(file, body)
+	if file.FlatType(body) != "prefix_expression" {
+		return
+	}
+	op := file.FlatFirstChild(body)
+	if op == 0 || file.FlatType(op) != "!" {
+		return
+	}
+	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+}
 
 // NullableBooleanCheckRule detects `x == true` on Boolean?.
 type NullableBooleanCheckRule struct {

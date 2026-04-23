@@ -14570,56 +14570,16 @@ func registerAllRules() {
 		r := &DoubleNegativeExpressionRule{BaseRule: BaseRule{RuleName: "DoubleNegativeExpression", RuleSetName: "style", Sev: "warning", Desc: "Detects double negative expressions like !isNotEmpty() that should use the positive variant."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"prefix_expression"}, Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				sub := doubleNegFixRe.FindStringSubmatch(text)
-				if sub == nil {
-					return
-				}
-				var positive string
-				switch sub[3] {
-				case "Empty":
-					positive = sub[1] + "isEmpty()"
-				case "Blank":
-					positive = sub[1] + "isBlank()"
-				case "Null":
-					positive = sub[1] + "isNull()"
-				default:
-					positive = sub[1] + "is" + sub[3] + "()"
-				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Double negative expression. Simplify by using the positive variant.")
-				loc := doubleNegFixRe.FindStringIndex(text)
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   int(file.FlatStartByte(idx)) + loc[0],
-					EndByte:     int(file.FlatStartByte(idx)) + loc[1],
-					Replacement: positive,
-				}
-				ctx.Emit(f)
-			},
+			NodeTypes: []string{"prefix_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: r.checkDoubleNegativeExpressionFlat,
 		})
 	}
 	{
 		r := &DoubleNegativeLambdaRule{BaseRule: BaseRule{RuleName: "DoubleNegativeLambda", RuleSetName: "style", Sev: "warning", Desc: "Detects double negative lambda patterns like filterNot { !predicate } that should use filter."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if filterNotNegRe.MatchString(text) {
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-						"Double negative in '.filterNot { !... }'. Use '.filter { ... }' instead.")
-					return
-				}
-				if noneNegRe.MatchString(text) {
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-						"Double negative in '.none { !... }'. Use '.all { ... }' instead.")
-				}
-			},
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: r.checkDoubleNegativeLambdaFlat,
 		})
 	}
 	{

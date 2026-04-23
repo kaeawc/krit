@@ -483,13 +483,13 @@ func (d *Daemon) AnalyzeAllWithCallFilter(callFilter *CallTargetFilterSummary) (
 // the condition and trigger a daemon Rebuild + retry before falling
 // through to one-shot.
 func (d *Daemon) AnalyzeWithDeps(files []string) (*OracleData, *CacheDepsFile, error) {
-	data, deps, _, err := d.AnalyzeWithDepsWithTimings(files, false, nil)
+	data, deps, _, err := d.AnalyzeWithDepsWithTimings(files, false, nil, nil)
 	return data, deps, err
 }
 
 // AnalyzeWithDepsWithTimings is AnalyzeWithDeps plus optional Kotlin-side
 // timing entries returned by newer daemon processes.
-func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool, callFilter *CallTargetFilterSummary) (*OracleData, *CacheDepsFile, []perf.TimingEntry, error) {
+func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool, callFilter *CallTargetFilterSummary, declarationProfile *DeclarationProfileSummary) (*OracleData, *CacheDepsFile, []perf.TimingEntry, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -502,6 +502,11 @@ func (d *Daemon) AnalyzeWithDepsWithTimings(files []string, collectTimings bool,
 		params["callFilterLexicalHintsByCallee"] = callFilter.LexicalHintsByCallee
 		params["callFilterLexicalSkipByCallee"] = callFilter.LexicalSkipByCallee
 		params["callFilterRuleProfiles"] = callFilter.RuleProfiles
+	}
+	if declarationProfile != nil {
+		if cliVal := declarationProfile.Profile.CLIValue(); cliVal != "" {
+			params["declarationProfile"] = cliVal
+		}
 	}
 
 	resp, err := d.send("analyzeWithDeps", params)

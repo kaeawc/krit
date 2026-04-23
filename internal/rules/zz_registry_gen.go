@@ -4768,7 +4768,7 @@ func registerAllRules() {
 		r := &WrongImportRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "WrongImport", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "WrongImport", Brief: "Importing android.R instead of app R", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"import_header"}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
 	}

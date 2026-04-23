@@ -263,6 +263,9 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	if callFilterPath != "" {
 		args = append(args, "--call-filter", callFilterPath)
 	}
+	if profileArg := declarationProfileCLIValue(opts); profileArg != "" {
+		args = append(args, "--declaration-profile", profileArg)
+	}
 	var cleanupTimings func()
 	if tracker.IsEnabled() {
 		timingsPath, cleanup, err := tempTimingsPath()

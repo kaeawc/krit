@@ -79,6 +79,12 @@ type CacheEntry struct {
 	// Filtered entries only satisfy lookups for the same filter. Unfiltered
 	// entries are a safe superset and can satisfy filtered runs.
 	CallFilterFingerprint string `json:"call_filter_fingerprint,omitempty"`
+	// DeclarationProfileFingerprint is empty for entries produced with the
+	// full declaration export profile (pre-profile behavior). Narrow-profile
+	// entries only satisfy lookups at the same fingerprint — the
+	// broader-superset rule that applies to CallFilterFingerprint also
+	// applies here: empty = contains every field = satisfies any lookup.
+	DeclarationProfileFingerprint string `json:"declaration_profile_fingerprint,omitempty"`
 	// Approximation tags the dep-closure tracking method used when the
 	// entry was written. Any mismatch with the current runtime's
 	// approximation is treated as a miss — lets us upgrade the tracker
@@ -274,13 +280,33 @@ func VerifyClosure(entry *CacheEntry, hashCache map[string]string) bool {
 }
 
 func cacheScopeCompatible(entry *CacheEntry, currentCallFilter string) bool {
+	return cacheScopeCompatibleV2(entry, currentCallFilter, "")
+}
+
+// cacheScopeCompatibleV2 extends cacheScopeCompatible with the declaration
+// profile scope. Both the call filter and declaration profile follow the
+// "empty = broad superset" convention: an entry with an empty fingerprint
+// contains every field and therefore satisfies any lookup; a non-empty
+// fingerprint only satisfies an identical lookup.
+func cacheScopeCompatibleV2(entry *CacheEntry, currentCallFilter, currentDeclarationProfile string) bool {
 	if entry == nil {
 		return false
 	}
 	if currentCallFilter == "" {
-		return entry.CallFilterFingerprint == ""
+		if entry.CallFilterFingerprint != "" {
+			return false
+		}
+	} else if entry.CallFilterFingerprint != "" && entry.CallFilterFingerprint != currentCallFilter {
+		return false
 	}
-	return entry.CallFilterFingerprint == "" || entry.CallFilterFingerprint == currentCallFilter
+	if currentDeclarationProfile == "" {
+		if entry.DeclarationProfileFingerprint != "" {
+			return false
+		}
+	} else if entry.DeclarationProfileFingerprint != "" && entry.DeclarationProfileFingerprint != currentDeclarationProfile {
+		return false
+	}
+	return true
 }
 
 // IndexCacheHashes walks the legacy cache entries directory once and returns a
@@ -373,6 +399,10 @@ func ClassifyFiles(cacheDir string, paths []string) (hits []*CacheEntry, misses 
 }
 
 func ClassifyFilesScoped(cacheDir string, paths []string, callFilterFingerprint string) (hits []*CacheEntry, misses []string) {
+	return ClassifyFilesScopedV2(cacheDir, paths, callFilterFingerprint, "")
+}
+
+func ClassifyFilesScopedV2(cacheDir string, paths []string, callFilterFingerprint, declarationProfileFingerprint string) (hits []*CacheEntry, misses []string) {
 	recordOracleDir(cacheDir)
 	hits = make([]*CacheEntry, 0, len(paths))
 	misses = make([]string, 0)
@@ -429,7 +459,7 @@ func ClassifyFilesScoped(cacheDir string, paths []string, callFilterFingerprint 
 			misses = append(misses, p)
 			continue
 		}
-		if !cacheScopeCompatible(entry, callFilterFingerprint) {
+		if !cacheScopeCompatibleV2(entry, callFilterFingerprint, declarationProfileFingerprint) {
 			misses = append(misses, p)
 			continue
 		}
@@ -848,6 +878,16 @@ func WriteFreshEntriesWithTrackerScoped(
 	tracker perf.Tracker,
 	callFilterFingerprint string,
 ) (int, error) {
+	return WriteFreshEntriesWithTrackerScopedV2(cacheDir, fresh, deps, tracker, callFilterFingerprint, "")
+}
+
+func WriteFreshEntriesWithTrackerScopedV2(
+	cacheDir string,
+	fresh *OracleData,
+	deps *CacheDepsFile,
+	tracker perf.Tracker,
+	callFilterFingerprint, declarationProfileFingerprint string,
+) (int, error) {
 	if fresh == nil {
 		return 0, nil
 	}
@@ -900,8 +940,9 @@ func WriteFreshEntriesWithTrackerScoped(
 				DepPaths:    depPaths,
 				Fingerprint: fp,
 			},
-			Approximation:         approx,
-			CallFilterFingerprint: callFilterFingerprint,
+			Approximation:                 approx,
+			CallFilterFingerprint:         callFilterFingerprint,
+			DeclarationProfileFingerprint: declarationProfileFingerprint,
 		}
 		entry.V = CacheVersion
 		marshalStart := time.Now()
@@ -929,13 +970,14 @@ func WriteFreshEntriesWithTrackerScoped(
 				continue
 			}
 			entry := &CacheEntry{
-				V:                     CacheVersion,
-				ContentHash:           hash,
-				FilePath:              path,
-				Crashed:               true,
-				CrashError:            errMsg,
-				Approximation:         approx,
-				CallFilterFingerprint: callFilterFingerprint,
+				V:                             CacheVersion,
+				ContentHash:                   hash,
+				FilePath:                      path,
+				Crashed:                       true,
+				CrashError:                    errMsg,
+				Approximation:                 approx,
+				CallFilterFingerprint:         callFilterFingerprint,
+				DeclarationProfileFingerprint: declarationProfileFingerprint,
 				Closure: CacheClosure{
 					DepPaths:    nil,
 					Fingerprint: "",
@@ -1031,8 +1073,17 @@ func ClassifyFilesWithStore(s *store.FileStore, cacheDir string, paths []string)
 }
 
 func ClassifyFilesWithStoreScoped(s *store.FileStore, cacheDir string, paths []string, callFilterFingerprint string) (hits []*CacheEntry, misses []string) {
+	return ClassifyFilesWithStoreScopedV2(s, cacheDir, paths, callFilterFingerprint, "")
+}
+
+// ClassifyFilesWithStoreScopedV2 is ClassifyFilesWithStoreScoped extended
+// with the declaration profile fingerprint. Entries are treated as hits
+// only when both the call filter and declaration profile scopes are
+// compatible; the usual "empty fingerprint = broad superset" rule applies
+// to both axes.
+func ClassifyFilesWithStoreScopedV2(s *store.FileStore, cacheDir string, paths []string, callFilterFingerprint, declarationProfileFingerprint string) (hits []*CacheEntry, misses []string) {
 	if s == nil {
-		return ClassifyFilesScoped(cacheDir, paths, callFilterFingerprint)
+		return ClassifyFilesScopedV2(cacheDir, paths, callFilterFingerprint, declarationProfileFingerprint)
 	}
 	recordOracleDir(cacheDir)
 	hits = make([]*CacheEntry, 0, len(paths))
@@ -1055,7 +1106,7 @@ func ClassifyFilesWithStoreScoped(s *store.FileStore, cacheDir string, paths []s
 			misses = append(misses, p)
 			continue
 		}
-		if !cacheScopeCompatible(entry, callFilterFingerprint) {
+		if !cacheScopeCompatibleV2(entry, callFilterFingerprint, declarationProfileFingerprint) {
 			misses = append(misses, p)
 			continue
 		}
@@ -1103,8 +1154,19 @@ func WriteFreshEntriesToStoreWithTrackerScoped(
 	tracker perf.Tracker,
 	callFilterFingerprint string,
 ) (int, error) {
+	return WriteFreshEntriesToStoreWithTrackerScopedV2(s, cacheDir, fresh, deps, tracker, callFilterFingerprint, "")
+}
+
+func WriteFreshEntriesToStoreWithTrackerScopedV2(
+	s *store.FileStore,
+	cacheDir string,
+	fresh *OracleData,
+	deps *CacheDepsFile,
+	tracker perf.Tracker,
+	callFilterFingerprint, declarationProfileFingerprint string,
+) (int, error) {
 	if s == nil {
-		return WriteFreshEntriesWithTrackerScoped(cacheDir, fresh, deps, tracker, callFilterFingerprint)
+		return WriteFreshEntriesWithTrackerScopedV2(cacheDir, fresh, deps, tracker, callFilterFingerprint, declarationProfileFingerprint)
 	}
 	if fresh == nil {
 		return 0, nil
@@ -1145,13 +1207,14 @@ func WriteFreshEntriesToStoreWithTrackerScoped(
 			continue
 		}
 		entry := &CacheEntry{
-			V:                     CacheVersion,
-			ContentHash:           hash,
-			FilePath:              path,
-			FileResult:            fr,
-			PerFileDeps:           perFileDeps,
-			Approximation:         approx,
-			CallFilterFingerprint: callFilterFingerprint,
+			V:                             CacheVersion,
+			ContentHash:                   hash,
+			FilePath:                      path,
+			FileResult:                    fr,
+			PerFileDeps:                   perFileDeps,
+			Approximation:                 approx,
+			CallFilterFingerprint:         callFilterFingerprint,
+			DeclarationProfileFingerprint: declarationProfileFingerprint,
 			Closure: CacheClosure{
 				DepPaths:    depPaths,
 				Fingerprint: fp,
@@ -1186,14 +1249,15 @@ func WriteFreshEntriesToStoreWithTrackerScoped(
 				continue
 			}
 			entry := &CacheEntry{
-				V:                     CacheVersion,
-				ContentHash:           hash,
-				FilePath:              path,
-				Crashed:               true,
-				CrashError:            errMsg,
-				Approximation:         approx,
-				CallFilterFingerprint: callFilterFingerprint,
-				Closure:               CacheClosure{},
+				V:                             CacheVersion,
+				ContentHash:                   hash,
+				FilePath:                      path,
+				Crashed:                       true,
+				CrashError:                    errMsg,
+				Approximation:                 approx,
+				CallFilterFingerprint:         callFilterFingerprint,
+				DeclarationProfileFingerprint: declarationProfileFingerprint,
+				Closure:                       CacheClosure{},
 			}
 			entry.V = CacheVersion
 			marshalStart := time.Now()

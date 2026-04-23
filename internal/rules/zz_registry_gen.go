@@ -963,7 +963,10 @@ func registerAllRules() {
 			OracleCallTargets: &v2.OracleCallTargetFilter{
 				CalleeNames: []string{"findViewById", "requireViewById"},
 			},
-			Confidence: r.Confidence(), OriginalV1: r,
+			// Checks whether the cast target is assignable to the receiver view type;
+			// needs the class hierarchy but not member signatures.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
+			Confidence:             r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
 	}
@@ -982,7 +985,10 @@ func registerAllRules() {
 			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: r.Confidence(), OriginalV1: r,
 			Oracle:            &v2.OracleFilter{Identifiers: []string{"IntRange", "FloatRange", "Color", "setAlpha", "setProgress", "setRotation"}},
 			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"argb", "rgb", "setAlpha", "setProgress", "setRotation"}},
-			Check:             r.check,
+			// Uses LookupCallTarget to verify the method is a framework target;
+			// allowed ranges come from hardcoded tables, not oracle annotations.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			Check:                  r.check,
 		})
 	}
 	{
@@ -1082,7 +1088,10 @@ func registerAllRules() {
 				"android.animation.ObjectAnimator.ofInt",
 				"android.animation.ObjectAnimator.ofObject",
 			}},
-			Check: r.check,
+			// Checks member names for the property/setter (Members), traverses
+			// the class hierarchy to confirm the target is a View (ClassShell+Supertypes).
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true, Members: true},
+			Check:                  r.check,
 		})
 	}
 	{
@@ -4159,7 +4168,10 @@ func registerAllRules() {
 			Confidence: r.Confidence(), OriginalV1: r,
 			Oracle:            &v2.OracleFilter{Identifiers: []string{"setTag"}},
 			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"setTag"}},
-			Check:             r.check,
+			// Checks whether the receiver extends View (class hierarchy) to
+			// confirm setTag is a View.setTag call; no member signatures needed.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
+			Check:                  r.check,
 		})
 	}
 	{
@@ -4179,7 +4191,10 @@ func registerAllRules() {
 				"requestLocationUpdates", "getLastKnownLocation", "getCellLocation", "open", "setAudioSource",
 				"checkSelfPermission", "requestPermissions", "launch",
 			}},
-			Check: r.check,
+			// Uses LookupCallTarget for FQN verification and AST for
+			// @RequiresPermission guards; no oracle member annotations needed.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			Check:                  r.check,
 		})
 	}
 	{
@@ -4191,8 +4206,11 @@ func registerAllRules() {
 			OracleCallTargets: &v2.OracleCallTargetFilter{
 				CalleeNames: []string{"setVisibility", "setLayoutDirection", "setImportantForAccessibility", "setGravity", "setOrientation"},
 			},
-			TypeInfo:   v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true},
-			Confidence: r.Confidence(), OriginalV1: r,
+			TypeInfo: v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true},
+			// Uses LookupCallTarget to verify framework target; allowed constant
+			// sets come from hardcoded tables, not oracle member annotations.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			Confidence:             r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
 	}
@@ -6035,6 +6053,9 @@ func registerAllRules() {
 				CalleeNames:          redundantSuspendCallTargetCallees(),
 				LexicalHintsByCallee: redundantSuspendCallTargetLexicalHints(),
 			},
+			// Only uses LookupCallTarget to get the FQN of called functions;
+			// never walks the declarations map.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var oracleLookup oracle.Lookup
@@ -7876,10 +7897,13 @@ func registerAllRules() {
 				CalleeNames:         swallowedExceptionCallTargetCallees(),
 				LexicalSkipByCallee: swallowedExceptionCallTargetLexicalSkips(),
 			},
-			TypeInfo:   v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true},
-			Confidence: 0.75,
-			OriginalV1: r,
-			Check:      r.checkSwallowedException,
+			TypeInfo: v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true},
+			// Uses LookupCallTarget for FQN-based logging classification;
+			// never reads class declarations or member signatures.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			Confidence:             0.75,
+			OriginalV1:             r,
+			Check:                  r.checkSwallowedException,
 		})
 	}
 	{
@@ -9513,7 +9537,10 @@ func registerAllRules() {
 			// lacking all four keywords are a documented trade-off (see
 			// issue #306).
 			Oracle: &v2.OracleFilter{Identifiers: []string{"return", "throw", "break", "continue"}},
-			Check:  r.checkNode,
+			// Consumes file-level compiler diagnostics (UNREACHABLE_CODE,
+			// USELESS_ELVIS) via LookupDiagnostics; never reads declarations.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			Check:                  r.checkNode,
 		})
 	}
 
@@ -9824,6 +9851,9 @@ func registerAllRules() {
 			// from base types that live in files without the token are a
 			// documented trade-off (see issue #306).
 			Oracle: &v2.OracleFilter{Identifiers: []string{"Deprecated"}},
+			// Uses LookupCallTargetAnnotations (annotations embedded directly in
+			// call-resolution data) so no declaration extraction is needed.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var oracleLookup oracle.Lookup
@@ -9858,17 +9888,15 @@ func registerAllRules() {
 					return
 				}
 
-				// 1. Oracle-based check: look up call target annotations
+				// 1. Oracle-based check: annotations are embedded in the call-target
+				// resolution entry, so no member-declaration extraction is needed.
 				if oracleLookup != nil {
-					callTarget := oracleLookup.LookupCallTarget(file.Path, line, col)
-					if callTarget != "" {
-						annotations := oracleLookup.LookupAnnotations(callTarget)
-						for _, ann := range annotations {
-							if ann == "kotlin.Deprecated" || ann == "java.lang.Deprecated" {
-								ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-									fmt.Sprintf("'%s' is deprecated.", name))
-								return
-							}
+					annotations := oracleLookup.LookupCallTargetAnnotations(file.Path, line, col)
+					for _, ann := range annotations {
+						if ann == "kotlin.Deprecated" || ann == "java.lang.Deprecated" {
+							ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+								fmt.Sprintf("'%s' is deprecated.", name))
+							return
 						}
 					}
 				}
@@ -9990,6 +10018,9 @@ func registerAllRules() {
 			// Files lacking either token cannot contribute an oracle-only
 			// finding (see issue #306).
 			Oracle: &v2.OracleFilter{Identifiers: []string{"CheckReturnValue", "CheckResult"}},
+			// Uses LookupCallTargetAnnotations (annotations embedded directly in
+			// call-resolution data) so no declaration extraction is needed.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var oracleLookup oracle.Lookup
@@ -10016,17 +10047,15 @@ func registerAllRules() {
 					return
 				}
 
-				// Oracle-based annotation check
+				// Oracle-based annotation check: annotations are embedded in the
+				// call-target resolution entry, so no member-declaration extraction is needed.
 				if oracleLookup != nil {
-					callTarget := oracleLookup.LookupCallTarget(file.Path, line, col)
-					if callTarget != "" {
-						annotations := oracleLookup.LookupAnnotations(callTarget)
-						if hasCheckReturnAnnotation(annotations, r.ReturnValueAnnotations) &&
-							!hasIgnoreReturnAnnotation(annotations, r.IgnoreReturnValueAnnotations) {
-							ctx.EmitAt(line, col,
-								fmt.Sprintf("Return value of '%s' is ignored. The function is annotated with @CheckReturnValue.", funcName))
-							return
-						}
+					annotations := oracleLookup.LookupCallTargetAnnotations(file.Path, line, col)
+					if hasCheckReturnAnnotation(annotations, r.ReturnValueAnnotations) &&
+						!hasIgnoreReturnAnnotation(annotations, r.IgnoreReturnValueAnnotations) {
+						ctx.EmitAt(line, col,
+							fmt.Sprintf("Return value of '%s' is ignored. The function is annotated with @CheckReturnValue.", funcName))
+						return
 					}
 				}
 
@@ -10197,8 +10226,11 @@ func registerAllRules() {
 				CalleeNames:         []string{"get"},
 				LexicalSkipByCallee: map[string][]string{"get": {"*"}},
 			},
-			OriginalV1: r,
-			Check:      r.check,
+			// Checks class hierarchy (ClassShell+Supertypes) to verify Map type,
+			// and reads member types via mapMemberType() for navigation expressions.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true, Members: true},
+			OriginalV1:             r,
+			Check:                  r.check,
 		})
 	}
 
@@ -10223,8 +10255,11 @@ func registerAllRules() {
 				"getSystemService":  {"context", "applicationContext", "requireContext", "activity", "Context"},
 				"requireViewById":   {"view", "root", "itemView", "activity", "dialog", "window", "View"},
 			}},
-			OriginalV1: r,
-			Check:      r.check,
+			// Resolves expression types at the cast site to verify compatibility;
+			// only uses the expressions map, no declarations traversal needed.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			OriginalV1:             r,
+			Check:                  r.check,
 		})
 	}
 	{
@@ -10232,10 +10267,12 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
-			Needs:      v2.NeedsTypeInfo,
-			Oracle:     &v2.OracleFilter{Identifiers: []string{" as "}},
-			OriginalV1: r,
-			Check:      r.check,
+			Needs:  v2.NeedsTypeInfo,
+			Oracle: &v2.OracleFilter{Identifiers: []string{" as "}},
+			// Uses expression-type resolution; no class declarations needed.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			OriginalV1:             r,
+			Check:                  r.check,
 		})
 	}
 	{
@@ -10262,10 +10299,12 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
-			Needs:      v2.NeedsTypeInfo,
-			Oracle:     &v2.OracleFilter{Identifiers: []string{"!!"}},
-			OriginalV1: r,
-			Check:      r.check,
+			Needs:  v2.NeedsTypeInfo,
+			Oracle: &v2.OracleFilter{Identifiers: []string{"!!"}},
+			// Resolves expression nullability; uses expressions map only.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			OriginalV1:             r,
+			Check:                  r.check,
 		})
 	}
 	{
@@ -10294,7 +10333,9 @@ func registerAllRules() {
 			Oracle:            &v2.OracleFilter{Identifiers: []string{"toString", "$"}},
 			OriginalV1:        r,
 			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"toString"}},
-			Check:             r.check,
+			// Resolves the receiver type to check nullability via expressions map.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			Check:                  r.check,
 		})
 	}
 
@@ -11800,7 +11841,10 @@ func registerAllRules() {
 			Needs:             v2.NeedsCrossFile | v2.NeedsTypeInfo,
 			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"v", "d", "i", "w", "e", "wtf", "plant"}},
 			TypeInfo:          v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true},
-			Confidence:        r.Confidence(), OriginalV1: r,
+			// Uses call target FQNs to detect Timber.v/d/i/w/e calls and
+			// Timber.plant(); never reads class declarations.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			Confidence:             r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
 	}
@@ -15123,7 +15167,10 @@ func registerAllRules() {
 					"isEmpty": {"*"},
 				},
 			},
-			OriginalV1: r,
+			// Matches the receiver FQN against known collection/String types via
+			// the expressions map; no class declarations needed.
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			OriginalV1:             r,
 			Check: func(ctx *v2.Context) {
 				flatUseIsNullOrEmpty(ctx, r.BaseRule)
 			},

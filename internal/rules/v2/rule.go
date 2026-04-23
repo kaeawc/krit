@@ -174,6 +174,30 @@ type OracleFilter struct {
 	AllFiles    bool
 }
 
+// OracleDeclarationProfile narrows which KAA symbol fields the JVM extracts
+// for this rule. The pipeline takes the union across all active rules before
+// passing --declaration-profile to krit-types; a nil value means "no opinion"
+// (the rule does not constrain extraction). If every active oracle rule
+// supplies a non-nil profile, the JVM skips fields outside the union and may
+// run significantly faster.
+//
+// Rules that only use LookupCallTarget or LookupExpression (expression-level
+// APIs) and never walk the declarations map should set an empty struct
+// OracleDeclarationProfile{} — this signals the rule contributes no
+// declaration interest and allows the union to stay narrow.
+//
+// Fields mirror oracle.DeclarationProfile (no import needed here; the bridge
+// in oracle_filter_bridge.go converts).
+type OracleDeclarationProfile struct {
+	ClassShell              bool
+	Supertypes              bool
+	ClassAnnotations        bool
+	Members                 bool
+	MemberSignatures        bool
+	MemberAnnotations       bool
+	SourceDependencyClosure bool
+}
+
 // OracleCallTargetFilter declares which call targets a rule may ask the
 // JVM oracle to resolve via LookupCallTarget. Nil means the rule does not
 // contribute call-target interest. AllCalls is conservative and disables
@@ -252,6 +276,16 @@ type Rule struct {
 	// lexical callees this rule can consume. Broad consumers set
 	// AllCalls=true, which disables the optimization for the active rule set.
 	OracleCallTargets *OracleCallTargetFilter
+
+	// OracleDeclarationNeeds, when non-nil, declares which declaration
+	// fields this rule reads from the JVM oracle. The pipeline unions these
+	// across all active rules to compute the --declaration-profile flag
+	// passed to krit-types. A nil value means the rule has not opted in to
+	// narrowing (conservative: treated as needing all fields for the union).
+	// Rules that only use expression-level APIs (LookupCallTarget,
+	// LookupExpression) and never touch the declarations map should set
+	// &OracleDeclarationProfile{} (empty, no fields needed).
+	OracleDeclarationNeeds *OracleDeclarationProfile
 
 	// TypeInfo carries per-rule routing hints for type-information
 	// lookups. Zero value (PreferAny, Required=false) is backwards

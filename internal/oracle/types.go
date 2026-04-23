@@ -27,9 +27,10 @@ type OracleDiagnostic struct {
 
 // ExpressionType holds a compiler-resolved type for an expression at a source position.
 type ExpressionType struct {
-	Type       string `json:"type"`                 // FQN like "kotlin.String"
-	Nullable   bool   `json:"nullable"`
-	CallTarget string `json:"callTarget,omitempty"` // FQN of resolved function
+	Type        string   `json:"type"`                  // FQN like "kotlin.String"
+	Nullable    bool     `json:"nullable"`
+	CallTarget  string   `json:"callTarget,omitempty"`  // FQN of resolved function
+	Annotations []string `json:"annotations,omitempty"` // FQNs of annotations on the resolved symbol
 }
 
 // OracleClass describes a class, interface, object, or enum.

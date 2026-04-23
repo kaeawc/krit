@@ -1493,29 +1493,36 @@ func registerAllRules() {
 		r := &CustomViewStyleableRule{AndroidRule: alcRule("CustomViewStyleable", "Mismatched Styleable/Custom View Name", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				m := obtainStyledAttrsRe.FindStringSubmatch(text)
-				if m == nil {
+				if flatCallExpressionName(file, idx) != "obtainStyledAttributes" {
 					return
 				}
-				var className string
-				for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
-					if file.FlatType(parent) == "class_declaration" {
-						classText := file.FlatNodeText(parent)
-						if cm := classNameRe.FindStringSubmatch(classText); cm != nil {
-							className = cm[1]
-						}
-						break
-					}
+				// Second positional arg is R.styleable.<Name> — extract
+				// <Name> via AST navigation rather than regex-matching the
+				// whole call's text.
+				args := flatCallKeyArguments(file, idx)
+				secondArg := flatPositionalValueArgument(file, args, 1)
+				expr := flatValueArgumentExpression(file, secondArg)
+				if expr == 0 || file.FlatType(expr) != "navigation_expression" {
+					return
 				}
-				if className == "" || m[1] == className {
+				styleableName := flatNavigationExpressionLastIdentifier(file, expr)
+				if styleableName == "" {
+					return
+				}
+				// Enclosing class name via AST, not classNameRe text scan.
+				classIdx, ok := flatEnclosingAncestor(file, idx, "class_declaration")
+				if !ok {
+					return
+				}
+				className := extractIdentifierFlat(file, classIdx)
+				if className == "" || styleableName == className {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Custom view '%s' uses R.styleable.%s \u2014 expected R.styleable.%s to match the class name.", className, m[1], className))
+					fmt.Sprintf("Custom view '%s' uses R.styleable.%s \u2014 expected R.styleable.%s to match the class name.", className, styleableName, className))
 			},
 		})
 	}

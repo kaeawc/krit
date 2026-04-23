@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -32,6 +33,23 @@ func TestConfiguredKritTypesShards(t *testing.T) {
 	t.Setenv("KRIT_TYPES_SHARDS", "auto")
 	if got := configuredKritTypesShards(10); got != 1 {
 		t.Fatalf("unsupported auto shards = %d, want 1", got)
+	}
+}
+
+func TestJVMArgsForKritTypesShardCapsActiveProcessors(t *testing.T) {
+	old := runtime.GOMAXPROCS(10)
+	defer runtime.GOMAXPROCS(old)
+
+	if got := activeProcessorCountForKritTypesShard(1); got != 0 {
+		t.Fatalf("single shard active processor count = %d, want 0", got)
+	}
+	if got := activeProcessorCountForKritTypesShard(4); got != 2 {
+		t.Fatalf("active processor count = %d, want ceil(10/4)-1=2", got)
+	}
+
+	wantArgs := []string{"-XX:ActiveProcessorCount=2"}
+	if got := jvmArgsForKritTypesShard(4); !reflect.DeepEqual(got, wantArgs) {
+		t.Fatalf("jvm args = %#v, want %#v", got, wantArgs)
 	}
 }
 

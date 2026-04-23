@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -735,11 +736,23 @@ func runKritTypesCachedShardedWithRunner(
 		"bytes":      totalBytes,
 		"callTokens": totalCallTokens,
 	}, nil)
+	goMaxProcs := runtime.GOMAXPROCS(0)
+	activeProcessors := activeProcessorCountForKritTypesShard(len(groups))
+	totalProcessorBudget := activeProcessors * len(groups)
+	idleProcessorBudget := goMaxProcs - totalProcessorBudget
+	if idleProcessorBudget < 0 {
+		idleProcessorBudget = 0
+	}
+	shardJVMArgs := jvmArgsForKritTypesShard(len(groups))
 	addOracleInstant(tracker, "shardedJVMCPUConfig", map[string]int64{
-		"shards":     int64(len(groups)),
-		"goroutines": int64(len(groups)),
+		"shards":               int64(len(groups)),
+		"goroutines":           int64(len(groups)),
+		"goMaxProcs":           int64(goMaxProcs),
+		"activeProcessorCount": int64(activeProcessors),
+		"totalProcessorBudget": int64(totalProcessorBudget),
+		"idleProcessorBudget":  int64(idleProcessorBudget),
 	}, map[string]string{
-		"extraJVMArgs": strings.Join(extraJVMArgsFromEnv(), " "),
+		"extraJVMArgs": strings.Join(configuredExtraJVMArgs(InvocationOptions{ExtraJVMArgs: shardJVMArgs}), " "),
 	})
 
 	results := make([]shardResult, len(groups))
@@ -913,9 +926,9 @@ func runMissAnalysis(
 		// so benchmarks can supersede the computed cap.
 		shardArgs := adaptiveShardJVMArgs(shards, opts)
 		addOracleInstant(tracker, "adaptiveShardJVMArgs", map[string]int64{
-			"shards":              int64(shards),
+			"shards":               int64(shards),
 			"activeProcessorCount": int64(activeProcessorCountForKritTypesShard(shards)),
-			"argCount":            int64(len(shardArgs)),
+			"argCount":             int64(len(shardArgs)),
 		}, map[string]string{
 			"jvmArgs": strings.Join(shardArgs, " "),
 		})

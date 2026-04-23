@@ -9,31 +9,33 @@ import (
 // FakeOracle is a configurable test double for the Lookup interface.
 // Set up responses before using in tests.
 type FakeOracle struct {
-	Classes     map[string]*typeinfer.ClassInfo
-	Sealed      map[string][]string
-	Enums       map[string][]string
-	Subtypes    map[string][]string // type → supertypes (for IsSubtype)
-	Functions   map[string]*typeinfer.ResolvedType
-	Deps        map[string]*OracleClass
-	Expressions map[string]map[string]*typeinfer.ResolvedType // file → ("line:col" → type)
-	Annotations map[string][]string                           // "ClassName.memberName" → annotation FQNs
-	CallTargets map[string]map[string]string                  // file → ("line:col" → call target FQN)
-	Diagnostics map[string][]OracleDiagnostic                  // file → diagnostics
+	Classes               map[string]*typeinfer.ClassInfo
+	Sealed                map[string][]string
+	Enums                 map[string][]string
+	Subtypes              map[string][]string // type → supertypes (for IsSubtype)
+	Functions             map[string]*typeinfer.ResolvedType
+	Deps                  map[string]*OracleClass
+	Expressions           map[string]map[string]*typeinfer.ResolvedType // file → ("line:col" → type)
+	Annotations           map[string][]string                           // "ClassName.memberName" → annotation FQNs
+	CallTargets           map[string]map[string]string                  // file → ("line:col" → call target FQN)
+	CallTargetAnnotations map[string]map[string][]string                // file → ("line:col" → annotation FQNs on symbol)
+	Diagnostics           map[string][]OracleDiagnostic                 // file → diagnostics
 }
 
 // NewFakeOracle creates a FakeOracle with all maps initialized.
 func NewFakeOracle() *FakeOracle {
 	return &FakeOracle{
-		Classes:     make(map[string]*typeinfer.ClassInfo),
-		Sealed:      make(map[string][]string),
-		Enums:       make(map[string][]string),
-		Subtypes:    make(map[string][]string),
-		Functions:   make(map[string]*typeinfer.ResolvedType),
-		Deps:        make(map[string]*OracleClass),
-		Expressions: make(map[string]map[string]*typeinfer.ResolvedType),
-		Annotations: make(map[string][]string),
-		CallTargets: make(map[string]map[string]string),
-		Diagnostics: make(map[string][]OracleDiagnostic),
+		Classes:               make(map[string]*typeinfer.ClassInfo),
+		Sealed:                make(map[string][]string),
+		Enums:                 make(map[string][]string),
+		Subtypes:              make(map[string][]string),
+		Functions:             make(map[string]*typeinfer.ResolvedType),
+		Deps:                  make(map[string]*OracleClass),
+		Expressions:           make(map[string]map[string]*typeinfer.ResolvedType),
+		Annotations:           make(map[string][]string),
+		CallTargets:           make(map[string]map[string]string),
+		CallTargetAnnotations: make(map[string]map[string][]string),
+		Diagnostics:           make(map[string][]OracleDiagnostic),
 	}
 }
 
@@ -92,6 +94,15 @@ func (f *FakeOracle) LookupCallTarget(filePath string, line, col int) string {
 	}
 	key := fmt.Sprintf("%d:%d", line, col)
 	return fileCTs[key]
+}
+
+func (f *FakeOracle) LookupCallTargetAnnotations(filePath string, line, col int) []string {
+	fileCTAs := f.CallTargetAnnotations[filePath]
+	if fileCTAs == nil {
+		return nil
+	}
+	key := fmt.Sprintf("%d:%d", line, col)
+	return fileCTAs[key]
 }
 
 func (f *FakeOracle) LookupDiagnostics(filePath string) []OracleDiagnostic {

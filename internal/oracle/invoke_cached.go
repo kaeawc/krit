@@ -220,6 +220,7 @@ func InvokeCachedWithOptions(
 	}
 	addOracleInstant(tracker, "ktFilesDiscovered", map[string]int64{"files": int64(len(ktFiles)), "sourceDirs": int64(len(sourceDirs))}, nil)
 	callFilterScope := callFilterFingerprint(opts)
+	declarationProfileScope := declarationProfileFingerprint(opts)
 
 	// Apply the rule-classification filter (if any) before cache lookup:
 	// files not in the filter set are dropped from both the hit-lookup and
@@ -256,7 +257,7 @@ func InvokeCachedWithOptions(
 	}
 
 	startClassify := time.Now()
-	hits, misses := ClassifyFilesWithStoreScoped(s, cacheDir, ktFiles, callFilterScope)
+	hits, misses := ClassifyFilesWithStoreScopedV2(s, cacheDir, ktFiles, callFilterScope, declarationProfileScope)
 	classifyElapsed := time.Since(startClassify)
 	perf.AddEntryDetails(tracker, "cacheClassify", classifyElapsed, map[string]int64{
 		"files":  int64(len(ktFiles)),
@@ -334,7 +335,7 @@ func InvokeCachedWithOptions(
 	} else {
 		if opts.CacheWriter != nil {
 			start := time.Now()
-			queued, _ := opts.CacheWriter.QueueFreshEntriesToStoreScoped(s, cacheDir, freshData, depsFile, callFilterScope)
+			queued, _ := opts.CacheWriter.QueueFreshEntriesToStoreScopedV2(s, cacheDir, freshData, depsFile, callFilterScope, declarationProfileScope)
 			perf.AddEntryDetails(tracker, "queueFreshCacheEntries", time.Since(start), map[string]int64{"queued": int64(queued)}, nil)
 			addOracleInstant(tracker, "freshCacheEntriesQueued", map[string]int64{"entries": int64(queued)}, nil)
 			if verbose {
@@ -343,7 +344,7 @@ func InvokeCachedWithOptions(
 		} else {
 			var written int
 			writeTracker := tracker.Serial("writeFreshCacheEntries")
-			written, _ = WriteFreshEntriesToStoreWithTrackerScoped(s, cacheDir, freshData, depsFile, writeTracker, callFilterScope)
+			written, _ = WriteFreshEntriesToStoreWithTrackerScopedV2(s, cacheDir, freshData, depsFile, writeTracker, callFilterScope, declarationProfileScope)
 			writeTracker.End()
 			addOracleInstant(tracker, "freshCacheEntriesWritten", map[string]int64{"entries": int64(written)}, nil)
 			if verbose {
@@ -382,12 +383,13 @@ func InvokeCachedWithOptions(
 				continue
 			}
 			entry := &CacheEntry{
-				V:                     CacheVersion,
-				ContentHash:           hash,
-				FilePath:              p,
-				Crashed:               true,
-				CrashError:            "jar-skipped: file not in Analysis API KtFile set (typically oversized source)",
-				CallFilterFingerprint: callFilterScope,
+				V:                             CacheVersion,
+				ContentHash:                   hash,
+				FilePath:                      p,
+				Crashed:                       true,
+				CrashError:                    "jar-skipped: file not in Analysis API KtFile set (typically oversized source)",
+				CallFilterFingerprint:         callFilterScope,
+				DeclarationProfileFingerprint: declarationProfileScope,
 			}
 			writeErr := func() error {
 				if s != nil {
@@ -515,6 +517,9 @@ func runKritTypesCached(
 	defer cleanupCallFilter()
 	if callFilterPath != "" {
 		args = append(args, "--call-filter", callFilterPath)
+	}
+	if profileArg := declarationProfileCLIValue(opts); profileArg != "" {
+		args = append(args, "--declaration-profile", profileArg)
 	}
 	var timingsPath string
 	if tracker != nil && tracker.IsEnabled() {

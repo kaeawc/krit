@@ -17,6 +17,10 @@ type InvocationOptions struct {
 	CacheWriter  *OracleCacheWriter
 	CallFilter   *CallTargetFilterSummary
 	ExtraJVMArgs []string
+	// DeclarationProfile narrows which fields krit-types populates per
+	// class/member. Nil or a full profile preserves pre-profile extraction;
+	// narrow profiles skip KAA traversal for unused sections.
+	DeclarationProfile *DeclarationProfileSummary
 }
 
 func (o InvocationOptions) tracker() perf.Tracker {
@@ -129,6 +133,26 @@ func callFilterFingerprint(opts InvocationOptions) string {
 		return ""
 	}
 	return opts.CallFilter.Fingerprint
+}
+
+// declarationProfileFingerprint returns the cache scope for the profile.
+// An empty string means "full profile — no narrowing", which writes
+// unfingerprinted cache entries compatible with any later lookup.
+func declarationProfileFingerprint(opts InvocationOptions) string {
+	if opts.DeclarationProfile == nil {
+		return ""
+	}
+	return opts.DeclarationProfile.Fingerprint
+}
+
+// declarationProfileCLIValue returns the comma-separated feature list to
+// pass via --declaration-profile, or "" when the profile is full/absent
+// so callers can omit the flag.
+func declarationProfileCLIValue(opts InvocationOptions) string {
+	if opts.DeclarationProfile == nil {
+		return ""
+	}
+	return opts.DeclarationProfile.Profile.CLIValue()
 }
 
 func writeCallFilterArg(opts InvocationOptions, tracker perf.Tracker) (string, func(), error) {

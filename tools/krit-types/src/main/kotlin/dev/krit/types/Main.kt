@@ -309,7 +309,7 @@ class DaemonSession(
 
         for (ktFile in filesToAnalyze) {
             try {
-                analyzeKtFile(ktFile, files, deps, args.expressions, callFilter = callFilter)
+                analyzeKtFile(ktFile, files, deps, args.expressions, callFilter = callFilter, declarationProfile = args.declarationProfile)
             } catch (e: Exception) {
                 errors[ktFile.virtualFilePath] = e.message ?: "Analysis failed"
                 System.err.println("Error analyzing ${ktFile.virtualFilePath}: ${e.message}")
@@ -398,7 +398,7 @@ class DaemonSession(
         perf.track("kotlinDaemonAnalyzeFiles") {
             for (ktFile in filesToAnalyze) {
                 try {
-                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, callFilter, importCache)
+                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, callFilter, importCache, args.declarationProfile)
                     if (ok) processed++ else skipped++
                 } catch (e: Exception) {
                     skipped++
@@ -434,7 +434,7 @@ class DaemonSession(
 
         for (ktFile in ktFiles) {
             try {
-                analyzeKtFile(ktFile, files, deps, args.expressions, callFilter = callFilter)
+                analyzeKtFile(ktFile, files, deps, args.expressions, callFilter = callFilter, declarationProfile = args.declarationProfile)
                 val fileOnDisk = File(ktFile.virtualFilePath)
                 if (fileOnDisk.exists()) {
                     fileTimestamps[ktFile.virtualFilePath] = fileOnDisk.lastModified()
@@ -1518,6 +1518,11 @@ fun buildJsonCompact(files: Map<String, FileResult>, deps: Map<String, ClassResu
             if (j > 0) sb.append(",")
             sb.append("${esc(key)}:{\"type\":${esc(expr.type)},\"nullable\":${expr.nullable}")
             if (expr.callTarget != null) sb.append(",\"callTarget\":${esc(expr.callTarget)}")
+            if (expr.annotations.isNotEmpty()) {
+                sb.append(",\"annotations\":[")
+                expr.annotations.forEachIndexed { i, ann -> if (i > 0) sb.append(","); sb.append(esc(ann)) }
+                sb.append("]")
+            }
             sb.append("}")
         }
         sb.append("}")
@@ -1821,7 +1826,8 @@ fun analyzeKtFile(
     depTracker: DepTracker? = null,
     perf: KotlinPerf? = null,
     callFilter: CallFilter? = null,
-    importCache: ImportLookupCache? = null
+    importCache: ImportLookupCache? = null,
+    declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full()
 ): Boolean {
     val path = ktFile.virtualFilePath
     val fileStart = System.nanoTime()
@@ -1857,11 +1863,13 @@ fun analyzeKtFile(
                             perf?.addPhaseTotal("kotlinDeclarations.symbolLookup", System.nanoTime() - symbolLookupStart)
                             if (symbol == null) continue
                             val extractClassStart = System.nanoTime()
-                            val result = extractClass(symbol, perf)
+                            val result = extractClass(symbol, perf, declarationProfile)
                             perf?.addPhaseTotal("kotlinDeclarations.extractClass", System.nanoTime() - extractClassStart)
                             declarations.add(result)
                             val depStart = System.nanoTime()
-                            collectDependencySupertypes(symbol, deps, depTracker, path, perf)
+                            if (declarationProfile.sourceDependencyClosure) {
+                                collectDependencySupertypes(symbol, deps, depTracker, path, perf, declarationProfile)
+                            }
                             perf?.addPhaseTotal("kotlinDeclarations.collectDependencySupertypes", System.nanoTime() - depStart)
                             // Record same-package source siblings as direct
                             // deps: two files in the same package share an
@@ -2029,6 +2037,7 @@ fun analyzeKtFile(
                             // value the downstream rules consume (coroutines
                             // knownSuspendFQNs, deprecation LookupAnnotations).
                             var callTarget: String? = null
+                            var callTargetAnnotations: List<String> = emptyList()
                             var fallbackReason = "unresolved"
                             val resolveStart = System.nanoTime()
                             calleeAggregateStart = resolveStart
@@ -2056,6 +2065,8 @@ fun analyzeKtFile(
                                         perf?.count("kotlinCallResolve.fqnString", System.nanoTime() - fqnStart)
                                         if (fqn.isNotEmpty()) {
                                             callTarget = fqn
+                                            callTargetAnnotations = symbol.annotations
+                                                .mapNotNull { it.classId?.asFqNameString() }
                                             status = "resolved"
                                             perf?.count("kotlinCallResolveResolved")
                                         } else {
@@ -2094,11 +2105,12 @@ fun analyzeKtFile(
                             // type="" and nullable=false preserve the
                             // ExpressionResult shape for schema stability. The
                             // type/nullable fields had no production consumers;
-                            // only callTarget is read downstream.
+                            // only callTarget and annotations are read downstream.
                             expressions[key] = ExpressionResult(
                                 type = "",
                                 nullable = false,
-                                callTarget = callTarget
+                                callTarget = callTarget,
+                                annotations = callTargetAnnotations
                             )
                         } catch (_: Throwable) {
                             perf?.count("kotlinCallResolveException")
@@ -2229,8 +2241,58 @@ data class ParsedArgs(
     val filesList: String? = null,      // --files LISTFILE: restrict analyze to these paths
     val cacheDepsOut: String? = null,   // --cache-deps-out PATH: emit per-file dep-closure JSON
     val timingsOut: String? = null,     // --timings-out PATH: emit perf.TimingEntry-compatible JSON
-    val callFilter: CallFilter? = null  // --call-filter JSON: narrow resolveToCall by lexical callee
+    val callFilter: CallFilter? = null, // --call-filter JSON: narrow resolveToCall by lexical callee
+    val declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full()
 )
+
+/**
+ * Gates which KAA symbol fields krit-types exports per class/member.
+ *
+ * The default `full()` profile matches pre-profile behavior — every
+ * section populated. Narrowing a flag skips the corresponding KAA
+ * traversal entirely (member scope, type rendering, or annotation walks).
+ *
+ * Profile fingerprinting is done Go-side; this data class just carries
+ * the boolean decisions into extractClass/extractFunction/extractProperty.
+ */
+data class DeclarationExportProfile(
+    val classShell: Boolean = true,
+    val supertypes: Boolean = true,
+    val classAnnotations: Boolean = false,
+    val members: Boolean = false,
+    val memberSignatures: Boolean = false,
+    val memberAnnotations: Boolean = false,
+    val sourceDependencyClosure: Boolean = true
+) {
+    companion object {
+        /** Matches pre-profile extraction — every section populated. */
+        fun full(): DeclarationExportProfile = DeclarationExportProfile(
+            classShell = true,
+            supertypes = true,
+            classAnnotations = true,
+            members = true,
+            memberSignatures = true,
+            memberAnnotations = true,
+            sourceDependencyClosure = true
+        )
+
+        /** Parses the comma-separated --declaration-profile CLI value. Unknown names are ignored. */
+        fun parse(value: String): DeclarationExportProfile {
+            val trimmed = value.trim()
+            if (trimmed.isEmpty()) return DeclarationExportProfile()
+            val names = trimmed.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            return DeclarationExportProfile(
+                classShell = "classShell" in names,
+                supertypes = "supertypes" in names,
+                classAnnotations = "classAnnotations" in names,
+                members = "members" in names,
+                memberSignatures = "memberSignatures" in names,
+                memberAnnotations = "memberAnnotations" in names,
+                sourceDependencyClosure = "sourceDependencyClosure" in names
+            )
+        }
+    }
+}
 
 val DEFAULT_EXCLUDE_GLOBS: List<String> = listOf("**/testData/**", "**/test-resources/**")
 
@@ -2247,6 +2309,7 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
     var cacheDepsOut: String? = null
     var timingsOut: String? = null
     var callFilterPath: String? = null
+    var declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full()
 
     var i = 0
     while (i < args.size) {
@@ -2272,13 +2335,18 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
             "--cache-deps-out" -> { i++; if (i >= args.size) return null; cacheDepsOut = args[i] }
             "--timings-out" -> { i++; if (i >= args.size) return null; timingsOut = args[i] }
             "--call-filter" -> { i++; if (i >= args.size) return null; callFilterPath = args[i] }
+            "--declaration-profile" -> {
+                i++
+                if (i >= args.size) return null
+                declarationProfile = DeclarationExportProfile.parse(args[i])
+            }
             "--help", "-h" -> return null
             else -> { System.err.println("Unknown argument: ${args[i]}"); return null }
         }
         i++
     }
     if (sources.isEmpty()) { System.err.println("Error: --sources is required"); return null }
-    return ParsedArgs(sources, classpath, jdkHome, output, expressions, daemon, port, exclude, filesList, cacheDepsOut, timingsOut, loadCallFilter(callFilterPath))
+    return ParsedArgs(sources, classpath, jdkHome, output, expressions, daemon, port, exclude, filesList, cacheDepsOut, timingsOut, loadCallFilter(callFilterPath), declarationProfile)
 }
 
 fun printUsage() {
@@ -2298,6 +2366,10 @@ fun printUsage() {
         |  --cache-deps-out PATH   Emit per-file dep-closure + per-file-deps JSON alongside --output
         |  --timings-out PATH      Emit perf timing JSON sidecar
         |  --call-filter PATH      JSON callee filter for call-target resolution
+        |  --declaration-profile CSV  Comma-separated declaration export features
+        |                          (classShell,supertypes,classAnnotations,members,
+        |                          memberSignatures,memberAnnotations,sourceDependencyClosure).
+        |                          Omit for full extraction (pre-profile default).
         |  --help                  Show this help
     """.trimMargin())
 }
@@ -2379,7 +2451,7 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
     var skipped = 0
     perf.track("kotlinAnalyzeFiles") {
         for ((i, ktFile) in ktFiles.withIndex()) {
-            val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, args.callFilter, importCache)
+            val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, args.callFilter, importCache, args.declarationProfile)
             if (ok) processed++ else skipped++
             if ((i + 1) % progressStep == 0) {
                 System.err.println("  ... ${i + 1}/$total (${processed} processed, ${skipped} skipped)")
@@ -2480,7 +2552,11 @@ fun buildCacheDepsJson(tracker: DepTracker): String {
 }
 
 @OptIn(KaExperimentalApi::class)
-fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(symbol: KaNamedClassSymbol, perf: KotlinPerf? = null): ClassResult {
+fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(
+    symbol: KaNamedClassSymbol,
+    perf: KotlinPerf? = null,
+    profile: DeclarationExportProfile = DeclarationExportProfile.full()
+): ClassResult {
     val fqn = symbol.classId?.asFqNameString() ?: symbol.name.asString()
     perf?.count("kotlinDeclarationProfile.classShell")
     perf?.recordMemoProbe("classShell", fqn)
@@ -2494,64 +2570,72 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(symbol: KaNamedClas
         else -> "class"
     }
 
-    val superTypesStart = System.nanoTime()
-    val supertypes = symbol.superTypes.mapNotNull { type ->
-        (type as? KaClassType)?.classId?.asFqNameString()
-    }.filter { it != "kotlin.Any" }.also { values ->
-        for (value in values) {
-            perf?.count("kotlinDeclarationProfile.supertypes")
-            perf?.recordMemoProbe("renderType", value)
+    val supertypes = if (profile.supertypes) {
+        val superTypesStart = System.nanoTime()
+        val result = symbol.superTypes.mapNotNull { type ->
+            (type as? KaClassType)?.classId?.asFqNameString()
+        }.filter { it != "kotlin.Any" }.also { values ->
+            for (value in values) {
+                perf?.count("kotlinDeclarationProfile.supertypes")
+                perf?.recordMemoProbe("renderType", value)
+            }
         }
-    }
-    perf?.addPhaseTotal("kotlinExtractClass.superTypes", System.nanoTime() - superTypesStart)
+        perf?.addPhaseTotal("kotlinExtractClass.superTypes", System.nanoTime() - superTypesStart)
+        result
+    } else emptyList()
 
     val members = mutableListOf<MemberResult>()
 
-    val memberScopeStart = System.nanoTime()
-    val memberDecls = symbol.memberScope.declarations.toList()
-    perf?.count("kotlinDeclarationProfile.memberScope")
-    perf?.addPhaseTotal("kotlinExtractClass.memberScope", System.nanoTime() - memberScopeStart)
+    if (profile.members) {
+        val memberScopeStart = System.nanoTime()
+        val memberDecls = symbol.memberScope.declarations.toList()
+        perf?.count("kotlinDeclarationProfile.memberScope")
+        perf?.addPhaseTotal("kotlinExtractClass.memberScope", System.nanoTime() - memberScopeStart)
 
-    for (decl in memberDecls) {
-        when (decl) {
-            is KaNamedFunctionSymbol -> {
-                if (decl.origin != KaSymbolOrigin.INTERSECTION_OVERRIDE &&
-                    decl.origin != KaSymbolOrigin.SUBSTITUTION_OVERRIDE) {
-                    val memberStart = System.nanoTime()
-                    perf?.count("kotlinDeclarationProfile.memberFunctions")
-                    members.add(extractFunction(decl, perf))
-                    perf?.addPhaseTotal("kotlinExtractClass.memberFunctions", System.nanoTime() - memberStart)
+        for (decl in memberDecls) {
+            when (decl) {
+                is KaNamedFunctionSymbol -> {
+                    if (decl.origin != KaSymbolOrigin.INTERSECTION_OVERRIDE &&
+                        decl.origin != KaSymbolOrigin.SUBSTITUTION_OVERRIDE) {
+                        val memberStart = System.nanoTime()
+                        perf?.count("kotlinDeclarationProfile.memberFunctions")
+                        members.add(extractFunction(decl, perf, profile))
+                        perf?.addPhaseTotal("kotlinExtractClass.memberFunctions", System.nanoTime() - memberStart)
+                    }
                 }
-            }
-            is KaPropertySymbol -> {
-                if (decl.origin != KaSymbolOrigin.INTERSECTION_OVERRIDE &&
-                    decl.origin != KaSymbolOrigin.SUBSTITUTION_OVERRIDE) {
-                    val memberStart = System.nanoTime()
-                    perf?.count("kotlinDeclarationProfile.memberProperties")
-                    members.add(extractProperty(decl, perf))
-                    perf?.addPhaseTotal("kotlinExtractClass.memberProperties", System.nanoTime() - memberStart)
+                is KaPropertySymbol -> {
+                    if (decl.origin != KaSymbolOrigin.INTERSECTION_OVERRIDE &&
+                        decl.origin != KaSymbolOrigin.SUBSTITUTION_OVERRIDE) {
+                        val memberStart = System.nanoTime()
+                        perf?.count("kotlinDeclarationProfile.memberProperties")
+                        members.add(extractProperty(decl, perf, profile))
+                        perf?.addPhaseTotal("kotlinExtractClass.memberProperties", System.nanoTime() - memberStart)
+                    }
                 }
+                is KaEnumEntrySymbol -> {
+                    members.add(MemberResult(
+                        name = decl.name.asString(),
+                        kind = "enum_entry",
+                        returnType = "",
+                        nullable = false,
+                        visibility = "public"
+                    ))
+                }
+                else -> {}
             }
-            is KaEnumEntrySymbol -> {
-                members.add(MemberResult(
-                    name = decl.name.asString(),
-                    kind = "enum_entry",
-                    returnType = "",
-                    nullable = false,
-                    visibility = "public"
-                ))
-            }
-            else -> {}
         }
     }
 
-    val annotationsStart = System.nanoTime()
-    val annotations = symbol.annotations.mapNotNull { it.classId?.asFqNameString() }
-    for (annotation in annotations) {
-        perf?.count("kotlinDeclarationProfile.classAnnotations")
-        perf?.recordMemoProbe("annotationFqn", annotation)
-    }
-    perf?.addPhaseTotal("kotlinExtractClass.annotations", System.nanoTime() - annotationsStart)
+    val annotations = if (profile.classAnnotations) {
+        val annotationsStart = System.nanoTime()
+        val values = symbol.annotations.mapNotNull { it.classId?.asFqNameString() }
+        for (annotation in values) {
+            perf?.count("kotlinDeclarationProfile.classAnnotations")
+            perf?.recordMemoProbe("annotationFqn", annotation)
+        }
+        perf?.addPhaseTotal("kotlinExtractClass.annotations", System.nanoTime() - annotationsStart)
+        values
+    } else emptyList()
 
     return ClassResult(
         fqn = fqn,
@@ -2569,31 +2653,48 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractClass(symbol: KaNamedClas
 }
 
 @OptIn(KaExperimentalApi::class)
-fun org.jetbrains.kotlin.analysis.api.KaSession.extractFunction(symbol: KaNamedFunctionSymbol, perf: KotlinPerf? = null): MemberResult {
-    val signatureStart = System.nanoTime()
-    val returnType = symbol.returnType.renderType()
-    perf?.count("kotlinDeclarationProfile.fullSignatures")
-    perf?.recordMemoProbe("renderType", returnType)
-    val returnNullable = symbol.returnType.isMarkedNullable
-    val params = symbol.valueParameters.map { param ->
-        val paramType = param.returnType
-        val rendered = paramType.renderType()
+fun org.jetbrains.kotlin.analysis.api.KaSession.extractFunction(
+    symbol: KaNamedFunctionSymbol,
+    perf: KotlinPerf? = null,
+    profile: DeclarationExportProfile = DeclarationExportProfile.full()
+): MemberResult {
+    val returnType: String
+    val returnNullable: Boolean
+    val params: List<ParamResult>
+    if (profile.memberSignatures) {
+        val signatureStart = System.nanoTime()
+        returnType = symbol.returnType.renderType()
         perf?.count("kotlinDeclarationProfile.fullSignatures")
-        perf?.recordMemoProbe("renderType", rendered)
-        ParamResult(
-            name = param.name.asString(),
-            type = rendered,
-            nullable = paramType.isMarkedNullable
-        )
+        perf?.recordMemoProbe("renderType", returnType)
+        returnNullable = symbol.returnType.isMarkedNullable
+        params = symbol.valueParameters.map { param ->
+            val paramType = param.returnType
+            val rendered = paramType.renderType()
+            perf?.count("kotlinDeclarationProfile.fullSignatures")
+            perf?.recordMemoProbe("renderType", rendered)
+            ParamResult(
+                name = param.name.asString(),
+                type = rendered,
+                nullable = paramType.isMarkedNullable
+            )
+        }
+        perf?.addPhaseTotal("kotlinExtractFunction.signature", System.nanoTime() - signatureStart)
+    } else {
+        returnType = ""
+        returnNullable = false
+        params = emptyList()
     }
-    perf?.addPhaseTotal("kotlinExtractFunction.signature", System.nanoTime() - signatureStart)
-    val annotationsStart = System.nanoTime()
-    val annotations = symbol.annotations.mapNotNull { it.classId?.asFqNameString() }
-    for (annotation in annotations) {
-        perf?.count("kotlinDeclarationProfile.memberAnnotations")
-        perf?.recordMemoProbe("annotationFqn", annotation)
-    }
-    perf?.addPhaseTotal("kotlinExtractFunction.annotations", System.nanoTime() - annotationsStart)
+
+    val annotations = if (profile.memberAnnotations) {
+        val annotationsStart = System.nanoTime()
+        val values = symbol.annotations.mapNotNull { it.classId?.asFqNameString() }
+        for (annotation in values) {
+            perf?.count("kotlinDeclarationProfile.memberAnnotations")
+            perf?.recordMemoProbe("annotationFqn", annotation)
+        }
+        perf?.addPhaseTotal("kotlinExtractFunction.annotations", System.nanoTime() - annotationsStart)
+        values
+    } else emptyList()
 
     return MemberResult(
         name = symbol.name.asString(),
@@ -2609,21 +2710,37 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.extractFunction(symbol: KaNamedF
 }
 
 @OptIn(KaExperimentalApi::class)
-fun org.jetbrains.kotlin.analysis.api.KaSession.extractProperty(symbol: KaPropertySymbol, perf: KotlinPerf? = null): MemberResult {
-    val annotationsStart = System.nanoTime()
-    val annotations = symbol.annotations.mapNotNull { it.classId?.asFqNameString() }
-    for (annotation in annotations) {
-        perf?.count("kotlinDeclarationProfile.memberAnnotations")
-        perf?.recordMemoProbe("annotationFqn", annotation)
+fun org.jetbrains.kotlin.analysis.api.KaSession.extractProperty(
+    symbol: KaPropertySymbol,
+    perf: KotlinPerf? = null,
+    profile: DeclarationExportProfile = DeclarationExportProfile.full()
+): MemberResult {
+    val annotations = if (profile.memberAnnotations) {
+        val annotationsStart = System.nanoTime()
+        val values = symbol.annotations.mapNotNull { it.classId?.asFqNameString() }
+        for (annotation in values) {
+            perf?.count("kotlinDeclarationProfile.memberAnnotations")
+            perf?.recordMemoProbe("annotationFqn", annotation)
+        }
+        perf?.addPhaseTotal("kotlinExtractProperty.annotations", System.nanoTime() - annotationsStart)
+        values
+    } else emptyList()
+
+    val renderedReturnType: String
+    val returnNullable: Boolean
+    if (profile.memberSignatures) {
+        val signatureStart = System.nanoTime()
+        val returnType = symbol.returnType
+        renderedReturnType = returnType.renderType()
+        perf?.count("kotlinDeclarationProfile.fullSignatures")
+        perf?.recordMemoProbe("renderType", renderedReturnType)
+        returnNullable = returnType.isMarkedNullable
+        perf?.addPhaseTotal("kotlinExtractProperty.signature", System.nanoTime() - signatureStart)
+    } else {
+        renderedReturnType = ""
+        returnNullable = false
     }
-    perf?.addPhaseTotal("kotlinExtractProperty.annotations", System.nanoTime() - annotationsStart)
-    val signatureStart = System.nanoTime()
-    val returnType = symbol.returnType
-    val renderedReturnType = returnType.renderType()
-    perf?.count("kotlinDeclarationProfile.fullSignatures")
-    perf?.recordMemoProbe("renderType", renderedReturnType)
-    val returnNullable = returnType.isMarkedNullable
-    perf?.addPhaseTotal("kotlinExtractProperty.signature", System.nanoTime() - signatureStart)
+
     return MemberResult(
         name = symbol.name.asString(),
         kind = "property",
@@ -2657,7 +2774,8 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.collectDependencySupertypes(
     deps: MutableMap<String, ClassResult>,
     depTracker: DepTracker? = null,
     forFile: String? = null,
-    perf: KotlinPerf? = null
+    perf: KotlinPerf? = null,
+    declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full()
 ) {
     for (supertype in symbol.superTypes) {
         perf?.count("kotlinDependencySupertypes.visit")
@@ -2685,7 +2803,7 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.collectDependencySupertypes(
         // self-contained).
         val extractStart = System.nanoTime()
         perf?.recordMemoResult("libraryClassResult", deps.containsKey(fqn))
-        val cls = deps.getOrPut(fqn) { extractClass(superSymbol, perf) }
+        val cls = deps.getOrPut(fqn) { extractClass(superSymbol, perf, declarationProfile) }
         perf?.count("kotlinDependencySupertypes.libraryExtract", System.nanoTime() - extractStart)
         if (depTracker != null && forFile != null) {
             depTracker.perFileDeps.getOrPut(forFile) { mutableMapOf() }[fqn] = cls
@@ -2750,7 +2868,7 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.recordSupertypeSourceOrigins(
 
 // --- JSON output ---
 
-data class ExpressionResult(val type: String, val nullable: Boolean, val callTarget: String? = null)
+data class ExpressionResult(val type: String, val nullable: Boolean, val callTarget: String? = null, val annotations: List<String> = emptyList())
 
 // DiagnosticResult holds a compiler diagnostic for JSON export.
 // TODO: Populate in analyzeKtFile once KaDiagnosticCheckerFilter is available.
@@ -2805,6 +2923,11 @@ fun buildJson(files: Map<String, FileResult>, deps: Map<String, ClassResult>): S
         file.expressions.entries.forEachIndexed { j, (key, expr) ->
             sb.append("        ${esc(key)}: {\"type\": ${esc(expr.type)}, \"nullable\": ${expr.nullable}")
             if (expr.callTarget != null) sb.append(", \"callTarget\": ${esc(expr.callTarget)}")
+            if (expr.annotations.isNotEmpty()) {
+                sb.append(", \"annotations\": [")
+                expr.annotations.forEachIndexed { i, ann -> if (i > 0) sb.append(", "); sb.append(esc(ann)) }
+                sb.append("]")
+            }
             sb.append("}")
             if (j < file.expressions.size - 1) sb.appendLine(",") else sb.appendLine()
         }

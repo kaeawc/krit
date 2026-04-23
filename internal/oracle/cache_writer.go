@@ -87,8 +87,15 @@ func (w *OracleCacheWriter) QueueFreshEntriesToStore(s *store.FileStore, cacheDi
 // QueueFreshEntriesToStoreScoped is QueueFreshEntriesToStore with cache
 // compatibility metadata for filtered oracle call-target output.
 func (w *OracleCacheWriter) QueueFreshEntriesToStoreScoped(s *store.FileStore, cacheDir string, fresh *OracleData, deps *CacheDepsFile, callFilterFingerprint string) (int, error) {
+	return w.QueueFreshEntriesToStoreScopedV2(s, cacheDir, fresh, deps, callFilterFingerprint, "")
+}
+
+// QueueFreshEntriesToStoreScopedV2 extends QueueFreshEntriesToStoreScoped
+// with the declaration profile fingerprint. Entries written here carry
+// both scope fingerprints so classify lookups can gate on either axis.
+func (w *OracleCacheWriter) QueueFreshEntriesToStoreScopedV2(s *store.FileStore, cacheDir string, fresh *OracleData, deps *CacheDepsFile, callFilterFingerprint, declarationProfileFingerprint string) (int, error) {
 	if w == nil || w.writer == nil {
-		return WriteFreshEntriesToStoreWithTrackerScoped(s, cacheDir, fresh, deps, nil, callFilterFingerprint)
+		return WriteFreshEntriesToStoreWithTrackerScopedV2(s, cacheDir, fresh, deps, nil, callFilterFingerprint, declarationProfileFingerprint)
 	}
 	jobs := freshOracleEntryJobs(fresh, deps)
 	if len(jobs) == 0 {
@@ -100,9 +107,9 @@ func (w *OracleCacheWriter) QueueFreshEntriesToStoreScoped(s *store.FileStore, c
 	if s == nil {
 		batch := append([]freshOracleEntryJob(nil), jobs...)
 		if !w.writer.Submit(func() (int64, error) {
-			return w.writePackedBatch(cacheDir, memo, batch, callFilterFingerprint), nil
+			return w.writePackedBatch(cacheDir, memo, batch, callFilterFingerprint, declarationProfileFingerprint), nil
 		}) {
-			w.writePackedBatch(cacheDir, memo, batch, callFilterFingerprint)
+			w.writePackedBatch(cacheDir, memo, batch, callFilterFingerprint, declarationProfileFingerprint)
 		}
 		return len(jobs), nil
 	}
@@ -113,9 +120,9 @@ func (w *OracleCacheWriter) QueueFreshEntriesToStoreScoped(s *store.FileStore, c
 		}
 		batch := append([]freshOracleEntryJob(nil), jobs[start:end]...)
 		if !w.writer.Submit(func() (int64, error) {
-			return w.writeBatch(s, cacheDir, memo, batch, callFilterFingerprint), nil
+			return w.writeBatch(s, cacheDir, memo, batch, callFilterFingerprint, declarationProfileFingerprint), nil
 		}) {
-			w.writeBatch(s, cacheDir, memo, batch, callFilterFingerprint)
+			w.writeBatch(s, cacheDir, memo, batch, callFilterFingerprint, declarationProfileFingerprint)
 		}
 	}
 	return len(jobs), nil
@@ -204,22 +211,22 @@ func (w *OracleCacheWriter) AddPerfEntries(t perf.Tracker, storeBacked bool) {
 	}, nil)
 }
 
-func (w *OracleCacheWriter) writeBatch(s *store.FileStore, cacheDir string, memo *oracleCacheHashMemo, batch []freshOracleEntryJob, callFilterFingerprint string) int64 {
+func (w *OracleCacheWriter) writeBatch(s *store.FileStore, cacheDir string, memo *oracleCacheHashMemo, batch []freshOracleEntryJob, callFilterFingerprint, declarationProfileFingerprint string) int64 {
 	var bytes int64
 	for _, job := range batch {
-		if n, ok := w.writeOne(s, cacheDir, memo, job, callFilterFingerprint); ok {
+		if n, ok := w.writeOne(s, cacheDir, memo, job, callFilterFingerprint, declarationProfileFingerprint); ok {
 			bytes += n
 		}
 	}
 	return bytes
 }
 
-func (w *OracleCacheWriter) writePackedBatch(cacheDir string, memo *oracleCacheHashMemo, batch []freshOracleEntryJob, callFilterFingerprint string) int64 {
+func (w *OracleCacheWriter) writePackedBatch(cacheDir string, memo *oracleCacheHashMemo, batch []freshOracleEntryJob, callFilterFingerprint, declarationProfileFingerprint string) int64 {
 	writes := make([]oracleEncodedEntryWrite, 0, len(batch))
 	var bytes int64
 	var poisonWrites int64
 	for _, job := range batch {
-		entry, data, poison, ok := w.buildEntryData(memo, job, callFilterFingerprint)
+		entry, data, poison, ok := w.buildEntryData(memo, job, callFilterFingerprint, declarationProfileFingerprint)
 		if !ok {
 			continue
 		}
@@ -246,8 +253,8 @@ func (w *OracleCacheWriter) writePackedBatch(cacheDir string, memo *oracleCacheH
 	return bytes
 }
 
-func (w *OracleCacheWriter) writeOne(s *store.FileStore, cacheDir string, memo *oracleCacheHashMemo, job freshOracleEntryJob, callFilterFingerprint string) (int64, bool) {
-	entry, data, poison, ok := w.buildEntryData(memo, job, callFilterFingerprint)
+func (w *OracleCacheWriter) writeOne(s *store.FileStore, cacheDir string, memo *oracleCacheHashMemo, job freshOracleEntryJob, callFilterFingerprint, declarationProfileFingerprint string) (int64, bool) {
+	entry, data, poison, ok := w.buildEntryData(memo, job, callFilterFingerprint, declarationProfileFingerprint)
 	if !ok {
 		return 0, false
 	}
@@ -278,7 +285,7 @@ func (w *OracleCacheWriter) writeOne(s *store.FileStore, cacheDir string, memo *
 	return n, true
 }
 
-func (w *OracleCacheWriter) buildEntryData(memo *oracleCacheHashMemo, job freshOracleEntryJob, callFilterFingerprint string) (*CacheEntry, []byte, bool, bool) {
+func (w *OracleCacheWriter) buildEntryData(memo *oracleCacheHashMemo, job freshOracleEntryJob, callFilterFingerprint, declarationProfileFingerprint string) (*CacheEntry, []byte, bool, bool) {
 	hashStart := time.Now()
 	hash, err := memo.contentHash(job.path)
 	w.contentHashNs.Add(time.Since(hashStart).Nanoseconds())
@@ -288,11 +295,12 @@ func (w *OracleCacheWriter) buildEntryData(memo *oracleCacheHashMemo, job freshO
 	}
 
 	entry := &CacheEntry{
-		V:                     CacheVersion,
-		ContentHash:           hash,
-		FilePath:              job.path,
-		Approximation:         job.approximation,
-		CallFilterFingerprint: callFilterFingerprint,
+		V:                             CacheVersion,
+		ContentHash:                   hash,
+		FilePath:                      job.path,
+		Approximation:                 job.approximation,
+		CallFilterFingerprint:         callFilterFingerprint,
+		DeclarationProfileFingerprint: declarationProfileFingerprint,
 	}
 	if job.crashed {
 		entry.Crashed = true

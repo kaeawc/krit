@@ -41,6 +41,54 @@ func BuildOracleFilterRulesV2(enabled []*v2.Rule) []oracle.OracleFilterRule {
 	return out
 }
 
+// BuildOracleDeclarationProfileV2 derives the declaration-export profile
+// for a set of active rules. The result is the union of every oracle-needing
+// rule's OracleDeclarationNeeds declaration.
+//
+// Conservative semantics: if any active oracle rule has a nil
+// OracleDeclarationNeeds (has not opted into narrowing), the union is
+// promoted to FullDeclarationProfile — we cannot skip fields that an
+// un-annotated rule might silently consume. Once every oracle rule has
+// declared its needs (even an empty &v2.OracleDeclarationProfile{} for rules
+// that only use expression-level APIs), the union may be strictly narrower
+// than full and krit-types skips the unflagged extraction steps.
+func BuildOracleDeclarationProfileV2(enabled []*v2.Rule) oracle.DeclarationProfileSummary {
+	// First pass: check whether every oracle-needing rule has opted in.
+	// A single nil OracleDeclarationNeeds forces the full profile.
+	allOptedIn := true
+	for _, r := range enabled {
+		if r == nil || !r.Needs.Has(v2.NeedsOracle) {
+			continue
+		}
+		if r.OracleDeclarationNeeds == nil {
+			allOptedIn = false
+			break
+		}
+	}
+	if !allOptedIn {
+		return oracle.FinalizeDeclarationProfile(oracle.FullDeclarationProfile())
+	}
+
+	// Second pass: union the declared profiles.
+	var union oracle.DeclarationProfile
+	for _, r := range enabled {
+		if r == nil || !r.Needs.Has(v2.NeedsOracle) {
+			continue
+		}
+		n := r.OracleDeclarationNeeds
+		union = oracle.MergeDeclarationProfiles(union, oracle.DeclarationProfile{
+			ClassShell:              n.ClassShell,
+			Supertypes:              n.Supertypes,
+			ClassAnnotations:        n.ClassAnnotations,
+			Members:                 n.Members,
+			MemberSignatures:        n.MemberSignatures,
+			MemberAnnotations:       n.MemberAnnotations,
+			SourceDependencyClosure: n.SourceDependencyClosure,
+		})
+	}
+	return oracle.FinalizeDeclarationProfile(union)
+}
+
 // BuildOracleCallTargetFilterV2 unions the call-target interest declared by
 // active rules. If any enabled oracle rule declares AllCalls, the returned
 // summary is disabled and callers must preserve the old "resolve every call"

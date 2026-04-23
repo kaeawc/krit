@@ -597,7 +597,8 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 				// per-file caching compose: the filter narrows the
 				// universe first, then the cache classifies what's left.
 				callFilterPtr := buildOracleCallTargetFilterForInvocation(in.ActiveRules, loadOracleFilterFiles, jvmTracker, in.Verbose)
-				invokeOpts := oracle.InvocationOptions{Tracker: jvmTracker, CacheWriter: in.OracleCacheWriter, CallFilter: callFilterPtr}
+				declarationProfileSummary := rules.BuildOracleDeclarationProfileV2(in.ActiveRules)
+				invokeOpts := oracle.InvocationOptions{Tracker: jvmTracker, CacheWriter: in.OracleCacheWriter, CallFilter: callFilterPtr, DeclarationProfile: &declarationProfileSummary}
 				var res string
 				var err error
 				if in.NoCacheOracle {

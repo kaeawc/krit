@@ -208,3 +208,107 @@ func containsString(values []string, want string) bool {
 	}
 	return false
 }
+
+func TestBuildOracleDeclarationProfileV2_FallsBackWhenUnoptedIn(t *testing.T) {
+	// A rule with nil OracleDeclarationNeeds forces full profile.
+	rules := []*v2.Rule{
+		{ID: "Narrow", Needs: v2.NeedsTypeInfo,
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true}},
+		{ID: "NotOptedIn", Needs: v2.NeedsTypeInfo}, // nil → conservative
+	}
+	got := BuildOracleDeclarationProfileV2(rules)
+	if got.Fingerprint != "" {
+		t.Fatalf("expected full-profile (empty fingerprint) when any rule has nil OracleDeclarationNeeds, got %q", got.Fingerprint)
+	}
+	if !got.Profile.IsFull() {
+		t.Fatalf("expected full profile, got %+v", got.Profile)
+	}
+}
+
+func TestBuildOracleDeclarationProfileV2_UnionWhenAllOptedIn(t *testing.T) {
+	// All rules opted in — profile is the union of declared needs.
+	rules := []*v2.Rule{
+		{ID: "ExprOnly", Needs: v2.NeedsTypeInfo,
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{}},
+		{ID: "NeedsSupertypes", Needs: v2.NeedsTypeInfo,
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true}},
+		{ID: "NeedsAnnotations", Needs: v2.NeedsTypeInfo,
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{Members: true, MemberAnnotations: true}},
+	}
+	got := BuildOracleDeclarationProfileV2(rules)
+	if got.Fingerprint == "" {
+		t.Fatalf("all rules opted in with narrow profiles — fingerprint must be non-empty (not full profile)")
+	}
+	p := got.Profile
+	if !p.ClassShell || !p.Supertypes || !p.Members || !p.MemberAnnotations {
+		t.Fatalf("union must include ClassShell+Supertypes+Members+MemberAnnotations, got %+v", p)
+	}
+	if p.MemberSignatures || p.ClassAnnotations || p.SourceDependencyClosure {
+		t.Fatalf("union must NOT include MemberSignatures/ClassAnnotations/SourceDependencyClosure, got %+v", p)
+	}
+}
+
+func TestBuildOracleDeclarationProfileV2_SkipsNonOracleRules(t *testing.T) {
+	// Non-oracle rules (NeedsResolver only) are ignored even with nil declaration needs.
+	rules := []*v2.Rule{
+		{ID: "ResolverOnly", Needs: v2.NeedsResolver}, // no NeedsOracle → ignored
+		{ID: "OracleRule", Needs: v2.NeedsTypeInfo,
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true}},
+	}
+	got := BuildOracleDeclarationProfileV2(rules)
+	if got.Fingerprint == "" {
+		t.Fatalf("non-oracle rule must not force full profile; expected narrow fingerprint, got empty")
+	}
+}
+
+func TestBuildOracleDeclarationProfileV2_EmptyRulesYieldsNarrow(t *testing.T) {
+	// No oracle rules → all-opted-in vacuously, union is zero profile (all false).
+	// Zero profile is narrower than full — fingerprint is non-empty.
+	got := BuildOracleDeclarationProfileV2(nil)
+	// With zero active oracle rules, allOptedIn=true and union is the zero
+	// DeclarationProfile. FinalizeDeclarationProfile of a zero value is non-full,
+	// so fingerprint is non-empty.
+	if got.Fingerprint == "" {
+		t.Fatalf("empty rule set: all-false profile must produce non-empty fingerprint (not full)")
+	}
+}
+
+func TestBuildOracleDeclarationProfileV2_LiveRuleSet(t *testing.T) {
+	// Verify that all registered NeedsOracle rules have opted in to narrowing
+	// and that the resulting profile is non-full (skips MemberSignatures etc.).
+	all := v2.Registry
+	var oracleRules []*v2.Rule
+	var notOptedIn []string
+	for _, r := range all {
+		if r == nil || !r.Needs.Has(v2.NeedsOracle) {
+			continue
+		}
+		oracleRules = append(oracleRules, r)
+		if r.OracleDeclarationNeeds == nil {
+			notOptedIn = append(notOptedIn, r.ID)
+		}
+	}
+	if len(notOptedIn) > 0 {
+		t.Errorf("rules with NeedsOracle but nil OracleDeclarationNeeds (force full profile): %v", notOptedIn)
+	}
+	if len(oracleRules) == 0 {
+		t.Skip("no oracle rules registered")
+	}
+	summary := BuildOracleDeclarationProfileV2(oracleRules)
+	if summary.Profile.IsFull() {
+		t.Errorf("all rules opted in but profile is still full — union logic or profile fields are wrong")
+	}
+	if summary.Fingerprint == "" {
+		t.Errorf("narrow profile must produce non-empty fingerprint")
+	}
+	// Verify that MemberSignatures is NOT in the union (no current rule needs it).
+	if summary.Profile.MemberSignatures {
+		t.Errorf("MemberSignatures must not be in the union of current oracle rules")
+	}
+	// Verify that SourceDependencyClosure is NOT in the union.
+	if summary.Profile.SourceDependencyClosure {
+		t.Errorf("SourceDependencyClosure must not be in the union of current oracle rules")
+	}
+	t.Logf("live profile fingerprint: %q", summary.Fingerprint)
+	t.Logf("live profile: %+v", summary.Profile)
+}

@@ -232,20 +232,26 @@ func StartDaemon(jarPath string, sourceDirs []string, classpath []string, verbos
 		"-Djava.awt.headless=true",
 	}
 
+	jdkMajor := cachedJDKMajorVersion()
+
 	// AppCDS: use a shared class-data archive to speed up class loading.
+	// Skipped on JDK 25+ where Project Leyden AOT subsumes AppCDS; combining
+	// -XX:ArchiveClassesAtExit with -XX:AOTMode=record causes a JVM init error.
 	// Available on JDK 13+.  Uses -Xshare:auto so unsupported JDKs ignore it.
-	if archivePath, err := cdsArchivePath(jarPath); err == nil {
-		if _, statErr := os.Stat(archivePath); statErr == nil {
-			// Archive exists — use it
-			args = append(args, "-XX:SharedArchiveFile="+archivePath, "-Xshare:auto")
-			if verbose {
-				fmt.Fprintf(os.Stderr, "verbose: AppCDS: using archive %s\n", archivePath)
-			}
-		} else {
-			// No archive yet — train on this run (JVM writes the archive at exit)
-			args = append(args, "-XX:ArchiveClassesAtExit="+archivePath, "-Xshare:auto")
-			if verbose {
-				fmt.Fprintf(os.Stderr, "verbose: AppCDS: training archive %s\n", archivePath)
+	if jdkMajor < 25 {
+		if archivePath, err := cdsArchivePath(jarPath); err == nil {
+			if _, statErr := os.Stat(archivePath); statErr == nil {
+				// Archive exists — use it
+				args = append(args, "-XX:SharedArchiveFile="+archivePath, "-Xshare:auto")
+				if verbose {
+					fmt.Fprintf(os.Stderr, "verbose: AppCDS: using archive %s\n", archivePath)
+				}
+			} else {
+				// No archive yet — train on this run (JVM writes the archive at exit)
+				args = append(args, "-XX:ArchiveClassesAtExit="+archivePath, "-Xshare:auto")
+				if verbose {
+					fmt.Fprintf(os.Stderr, "verbose: AppCDS: training archive %s\n", archivePath)
+				}
 			}
 		}
 	}
@@ -255,7 +261,7 @@ func StartDaemon(jarPath string, sourceDirs []string, classpath []string, verbos
 	//   Phase 1 – no config: add record flags so the profile is written at daemon exit
 	//   Phase 2 – config exists, no cache: compile the AOT cache synchronously, then use it
 	//   Phase 3 – cache exists: load pre-linked classes directly (~500ms cold start)
-	if cachedJDKMajorVersion() >= 25 {
+	if jdkMajor >= 25 {
 		leydenConfig, configErr := aotConfigPath(jarPath)
 		leydenCache, cacheErr := aotCachePath(jarPath)
 		if configErr == nil && cacheErr == nil {
@@ -1115,17 +1121,22 @@ func StartDaemonWithPortSlot(jarPath string, sourceDirs []string, classpath []st
 		"-Djava.awt.headless=true",
 	}
 
-	// AppCDS support (same as StartDaemon)
-	if archivePath, err := cdsArchivePath(jarPath); err == nil {
-		if _, statErr := os.Stat(archivePath); statErr == nil {
-			args = append(args, "-XX:SharedArchiveFile="+archivePath, "-Xshare:auto")
-		} else {
-			args = append(args, "-XX:ArchiveClassesAtExit="+archivePath, "-Xshare:auto")
+	jdkMajor := cachedJDKMajorVersion()
+
+	// AppCDS support (same as StartDaemon). Skipped on JDK 25+ where Leyden AOT
+	// subsumes it; -XX:ArchiveClassesAtExit conflicts with -XX:AOTMode=record.
+	if jdkMajor < 25 {
+		if archivePath, err := cdsArchivePath(jarPath); err == nil {
+			if _, statErr := os.Stat(archivePath); statErr == nil {
+				args = append(args, "-XX:SharedArchiveFile="+archivePath, "-Xshare:auto")
+			} else {
+				args = append(args, "-XX:ArchiveClassesAtExit="+archivePath, "-Xshare:auto")
+			}
 		}
 	}
 
 	// Project Leyden AOT (JDK 25+): same three-phase lifecycle as StartDaemon.
-	if cachedJDKMajorVersion() >= 25 {
+	if jdkMajor >= 25 {
 		leydenConfig, configErr := aotConfigPath(jarPath)
 		leydenCache, cacheErr := aotCachePath(jarPath)
 		if configErr == nil && cacheErr == nil {

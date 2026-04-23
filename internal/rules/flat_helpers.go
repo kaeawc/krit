@@ -645,6 +645,22 @@ func callSubtreeHasNamedArgument(file *scanner.File, root uint32, name string) b
 	return found
 }
 
+// ifExpressionHasElse returns true when an if_expression has an `else`
+// token child. An if_expression with only the then branch has children
+// (if, "(", condition, ")", control_structure_body); adding an else
+// inserts an `else` keyword followed by a second control_structure_body.
+func ifExpressionHasElse(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "if_expression" {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "else" {
+			return true
+		}
+	}
+	return false
+}
+
 // namedArgRHSIsNullLiteral returns true when the RHS of a named
 // value_argument (`name = <expr>`) is the bare `null` keyword. Unlike
 // flatValueArgumentExpression, this walks past unnamed token children

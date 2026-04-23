@@ -212,7 +212,7 @@ func registerAllRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallName(file, idx)
@@ -227,8 +227,8 @@ func registerAllRules() {
 				if firstArg == 0 {
 					return
 				}
-				argText := strings.TrimSpace(file.FlatNodeText(firstArg))
-				if !strings.HasPrefix(argText, "\"") {
+				expr := flatValueArgumentExpression(file, firstArg)
+				if expr == 0 || file.FlatType(expr) != "string_literal" {
 					return
 				}
 				fn, ok := flatEnclosingFunction(file, idx)
@@ -13998,8 +13998,11 @@ func registerAllRules() {
 			NodeTypes: []string{"if_expression"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "else") {
+				// Only collapse plain if/then chains — if the if_expression
+				// has an `else` token child (or a second control_structure_body
+				// for the else branch), bail out so we don't suggest
+				// rewriting a conditional with its else branch.
+				if ifExpressionHasElse(file, idx) {
 					return
 				}
 				body, _ := file.FlatFindChild(idx, "control_structure_body")

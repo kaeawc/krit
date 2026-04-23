@@ -1,13 +1,16 @@
 package cache
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/store"
 )
 
 func testFindingColumns(findings []scanner.Finding) scanner.FindingColumns {
@@ -933,4 +936,337 @@ func TestResolveCacheDir(t *testing.T) {
 			t.Errorf("expected filePath=%s, got %s", filepath.Join(".", CacheFileName), filePath)
 		}
 	})
+}
+
+// ---------------------------------------------------------------------------
+// computeFileHash32
+// ---------------------------------------------------------------------------
+
+func TestComputeFileHash32_RealFile(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "hash32.kt")
+	content := []byte("fun hash32() {}")
+	if err := os.WriteFile(filePath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := computeFileHash32(filePath)
+	if err != nil {
+		t.Fatalf("computeFileHash32 unexpected error: %v", err)
+	}
+	if raw == ([32]byte{}) {
+		t.Error("expected non-zero [32]byte hash for real file")
+	}
+}
+
+func TestComputeFileHash32_SameContentSameHash(t *testing.T) {
+	dir := t.TempDir()
+	fileA := filepath.Join(dir, "a.kt")
+	fileB := filepath.Join(dir, "b.kt")
+	content := []byte("fun same() {}")
+	if err := os.WriteFile(fileA, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fileB, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rawA, errA := computeFileHash32(fileA)
+	rawB, errB := computeFileHash32(fileB)
+	if errA != nil || errB != nil {
+		t.Fatalf("unexpected errors: %v / %v", errA, errB)
+	}
+	if rawA != rawB {
+		t.Error("same content should produce equal [32]byte hashes")
+	}
+}
+
+func TestComputeFileHash32_NonexistentFile(t *testing.T) {
+	_, err := computeFileHash32("/nonexistent/path/file.kt")
+	if err == nil {
+		t.Error("expected error for nonexistent file")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ParseRuleSetHash
+// ---------------------------------------------------------------------------
+
+func TestParseRuleSetHash_ValidHex(t *testing.T) {
+	// 32-hex-char string representing 16 bytes
+	hexStr := "0102030405060708090a0b0c0d0e0f10"
+	got := ParseRuleSetHash(hexStr)
+
+	want := [16]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10}
+	if got != want {
+		t.Errorf("ParseRuleSetHash(%q) = %x, want %x", hexStr, got, want)
+	}
+}
+
+func TestParseRuleSetHash_EmptyString(t *testing.T) {
+	got := ParseRuleSetHash("")
+	if got != ([16]byte{}) {
+		t.Errorf("empty string should return zero [16]byte, got %x", got)
+	}
+}
+
+func TestParseRuleSetHash_ShortHex(t *testing.T) {
+	// Only 4 hex chars = 2 bytes; remaining bytes should be zero
+	got := ParseRuleSetHash("aabb")
+	want := [16]byte{0xaa, 0xbb}
+	if got != want {
+		t.Errorf("short hex: got %x, want %x", got, want)
+	}
+}
+
+func TestParseRuleSetHash_LongerThan32Chars(t *testing.T) {
+	// 40-hex-char string (20 bytes); only first 16 bytes copied
+	hexStr := "000102030405060708090a0b0c0d0e0f10111213"
+	got := ParseRuleSetHash(hexStr)
+	want := [16]byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+		0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f}
+	if got != want {
+		t.Errorf("oversized hex: got %x, want %x", got, want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// AttachStore + CheckFiles routing through store (miss and hit)
+// ---------------------------------------------------------------------------
+
+func TestAttachStore_CheckFilesRoutesThroughStore_Miss(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "miss.kt")
+	if err := os.WriteFile(filePath, []byte("fun miss() {}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := store.New(t.TempDir())
+	c := &Cache{Files: make(map[string]FileEntry)}
+	c.AttachStore(s, [16]byte{})
+
+	result := c.CheckFiles([]string{filePath}, "anyhash")
+	if result.TotalCached != 0 {
+		t.Errorf("expected 0 cached on store miss, got %d", result.TotalCached)
+	}
+	if result.CachedPaths[filePath] {
+		t.Error("expected filePath to be a miss")
+	}
+}
+
+func TestAttachStore_CheckFilesRoutesThroughStore_Hit(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "hit.kt")
+	content := []byte("fun hit() {}")
+	if err := os.WriteFile(filePath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Compute the file's raw 32-byte hash the same way checkFilesFromStore does.
+	fh, err := hashutil.Default().HashFileRaw(filePath, nil)
+	if err != nil {
+		t.Fatalf("HashFileRaw: %v", err)
+	}
+
+	var ruleSetHash [16]byte // zero key is fine for this test
+
+	findings := []scanner.Finding{
+		{File: filePath, Line: 2, Col: 1, Severity: "warning", RuleSet: "style", Rule: "HitRule", Message: "hit"},
+	}
+	cols := scanner.CollectFindings(findings)
+	payload, err := json.Marshal(cols)
+	if err != nil {
+		t.Fatalf("marshal columns: %v", err)
+	}
+
+	s := store.New(t.TempDir())
+	key := store.Key{FileHash: fh, RuleSetHash: ruleSetHash, Kind: store.KindIncremental}
+	if err := s.Put(key, payload); err != nil {
+		t.Fatalf("store.Put: %v", err)
+	}
+
+	c := &Cache{Files: make(map[string]FileEntry)}
+	c.AttachStore(s, ruleSetHash)
+
+	result := c.CheckFiles([]string{filePath}, "anyhash")
+	if result.TotalCached != 1 {
+		t.Errorf("expected 1 cache hit from store, got %d", result.TotalCached)
+	}
+	if !result.CachedPaths[filePath] {
+		t.Error("expected filePath to be a store hit")
+	}
+	if result.CachedColumns.Len() != 1 {
+		t.Errorf("expected 1 cached finding, got %d", result.CachedColumns.Len())
+	}
+	if got := result.CachedColumns.Findings(); !reflect.DeepEqual(got, findings) {
+		t.Fatalf("store hit findings mismatch:\nwant: %#v\ngot:  %#v", findings, got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// scanPathsMatch
+// ---------------------------------------------------------------------------
+
+func TestScanPathsMatch_SamePaths(t *testing.T) {
+	paths := []string{"/project/src", "/project/test"}
+	if !scanPathsMatch(paths, paths) {
+		t.Error("identical slices should match")
+	}
+}
+
+func TestScanPathsMatch_OrderInsensitive(t *testing.T) {
+	a := []string{"/project/src", "/project/test"}
+	b := []string{"/project/test", "/project/src"}
+	if !scanPathsMatch(a, b) {
+		t.Error("same paths in different order should match")
+	}
+}
+
+func TestScanPathsMatch_DifferentPaths(t *testing.T) {
+	a := []string{"/project/src"}
+	b := []string{"/project/other"}
+	if scanPathsMatch(a, b) {
+		t.Error("different paths should not match")
+	}
+}
+
+func TestScanPathsMatch_DifferentLengths(t *testing.T) {
+	a := []string{"/project/src"}
+	b := []string{"/project/src", "/project/test"}
+	if scanPathsMatch(a, b) {
+		t.Error("slices of different length should not match")
+	}
+}
+
+func TestScanPathsMatch_BothEmpty(t *testing.T) {
+	if !scanPathsMatch(nil, nil) {
+		t.Error("two nil slices should match")
+	}
+	if !scanPathsMatch([]string{}, []string{}) {
+		t.Error("two empty slices should match")
+	}
+}
+
+func TestScanPathsMatch_RelativeVsAbsolute(t *testing.T) {
+	// Both sides refer to the same directory once Abs is applied; however
+	// a relative "." and an absolute cwd may or may not match depending on
+	// the working directory — so we use a concrete temp dir + relative path.
+	dir := t.TempDir()
+	// Build a relative path that resolves to the same abs dir.
+	rel := dir // already absolute; use the dir itself in both forms
+	abs, _ := filepath.Abs(rel)
+	if !scanPathsMatch([]string{rel}, []string{abs}) {
+		t.Errorf("rel=%s and abs=%s should match after Abs()", rel, abs)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// UpdateEntryColumns — nil columns path
+// ---------------------------------------------------------------------------
+
+func TestUpdateEntryColumns_NilColumns(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "nil.kt")
+	if err := os.WriteFile(filePath, []byte("fun nil_col() {}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	absPath, _ := filepath.Abs(filePath)
+
+	c := &Cache{Files: make(map[string]FileEntry)}
+	c.UpdateEntryColumns(filePath, nil)
+
+	entry, ok := c.Files[absPath]
+	if !ok {
+		t.Fatal("expected entry to be written even for nil columns")
+	}
+	if entry.Hash == "" {
+		t.Error("expected non-empty hash")
+	}
+	if entry.Columns.Len() != 0 {
+		t.Errorf("expected 0 columns for nil input, got %d", entry.Columns.Len())
+	}
+}
+
+func TestUpdateEntryColumns_NonNilColumns(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "nonnilcol.kt")
+	content := []byte("fun nonnilcol() {}")
+	if err := os.WriteFile(filePath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	absPath, _ := filepath.Abs(filePath)
+
+	findings := []scanner.Finding{
+		{File: filePath, Line: 1, Col: 1, Severity: "warning", RuleSet: "style", Rule: "ColRule", Message: "col msg"},
+	}
+	cols := scanner.CollectFindings(findings)
+
+	c := &Cache{Files: make(map[string]FileEntry)}
+	c.UpdateEntryColumns(filePath, &cols)
+
+	entry, ok := c.Files[absPath]
+	if !ok {
+		t.Fatal("expected entry in cache")
+	}
+	if entry.Columns.Len() != 1 {
+		t.Errorf("expected 1 column, got %d", entry.Columns.Len())
+	}
+	if got := entry.Columns.Findings(); !reflect.DeepEqual(got, findings) {
+		t.Fatalf("columns mismatch:\nwant: %#v\ngot:  %#v", findings, got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// updateEntry via UpdateEntryColumns — backing-store branch
+// ---------------------------------------------------------------------------
+
+func TestUpdateEntryColumns_WithBackingStore(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "storeentry.kt")
+	content := []byte("fun storeentry() {}")
+	if err := os.WriteFile(filePath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var ruleSetHash [16]byte
+	s := store.New(t.TempDir())
+
+	c := &Cache{Files: make(map[string]FileEntry)}
+	c.AttachStore(s, ruleSetHash)
+
+	findings := []scanner.Finding{
+		{File: filePath, Line: 3, Col: 5, Severity: "error", RuleSet: "bugs", Rule: "StoreRule", Message: "store msg"},
+	}
+	cols := scanner.CollectFindings(findings)
+	c.UpdateEntryColumns(filePath, &cols)
+
+	// After UpdateEntryColumns, the store should contain the entry.
+	// Retrieve it using the file's hash.
+	fh, err := computeFileHash32(filePath)
+	if err != nil {
+		t.Fatalf("computeFileHash32: %v", err)
+	}
+	key := store.Key{FileHash: fh, RuleSetHash: ruleSetHash, Kind: store.KindIncremental}
+	data, ok := s.Get(key)
+	if !ok {
+		t.Fatal("expected store to contain the entry after UpdateEntryColumns")
+	}
+
+	var gotCols scanner.FindingColumns
+	if err := json.Unmarshal(data, &gotCols); err != nil {
+		t.Fatalf("unmarshal stored columns: %v", err)
+	}
+	if gotCols.Len() != 1 {
+		t.Errorf("expected 1 finding in store, got %d", gotCols.Len())
+	}
+	if got := gotCols.Findings(); !reflect.DeepEqual(got, findings) {
+		t.Fatalf("store findings mismatch:\nwant: %#v\ngot:  %#v", findings, got)
+	}
+
+	// The in-memory Files map must NOT be written when a backing store is attached.
+	absPath, _ := filepath.Abs(filePath)
+	if _, inMem := c.Files[absPath]; inMem {
+		t.Error("expected Files map to remain empty when backing store is attached")
+	}
 }

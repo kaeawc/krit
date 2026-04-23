@@ -516,6 +516,10 @@ func (r *DontDowncastCollectionTypesRule) check(ctx *v2.Context) {
 	if ctx.Resolver != nil && sourceIdx != 0 {
 		sourceType := ctx.Resolver.ResolveFlatNode(sourceIdx, file)
 		if sourceType.Kind != typeinfer.TypeUnknown {
+			// Source is already a mutable collection type — no unsafe downcast.
+			if _, alreadyMutable := mutableCollectionToMethodMap[sourceType.Name]; alreadyMutable {
+				return
+			}
 			expectedImmutable := ""
 			for immutable, mutable := range immutableToMutableMap {
 				if mutable == targetType {

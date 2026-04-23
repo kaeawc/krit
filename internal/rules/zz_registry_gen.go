@@ -5103,11 +5103,13 @@ func registerAllRules() {
 		r := &ProguardRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "Proguard", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "Proguard", Brief: "Obsolete proguard.cfg reference", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 4, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "proguard.cfg") {
+				if flatContainsStringInterpolation(file, idx) {
+					return
+				}
+				if strings.Contains(stringLiteralContent(file, idx), "proguard.cfg") {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Reference to obsolete `proguard.cfg`. Use `proguard-rules.pro` instead.")
 				}
 			},
@@ -5125,11 +5127,14 @@ func registerAllRules() {
 		r := &NfcTechWhitespaceRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "NfcTechWhitespace", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "NfcTechWhitespace", Brief: "Whitespace in NFC tech-list", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "<tech>") && nfcTechRe.MatchString(text) {
+				if flatContainsStringInterpolation(file, idx) {
+					return
+				}
+				content := stringLiteralContent(file, idx)
+				if strings.Contains(content, "<tech>") && nfcTechRe.MatchString(content) {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Whitespace in <tech> element value. NFC tech names must not have leading/trailing whitespace.")
 				}
 			},
@@ -5139,11 +5144,14 @@ func registerAllRules() {
 		r := &LibraryCustomViewRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "LibraryCustomView", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "LibraryCustomView", Brief: "Custom view using hardcoded namespace", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if hardcodedNsRe.MatchString(text) && !strings.Contains(text, "apk/res-auto") && !strings.Contains(text, "apk/res/android") {
+				if flatContainsStringInterpolation(file, idx) {
+					return
+				}
+				content := stringLiteralContent(file, idx)
+				if hardcodedNsRe.MatchString(content) && !strings.Contains(content, "apk/res-auto") && !strings.Contains(content, "apk/res/android") {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Use `http://schemas.android.com/apk/res-auto` instead of a hardcoded package namespace. Hardcoded namespaces don't work in library projects.")
 				}
 			},

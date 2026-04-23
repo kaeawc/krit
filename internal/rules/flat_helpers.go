@@ -848,6 +848,101 @@ func hasAnnotationNamed(file *scanner.File, idx uint32, name string) bool {
 	return false
 }
 
+// annotationFinalName returns the annotation's final simple name,
+// whether the annotation has a constructor call (`@Foo(...)`) or is a
+// marker (`@Foo`). Compared to annotationConstructorName, this
+// handles both forms transparently.
+func annotationFinalName(file *scanner.File, annotation uint32) string {
+	if file == nil || annotation == 0 || file.FlatType(annotation) != "annotation" {
+		return ""
+	}
+	if ctor, ok := file.FlatFindChild(annotation, "constructor_invocation"); ok {
+		if name := annotationConstructorName(file, ctor); name != "" {
+			return name
+		}
+	}
+	userType, _ := file.FlatFindChild(annotation, "user_type")
+	if userType == 0 {
+		return ""
+	}
+	if ident := flatLastChildOfType(file, userType, "type_identifier"); ident != 0 {
+		return file.FlatNodeText(ident)
+	}
+	return ""
+}
+
+// annotationHasClassLiteralArgIn returns true when the annotation has
+// an argument of the form `SomeName::class` whose final identifier is
+// in `names`. Used by rules like ForbiddenOptIn to match on marker
+// class references without string-scanning the annotation text.
+func annotationHasClassLiteralArgIn(file *scanner.File, annotation uint32, names map[string]bool) bool {
+	ctor, ok := file.FlatFindChild(annotation, "constructor_invocation")
+	if !ok {
+		return false
+	}
+	args, _ := file.FlatFindChild(ctor, "value_arguments")
+	if args == 0 {
+		return false
+	}
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		expr := flatValueArgumentExpression(file, arg)
+		// `Foo::class` is a class_literal with a child naming the type.
+		if expr == 0 || file.FlatType(expr) != "class_literal" {
+			continue
+		}
+		// Last simple_identifier of the class_literal is the class name.
+		name := ""
+		for c := file.FlatFirstChild(expr); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) == "simple_identifier" {
+				name = file.FlatNodeText(c)
+			}
+			if file.FlatType(c) == "navigation_expression" {
+				if n := flatNavigationExpressionLastIdentifier(file, c); n != "" {
+					name = n
+				}
+			}
+		}
+		if name != "" && names[name] {
+			return true
+		}
+	}
+	return false
+}
+
+// annotationHasStringArgIn returns true when the annotation has a
+// value_argument whose expression is a non-interpolated string_literal
+// with content in `names`. Used by rules like ForbiddenSuppress to
+// match on `@Suppress("RuleX")` arguments.
+func annotationHasStringArgIn(file *scanner.File, annotation uint32, names map[string]bool) bool {
+	ctor, ok := file.FlatFindChild(annotation, "constructor_invocation")
+	if !ok {
+		return false
+	}
+	args, _ := file.FlatFindChild(ctor, "value_arguments")
+	if args == 0 {
+		return false
+	}
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		expr := flatValueArgumentExpression(file, arg)
+		if expr == 0 || file.FlatType(expr) != "string_literal" {
+			continue
+		}
+		if flatContainsStringInterpolation(file, expr) {
+			continue
+		}
+		if names[stringLiteralContent(file, expr)] {
+			return true
+		}
+	}
+	return false
+}
+
 // annotationConstructorName returns the final identifier of an annotation's
 // constructor_invocation. For `@foo.bar.IntDef(...)` this returns "IntDef".
 func annotationConstructorName(file *scanner.File, ctor uint32) string {

@@ -15030,43 +15030,46 @@ func registerAllRules() {
 		r := &ForbiddenOptInRule{BaseRule: BaseRule{RuleName: "ForbiddenOptIn", RuleSetName: "style", Sev: "warning", Desc: "Detects @OptIn annotations that opt into experimental APIs."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"annotation"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"annotation"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "OptIn") {
-					// If marker classes are specified, only flag those
-					if len(r.MarkerClasses) > 0 {
-						found := false
-						for _, mc := range r.MarkerClasses {
-							if strings.Contains(text, mc) {
-								found = true
-								break
-							}
-						}
-						if !found {
-							return
-						}
-					}
-					f := r.Finding(file, file.FlatRow(idx)+1, 1,
-						"@OptIn annotation found. Consider removing or handling the experimental API differently.")
-					// Compute byte range to remove annotation line including trailing newline
-					optInStart := int(file.FlatStartByte(idx))
-					for optInStart > 0 && file.Content[optInStart-1] != '\n' {
-						optInStart--
-					}
-					optInEnd := int(file.FlatEndByte(idx))
-					if optInEnd < len(file.Content) && file.Content[optInEnd] == '\n' {
-						optInEnd++
-					}
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   optInStart,
-						EndByte:     optInEnd,
-						Replacement: "",
-					}
-					ctx.Emit(f)
+				if annotationFinalName(file, idx) != "OptIn" {
+					return
 				}
+				// When marker classes are configured, only flag @OptIn
+				// invocations whose argument's ::class receiver matches
+				// one of the configured markers by simple name.
+				if len(r.MarkerClasses) > 0 {
+					want := make(map[string]bool, len(r.MarkerClasses))
+					for _, mc := range r.MarkerClasses {
+						// Allow fully-qualified names; match on the final
+						// segment only.
+						if i := strings.LastIndex(mc, "."); i >= 0 {
+							mc = mc[i+1:]
+						}
+						want[mc] = true
+					}
+					if !annotationHasClassLiteralArgIn(file, idx, want) {
+						return
+					}
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"@OptIn annotation found. Consider removing or handling the experimental API differently.")
+				optInStart := int(file.FlatStartByte(idx))
+				for optInStart > 0 && file.Content[optInStart-1] != '\n' {
+					optInStart--
+				}
+				optInEnd := int(file.FlatEndByte(idx))
+				if optInEnd < len(file.Content) && file.Content[optInEnd] == '\n' {
+					optInEnd++
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   optInStart,
+					EndByte:     optInEnd,
+					Replacement: "",
+				}
+				ctx.Emit(f)
 			},
 		})
 	}
@@ -15074,43 +15077,40 @@ func registerAllRules() {
 		r := &ForbiddenSuppressRule{BaseRule: BaseRule{RuleName: "ForbiddenSuppress", RuleSetName: "style", Sev: "warning", Desc: "Detects @Suppress annotations that silence warnings instead of fixing the underlying issue."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"annotation"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"annotation"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "Suppress") {
-					// If specific rules are configured, only flag those
-					if len(r.Rules) > 0 {
-						found := false
-						for _, rule := range r.Rules {
-							if strings.Contains(text, rule) {
-								found = true
-								break
-							}
-						}
-						if !found {
-							return
-						}
-					}
-					f := r.Finding(file, file.FlatRow(idx)+1, 1,
-						"@Suppress annotation found. Consider fixing the underlying issue.")
-					// Compute byte range to remove annotation line including trailing newline
-					suppressStart := int(file.FlatStartByte(idx))
-					for suppressStart > 0 && file.Content[suppressStart-1] != '\n' {
-						suppressStart--
-					}
-					suppressEnd := int(file.FlatEndByte(idx))
-					if suppressEnd < len(file.Content) && file.Content[suppressEnd] == '\n' {
-						suppressEnd++
-					}
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   suppressStart,
-						EndByte:     suppressEnd,
-						Replacement: "",
-					}
-					ctx.Emit(f)
+				if annotationFinalName(file, idx) != "Suppress" {
+					return
 				}
+				// When specific rule names are configured, require the
+				// annotation to carry one of them as a string literal arg.
+				if len(r.Rules) > 0 {
+					want := make(map[string]bool, len(r.Rules))
+					for _, rule := range r.Rules {
+						want[rule] = true
+					}
+					if !annotationHasStringArgIn(file, idx, want) {
+						return
+					}
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"@Suppress annotation found. Consider fixing the underlying issue.")
+				suppressStart := int(file.FlatStartByte(idx))
+				for suppressStart > 0 && file.Content[suppressStart-1] != '\n' {
+					suppressStart--
+				}
+				suppressEnd := int(file.FlatEndByte(idx))
+				if suppressEnd < len(file.Content) && file.Content[suppressEnd] == '\n' {
+					suppressEnd++
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   suppressStart,
+					EndByte:     suppressEnd,
+					Replacement: "",
+				}
+				ctx.Emit(f)
 			},
 		})
 	}

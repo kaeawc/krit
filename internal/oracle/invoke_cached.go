@@ -510,6 +510,9 @@ func runKritTypesCached(
 	extraJVMArgs := configuredExtraJVMArgs(opts)
 	args = appendExtraJVMArgsBeforeJar(args, extraJVMArgs)
 	recordKritTypesJVMArgs(tracker, extraJVMArgs)
+	if parallelArg := experimentalParallelFilesArg(); len(parallelArg) > 0 {
+		args = append(args, parallelArg...)
+	}
 	callFilterPath, cleanupCallFilter, err := writeCallFilterArg(opts, tracker)
 	if err != nil {
 		return fmt.Errorf("call filter: %w", err)

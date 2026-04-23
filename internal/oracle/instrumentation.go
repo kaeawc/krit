@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -107,6 +108,21 @@ func extraJVMArgsFromEnv() []string {
 		return nil
 	}
 	return strings.Fields(raw)
+}
+
+// experimentalParallelFilesArg returns the --experimental-parallel-files N
+// args to append after -jar when KRIT_TYPES_PARALLEL_FILES is set to a
+// positive integer. Returns nil when unset or invalid (safe default = sequential).
+func experimentalParallelFilesArg() []string {
+	raw := strings.TrimSpace(os.Getenv("KRIT_TYPES_PARALLEL_FILES"))
+	if raw == "" {
+		return nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 1 {
+		return nil
+	}
+	return []string{"--experimental-parallel-files", strconv.Itoa(n)}
 }
 
 func configuredExtraJVMArgs(opts InvocationOptions) []string {

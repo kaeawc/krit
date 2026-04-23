@@ -419,6 +419,13 @@ func finalSimpleIdentifier(file *scanner.File, idx uint32) string {
 // rules that want to check whether a fluent builder was ever "shown".
 var showCallName = map[string]bool{"show": true}
 
+// logMethodNames is the set of android.util.Log level methods. `wtf` is
+// included for completeness even though the AOSP tag rules historically
+// only covered v/d/i/w/e.
+var logMethodNames = map[string]bool{
+	"v": true, "d": true, "i": true, "w": true, "e": true, "wtf": true,
+}
+
 // isReceiverNamed returns true when the call_expression at idx is invoked
 // through a navigation whose first identifier equals `name`. Matches
 // `Toast.makeText(...)` when called with `name == "Toast"`. Returns false

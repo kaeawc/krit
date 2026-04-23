@@ -4584,18 +4584,42 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				matches := sparseArrayRe.FindStringSubmatch(text)
-				if matches == nil {
+				if flatCallExpressionName(file, idx) != "HashMap" {
 					return
 				}
-				keyType := matches[1]
-				suggestion := "SparseArray"
-				if keyType == "Long" {
+				// First type argument's user_type's identifier is the key type.
+				suffix, _ := file.FlatFindChild(idx, "call_suffix")
+				if suffix == 0 {
+					return
+				}
+				typeArgs, _ := file.FlatFindChild(suffix, "type_arguments")
+				if typeArgs == 0 {
+					return
+				}
+				proj := file.FlatFirstChild(typeArgs)
+				for proj != 0 && file.FlatType(proj) != "type_projection" {
+					proj = file.FlatNextSib(proj)
+				}
+				if proj == 0 {
+					return
+				}
+				userType, _ := file.FlatFindChild(proj, "user_type")
+				ident := flatLastChildOfType(file, userType, "type_identifier")
+				if ident == 0 {
+					return
+				}
+				keyType := file.FlatNodeText(ident)
+				var suggestion string
+				switch keyType {
+				case "Int", "Integer":
+					suggestion = "SparseArray"
+				case "Long":
 					suggestion = "LongSparseArray"
+				default:
+					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,
 					"Use "+suggestion+" instead of HashMap<"+keyType+", ...> for better performance on Android.")
@@ -4611,49 +4635,39 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				first := file.FlatChild(idx, 0)
-				if first != 0 && file.FlatType(first) == "simple_identifier" {
-					typeName := file.FlatNodeText(first)
-					if !boxedPrimitiveConstructors[typeName] {
-						return
-					}
-					suffix, _ := file.FlatFindChild(idx, "call_suffix")
-					if suffix != 0 {
-						args, _ := file.FlatFindChild(suffix, "value_arguments")
-						if args != 0 {
-							argCount := 0
-							for i := 0; i < file.FlatChildCount(args); i++ {
-								if file.FlatType(file.FlatChild(args, i)) == "value_argument" {
-									argCount++
-								}
-							}
-							if argCount > 1 {
-								return
-							}
-						}
-					}
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Use "+typeName+".valueOf() instead of new "+typeName+"() constructor for better performance.")
+				// Only fire on calls whose callee is a bare boxed-primitive
+				// identifier — `Integer(42)`, not `Integer.valueOf(42)` (where
+				// flatCallExpressionName returns `valueOf`) nor any qualified
+				// form. This is the one case AOSP Lint flags.
+				typeName := flatCallExpressionName(file, idx)
+				if !boxedPrimitiveConstructors[typeName] {
 					return
 				}
-				text := file.FlatNodeText(idx)
-				matches := valueOfRe.FindStringSubmatch(text)
-				if matches == nil {
+				// Skip if the callee is actually qualified (e.g. `a.Integer(42)`).
+				// For unqualified calls the first named child is a bare
+				// simple_identifier; for qualified calls it's a navigation_expression.
+				firstNamed := file.FlatFirstChild(idx)
+				for firstNamed != 0 && !file.FlatIsNamed(firstNamed) {
+					firstNamed = file.FlatNextSib(firstNamed)
+				}
+				if firstNamed == 0 || file.FlatType(firstNamed) != "simple_identifier" {
 					return
 				}
-				typeName := matches[1]
-				if strings.Contains(text, "class "+typeName) || strings.Contains(text, "fun "+typeName) {
-					return
-				}
-				callPos := strings.Index(text, typeName+"(")
-				if callPos > 0 {
-					prev := text[callPos-1]
-					if prev == ':' || prev == '<' {
-						return
+				// Require exactly one positional argument — `Integer()` zero-arg
+				// and `Integer(x, radix)` multi-arg overloads are not the
+				// single-value boxing we want to flag.
+				args := flatCallKeyArguments(file, idx)
+				argCount := 0
+				for a := file.FlatFirstChild(args); a != 0; a = file.FlatNextSib(a) {
+					if file.FlatType(a) == "value_argument" {
+						argCount++
 					}
+				}
+				if argCount != 1 {
+					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,
 					"Use "+typeName+".valueOf() instead of new "+typeName+"() constructor for better performance.")
@@ -4672,12 +4686,19 @@ func registerAllRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				matches := logTagLiteralRe.FindStringSubmatch(text)
-				if matches == nil {
+				if !isReceiverNamed(file, idx, "Log") || !logMethodNames[flatCallExpressionName(file, idx)] {
 					return
 				}
-				tag := matches[1]
+				args := flatCallKeyArguments(file, idx)
+				firstArg := flatPositionalValueArgument(file, args, 0)
+				expr := flatValueArgumentExpression(file, firstArg)
+				if expr == 0 || file.FlatType(expr) != "string_literal" {
+					return
+				}
+				if flatContainsStringInterpolation(file, expr) {
+					return
+				}
+				tag := stringLiteralContent(file, expr)
 				if len(tag) > 23 {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,
 						"Log tag \""+tag+"\" exceeds the 23 character limit.")
@@ -4714,8 +4735,30 @@ func registerAllRules() {
 				if len(className) > 23 && strings.HasPrefix(className, tagValue) {
 					return
 				}
-				text := file.FlatNodeText(idx)
-				if !logTagRefRe.MatchString(text) {
+				// The class must actually contain a `Log.{v|d|i|w|e|s}(TAG, …)`
+				// call that would expose the mismatch. Walk call_expression
+				// nodes in the class body instead of regex-scanning the whole
+				// class text — the regex version matched `Log.d(TAG, x)`
+				// inside string literals or comments in unrelated methods.
+				classUsesTagInLog := false
+				file.FlatWalkNodes(idx, "call_expression", func(call uint32) {
+					if classUsesTagInLog {
+						return
+					}
+					if !isReceiverNamed(file, call, "Log") {
+						return
+					}
+					if !logMethodNames[flatCallExpressionName(file, call)] {
+						return
+					}
+					args := flatCallKeyArguments(file, call)
+					firstArg := flatPositionalValueArgument(file, args, 0)
+					expr := flatValueArgumentExpression(file, firstArg)
+					if expr != 0 && file.FlatType(expr) == "simple_identifier" && file.FlatNodeText(expr) == "TAG" {
+						classUsesTagInLog = true
+					}
+				})
+				if !classUsesTagInLog {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,

@@ -657,8 +657,40 @@ func registerAllRules() {
 		r := &DefaultLocaleRule{AndroidRule: alcRule("DefaultLocale", "Implied default locale in case conversion", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				switch name {
+				case "toLowerCase", "toUpperCase", "lowercase", "uppercase":
+					args := flatCallKeyArguments(file, idx)
+					if args != 0 {
+						for a := file.FlatFirstChild(args); a != 0; a = file.FlatNextSib(a) {
+							if file.FlatType(a) == "value_argument" {
+								return // has a Locale argument
+							}
+						}
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Implicitly using the default locale. Use lowercase(Locale) or uppercase(Locale) instead.")
+				case "format":
+					if flatReceiverNameFromCall(file, idx) != "String" {
+						return
+					}
+					args := flatCallKeyArguments(file, idx)
+					if args == 0 {
+						return
+					}
+					first := flatPositionalValueArgument(file, args, 0)
+					if first == 0 {
+						return
+					}
+					firstText := file.FlatNodeText(first)
+					if strings.Contains(firstText, "Locale") {
+						return
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Implicitly using the default locale. Use String.format(Locale, ...) instead.")
+				}
+			},
 		})
 	}
 	{
@@ -715,8 +747,14 @@ func registerAllRules() {
 		r := &AssertRule{AndroidRule: alcRule("Assert", "Assertions are unreliable on Android", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if flatCallExpressionName(file, idx) != "assert" {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, "assert is not reliable on Android. Use a proper assertion library or throw explicitly.")
+			},
 		})
 	}
 	{
@@ -749,8 +787,29 @@ func registerAllRules() {
 		r := &ShiftFlagsRule{AndroidRule: alcRule("ShiftFlags", "Suspicious flag constant declarations", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"property_declaration"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !file.FlatHasModifier(idx, "const") {
+					return
+				}
+				name := extractIdentifierFlat(file, idx)
+				if !strings.Contains(name, "FLAG") {
+					return
+				}
+				var hasIntInit bool
+				file.FlatWalkNodes(idx, "integer_literal", func(n uint32) {
+					hasIntInit = true
+				})
+				if !hasIntInit {
+					return
+				}
+				text := file.FlatNodeText(idx)
+				if strings.Contains(text, "shl") || strings.Contains(text, "<<") {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, "Consider using shift operators (1 shl N) for flag constants for clarity.")
+			},
 		})
 	}
 	{
@@ -789,22 +848,27 @@ func registerAllRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				prev, ok := file.FlatPrevSibling(idx)
-				if !ok {
-					return
-				}
-				prevText := file.FlatNodeText(prev)
-				if !strings.Contains(prevText, "WorkerThread") {
-					return
-				}
-				lines := strings.Split(text, "\n")
-				startLine := file.FlatRow(idx)
-				for j, line := range lines {
-					if wrongThreadRe.MatchString(line) && !strings.Contains(line, "runOnUiThread") && !strings.Contains(line, "post(") {
-						ctx.EmitAt(startLine+j+1, 1, "UI operation in @WorkerThread context. Use runOnUiThread or Handler.post().")
+				if !hasAnnotationFlat(file, idx, "WorkerThread") {
+					prev, ok := file.FlatPrevSibling(idx)
+					if !ok || !strings.Contains(file.FlatNodeText(prev), "WorkerThread") {
+						return
 					}
 				}
+				file.FlatWalkNodes(idx, "call_expression", func(callIdx uint32) {
+					name := flatCallExpressionName(file, callIdx)
+					if !wrongThreadUIMethods[name] {
+						return
+					}
+					for p, ok := file.FlatParent(callIdx); ok; p, ok = file.FlatParent(p) {
+						if file.FlatType(p) == "call_expression" {
+							n := flatCallExpressionName(file, p)
+							if n == "runOnUiThread" || n == "post" {
+								return
+							}
+						}
+					}
+					ctx.EmitAt(file.FlatRow(callIdx)+1, 1, "UI operation in @WorkerThread context. Use runOnUiThread or Handler.post().")
+				})
 			},
 		})
 	}
@@ -812,8 +876,14 @@ func registerAllRules() {
 		r := &SQLiteStringRule{AndroidRule: alcRule("SQLiteString", "Using STRING instead of TEXT in SQLite", ALSWarning, 5)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := strings.ToUpper(file.FlatNodeText(idx))
+				if strings.Contains(text, "CREATE TABLE") && strings.Contains(text, " STRING") {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "SQLite does not support STRING type. Use TEXT instead.")
+				}
+			},
 		})
 	}
 	{
@@ -844,8 +914,20 @@ func registerAllRules() {
 		r := &NestedScrollingRule{AndroidRule: alcRule("NestedScrolling", "Nested scrolling widgets", ALSWarning, 7)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				if !nestedScrollNames[name] {
+					return
+				}
+				for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+					if file.FlatType(p) == "call_expression" && nestedScrollNames[flatCallExpressionName(file, p)] {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Nested scrolling detected ("+name+" inside another scroll container). This can cause performance issues.")
+						return
+					}
+				}
+			},
 		})
 	}
 	{
@@ -860,16 +942,53 @@ func registerAllRules() {
 		r := &SimpleDateFormatRule{AndroidRule: alcRule("SimpleDateFormat", "Using SimpleDateFormat directly without Locale", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if flatCallExpressionName(file, idx) != "SimpleDateFormat" {
+					return
+				}
+				args := flatCallKeyArguments(file, idx)
+				if args != 0 {
+					argCount := 0
+					for a := file.FlatFirstChild(args); a != 0; a = file.FlatNextSib(a) {
+						if file.FlatType(a) == "value_argument" {
+							argCount++
+						}
+					}
+					if argCount >= 2 {
+						return
+					}
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs.")
+			},
 		})
 	}
 	{
 		r := &SetTextI18nRule{AndroidRule: alcRule("SetTextI18n", "TextView with internationalization issues", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if flatCallExpressionName(file, idx) != "setText" {
+					return
+				}
+				args := flatCallKeyArguments(file, idx)
+				if args == 0 {
+					return
+				}
+				first := flatPositionalValueArgument(file, args, 0)
+				if first == 0 {
+					return
+				}
+				for ch := file.FlatFirstChild(first); ch != 0; ch = file.FlatNextSib(ch) {
+					if file.FlatType(ch) == "string_literal" {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Do not concatenate text displayed with setText. Use resource strings with placeholders.")
+						return
+					}
+				}
+			},
 		})
 	}
 	{
@@ -884,8 +1003,23 @@ func registerAllRules() {
 		r := &WrongCallRule{AndroidRule: alcRule("WrongCall", "Using wrong draw/layout method", ALSError, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				if name != "onDraw" && name != "onMeasure" && name != "onLayout" {
+					return
+				}
+				if flatReceiverNameFromCall(file, idx) == "" {
+					return
+				}
+				if anc, ok := flatEnclosingAncestor(file, idx, "function_declaration"); ok {
+					if strings.Contains(file.FlatNodeText(anc), "override") {
+						return
+					}
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, "Suspicious method call; should probably call draw/measure/layout instead of onDraw/onMeasure/onLayout.")
+			},
 		})
 	}
 
@@ -941,16 +1075,54 @@ func registerAllRules() {
 		r := &SwitchIntDefRule{AndroidRule: alcRule("SwitchIntDef", "Missing @IntDef constants in switch", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"when_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				subj, ok := file.FlatFindChild(idx, "when_subject")
+				if !ok {
+					return
+				}
+				if !strings.Contains(strings.ToLower(file.FlatNodeText(subj)), "visibility") {
+					return
+				}
+				hasVisible, hasInvisible, hasGone, hasElse := false, false, false, false
+				file.FlatWalkNodes(idx, "when_entry", func(entry uint32) {
+					text := file.FlatNodeText(entry)
+					if strings.Contains(text, "VISIBLE") {
+						hasVisible = true
+					}
+					if strings.Contains(text, "INVISIBLE") {
+						hasInvisible = true
+					}
+					if strings.Contains(text, "GONE") {
+						hasGone = true
+					}
+					if strings.HasPrefix(strings.TrimSpace(text), "else") {
+						hasElse = true
+					}
+				})
+				if !(hasVisible && hasInvisible && hasGone) && !hasElse {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "when statement on visibility flag should cover VISIBLE, INVISIBLE, GONE, and else.")
+				}
+			},
 		})
 	}
 	{
 		r := &TextViewEditsRule{AndroidRule: alcRule("TextViewEdits", "Calling setText on an EditText", ALSWarning, 5)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if flatCallExpressionName(file, idx) != "setText" {
+					return
+				}
+				recv, _ := flatCallExpressionParts(file, idx)
+				if !strings.Contains(strings.ToLower(file.FlatNodeText(recv)), "edittext") {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, "Avoid calling setText() on an EditText — user input will be replaced. Use setHint() or update the TextInputLayout instead.")
+			},
 		})
 	}
 	{
@@ -974,8 +1146,20 @@ func registerAllRules() {
 		r := &DeprecatedRule{AndroidRule: alcRule("Deprecated", "Using deprecated API", ALSWarning, 2)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"type_identifier", "simple_identifier"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if _, inImport := flatEnclosingAncestor(file, idx, "import_header"); inImport {
+					return
+				}
+				name := file.FlatNodeText(idx)
+				for _, entry := range deprecatedApis {
+					if entry.Pattern == name {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1, entry.Message)
+						return
+					}
+				}
+			},
 		})
 	}
 	{
@@ -995,40 +1179,114 @@ func registerAllRules() {
 		r := &ResourceTypeRule{AndroidRule: alcRule("ResourceType", "Wrong resource type", ALSError, 7)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				expected, ok := resourceMethodExpected[name]
+				if !ok {
+					return
+				}
+				args := flatCallKeyArguments(file, idx)
+				if args == 0 {
+					return
+				}
+				first := flatPositionalValueArgument(file, args, 0)
+				if first == 0 {
+					return
+				}
+				parts := flatNavigationIdentifierParts(file, first)
+				if len(parts) < 2 || parts[0] != "R" {
+					return
+				}
+				if parts[1] != expected {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("%s expects a %s resource (expected R.%s.*), got R.%s.*", name, expected, expected, parts[1]))
+				}
+			},
 		})
 	}
 	{
 		r := &ResourceAsColorRule{AndroidRule: alcRule("ResourceAsColor", "Should pass resolved color instead of resource id", ALSError, 7)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				if name != "setBackgroundColor" && name != "setTextColor" && name != "setColor" {
+					return
+				}
+				args := flatCallKeyArguments(file, idx)
+				if args == 0 {
+					return
+				}
+				first := flatPositionalValueArgument(file, args, 0)
+				if first == 0 {
+					return
+				}
+				parts := flatNavigationIdentifierParts(file, first)
+				if len(parts) < 2 || parts[0] != "R" {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, name+" should receive a resolved color, not a resource ID. Use ContextCompat.getColor(context, R.color.xxx).")
+			},
 		})
 	}
 	{
 		r := &SupportAnnotationUsageRule{AndroidRule: alcRule("SupportAnnotationUsage", "Incorrect support annotation usage", ALSError, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !hasAnnotationFlat(file, idx, "MainThread") {
+					return
+				}
+				file.FlatWalkNodes(idx, "call_expression", func(callIdx uint32) {
+					name := flatCallExpressionName(file, callIdx)
+					if ioCallNames[name] {
+						ctx.EmitAt(file.FlatRow(callIdx)+1, 1, "Potential blocking I/O call ("+name+") in @MainThread function. Move to a background thread.")
+					}
+				})
+			},
 		})
 	}
 	{
 		r := &AccidentalOctalRule{AndroidRule: alcRule("AccidentalOctal", "Accidental octal interpretation", ALSWarning, 5)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"integer_literal"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := file.FlatNodeText(idx)
+				if len(text) < 3 || text[0] != '0' {
+					return
+				}
+				if text[1] == 'x' || text[1] == 'X' || text[1] == 'b' || text[1] == 'B' {
+					return
+				}
+				if text[1] < '0' || text[1] > '9' {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, "Numeric literal starts with a leading zero ("+text+"). In most languages this is octal, but Kotlin may interpret it differently — use explicit radix.")
+			},
 		})
 	}
 	{
 		r := &AppCompatMethodRule{AndroidRule: alcRule("AppCompatMethod", "Using Wrong AppCompat Method", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				switch name {
+				case "getActionBar":
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Prefer getSupportActionBar() over getActionBar() in AppCompat activities.")
+				case "setProgressBarVisibility", "setProgressBarIndeterminateVisibility":
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "This method is not available in AppCompat activities. Use a ProgressBar widget instead.")
+				}
+			},
 		})
 	}
 	{
@@ -1073,8 +1331,28 @@ func registerAllRules() {
 		r := &InnerclassSeparatorRule{AndroidRule: alcRule("InnerclassSeparator", "Inner classes should use '$' not '/'", ALSWarning, 3)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if flatCallExpressionName(file, idx) != "forName" {
+					return
+				}
+				if flatReceiverNameFromCall(file, idx) != "Class" {
+					return
+				}
+				args := flatCallKeyArguments(file, idx)
+				if args == 0 {
+					return
+				}
+				first := flatPositionalValueArgument(file, args, 0)
+				if first == 0 {
+					return
+				}
+				argText := file.FlatNodeText(first)
+				if strings.Contains(argText, "/") && !strings.Contains(argText, "$") {
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Inner classes should be separated by '$' not '/' in Class.forName().")
+				}
+			},
 		})
 	}
 	{
@@ -1106,32 +1384,140 @@ func registerAllRules() {
 		r := &PropertyEscapeRule{AndroidRule: alcRule("PropertyEscape", "Invalid property file escapes", ALSError, 5)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				raw := file.FlatNodeText(idx)
+				if strings.HasPrefix(raw, `"""`) {
+					return // raw/triple-quoted string, no escape processing
+				}
+				content, ok := file.FlatFindChild(idx, "string_content")
+				if !ok {
+					return
+				}
+				s := file.FlatNodeText(content)
+				validEscapes := map[byte]bool{'n': true, 'r': true, 't': true, '\\': true, '"': true, '\'': true, '0': true, '$': true, 'u': true}
+				for i := 0; i < len(s)-1; i++ {
+					if s[i] == '\\' {
+						if !validEscapes[s[i+1]] {
+							ctx.EmitAt(file.FlatRow(idx)+1, 1, "Invalid property escape sequence: \\"+string(s[i+1]))
+							return
+						}
+						i++ // skip the escaped character
+					}
+				}
+			},
 		})
 	}
 	{
 		r := &ShortAlarmRule{AndroidRule: alcRule("ShortAlarm", "Short or frequent alarm", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				if name != "setRepeating" && name != "setInexactRepeating" {
+					return
+				}
+				args := flatCallKeyArguments(file, idx)
+				if args == 0 {
+					return
+				}
+				interval := flatPositionalValueArgument(file, args, 2)
+				if interval == 0 {
+					return
+				}
+				for ch := file.FlatFirstChild(interval); ch != 0; ch = file.FlatNextSib(ch) {
+					if file.FlatType(ch) == "integer_literal" {
+						n := parseInt(file.FlatNodeText(ch))
+						if n > 0 && n < 60000 {
+							ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Alarm interval is %d ms which is shorter than 1 minute. Short alarms drain the battery.", n))
+						}
+						return
+					}
+				}
+			},
 		})
 	}
 	{
 		r := &LocalSuppressRule{AndroidRule: alcRule("LocalSuppress", "@SuppressLint misuse", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"annotation"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				ci, ok := file.FlatFindChild(idx, "constructor_invocation")
+				if !ok {
+					return
+				}
+				ut, ok := file.FlatFindChild(ci, "user_type")
+				if !ok {
+					return
+				}
+				if file.FlatNodeText(ut) != "SuppressLint" {
+					return
+				}
+				args, ok := file.FlatFindChild(ci, "value_arguments")
+				if !ok {
+					return
+				}
+				for a := file.FlatFirstChild(args); a != 0; a = file.FlatNextSib(a) {
+					if file.FlatType(a) != "value_argument" {
+						continue
+					}
+					sl, ok := file.FlatFindChild(a, "string_literal")
+					if !ok {
+						continue
+					}
+					var argText string
+					if sc, ok := file.FlatFindChild(sl, "string_content"); ok {
+						argText = file.FlatNodeText(sc)
+					} else {
+						argText = strings.Trim(file.FlatNodeText(sl), `"' `)
+					}
+					if argText != "all" && !knownLintIssueIDs[argText] {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1, "@SuppressLint issue ID '"+argText+"' is not a recognized lint issue.")
+					}
+				}
+			},
 		})
 	}
 	{
 		r := &PluralsCandidateRule{AndroidRule: alcRule("PluralsCandidate", "Potential plurals", ALSWarning, 5)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"if_expression", "when_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				nodeType := file.FlatType(idx)
+				var hasStringCall bool
+				file.FlatWalkNodes(idx, "call_expression", func(callIdx uint32) {
+					if pluralsStringCalls[flatCallExpressionName(file, callIdx)] {
+						hasStringCall = true
+					}
+				})
+				if !hasStringCall {
+					return
+				}
+				if nodeType == "if_expression" {
+					ifText := file.FlatNodeText(idx)
+					if !strings.Contains(ifText, "== 1") && !strings.Contains(ifText, "!= 1") {
+						return
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Consider using getQuantityString() for plural-aware string formatting instead of if/else on count.")
+				} else {
+					subj, ok := file.FlatFindChild(idx, "when_subject")
+					if !ok {
+						return
+					}
+					subjName := extractIdentifierFlat(file, subj)
+					if !pluralsCountNames[subjName] {
+						return
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Consider using getQuantityString() for plural-aware string formatting instead of when on count.")
+				}
+			},
 		})
 	}
 

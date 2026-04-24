@@ -16,7 +16,7 @@ class UnsafeCastIfIsGuard {
         if (x is Derived) {
             return x as Derived
         }
-        throw IllegalArgumentException()
+        throw IllegalArgumentException("expected Derived, got ${x::class.simpleName}")
     }
 }
 
@@ -26,7 +26,7 @@ class UnsafeCastNegIsEarlyReturn {
     class Derived : Base()
 
     fun example(x: Base): Derived {
-        if (x !is Derived) return throw IllegalArgumentException()
+        if (x !is Derived) throw IllegalArgumentException("expected Derived, got ${x::class.simpleName}")
         return x as Derived
     }
 }
@@ -38,7 +38,7 @@ class UnsafeCastNegIsEarlyThrow {
 
     fun example(x: Base): Derived {
         if (x !is Derived) {
-            throw IllegalStateException("not a Derived")
+            throw IllegalStateException("expected Derived, got ${x::class.simpleName}")
         }
         return x as Derived
     }
@@ -68,7 +68,7 @@ class UnsafeCastMultilineCondition {
         ) {
             return x as Derived
         }
-        throw IllegalArgumentException()
+        throw IllegalArgumentException("expected Derived, got ${x::class.simpleName}")
     }
 }
 
@@ -81,7 +81,7 @@ class UnsafeCastConjunctionIsGuard {
         if (x is Derived && flag) {
             return x as Derived
         }
-        throw IllegalArgumentException()
+        throw IllegalArgumentException("expected Derived with flag, got ${x::class.simpleName}")
     }
 }
 
@@ -92,4 +92,6 @@ class UnsafeCastEqualsMethod {
         val o = other as UnsafeCastEqualsMethod
         return o === this
     }
+
+    override fun hashCode(): Int = System.identityHashCode(this)
 }

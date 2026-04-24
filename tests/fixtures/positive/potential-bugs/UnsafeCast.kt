@@ -24,7 +24,7 @@ class UnsafeCastStringLiteralFalseGuard {
     class Target : Base()
 
     fun example(x: Base): Target {
-        val msg = "x is Target"
+        check("x is Target".isNotEmpty()) { "guard text" }
         return x as Target
     }
 }
@@ -36,7 +36,7 @@ class UnsafeCastNestedNonExitingGuard {
 
     fun example(x: Base, cond: Boolean): Target {
         if (x !is Target) {
-            if (cond) return throw IllegalStateException()
+            if (cond) throw IllegalStateException("not a Target")
             // falls through when cond is false
         }
         return x as Target

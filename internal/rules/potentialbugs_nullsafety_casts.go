@@ -710,6 +710,145 @@ var castTypePredicates = map[string][]string{
 	"TextStory":                 {"isTextStory"},
 }
 
+// unsafeCastIsCheckPartsFlat parses a check_expression node into its components.
+func unsafeCastIsCheckPartsFlat(file *scanner.File, node uint32) (expr uint32, typeName string, positive bool, ok bool) {
+	if file.FlatType(node) != "check_expression" {
+		return 0, "", false, false
+	}
+	positive = true
+	seenOp := false
+	var typeNode uint32
+	for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "!is":
+			positive = false
+			seenOp = true
+		case "is":
+			positive = true
+			seenOp = true
+		default:
+			if !file.FlatIsNamed(child) {
+				continue
+			}
+			if !seenOp && expr == 0 {
+				expr = child
+			} else if seenOp && typeNode == 0 {
+				typeNode = child
+			}
+		}
+	}
+	if !seenOp || expr == 0 || typeNode == 0 {
+		return 0, "", false, false
+	}
+	typeName = unsafeCastTypeNameFlat(file, typeNode)
+	return expr, typeName, positive, typeName != ""
+}
+
+// unsafeCastConditionHasIsCheckFlat walks the condition subtree looking for a
+// check_expression that matches castVar is/!is castTarget. Uses AST nodes only,
+// so it never matches text inside comments or string literals.
+func unsafeCastConditionHasIsCheckFlat(file *scanner.File, cond uint32, castVar, castTarget string, wantPositive bool) bool {
+	found := false
+	file.FlatWalkAllNodes(cond, func(n uint32) {
+		if found {
+			return
+		}
+		expr, typeName, positive, ok := unsafeCastIsCheckPartsFlat(file, n)
+		if !ok || positive != wantPositive || typeName != castTarget {
+			return
+		}
+		if strings.TrimSpace(file.FlatNodeText(expr)) == castVar {
+			found = true
+		}
+	})
+	return found
+}
+
+// unsafeCastConditionHasPredicateCallFlat walks the condition subtree looking
+// for a call_expression whose callee name is in predicates. Only matches real
+// call nodes, never text inside comments or string literals.
+func unsafeCastConditionHasPredicateCallFlat(file *scanner.File, cond uint32, predicates []string) bool {
+	found := false
+	file.FlatWalkAllNodes(cond, func(n uint32) {
+		if found || file.FlatType(n) != "call_expression" {
+			return
+		}
+		callee := flatCallExpressionName(file, n)
+		for _, pred := range predicates {
+			if callee == pred {
+				found = true
+				return
+			}
+		}
+	})
+	return found
+}
+
+// unsafeCastExtractIfPartsFlat returns the condition node, then-body, and
+// else-body of an if_expression using the AST structure.
+func unsafeCastExtractIfPartsFlat(file *scanner.File, ifNode uint32) (cond, thenBody, elseBody uint32) {
+	foundElse := false
+	for child := file.FlatFirstChild(ifNode); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "control_structure_body":
+			if !foundElse && thenBody == 0 {
+				thenBody = child
+			} else if foundElse && elseBody == 0 {
+				elseBody = child
+			}
+		case "else":
+			foundElse = true
+		default:
+			if cond == 0 && file.FlatIsNamed(child) {
+				cond = child
+			}
+		}
+	}
+	return
+}
+
+// unsafeCastFindIfExprFlat extracts an if_expression from a statement node,
+// handling the expression_statement wrapper.
+func unsafeCastFindIfExprFlat(file *scanner.File, node uint32) uint32 {
+	switch file.FlatType(node) {
+	case "if_expression":
+		return node
+	case "expression_statement":
+		for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "if_expression" {
+				return child
+			}
+		}
+	}
+	return 0
+}
+
+// unsafeCastStatementAlwaysExitsFlat reports whether a single AST statement
+// unconditionally transfers control (return, throw, continue, break, or an
+// if/else where both branches do the same).
+func unsafeCastStatementAlwaysExitsFlat(file *scanner.File, node uint32) bool {
+	if node == 0 {
+		return false
+	}
+	switch file.FlatType(node) {
+	case "jump_expression":
+		return true
+	case "expression_statement":
+		for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatIsNamed(child) {
+				return unsafeCastStatementAlwaysExitsFlat(file, child)
+			}
+		}
+	case "if_expression":
+		_, thenBody, elseBody := unsafeCastExtractIfPartsFlat(file, node)
+		if elseBody == 0 {
+			return false
+		}
+		return bodyAlwaysExitsFlat(file, thenBody) && bodyAlwaysExitsFlat(file, elseBody)
+	}
+	return false
+}
+
 func isCastGuardedByTypePredicateFlat(file *scanner.File, idx uint32, castVar, castTarget string) bool {
 	predicates, ok := castTypePredicates[castTarget]
 	if !ok {
@@ -720,36 +859,19 @@ func isCastGuardedByTypePredicateFlat(file *scanner.File, idx uint32, castVar, c
 		case "function_declaration", "lambda_literal":
 			return false
 		case "conjunction_expression":
-			condText := file.FlatNodeText(cur)
-			for _, pred := range predicates {
-				if strings.Contains(condText, pred) {
-					return true
-				}
+			if unsafeCastConditionHasPredicateCallFlat(file, cur, predicates) {
+				return true
 			}
 		case "if_expression":
-			for i := 0; i < file.FlatChildCount(cur); i++ {
-				c := file.FlatChild(cur, i)
-				if c == 0 {
-					continue
-				}
-				switch file.FlatType(c) {
-				case "parenthesized_expression", "check_expression",
-					"conjunction_expression", "disjunction_expression",
-					"equality_expression", "comparison_expression":
-					condText := file.FlatNodeText(c)
-					for _, pred := range predicates {
-						if strings.Contains(condText, pred) {
-							return true
-						}
-					}
+			cond, thenBody, _ := unsafeCastExtractIfPartsFlat(file, cur)
+			if cond != 0 && thenBody != 0 && isDescendantFlat(file, idx, thenBody) {
+				if unsafeCastConditionHasPredicateCallFlat(file, cond, predicates) {
+					return true
 				}
 			}
 		case "when_entry":
-			condText := file.FlatNodeText(cur)
-			for _, pred := range predicates {
-				if strings.Contains(condText, pred) {
-					return true
-				}
+			if unsafeCastConditionHasPredicateCallFlat(file, cur, predicates) {
+				return true
 			}
 		}
 	}
@@ -790,7 +912,6 @@ func unsafeCastGuardedByIsCheckFlat(file *scanner.File, idx uint32, varName, tar
 
 func unsafeCastPrecedingNegativeIsCheckFlat(file *scanner.File, statementsNode, asNode uint32, varName, targetType string) bool {
 	asStart := file.FlatStartByte(asNode)
-	negPattern := varName + " !is " + targetType
 	for i := 0; i < file.FlatChildCount(statementsNode); i++ {
 		child := file.FlatChild(statementsNode, i)
 		if child == 0 {
@@ -799,56 +920,37 @@ func unsafeCastPrecedingNegativeIsCheckFlat(file *scanner.File, statementsNode, 
 		if file.FlatStartByte(child) >= asStart {
 			break
 		}
-		childType := file.FlatType(child)
-		if childType == "if_expression" || childType == "expression_statement" {
-			ifText := file.FlatNodeText(child)
-			if strings.Contains(ifText, negPattern) && hasEarlyExitKeyword(ifText) {
-				return true
-			}
+		ifNode := unsafeCastFindIfExprFlat(file, child)
+		if ifNode == 0 {
+			continue
+		}
+		cond, thenBody, _ := unsafeCastExtractIfPartsFlat(file, ifNode)
+		if cond == 0 || thenBody == 0 {
+			continue
+		}
+		if unsafeCastConditionHasIsCheckFlat(file, cond, varName, targetType, false) &&
+			bodyAlwaysExitsFlat(file, thenBody) {
+			return true
 		}
 	}
 	return false
 }
 
 func unsafeCastIfGuardsFlat(file *scanner.File, ifNode, asNode uint32, varName, targetType string) bool {
-	condText := ""
-	var thenBody uint32
-	var elseBody uint32
-	for i := 0; i < file.FlatChildCount(ifNode); i++ {
-		child := file.FlatChild(ifNode, i)
-		switch file.FlatType(child) {
-		case "parenthesized_expression":
-			condText = file.FlatNodeText(child)
-		case "check_expression", "equality_expression", "conjunction_expression":
-			if condText == "" {
-				condText = file.FlatNodeText(child)
-			}
-		case "control_structure_body":
-			if thenBody == 0 {
-				thenBody = child
-			} else {
-				elseBody = child
-			}
-		}
-	}
-	if condText == "" {
+	cond, thenBody, elseBody := unsafeCastExtractIfPartsFlat(file, ifNode)
+	if cond == 0 {
 		return false
 	}
 
-	inner := strings.TrimSpace(condText)
-	if strings.HasPrefix(inner, "(") && strings.HasSuffix(inner, ")") {
-		inner = inner[1 : len(inner)-1]
-	}
-
-	isPattern := varName + " is " + targetType
-	if strings.Contains(inner, isPattern) {
+	// if (x is T) { ... x as T ... }
+	if unsafeCastConditionHasIsCheckFlat(file, cond, varName, targetType, true) {
 		if thenBody != 0 && isDescendantFlat(file, asNode, thenBody) {
 			return true
 		}
 	}
 
-	negPattern := varName + " !is " + targetType
-	if strings.Contains(inner, negPattern) {
+	// if (x !is T) { return/throw } then x as T (in else or after the if)
+	if unsafeCastConditionHasIsCheckFlat(file, cond, varName, targetType, false) {
 		if thenBody != 0 && bodyAlwaysExitsFlat(file, thenBody) {
 			if elseBody != 0 && isDescendantFlat(file, asNode, elseBody) {
 				return true
@@ -910,22 +1012,17 @@ func isDescendantFlat(file *scanner.File, child, parent uint32) bool {
 }
 
 func bodyAlwaysExitsFlat(file *scanner.File, body uint32) bool {
-	text := strings.TrimSpace(file.FlatNodeText(body))
-	if strings.HasPrefix(text, "{") && strings.HasSuffix(text, "}") {
-		text = strings.TrimSpace(text[1 : len(text)-1])
-	}
-	lines := strings.Split(text, "\n")
-	if len(lines) == 0 {
+	if body == 0 {
 		return false
 	}
-	last := strings.TrimSpace(lines[len(lines)-1])
-	return strings.HasPrefix(last, "return") || strings.HasPrefix(last, "throw ") ||
-		last == "continue" || last == "break"
-}
-
-func hasEarlyExitKeyword(text string) bool {
-	return strings.Contains(text, "return") || strings.Contains(text, "throw ") ||
-		strings.Contains(text, "continue") || strings.Contains(text, "break")
+	// Find the last statement: look for a statements block first (braced body),
+	// then fall back to the last named child (single-expression body).
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "statements" {
+			return unsafeCastStatementAlwaysExitsFlat(file, flatLastNamedChild(file, child))
+		}
+	}
+	return unsafeCastStatementAlwaysExitsFlat(file, flatLastNamedChild(file, body))
 }
 
 func isInsideEqualsMethodFlat(file *scanner.File, idx uint32) bool {

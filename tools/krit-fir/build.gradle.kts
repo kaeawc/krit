@@ -1,5 +1,6 @@
 plugins {
     kotlin("jvm") version "2.3.20"
+    id("com.gradleup.shadow") version "9.4.1"
 }
 
 val kotlinVersion = "2.3.20-206"
@@ -13,8 +14,22 @@ kotlin {
 }
 
 dependencies {
-    // Kotlin compiler (non-embeddable) — provides FIR checker API and plugin infra
-    compileOnly("org.jetbrains.kotlin:kotlin-compiler:$kotlinVersion")
+    // Kotlin compiler bundled into the fat JAR — provides FIR checker API, K2JVMCompiler, and plugin infra
+    implementation("org.jetbrains.kotlin:kotlin-compiler:$kotlinVersion")
+}
+
+tasks.shadowJar {
+    archiveClassifier.set("")
+    mergeServiceFiles()
+    manifest {
+        attributes(
+            "Main-Class" to "dev.krit.fir.MainKt",
+            "Multi-Release" to "true",
+        )
+    }
+    minimize {
+        exclude(dependency("org.jetbrains.kotlin:kotlin-compiler:.*"))
+    }
 }
 
 tasks.test {

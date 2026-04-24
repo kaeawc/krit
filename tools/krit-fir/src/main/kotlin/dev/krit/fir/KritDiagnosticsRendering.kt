@@ -21,5 +21,9 @@ object KritDiagnosticsRendering : BaseDiagnosticRendererFactory() {
             KritDiagnostics.UNSAFE_CAST_WHEN_NULLABLE,
             "[UNSAFE_CAST_WHEN_NULLABLE] Unsafe cast to nullable type; prefer 'as?' to avoid ClassCastException at runtime.",
         )
+        map.put(
+            KritDiagnostics.SMOKE_CLASS,
+            "[SMOKE_CLASS] Class named 'Smoke' detected by smoke-test checker.",
+        )
     }
 }

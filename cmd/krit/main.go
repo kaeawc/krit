@@ -21,6 +21,7 @@ import (
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/experiment"
+	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
@@ -181,6 +182,9 @@ func main() {
 	daemonFlag := flag.Bool("daemon", false, "Use long-lived krit-types daemon instead of one-shot invocation")
 	noOracleFilterFlag := flag.Bool("no-oracle-filter", false, "Disable the rule-classification oracle filter (feeds every file to krit-types, matching the pre-filter baseline; used to validate findings-equivalence)")
 	oracleFilterFingerprintFlag := flag.Bool("oracle-filter-fingerprint", false, "Compute the oracle filter input-set fingerprint for the given paths and print JSON to stdout; exits without running rules. Used by the CI drift gate.")
+	firFlag := flag.Bool("fir", false, "Enable FIR checker pass (krit-fir JVM subprocess); default off during pilot phase")
+	noFirFlag := flag.Bool("no-fir", false, "Disable FIR checker pass even when enabled by config")
+	noFirDaemonFlag := flag.Bool("no-fir-daemon", false, "Force one-shot mode for FIR checker (no persistent daemon; useful for hermetic CI runners)")
 	fixBinaryFlag := flag.Bool("fix-binary", false, "Apply binary file fixes (image conversion, optimization, file operations)")
 	warningsAsErrorsFlag := flag.Bool("warnings-as-errors", false, "Treat warnings as errors (exit code 1)")
 	minConfidenceFlag := flag.Float64("min-confidence", 0, "Minimum confidence (0.0-1.0) for findings to be reported; 0 keeps all. Rules that don't set confidence are treated as 0 and dropped when this flag is > 0.")
@@ -1167,6 +1171,32 @@ potential-bugs:
 		fmt.Fprintf(os.Stderr, "verbose: Android project analysis in %v (%d findings across %d manifests, %d res dirs, %d Gradle files)\n",
 			time.Since(androidStart).Round(time.Millisecond), androidColumns.Len(),
 			len(androidProject.ManifestPaths), len(androidProject.ResDirs), len(androidProject.GradlePaths))
+	}
+
+	// FIR checker pass — gated by --fir / --no-fir.
+	firEnabled := *firFlag && !*noFirFlag
+	if firEnabled {
+		firStart := time.Now()
+		firTracker := tracker.Serial("firCheck")
+		firJar := firchecks.FindFirJar(paths)
+		firKtFiles, _ := firchecks.CollectFirKtFiles(paths)
+		firRepoDir := oracle.FindRepoDir(paths)
+		firUseDaemon := !*noFirDaemonFlag
+		firResult, firErr := firchecks.InvokeCached(firJar, firKtFiles, nil, nil, nil, firRepoDir, firUseDaemon, *verboseFlag)
+		firTracker.End()
+		if firErr != nil {
+			if *verboseFlag {
+				fmt.Fprintf(os.Stderr, "verbose: FIR checker error: %v\n", firErr)
+			}
+		} else {
+			allFindings = firchecks.MergeFindings(allFindings, firResult.Findings)
+			if *verboseFlag {
+				firStats := firchecks.Stats()
+				fmt.Fprintf(os.Stderr, "verbose: FIR checker in %v (%d findings, cache hits=%d misses=%d)\n",
+					time.Since(firStart).Round(time.Millisecond), len(firResult.Findings),
+					firStats.Hits, firStats.Misses)
+			}
+		}
 	}
 
 	columns := scanner.CollectFindings(allFindings)

@@ -1,22 +1,17 @@
 package rules
 
-// Hand-written Meta() for ForbiddenImportRule. The generator (krit-gen) is
-// taught to exclude this struct via its excludedStructs map, so this file
-// is the sole source of truth for the rule's descriptor.
+// Hand-written Meta() for ForbiddenImportRule. This file is the sole source
+// of truth for the rule's descriptor.
 //
 // Why hand-written:
 //   Legacy internal/rules/config.go#applyRuleConfig (case *ForbiddenImportRule)
 //   writes the forbiddenImports YAML list to BOTH ForbiddenImports AND
-//   Patterns on the rule struct — a two-field assignment the generator
-//   cannot express from a single ConfigOption.Apply closure without a
-//   multi-target transform. Keeping the dual write in one place here
+//   Patterns on the rule struct. Keeping the dual write in one place here
 //   preserves parity until the Patterns shim is retired.
 
 import "github.com/kaeawc/krit/internal/rules/registry"
 
-// Meta returns the descriptor for ForbiddenImportRule. Descriptor shape
-// mirrors what krit-gen previously emitted for this struct (see
-// internal/rules/config.go:409-413 for the legacy source of truth).
+// Meta returns the descriptor for ForbiddenImportRule.
 func (r *ForbiddenImportRule) Meta() registry.RuleDescriptor {
 	return registry.RuleDescriptor{
 		ID:            "ForbiddenImport",

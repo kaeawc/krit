@@ -721,7 +721,7 @@ potential-bugs:
 	// Handle --oracle-filter-fingerprint: compute and print the oracle
 	// filter input-set fingerprint, then exit. Runs independently of
 	// krit-types.jar availability so CI can diff fingerprints without
-	// needing a JVM. See issue #333 / tools/oracle_fingerprint_check.py.
+	// needing a JVM. See issue #333.
 	if *oracleFilterFingerprintFlag {
 		code := runOracleFilterFingerprint(paths, files, activeRules, *allRulesFlag)
 		os.Exit(code)
@@ -837,7 +837,7 @@ potential-bugs:
 	// Stats come from a throwaway dispatcher so the verbose banner can
 	// report per-family rule counts before the phase runs. Construction
 	// is side-effect free (beyond classifying rules by capability).
-	dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, legacyCount := rules.NewDispatcherV2(activeRules, resolver).Stats()
+	dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, _ := rules.NewDispatcherV2(activeRules, resolver).Stats()
 
 	if *verboseFlag {
 		fmt.Fprintf(os.Stderr, "verbose: Found %d Kotlin files\n", len(files))
@@ -846,8 +846,8 @@ potential-bugs:
 		} else {
 			fmt.Fprintf(os.Stderr, "verbose: Type resolver disabled\n")
 		}
-		fmt.Fprintf(os.Stderr, "verbose: Running %d rules with %d workers (%d dispatch, %d aggregate, %d line, %d cross-file, %d module-aware, %d legacy)\n",
-			len(activeRules), *jobsFlag, dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, legacyCount)
+		fmt.Fprintf(os.Stderr, "verbose: Running %d rules with %d workers (%d dispatch, %d aggregate, %d line, %d cross-file, %d module-aware)\n",
+			len(activeRules), *jobsFlag, dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount)
 	}
 
 	androidDeps := pipeline.CollectAndroidDependenciesV2(activeRules)

@@ -90,8 +90,8 @@ type ManifestElement struct {
 }
 
 // ManifestBase is an empty marker type embedded by manifest rule
-// implementations. Codegen reads AndroidDependencies() to populate
-// v2.Rule.AndroidDeps in zz_registry_gen.go.
+// implementations. registry_all.go records AndroidDependencies() metadata on
+// v2.Rule.AndroidDeps in registry_all.go.
 type ManifestBase struct{}
 
 func (ManifestBase) AndroidDependencies() AndroidDataDependency {
@@ -127,4 +127,3 @@ func allComponents(app *ManifestApplication) []ManifestComponent {
 	all = append(all, app.Providers...)
 	return all
 }
-

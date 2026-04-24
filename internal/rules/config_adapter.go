@@ -10,7 +10,7 @@ import (
 // The registry runtime (ApplyConfig) reads YAML-derived values through a
 // small interface so the registry package itself stays free of any YAML or
 // detekt-specific plumbing. This adapter bridges the gap between the
-// existing internal/config package and the generated Meta() descriptors.
+// existing internal/config package and the Meta() descriptors.
 //
 // The adapter is a thin pass-through: every ConfigSource method delegates
 // directly to the corresponding *config.Config method. The one piece of

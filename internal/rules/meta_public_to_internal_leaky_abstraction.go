@@ -1,8 +1,7 @@
 package rules
 
-// Hand-written Meta() for PublicToInternalLeakyAbstractionRule. The
-// generator (krit-gen) excludes this struct via its excludedStructs map,
-// so this file is the sole source of truth for the rule's descriptor.
+// Hand-written Meta() for PublicToInternalLeakyAbstractionRule. This file is
+// the sole source of truth for the rule's descriptor.
 //
 // Why hand-written:
 //   The YAML option thresholdPercent is an int percent (0-100) but the

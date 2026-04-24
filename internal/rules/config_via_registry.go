@@ -29,7 +29,7 @@ type RegistryApplyResult struct {
 }
 
 // ApplyConfigViaRegistry applies cfg to every rule in the global Registry
-// using the generated Meta() descriptors. It returns one result per rule in
+// using checked-in Meta() descriptors. It returns one result per rule in
 // registration order so callers can reconcile against the legacy
 // DefaultInactive map without scanning the registry twice.
 //
@@ -43,8 +43,8 @@ type RegistryApplyResult struct {
 //     are also reported as Migrated=false. Only the primary registration
 //     participates in the registry-driven path; the alias continues to be
 //     handled by the legacy switch.
-//   - Otherwise the rule's fields are mutated in-place (via the generated
-//     Apply closures) and the returned Active reflects the ruleset/rule
+//   - Otherwise the rule's fields are mutated in-place (via descriptor Apply
+//     closures) and the returned Active reflects the ruleset/rule
 //     override chain declared by registry.ApplyConfig.
 //
 // ApplyConfigViaRegistry does NOT touch DefaultInactive. The caller is

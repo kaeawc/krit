@@ -69,11 +69,6 @@ type V2Dispatcher struct {
 	allNodeRules []*v2.Rule
 	// lineRules run on file.Lines after the AST walk completes.
 	lineRules []*v2.Rule
-	// legacyRules have nil NodeTypes and !NeedsLinePass — in v2 these
-	// are treated as "no hot-path dispatch" rules whose Check function
-	// is invoked once per file with a bare Context.File. Kept separate
-	// from allNodeRules so they are not called per-node.
-	legacyRules []*v2.Rule
 	// crossFileRules and moduleAwareRules are exposed to callers via
 	// CrossFileRules()/ModuleAwareRules() and not invoked from Run.
 	crossFileRules   []*v2.Rule
@@ -128,7 +123,7 @@ func NewV2Dispatcher(rules []*v2.Rule, resolver ...typeinfer.TypeResolver) *V2Di
 	//   2. NeedsModuleIndex → moduleAwareRules (deferred to pipeline)
 	//   3. NeedsLinePass   → lineRules (per-file, line-pass)
 	//   4. Non-empty NodeTypes → flatTypeRules / allNodeRules
-	//   5. Anything else    → legacyRules
+	//   5. Anything else    → ignored by the per-file dispatcher
 	for _, r := range rules {
 		if r == nil {
 			continue
@@ -157,14 +152,7 @@ func NewV2Dispatcher(rules []*v2.Rule, resolver ...typeinfer.TypeResolver) *V2Di
 			// nil NodeTypes + no other flag → treat as a "receive every
 			// node" rule. This matches v1 flat-dispatch rule semantics
 			// where NodeTypes()==nil means "all nodes".
-			//
-			// However, a rule that explicitly returns an empty slice
-			// (len==0, non-nil) was routed to legacyRules above. This
-			// preserves the intent that empty-but-non-nil means "opt
-			// out of node dispatch entirely".
 			d.allNodeRules = append(d.allNodeRules, r)
-		default:
-			d.legacyRules = append(d.legacyRules, r)
 		}
 	}
 
@@ -382,35 +370,6 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 	}
 	stats.LineRuleMs += time.Since(start).Milliseconds()
 
-	// Legacy / catch-all rules.
-	start = time.Now()
-	for _, r := range d.legacyRules {
-		if excludedRules[r.ID] {
-			continue
-		}
-		resolver, ok := d.resolveForRule(r)
-		if !ok {
-			continue
-		}
-		func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					stats.Errors = append(stats.Errors, DispatchError{RuleName: r.ID, FilePath: filePathOrEmpty(file), PanicValue: rec})
-				}
-			}()
-			ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.50, Collector: collector}
-			if r.Needs.Has(v2.NeedsResolver) {
-				ctx.Resolver = resolver
-			}
-			t := time.Now()
-			runWithRuleProfileLabel(r.ID, "legacy", func() {
-				r.Check(ctx)
-			})
-			stats.recordRule(r.ID, "legacy", time.Since(t).Nanoseconds())
-		}()
-	}
-	stats.LegacyRuleMs += time.Since(start).Milliseconds()
-
 	columns := *collector.Columns()
 
 	// Suppression filter — one call covers annotations, config excludes,
@@ -558,9 +517,6 @@ func (d *V2Dispatcher) buildExcludedSet(filePath string) map[string]bool {
 	for _, r := range d.lineRules {
 		check(r)
 	}
-	for _, r := range d.legacyRules {
-		check(r)
-	}
 	for _, r := range d.crossFileRules {
 		check(r)
 	}
@@ -573,7 +529,7 @@ func (d *V2Dispatcher) buildExcludedSet(filePath string) map[string]bool {
 // collectAllRules returns every rule the dispatcher knows about, used
 // when rebuilding the flat-type index after NodeTypeTable grows.
 func (d *V2Dispatcher) collectAllRules() []*v2.Rule {
-	out := make([]*v2.Rule, 0, len(d.nodeDispatchRules)+len(d.allNodeRules)+len(d.lineRules)+len(d.legacyRules)+len(d.crossFileRules)+len(d.moduleAwareRules))
+	out := make([]*v2.Rule, 0, len(d.nodeDispatchRules)+len(d.allNodeRules)+len(d.lineRules)+len(d.crossFileRules)+len(d.moduleAwareRules))
 	seen := make(map[*v2.Rule]bool)
 	addAll := func(rs []*v2.Rule) {
 		for _, r := range rs {
@@ -593,7 +549,6 @@ func (d *V2Dispatcher) collectAllRules() []*v2.Rule {
 	}
 	addAll(d.allNodeRules)
 	addAll(d.lineRules)
-	addAll(d.legacyRules)
 	addAll(d.crossFileRules)
 	addAll(d.moduleAwareRules)
 	addAll(d.manifestRules)
@@ -619,7 +574,7 @@ func (d *V2Dispatcher) Stats() (dispatched, aggregate, lineRules, crossFile, mod
 		}
 	}
 	dispatched += len(d.allNodeRules)
-	return dispatched, 0, len(d.lineRules), len(d.crossFileRules), len(d.moduleAwareRules), len(d.legacyRules)
+	return dispatched, 0, len(d.lineRules), len(d.crossFileRules), len(d.moduleAwareRules), 0
 }
 
 // ReportMissingCapabilities emits one diagnostic line per rule whose

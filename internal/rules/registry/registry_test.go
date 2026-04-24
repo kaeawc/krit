@@ -18,8 +18,7 @@ type configurableRule struct {
 }
 
 // descriptorForConfigurableRule builds the descriptor used by most tests.
-// Each Apply closure downcasts target to *configurableRule — exactly the
-// shape the generator will emit.
+// Each Apply closure downcasts target to *configurableRule.
 func descriptorForConfigurableRule() RuleDescriptor {
 	return RuleDescriptor{
 		ID:            "ConfigurableRule",

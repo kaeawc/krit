@@ -69,23 +69,20 @@ func TestV2Dispatcher_RoutesFamiliesIndependently(t *testing.T) {
 	)
 	lineRule.Category = "naming"
 
-	legacyCalls := 0
-	legacyRule := &v2.Rule{
-		ID:          "V2TestLegacy",
-		Category:    "legacy",
-		Description: "legacy once-per-file rule",
+	emptyNodeTypesCalls := 0
+	emptyNodeTypesRule := &v2.Rule{
+		ID:          "V2TestEmptyNodeTypes",
+		Category:    "ignored",
+		Description: "empty node types are not dispatched",
 		Sev:         v2.SeverityInfo,
-		// nil NodeTypes + no NeedsLinePass flag → allNodeRules in our
-		// classifier. Mark it as a "legacy" by giving it an empty
-		// (non-nil) NodeTypes slice so it falls through to legacyRules.
-		NodeTypes: []string{},
+		NodeTypes:   []string{},
 		Check: func(ctx *v2.Context) {
-			legacyCalls++
-			ctx.EmitAt(1, 1, "legacy")
+			emptyNodeTypesCalls++
+			ctx.EmitAt(1, 1, "ignored")
 		},
 	}
 
-	d := NewV2Dispatcher([]*v2.Rule{nodeRule, lineRule, legacyRule})
+	d := NewV2Dispatcher([]*v2.Rule{nodeRule, lineRule, emptyNodeTypesRule})
 	columns := d.Run(file)
 
 	if nodeCalls == 0 {
@@ -94,15 +91,15 @@ func TestV2Dispatcher_RoutesFamiliesIndependently(t *testing.T) {
 	if lineCalls != 1 {
 		t.Errorf("line rule invoked %d times, want 1", lineCalls)
 	}
-	if legacyCalls != 1 {
-		t.Errorf("legacy rule invoked %d times, want 1", legacyCalls)
+	if emptyNodeTypesCalls != 0 {
+		t.Errorf("empty NodeTypes rule invoked %d times, want 0", emptyNodeTypesCalls)
 	}
 
 	// Verify findings carry rule metadata populated by stampV2Findings.
 	if columns.Len() == 0 {
 		t.Fatal("expected findings, got none")
 	}
-	sawNode, sawLine, sawLegacy := false, false, false
+	sawNode, sawLine, sawIgnored := false, false, false
 	for i := 0; i < columns.Len(); i++ {
 		switch columns.RuleAt(i) {
 		case "V2TestNode":
@@ -115,12 +112,12 @@ func TestV2Dispatcher_RoutesFamiliesIndependently(t *testing.T) {
 			if columns.RuleSetAt(i) != "naming" {
 				t.Errorf("line finding ruleset %q, want naming", columns.RuleSetAt(i))
 			}
-		case "V2TestLegacy":
-			sawLegacy = true
+		case "V2TestEmptyNodeTypes":
+			sawIgnored = true
 		}
 	}
-	if !sawNode || !sawLine || !sawLegacy {
-		t.Errorf("missing findings: node=%v line=%v legacy=%v", sawNode, sawLine, sawLegacy)
+	if !sawNode || !sawLine || sawIgnored {
+		t.Errorf("unexpected findings: node=%v line=%v ignored=%v", sawNode, sawLine, sawIgnored)
 	}
 }
 
@@ -429,11 +426,11 @@ func (c *compositeStub) ResolveFlatNode(uint32, *scanner.File) *typeinfer.Resolv
 func (c *compositeStub) ResolveByNameFlat(string, uint32, *scanner.File) *typeinfer.ResolvedType {
 	return nil
 }
-func (c *compositeStub) ResolveImport(string, *scanner.File) string    { return "" }
-func (c *compositeStub) IsNullableFlat(uint32, *scanner.File) *bool    { return nil }
-func (c *compositeStub) ClassHierarchy(string) *typeinfer.ClassInfo    { return nil }
-func (c *compositeStub) SealedVariants(string) []string                { return nil }
-func (c *compositeStub) EnumEntries(string) []string                   { return nil }
+func (c *compositeStub) ResolveImport(string, *scanner.File) string { return "" }
+func (c *compositeStub) IsNullableFlat(uint32, *scanner.File) *bool { return nil }
+func (c *compositeStub) ClassHierarchy(string) *typeinfer.ClassInfo { return nil }
+func (c *compositeStub) SealedVariants(string) []string             { return nil }
+func (c *compositeStub) EnumEntries(string) []string                { return nil }
 func (c *compositeStub) AnnotationValueFlat(uint32, *scanner.File, string, string) string {
 	return ""
 }
@@ -578,11 +575,11 @@ func (*capsStubResolver) ResolveFlatNode(uint32, *scanner.File) *typeinfer.Resol
 func (*capsStubResolver) ResolveByNameFlat(string, uint32, *scanner.File) *typeinfer.ResolvedType {
 	return nil
 }
-func (*capsStubResolver) ResolveImport(string, *scanner.File) string    { return "" }
-func (*capsStubResolver) IsNullableFlat(uint32, *scanner.File) *bool    { return nil }
-func (*capsStubResolver) ClassHierarchy(string) *typeinfer.ClassInfo    { return nil }
-func (*capsStubResolver) SealedVariants(string) []string                { return nil }
-func (*capsStubResolver) EnumEntries(string) []string                   { return nil }
+func (*capsStubResolver) ResolveImport(string, *scanner.File) string { return "" }
+func (*capsStubResolver) IsNullableFlat(uint32, *scanner.File) *bool { return nil }
+func (*capsStubResolver) ClassHierarchy(string) *typeinfer.ClassInfo { return nil }
+func (*capsStubResolver) SealedVariants(string) []string             { return nil }
+func (*capsStubResolver) EnumEntries(string) []string                { return nil }
 func (*capsStubResolver) AnnotationValueFlat(uint32, *scanner.File, string, string) string {
 	return ""
 }

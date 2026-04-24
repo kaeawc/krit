@@ -1,7 +1,5 @@
 package rules
 
-//go:generate go run ../codegen/cmd/krit-gen -inventory ../../build/rule_inventory.json -out . -root ../..
-
 import (
 	"path/filepath"
 	"strings"
@@ -37,10 +35,9 @@ import (
 
 // BaseRule provides common fields embedded in every rule implementation.
 // It carries the canonical name/ruleset/severity/description metadata that
-// the codegen (krit-gen) reads when emitting zz_registry_gen.go's
-// v2.Register(&FooRule{BaseRule: BaseRule{...}}) literals, and it provides
-// the Finding() helper rules use to construct emit-boundary
-// scanner.Finding values.
+// registry_all.go records in v2.Register(&FooRule{BaseRule: BaseRule{...}})
+// literals, and it provides the Finding() helper rules use to construct
+// emit-boundary scanner.Finding values.
 type BaseRule struct {
 	RuleName    string
 	RuleSetName string

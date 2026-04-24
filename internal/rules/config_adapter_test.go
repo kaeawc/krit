@@ -147,9 +147,8 @@ func TestConfigAdapter_AliasFallback(t *testing.T) {
 	rule := &LongMethodRule{AllowedLines: 60}
 	adapter := NewConfigAdapter(cfg)
 
-	// Build a minimal descriptor matching the generated shape so we can
-	// verify registry.ApplyConfig's probe order independently of the
-	// generator.
+	// Build a minimal descriptor so we can verify registry.ApplyConfig's
+	// probe order independently.
 	desc := registry.RuleDescriptor{
 		ID:      "LongMethod",
 		RuleSet: "complexity",

@@ -1,8 +1,7 @@
 package rules
 
-// Hand-written Meta() for NewerVersionAvailableRule. The generator
-// (krit-gen) excludes this struct via its excludedStructs map, so this
-// file is the sole source of truth for the rule's descriptor.
+// Hand-written Meta() for NewerVersionAvailableRule. This file is the sole
+// source of truth for the rule's descriptor.
 //
 // Why hand-written:
 //   The YAML key recommendedVersions is a []string of specs like
@@ -10,9 +9,8 @@ package rules
 //   []libMinVersion — a parsed shape produced by
 //   parseRecommendedVersionSpecs. The inventory marks the option as
 //   []string (the YAML shape), but the Apply closure needs the value
-//   transform. Keeping the transform next to the struct avoids the risk
-//   of regenerating and losing the hand-edit previously made in
-//   zz_meta_android_gradle_gen.go.
+//   transform. Keeping the transform next to the struct makes the descriptor
+//   behavior explicit.
 
 import "github.com/kaeawc/krit/internal/rules/registry"
 

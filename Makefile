@@ -1,21 +1,17 @@
-.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression oracle-fingerprint oracle-fingerprint-update docs all install install-completions watch generate
+.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression all install install-completions watch generate
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
 
-# Regenerate build/rule_inventory.json and the downstream code-generated
-# Meta() files. Required before build/test because build/ is gitignored
-# and the inventory is a build artifact, not source.
 generate:
-	python3 tools/rule_inventory.py
-	go generate ./internal/rules/...
+	@echo "No generated rule artifacts remain."
 
-build: generate
+build:
 	go build -ldflags "$(LDFLAGS)" -o krit ./cmd/krit/
 	go build -ldflags "$(LDFLAGS)" -o krit-lsp ./cmd/krit-lsp/
 	go build -ldflags "$(LDFLAGS)" -o krit-mcp ./cmd/krit-mcp/
 
-test: generate
+test:
 	go test ./... -count=1
 
 vet:
@@ -46,23 +42,11 @@ integration: build
 	bash scripts/integration-test.sh
 
 playground: build
-	./krit -f json playground/kotlin-webservice/ | python3 -m json.tool | head -20
-	./krit -f json playground/android-app/ | python3 -m json.tool | head -20
+	./krit -f json playground/kotlin-webservice/ | head -20
+	./krit -f json playground/android-app/ | head -20
 
 regression: build
 	bash scripts/regression-check.sh
-
-# Check that the oracle filter input-set fingerprint matches the
-# baseline committed in .krit/oracle-fingerprints.json. Fails on drift.
-# See issue #333. Update with `make oracle-fingerprint-update`.
-oracle-fingerprint: build
-	python3 tools/oracle_fingerprint_check.py
-
-oracle-fingerprint-update: build
-	python3 tools/oracle_fingerprint_check.py --update
-
-docs:
-	python3 scripts/github/deploy_pages.py serve
 
 ci: build vet test integration regression
 

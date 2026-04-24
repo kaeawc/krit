@@ -10,11 +10,9 @@ import (
 // DefaultInactive rules are off by default (opt-in). Users enable them
 // via config or --all-rules.
 //
-// The initial contents are computed from every rule's Meta() descriptor
-// via the generated AllMetaProviders() index, so this file no longer
-// carries a hand-maintained map. Adding a new opt-in rule only requires
-// setting DefaultActive=false in the rule struct's registration — the
-// next inventory regen will thread it through.
+// The initial contents are computed from every rule's Meta() descriptor via
+// AllMetaProviders(), so this file does not carry a hand-maintained map. Adding
+// a new opt-in rule requires setting DefaultActive=false in the descriptor.
 //
 // Population is lazy (via ensureDefaultInactive) because the initializer
 // happens at package-init time, which races against the rule-package
@@ -32,8 +30,8 @@ var defaultInactiveOnce sync.Once
 // needs a baseline (ApplyConfig, IsDefaultActive) must call this first.
 func ensureDefaultInactive() {
 	defaultInactiveOnce.Do(func() {
-		// AllMetaProviders() is a pure list of zero-value pointers baked
-		// in at generation time, so it's safe to call at any init phase.
+		// AllMetaProviders() is a pure list of zero-value pointers, so it is
+		// safe to call at any init phase.
 		for _, p := range AllMetaProviders() {
 			m := p.Meta()
 			if !m.DefaultActive {

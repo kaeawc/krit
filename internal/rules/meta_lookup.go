@@ -10,7 +10,7 @@ import (
 //
 // It first checks OriginalV1 for a registry.MetaProvider (fast path for
 // rules that set the concrete struct pointer on their v2.Rule). It then
-// falls back to the generated metaByName index keyed by rule ID.
+// falls back to the metaByName index keyed by rule ID.
 func MetaForV2Rule(r *v2.Rule) (registry.RuleDescriptor, bool) {
 	if r == nil {
 		return registry.RuleDescriptor{}, false

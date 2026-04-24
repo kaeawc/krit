@@ -30,8 +30,8 @@ type OptionMeta struct {
 
 // CollectRuleMeta walks v2.Registry and builds metadata for every rule,
 // reading configurable options from each rule's Meta() descriptor via
-// rules.MetaForV2Rule (which falls back to the generated metaByName index
-// for adapter-wrapped rules that drop the concrete struct pointer).
+// rules.MetaForV2Rule (which falls back to the metaByName index for
+// adapter-wrapped rules that drop the concrete struct pointer).
 func CollectRuleMeta() []RuleMeta {
 	metas := make([]RuleMeta, 0, len(v2.Registry))
 	for _, r := range v2.Registry {

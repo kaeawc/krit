@@ -87,9 +87,9 @@ func (s *FileStore) Put(key Key, value []byte) error {
 // any of the given IDs as a substring of the ruleSetHash hex.
 //
 // Note: in Phase 0 the ruleSetHash is an opaque hash; per-rule targeting
-// requires the codegen registry to embed rule checksums so each rule ID maps
-// to a deterministic ruleSetHash prefix.  Until that lands, passing any
-// ruleIDs clears the whole store (conservative but always correct).
+// requires rule metadata to embed rule checksums so each rule ID maps to a
+// deterministic ruleSetHash prefix. Until that lands, passing any ruleIDs
+// clears the whole store (conservative but always correct).
 func (s *FileStore) Invalidate(ruleIDs ...string) error {
 	return filepath.Walk(s.root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {

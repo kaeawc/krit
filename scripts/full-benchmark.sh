@@ -42,13 +42,13 @@ for entry in "${PROJECTS[@]}"; do
     
     kt_files=$(find "$path" -name "*.kt" -not -path "*/build/*" 2>/dev/null | wc -l | tr -d ' ')
     
-    start=$(python3 -c "import time;print(time.time())")
+    start=$(go run ./internal/devtools/jsonstat -mode unix-ms)
     result=$(./krit -f json -no-cache -no-type-inference -no-type-oracle -q "$path/" 2>/dev/null || true)
-    end=$(python3 -c "import time;print(time.time())")
-    duration=$(python3 -c "print(f'{$end-$start:.2f}s')")
-    
-    findings=$(echo "$result" | python3 -c "import json,sys;print(len(json.load(sys.stdin).get('findings',[])))" 2>/dev/null || echo "?")
-    rules=$(echo "$result" | python3 -c "import json,sys;print(len(set(x['rule'] for x in json.load(sys.stdin).get('findings',[]))))" 2>/dev/null || echo "?")
+    end=$(go run ./internal/devtools/jsonstat -mode unix-ms)
+    duration="$((end - start))ms"
+
+    findings=$(echo "$result" | go run ./internal/devtools/jsonstat -mode findings 2>/dev/null || echo "?")
+    rules=$(echo "$result" | go run ./internal/devtools/jsonstat -mode rules 2>/dev/null || echo "?")
     
     printf "| %-30s | %6s | %8s | %5s | %8s |\n" "$name" "$kt_files" "$findings" "$rules" "$duration"
 done

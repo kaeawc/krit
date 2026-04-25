@@ -541,6 +541,36 @@ fun track(manager: LocationManager) {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+	t.Run("negative - issue 542 manifest package manager guard suppresses", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import android.content.pm.PackageManager
+import android.location.LocationManager
+
+fun track(manager: LocationManager) {
+    if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+        manager.requestLocationUpdates("gps", 1000L, 1f, listener)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("positive - issue 542 candidate API call still reports", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.location.LocationManager
+
+fun track(manager: LocationManager) {
+    manager.requestLocationUpdates(provider, 1000L, 1f, listener)
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
 	t.Run("positive - multiline call without guard", func(t *testing.T) {
 		findings := runRuleByName(t, "MissingPermission", `
 package test
@@ -724,6 +754,23 @@ fun open() {
 `)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("negative - annotated same-file rule does not widen unrelated callees", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.Manifest
+import androidx.annotation.RequiresPermission
+
+@RequiresPermission(Manifest.permission.CAMERA)
+fun openCameraWrapper() {}
+
+fun open() {
+    unrelatedCall()
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 	t.Run("negative - annotated wrapper in different owner is unresolved", func(t *testing.T) {

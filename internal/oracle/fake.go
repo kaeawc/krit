@@ -18,6 +18,7 @@ type FakeOracle struct {
 	Expressions           map[string]map[string]*typeinfer.ResolvedType // file → ("line:col" → type)
 	Annotations           map[string][]string                           // "ClassName.memberName" → annotation FQNs
 	CallTargets           map[string]map[string]string                  // file → ("line:col" → call target FQN)
+	CallTargetSuspend     map[string]map[string]bool                    // file → ("line:col" → suspend status for resolved call target)
 	CallTargetAnnotations map[string]map[string][]string                // file → ("line:col" → annotation FQNs on symbol)
 	Diagnostics           map[string][]OracleDiagnostic                 // file → diagnostics
 }
@@ -34,6 +35,7 @@ func NewFakeOracle() *FakeOracle {
 		Expressions:           make(map[string]map[string]*typeinfer.ResolvedType),
 		Annotations:           make(map[string][]string),
 		CallTargets:           make(map[string]map[string]string),
+		CallTargetSuspend:     make(map[string]map[string]bool),
 		CallTargetAnnotations: make(map[string]map[string][]string),
 		Diagnostics:           make(map[string][]OracleDiagnostic),
 	}
@@ -94,6 +96,16 @@ func (f *FakeOracle) LookupCallTarget(filePath string, line, col int) string {
 	}
 	key := fmt.Sprintf("%d:%d", line, col)
 	return fileCTs[key]
+}
+
+func (f *FakeOracle) LookupCallTargetSuspend(filePath string, line, col int) (bool, bool) {
+	fileCTS := f.CallTargetSuspend[filePath]
+	if fileCTS == nil {
+		return false, false
+	}
+	key := fmt.Sprintf("%d:%d", line, col)
+	isSuspend, ok := fileCTS[key]
+	return isSuspend, ok
 }
 
 func (f *FakeOracle) LookupCallTargetAnnotations(filePath string, line, col int) []string {

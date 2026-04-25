@@ -513,6 +513,36 @@ func TestLookupCallTarget_WrongFile(t *testing.T) {
 	}
 }
 
+func TestLookupCallTargetSuspend_ResolvedNonSuspend(t *testing.T) {
+	o := loadSample(t)
+	isSuspend, ok := o.LookupCallTargetSuspend("src/main/kotlin/com/example/App.kt", 10, 5)
+	if !ok {
+		t.Fatal("expected resolved call-target suspend metadata")
+	}
+	if isSuspend {
+		t.Fatal("expected lowercase call target to be non-suspend")
+	}
+}
+
+func TestLookupCallTargetSuspend_ResolvedSuspend(t *testing.T) {
+	o := loadSample(t)
+	isSuspend, ok := o.LookupCallTargetSuspend("src/main/kotlin/com/example/App.kt", 11, 5)
+	if !ok {
+		t.Fatal("expected resolved call-target suspend metadata")
+	}
+	if !isSuspend {
+		t.Fatal("expected projectSuspend call target to be suspend")
+	}
+}
+
+func TestLookupCallTargetSuspend_NoTarget(t *testing.T) {
+	o := loadSample(t)
+	isSuspend, ok := o.LookupCallTargetSuspend("src/main/kotlin/com/example/App.kt", 12, 9)
+	if ok || isSuspend {
+		t.Fatalf("expected no suspend metadata, got isSuspend=%v ok=%v", isSuspend, ok)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Diagnostic lookup tests
 // ---------------------------------------------------------------------------
@@ -684,6 +714,26 @@ func TestFakeOracle_LookupCallTarget(t *testing.T) {
 	}
 	if fake.LookupCallTarget("other.kt", 5, 10) != "" {
 		t.Error("expected empty for unconfigured file")
+	}
+}
+
+func TestFakeOracle_LookupCallTargetSuspend(t *testing.T) {
+	fake := NewFakeOracle()
+	fake.CallTargetSuspend["test.kt"] = map[string]bool{
+		"5:10": true,
+		"8:2":  false,
+	}
+
+	isSuspend, ok := fake.LookupCallTargetSuspend("test.kt", 5, 10)
+	if !ok || !isSuspend {
+		t.Fatalf("expected configured suspend call target, got isSuspend=%v ok=%v", isSuspend, ok)
+	}
+	isSuspend, ok = fake.LookupCallTargetSuspend("test.kt", 8, 2)
+	if !ok || isSuspend {
+		t.Fatalf("expected configured non-suspend call target, got isSuspend=%v ok=%v", isSuspend, ok)
+	}
+	if _, ok := fake.LookupCallTargetSuspend("test.kt", 1, 1); ok {
+		t.Fatal("expected no metadata for unconfigured position")
 	}
 }
 

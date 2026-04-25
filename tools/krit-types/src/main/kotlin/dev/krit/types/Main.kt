@@ -1605,6 +1605,8 @@ fun buildJsonCompact(files: Map<String, FileResult>, deps: Map<String, ClassResu
             if (j > 0) sb.append(",")
             sb.append("${esc(key)}:{\"type\":${esc(expr.type)},\"nullable\":${expr.nullable}")
             if (expr.callTarget != null) sb.append(",\"callTarget\":${esc(expr.callTarget)}")
+            if (expr.callTargetResolved) sb.append(",\"callTargetResolved\":true")
+            if (expr.callTargetSuspend) sb.append(",\"callTargetSuspend\":true")
             if (expr.annotations.isNotEmpty()) {
                 sb.append(",\"annotations\":[")
                 expr.annotations.forEachIndexed { i, ann -> if (i > 0) sb.append(","); sb.append(esc(ann)) }
@@ -2151,6 +2153,8 @@ fun analyzeKtFile(
                             // value the downstream rules consume (coroutines
                             // knownSuspendFQNs, deprecation LookupAnnotations).
                             var callTarget: String? = null
+                            var callTargetResolved = false
+                            var callTargetSuspend = false
                             var callTargetAnnotations: List<String> = emptyList()
                             var fallbackReason = "unresolved"
                             val resolveStart = System.nanoTime()
@@ -2169,6 +2173,7 @@ fun analyzeKtFile(
                                 if (memberCall != null) {
                                     perf?.count("kotlinCallResolveMemberCall")
                                     val symbol = memberCall.partiallyAppliedSymbol.symbol
+                                    val symbolIsSuspend = symbol is KaNamedFunctionSymbol && symbol.isSuspend
                                     val callableIDStart = System.nanoTime()
                                     val cid = symbol.callableId
                                     perf?.count("kotlinCallResolve.callableId", System.nanoTime() - callableIDStart)
@@ -2179,6 +2184,8 @@ fun analyzeKtFile(
                                         perf?.count("kotlinCallResolve.fqnString", System.nanoTime() - fqnStart)
                                         if (fqn.isNotEmpty()) {
                                             callTarget = fqn
+                                            callTargetResolved = true
+                                            callTargetSuspend = symbolIsSuspend
                                             callTargetAnnotations = symbol.annotations
                                                 .mapNotNull { it.classId?.asFqNameString() }
                                             status = "resolved"
@@ -2224,6 +2231,8 @@ fun analyzeKtFile(
                                 type = "",
                                 nullable = false,
                                 callTarget = callTarget,
+                                callTargetResolved = callTargetResolved,
+                                callTargetSuspend = callTargetSuspend,
                                 annotations = callTargetAnnotations
                             )
                             expressions[key] = result
@@ -3102,7 +3111,14 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.recordSupertypeSourceOrigins(
 
 // --- JSON output ---
 
-data class ExpressionResult(val type: String, val nullable: Boolean, val callTarget: String? = null, val annotations: List<String> = emptyList())
+data class ExpressionResult(
+    val type: String,
+    val nullable: Boolean,
+    val callTarget: String? = null,
+    val callTargetResolved: Boolean = false,
+    val callTargetSuspend: Boolean = false,
+    val annotations: List<String> = emptyList()
+)
 
 // DiagnosticResult holds a compiler diagnostic for JSON export.
 // TODO: Populate in analyzeKtFile once KaDiagnosticCheckerFilter is available.
@@ -3157,6 +3173,8 @@ fun buildJson(files: Map<String, FileResult>, deps: Map<String, ClassResult>): S
         file.expressions.entries.forEachIndexed { j, (key, expr) ->
             sb.append("        ${esc(key)}: {\"type\": ${esc(expr.type)}, \"nullable\": ${expr.nullable}")
             if (expr.callTarget != null) sb.append(", \"callTarget\": ${esc(expr.callTarget)}")
+            if (expr.callTargetResolved) sb.append(", \"callTargetResolved\": true")
+            if (expr.callTargetSuspend) sb.append(", \"callTargetSuspend\": true")
             if (expr.annotations.isNotEmpty()) {
                 sb.append(", \"annotations\": [")
                 expr.annotations.forEachIndexed { i, ann -> if (i > 0) sb.append(", "); sb.append(esc(ann)) }

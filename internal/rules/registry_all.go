@@ -9982,30 +9982,20 @@ func registerAllRules() {
 		r := &SpreadOperatorRule{BaseRule: BaseRule{RuleName: "SpreadOperator", RuleSetName: "performance", Sev: "warning", Desc: "Detects the spread operator (*array) in function calls which creates an array copy."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"spread_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"spread_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			Oracle:                 &v2.OracleFilter{Identifiers: []string{"*"}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{
+				"arrayOf", "intArrayOf", "longArrayOf", "shortArrayOf", "byteArrayOf",
+				"floatArrayOf", "doubleArrayOf", "charArrayOf", "booleanArrayOf",
+				"arrayOfNulls", "emptyArray", "Array", "IntArray", "LongArray",
+				"ShortArray", "ByteArray", "FloatArray", "DoubleArray", "CharArray",
+				"BooleanArray",
+			}},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if strings.HasSuffix(file.Path, ".gradle.kts") {
+				if !spreadOperatorShouldReportFlat(file, idx, ctx.Resolver) {
 					return
-				}
-				if file.FlatChildCount(idx) > 0 {
-					child := file.FlatChild(idx, file.FlatChildCount(idx)-1)
-					if file.FlatType(child) == "call_expression" {
-						fnName := flatCallExpressionName(file, child)
-						if arrayConstructors[fnName] {
-							return
-						}
-						return
-					}
-					if file.FlatType(child) == "simple_identifier" {
-						name := file.FlatNodeText(child)
-						if isEnclosingVarargParamFlat(file, idx, name) {
-							return
-						}
-					}
-					if isSpreadIntoSqlBuilderFlat(file, idx) {
-						return
-					}
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"Spread operator used. This creates a copy of the array.")

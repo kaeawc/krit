@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -27,7 +28,6 @@ var bitmapDecodeMethods = map[string]bool{
 // support; fallback is heuristic. Classified per roadmap/17.
 func (r *BitmapDecodeWithoutOptionsRule) Confidence() float64 { return 0.75 }
 
-
 // ArrayPrimitiveRule detects Array<Int> etc. instead of IntArray.
 // With type inference: verifies the type argument resolves to a primitive type
 // via ResolveImport, catching aliased or re-imported primitives.
@@ -35,7 +35,6 @@ type ArrayPrimitiveRule struct {
 	FlatDispatchBase
 	BaseRule
 }
-
 
 // Confidence reports a tier-2 (medium) base confidence — detects
 // Array<Int>/Array<Long> that should be IntArray/LongArray; needs resolver
@@ -105,14 +104,12 @@ func primitiveArrayReplacementForTypeRef(typeRef string) (primitive string, repl
 	return "", "", false
 }
 
-
 // CouldBeSequenceRule detects collection operation chains that could be sequences.
 type CouldBeSequenceRule struct {
 	FlatDispatchBase
 	BaseRule
 	AllowedOperations int
 }
-
 
 // Confidence reports a tier-2 (medium) base confidence — detects long
 // collection chains that should use asSequence(); chain-length heuristic is
@@ -169,7 +166,6 @@ var collectionOps = map[string]bool{
 	"distinctBy": true, "drop": true, "dropWhile": true,
 	"take": true, "takeWhile": true, "zip": true,
 }
-
 
 func collectionChainRootFlat(file *scanner.File, idx uint32) uint32 {
 	current := idx
@@ -271,7 +267,6 @@ type ForEachOnRangeRule struct {
 // loops, primitive boxing, collection chains) with optional resolver
 // support; fallback is heuristic. Classified per roadmap/17.
 func (r *ForEachOnRangeRule) Confidence() float64 { return 0.75 }
-
 
 // rangeInfixOps are the infix operators that create ranges in Kotlin.
 var rangeInfixOps = map[string]bool{
@@ -409,7 +404,6 @@ type SpreadOperatorRule struct {
 // support; fallback is heuristic. Classified per roadmap/17.
 func (r *SpreadOperatorRule) Confidence() float64 { return 0.75 }
 
-
 // arrayConstructors lists functions where the Kotlin compiler skips the array copy.
 var arrayConstructors = map[string]bool{
 	"arrayOf":        true,
@@ -432,6 +426,80 @@ var arrayConstructors = map[string]bool{
 	"DoubleArray":    true,
 	"CharArray":      true,
 	"BooleanArray":   true,
+}
+
+var kotlinArrayConstructorCallTargets = map[string]bool{
+	"kotlin.arrayOf":        true,
+	"kotlin.intArrayOf":     true,
+	"kotlin.longArrayOf":    true,
+	"kotlin.shortArrayOf":   true,
+	"kotlin.byteArrayOf":    true,
+	"kotlin.floatArrayOf":   true,
+	"kotlin.doubleArrayOf":  true,
+	"kotlin.charArrayOf":    true,
+	"kotlin.booleanArrayOf": true,
+	"kotlin.arrayOfNulls":   true,
+	"kotlin.emptyArray":     true,
+}
+
+func spreadOperatorShouldReportFlat(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	if strings.HasSuffix(file.Path, ".gradle.kts") {
+		return false
+	}
+	if file.FlatChildCount(idx) > 0 {
+		child := file.FlatChild(idx, file.FlatChildCount(idx)-1)
+		if file.FlatType(child) == "call_expression" {
+			if isArrayConstructorCallFlat(file, child, resolver) {
+				return false
+			}
+			// Preserve the historical fast-path behavior: computed call
+			// results are not classified as guaranteed array-copy sites.
+			return false
+		}
+		if file.FlatType(child) == "simple_identifier" {
+			name := file.FlatNodeText(child)
+			if isEnclosingVarargParamFlat(file, idx, name) {
+				return false
+			}
+		}
+		if isSpreadIntoSqlBuilderFlat(file, idx) {
+			return false
+		}
+	}
+	return true
+}
+
+func isArrayConstructorCallFlat(file *scanner.File, call uint32, resolver typeinfer.TypeResolver) bool {
+	if target := spreadOperatorCallTargetFlat(file, call, resolver); target != "" {
+		return isKotlinArrayConstructorCallTarget(target)
+	}
+	return arrayConstructors[flatCallExpressionName(file, call)]
+}
+
+func isKotlinArrayConstructorCallTarget(target string) bool {
+	if kotlinArrayConstructorCallTargets[target] {
+		return true
+	}
+	for name := range arrayConstructors {
+		if strings.HasPrefix(target, "kotlin."+name+".") || strings.HasPrefix(target, "kotlin."+name+"#") {
+			return true
+		}
+	}
+	return false
+}
+
+func spreadOperatorCallTargetFlat(file *scanner.File, call uint32, resolver typeinfer.TypeResolver) string {
+	if file == nil || call == 0 || resolver == nil {
+		return ""
+	}
+	cr, ok := resolver.(*oracle.CompositeResolver)
+	if !ok {
+		return ""
+	}
+	return cr.Oracle().LookupCallTarget(file.Path, file.FlatRow(call)+1, file.FlatCol(call)+1)
 }
 
 func isSpreadIntoSqlBuilderFlat(file *scanner.File, idx uint32) bool {
@@ -460,26 +528,36 @@ func isEnclosingVarargParamFlat(file *scanner.File, idx uint32, name string) boo
 		if params == 0 {
 			return false
 		}
-		prevWasVararg := false
 		for i := 0; i < file.FlatChildCount(params); i++ {
 			child := file.FlatChild(params, i)
-			switch file.FlatType(child) {
-			case "parameter_modifiers":
-				if strings.Contains(file.FlatNodeText(child), "vararg") {
-					prevWasVararg = true
-				}
-			case "parameter":
-				if prevWasVararg && extractIdentifierFlat(file, child) == name {
-					return true
-				}
-				prevWasVararg = false
-			case ",", "(", ")":
-				// separators — keep prevWasVararg flag
-			default:
-				prevWasVararg = false
+			if file.FlatType(child) != "parameter" || extractIdentifierFlat(file, child) != name {
+				continue
+			}
+			if strings.Contains(file.FlatNodeText(child), "vararg") {
+				return true
+			}
+			if modifiers, ok := file.FlatFindChild(child, "parameter_modifiers"); ok &&
+				strings.Contains(file.FlatNodeText(modifiers), "vararg") {
+				return true
+			}
+		}
+		for _, paramText := range strings.Split(file.FlatNodeText(params), ",") {
+			if strings.Contains(paramText, "vararg") && spreadParameterTextContainsName(paramText, name) {
+				return true
 			}
 		}
 		return false
+	}
+	return false
+}
+
+func spreadParameterTextContainsName(paramText, name string) bool {
+	for _, part := range strings.FieldsFunc(paramText, func(r rune) bool {
+		return !(r == '_' || r == '$' || r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z')
+	}) {
+		if part == name {
+			return true
+		}
 	}
 	return false
 }
@@ -494,7 +572,6 @@ type UnnecessaryInitOnArrayRule struct {
 // loops, primitive boxing, collection chains) with optional resolver
 // support; fallback is heuristic. Classified per roadmap/17.
 func (r *UnnecessaryInitOnArrayRule) Confidence() float64 { return 0.75 }
-
 
 var defaultZeroArrayRe = regexp.MustCompile(`(IntArray|LongArray|ShortArray|ByteArray|FloatArray|DoubleArray)\s*\([^)]+\)\s*\{\s*0+\.?0*\s*\}`)
 var defaultFalseArrayRe = regexp.MustCompile(`BooleanArray\s*\([^)]+\)\s*\{\s*false\s*\}`)
@@ -515,7 +592,6 @@ type UnnecessaryPartOfBinaryExpressionRule struct {
 // support; fallback is heuristic. Classified per roadmap/17.
 func (r *UnnecessaryPartOfBinaryExpressionRule) Confidence() float64 { return 0.75 }
 
-
 // UnnecessaryTemporaryInstantiationRule detects Integer.valueOf(x).toString() etc.
 type UnnecessaryTemporaryInstantiationRule struct {
 	FlatDispatchBase
@@ -526,7 +602,6 @@ type UnnecessaryTemporaryInstantiationRule struct {
 // loops, primitive boxing, collection chains) with optional resolver
 // support; fallback is heuristic. Classified per roadmap/17.
 func (r *UnnecessaryTemporaryInstantiationRule) Confidence() float64 { return 0.75 }
-
 
 var tempInstantiationPrefixNeedles = [][]byte{
 	[]byte("Integer"), []byte("Long"), []byte("Short"), []byte("Byte"),
@@ -617,9 +692,7 @@ type UnnecessaryTypeCastingRule struct {
 	BaseRule
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence — flags casts
 // that are no-ops; needs the resolver to confirm the source type matches
 // the target, falls back to textual comparison. Classified per roadmap/17.
 func (r *UnnecessaryTypeCastingRule) Confidence() float64 { return 0.75 }
-

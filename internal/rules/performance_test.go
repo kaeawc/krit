@@ -1,11 +1,13 @@
 package rules_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -53,6 +55,39 @@ fun bar() {
 	}
 }
 
+func TestSpreadOperator_NegativeArrayFactories(t *testing.T) {
+	cases := []string{
+		`foo(*arrayOf("a", "b"))`,
+		`takeInts(*intArrayOf(1, 2))`,
+		`foo(*arrayOfNulls<String>(2))`,
+		`foo(*emptyArray<String>())`,
+	}
+	for _, expr := range cases {
+		findings := runRuleByName(t, "SpreadOperator", `
+package test
+fun foo(vararg items: String) {}
+fun takeInts(vararg items: Int) {}
+fun bar() {
+    `+expr+`
+}`)
+		if len(findings) != 0 {
+			t.Errorf("SpreadOperator should not flag %s, got %d findings", expr, len(findings))
+		}
+	}
+}
+
+func TestSpreadOperator_NegativeForwardedVarargParameter(t *testing.T) {
+	findings := runRuleByName(t, "SpreadOperator", `
+package test
+fun sink(vararg items: String) {}
+fun forward(vararg items: String) {
+    sink(*items)
+}`)
+	if len(findings) != 0 {
+		t.Errorf("SpreadOperator should not flag forwarded vararg parameter, got %d findings", len(findings))
+	}
+}
+
 func TestSpreadOperator_NegativeComputedCallResult(t *testing.T) {
 	findings := runRuleByName(t, "SpreadOperator", `
 package test
@@ -63,6 +98,39 @@ fun bar() {
 }`)
 	if len(findings) != 0 {
 		t.Errorf("SpreadOperator should not flag computed call results, got %d findings", len(findings))
+	}
+}
+
+func TestSpreadOperator_NegativeResolvedArrayFactoryCallTarget(t *testing.T) {
+	code := `
+package test
+import kotlin.arrayOf as makeArray
+fun foo(vararg items: String) {}
+fun bar() {
+    foo(*makeArray("a", "b"))
+}`
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if strings.Contains(file.FlatNodeText(idx), "makeArray") {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = "kotlin.arrayOf"
+		}
+	})
+	var findings []scanner.Finding
+	for _, r := range v2rules.Registry {
+		if r.ID == "SpreadOperator" {
+			dispatcher := rules.NewDispatcherV2([]*v2rules.Rule{r}, oracle.NewCompositeResolver(fake, resolver))
+			cols := dispatcher.Run(file)
+			findings = cols.Findings()
+			break
+		}
+	}
+	if len(findings) != 0 {
+		t.Errorf("SpreadOperator should not flag resolved kotlin.arrayOf alias, got %d findings", len(findings))
 	}
 }
 

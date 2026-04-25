@@ -11007,12 +11007,12 @@ func registerAllRules() {
 
 	// --- from potentialbugs_nullsafety_casts.go ---
 	{
-		r := &UnsafeCastRule{BaseRule: BaseRule{RuleName: "UnsafeCast", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects non-safe casts using 'as Type' that may throw ClassCastException at runtime."}}
+		r := &UnsafeCastRule{BaseRule: BaseRule{RuleName: "UnsafeCast", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects casts that Kotlin reports can never succeed."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
+			NodeTypes: []string{"as_expression"}, Confidence: 0.95, Fix: v2.FixSemantic,
 			Needs:  v2.NeedsTypeInfo,
-			Oracle: &v2.OracleFilter{Identifiers: []string{" as "}},
+			Oracle: &v2.OracleFilter{Identifiers: []string{" as ", " as?"}},
 			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{
 				"findFragmentById",
 				"findFragmentByTag",
@@ -11026,8 +11026,9 @@ func registerAllRules() {
 				"getSystemService":  {"context", "applicationContext", "requireContext", "activity", "Context"},
 				"requireViewById":   {"view", "root", "itemView", "activity", "dialog", "window", "View"},
 			}},
-			// Resolves expression types at the cast site to verify compatibility;
-			// only uses the expressions map, no declarations traversal needed.
+			// Consumes compiler CAST_NEVER_SUCCEEDS diagnostics and uses expression
+			// types for the conservative local fallback; no declarations traversal
+			// needed.
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			OriginalV1:             r,
 			Check:                  r.check,

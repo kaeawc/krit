@@ -223,25 +223,21 @@ fun doNothing() { }
 
 // --- UnsafeCast edge cases ---
 
-func TestUnsafeCast_FlagsBareAs(t *testing.T) {
-	findings := runRuleByName(t, "UnsafeCast", `
+func TestUnsafeCast_DoesNotFlagBareAnyAs(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
 package test
 fun example(x: Any) {
     val s = x as String
 }`)
-	found := false
 	for _, f := range findings {
 		if f.Rule == "UnsafeCast" {
-			found = true
+			t.Error("Should not flag broad Any-to-String casts without never-succeeds proof")
 		}
-	}
-	if !found {
-		t.Error("Should flag 'x as String'")
 	}
 }
 
 func TestUnsafeCast_IgnoresSafeCast(t *testing.T) {
-	findings := runRuleByName(t, "UnsafeCast", `
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
 package test
 fun example(x: Any) {
     val s = x as? String
@@ -254,7 +250,7 @@ fun example(x: Any) {
 }
 
 func TestUnsafeCast_SuppressedByIsCheck(t *testing.T) {
-	findings := runRuleByName(t, "UnsafeCast", `
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
 package test
 fun example(x: Any) {
     if (x is String) {
@@ -269,7 +265,7 @@ fun example(x: Any) {
 }
 
 func TestUnsafeCast_SuppressedByNegativeIsCheckEarlyReturn(t *testing.T) {
-	findings := runRuleByName(t, "UnsafeCast", `
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
 package test
 fun example(x: Any): String {
     if (x !is String) return ""
@@ -283,7 +279,7 @@ fun example(x: Any): String {
 }
 
 func TestUnsafeCast_SuppressedByWhenIsCheck(t *testing.T) {
-	findings := runRuleByName(t, "UnsafeCast", `
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
 package test
 fun example(x: Any): String {
     return when (x) {
@@ -299,7 +295,7 @@ fun example(x: Any): String {
 }
 
 func TestUnsafeCast_StillFlagsUnguardedCast(t *testing.T) {
-	findings := runRuleByName(t, "UnsafeCast", `
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
 package test
 fun example(x: Any) {
     if (x is Int) {
@@ -319,7 +315,7 @@ fun example(x: Any) {
 }
 
 func TestUnsafeCast_ConjunctionIsCheck(t *testing.T) {
-	findings := runRuleByName(t, "UnsafeCast", `
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
 package test
 fun example(x: Any, y: Any) {
     if (x != null && x is String) {

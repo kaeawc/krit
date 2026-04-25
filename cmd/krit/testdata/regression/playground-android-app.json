@@ -1,6 +1,6 @@
 {
   "project": "../../playground/android-app/",
-  "findings_count": 48,
+  "findings_count": 47,
   "findings": [
     {
       "rule": "MagicNumber",
@@ -329,14 +329,6 @@
       "line": 40,
       "col": 0,
       "message": "Function 'getCachePath' only returns a constant. Consider replacing with a const val."
-    },
-    {
-      "rule": "UnsafeCast",
-      "ruleSet": "potential-bugs",
-      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
-      "line": 54,
-      "col": 0,
-      "message": "Unsafe cast. Use 'as?' for a safe cast instead."
     },
     {
       "rule": "MagicNumber",

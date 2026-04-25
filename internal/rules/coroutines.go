@@ -7,8 +7,10 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/module"
+	"github.com/kaeawc/krit/internal/oracle"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // CollectInOnCreateWithoutLifecycleRule detects Flow.collect calls in lifecycle
@@ -110,7 +112,21 @@ func directCallArgumentsFlat(file *scanner.File, idx uint32) uint32 {
 	return 0
 }
 
-func findDirectDispatcherArgumentFlat(file *scanner.File, args uint32) (uint32, string) {
+func injectDispatcherNames(names []string) map[string]bool {
+	if len(names) == 0 {
+		return map[string]bool{"IO": true, "Default": true, "Unconfined": true}
+	}
+	out := make(map[string]bool, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			out[name] = true
+		}
+	}
+	return out
+}
+
+func findDirectDispatcherArgumentFlat(file *scanner.File, args uint32, names map[string]bool) (uint32, string) {
 	for i := 0; i < file.FlatNamedChildCount(args); i++ {
 		arg := file.FlatNamedChild(args, i)
 		if arg == 0 || file.FlatType(arg) != "value_argument" || file.FlatNamedChildCount(arg) == 0 {
@@ -128,11 +144,61 @@ func findDirectDispatcherArgumentFlat(file *scanner.File, args uint32) (uint32, 
 			}
 		}
 		member := flatNavigationExpressionLastIdentifier(file, value)
-		if receiver == "Dispatchers" && (member == "IO" || member == "Default" || member == "Unconfined" || member == "Main") {
+		if receiver == "Dispatchers" && names[member] {
 			return value, member
 		}
 	}
 	return 0, ""
+}
+
+func injectDispatcherTypeConfirmedOrUnknown(resolver typeinfer.TypeResolver, file *scanner.File, idx uint32) bool {
+	if resolver == nil {
+		return true
+	}
+	if _, ok := resolver.(*oracle.CompositeResolver); !ok {
+		return true
+	}
+	typ := resolver.ResolveFlatNode(idx, file)
+	if typ == nil || typ.Kind == typeinfer.TypeUnknown {
+		return true
+	}
+	return injectDispatcherResolvedTypeIsCoroutineDispatcher(typ, resolver)
+}
+
+func injectDispatcherResolvedTypeIsCoroutineDispatcher(typ *typeinfer.ResolvedType, resolver typeinfer.TypeResolver) bool {
+	if typ == nil {
+		return false
+	}
+	if typ.FQN == "kotlinx.coroutines.CoroutineDispatcher" ||
+		typ.Name == "CoroutineDispatcher" {
+		return true
+	}
+	if resolver == nil {
+		return false
+	}
+	name := typ.FQN
+	if name == "" {
+		name = typ.Name
+	}
+	if name == "" {
+		return false
+	}
+	if resolver.IsExceptionSubtype(name, "kotlinx.coroutines.CoroutineDispatcher") {
+		return true
+	}
+	info := resolver.ClassHierarchy(name)
+	if info == nil && typ.Name != "" && typ.Name != name {
+		info = resolver.ClassHierarchy(typ.Name)
+	}
+	if info == nil {
+		return false
+	}
+	for _, super := range info.Supertypes {
+		if super == "kotlinx.coroutines.CoroutineDispatcher" || super == "CoroutineDispatcher" {
+			return true
+		}
+	}
+	return false
 }
 
 func callCalleePartsFlat(file *scanner.File, idx uint32) (receiver string, method string) {

@@ -203,21 +203,15 @@ fun parseRequest(json: String): CheckRequest {
 // ── Response building ─────────────────────────────────────────────────────────
 
 fun buildCheckResponse(result: BatchResult): String {
-    val findingsJson = result.findings.joinToString(",\n    ", prefix = "\n    ", postfix = "\n  ") { f ->
+    val findingsJson = result.findings.joinToString(",") { f ->
         """{"path":${jsonStr(f.path)},"line":${f.line},"col":${f.col},"rule":${jsonStr(f.rule)},"severity":${jsonStr(f.severity)},"message":${jsonStr(f.message)},"confidence":${f.confidence}}"""
-    }.let { if (result.findings.isEmpty()) "" else it }
+    }
 
     val crashedJson = result.crashed.entries.joinToString(",", "{", "}") { (k, v) ->
         "${jsonStr(k)}:${jsonStr(v)}"
     }
 
-    return """{
-  "id":${result.id},
-  "succeeded":${result.succeeded},
-  "skipped":${result.skipped},
-  "findings":[${findingsJson}],
-  "crashed":$crashedJson
-}"""
+    return """{"id":${result.id},"succeeded":${result.succeeded},"skipped":${result.skipped},"findings":[$findingsJson],"crashed":$crashedJson}"""
 }
 
 // ── Minimal JSON parsing (no external deps) ───────────────────────────────────

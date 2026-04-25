@@ -82,6 +82,7 @@ class AnalysisSession(val sourceDirs: List<String>, val classpath: List<String>)
         internal val checkerToDiagnostic = mapOf(
             "FlowCollectInOnCreate" to "FLOW_COLLECT_IN_ON_CREATE",
             "ComposeRememberWithoutKey" to "COMPOSE_REMEMBER_WITHOUT_KEY",
+            "InjectDispatcher" to "INJECT_DISPATCHER",
             "UnsafeCastWhenNullable" to "UNSAFE_CAST_WHEN_NULLABLE",
             "SmokeChecker" to "SMOKE_CLASS",
         )

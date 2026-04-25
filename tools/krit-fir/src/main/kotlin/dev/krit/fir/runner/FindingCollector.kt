@@ -37,6 +37,12 @@ class FindingCollector(
     ) {
         if (severity == CompilerMessageSeverity.ERROR && !pluginDiagnosticRe.containsMatchIn(message)) {
             _hasErrors = true
+            if (location != null) {
+                val canonicalPath = try { File(location.path).canonicalPath } catch (_: Exception) { location.path }
+                if (canonicalPath in requestedPaths || location.path in requestedPaths) {
+                    crashes[location.path] = message
+                }
+            }
         }
 
         if (severity !in reportable) return

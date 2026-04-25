@@ -18,6 +18,11 @@ object KritDiagnosticsRendering : BaseDiagnosticRendererFactory() {
             KtDiagnosticRenderers.TO_STRING,
         )
         map.put(
+            KritDiagnostics.INJECT_DISPATCHER,
+            "[INJECT_DISPATCHER] Hardcoded Dispatchers.{0}. Inject dispatchers for better testability.",
+            KtDiagnosticRenderers.TO_STRING,
+        )
+        map.put(
             KritDiagnostics.UNSAFE_CAST_WHEN_NULLABLE,
             "[UNSAFE_CAST_WHEN_NULLABLE] Unsafe cast to nullable type; prefer 'as?' to avoid ClassCastException at runtime.",
         )

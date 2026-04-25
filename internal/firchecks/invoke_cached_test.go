@@ -97,12 +97,12 @@ func TestInvokeCached_AllCacheHits(t *testing.T) {
 	if len(res.Findings) != 1 {
 		t.Fatalf("expected 1 finding from cache, got %d", len(res.Findings))
 	}
-	if res.Findings[0].Rule != "FLOW_COLLECT_IN_ON_CREATE" {
+	if res.Findings[0].Rule != "CollectInOnCreateWithoutLifecycle" {
 		t.Errorf("unexpected rule: %q", res.Findings[0].Rule)
 	}
 }
 
-func TestToScannerFinding_SetsRuleSetFir(t *testing.T) {
+func TestToScannerFinding_SetsRuleSetFirForUnknownDiagnostic(t *testing.T) {
 	fir := FirFinding{Path: "/src/A.kt", Line: 5, Col: 2, Rule: "SOME_RULE", Severity: "warning", Message: "msg", Confidence: 0.9}
 	f := ToScannerFinding(fir)
 	if f.RuleSet != "fir" {
@@ -110,6 +110,29 @@ func TestToScannerFinding_SetsRuleSetFir(t *testing.T) {
 	}
 	if f.Confidence != 0.9 {
 		t.Errorf("expected confidence 0.9, got %f", f.Confidence)
+	}
+}
+
+func TestToScannerFinding_MapsKnownDiagnosticToCatalogRule(t *testing.T) {
+	fir := FirFinding{Path: "/src/A.kt", Line: 5, Col: 2, Rule: "INJECT_DISPATCHER", Severity: "warning", Message: "msg", Confidence: 0.9}
+	f := ToScannerFinding(fir)
+	if f.Rule != "InjectDispatcher" {
+		t.Errorf("expected mapped Rule=InjectDispatcher, got %q", f.Rule)
+	}
+	if f.RuleSet != "coroutines" {
+		t.Errorf("expected mapped RuleSet=coroutines, got %q", f.RuleSet)
+	}
+}
+
+func TestMergeFindings_DeduplicatesPilotRuleOnSameLine(t *testing.T) {
+	goFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 5, Rule: "CollectInOnCreateWithoutLifecycle", RuleSet: "coroutines", Message: "go message"}
+	firFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 12, Rule: "CollectInOnCreateWithoutLifecycle", RuleSet: "coroutines", Message: "fir message"}
+	merged := MergeFindings([]scanner.Finding{goFinding}, []scanner.Finding{firFinding})
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 finding after line-level pilot dedup, got %d", len(merged))
+	}
+	if merged[0].Message != "go message" {
+		t.Errorf("expected Go finding to win, got message: %q", merged[0].Message)
 	}
 }
 

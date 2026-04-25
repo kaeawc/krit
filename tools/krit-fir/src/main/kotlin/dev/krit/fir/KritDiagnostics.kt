@@ -12,6 +12,7 @@ import org.jetbrains.kotlin.diagnostics.warning1
 object KritDiagnostics : KtDiagnosticsContainer() {
     val FLOW_COLLECT_IN_ON_CREATE: KtDiagnosticFactory0 by warning0<PsiElement>()
     val COMPOSE_REMEMBER_WITHOUT_KEY: KtDiagnosticFactory1<String> by warning1<PsiElement, String>()
+    val INJECT_DISPATCHER: KtDiagnosticFactory1<String> by warning1<PsiElement, String>()
     val UNSAFE_CAST_WHEN_NULLABLE: KtDiagnosticFactory0 by error0<PsiElement>()
     val SMOKE_CLASS: KtDiagnosticFactory0 by warning0<PsiElement>()
 

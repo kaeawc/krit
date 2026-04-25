@@ -2,6 +2,22 @@ package firchecks
 
 import "github.com/kaeawc/krit/internal/scanner"
 
+var firDiagnosticRuleNames = map[string]string{
+	"FLOW_COLLECT_IN_ON_CREATE":    "CollectInOnCreateWithoutLifecycle",
+	"COMPOSE_REMEMBER_WITHOUT_KEY": "ComposeRememberWithoutKey",
+	"INJECT_DISPATCHER":            "InjectDispatcher",
+	"UNSAFE_CAST_WHEN_NULLABLE":    "UnsafeCastWhenNullable",
+	"SMOKE_CLASS":                  "SmokeChecker",
+}
+
+var firDiagnosticRuleSets = map[string]string{
+	"FLOW_COLLECT_IN_ON_CREATE":    "coroutines",
+	"COMPOSE_REMEMBER_WITHOUT_KEY": "compose",
+	"INJECT_DISPATCHER":            "coroutines",
+	"UNSAFE_CAST_WHEN_NULLABLE":    "potentialbugs",
+	"SMOKE_CLASS":                  "fir",
+}
+
 // FirFinding is the per-finding JSON shape emitted by krit-fir.
 type FirFinding struct {
 	Path       string  `json:"path"`
@@ -22,20 +38,29 @@ type CheckResponse struct {
 	Crashed   map[string]string `json:"crashed"`
 }
 
-// ToScannerFinding converts a FirFinding to a scanner.Finding. The RuleSet
-// is set to the FIR category name so SARIF / JSON output treats it the same
-// as a tree-sitter finding from that category.
+// ToScannerFinding converts a FirFinding to a scanner.Finding.
+// Known FIR diagnostics are normalized back to Krit catalog rule IDs so
+// --fir findings deduplicate with the Go implementations while Track B runs
+// both versions side by side.
 func ToScannerFinding(f FirFinding) scanner.Finding {
 	sev := f.Severity
 	if sev == "" {
 		sev = "warning"
 	}
+	rule := f.Rule
+	if mapped := firDiagnosticRuleNames[f.Rule]; mapped != "" {
+		rule = mapped
+	}
+	ruleSet := firDiagnosticRuleSets[f.Rule]
+	if ruleSet == "" {
+		ruleSet = "fir"
+	}
 	return scanner.Finding{
 		File:       f.Path,
 		Line:       f.Line,
 		Col:        f.Col,
-		RuleSet:    "fir",
-		Rule:       f.Rule,
+		RuleSet:    ruleSet,
+		Rule:       rule,
 		Severity:   sev,
 		Message:    f.Message,
 		Confidence: f.Confidence,

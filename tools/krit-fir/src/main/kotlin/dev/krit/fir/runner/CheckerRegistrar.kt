@@ -2,6 +2,7 @@ package dev.krit.fir.runner
 
 import dev.krit.fir.checkers.ComposeRememberWithoutKey
 import dev.krit.fir.checkers.FlowCollectInOnCreate
+import dev.krit.fir.checkers.InjectDispatcher
 import dev.krit.fir.checkers.UnsafeCastWhenNullable
 import dev.krit.fir.rules.SmokeChecker
 import org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar
@@ -43,6 +44,7 @@ private class RunnerFirCheckers(
         override val functionCallCheckers = buildSet {
             if (all || "FlowCollectInOnCreate" in enabledRules) add(FlowCollectInOnCreate)
             if (all || "ComposeRememberWithoutKey" in enabledRules) add(ComposeRememberWithoutKey)
+            if (all || "InjectDispatcher" in enabledRules) add(InjectDispatcher)
         }
         override val typeOperatorCallCheckers = buildSet {
             if (all || "UnsafeCastWhenNullable" in enabledRules) add(UnsafeCastWhenNullable)

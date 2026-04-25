@@ -2,6 +2,7 @@ package dev.krit.fir
 
 import dev.krit.fir.checkers.ComposeRememberWithoutKey
 import dev.krit.fir.checkers.FlowCollectInOnCreate
+import dev.krit.fir.checkers.InjectDispatcher
 import dev.krit.fir.checkers.UnsafeCastWhenNullable
 import dev.krit.fir.rules.SmokeChecker
 import org.jetbrains.kotlin.fir.FirSession
@@ -14,6 +15,7 @@ class KritFirCheckers(session: FirSession) : FirAdditionalCheckersExtension(sess
         override val functionCallCheckers = setOf(
             FlowCollectInOnCreate,
             ComposeRememberWithoutKey,
+            InjectDispatcher,
         )
         override val typeOperatorCallCheckers = setOf(
             UnsafeCastWhenNullable,

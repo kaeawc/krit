@@ -173,19 +173,48 @@ func assembleFromCache(hits []*FirCacheEntry) *Result {
 	return result
 }
 
+var firLineDedupeRules = map[string]struct{}{
+	"CollectInOnCreateWithoutLifecycle": {},
+	"ComposeRememberWithoutKey":         {},
+	"InjectDispatcher":                  {},
+}
+
 // MergeFindings merges FIR findings into the existing allFindings slice,
-// deduplicating on (file, line, col, rule). Go tree-sitter findings win
-// on collision (they're already in allFindings).
+// deduplicating on (file, line, col, rule). Pilot FIR rules also dedupe on
+// (file, line, rule) because compiler source ranges can point at a callee
+// token while the tree-sitter rule points at the containing call expression.
+// Go tree-sitter findings win on collision (they're already in allFindings).
 func MergeFindings(allFindings []scanner.Finding, firFindings []scanner.Finding) []scanner.Finding {
-	type key struct{ file, rule string; line, col int }
+	type key struct {
+		file, rule string
+		line, col  int
+	}
+	type lineKey struct {
+		file, rule string
+		line       int
+	}
 	existing := make(map[key]struct{}, len(allFindings))
+	existingLines := make(map[lineKey]struct{}, len(allFindings))
 	for _, f := range allFindings {
 		existing[key{f.File, f.Rule, f.Line, f.Col}] = struct{}{}
+		if _, ok := firLineDedupeRules[f.Rule]; ok {
+			existingLines[lineKey{f.File, f.Rule, f.Line}] = struct{}{}
+		}
 	}
 	for _, f := range firFindings {
 		k := key{f.File, f.Rule, f.Line, f.Col}
 		if _, ok := existing[k]; !ok {
+			lk := lineKey{f.File, f.Rule, f.Line}
+			if _, lineDedupe := firLineDedupeRules[f.Rule]; lineDedupe {
+				if _, ok := existingLines[lk]; ok {
+					continue
+				}
+			}
 			allFindings = append(allFindings, f)
+			existing[k] = struct{}{}
+			if _, lineDedupe := firLineDedupeRules[f.Rule]; lineDedupe {
+				existingLines[lk] = struct{}{}
+			}
 		}
 	}
 	return allFindings

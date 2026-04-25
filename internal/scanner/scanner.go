@@ -26,7 +26,9 @@ var kotlinParserPool = sync.Pool{
 
 // GetKotlinParser returns a pooled Kotlin parser. Callers must call PutKotlinParser when done.
 func GetKotlinParser() *sitter.Parser {
-	return kotlinParserPool.Get().(*sitter.Parser)
+	p := kotlinParserPool.Get().(*sitter.Parser)
+	p.Reset()
+	return p
 }
 
 // PutKotlinParser returns a Kotlin parser to the pool for reuse.
@@ -420,6 +422,7 @@ func parseJavaFileCached(path string, pc *ParseCache, opts javaParseOptions) (*F
 	}
 
 	parser := javaParserPool.Get().(*sitter.Parser)
+	parser.Reset()
 	defer javaParserPool.Put(parser)
 	parseStart := time.Now()
 	tree, err := parser.ParseCtx(context.Background(), nil, content)

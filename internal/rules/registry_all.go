@@ -10136,13 +10136,29 @@ func registerAllRules() {
 		})
 	}
 	{
-		r := &UnnecessaryTypeCastingRule{BaseRule: BaseRule{RuleName: "UnnecessaryTypeCasting", RuleSetName: "performance", Sev: "warning", Desc: "Detects redundant type casts where a value is cast to its own type."}}
+		r := &UnnecessaryTypeCastingRule{BaseRule: BaseRule{RuleName: "UnnecessaryTypeCasting", RuleSetName: "performance", Sev: "warning", Desc: "Detects safe casts immediately compared with null and redundant casts to an already-known type."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"equality_expression", "as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
 			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if file.FlatType(idx) == "equality_expression" {
+					expr, target, ok := safeCastComparedNotNullParts(file, idx)
+					if !ok {
+						return
+					}
+					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						fmt.Sprintf("Unnecessary safe cast to '%s' before null check. Use a type check instead.", target))
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   int(file.FlatStartByte(idx)),
+						EndByte:     int(file.FlatEndByte(idx)),
+						Replacement: expr + " is " + target,
+					}
+					ctx.Emit(f)
+					return
+				}
 				text := file.FlatNodeText(idx)
 				parts := strings.Split(text, " as ")
 				if len(parts) != 2 {

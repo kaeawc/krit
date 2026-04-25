@@ -119,9 +119,9 @@ func (r *UnnecessaryTypeCastingRule) Meta() registry.RuleDescriptor {
 		ID:            "UnnecessaryTypeCasting",
 		RuleSet:       "performance",
 		Severity:      "warning",
-		Description:   "Detects redundant type casts where a value is cast to its own type.",
+		Description:   "Detects safe casts immediately compared with null and redundant casts to an already-known type.",
 		DefaultActive: false,
-		FixLevel:      "idiomatic",
+		FixLevel:      "semantic",
 		Confidence:    0.75,
 	}
 }

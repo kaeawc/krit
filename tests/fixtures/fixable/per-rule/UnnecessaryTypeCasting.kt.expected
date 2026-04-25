@@ -5,3 +5,13 @@ fun process() {
     val y: String = x
     println(y)
 }
+
+fun safeCastNullChecks(value: Any) {
+    if (value is String) {
+        println(value)
+    }
+
+    if (value is Foo) {
+        println(value)
+    }
+}

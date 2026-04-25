@@ -582,6 +582,28 @@ fun bar() {
 	}
 }
 
+func TestUnnecessaryTypeCasting_SafeCastNullCheckPositive(t *testing.T) {
+	findings := runRuleByName(t, "UnnecessaryTypeCasting", `
+package test
+class Foo
+fun f(value: Any) {
+    if (value as? String != null) {
+        println(value)
+    }
+    if (null != value as? Foo) {
+        println(value)
+    }
+}`)
+	if len(findings) != 2 {
+		t.Fatalf("UnnecessaryTypeCasting should flag both safe-cast null checks, got %d findings", len(findings))
+	}
+	for _, finding := range findings {
+		if finding.Fix == nil {
+			t.Fatalf("expected safe-cast null check finding to include a fix: %#v", finding)
+		}
+	}
+}
+
 func TestUnnecessaryTypeCasting_Negative(t *testing.T) {
 	findings := runRuleByName(t, "UnnecessaryTypeCasting", `
 package test
@@ -591,5 +613,32 @@ fun bar() {
 }`)
 	if len(findings) != 0 {
 		t.Errorf("UnnecessaryTypeCasting should not flag casting Any to String, got %d findings", len(findings))
+	}
+}
+
+func TestUnnecessaryTypeCasting_SafeCastStandaloneNegative(t *testing.T) {
+	findings := runRuleByName(t, "UnnecessaryTypeCasting", `
+package test
+fun f(value: Any) {
+    val maybe = value as? String
+    if (maybe != null) {
+        println(maybe)
+    }
+}`)
+	if len(findings) != 0 {
+		t.Errorf("UnnecessaryTypeCasting should not flag standalone safe casts, got %d findings", len(findings))
+	}
+}
+
+func TestUnnecessaryTypeCasting_NullableSafeCastTargetNegative(t *testing.T) {
+	findings := runRuleByName(t, "UnnecessaryTypeCasting", `
+package test
+fun f(value: Any?) {
+    if (value as? String? != null) {
+        println(value)
+    }
+}`)
+	if len(findings) != 0 {
+		t.Errorf("UnnecessaryTypeCasting should not rewrite nullable safe-cast targets, got %d findings", len(findings))
 	}
 }

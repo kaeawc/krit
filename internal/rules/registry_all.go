@@ -4899,7 +4899,9 @@ func registerAllRules() {
 		r := &LayoutInflationRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "LayoutInflation", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "InflateParams", Brief: "Layout inflation without parent", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"},
+			Needs:     v2.NeedsResources, Languages: []scanner.Language{scanner.LangKotlin},
+			AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
 	}

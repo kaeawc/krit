@@ -38,7 +38,7 @@ func (r *LayoutInflationRule) Meta() registry.RuleDescriptor {
 		Description:   "",
 		DefaultActive: true,
 		FixLevel:      "",
-		Confidence:    0.75,
+		Confidence:    0.85,
 	}
 }
 

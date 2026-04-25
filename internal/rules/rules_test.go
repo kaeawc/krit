@@ -83,6 +83,9 @@ func TestPositiveFixtures(t *testing.T) {
 		if rule.Needs.Has(v2rules.NeedsModuleIndex) {
 			return nil
 		}
+		if rule.Needs.Has(v2rules.NeedsResources) {
+			return nil
+		}
 
 		count++
 		t.Run("positive/"+ruleName, func(t *testing.T) {
@@ -132,6 +135,9 @@ func TestNegativeFixtures(t *testing.T) {
 			return nil
 		}
 		if rule.Needs.Has(v2rules.NeedsCrossFile) {
+			return nil
+		}
+		if rule.Needs.Has(v2rules.NeedsResources) {
 			return nil
 		}
 

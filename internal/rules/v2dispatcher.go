@@ -78,10 +78,11 @@ type V2Dispatcher struct {
 	// context that is assembled by the main pipeline. They are stored
 	// here so ensureFlatTypeIndex and collectAllRules can see them for
 	// re-index purposes.
-	manifestRules  []*v2.Rule
-	resourceRules  []*v2.Rule
-	gradleRules    []*v2.Rule
-	aggregateRules []*v2.Rule
+	manifestRules       []*v2.Rule
+	resourceRules       []*v2.Rule
+	resourceSourceRules []*v2.Rule
+	gradleRules         []*v2.Rule
+	aggregateRules      []*v2.Rule
 	// nodeDispatchRules are rules with non-empty NodeTypes. They live in
 	// flatTypeRules indexed by FlatNode.Type, but scanner.NodeTypeTable
 	// is populated lazily as files are parsed — so at construction time
@@ -135,6 +136,8 @@ func NewV2Dispatcher(rules []*v2.Rule, resolver ...typeinfer.TypeResolver) *V2Di
 			d.moduleAwareRules = append(d.moduleAwareRules, r)
 		case r.Needs.Has(v2.NeedsManifest):
 			d.manifestRules = append(d.manifestRules, r)
+		case isResourceBackedSourceRule(r):
+			d.resourceSourceRules = append(d.resourceSourceRules, r)
 		case r.Needs.Has(v2.NeedsResources):
 			d.resourceRules = append(d.resourceRules, r)
 		case r.Needs.Has(v2.NeedsGradle):
@@ -161,7 +164,7 @@ func NewV2Dispatcher(rules []*v2.Rule, resolver ...typeinfer.TypeResolver) *V2Di
 		if r == nil {
 			continue
 		}
-		if r.Needs.Has(v2.NeedsCrossFile) || r.Needs.Has(v2.NeedsModuleIndex) || r.Needs.Has(v2.NeedsLinePass) {
+		if isDeferredFromPerFileDispatch(r) {
 			continue
 		}
 		if len(r.NodeTypes) == 0 {
@@ -202,7 +205,7 @@ func (d *V2Dispatcher) buildFlatTypeIndex(rules []*v2.Rule) {
 		if r == nil {
 			continue
 		}
-		if r.Needs.Has(v2.NeedsCrossFile) || r.Needs.Has(v2.NeedsModuleIndex) || r.Needs.Has(v2.NeedsLinePass) {
+		if isDeferredFromPerFileDispatch(r) {
 			continue
 		}
 		if len(r.NodeTypes) == 0 {
@@ -217,6 +220,28 @@ func (d *V2Dispatcher) buildFlatTypeIndex(rules []*v2.Rule) {
 	}
 
 	d.flatTypeIndexSize = len(d.flatTypeRules)
+}
+
+func isResourceBackedSourceRule(r *v2.Rule) bool {
+	if r == nil || !r.Needs.Has(v2.NeedsResources) || len(r.NodeTypes) == 0 {
+		return false
+	}
+	for _, lang := range v2.RuleLanguages(r) {
+		if lang != scanner.LangXML {
+			return true
+		}
+	}
+	return false
+}
+
+func isDeferredFromPerFileDispatch(r *v2.Rule) bool {
+	return r.Needs.Has(v2.NeedsCrossFile) ||
+		r.Needs.Has(v2.NeedsModuleIndex) ||
+		r.Needs.Has(v2.NeedsManifest) ||
+		r.Needs.Has(v2.NeedsResources) ||
+		r.Needs.Has(v2.NeedsGradle) ||
+		r.Needs.Has(v2.NeedsAggregate) ||
+		r.Needs.Has(v2.NeedsLinePass)
 }
 
 // ensureFlatTypeIndex returns the flat-type rule index, rebuilding it
@@ -523,13 +548,28 @@ func (d *V2Dispatcher) buildExcludedSet(filePath string) map[string]bool {
 	for _, r := range d.moduleAwareRules {
 		check(r)
 	}
+	for _, r := range d.manifestRules {
+		check(r)
+	}
+	for _, r := range d.resourceRules {
+		check(r)
+	}
+	for _, r := range d.resourceSourceRules {
+		check(r)
+	}
+	for _, r := range d.gradleRules {
+		check(r)
+	}
+	for _, r := range d.aggregateRules {
+		check(r)
+	}
 	return excluded
 }
 
 // collectAllRules returns every rule the dispatcher knows about, used
 // when rebuilding the flat-type index after NodeTypeTable grows.
 func (d *V2Dispatcher) collectAllRules() []*v2.Rule {
-	out := make([]*v2.Rule, 0, len(d.nodeDispatchRules)+len(d.allNodeRules)+len(d.lineRules)+len(d.crossFileRules)+len(d.moduleAwareRules))
+	out := make([]*v2.Rule, 0, len(d.nodeDispatchRules)+len(d.allNodeRules)+len(d.lineRules)+len(d.crossFileRules)+len(d.moduleAwareRules)+len(d.manifestRules)+len(d.resourceRules)+len(d.resourceSourceRules)+len(d.gradleRules)+len(d.aggregateRules))
 	seen := make(map[*v2.Rule]bool)
 	addAll := func(rs []*v2.Rule) {
 		for _, r := range rs {
@@ -553,6 +593,7 @@ func (d *V2Dispatcher) collectAllRules() []*v2.Rule {
 	addAll(d.moduleAwareRules)
 	addAll(d.manifestRules)
 	addAll(d.resourceRules)
+	addAll(d.resourceSourceRules)
 	addAll(d.gradleRules)
 	addAll(d.aggregateRules)
 	return out
@@ -624,6 +665,10 @@ func (d *V2Dispatcher) ManifestRules() []*v2.Rule { return d.manifestRules }
 // ResourceRules returns the resource rules stored on this dispatcher.
 func (d *V2Dispatcher) ResourceRules() []*v2.Rule { return d.resourceRules }
 
+// ResourceSourceRules returns source AST rules that need the Android
+// ResourceIndex. The Android phase invokes these after resource scanning.
+func (d *V2Dispatcher) ResourceSourceRules() []*v2.Rule { return d.resourceSourceRules }
+
 // RunGradle runs every registered Gradle rule against a single parsed
 // Gradle build script. The file argument carries path/content with
 // Language == LangGradle; cfg is the parsed BuildConfig. Findings are
@@ -653,6 +698,73 @@ func (d *V2Dispatcher) RunResource(file *scanner.File, idx *android.ResourceInde
 	return d.runProjectRuleSet(file, d.resourceRules, func(ctx *v2.Context) {
 		ctx.ResourceIndex = idx
 	})
+}
+
+// RunResourceSource runs source AST rules that need the merged Android
+// ResourceIndex. These rules are not part of the hot per-file dispatch phase
+// because the resource index is assembled later in the Android phase.
+func (d *V2Dispatcher) RunResourceSource(file *scanner.File, idx *android.ResourceIndex) scanner.FindingColumns {
+	if file == nil || idx == nil || len(d.resourceSourceRules) == 0 {
+		return scanner.FindingColumns{}
+	}
+
+	filter := file.Suppression
+	if filter == nil {
+		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "")
+		file.Suppression = filter
+		file.SuppressionIdx = filter.Annotations()
+	}
+
+	excludedRules := d.buildExcludedSet(file.Path)
+	for id := range d.excludedForLanguage(file.Language) {
+		excludedRules[id] = true
+	}
+
+	rulesByType := make(map[uint16][]*v2.Rule)
+	for _, r := range d.resourceSourceRules {
+		if excludedRules[r.ID] {
+			continue
+		}
+		for _, nodeType := range r.NodeTypes {
+			if typeID, ok := scanner.LookupFlatNodeType(nodeType); ok {
+				rulesByType[typeID] = append(rulesByType[typeID], r)
+			}
+		}
+	}
+	if len(rulesByType) == 0 {
+		return scanner.FindingColumns{}
+	}
+
+	stats := RunStats{RuleStatsByRule: make(map[string]RuleExecutionStat)}
+	collector := scanner.NewFindingCollector(0)
+	if file.FlatTree != nil && len(file.FlatTree.Nodes) > 0 {
+		for i := range file.FlatTree.Nodes {
+			flatIdx := uint32(i)
+			flatNode := file.FlatTree.Nodes[i]
+			for _, r := range rulesByType[flatNode.Type] {
+				resolver, ok := d.resolveForRule(r)
+				if !ok {
+					continue
+				}
+				t := time.Now()
+				runWithRuleProfileLabel(r.ID, "resource-source", func() {
+					safeCheckV2ResourceNodeColumnar(r, flatIdx, &flatNode, file, idx, collector, &stats, resolver)
+				})
+				stats.recordRule(r.ID, "resource-source", time.Since(t).Nanoseconds())
+			}
+		}
+	}
+
+	columns := *collector.Columns()
+	if columns.Len() > 0 {
+		columns = columns.FilterRows(func(row int) bool {
+			return !filter.IsSuppressed(columns.RuleAt(row), columns.RuleSetAt(row), columns.LineAt(row))
+		})
+	}
+	for _, e := range stats.Errors {
+		fmt.Fprintln(os.Stderr, e.Error())
+	}
+	return columns
 }
 
 // runProjectRuleSet is the shared driver for RunGradle/RunManifest/RunResource.
@@ -698,6 +810,38 @@ func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate f
 	}
 	r.Check(ctx)
 	return *collector.Columns()
+}
+
+func safeCheckV2ResourceNodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, resourceIndex *android.ResourceIndex, collector *scanner.FindingCollector, stats *RunStats, typeResolver typeinfer.TypeResolver) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			line := 0
+			if node != nil {
+				line = int(node.StartRow) + 1
+			} else if file != nil {
+				line = file.FlatRow(idx) + 1
+			}
+			stats.Errors = append(stats.Errors, DispatchError{
+				RuleName:   r.ID,
+				FilePath:   filePathOrEmpty(file),
+				Line:       line,
+				PanicValue: rec,
+			})
+		}
+	}()
+	ctx := &v2.Context{
+		File:              file,
+		Node:              node,
+		Idx:               idx,
+		Rule:              r,
+		DefaultConfidence: 0.95,
+		ResourceIndex:     resourceIndex,
+		Collector:         collector,
+	}
+	if r.Needs.Has(v2.NeedsResolver) {
+		ctx.Resolver = typeResolver
+	}
+	r.Check(ctx)
 }
 
 // excludedForLanguage returns the set of rule IDs that do NOT apply to

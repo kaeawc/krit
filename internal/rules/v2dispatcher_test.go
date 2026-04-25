@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/android"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -287,6 +288,37 @@ func TestV2Dispatcher_ModuleAwareRulesAccessor(t *testing.T) {
 	}
 	if len(d.ModuleAwareRules()) != 1 {
 		t.Errorf("expected 1 module-aware rule in accessor, got %d", len(d.ModuleAwareRules()))
+	}
+}
+
+func TestV2Dispatcher_ResourceSourceRulesRunWithResourceIndex(t *testing.T) {
+	file := writeKotlinFile(t, "fun foo() { bar() }", "ResourceSource.kt")
+
+	invoked := 0
+	rule := v2.FakeRule("ResourceSourceRule",
+		v2.WithNodeTypes("call_expression"),
+		v2.WithNeeds(v2.NeedsResources),
+		v2.WithCheck(func(ctx *v2.Context) {
+			if ctx.ResourceIndex == nil {
+				t.Error("ResourceIndex was not populated")
+			}
+			invoked++
+		}),
+	)
+	rule.Languages = []scanner.Language{scanner.LangKotlin}
+
+	d := NewV2Dispatcher([]*v2.Rule{rule})
+	_ = d.Run(file)
+	if invoked != 0 {
+		t.Fatalf("resource-backed source rule ran during ordinary dispatch")
+	}
+	if len(d.ResourceSourceRules()) != 1 {
+		t.Fatalf("expected one resource-backed source rule, got %d", len(d.ResourceSourceRules()))
+	}
+
+	_ = d.RunResourceSource(file, &android.ResourceIndex{})
+	if invoked != 1 {
+		t.Fatalf("resource-backed source rule invoked %d times, want 1", invoked)
 	}
 }
 

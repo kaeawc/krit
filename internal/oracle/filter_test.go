@@ -231,7 +231,7 @@ func equalStrings(a, b []string) bool {
 // is checked out on disk.
 func TestStableFingerprint_InvariantUnderRootRelocation(t *testing.T) {
 	root1 := "/home/runner/work/krit/krit"
-	root2 := "/Users/jason/kaeawc/krit"
+	root2 := "/home/dev/krit"
 	rel := []string{"playground/app/Main.kt", "playground/app/Util.kt"}
 
 	abs1 := make([]string, len(rel))

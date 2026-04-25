@@ -22,7 +22,7 @@ func buildSyntheticShard(symCount, refCount int) *fileShard {
 	kinds := []string{"function", "class", "property", "object", "interface"}
 	vis := []string{"public", "private", "internal", "protected"}
 
-	path := "/home/ci/workspace/Signal-Android/app/src/main/kotlin/org/thoughtcrime/securesms/database/MessageTable.kt"
+	path := "/workspace/Signal-Android/app/src/main/kotlin/org/thoughtcrime/securesms/database/MessageTable.kt"
 	s := &fileShard{
 		Path:        path,
 		ContentHash: "deadbeef",

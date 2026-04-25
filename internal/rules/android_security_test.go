@@ -638,6 +638,18 @@ class Calc {
 }
 
 func TestHandlerLeak(t *testing.T) {
+	t.Run("triggers on Kotlin inner Handler class", func(t *testing.T) {
+		findings := runRuleByName(t, "HandlerLeak", `
+package test
+import android.os.Handler
+class MyActivity {
+    inner class MyHandler : Handler()
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected findings")
+		}
+	})
 	t.Run("triggers on anonymous Handler object expression", func(t *testing.T) {
 		findings := runRuleByName(t, "HandlerLeak", `
 package test
@@ -649,6 +661,87 @@ class MyActivity {
 `)
 		if len(findings) == 0 {
 			t.Fatal("expected findings")
+		}
+	})
+	t.Run("triggers on Java non-static inner Handler class", func(t *testing.T) {
+		findings := runJavaRuleByName(t, "HandlerLeak", `
+package test;
+import android.os.Handler;
+class Outer {
+    class MyHandler extends Handler {
+    }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected findings")
+		}
+	})
+	t.Run("triggers on Java anonymous Handler", func(t *testing.T) {
+		findings := runJavaRuleByName(t, "HandlerLeak", `
+package test;
+import android.os.Handler;
+class Outer {
+    Object handler = new Handler() {
+    };
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected findings")
+		}
+	})
+	t.Run("ignores Java static Handler class", func(t *testing.T) {
+		findings := runJavaRuleByName(t, "HandlerLeak", `
+package test;
+import android.os.Handler;
+class Outer {
+    static class MyHandler extends Handler {
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("ignores Java Handler constructor with Looper super call", func(t *testing.T) {
+		findings := runJavaRuleByName(t, "HandlerLeak", `
+package test;
+import android.os.Handler;
+import android.os.Looper;
+class Outer {
+    class MyHandler extends Handler {
+        MyHandler(Looper looper) {
+            super(looper);
+        }
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("ignores Kotlin inner Handler with Looper constructor", func(t *testing.T) {
+		findings := runRuleByName(t, "HandlerLeak", `
+package test
+import android.os.Handler
+import android.os.Looper
+class Outer {
+    inner class MyHandler(looper: Looper) : Handler(looper)
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("resolver rejects local Handler supertype", func(t *testing.T) {
+		findings := runRuleByNameWithResolver(t, "HandlerLeak", `
+package test
+open class Handler
+class Outer {
+    inner class MyHandler : Handler()
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 	t.Run("clean code without Handler passes", func(t *testing.T) {
@@ -664,6 +757,29 @@ class MyActivity {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+}
+
+func runJavaRuleByName(t *testing.T, ruleName string, code string) []scanner.Finding {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.java")
+	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseJavaFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	for _, r := range v2rules.Registry {
+		if r.ID == ruleName {
+			d := rules.NewDispatcherV2([]*v2rules.Rule{r}, resolver)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", ruleName)
+	return nil
 }
 
 func TestRecycle(t *testing.T) {

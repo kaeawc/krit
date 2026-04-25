@@ -21,7 +21,6 @@ var heuristicRuleNames = map[string]bool{
 	"ArrayPrimitive":                   true,
 	"CouldBeSequence":                  true,
 	"GoogleAppIndexingWarningManifest": true,
-	"LayoutInflation":                  true,
 	"LongMethod":                       true,
 	"MagicNumber":                      true,
 	"UnsafeCallOnNullableType":         true,

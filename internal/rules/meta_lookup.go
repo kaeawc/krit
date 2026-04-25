@@ -55,6 +55,9 @@ func V2RulePrecision(r *v2.Rule) Precision {
 	if r.Needs.Has(v2.NeedsGradle) {
 		return PrecisionProjectStructure
 	}
+	if r.Needs.Has(v2.NeedsResources) {
+		return PrecisionProjectStructure
+	}
 	if r.Needs.Has(v2.NeedsParsedFiles) {
 		return PrecisionProjectStructure
 	}

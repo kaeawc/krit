@@ -1155,6 +1155,7 @@ potential-bugs:
 		Project:     androidProject,
 		ActiveRules: activeRules,
 		Dispatcher:  androidDispatcher,
+		SourceFiles: parsedFiles,
 		Providers:   androidProviders,
 		Tracker:     androidTracker,
 	})

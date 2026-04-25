@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
@@ -459,11 +460,10 @@ func (r *WrongImportRule) check(ctx *v2.Context) {
 }
 
 type LayoutInflationRule struct {
-	LineBase
+	FlatDispatchBase
+	LayoutResourceBase
 	AndroidRule
 }
-
-var layoutInflateNullRe = regexp.MustCompile(`\.inflate\s*\(\s*R\.layout\.\w+\s*,\s*null\b`)
 
 // layoutInflationDialogContexts are class suffixes / API markers where
 // passing null to inflate() is the correct idiomatic pattern because no
@@ -482,50 +482,170 @@ var layoutInflationDialogContexts = []string{
 	"Canvas(", "drawToBitmap",
 }
 
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *LayoutInflationRule) Confidence() float64 { return 0.75 }
+func (r *LayoutInflationRule) NodeTypes() []string { return []string{"call_expression"} }
+
+// Confidence reports a high-confidence AST/resource-backed check. The
+// remaining uncertainty is limited to intentional no-parent contexts that do
+// not have a precise type signal in tree-sitter-only analysis.
+func (r *LayoutInflationRule) Confidence() float64 { return 0.85 }
 
 func (r *LayoutInflationRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if scanner.IsCommentLine(line) || !layoutInflateNullRe.MatchString(line) {
-			continue
-		}
-		loc := layoutInflateNullRe.FindStringIndex(line)
-		if loc == nil {
-			continue
-		}
-		if enclosingAncestor(file, nodeAtPoint(file, i+1, loc[0]+1), "call_expression") == 0 {
-			continue
-		}
-		if containsAny(line, layoutInflationDialogContexts) {
-			continue
-		}
-		prefix, ok := prefixTextBeforeLine(file, i+1, "function_declaration", "secondary_constructor", "anonymous_initializer", "lambda_literal")
-		if ok {
-			if containsAny(prefix, layoutInflationDialogContexts) {
-				continue
-			}
-		} else {
-			scopeNode := enclosingAncestor(file, nodeAtLine(file, i+1), "class_declaration", "object_declaration")
-			if scopeNode == 0 {
-				scopeNode = enclosingAncestor(file, nodeAtLine(file, i+1), "source_file")
-			}
-			if scopeNode == 0 {
-				continue
-			}
-			if containsAny(declarationHeaderText(file, scopeNode), layoutInflationDialogContexts) {
-				continue
-			}
-		}
-		ctx.Emit(r.Finding(file, i+1, 1,
-			"Avoid passing null as the parent ViewGroup. Inflate with the parent to get correct LayoutParams."))
+	if ctx == nil || ctx.File == nil || ctx.Idx == 0 || ctx.ResourceIndex == nil {
+		return
 	}
+	file := ctx.File
+	if flatCallExpressionName(file, ctx.Idx) != "inflate" {
+		return
+	}
+	layoutName, ok := layoutInflationLayoutName(file, ctx.Idx)
+	if !ok || !layoutInflationSecondArgumentIsNull(file, ctx.Idx) {
+		return
+	}
+	if layoutInflationHasIntentionalNullParentContext(file, ctx.Idx) {
+		return
+	}
+	if !layoutInflationRootHasLayoutParams(ctx.ResourceIndex, layoutName) {
+		return
+	}
+	ctx.Emit(r.Finding(file, file.FlatRow(ctx.Idx)+1, file.FlatCol(ctx.Idx)+1,
+		"Avoid passing null as the parent ViewGroup. Inflate with the parent to get correct LayoutParams."))
+}
+
+func layoutInflationLayoutName(file *scanner.File, call uint32) (string, bool) {
+	args := flatCallKeyArguments(file, call)
+	if args == 0 {
+		return "", false
+	}
+	arg := flatNamedValueArgument(file, args, "resource")
+	if arg == 0 {
+		arg = flatPositionalValueArgument(file, args, 0)
+	}
+	expr := flatValueArgumentExpression(file, arg)
+	if expr == 0 {
+		return "", false
+	}
+	ids := layoutInflationIdentifierChain(file, flatUnwrapParenExpr(file, expr))
+	if len(ids) != 3 || ids[0] != "R" || ids[1] != "layout" || ids[2] == "" {
+		return "", false
+	}
+	return ids[2], true
+}
+
+func layoutInflationSecondArgumentIsNull(file *scanner.File, call uint32) bool {
+	args := flatCallKeyArguments(file, call)
+	if args == 0 {
+		return false
+	}
+	arg := flatNamedValueArgument(file, args, "root")
+	if arg == 0 {
+		arg = flatNamedValueArgument(file, args, "parent")
+	}
+	if arg == 0 {
+		arg = flatPositionalValueArgument(file, args, 1)
+	}
+	expr := flatValueArgumentExpression(file, arg)
+	if expr == 0 {
+		return strings.TrimSpace(file.FlatNodeText(arg)) == "null"
+	}
+	expr = flatUnwrapParenExpr(file, expr)
+	return expr != 0 && strings.TrimSpace(file.FlatNodeText(expr)) == "null"
+}
+
+func layoutInflationIdentifierChain(file *scanner.File, idx uint32) []string {
+	if file == nil || idx == 0 {
+		return nil
+	}
+	switch file.FlatType(idx) {
+	case "simple_identifier":
+		return []string{file.FlatNodeText(idx)}
+	case "navigation_expression":
+		var ids []string
+		var walk func(uint32)
+		walk = func(node uint32) {
+			for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+				if !file.FlatIsNamed(child) {
+					continue
+				}
+				switch file.FlatType(child) {
+				case "simple_identifier":
+					ids = append(ids, file.FlatNodeText(child))
+				case "navigation_expression", "navigation_suffix":
+					walk(child)
+				}
+			}
+		}
+		walk(idx)
+		return ids
+	default:
+		return nil
+	}
+}
+
+func layoutInflationRootHasLayoutParams(idx *android.ResourceIndex, layoutName string) bool {
+	if idx == nil || layoutName == "" {
+		return false
+	}
+	if configs := idx.LayoutConfigs[layoutName]; len(configs) > 0 {
+		for _, layout := range configs {
+			if layoutInflationViewHasLayoutParams(layoutRootView(layout)) {
+				return true
+			}
+		}
+		return false
+	}
+	return layoutInflationViewHasLayoutParams(layoutRootView(idx.Layouts[layoutName]))
+}
+
+func layoutRootView(layout *android.Layout) *android.View {
+	if layout == nil {
+		return nil
+	}
+	return layout.RootView
+}
+
+func layoutInflationViewHasLayoutParams(root *android.View) bool {
+	if root == nil {
+		return false
+	}
+	for attr := range root.Attributes {
+		prefix, local := "", attr
+		if idx := strings.LastIndex(attr, ":"); idx >= 0 {
+			prefix = attr[:idx]
+			local = attr[idx+1:]
+		}
+		if prefix == "tools" {
+			continue
+		}
+		if strings.HasPrefix(local, "layout_") {
+			return true
+		}
+	}
+	return false
+}
+
+func layoutInflationHasIntentionalNullParentContext(file *scanner.File, idx uint32) bool {
+	for cur, ok := idx, idx != 0; ok; cur, ok = file.FlatParent(cur) {
+		if file.FlatType(cur) != "call_expression" {
+			continue
+		}
+		switch flatCallNameAny(file, cur) {
+		case "AndroidView", "PopupWindow", "setView", "setContentView", "createBitmap", "drawToBitmap":
+			return true
+		}
+	}
+	for _, scopeType := range []string{"function_declaration", "class_declaration", "object_declaration"} {
+		if scope := enclosingAncestor(file, idx, scopeType); scope != 0 && containsAny(declarationHeaderText(file, scope), layoutInflationDialogContexts) {
+			return true
+		}
+	}
+	line := file.FlatRow(idx) + 1
+	if prefix, ok := prefixTextBeforeLine(file, line, "function_declaration", "secondary_constructor", "anonymous_initializer", "lambda_literal"); ok && containsAny(prefix, layoutInflationDialogContexts) {
+		return true
+	}
+	if fn := enclosingAncestor(file, idx, "function_declaration", "secondary_constructor", "anonymous_initializer", "lambda_literal"); fn != 0 && containsAny(file.FlatNodeText(fn), layoutInflationDialogContexts) {
+		return true
+	}
+	return false
 }
 
 type TrulyRandomRule struct {
@@ -1651,10 +1771,10 @@ func (r *RtlAwareRule) Confidence() float64 { return 0.75 }
 // Keys are bare callee identifiers; the rule uses flatCallExpressionName
 // to match, so there is no need to encode leading `.` / trailing `(`.
 var rtlAwareMethods = map[string]string{
-	"getLeft":          "getStart()",
-	"getRight":         "getEnd()",
-	"getPaddingLeft":   "getPaddingStart()",
-	"getPaddingRight":  "getPaddingEnd()",
+	"getLeft":         "getStart()",
+	"getRight":        "getEnd()",
+	"getPaddingLeft":  "getPaddingStart()",
+	"getPaddingRight": "getPaddingEnd()",
 }
 
 type RtlFieldAccessRule struct {

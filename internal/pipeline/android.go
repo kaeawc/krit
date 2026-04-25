@@ -31,6 +31,9 @@ type AndroidInput struct {
 	// nil, Run returns no findings (but still walks the project for
 	// parity with the pre-refactor empty-dispatcher behavior).
 	Dispatcher *rules.Dispatcher
+	// SourceFiles are parsed Kotlin files. Resource-backed source rules run
+	// over these once the merged ResourceIndex is available.
+	SourceFiles []*scanner.File
 	// Providers is an optional async scan provider bundle. When nil,
 	// Run constructs one lazily using runtime.NumCPU() workers.
 	Providers *AndroidProjectProviders
@@ -136,9 +139,11 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 		resourceMaxValuesDur    time.Duration
 		resourceMaxDrawableDur  time.Duration
 		resourceRulesDur        time.Duration
+		resourceSourceRulesDur  time.Duration
 		iconScanDur             time.Duration
 		iconWaitDur             time.Duration
 		iconRulesDur            time.Duration
+		resourceSourceIndexes   []*android.ResourceIndex
 	)
 	for _, resDir := range in.Project.ResDirs {
 		var (
@@ -207,6 +212,7 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 		if !hadResourceErr && len(partialIndexes) > 0 {
 			start := time.Now()
 			mergedIdx := android.MergeResourceIndexes(partialIndexes...)
+			resourceSourceIndexes = append(resourceSourceIndexes, mergedIdx)
 			if in.Dispatcher != nil {
 				file := &scanner.File{
 					Path:     resDir,
@@ -251,6 +257,16 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 	perf.AddEntry(resourceTracker, "maxDrawableDirScan", resourceMaxDrawableDur)
 	perf.AddEntry(resourceTracker, "drawableDirScan", resourceDrawableScanDur)
 	perf.AddEntry(resourceTracker, "resourceRuleChecks", resourceRulesDur)
+	if in.Dispatcher != nil && len(in.SourceFiles) > 0 && len(resourceSourceIndexes) > 0 {
+		start := time.Now()
+		mergedSourceIdx := android.MergeResourceIndexes(resourceSourceIndexes...)
+		for _, file := range in.SourceFiles {
+			cols := in.Dispatcher.RunResourceSource(file, mergedSourceIdx)
+			collector.AppendColumns(&cols)
+		}
+		resourceSourceRulesDur += time.Since(start)
+	}
+	perf.AddEntry(resourceTracker, "resourceSourceRuleChecks", resourceSourceRulesDur)
 	perf.AddEntry(resourceTracker, "iconScan", iconWaitDur)
 	perf.AddEntry(resourceTracker, "iconScanCPU", iconScanDur)
 	perf.AddEntry(resourceTracker, "iconRuleChecks", iconRulesDur)

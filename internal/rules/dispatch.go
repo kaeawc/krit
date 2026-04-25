@@ -171,3 +171,9 @@ func (d *Dispatcher) RunManifest(file *scanner.File, manifest *Manifest) scanner
 func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) scanner.FindingColumns {
 	return d.v2.RunResource(file, idx)
 }
+
+// RunResourceSource runs source AST rules that require the Android resource
+// index. See V2Dispatcher.RunResourceSource.
+func (d *Dispatcher) RunResourceSource(file *scanner.File, idx *android.ResourceIndex) scanner.FindingColumns {
+	return d.v2.RunResourceSource(file, idx)
+}

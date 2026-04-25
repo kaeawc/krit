@@ -368,26 +368,26 @@ class Foo {
 
 func TestLayoutInflation(t *testing.T) {
 	t.Run("flags inflate with null parent", func(t *testing.T) {
-		findings := runRuleByName(t, "LayoutInflation", `
+		findings := runLayoutInflationRule(t, `
 package test
 class Foo {
     fun onCreateView(inflater: LayoutInflater): View {
         return inflater.inflate(R.layout.main, null)
     }
-}`)
+}`, layoutInflationTestIndex())
 		if len(findings) == 0 {
 			t.Fatal("expected finding for inflate with null parent")
 		}
 	})
 
 	t.Run("ignores inflate with proper parent", func(t *testing.T) {
-		findings := runRuleByName(t, "LayoutInflation", `
+		findings := runLayoutInflationRule(t, `
 package test
 class Foo {
     fun onCreateView(inflater: LayoutInflater, container: ViewGroup?): View {
         return inflater.inflate(R.layout.main, container, false)
     }
-}`)
+}`, layoutInflationTestIndex())
 		if len(findings) != 0 {
 			t.Fatalf("expected no findings for inflate with parent, got %d", len(findings))
 		}

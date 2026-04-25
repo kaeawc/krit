@@ -297,6 +297,30 @@ var functionalOps = map[string]bool{
 	"asSequence": true, "asFlow": true,
 }
 
+var ignoredReturnValueFunctionalOpNames = []string{
+	"asFlow", "asSequence", "associate", "distinct", "drop", "filter", "filterIsInstance",
+	"filterNot", "flatMap", "flatten", "fold", "groupBy", "map", "mapKeys", "mapValues",
+	"minus", "partition", "plus", "reduce", "reversed", "sorted", "sortedBy", "sortedWith",
+	"take", "toList", "toMap", "toSet", "zip",
+}
+
+var ignoredReturnValueOracleIdentifiersList = []string{
+	"CheckReturnValue", "CheckResult",
+	"asFlow", "asSequence", "associate", "distinct", "drop", "filter", "filterIsInstance",
+	"filterNot", "flatMap", "flatten", "fold", "groupBy", "map", "mapKeys", "mapValues",
+	"minus", "partition", "plus", "reduce", "reversed", "sorted", "sortedBy", "sortedWith",
+	"take", "toList", "toMap", "toSet", "zip",
+	"Function", "Sequence", "Flow", "Stream",
+}
+
+func ignoredReturnValueFunctionalCallees() []string {
+	return append([]string(nil), ignoredReturnValueFunctionalOpNames...)
+}
+
+func ignoredReturnValueOracleIdentifiers() []string {
+	return append([]string(nil), ignoredReturnValueOracleIdentifiersList...)
+}
+
 func flatIsUsedAsExpression(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
 		return false
@@ -551,6 +575,64 @@ func hasIgnoreReturnAnnotation(annotations []string, configPatterns []string) bo
 	return false
 }
 
+func ignoredReturnValueAnnotationEvidence(annotations []string, checkPatterns, ignorePatterns []string) (check bool, ignored bool) {
+	return hasCheckReturnAnnotation(annotations, checkPatterns), hasIgnoreReturnAnnotation(annotations, ignorePatterns)
+}
+
+func ignoredReturnValueOracleAnnotations(lookup oracleAnnotationLookup, filePath string, line, col int) []string {
+	if lookup == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	add := func(values []string) {
+		for _, ann := range values {
+			if ann == "" || seen[ann] {
+				continue
+			}
+			seen[ann] = true
+			out = append(out, ann)
+		}
+	}
+	add(lookup.LookupCallTargetAnnotations(filePath, line, col))
+	target := lookup.LookupCallTarget(filePath, line, col)
+	if target == "" {
+		return out
+	}
+	add(lookup.LookupAnnotations(target))
+	for container := ignoredReturnValueContainerName(target); container != ""; container = ignoredReturnValueContainerName(container) {
+		simple := ignoredReturnValueSimpleContainerName(container)
+		if simple == "" || simple[0] < 'A' || simple[0] > 'Z' {
+			break
+		}
+		add(lookup.LookupAnnotations(container))
+		if simple != container {
+			add(lookup.LookupAnnotations(simple))
+		}
+	}
+	return out
+}
+
+type oracleAnnotationLookup interface {
+	LookupAnnotations(key string) []string
+	LookupCallTarget(filePath string, line, col int) string
+	LookupCallTargetAnnotations(filePath string, line, col int) []string
+}
+
+func ignoredReturnValueContainerName(target string) string {
+	if idx := strings.LastIndex(target, "."); idx > 0 {
+		return target[:idx]
+	}
+	return ""
+}
+
+func ignoredReturnValueSimpleContainerName(target string) string {
+	if idx := strings.LastIndex(target, "."); idx >= 0 && idx < len(target)-1 {
+		return target[idx+1:]
+	}
+	return target
+}
+
 // matchAnnotationPattern matches an annotation FQN against a pattern.
 // Patterns: exact match, "*.Name" matches any FQN ending with ".Name", "*Name"
 // matches a suffix.
@@ -649,6 +731,15 @@ func ignoredReturnValueTypeName(rt *typeinfer.ResolvedType) string {
 		return rt.Name
 	}
 	return "a must-use type"
+}
+
+func stringListContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------

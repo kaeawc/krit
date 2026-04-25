@@ -8,4 +8,10 @@ class MyActivity {
             // handle
         }
     }
+
+    val anonymous = object : Handler() {
+        override fun handleMessage(msg: android.os.Message) {
+            // handle
+        }
+    }
 }

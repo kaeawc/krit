@@ -10,4 +10,10 @@ class MyActivity {
             // handle safely
         }
     }
+
+    inner class LooperHandler(looper: Looper) : Handler(looper) {
+        override fun handleMessage(msg: android.os.Message) {
+            // handle safely
+        }
+    }
 }

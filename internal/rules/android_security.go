@@ -276,7 +276,6 @@ func addJavascriptInterfaceTypeIsWebView(resolver typeinfer.TypeResolver, typ *t
 	return visit(typ.FQN) || visit(typ.Name)
 }
 
-
 // GetInstanceRule detects Cipher.getInstance with insecure algorithms (ECB, DES).
 type GetInstanceRule struct {
 	FlatDispatchBase
@@ -417,7 +416,6 @@ func getInstanceFirstStringArg(file *scanner.File, args uint32) (string, bool) {
 	return "", false
 }
 
-
 // EasterEggRule detects comments containing easter egg references.
 type EasterEggRule struct{ AndroidRule }
 
@@ -443,7 +441,6 @@ func (r *EasterEggRule) check(ctx *v2.Context) {
 		}
 	}
 }
-
 
 // ExportedContentProviderRule detects exported content providers without permission.
 type ExportedContentProviderRule struct {
@@ -503,7 +500,6 @@ func (r *ExportedContentProviderRule) check(ctx *v2.Context) {
 		"ContentProvider subclass may be exported without permission. Ensure permissions are enforced.")
 }
 
-
 // ExportedReceiverRule detects exported receivers without permission.
 type ExportedReceiverRule struct {
 	FlatDispatchBase
@@ -529,7 +525,6 @@ func (r *ExportedReceiverRule) check(ctx *v2.Context) {
 	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 		"BroadcastReceiver subclass may be exported without permission. Ensure permissions are enforced.")
 }
-
 
 // GrantAllUrisRule detects overly broad URI permissions.
 type GrantAllUrisRule struct {
@@ -636,7 +631,6 @@ func grantUriTypeIsContext(resolver typeinfer.TypeResolver, typ *typeinfer.Resol
 	return visit(typ.FQN) || visit(typ.Name)
 }
 
-
 // SecureRandomRule detects java.util.Random usage where SecureRandom should be used.
 type SecureRandomRule struct {
 	FlatDispatchBase
@@ -683,7 +677,6 @@ func secureRandomImportsJavaUtilRandom(file *scanner.File) bool {
 	})
 	return javaUtil && !kotlinRandom
 }
-
 
 // TrustedServerRule detects trust-all certificate patterns.
 type TrustedServerRule struct{ AndroidRule }
@@ -875,7 +868,6 @@ func worldReadableIdentifierMatch(ctx *v2.Context, want string) bool {
 	return true
 }
 
-
 // =============================================================================
 // Performance Rules
 // =============================================================================
@@ -893,22 +885,22 @@ type DrawAllocationRule struct {
 // construction inside onDraw/draw triggers a finding. Matched by unqualified
 // type name.
 var drawAllocationAllocTypes = map[string]bool{
-	"Paint":              true,
-	"Rect":               true,
-	"RectF":              true,
-	"Path":               true,
-	"Matrix":             true,
-	"LinearGradient":     true,
-	"RadialGradient":     true,
-	"SweepGradient":      true,
-	"Bitmap":             true,
-	"PorterDuffXfermode": true,
-	"Shader":             true,
-	"ColorFilter":        true,
+	"Paint":                 true,
+	"Rect":                  true,
+	"RectF":                 true,
+	"Path":                  true,
+	"Matrix":                true,
+	"LinearGradient":        true,
+	"RadialGradient":        true,
+	"SweepGradient":         true,
+	"Bitmap":                true,
+	"PorterDuffXfermode":    true,
+	"Shader":                true,
+	"ColorFilter":           true,
 	"PorterDuffColorFilter": true,
-	"BitmapShader":       true,
-	"ComposeShader":      true,
-	"Region":             true,
+	"BitmapShader":          true,
+	"ComposeShader":         true,
+	"Region":                true,
 }
 
 // Confidence reports a tier-2 (medium) base confidence. AST-based
@@ -975,7 +967,6 @@ func drawAllocationIsAllocCall(file *scanner.File, call uint32) bool {
 	}
 	return drawAllocationAllocTypes[calleeName]
 }
-
 
 // FieldGetterRule detects using getter instead of direct field access in loops.
 type FieldGetterRule struct {
@@ -1086,7 +1077,6 @@ func hasZeroArguments(file *scanner.File, args uint32) bool {
 	return namedCount == 0
 }
 
-
 // FloatMathRule detects deprecated FloatMath usage via AST dispatch.
 type FloatMathRule struct {
 	FlatDispatchBase
@@ -1107,7 +1097,6 @@ func (r *FloatMathRule) check(ctx *v2.Context) {
 		"FloatMath is deprecated. Use kotlin.math or java.lang.Math instead."))
 }
 
-
 // HandlerLeakRule detects non-static inner Handler classes via AST dispatch.
 type HandlerLeakRule struct {
 	FlatDispatchBase
@@ -1118,23 +1107,24 @@ type HandlerLeakRule struct {
 // With type resolver verifying Handler inheritance: 0.90+. Classified per roadmap/17.
 func (r *HandlerLeakRule) Confidence() float64 { return 0.75 }
 
-func (r *HandlerLeakRule) NodeTypes() []string { return []string{"class_declaration", "object_literal"} }
+func (r *HandlerLeakRule) NodeTypes() []string {
+	return []string{"class_declaration", "object_literal", "object_creation_expression"}
+}
 
 func (r *HandlerLeakRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
 	nodeType := file.FlatType(idx)
 
 	if nodeType == "class_declaration" {
-		if !file.FlatHasModifier(idx, "inner") {
+		if !handlerClassMayCaptureOuterInstance(file, idx) {
 			return
 		}
-		for i := 0; i < file.FlatChildCount(idx); i++ {
-			child := file.FlatChild(idx, i)
-			if handlerSupertypeIsHandler(file, child) {
-				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"This Handler class should be static or leaks might occur. Use a WeakReference to the outer class."))
+		if handlerClassExtendsAndroidHandler(ctx, file, idx) {
+			if handlerClassHasLooperSuperConstructor(file, idx) {
 				return
 			}
+			ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				"This Handler class should be static or leaks might occur. Use a WeakReference to the outer class."))
 		}
 		return
 	}
@@ -1142,17 +1132,58 @@ func (r *HandlerLeakRule) check(ctx *v2.Context) {
 	if nodeType == "object_literal" {
 		for i := 0; i < file.FlatChildCount(idx); i++ {
 			child := file.FlatChild(idx, i)
-			if handlerSupertypeIsHandler(file, child) {
+			if handlerSupertypeIsHandler(ctx, file, child) {
 				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"Anonymous Handler may leak the enclosing class. Use a static inner class with a WeakReference."))
 				return
 			}
 		}
+		return
+	}
+
+	if nodeType == "object_creation_expression" {
+		if !handlerJavaObjectCreationIsAnonymousHandler(ctx, file, idx) {
+			return
+		}
+		ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			"Anonymous Handler may leak the enclosing class. Use a static inner class with a WeakReference."))
 	}
 }
 
-// handlerSupertypeIsHandler extracts supertype from delegation_specifier and checks if it's "Handler".
-func handlerSupertypeIsHandler(file *scanner.File, delegIdx uint32) bool {
+func handlerClassMayCaptureOuterInstance(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "class_declaration" {
+		return false
+	}
+	if file.Language == scanner.LangJava {
+		if file.FlatHasModifier(idx, "static") {
+			return false
+		}
+		parent, _ := file.FlatParent(idx)
+		return parent != 0 && file.FlatType(parent) == "class_body"
+	}
+	return file.FlatHasModifier(idx, "inner")
+}
+
+func handlerClassExtendsAndroidHandler(ctx *v2.Context, file *scanner.File, idx uint32) bool {
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "delegation_specifier":
+			if handlerSupertypeIsHandler(ctx, file, child) {
+				return true
+			}
+		case "superclass":
+			if handlerJavaSuperclassIsHandler(ctx, file, child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// handlerSupertypeIsHandler extracts a Kotlin supertype from delegation_specifier and checks
+// whether resolver/import evidence points at android.os.Handler. Without resolver evidence,
+// it preserves the existing simple-name fallback.
+func handlerSupertypeIsHandler(ctx *v2.Context, file *scanner.File, delegIdx uint32) bool {
 	if delegIdx == 0 || file.FlatType(delegIdx) != "delegation_specifier" {
 		return false
 	}
@@ -1174,7 +1205,233 @@ func handlerSupertypeIsHandler(file *scanner.File, delegIdx uint32) bool {
 			lastIdent = file.FlatNodeText(child)
 		}
 	}
-	return lastIdent == "Handler"
+	return handlerTypeIsAndroidHandler(ctx, file, lastIdent)
+}
+
+func handlerJavaSuperclassIsHandler(ctx *v2.Context, file *scanner.File, superclass uint32) bool {
+	for child := file.FlatFirstChild(superclass); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "type_identifier", "scoped_type_identifier", "scoped_identifier":
+			return handlerTypeIsAndroidHandler(ctx, file, file.FlatNodeText(child))
+		}
+	}
+	return false
+}
+
+func handlerJavaObjectCreationIsAnonymousHandler(ctx *v2.Context, file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "object_creation_expression" {
+		return false
+	}
+	if body, _ := file.FlatFindChild(idx, "class_body"); body == 0 {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "type_identifier", "scoped_type_identifier", "scoped_identifier":
+			return handlerTypeIsAndroidHandler(ctx, file, file.FlatNodeText(child))
+		}
+	}
+	return false
+}
+
+func handlerTypeIsAndroidHandler(ctx *v2.Context, file *scanner.File, typeName string) bool {
+	typeName = strings.TrimSpace(typeName)
+	if typeName == "" {
+		return false
+	}
+	if typeName == "android.os.Handler" || strings.HasSuffix(typeName, ".android.os.Handler") {
+		return true
+	}
+	if imported, ok := handlerFileImportForSimple(file, handlerSimpleTypeName(typeName)); ok {
+		return imported == "android.os.Handler" || imported == "android.os.*"
+	}
+	resolver := typeinfer.TypeResolver(nil)
+	if ctx != nil {
+		resolver = ctx.Resolver
+	}
+	if resolver != nil {
+		simple := handlerSimpleTypeName(typeName)
+		if imported := resolver.ResolveImport(simple, file); imported != "" {
+			return imported == "android.os.Handler"
+		}
+		if info := resolver.ClassHierarchy(typeName); info != nil {
+			return info.FQN == "android.os.Handler" || handlerSupertypesContain(info.Supertypes, "android.os.Handler")
+		}
+		if simple != typeName {
+			return false
+		}
+		return false
+	}
+	return typeName == "Handler" || strings.HasSuffix(typeName, ".Handler")
+}
+
+func handlerFileImportForSimple(file *scanner.File, simple string) (string, bool) {
+	if file == nil || simple == "" {
+		return "", false
+	}
+	var out string
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if out != "" {
+			return
+		}
+		switch file.FlatType(idx) {
+		case "import_header", "import_declaration":
+			text := strings.TrimSpace(file.FlatNodeText(idx))
+			text = strings.TrimPrefix(text, "import")
+			text = strings.TrimSpace(strings.TrimSuffix(text, ";"))
+			text = strings.TrimSuffix(text, ".*")
+			if handlerSimpleTypeName(text) == simple {
+				out = text
+				return
+			}
+			if text == "android.os" {
+				out = "android.os.*"
+			}
+		}
+	})
+	return out, out != ""
+}
+
+func handlerSimpleTypeName(typeName string) string {
+	if i := strings.LastIndex(typeName, "."); i >= 0 {
+		return typeName[i+1:]
+	}
+	return typeName
+}
+
+func handlerSupertypesContain(supertypes []string, want string) bool {
+	for _, st := range supertypes {
+		if st == want {
+			return true
+		}
+	}
+	return false
+}
+
+func handlerClassHasLooperSuperConstructor(file *scanner.File, classIdx uint32) bool {
+	if file == nil || classIdx == 0 {
+		return false
+	}
+	if file.Language == scanner.LangJava {
+		body, _ := file.FlatFindChild(classIdx, "class_body")
+		for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "constructor_declaration" && handlerJavaConstructorPassesLooperToSuper(file, child) {
+				return true
+			}
+		}
+		return false
+	}
+	return handlerKotlinPrimaryConstructorPassesLooperToHandler(file, classIdx)
+}
+
+func handlerJavaConstructorPassesLooperToSuper(file *scanner.File, ctor uint32) bool {
+	params, _ := file.FlatFindChild(ctor, "formal_parameters")
+	looperNames := map[string]bool{}
+	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "formal_parameter" {
+			continue
+		}
+		var hasLooper bool
+		var name string
+		for part := file.FlatFirstChild(child); part != 0; part = file.FlatNextSib(part) {
+			switch file.FlatType(part) {
+			case "type_identifier", "scoped_type_identifier", "scoped_identifier":
+				if handlerTypeNameIsLooper(file.FlatNodeText(part)) {
+					hasLooper = true
+				}
+			case "identifier":
+				name = file.FlatNodeText(part)
+			}
+		}
+		if hasLooper && name != "" {
+			looperNames[name] = true
+		}
+	}
+	if len(looperNames) == 0 {
+		return false
+	}
+	body, _ := file.FlatFindChild(ctor, "constructor_body")
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "explicit_constructor_invocation" || !strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(child)), "super") {
+			continue
+		}
+		if handlerArgumentListUsesAnyName(file, child, looperNames) {
+			return true
+		}
+	}
+	return false
+}
+
+func handlerKotlinPrimaryConstructorPassesLooperToHandler(file *scanner.File, classIdx uint32) bool {
+	params, _ := file.FlatFindChild(classIdx, "primary_constructor")
+	looperNames := map[string]bool{}
+	file.FlatWalkAllNodes(params, func(idx uint32) {
+		if file.FlatType(idx) != "class_parameter" {
+			return
+		}
+		nameNode, _ := file.FlatFindChild(idx, "simple_identifier")
+		if nameNode == 0 {
+			return
+		}
+		if handlerKotlinNodeContainsLooperType(file, idx) {
+			looperNames[file.FlatNodeText(nameNode)] = true
+		}
+	})
+	if len(looperNames) == 0 {
+		return false
+	}
+	for child := file.FlatFirstChild(classIdx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "delegation_specifier" {
+			continue
+		}
+		if handlerKotlinDelegationInvokesHandlerWithLooper(file, child, looperNames) {
+			return true
+		}
+	}
+	return false
+}
+
+func handlerKotlinNodeContainsLooperType(file *scanner.File, idx uint32) bool {
+	found := false
+	file.FlatWalkAllNodes(idx, func(child uint32) {
+		if file.FlatType(child) == "type_identifier" && handlerTypeNameIsLooper(file.FlatNodeText(child)) {
+			found = true
+		}
+	})
+	return found
+}
+
+func handlerKotlinDelegationInvokesHandlerWithLooper(file *scanner.File, delegIdx uint32, looperNames map[string]bool) bool {
+	ctor, _ := file.FlatFindChild(delegIdx, "constructor_invocation")
+	if ctor == 0 {
+		return false
+	}
+	userType, _ := file.FlatFindChild(ctor, "user_type")
+	typeNode := flatLastChildOfType(file, userType, "type_identifier")
+	if userType == 0 || typeNode == 0 || file.FlatNodeText(typeNode) != "Handler" {
+		return false
+	}
+	args, _ := file.FlatFindChild(ctor, "value_arguments")
+	return handlerArgumentListUsesAnyName(file, args, looperNames)
+}
+
+func handlerArgumentListUsesAnyName(file *scanner.File, idx uint32, names map[string]bool) bool {
+	used := false
+	file.FlatWalkAllNodes(idx, func(child uint32) {
+		if used {
+			return
+		}
+		switch file.FlatType(child) {
+		case "identifier", "simple_identifier":
+			used = names[file.FlatNodeText(child)]
+		}
+	})
+	return used
+}
+
+func handlerTypeNameIsLooper(typeName string) bool {
+	typeName = strings.TrimSpace(typeName)
+	return typeName == "Looper" || typeName == "android.os.Looper" || strings.HasSuffix(typeName, ".Looper")
 }
 
 // floatMathReceiverIsFloatMath checks if navigation_expression starts with "FloatMath" receiver.
@@ -1196,7 +1453,6 @@ func floatMathReceiverIsFloatMath(file *scanner.File, navExprIdx uint32) bool {
 	}
 	return false
 }
-
 
 // RecycleRule detects missing recycle()/close() calls for resources.
 type RecycleRule struct {
@@ -1347,4 +1603,3 @@ func (r *ByteOrderMarkRule) check(ctx *v2.Context) {
 		return
 	}
 }
-

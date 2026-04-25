@@ -155,7 +155,7 @@ func (r *SecureRandomRule) Meta() registry.RuleDescriptor {
 		ID:            "SecureRandom",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
-		Description:   "",
+		Description:   "Flags java.util.Random for security-sensitive code and deterministic SecureRandom.setSeed(long) calls.",
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.85,

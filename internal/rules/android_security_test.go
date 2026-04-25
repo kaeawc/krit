@@ -442,6 +442,66 @@ class TokenGen {
 			t.Fatal("expected findings")
 		}
 	})
+	t.Run("triggers on Kotlin literal SecureRandom setSeed", func(t *testing.T) {
+		findings := runRuleByName(t, "SecureRandom", `
+package test
+import java.security.SecureRandom
+class TokenGen {
+    fun generate() {
+        val rng = SecureRandom()
+        rng.setSeed(1234L)
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("triggers on Kotlin time-based SecureRandom setSeed", func(t *testing.T) {
+		findings := runRuleByName(t, "SecureRandom", `
+package test
+import java.security.SecureRandom
+class TokenGen {
+    fun generate() {
+        val rng = SecureRandom()
+        rng.setSeed(System.currentTimeMillis())
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("triggers on Java literal SecureRandom setSeed", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "SecureRandom", `
+package test;
+import java.security.SecureRandom;
+class TokenGen {
+    void generate() {
+        SecureRandom rng = new SecureRandom();
+        rng.setSeed(1L);
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("triggers on Java nanoTime SecureRandom setSeed", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "SecureRandom", `
+package test;
+import java.security.SecureRandom;
+class TokenGen {
+    void generate() {
+        SecureRandom rng = new SecureRandom();
+        rng.setSeed(System.nanoTime());
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
 	t.Run("clean code with SecureRandom passes", func(t *testing.T) {
 		findings := runRuleByName(t, "SecureRandom", `
 package test
@@ -449,6 +509,53 @@ import java.security.SecureRandom
 class TokenGen {
     fun generate() {
         val rng = SecureRandom()
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("does not trigger on SecureRandom byte-array seed", func(t *testing.T) {
+		findings := runRuleByName(t, "SecureRandom", `
+package test
+import java.security.SecureRandom
+class TokenGen {
+    fun generate(seedBytes: ByteArray) {
+        val rng = SecureRandom()
+        rng.setSeed(seedBytes)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("does not trigger on kotlin.random.Random setSeed", func(t *testing.T) {
+		findings := runRuleByName(t, "SecureRandom", `
+package test
+import kotlin.random.Random
+class CustomRandom {
+    fun generate() {
+        val rng = Random(1234)
+        rng.nextLong()
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("does not trigger on unrelated Java setSeed", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "SecureRandom", `
+package test;
+class TokenGen {
+    static class Seeder {
+        void setSeed(long seed) {}
+    }
+    void generate() {
+        Seeder rng = new Seeder();
+        rng.setSeed(1L);
     }
 }
 `)

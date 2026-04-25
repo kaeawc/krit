@@ -32,6 +32,24 @@ func parseInline(t *testing.T, code string) *scanner.File {
 func runRuleByName(t *testing.T, ruleName string, code string) []scanner.Finding {
 	t.Helper()
 	file := parseInline(t, code)
+	return runRuleByNameOnFile(t, ruleName, file)
+}
+
+func runRuleByNameOnJava(t *testing.T, ruleName string, code string) []scanner.Finding {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.java")
+	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseJavaFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runRuleByNameOnFile(t, ruleName, file)
+}
+
+func runRuleByNameOnFile(t *testing.T, ruleName string, file *scanner.File) []scanner.Finding {
+	t.Helper()
 	for _, r := range v2rules.Registry {
 		if r.ID == ruleName {
 			d := rules.NewDispatcherV2([]*v2rules.Rule{r})

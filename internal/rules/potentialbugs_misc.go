@@ -222,7 +222,6 @@ type HasPlatformTypeRule struct {
 	BaseRule
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence because the rule
 // falls back to a string-prefix heuristic on "java./javax./android./Java/Javax"
 // when the resolver cannot determine the return type. Findings from that
@@ -419,7 +418,9 @@ func containsAsciiInvariantIdentifier(text string) bool {
 // isLocaleInsensitiveFormat reports whether a format string contains only
 // locale-independent placeholders (%s, %S, %%, %n, %b, %c, %h, %x, %o). It
 // returns false if any locale-sensitive placeholder (%d, %f, %e, %g, %t, %T,
-// or any numeric width specifier like %,d) is present.
+// or any grouped numeric width specifier like %,d) is present. Krit follows
+// detekt and Android lint here: even ungrouped %d depends on the default
+// formatter locale because some locales emit localized digits.
 func isLocaleInsensitiveFormat(formatStr string) bool {
 	// Strip surrounding quotes
 	s := formatStr
@@ -458,15 +459,13 @@ func isLocaleInsensitiveFormat(formatStr string) bool {
 			return false
 		}
 		conv := s[j]
-		// Locale-independent conversions: s, S, b, B, c, C, h, H, x, X, o, d.
-		// %d without a grouping flag (,) produces ASCII digits only — the
-		// Arabic/Persian localization is a theoretical concern that virtually
-		// no real app hits. Keep %f/%e/%g/%t locale-sensitive (decimal point).
+		// Locale-independent conversions: s, S, b, B, c, C, h, H, x, X, o.
+		// %d is intentionally locale-sensitive: Formatter can localize digits.
 		switch conv {
-		case 's', 'S', 'b', 'B', 'c', 'C', 'h', 'H', 'x', 'X', 'o', 'd':
+		case 's', 'S', 'b', 'B', 'c', 'C', 'h', 'H', 'x', 'X', 'o':
 			// OK
-		case 'f', 'e', 'E', 'g', 'G', 'a', 'A':
-			return false // numeric with decimal — locale-sensitive
+		case 'd', 'f', 'e', 'E', 'g', 'G', 'a', 'A':
+			return false // numeric — locale-sensitive
 		case 't', 'T':
 			return false // date/time — locale-sensitive
 		default:
@@ -588,7 +587,6 @@ type ImplicitDefaultLocaleRule struct {
 	FlatDispatchBase
 	BaseRule
 }
-
 
 // Confidence reports a tier-2 (medium) base confidence because the rule
 // matches on method names (toLowerCase/toUpperCase/capitalize/

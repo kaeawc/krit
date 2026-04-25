@@ -173,6 +173,103 @@ fun main() {
 	}
 }
 
+func TestImplicitDefaultLocale_FormatSpecifierPolicy(t *testing.T) {
+	tests := []struct {
+		name         string
+		call         string
+		wantFindings int
+	}{
+		{name: "integer digits", call: `String.format("%d", count)`, wantFindings: 1},
+		{name: "grouped integer", call: `String.format("%,d", count)`, wantFindings: 1},
+		{name: "floating point", call: `String.format("%.2f", value)`, wantFindings: 1},
+		{name: "date time", call: `String.format("%tF", now)`, wantFindings: 1},
+		{name: "string", call: `String.format("%s", name)`, wantFindings: 0},
+		{name: "escaped percent", call: `String.format("progress %% done")`, wantFindings: 0},
+		{name: "escaped percent before d", call: `String.format("%%d")`, wantFindings: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings := runRuleByName(t, "ImplicitDefaultLocale", `
+package test
+fun main(now: Long, value: Double, count: Int, name: String) {
+    `+tt.call+`
+}
+`)
+			if len(findings) != tt.wantFindings {
+				t.Fatalf("expected %d findings for %s, got %d", tt.wantFindings, tt.call, len(findings))
+			}
+		})
+	}
+}
+
+func TestImplicitDefaultLocale_FormatPositiveSpecifiers(t *testing.T) {
+	findings := runRuleByName(t, "ImplicitDefaultLocale", `
+package test
+fun main(now: Long, value: Double, count: Int) {
+    String.format("Audio: %d Kbit/s", count)
+    String.format("%,d", count)
+    "%.2f".format(value)
+    "%tF".format(now)
+    "Timestamp: %d".format(now)
+}
+`)
+	if len(findings) != 5 {
+		t.Fatalf("expected 5 findings for locale-sensitive format specifiers, got %d", len(findings))
+	}
+}
+
+func TestImplicitDefaultLocale_FormatNegativeSpecifiers(t *testing.T) {
+	findings := runRuleByName(t, "ImplicitDefaultLocale", `
+package test
+import java.util.Locale
+fun main(value: Double, count: Int, name: String) {
+    String.format(Locale.US, "Audio: %d Kbit/s", count)
+    "%.2f".format(Locale.US, value)
+    String.format("%s", name)
+    "progress %% done".format()
+    "%%d".format()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for explicit Locale or locale-insensitive specifiers, got %d", len(findings))
+	}
+}
+
+func TestImplicitDefaultLocale_OracleConfirmsStringFormatTargets(t *testing.T) {
+	findings := runRuleByNameWithCallTarget(t, "ImplicitDefaultLocale", `
+package test
+fun main(count: Int) {
+    String.format("Audio: %d Kbit/s", count)
+}
+`, `String.format("Audio: %d Kbit/s", count)`, "java.lang.String.format")
+	if len(findings) != 1 {
+		t.Fatalf("expected finding for resolved java.lang.String.format, got %d", len(findings))
+	}
+
+	findings = runRuleByNameWithCallTarget(t, "ImplicitDefaultLocale", `
+package test
+fun main(value: Double) {
+    "%.2f".format(value)
+}
+`, `"%.2f".format(value)`, "kotlin.text.format")
+	if len(findings) != 1 {
+		t.Fatalf("expected finding for resolved kotlin.text.format, got %d", len(findings))
+	}
+}
+
+func TestImplicitDefaultLocale_OracleSuppressesNonStringFormatTargets(t *testing.T) {
+	findings := runRuleByNameWithCallTarget(t, "ImplicitDefaultLocale", `
+package test
+fun kotlin.String.format(value: Double): kotlin.String = this
+fun main(value: Double) {
+    "%.2f".format(value)
+}
+`, `"%.2f".format(value)`, "test.format")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for resolved user-defined format extension, got %d", len(findings))
+	}
+}
+
 // --- LocaleDefaultForCurrency ---
 
 func TestLocaleDefaultForCurrency_Positive(t *testing.T) {

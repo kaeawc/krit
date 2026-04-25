@@ -29,6 +29,28 @@ var _ = regexp.MustCompile
 
 var _ = strings.Contains
 
+func implicitDefaultLocaleOracleCallTarget(ctx *v2.Context, idx uint32) (target string, oracleAvailable bool) {
+	if ctx == nil || ctx.Resolver == nil || ctx.File == nil {
+		return "", false
+	}
+	cr, ok := ctx.Resolver.(*oracle.CompositeResolver)
+	if !ok || cr.Oracle() == nil {
+		return "", false
+	}
+	return cr.Oracle().LookupCallTarget(ctx.File.Path, ctx.File.FlatRow(idx)+1, ctx.File.FlatCol(idx)+1), true
+}
+
+func implicitDefaultLocaleIsStringFormatTarget(target string) bool {
+	target = strings.TrimSpace(strings.ReplaceAll(target, "#", "."))
+	if target == "" {
+		return false
+	}
+	return strings.HasPrefix(target, "kotlin.text.format") ||
+		strings.HasPrefix(target, "kotlin.text.StringsKt.format") ||
+		strings.Contains(target, ".kotlin.text.StringsKt.format") ||
+		strings.HasPrefix(target, "java.lang.String.format")
+}
+
 func init() {
 	registerAllRules()
 }
@@ -10857,6 +10879,12 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsTypeInfo,
+			OracleCallTargets: &v2.OracleCallTargetFilter{
+				TargetFQNs:  []string{"java.lang.String.format", "kotlin.text.format", "kotlin.text.StringsKt.format"},
+				CalleeNames: []string{"format"},
+			},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if strings.HasSuffix(file.Path, ".gradle.kts") {
@@ -10900,6 +10928,11 @@ func registerAllRules() {
 				if methodName == "format" {
 					if receiverIdx == 0 {
 						return
+					}
+					if target, ok := implicitDefaultLocaleOracleCallTarget(ctx, idx); ok {
+						if !implicitDefaultLocaleIsStringFormatTarget(target) {
+							return
+						}
 					}
 					receiverType := file.FlatType(receiverIdx)
 

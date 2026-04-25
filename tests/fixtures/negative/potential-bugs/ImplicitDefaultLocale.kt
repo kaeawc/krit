@@ -18,9 +18,16 @@ class ImplicitDefaultLocale {
 
     fun formatStringWithLocale() {
         String.format(Locale.US, "%d", 1)
+        String.format(Locale.US, "%,d", 1000)
+        String.format(Locale.US, "%.2f", 1.0)
+        String.format("%s", "name")
+        String.format("progress %% done")
     }
 
     fun formatExtensionWithLocale() {
         "%d".format(Locale.US, 1)
+        "%.2f".format(Locale.US, 1.0)
+        "%s".format("name")
+        "%%d".format()
     }
 }

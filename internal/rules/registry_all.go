@@ -9895,26 +9895,14 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Needs: v2.NeedsResolver,
+			Needs:                  v2.NeedsTypeInfo,
+			Oracle:                 &v2.OracleFilter{Identifiers: sequenceCollectionOperationNames()},
+			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: sequenceCollectionOperationNames()},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				count := 0
-				current := idx
-				for current != 0 {
-					name := flatCallExpressionName(file, current)
-					if collectionOps[name] {
-						count++
-					} else {
-						break
-					}
-					if parent, ok := file.FlatParent(current); ok && file.FlatType(parent) == "navigation_expression" {
-						if gp, ok := file.FlatParent(parent); ok && file.FlatType(gp) == "call_expression" {
-							current = gp
-							continue
-						}
-					}
-					break
-				}
+				calls := collectCollectionChainCallsFlat(file, idx)
+				count := len(calls)
 				if count <= r.AllowedOperations {
 					return
 				}
@@ -9923,12 +9911,15 @@ func registerAllRules() {
 					return
 				}
 				if ctx.Resolver != nil {
-					resolved := flatResolveByName(file, ctx.Resolver, rootReceiver)
-					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
-						if resolvedTypeMatches(resolved, sequenceExcludedTypes) {
-							return
+					if decided, report := sequenceOracleDecisionFlat(file, ctx.Resolver, calls); decided {
+						if report {
+							ctx.EmitAt(file.FlatRow(idx)+1, 1,
+								fmt.Sprintf("Chain of %d collection operations. Consider using 'asSequence()' for better performance.", count))
 						}
-						if resolvedTypeMatches(resolved, sequenceCandidateTypes) {
+						return
+					}
+					if decided, report := sequenceResolverDecisionFlat(file, ctx.Resolver, rootReceiver, calls); decided {
+						if report {
 							ctx.EmitAt(file.FlatRow(idx)+1, 1,
 								fmt.Sprintf("Chain of %d collection operations. Consider using 'asSequence()' for better performance.", count))
 						}

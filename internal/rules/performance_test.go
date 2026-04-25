@@ -28,6 +28,47 @@ func runPerformanceRuleWithResolver(t *testing.T, ruleName string, code string, 
 	return nil
 }
 
+func runCouldBeSequenceWithCallTargets(t *testing.T, code string, targetsByName map[string]string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if target := targetsByName[strings.TrimSpace(flatCallNameForTest(file, idx))]; target != "" {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = target
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range v2rules.Registry {
+		if r.ID == "CouldBeSequence" {
+			dispatcher := rules.NewDispatcherV2([]*v2rules.Rule{r}, composite)
+			cols := dispatcher.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatal("rule \"CouldBeSequence\" not found in registry")
+	return nil
+}
+
+func flatCallNameForTest(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 || file.FlatType(idx) != "call_expression" || file.FlatNamedChildCount(idx) == 0 {
+		return ""
+	}
+	first := file.FlatNamedChild(idx, 0)
+	text := file.FlatNodeText(first)
+	text = strings.TrimSpace(text)
+	if dot := strings.LastIndex(text, "."); dot >= 0 {
+		text = text[dot+1:]
+	}
+	if paren := strings.Index(text, "("); paren >= 0 {
+		text = text[:paren]
+	}
+	return strings.TrimSpace(text)
+}
+
 // --- SpreadOperator ---
 
 func TestSpreadOperator_Positive(t *testing.T) {
@@ -308,6 +349,17 @@ fun bar() {
 	}
 }
 
+func TestCouldBeSequence_PositiveSetSource(t *testing.T) {
+	findings := runRuleByName(t, "CouldBeSequence", `
+package test
+fun bar() {
+    val result = setOf(1, 2, 3).filter { it > 1 }.map { it * 2 }.distinct()
+}`)
+	if len(findings) == 0 {
+		t.Error("CouldBeSequence should flag obvious Set chains")
+	}
+}
+
 func TestCouldBeSequence_Negative(t *testing.T) {
 	findings := runRuleByName(t, "CouldBeSequence", `
 package test
@@ -316,6 +368,28 @@ fun bar() {
 }`)
 	if len(findings) != 0 {
 		t.Errorf("CouldBeSequence should not flag single collection operation, got %d findings", len(findings))
+	}
+}
+
+func TestCouldBeSequence_NegativeAsSequence(t *testing.T) {
+	findings := runRuleByName(t, "CouldBeSequence", `
+package test
+fun bar(items: List<Int>) {
+    val result = items.asSequence().filter { it > 1 }.map { it * 2 }.toList()
+}`)
+	if len(findings) != 0 {
+		t.Errorf("CouldBeSequence should not flag existing sequence chains, got %d findings", len(findings))
+	}
+}
+
+func TestCouldBeSequence_NegativeMapSource(t *testing.T) {
+	findings := runRuleByName(t, "CouldBeSequence", `
+package test
+fun bar() {
+    val result = mapOf("a" to 1, "b" to 2).filter { it.value > 1 }.map { it.key }.sorted()
+}`)
+	if len(findings) != 0 {
+		t.Errorf("CouldBeSequence should not flag Map chains in no-type fallback, got %d findings", len(findings))
 	}
 }
 
@@ -337,9 +411,27 @@ fun bar() {
 	}
 }
 
+func TestCouldBeSequence_NegativeResolvedFlow(t *testing.T) {
+	resolver := typeinfer.NewFakeResolver()
+	resolver.NameTypes["items"] = &typeinfer.ResolvedType{
+		Name: "Flow",
+		FQN:  "kotlinx.coroutines.flow.Flow",
+		Kind: typeinfer.TypeClass,
+	}
+	findings := runPerformanceRuleWithResolver(t, "CouldBeSequence", `
+package test
+import kotlinx.coroutines.flow.Flow
+fun bar(items: Flow<Int>) {
+    val result = items.filter { it > 1 }.map { it * 2 }.take(10)
+}`, resolver)
+	if len(findings) != 0 {
+		t.Errorf("CouldBeSequence should not flag Flow chains, got %d findings", len(findings))
+	}
+}
+
 func TestCouldBeSequence_WithResolver(t *testing.T) {
 	resolver := typeinfer.NewFakeResolver()
-	resolver.NodeTypes["items"] = &typeinfer.ResolvedType{
+	resolver.NameTypes["items"] = &typeinfer.ResolvedType{
 		Name: "List",
 		FQN:  "kotlin.collections.List",
 		Kind: typeinfer.TypeClass,
@@ -351,6 +443,58 @@ fun bar(items: List<Int>) {
 }`, resolver)
 	if len(findings) == 0 {
 		t.Error("CouldBeSequence should flag resolved List receiver chains")
+	}
+}
+
+func TestCouldBeSequence_WithResolverSet(t *testing.T) {
+	resolver := typeinfer.NewFakeResolver()
+	resolver.NameTypes["items"] = &typeinfer.ResolvedType{
+		Name: "Set",
+		FQN:  "kotlin.collections.Set",
+		Kind: typeinfer.TypeClass,
+	}
+	findings := runPerformanceRuleWithResolver(t, "CouldBeSequence", `
+package test
+fun bar(items: Set<Int>) {
+    val result = items.filter { it > 1 }.map { it * 2 }.take(10)
+}`, resolver)
+	if len(findings) == 0 {
+		t.Error("CouldBeSequence should flag resolved Set receiver chains")
+	}
+}
+
+func TestCouldBeSequence_WithOracleCollectionCallTargets(t *testing.T) {
+	findings := runCouldBeSequenceWithCallTargets(t, `
+package test
+fun bar(items: List<Int>) {
+    val result = items.filter { it > 1 }.map { it * 2 }.take(10)
+}`, map[string]string{
+		"filter": "kotlin.collections.filter",
+		"map":    "kotlin.collections.map",
+		"take":   "kotlin.collections.take",
+	})
+	if len(findings) == 0 {
+		t.Error("CouldBeSequence should flag KAA-confirmed collection chains")
+	}
+}
+
+func TestCouldBeSequence_WithOracleCustomCallTargets(t *testing.T) {
+	findings := runCouldBeSequenceWithCallTargets(t, `
+package test
+class Query {
+    fun filter(block: (Int) -> Boolean) = this
+    fun map(block: (Int) -> Int) = this
+    fun take(count: Int) = this
+}
+fun bar(query: Query) {
+    val result = query.filter { true }.map { it }.take(10)
+}`, map[string]string{
+		"filter": "test.Query.filter",
+		"map":    "test.Query.map",
+		"take":   "test.Query.take",
+	})
+	if len(findings) != 0 {
+		t.Errorf("CouldBeSequence should not flag oracle-confirmed custom fluent APIs, got %d findings", len(findings))
 	}
 }
 

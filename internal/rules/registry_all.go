@@ -10759,18 +10759,16 @@ func registerAllRules() {
 			Needs: v2.NeedsTypeInfo,
 			OracleCallTargets: &v2.OracleCallTargetFilter{
 				DiscardedOnly:        true,
-				AnnotatedIdentifiers: []string{"CheckReturnValue", "CheckResult"},
+				AnnotatedIdentifiers: []string{"CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"},
 			},
-			// Narrow by the @CheckReturnValue / @CheckResult tokens. The
-			// functional-ops path (map/filter/…) does not require the
-			// oracle — it fires on tree-sitter alone. The oracle is only
-			// consulted to resolve annotations on called symbols, which
-			// requires the annotation file to be in the oracle input set.
-			// Files lacking either token cannot contribute an oracle-only
-			// finding (see issue #306).
-			Oracle: &v2.OracleFilter{Identifiers: []string{"CheckReturnValue", "CheckResult"}},
-			// Uses LookupCallTargetAnnotations (annotations embedded directly in
-			// call-resolution data) so no declaration extraction is needed.
+			// Keep oracle input bounded to files that mention detekt's default
+			// must-use return-type families or return-value annotations. Return
+			// type checks use LookupExpression through the composite resolver;
+			// call-target resolution remains narrowed to annotated declarations.
+			Oracle: &v2.OracleFilter{Identifiers: []string{"Sequence", "Flow", "Stream", "Function", "->", "CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}},
+			// Uses expression-level type data and LookupCallTargetAnnotations
+			// (annotations embedded directly in call-resolution data), so no
+			// declaration extraction is needed.
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
@@ -10787,30 +10785,50 @@ func registerAllRules() {
 				col := file.FlatCol(idx) + 1
 				isKnownFunctionalOp := functionalOps[funcName]
 
-				// Without oracle annotation metadata, only known functional operations can
-				// produce a finding in the current heuristics.
-				if oracleLookup == nil && !isKnownFunctionalOp {
-					return
-				}
-
 				// Check if this call's result is discarded (not used as expression)
 				if flatIsUsedAsExpression(file, idx) {
 					return
 				}
 
-				// Oracle-based annotation check: annotations are embedded in the
-				// call-target resolution entry, so no member-declaration extraction is needed.
+				var annotations []string
 				if oracleLookup != nil {
-					annotations := oracleLookup.LookupCallTargetAnnotations(file.Path, line, col)
+					annotations = oracleLookup.LookupCallTargetAnnotations(file.Path, line, col)
+					if hasIgnoreReturnAnnotation(annotations, r.IgnoreReturnValueAnnotations) {
+						return
+					}
 					if hasCheckReturnAnnotation(annotations, r.ReturnValueAnnotations) &&
-						!hasIgnoreReturnAnnotation(annotations, r.IgnoreReturnValueAnnotations) {
+						!r.RestrictToConfig {
+						ctx.EmitAt(line, col,
+							fmt.Sprintf("Return value of '%s' is ignored. The function is annotated with @CheckReturnValue.", funcName))
+						return
+					}
+					if r.RestrictToConfig && hasCheckReturnAnnotation(annotations, r.ReturnValueAnnotations) {
 						ctx.EmitAt(line, col,
 							fmt.Sprintf("Return value of '%s' is ignored. The function is annotated with @CheckReturnValue.", funcName))
 						return
 					}
 				}
 
-				if isKnownFunctionalOp {
+				if ctx.Resolver != nil {
+					rt := ctx.Resolver.ResolveFlatNode(idx, file)
+					if ignoredReturnValueTypeMatches(rt, r.ReturnValueTypes, r.RestrictToConfig) {
+						ctx.EmitAt(line, col,
+							fmt.Sprintf("Return value of '%s' is ignored. The call returns %s.", funcName, ignoredReturnValueTypeName(rt)))
+						return
+					}
+					if oracleLookup != nil && ignoredReturnValueTypeKnown(rt) {
+						return
+					}
+					if r.RestrictToConfig {
+						return
+					}
+				}
+
+				if !r.RestrictToConfig && isKnownFunctionalOp {
+					// No resolver/oracle evidence matched. Keep the historical
+					// tree-sitter-only heuristic for no-KAA runs, but only after
+					// resolved Unit/Nothing, type, and annotation checks had a
+					// chance to classify the call.
 					ctx.EmitAt(line, col,
 						"Return value of functional operation is ignored. If this is intentional, assign to a variable or use 'also' instead.")
 				}

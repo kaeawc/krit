@@ -13,4 +13,10 @@ class IgnoredReturnValue {
             emptySet()
         }
     }
+
+    fun log(): Unit = Unit
+
+    fun ignoredUnitIsOk() {
+        log()
+    }
 }

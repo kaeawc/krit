@@ -5,10 +5,14 @@ package rules
 // Origin: https://android.googlesource.com/platform/tools/base/+/refs/heads/main/lint/libs/lint-checks/
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
+	androidproject "github.com/kaeawc/krit/internal/android"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -28,6 +32,8 @@ type AddJavascriptInterfaceRule struct {
 	FlatDispatchBase
 	AndroidRule
 }
+
+var addJavascriptInterfaceSDKCache sync.Map // map[string]addJavascriptInterfaceSDKContext
 
 func (r *AddJavascriptInterfaceRule) check(ctx *v2.Context) {
 	if ctx == nil || ctx.File == nil || ctx.Idx == 0 {
@@ -51,10 +57,154 @@ func (r *AddJavascriptInterfaceRule) check(ctx *v2.Context) {
 	}
 	line := file.FlatRow(ctx.Idx) + 1
 	col := file.FlatCol(ctx.Idx) + 1
-	f := r.Finding(file, line, col,
-		"addJavascriptInterface called. This can introduce XSS vulnerabilities on older Android versions.")
-	f.Confidence = confidence
-	ctx.Emit(f)
+	sdk := addJavascriptInterfaceSDKContextForFile(file.Path)
+	if sdk.minSdk < 17 {
+		f := r.Finding(file, line, col,
+			"addJavascriptInterface called while minSdk is below 17. This exposes injected objects to reflection on older Android versions.")
+		f.Confidence = confidence
+		ctx.Emit(f)
+	}
+	if sdk.targetSdk >= 17 && addJavascriptInterfaceBridgeMissingAnnotation(file, ctx.Idx) {
+		f := r.Finding(file, line, col,
+			"Injected JavaScript interface has no @JavascriptInterface-annotated methods for targetSdk 17 or higher.")
+		f.Confidence = confidence
+		ctx.Emit(f)
+	}
+}
+
+type addJavascriptInterfaceSDKContext struct {
+	minSdk    int
+	targetSdk int
+}
+
+func addJavascriptInterfaceSDKContextForFile(path string) addJavascriptInterfaceSDKContext {
+	if cached, ok := addJavascriptInterfaceSDKCache.Load(path); ok {
+		return cached.(addJavascriptInterfaceSDKContext)
+	}
+	sdk := addJavascriptInterfaceSDKContext{}
+	for _, dir := range ancestorDirs(filepath.Dir(path)) {
+		for _, name := range []string{"build.gradle.kts", "build.gradle"} {
+			buildPath := filepath.Join(dir, name)
+			data, err := os.ReadFile(buildPath)
+			if err != nil {
+				continue
+			}
+			cfg, err := androidproject.ParseBuildGradleContent(string(data))
+			if err != nil {
+				continue
+			}
+			if cfg.MinSdkVersion > 0 {
+				sdk.minSdk = cfg.MinSdkVersion
+			}
+			if cfg.TargetSdkVersion > 0 {
+				sdk.targetSdk = cfg.TargetSdkVersion
+			}
+			if sdk.minSdk > 0 || sdk.targetSdk > 0 {
+				addJavascriptInterfaceSDKCache.Store(path, sdk)
+				return sdk
+			}
+		}
+		for _, rel := range []string{"src/main/AndroidManifest.xml", "AndroidManifest.xml"} {
+			manifestPath := filepath.Join(dir, rel)
+			manifest, err := androidproject.ParseManifest(manifestPath)
+			if err != nil {
+				continue
+			}
+			if manifest.UsesSdk.MinSdkVersion != "" {
+				sdk.minSdk, _ = strconv.Atoi(manifest.UsesSdk.MinSdkVersion)
+			}
+			if manifest.UsesSdk.TargetSdkVersion != "" {
+				sdk.targetSdk, _ = strconv.Atoi(manifest.UsesSdk.TargetSdkVersion)
+			}
+			if sdk.minSdk > 0 || sdk.targetSdk > 0 {
+				addJavascriptInterfaceSDKCache.Store(path, sdk)
+				return sdk
+			}
+		}
+	}
+	addJavascriptInterfaceSDKCache.Store(path, sdk)
+	return sdk
+}
+
+func ancestorDirs(dir string) []string {
+	if dir == "" || dir == "." {
+		return nil
+	}
+	dir = filepath.Clean(dir)
+	var dirs []string
+	for {
+		dirs = append(dirs, dir)
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return dirs
+}
+
+func addJavascriptInterfaceBridgeMissingAnnotation(file *scanner.File, call uint32) bool {
+	_, args := flatCallExpressionParts(file, call)
+	if args == 0 {
+		return false
+	}
+	arg := flatPositionalValueArgument(file, args, 0)
+	if arg == 0 {
+		arg = flatNamedValueArgument(file, args, "object")
+	}
+	if arg == 0 {
+		arg = flatNamedValueArgument(file, args, "obj")
+	}
+	expr := flatValueArgumentExpression(file, arg)
+	className := addJavascriptInterfaceConstructedClassName(file, expr)
+	if className == "" {
+		return false
+	}
+	classDecl := addJavascriptInterfaceSameFileClass(file, className)
+	return classDecl != 0 && !addJavascriptInterfaceClassHasAnnotatedMethod(file, classDecl)
+}
+
+func addJavascriptInterfaceConstructedClassName(file *scanner.File, expr uint32) string {
+	if file == nil || expr == 0 {
+		return ""
+	}
+	expr = flatUnwrapParenExpr(file, expr)
+	if file.FlatType(expr) == "call_expression" {
+		if name := flatCallExpressionName(file, expr); name != "" {
+			return name
+		}
+	}
+	var name string
+	file.FlatWalkNodes(expr, "type_identifier", func(idx uint32) {
+		if name == "" {
+			name = file.FlatNodeText(idx)
+		}
+	})
+	return name
+}
+
+func addJavascriptInterfaceSameFileClass(file *scanner.File, name string) uint32 {
+	var classDecl uint32
+	file.FlatWalkNodes(0, "class_declaration", func(candidate uint32) {
+		if classDecl == 0 && extractIdentifierFlat(file, candidate) == name {
+			classDecl = candidate
+		}
+	})
+	return classDecl
+}
+
+func addJavascriptInterfaceClassHasAnnotatedMethod(file *scanner.File, classDecl uint32) bool {
+	found := false
+	file.FlatWalkNodes(classDecl, "function_declaration", func(fn uint32) {
+		if found {
+			return
+		}
+		owner, ok := flatEnclosingAncestor(file, fn, "class_declaration")
+		if ok && owner == classDecl && hasAnnotationNamed(file, fn, "JavascriptInterface") {
+			found = true
+		}
+	})
+	return found
 }
 
 func addJavascriptInterfaceReceiverConfidence(ctx *v2.Context, receiverExpr uint32) (float64, bool) {
@@ -1197,5 +1347,4 @@ func (r *ByteOrderMarkRule) check(ctx *v2.Context) {
 		return
 	}
 }
-
 

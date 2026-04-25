@@ -6800,13 +6800,6 @@ func registerAllRules() {
 				if !injectDispatcherTypeConfirmedOrUnknown(ctx.Resolver, file, dispatcherNode) {
 					return
 				}
-				receiver, method := callCalleePartsFlat(file, idx)
-				if isIdiomaticDispatcherHost(receiver, method) {
-					return
-				}
-				if isInsideObjectOrJvmStaticFlat(file, idx) {
-					return
-				}
 				matchLine := file.FlatRow(dispatcherNode) + 1
 				matchCol := file.FlatCol(dispatcherNode) + 1
 				ctx.EmitAt(matchLine, matchCol,

@@ -330,7 +330,7 @@ suspend fun loadData() {
 	}
 }
 
-func TestInjectDispatcher_DefaultDoesNotFlagMain(t *testing.T) {
+func TestInjectDispatcher_PositiveMain(t *testing.T) {
 	findings := runRuleByName(t, "InjectDispatcher", `
 package test
 import kotlinx.coroutines.Dispatchers
@@ -338,15 +338,12 @@ suspend fun loadData() {
     withContext(Dispatchers.Main) { renderUi() }
 }
 `)
-	if len(findings) != 0 {
-		t.Errorf("expected Dispatchers.Main to be clean by default, got %d: %v", len(findings), findings)
+	if len(findings) == 0 {
+		t.Error("expected InjectDispatcher to flag hardcoded Dispatchers.Main")
 	}
 }
 
 func TestInjectDispatcher_ChainedCallNoDuplicates(t *testing.T) {
-	// flowOn() and CoroutineScope() are idiomatic dispatcher acceptance
-	// points where injection doesn't apply — they should not fire. But a
-	// raw `withContext(Dispatchers.X)` still should.
 	findings := runRuleByName(t, "InjectDispatcher", `
 package test
 import kotlinx.coroutines.Dispatchers

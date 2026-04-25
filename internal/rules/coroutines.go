@@ -80,21 +80,6 @@ type InjectDispatcherRule struct {
 // gap noted in roadmap/17.
 func (r *InjectDispatcherRule) Confidence() float64 { return 0.75 }
 
-func isInsideObjectOrJvmStaticFlat(file *scanner.File, idx uint32) bool {
-	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-		switch file.FlatType(p) {
-		case "object_declaration", "companion_object":
-			return true
-		case "function_declaration":
-			if hasAnnotationFlat(file, p, "JvmStatic") {
-				return true
-			}
-		case "class_declaration":
-			return false
-		}
-	}
-	return false
-}
 
 func directCallArgumentsFlat(file *scanner.File, idx uint32) uint32 {
 	for i := 0; i < file.FlatNamedChildCount(idx); i++ {
@@ -114,7 +99,7 @@ func directCallArgumentsFlat(file *scanner.File, idx uint32) uint32 {
 
 func injectDispatcherNames(names []string) map[string]bool {
 	if len(names) == 0 {
-		return map[string]bool{"IO": true, "Default": true, "Unconfined": true}
+		return map[string]bool{"IO": true, "Default": true, "Unconfined": true, "Main": true}
 	}
 	out := make(map[string]bool, len(names))
 	for _, name := range names {
@@ -201,37 +186,6 @@ func injectDispatcherResolvedTypeIsCoroutineDispatcher(typ *typeinfer.ResolvedTy
 	return false
 }
 
-func callCalleePartsFlat(file *scanner.File, idx uint32) (receiver string, method string) {
-	if file == nil || file.FlatChildCount(idx) == 0 {
-		return "", ""
-	}
-	first := file.FlatChild(idx, 0)
-	switch file.FlatType(first) {
-	case "simple_identifier":
-		return "", file.FlatNodeText(first)
-	case "navigation_expression":
-		return flatReceiverNameFromCall(file, idx), flatNavigationExpressionLastIdentifier(file, first)
-	default:
-		return "", ""
-	}
-}
-
-func isIdiomaticDispatcherHost(receiver string, method string) bool {
-	switch method {
-	case "flowOn", "shareIn":
-		return true
-	case "CoroutineScope":
-		return receiver == ""
-	case "async":
-		return receiver == "viewModelScope"
-	case "launch":
-		return receiver == "viewModelScope" || receiver == "lifecycleScope"
-	case "launchWhenCreated", "launchWhenStarted", "launchWhenResumed":
-		return receiver == "lifecycleScope"
-	default:
-		return false
-	}
-}
 
 // RedundantSuspendModifierRule detects suspend functions with no suspend calls inside.
 // With type inference: uses ResolveNode on call expressions to check if the call

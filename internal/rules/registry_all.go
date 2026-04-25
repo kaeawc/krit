@@ -4933,10 +4933,11 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: r.Confidence(), OriginalV1: r,
-			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{
-				"requestLocationUpdates", "getLastKnownLocation", "getCellLocation", "open", "setAudioSource",
-				"checkSelfPermission", "requestPermissions", "launch",
-			}},
+			Oracle: &v2.OracleFilter{Identifiers: missingPermissionOracleIdentifiers()},
+			OracleCallTargets: &v2.OracleCallTargetFilter{
+				CalleeNames:          missingPermissionCandidateCalleeNames(),
+				AnnotatedIdentifiers: missingPermissionAnnotatedIdentifiers,
+			},
 			// Uses LookupCallTarget for FQN verification and AST for
 			// @RequiresPermission guards; no oracle member annotations needed.
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},

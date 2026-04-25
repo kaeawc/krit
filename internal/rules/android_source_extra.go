@@ -2,6 +2,7 @@ package rules
 
 import (
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -58,6 +59,36 @@ var missingPermissionAPIs = []permissionAPI{
 		callTargets:   []string{"android.media.MediaRecorder.setAudioSource"},
 		receiverTypes: []string{"android.media.MediaRecorder"},
 	},
+}
+
+var missingPermissionAnnotatedIdentifiers = []string{"RequiresPermission"}
+
+var missingPermissionCandidateCallees = missingPermissionCandidateCalleeSet()
+
+func missingPermissionCandidateCalleeSet() map[string]bool {
+	out := make(map[string]bool, len(missingPermissionAPIs))
+	for _, api := range missingPermissionAPIs {
+		if api.callee != "" {
+			out[api.callee] = true
+		}
+	}
+	return out
+}
+
+func missingPermissionCandidateCalleeNames() []string {
+	out := make([]string, 0, len(missingPermissionCandidateCallees))
+	for name := range missingPermissionCandidateCallees {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func missingPermissionOracleIdentifiers() []string {
+	out := append([]string(nil), missingPermissionCandidateCalleeNames()...)
+	out = append(out, missingPermissionAnnotatedIdentifiers...)
+	sort.Strings(out)
+	return out
 }
 
 var missingPermissionKnownPerms = map[string]bool{
@@ -694,6 +725,10 @@ func (r *MissingPermissionRule) check(ctx *v2.Context) {
 	if first := file.FlatChild(ctx.Idx, 0); first != 0 && file.FlatType(first) == "call_expression" {
 		return
 	}
+	callee := flatCallExpressionName(file, ctx.Idx)
+	if !missingPermissionCandidateCallees[callee] && !missingPermissionHasAnnotatedSameFileCandidate(ctx, ctx.Idx, callee) {
+		return
+	}
 	match, evidence, ok := missingPermissionRequiredAPI(ctx, ctx.Idx)
 	if !ok {
 		return
@@ -740,6 +775,38 @@ func missingPermissionRequiredAPI(ctx *v2.Context, call uint32) (permissionAPI, 
 		return api, semantics.EvidenceSameFileDeclaration, true
 	}
 	return permissionAPI{}, semantics.EvidenceUnresolved, false
+}
+
+func missingPermissionHasAnnotatedSameFileCandidate(ctx *v2.Context, call uint32, callee string) bool {
+	if ctx == nil || ctx.File == nil || call == 0 || callee == "" {
+		return false
+	}
+	file := ctx.File
+	if !strings.Contains(string(file.Content), "RequiresPermission") {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		if found || !missingPermissionFunctionHasName(file, fn, callee) {
+			return
+		}
+		if _, ok := missingPermissionRequiredPermissionAnnotation(ctx, fn); ok && semantics.SameFileDeclarationMatch(ctx, fn, call) {
+			found = true
+		}
+	})
+	return found
+}
+
+func missingPermissionFunctionHasName(file *scanner.File, fn uint32, name string) bool {
+	if file == nil || fn == 0 || name == "" {
+		return false
+	}
+	for child := file.FlatFirstChild(fn); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "simple_identifier" && file.FlatNodeString(child, nil) == name {
+			return true
+		}
+	}
+	return false
 }
 
 func missingPermissionCallTargetMatches(got string, wants []string) bool {

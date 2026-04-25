@@ -73,6 +73,36 @@ func oracleCallTargetIdentifiers(filter *v2.OracleCallTargetFilter) []string {
 	return filter.CalleeNames
 }
 
+func TestMissingPermissionOracleFiltersAreNarrowed(t *testing.T) {
+	var rule *v2.Rule
+	for _, r := range v2.Registry {
+		if r.ID == "MissingPermission" {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("MissingPermission rule not found in v2.Registry")
+	}
+	if rule.Oracle == nil || rule.Oracle.AllFiles {
+		t.Fatalf("MissingPermission Oracle filter = %+v, want identifier narrowing", rule.Oracle)
+	}
+	wantIdentifiers := []string{"RequiresPermission", "getCellLocation", "getLastKnownLocation", "open", "requestLocationUpdates", "setAudioSource"}
+	if !slices.Equal(rule.Oracle.Identifiers, wantIdentifiers) {
+		t.Fatalf("MissingPermission Oracle.Identifiers = %v, want %v", rule.Oracle.Identifiers, wantIdentifiers)
+	}
+	if rule.OracleCallTargets == nil || rule.OracleCallTargets.AllCalls {
+		t.Fatalf("MissingPermission OracleCallTargets = %+v, want bounded call filtering", rule.OracleCallTargets)
+	}
+	wantCallees := []string{"getCellLocation", "getLastKnownLocation", "open", "requestLocationUpdates", "setAudioSource"}
+	if !slices.Equal(rule.OracleCallTargets.CalleeNames, wantCallees) {
+		t.Fatalf("MissingPermission OracleCallTargets.CalleeNames = %v, want %v", rule.OracleCallTargets.CalleeNames, wantCallees)
+	}
+	if !slices.Equal(rule.OracleCallTargets.AnnotatedIdentifiers, []string{"RequiresPermission"}) {
+		t.Fatalf("MissingPermission OracleCallTargets.AnnotatedIdentifiers = %v, want [RequiresPermission]", rule.OracleCallTargets.AnnotatedIdentifiers)
+	}
+}
+
 func TestOracleCallTargetFilterDefaultRulesEnabled(t *testing.T) {
 	var active []*v2.Rule
 	for _, r := range v2.Registry {

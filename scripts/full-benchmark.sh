@@ -16,17 +16,18 @@ PROJECTS=(
 )
 
 # Add local codebases if they exist
+GITHUB_DIR="${GITHUB_DIR:-$HOME/github}"
 for p in \
-    "/Users/jason/github/nowinandroid:Now in Android (Google)" \
-    "/Users/jason/github/coil:Coil (image loading)" \
-    "/Users/jason/github/circuit:Circuit (Slack)" \
-    "/Users/jason/github/anvil:Anvil (Square)" \
-    "/Users/jason/github/detekt:detekt (linter)" \
-    "/Users/jason/github/sentry-java:Sentry Java" \
-    "/Users/jason/github/metro:Metro (Slack)" \
-    "/Users/jason/github/apps-android-wikipedia:Wikipedia Android" \
-    "/Users/jason/github/dd-sdk-android:Datadog Android SDK" \
-    "/Users/jason/github/Signal-Android:Signal-Android"; do
+    "$GITHUB_DIR/nowinandroid:Now in Android (Google)" \
+    "$GITHUB_DIR/coil:Coil (image loading)" \
+    "$GITHUB_DIR/circuit:Circuit (Slack)" \
+    "$GITHUB_DIR/anvil:Anvil (Square)" \
+    "$GITHUB_DIR/detekt:detekt (linter)" \
+    "$GITHUB_DIR/sentry-java:Sentry Java" \
+    "$GITHUB_DIR/metro:Metro (Slack)" \
+    "$GITHUB_DIR/apps-android-wikipedia:Wikipedia Android" \
+    "$GITHUB_DIR/dd-sdk-android:Datadog Android SDK" \
+    "$GITHUB_DIR/Signal-Android:Signal-Android"; do
     path="${p%%:*}"
     if [ -d "$path" ]; then
         PROJECTS+=("$p")

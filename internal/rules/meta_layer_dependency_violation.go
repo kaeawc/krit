@@ -1,17 +1,15 @@
 package rules
 
-// Hand-written Meta() for LayerDependencyViolationRule. The generator
-// (krit-gen) excludes this struct via its excludedStructs map, so this
-// file is the sole source of truth for the rule's descriptor.
+// Hand-written Meta() for LayerDependencyViolationRule. This file is the sole
+// source of truth for the rule's descriptor.
 //
 // Why hand-written:
 //   Legacy internal/rules/config.go#applyRuleConfig (case
 //   *LayerDependencyViolationRule) calls arch.ParseLayerConfig(cfg) — a
 //   whole-config-tree read rather than a single YAML key lookup. The
-//   generator's ConfigOption shape expresses "read key X, assign field
-//   Y"; no single Option can represent "read the entire config, parse
-//   nested maps, build a *arch.LayerConfig". We use the CustomApply
-//   escape hatch instead.
+//   ConfigOption expresses "read key X, assign field Y"; no single Option can
+//   represent "read the entire config, parse nested maps, build a
+//   *arch.LayerConfig". We use the CustomApply escape hatch instead.
 
 import (
 	"github.com/kaeawc/krit/internal/arch"

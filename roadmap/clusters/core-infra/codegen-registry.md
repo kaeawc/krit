@@ -104,11 +104,11 @@ Reads `build/rule_inventory.json` and emits per-source-file
 name→descriptor index + `AllMetaProviders()`). Runs in `-verify` mode
 in CI to detect drift.
 
-### `krit-registry-extract` (`internal/codegen/cmd/krit-registry-extract`)
+### `
 
 Extracts `v2.Register(...)` / manifest / resource / gradle
 registrations from rule source files and emits
-`internal/rules/zz_registry_gen.go`, replacing the 68 per-rule
+`internal/rules/registry_all.go`, replacing the 68 per-rule
 `init()` blocks with one consolidated init.
 
 ### `tools/rule_inventory.py`
@@ -132,16 +132,16 @@ Eight commits on `main` landed the migration:
 | `0902ea1` | 3A | `ConfigAdapter` + `ApplyConfigViaRegistry` + 561/561 parity harness gating rollout |
 | `88202d5` | 3C | `ApplyConfig` cut over to the registry; legacy switch + hand-maintained `DefaultInactive` map deleted |
 | `43d4c3b` | 3E | `go:generate` directives + CI freshness test `TestGeneratedFilesUpToDate`; inventory script refresh |
-| `122e9b6` | 3F-inv / 3G | `krit-registry-extract` emits `zz_registry_gen.go`, eliminating 68 per-rule `init()` bodies |
+| `122e9b6` | 3F-inv / 3G | `
 
 Artifacts in-tree today:
 
 - **66 generated files**: 64 `zz_meta_<src>_gen.go` + 1
-  `zz_meta_index_gen.go` + 1 `zz_registry_gen.go`.
+  `zz_meta_index_gen.go` + 1 `registry_all.go`.
 - **4 hand-written `meta_*.go` overrides** (plus `meta_lookup.go`, the
   generic `MetaForRule` helper that handles alias fallbacks).
 - **3 remaining `init()` calls in `internal/rules/`** — all
-  infrastructure, none per-rule: `zz_registry_gen.go` (one consolidated
+  infrastructure, none per-rule: `registry_all.go` (one consolidated
   init for all 628 rules), `zzz_v2bridge.go` (v2 bridge population),
   `defaults.go` (lazy `DefaultInactive` population hook).
 - **~1500 lines deleted** from `config.go` + `defaults.go` + schema
@@ -172,17 +172,17 @@ Artifacts in-tree today:
 3. Run `python3 tools/rule_inventory.py && go generate ./internal/rules/...`.
 4. `go test ./... -count=1` — the CI freshness tests
    `TestGeneratedFilesUpToDate` (krit-gen) and `TestRegistryFileUpToDate`
-   (krit-registry-extract) fail if step 3 was skipped.
+   (
 
 ## Acceptance criteria
 
 | Criterion | Status | Notes |
 |---|---|---|
-| No `func init()` calls in `internal/rules/` per-rule | ✅ | Three remaining inits (`zz_registry_gen.go`, `zzz_v2bridge.go`, `defaults.go`) are infrastructure, not rule registrations. |
+| No `func init()` calls in `internal/rules/` per-rule | ✅ | Three remaining inits (`registry_all.go`, `zzz_v2bridge.go`, `defaults.go`) are infrastructure, not rule registrations. |
 | `applyRuleConfig()` deleted | ✅ | Cut over in commit `88202d5`. Replaced by `ApplyConfigViaRegistry` which walks `Meta().Options`. |
 | `DefaultInactive` global map replaced | ✅ (with deviation) | Now **lazy-runtime-initialized** from the generated `AllMetaProviders()` index via `ensureDefaultInactive()` + `sync.Once`, not a compile-time `const` set. Functionally equivalent — see Deviations. |
 | Adding a new rule requires only the rule's file | ✅ (with nuance) | No shared infrastructure edit, but authors must invoke `python3 tools/rule_inventory.py && go generate` to refresh generated inputs. The CI freshness test forces this. |
-| CI fails if generated files are out of date | ✅ | `TestGeneratedFilesUpToDate` (re-runs `krit-gen -verify`) and `TestRegistryFileUpToDate` (re-runs `krit-registry-extract -verify`). |
+| CI fails if generated files are out of date | ✅ | `TestGeneratedFilesUpToDate` (re-runs `krit-gen -verify`) and `TestRegistryFileUpToDate` (re-runs `
 | All existing config-driven tests pass | ✅ | Full suite green; 561/561 parity between legacy and registry paths before legacy-path deletion. |
 
 ## Deviations from original proposal
@@ -222,5 +222,5 @@ Artifacts in-tree today:
   version hashes can be derived from descriptor checksums)
 - Related: `internal/rules/registry/`, `internal/rules/config.go`,
   `internal/rules/defaults.go`, `internal/codegen/cmd/krit-gen/`,
-  `internal/codegen/cmd/krit-registry-extract/`,
+  `internal/codegen/cmd/
   `tools/rule_inventory.py`, `build/rule_inventory.json`

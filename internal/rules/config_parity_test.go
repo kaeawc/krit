@@ -239,19 +239,16 @@ type parityResult struct {
 }
 
 // knownParityDivergences lists rules whose Meta() descriptor cannot yet
-// reproduce the legacy behavior. Phase 3C must fix these (or the Meta()
-// generator) before the legacy switch can be deleted. Keeping the list
-// here — rather than suppressing failures silently — makes it visible to
-// reviewers and ensures the test still runs the matrix (so we notice if a
-// divergence expands into a wider regression).
+// reproduce the legacy behavior. Keeping the list here rather than suppressing
+// failures silently makes it visible to reviewers and ensures the test still
+// runs the matrix.
 //
 // As of Phase 3C the map is empty: the four rules previously listed here
 // (ForbiddenImport's dual-field write, LayerDependencyViolation's
 // whole-config read, NewerVersionAvailable's []string → []libMinVersion
 // transform, and PublicToInternalLeakyAbstraction's int-percent →
 // float-fraction transform) have all been moved to hand-written Meta()
-// files (meta_*.go in internal/rules) and the generator now excludes
-// them. Parity is 100%.
+// files (meta_*.go in internal/rules). Parity is 100%.
 var knownParityDivergences = map[string]string{}
 
 // runParityMatrix exercises the full case matrix against a single rule.
@@ -261,7 +258,7 @@ func runParityMatrix(t *testing.T, m migratedRule) parityResult {
 		return parityResult{kind: paritySkip, reason: "KNOWN_DIVERGENCE: " + reason}
 	}
 
-	// Skip rules whose only option has Apply=nil (codegen-unsupported type).
+	// Skip rules whose only option has Apply=nil (descriptor-unsupported type).
 	// LayerDependencyViolation's LayerConfig is the only known case.
 	if len(m.meta.Options) > 0 {
 		allNil := true
@@ -274,7 +271,7 @@ func runParityMatrix(t *testing.T, m migratedRule) parityResult {
 		if allNil {
 			return parityResult{
 				kind:   paritySkip,
-				reason: fmt.Sprintf("all %d option(s) have Apply=nil (codegen-unsupported type)", len(m.meta.Options)),
+				reason: fmt.Sprintf("all %d option(s) have Apply=nil (descriptor-unsupported type)", len(m.meta.Options)),
 			}
 		}
 	}

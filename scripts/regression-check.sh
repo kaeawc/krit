@@ -10,7 +10,7 @@ echo ""
 
 check() {
     local name="$1" path="$2" min="$3" max="$4"
-    count=$(./krit -f json -no-cache -no-type-inference -no-type-oracle -q "$path" 2>/dev/null | python3 -c "import json,sys;print(len(json.load(sys.stdin).get('findings',[])))" 2>/dev/null)
+    count=$(./krit -f json -no-cache -no-type-inference -no-type-oracle -q "$path" 2>/dev/null | go run ./internal/devtools/jsonstat -mode findings 2>/dev/null)
     if [ "$count" -ge "$min" ] && [ "$count" -le "$max" ]; then
         echo -e "  ${GREEN}PASS${NC} $name: $count findings (expected $min-$max)"
     else

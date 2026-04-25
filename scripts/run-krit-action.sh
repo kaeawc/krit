@@ -42,12 +42,7 @@ if [ "$REPORTER" = "sarif" ]; then
 
   # Count findings from SARIF
   if [ -f "$SARIF_FILE" ]; then
-    COUNT=$(python3 -c "
-import json, sys
-with open('$SARIF_FILE') as f:
-    data = json.load(f)
-print(sum(len(run.get('results', [])) for run in data.get('runs', [])))
-" 2>/dev/null || echo "0")
+    COUNT=$(go run ./internal/devtools/jsonstat -mode sarif-results -file "$SARIF_FILE" 2>/dev/null || echo "0")
   else
     COUNT=0
   fi

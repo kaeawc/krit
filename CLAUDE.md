@@ -63,7 +63,7 @@ Cross-file dead code detection indexes Kotlin declarations, then cross-reference
 1. Create the rule struct in the appropriate `internal/rules/*.go` file
 2. Implement `DispatchRule` (preferred) or `LineRule`
 3. Register in `init()` via `v2.Register(&YourRule{...})`
-4. Declare default-activity and config options via the generated `Meta()` descriptor — run `python3 tools/rule_inventory.py && go generate ./internal/rules/...` to refresh. Hand-write `meta_YourRule.go` (and add to `excludedStructs` in `internal/codegen/cmd/krit-gen/main.go`) only for exotic config shapes
+4. Declare default-activity and config options via the checked-in `Meta()` descriptor. Keep `internal/rules/registry_all.go`, defaults, and metadata in sync.
 5. Create `tests/fixtures/positive/<category>/YourRule.kt` (code that triggers)
 6. Create `tests/fixtures/negative/<category>/YourRule.kt` (code that doesn't trigger)
 7. Optionally add auto-fix: implement `IsFixable()`, add `FixLevel()`, populate `f.Fix` in `CheckNode()`

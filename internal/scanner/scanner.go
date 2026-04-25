@@ -15,32 +15,17 @@ import (
 	"github.com/smacker/go-tree-sitter/kotlin"
 )
 
-// kotlinParserPool pools tree-sitter Kotlin parsers to avoid repeated allocation.
-var kotlinParserPool = sync.Pool{
-	New: func() interface{} {
-		p := sitter.NewParser()
-		p.SetLanguage(kotlin.GetLanguage())
-		return p
-	},
-}
-
-// GetKotlinParser returns a pooled Kotlin parser. Callers must call PutKotlinParser when done.
+// GetKotlinParser returns a fresh Kotlin parser. Callers must call
+// PutKotlinParser when done.
 func GetKotlinParser() *sitter.Parser {
-	return kotlinParserPool.Get().(*sitter.Parser)
+	p := sitter.NewParser()
+	p.SetLanguage(kotlin.GetLanguage())
+	return p
 }
 
-// PutKotlinParser returns a Kotlin parser to the pool for reuse.
+// PutKotlinParser releases a Kotlin parser.
 func PutKotlinParser(p *sitter.Parser) {
-	kotlinParserPool.Put(p)
-}
-
-// javaParserPool pools tree-sitter Java parsers to avoid repeated allocation.
-var javaParserPool = sync.Pool{
-	New: func() interface{} {
-		p := sitter.NewParser()
-		p.SetLanguage(java.GetLanguage())
-		return p
-	},
+	p.Close()
 }
 
 // Finding is the serialization-boundary representation of a single lint
@@ -419,8 +404,9 @@ func parseJavaFileCached(path string, pc *ParseCache, opts javaParseOptions) (*F
 		opts.perf.CacheMisses.Add(1)
 	}
 
-	parser := javaParserPool.Get().(*sitter.Parser)
-	defer javaParserPool.Put(parser)
+	parser := sitter.NewParser()
+	parser.SetLanguage(java.GetLanguage())
+	defer parser.Close()
 	parseStart := time.Now()
 	tree, err := parser.ParseCtx(context.Background(), nil, content)
 	if opts.perf != nil {

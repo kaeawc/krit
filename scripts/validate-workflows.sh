@@ -16,7 +16,7 @@ if [ ${#yaml_files[@]} -eq 0 ]; then
   echo "WARNING: No YAML files found under .github/"
 else
   for f in "${yaml_files[@]}"; do
-    if python3 -c "import yaml; yaml.safe_load(open('$f'))" 2>/dev/null; then
+    if (cd "$REPO_ROOT" && go run ./internal/devtools/yamlcheck "$f") >/dev/null 2>&1; then
       echo "  OK: ${f#"$REPO_ROOT"/}"
     else
       echo "  FAIL: ${f#"$REPO_ROOT"/}"

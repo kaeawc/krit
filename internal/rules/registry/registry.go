@@ -199,9 +199,9 @@ func ApplyConfigActiveOnly(d RuleDescriptor, cfg ConfigSource) (active bool) {
 // the given descriptor slice. The returned map is safe for the caller to
 // mutate (it's not shared).
 //
-// This replaces the hand-maintained internal/rules/defaults.go map: once
-// every rule publishes a descriptor, the generator can emit the set
-// directly from the DefaultActive field.
+// This replaces the hand-maintained internal/rules/defaults.go map: every
+// rule publishes a descriptor and the set is derived directly from the
+// DefaultActive field.
 func DefaultInactiveSet(descs []RuleDescriptor) map[string]bool {
 	m := make(map[string]bool, len(descs))
 	for _, d := range descs {

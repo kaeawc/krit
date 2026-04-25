@@ -14,12 +14,12 @@ import (
 //   - rule-level `active: true|false` overrides DefaultInactive
 //   - per-rule `excludes` lists a set of file globs (detekt-compatible)
 //   - every configured option on the rule's Meta() descriptor is applied
-//     to the concrete struct via its generated Apply closure
+//     to the concrete struct via its descriptor Apply closure
 //
 // The single source of truth for rule metadata is MetaForRule(), which
 // reads Meta() from the rule struct when available (via Unwrap) and
-// falls back to the generated metaByName index for adapter-wrapped rules
-// that dropped the concrete pointer.
+// falls back to the metaByName index for adapter-wrapped rules that dropped
+// the concrete pointer.
 func ApplyConfig(cfg *config.Config) {
 	if cfg == nil {
 		return

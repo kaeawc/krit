@@ -5,8 +5,8 @@
 set -euo pipefail
 
 INPUT=$(cat)
-FINDINGS=$(echo "$INPUT" | python3 -c "import json,sys;print(len(json.load(sys.stdin).get('findings',[])))" 2>/dev/null || echo "?")
-FILES=$(echo "$INPUT" | python3 -c "import json,sys;print(json.load(sys.stdin).get('files',0))" 2>/dev/null || echo "?")
+FINDINGS=$(echo "$INPUT" | go run ./internal/devtools/jsonstat -mode findings 2>/dev/null || echo "?")
+FILES=$(echo "$INPUT" | go run ./internal/devtools/jsonstat -mode files 2>/dev/null || echo "?")
 
 if [ "$FINDINGS" = "0" ]; then
     COLOR="#4c1"

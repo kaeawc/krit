@@ -1,14 +1,8 @@
-// Package registry is the foundation of the code-generated rule registry.
+// Package registry defines rule metadata descriptors and config application.
 //
-// Every rule type will eventually expose a Meta() RuleDescriptor method. A
-// code generator reads those methods and emits the registration glue, config
-// application, and JSON schema. This package defines the types and runtime
-// used by both the generator and the generated code.
-//
-// The package has no dependencies on internal/rules or internal/rules/v2 —
-// the dependency must flow in one direction (rules depends on registry, not
-// vice versa) so the generator can run on any rule source file without
-// pulling in the whole analysis graph.
+// The package has no dependencies on internal/rules or internal/rules/v2; the
+// dependency flows in one direction so descriptors can be shared by config,
+// schema, and tests without pulling in the whole analysis graph.
 package registry
 
 // RuleDescriptor is the metadata a rule publishes via its Meta() method.
@@ -56,17 +50,13 @@ type RuleDescriptor struct {
 	// implementation (e.g. the real ConfigAdapter) and no-op on the fake
 	// sources used by unit tests.
 	CustomApply func(target interface{}, cfg ConfigSource)
-
-	// SourceHash is a content hash of the rule's source, used as a
-	// cache-unification key. Empty until the generator populates it.
-	SourceHash string
 }
 
 // ConfigOption describes a single configurable field on a rule.
 //
-// The generator produces Apply closures that downcast the target interface
-// to the concrete rule struct and assign the parsed value. At runtime
-// ApplyConfig iterates the descriptor's options, reads each from the
+// Apply closures downcast the target interface to the concrete rule struct and
+// assign the parsed value. At runtime ApplyConfig iterates the descriptor's
+// options, reads each from the
 // ConfigSource (primary Name first, then each alias in order), and invokes
 // Apply when a value is present.
 type ConfigOption struct {
@@ -133,10 +123,8 @@ func (t OptionType) String() string {
 	}
 }
 
-// MetaProvider is the interface rules satisfy once they've been migrated
-// to the code-generated registry. The generator walks the rule source
-// files to discover struct tags; at runtime MetaProvider is used by
-// DefaultInactiveSet and other helpers that operate on descriptors.
+// MetaProvider is the interface rules satisfy when they publish metadata for
+// config, defaults, schema, and registry validation.
 type MetaProvider interface {
 	Meta() RuleDescriptor
 }

@@ -28,8 +28,7 @@ type DeadCodeRule struct {
 // current Check() path never populates a Fix. Removing a dead symbol
 // remains a manual operation. Left in fixes.go history for when the
 // per-symbol deletion pipeline lands.
-func (r *DeadCodeRule) IsFixable() bool    { return false }
-func (r *DeadCodeRule) FixLevel() FixLevel { return FixSemantic }
+func (r *DeadCodeRule) IsFixable() bool { return false }
 
 // Confidence reports a tier-2 (medium) base confidence. The rule
 // relies on the cross-file code index to detect unreferenced symbols

@@ -240,8 +240,8 @@ func (c *Config) GetStringList(ruleSet, rule, key string) []string {
 // zero value" — GetInt/GetString/GetBool all return the default when the
 // key is missing, which is the same shape they return when a legitimate
 // override happens to equal the default. HasKey on ConfigSource is the
-// contract that lets the generated Apply closures know whether to mutate
-// the rule struct.
+// contract that lets descriptor Apply closures know whether to mutate the
+// rule struct.
 func (c *Config) Has(ruleSet, rule, key string) bool {
 	if c == nil || c.data == nil {
 		return false

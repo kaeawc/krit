@@ -20,9 +20,8 @@ import (
 )
 
 // Resource-rule marker types. These are empty structs embedded by
-// resource rule implementations. Android dependency metadata is surfaced
-// onto v2.Rule.AndroidDeps by codegen in zz_registry_gen.go, which reads
-// it back from the AndroidDependencies() methods below.
+// resource rule implementations. registry_all.go records Android dependency
+// metadata on v2.Rule.AndroidDeps.
 
 type ResourceBase struct{}
 

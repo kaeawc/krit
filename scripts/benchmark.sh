@@ -27,22 +27,10 @@ fi
 echo "Running..."
 TIMEFORMAT='  Wall time: %Rs'
 time {
-    ./krit $ARGS "$PROJECT/" 2>/dev/null | python3 -c "
-import json, sys
-try:
-    d = json.load(sys.stdin)
-    f = d.get('findings', [])
-    rules = {}
-    for x in f:
-        rules[x['rule']] = rules.get(x['rule'], 0) + 1
-    src = [x for x in f if '/test/' not in x['file']]
-    print(f'  Findings: {len(f)} ({len(src)} in source)')
-    print(f'  Rules triggered: {len(rules)}')
-    print()
-    print('  Top 5 issues:')
-    for r, c in sorted(rules.items(), key=lambda x: -x[1])[:5]:
-        print(f'    {r}: {c}')
-except:
-    pass
-" || true
+    result=$(./krit $ARGS "$PROJECT/" 2>/dev/null || true)
+    findings=$(echo "$result" | go run ./internal/devtools/jsonstat -mode findings 2>/dev/null || echo "?")
+    source_findings=$(echo "$result" | go run ./internal/devtools/jsonstat -mode source-findings 2>/dev/null || echo "?")
+    rules=$(echo "$result" | go run ./internal/devtools/jsonstat -mode rules 2>/dev/null || echo "?")
+    echo "  Findings: $findings ($source_findings in source)"
+    echo "  Rules triggered: $rules"
 }

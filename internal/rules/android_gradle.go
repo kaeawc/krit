@@ -19,8 +19,8 @@ import (
 )
 
 // GradleBase is an empty marker type embedded by Gradle rule
-// implementations. Codegen reads AndroidDependencies() to populate
-// v2.Rule.AndroidDeps in zz_registry_gen.go.
+// implementations. registry_all.go records AndroidDependencies() metadata on
+// v2.Rule.AndroidDeps in registry_all.go.
 type GradleBase struct{}
 
 func (GradleBase) AndroidDependencies() AndroidDataDependency {
@@ -806,4 +806,3 @@ func (r *NewerVersionAvailableRule) check(ctx *v2.Context) {
 		}
 	}
 }
-

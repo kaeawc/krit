@@ -70,67 +70,7 @@ RULES=()
 
 parse_timing() {
     local json_file="$1"
-    python3 << PYEOF
-import json, sys
-
-with open("${json_file}") as f:
-    d = json.load(f)
-
-total_ms = d.get("durationMs", 0)
-findings = len(d.get("findings", []))
-rules_triggered = len({x["rule"] for x in d.get("findings", [])})
-
-def find(entries, *path):
-    """Recursively find a named entry in the timing tree."""
-    for e in (entries or []):
-        if e.get("name") == path[0]:
-            return find(e.get("children", []), *path[1:]) if len(path) > 1 else e
-    return None
-
-timings = d.get("perfTiming", [])
-
-def ms(name, *path):
-    e = find(timings, name, *path)
-    return e.get("durationMs", 0) if e else 0
-
-oracle_ms      = ms("typeOracle")
-jvm_ms         = ms("typeOracle", "jvmAnalyze")
-process_ms     = ms("typeOracle", "jvmAnalyze", "kritTypesProcess")
-build_ms       = ms("typeOracle", "jvmAnalyze", "kotlinTimings", "kotlinBuildSession")
-analyze_ms     = ms("typeOracle", "jvmAnalyze", "kotlinTimings", "kotlinAnalyzeFiles")
-json_build_ms  = ms("typeOracle", "jvmAnalyze", "kotlinTimings", "kotlinOracleJsonBuild")
-parse_ms       = ms("parse")
-type_idx_ms    = ms("typeIndex")
-rule_exec_ms   = ms("ruleExecution")
-
-def find_metrics(entries, *path):
-    e = find(entries, *path)
-    return e.get("metrics", {}) if e else {}
-
-filter_m   = find_metrics(timings, "typeOracle", "jvmAnalyze", "oracleFilterSummary")
-call_m     = find_metrics(timings, "typeOracle", "jvmAnalyze", "oracleCallFilterSummary")
-analyze_m  = find_metrics(timings, "typeOracle", "jvmAnalyze", "kotlinTimings", "kotlinAnalyzeSummary")
-rss_m      = find_metrics(timings, "typeOracle", "jvmAnalyze", "kritTypesProcessResources")
-
-print(f"total_ms={total_ms}")
-print(f"oracle_ms={oracle_ms}")
-print(f"jvm_ms={jvm_ms}")
-print(f"process_ms={process_ms}")
-print(f"build_ms={build_ms}")
-print(f"analyze_ms={analyze_ms}")
-print(f"json_build_ms={json_build_ms}")
-print(f"parse_ms={parse_ms}")
-print(f"type_idx_ms={type_idx_ms}")
-print(f"rule_exec_ms={rule_exec_ms}")
-print(f"findings={findings}")
-print(f"rules={rules_triggered}")
-print(f"filter_files={filter_m.get('markedFiles', '?')}/{filter_m.get('totalFiles', '?')}")
-print(f"callee_names={call_m.get('calleeNames', '?')}")
-print(f"lexical_hints={call_m.get('lexicalHints', '?')}")
-print(f"lexical_skips={call_m.get('lexicalSkips', '?')}")
-print(f"kt_files_analyzed={analyze_m.get('files', '?')}")
-print(f"peak_rss_mb={rss_m.get('peakRSSMB', '?')}")
-PYEOF
+    go run ./internal/devtools/jsonstat -mode oracle-bench-env -file "$json_file"
 }
 
 for i in $(seq 1 "$RUNS"); do
@@ -142,10 +82,10 @@ for i in $(seq 1 "$RUNS"); do
         echo "  Deleted cached oracle: $ORACLE_JSON"
     fi
 
-    START_TS=$(python3 -c "import time; print(int(time.time()*1000))")
+    START_TS=$(go run ./internal/devtools/jsonstat -mode unix-ms)
     "$KRIT" -no-cache -no-cache-oracle -perf -f json -q "$PROJECT/" \
         > "$TMPOUT" 2>/dev/null || true
-    END_TS=$(python3 -c "import time; print(int(time.time()*1000))")
+    END_TS=$(go run ./internal/devtools/jsonstat -mode unix-ms)
     WALL_MS=$(( END_TS - START_TS ))
 
     # Parse timing from JSON output into a sourceable temp file

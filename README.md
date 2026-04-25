@@ -16,7 +16,7 @@ That's it. Run it in any Kotlin or Android project and get findings in seconds.
 - **SARIF / JSON / Checkstyle / plain** output
 - **LSP + MCP servers** — editor diagnostics and AI agent integration
 - **Cross-file dead code** via bloom-filtered indexing across Kotlin, Java, and XML
-- **Sub-second** on projects under 500 files
+- **Sub-second warm** on any cached project; 1.5s warm / 3.9s cold on Signal-Android (2,468 files, no KAA)
 
 ## Install
 

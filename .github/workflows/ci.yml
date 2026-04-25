@@ -31,7 +31,7 @@ jobs:
         run: make test
 
       - name: Oracle filter fingerprint gate
-        run: python3 tools/oracle_fingerprint_check.py
+        run: go run ./internal/devtools/oraclefpcheck
 
       - name: Integration tests
         run: make integration

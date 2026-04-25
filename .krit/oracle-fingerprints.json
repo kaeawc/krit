@@ -1,5 +1,5 @@
 {
-  "_comment": "Oracle filter input-set fingerprints per (repo, rule-set). See issue #333.",
+  "_comment": "Oracle filter input-set fingerprints per (repo, rule-set). Regenerate via `go run ./internal/devtools/oraclefpcheck --update`. See issue #333.",
   "entries": [
     {
       "repo": "playground/kotlin-webservice",

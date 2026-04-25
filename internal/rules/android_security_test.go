@@ -1,6 +1,17 @@
 package rules_test
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
+)
 
 func TestAddJavascriptInterface(t *testing.T) {
 	t.Run("heuristic webView identifier without resolver fires at 0.85", func(t *testing.T) {
@@ -89,6 +100,115 @@ class Random {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+	t.Run("minSdk 17 suppresses old reflection hazard", func(t *testing.T) {
+		findings := runAddJavascriptInterfaceProjectRule(t, 17, 16, `
+package test
+import android.webkit.WebView
+class MyWebView {
+    fun setup(wv: WebView) {
+        wv.addJavascriptInterface(Any(), "Android")
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for minSdk 17 without targetSdk 17 annotation check, got %d", len(findings))
+		}
+	})
+	t.Run("targetSdk 17 reports bridge without annotated methods", func(t *testing.T) {
+		findings := runAddJavascriptInterfaceProjectRule(t, 17, 17, `
+package test
+import android.webkit.WebView
+class Bridge {
+    fun unannotated() = Unit
+}
+class MyWebView {
+    fun setup(wv: WebView) {
+        wv.addJavascriptInterface(Bridge(), "Android")
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding for missing JavascriptInterface annotation, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "@JavascriptInterface") {
+			t.Fatalf("expected missing annotation message, got %q", findings[0].Message)
+		}
+	})
+	t.Run("targetSdk 17 accepts annotated bridge method", func(t *testing.T) {
+		findings := runAddJavascriptInterfaceProjectRule(t, 17, 17, `
+package test
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+class Bridge {
+    @JavascriptInterface
+    fun exposed() = Unit
+}
+class MyWebView {
+    fun setup(wv: WebView) {
+        wv.addJavascriptInterface(Bridge(), "Android")
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for annotated bridge, got %d", len(findings))
+		}
+	})
+	t.Run("minSdk below 17 still reports reflection hazard", func(t *testing.T) {
+		findings := runAddJavascriptInterfaceProjectRule(t, 16, 16, `
+package test
+import android.webkit.WebView
+class MyWebView {
+    fun setup(wv: WebView) {
+        wv.addJavascriptInterface(Any(), "Android")
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding for minSdk 16 hazard, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "minSdk is below 17") {
+			t.Fatalf("expected minSdk message, got %q", findings[0].Message)
+		}
+	})
+}
+
+func runAddJavascriptInterfaceProjectRule(t *testing.T, minSdk, targetSdk int, code string) []scanner.Finding {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "build.gradle.kts"), []byte(`
+plugins {
+    id("com.android.application")
+}
+android {
+    minSdk = `+strconv.Itoa(minSdk)+`
+    targetSdk = `+strconv.Itoa(targetSdk)+`
+}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(root, "src", "main", "java", "test")
+	if err := os.MkdirAll(src, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(src, "Test.kt")
+	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	for _, r := range v2rules.Registry {
+		if r.ID == "AddJavascriptInterface" {
+			dispatcher := rules.NewDispatcherV2([]*v2rules.Rule{r}, resolver)
+			cols := dispatcher.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatal("AddJavascriptInterface rule not found")
+	return nil
 }
 
 func TestGetInstance(t *testing.T) {

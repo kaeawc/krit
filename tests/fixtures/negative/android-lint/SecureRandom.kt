@@ -13,6 +13,17 @@ class TokenGenerator {
         return ThreadLocalRandom.current().nextInt()
     }
 
+    fun byteArraySeed(seedBytes: ByteArray): Long {
+        val rng = SecureRandom()
+        rng.setSeed(seedBytes)
+        return rng.nextLong()
+    }
+
+    fun kotlinRandom(): Int {
+        val rng = kotlin.random.Random(1234)
+        return rng.nextInt()
+    }
+
     fun comment() {
         // Random()
         val unrelated = "Random("

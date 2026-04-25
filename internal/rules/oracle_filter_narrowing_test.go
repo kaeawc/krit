@@ -21,7 +21,7 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 		callTargets []string
 	}{
 		{"Deprecation", []string{"Deprecated"}, []string{"Deprecated"}},
-		{"IgnoredReturnValue", []string{"CheckReturnValue", "CheckResult"}, []string{"CheckReturnValue", "CheckResult"}},
+		{"IgnoredReturnValue", []string{"Sequence", "Flow", "Stream", "Function", "->", "CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}, []string{"CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}},
 		{"NullableToStringCall", []string{"toString", "$"}, []string{"toString"}},
 		{"ObjectAnimatorBinding", []string{"ObjectAnimator", "ofFloat", "ofInt", "ofObject"}, nil},
 		{"UnreachableCode", []string{"return", "throw", "break", "continue"}, nil},

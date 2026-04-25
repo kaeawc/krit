@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // ---------------------------------------------------------------------------
@@ -222,7 +223,6 @@ type HasPlatformTypeRule struct {
 	BaseRule
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence because the rule
 // falls back to a string-prefix heuristic on "java./javax./android./Java/Javax"
 // when the resolver cannot determine the return type. Findings from that
@@ -255,10 +255,19 @@ func (r *IgnoredReturnValueRule) Confidence() float64 { return 0.75 }
 
 // returnValueTypes that should always be flagged when discarded (detekt defaults)
 var returnValueFQNs = map[string]bool{
-	"kotlin.sequences.Sequence":          true,
-	"kotlinx.coroutines.flow.Flow":       true,
-	"kotlinx.coroutines.flow.StateFlow":  true,
-	"kotlinx.coroutines.flow.SharedFlow": true,
+	"kotlin.sequences.Sequence":                 true,
+	"kotlinx.coroutines.flow.Flow":              true,
+	"kotlinx.coroutines.flow.StateFlow":         true,
+	"kotlinx.coroutines.flow.SharedFlow":        true,
+	"kotlinx.coroutines.flow.MutableStateFlow":  true,
+	"kotlinx.coroutines.flow.MutableSharedFlow": true,
+}
+
+var defaultReturnValueTypePatterns = []string{
+	"kotlin.Function*",
+	"kotlin.sequences.Sequence",
+	"kotlinx.coroutines.flow.*Flow",
+	"java.util.stream.*Stream",
 }
 
 // checkReturnValueAnnotations are annotation FQNs (or simple names) that mark
@@ -562,7 +571,18 @@ func matchAnnotationPattern(pattern, annotation string) bool {
 // matchesReturnValueType checks if a resolved FQN matches the configured
 // returnValueTypes patterns (e.g., "kotlinx.coroutines.flow.*Flow").
 func matchesReturnValueType(fqn string, patterns []string) bool {
+	fqn = strings.TrimSpace(fqn)
+	if fqn == "" {
+		return false
+	}
+	if idx := strings.IndexByte(fqn, '<'); idx >= 0 {
+		fqn = fqn[:idx]
+	}
+	if returnValueFQNs[fqn] {
+		return true
+	}
 	for _, pat := range patterns {
+		pat = strings.TrimSpace(pat)
 		if pat == fqn {
 			return true
 		}
@@ -578,6 +598,59 @@ func matchesReturnValueType(fqn string, patterns []string) bool {
 	return false
 }
 
+func ignoredReturnValueTypeMatches(rt *typeinfer.ResolvedType, configured []string, restrictToConfig bool) bool {
+	if !ignoredReturnValueTypeKnown(rt) ||
+		ignoredReturnValueTypeIsUnitOrNothing(rt) {
+		return false
+	}
+	if rt.Kind == typeinfer.TypeFunction ||
+		strings.HasPrefix(rt.FQN, "kotlin.Function") ||
+		strings.HasPrefix(rt.Name, "Function") {
+		return !restrictToConfig || matchesReturnValueType("kotlin.Function", configured)
+	}
+	patterns := configured
+	if !restrictToConfig {
+		patterns = append(append([]string{}, defaultReturnValueTypePatterns...), configured...)
+	}
+	if matchesReturnValueType(rt.FQN, patterns) {
+		return true
+	}
+	if rt.FQN == "" && rt.Name != "" {
+		return matchesReturnValueType(rt.Name, patterns)
+	}
+	return false
+}
+
+func ignoredReturnValueTypeKnown(rt *typeinfer.ResolvedType) bool {
+	if rt == nil || rt.Kind == typeinfer.TypeUnknown {
+		return false
+	}
+	return rt.FQN != "" || rt.Name != "" || rt.Kind == typeinfer.TypeFunction ||
+		rt.Kind == typeinfer.TypeUnit || rt.Kind == typeinfer.TypeNothing
+}
+
+func ignoredReturnValueTypeIsUnitOrNothing(rt *typeinfer.ResolvedType) bool {
+	if rt == nil {
+		return false
+	}
+	return rt.Kind == typeinfer.TypeUnit || rt.Kind == typeinfer.TypeNothing ||
+		rt.FQN == "kotlin.Unit" || rt.FQN == "kotlin.Nothing" ||
+		rt.Name == "Unit" || rt.Name == "Nothing"
+}
+
+func ignoredReturnValueTypeName(rt *typeinfer.ResolvedType) string {
+	if rt == nil {
+		return "a must-use type"
+	}
+	if rt.FQN != "" {
+		return rt.FQN
+	}
+	if rt.Name != "" {
+		return rt.Name
+	}
+	return "a must-use type"
+}
+
 // ---------------------------------------------------------------------------
 // ImplicitDefaultLocaleRule detects locale-sensitive String methods called
 // without an explicit Locale argument. Covers case-conversion methods
@@ -588,7 +661,6 @@ type ImplicitDefaultLocaleRule struct {
 	FlatDispatchBase
 	BaseRule
 }
-
 
 // Confidence reports a tier-2 (medium) base confidence because the rule
 // matches on method names (toLowerCase/toUpperCase/capitalize/

@@ -10827,27 +10827,41 @@ func registerAllRules() {
 				line := file.FlatRow(idx) + 1
 				col := file.FlatCol(idx) + 1
 				isKnownFunctionalOp := functionalOps[funcName]
+				if stringListContains(r.IgnoreFunctionCall, funcName) {
+					return
+				}
 
 				// Check if this call's result is discarded (not used as expression)
 				if flatIsUsedAsExpression(file, idx) {
 					return
 				}
 
-				var annotations []string
+				var oracleReturnType *typeinfer.ResolvedType
 				if oracleLookup != nil {
-					annotations = oracleLookup.LookupCallTargetAnnotations(file.Path, line, col)
-					if hasIgnoreReturnAnnotation(annotations, r.IgnoreReturnValueAnnotations) {
+					oracleReturnType = oracleLookup.LookupExpression(file.Path, line, col)
+					if oracleReturnType != nil && oracleReturnType.Kind != typeinfer.TypeUnknown &&
+						ignoredReturnValueTypeIsUnitOrNothing(oracleReturnType) {
 						return
 					}
-					if hasCheckReturnAnnotation(annotations, r.ReturnValueAnnotations) &&
-						!r.RestrictToConfig {
+				}
+
+				if oracleLookup != nil {
+					annotations := ignoredReturnValueOracleAnnotations(oracleLookup, file.Path, line, col)
+					hasCheck, hasIgnore := ignoredReturnValueAnnotationEvidence(annotations, r.ReturnValueAnnotations, r.IgnoreReturnValueAnnotations)
+					if hasIgnore {
+						return
+					}
+					if hasCheck {
 						ctx.EmitAt(line, col,
 							fmt.Sprintf("Return value of '%s' is ignored. The function is annotated with @CheckReturnValue.", funcName))
 						return
 					}
-					if r.RestrictToConfig && hasCheckReturnAnnotation(annotations, r.ReturnValueAnnotations) {
-						ctx.EmitAt(line, col,
-							fmt.Sprintf("Return value of '%s' is ignored. The function is annotated with @CheckReturnValue.", funcName))
+					if oracleReturnType != nil && oracleReturnType.Kind != typeinfer.TypeUnknown {
+						if ignoredReturnValueTypeMatches(oracleReturnType, r.ReturnValueTypes, r.RestrictToConfig) {
+							ctx.EmitAt(line, col,
+								fmt.Sprintf("Return value of '%s' is ignored. The call returns %s.", funcName, ignoredReturnValueTypeName(oracleReturnType)))
+							return
+						}
 						return
 					}
 				}

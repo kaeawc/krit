@@ -230,28 +230,97 @@ fun maybeBuild(): String = "token"
 fun f() { maybeBuild() }`, "maybeBuild()", &typeinfer.ResolvedType{Name: "String", FQN: "kotlin.String", Kind: typeinfer.TypePrimitive}, canIgnore); len(findings) != 0 {
 		t.Fatalf("expected @CanIgnoreReturnValue suppression, got %d", len(findings))
 	}
+
+	t.Run("check return on containing declaration", func(t *testing.T) {
+		findings := runIgnoredReturnValueWithOracleEvidence(t, `
+package test
+class TokenBuilder {
+    fun build(): String = "token"
+}
+fun f(builder: TokenBuilder) {
+    builder.build()
+}
+`, oracleCallEvidence{
+			CallText:   "builder.build()",
+			CallTarget: "test.TokenBuilder.build",
+			ContainerAnnotations: map[string][]string{
+				"test.TokenBuilder": {"com.google.errorprone.annotations.CheckReturnValue"},
+			},
+		})
+		if len(findings) != 1 {
+			t.Fatalf("expected one finding, got %d: %#v", len(findings), findings)
+		}
+	})
+
+	t.Run("can ignore on containing declaration", func(t *testing.T) {
+		findings := runIgnoredReturnValueWithOracleEvidence(t, `
+package test
+class TokenBuilder {
+    fun build(): String = "token"
+}
+fun f(builder: TokenBuilder) {
+    builder.build()
+}
+`, oracleCallEvidence{
+			CallText:    "builder.build()",
+			CallTarget:  "test.TokenBuilder.build",
+			Annotations: []string{"com.google.errorprone.annotations.CheckReturnValue"},
+			ContainerAnnotations: map[string][]string{
+				"test.TokenBuilder": {"com.google.errorprone.annotations.CanIgnoreReturnValue"},
+			},
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
+		}
+	})
+}
+
+type oracleCallEvidence struct {
+	CallText             string
+	CallTarget           string
+	ReturnType           *typeinfer.ResolvedType
+	Annotations          []string
+	ContainerAnnotations map[string][]string
 }
 
 func runIgnoredReturnValueWithOracle(t *testing.T, code, callText string, rt *typeinfer.ResolvedType, annotations []string) []scanner.Finding {
+	return runIgnoredReturnValueWithOracleEvidence(t, code, oracleCallEvidence{
+		CallText:    callText,
+		ReturnType:  rt,
+		Annotations: annotations,
+	})
+}
+
+func runIgnoredReturnValueWithOracleEvidence(t *testing.T, code string, ev oracleCallEvidence) []scanner.Finding {
 	t.Helper()
 	file := parseInline(t, code)
 	fake := oracle.NewFakeOracle()
 	fake.Expressions[file.Path] = map[string]*typeinfer.ResolvedType{}
+	fake.CallTargets[file.Path] = map[string]string{}
 	fake.CallTargetAnnotations[file.Path] = map[string][]string{}
-	matched := false
+	for target, annotations := range ev.ContainerAnnotations {
+		fake.Annotations[target] = annotations
+	}
+	var matched bool
 	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
-		if matched || strings.TrimSpace(file.FlatNodeText(idx)) != callText {
+		text := strings.TrimSpace(file.FlatNodeText(idx))
+		if !strings.Contains(text, ev.CallText) {
 			return
 		}
 		key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
-		fake.Expressions[file.Path][key] = rt
-		if len(annotations) > 0 {
-			fake.CallTargetAnnotations[file.Path][key] = annotations
+		if ev.ReturnType != nil {
+			fake.Expressions[file.Path][key] = ev.ReturnType
+		}
+		if ev.CallTarget != "" {
+			fake.CallTargets[file.Path][key] = ev.CallTarget
+		}
+		if len(ev.Annotations) > 0 {
+			fake.CallTargetAnnotations[file.Path][key] = ev.Annotations
 		}
 		matched = true
 	})
 	if !matched {
-		t.Fatalf("call %q not found", callText)
+		t.Fatalf("call %q not found", ev.CallText)
 	}
 	resolver := oracle.NewCompositeResolver(fake, typeinfer.NewFakeResolver())
 	for _, r := range v2rules.Registry {

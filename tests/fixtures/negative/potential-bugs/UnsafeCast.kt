@@ -95,3 +95,38 @@ class UnsafeCastEqualsMethod {
 
     override fun hashCode(): Int = System.identityHashCode(this)
 }
+
+const val NOTIFICATION_SERVICE = "notification"
+
+open class Activity
+class RestoreActivity : Activity()
+open class Fragment {
+    fun requireActivity(): Activity = Activity()
+}
+
+class NotificationManager
+class Context {
+    fun getSystemService(name: String): Any = NotificationManager()
+}
+
+open class ViewGroupLayoutParams
+class FlexboxLayout {
+    class LayoutParams : ViewGroupLayoutParams()
+}
+class View {
+    val layoutParams: ViewGroupLayoutParams = FlexboxLayout.LayoutParams()
+}
+
+class UnsafeCastAndroidFrameworkSamples : Fragment() {
+    fun restore() {
+        val activity = requireActivity() as RestoreActivity
+    }
+
+    fun service(context: Context) {
+        val notificationManager = context.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+    }
+
+    fun flex(child: View) {
+        val params = child.layoutParams as FlexboxLayout.LayoutParams
+    }
+}

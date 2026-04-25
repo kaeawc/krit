@@ -20,7 +20,6 @@ type ExpressionBodySyntaxRule struct {
 // is a style preference. Classified per roadmap/17.
 func (r *ExpressionBodySyntaxRule) Confidence() float64 { return 0.75 }
 
-
 // ReturnCountRule limits the number of return statements in a function.
 type ReturnCountRule struct {
 	FlatDispatchBase
@@ -99,7 +98,6 @@ func getJumpMetricsFlat(idx uint32, file *scanner.File) jumpMetrics {
 	jumpMetricsCache.Store(key, metrics)
 	return metrics
 }
-
 
 func collectGuardClauseJumpsFlat(fn uint32, file *scanner.File) map[int]bool {
 	result := make(map[int]bool)
@@ -512,7 +510,6 @@ type ThrowsCountRule struct {
 // is a style preference. Classified per roadmap/17.
 func (r *ThrowsCountRule) Confidence() float64 { return 0.75 }
 
-
 func countJumpExpressionsFlat(root uint32, file *scanner.File, prefix string, limit int, accept func(uint32, string) bool) int {
 	count := 0
 	prefixBytes := returnPrefix
@@ -567,9 +564,8 @@ type CollapsibleIfStatementsRule struct {
 // is a style preference. Classified per roadmap/17.
 func (r *CollapsibleIfStatementsRule) Confidence() float64 { return 0.75 }
 
-
 // SafeCastRule detects `if (x is Type) { x as Type }` patterns that should use `x as? Type`.
-// This is distinct from UnsafeCast which flags ALL bare `as` casts.
+// This is distinct from UnsafeCast, which is reserved for casts that can never succeed.
 // SafeCast only fires when an is-check + cast pattern is detected (the cast is redundant
 // because the is-check already proves the type).
 type SafeCastRule struct {
@@ -585,7 +581,6 @@ type SafeCastRule struct {
 // confidence is appropriate for the redundant-cast half of that
 // pair.
 func (r *SafeCastRule) Confidence() float64 { return 0.75 }
-
 
 // frameworkAnnotationNames identifies annotations indicating external
 // initialization by a framework — these vars can't be analyzed for mutability.
@@ -671,7 +666,6 @@ type scopeReassignmentsKey struct {
 	end      int
 }
 
-
 // varCouldBeValFileWideReassigned returns true if the file contains a
 // textual reassignment of the given name — `name =`, `name +=`, `name++`,
 // `++name`, or `this.name =`. Matches are precise enough to avoid most
@@ -752,7 +746,6 @@ type MayBeConstantRule struct {
 // is a style preference. Classified per roadmap/17.
 func (r *MayBeConstantRule) Confidence() float64 { return 0.75 }
 
-
 // ModifierOrderRule detects modifiers not in the recommended order.
 type ModifierOrderRule struct {
 	FlatDispatchBase
@@ -783,7 +776,6 @@ var modifierOrder = []string{
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection is pattern-based and the preferred form
 // is a style preference. Classified per roadmap/17.
 func (r *ModifierOrderRule) Confidence() float64 { return 0.75 }
-
 
 func modifierIndex(mod string) int {
 	for i, m := range modifierOrder {
@@ -827,7 +819,6 @@ type FunctionOnlyReturningConstantRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection is pattern-based and the preferred form
 // is a style preference. Classified per roadmap/17.
 func (r *FunctionOnlyReturningConstantRule) Confidence() float64 { return 0.75 }
-
 
 func isConstant(s string) bool {
 	s = strings.TrimSpace(s)
@@ -906,7 +897,6 @@ type LoopWithTooManyJumpStatementsRule struct {
 // is a style preference. Classified per roadmap/17.
 func (r *LoopWithTooManyJumpStatementsRule) Confidence() float64 { return 0.75 }
 
-
 // ExplicitItLambdaParameterRule detects `{ it -> ... }` using AST-based analysis.
 // It finds lambda_literal nodes with exactly one parameter named "it" and flags them.
 // When the parameter has a type annotation (e.g. `{ it: Int -> ... }`), a different
@@ -919,7 +909,6 @@ type ExplicitItLambdaParameterRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection is pattern-based and the preferred form
 // is a style preference. Classified per roadmap/17.
 func (r *ExplicitItLambdaParameterRule) Confidence() float64 { return 0.75 }
-
 
 func findArrowInLambdaFlat(file *scanner.File, lambda uint32) uint32 {
 	for i := 0; i < file.FlatChildCount(lambda); i++ {
@@ -943,8 +932,6 @@ type ExplicitItLambdaMultipleParametersRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection is pattern-based and the preferred form
 // is a style preference. Classified per roadmap/17.
 func (r *ExplicitItLambdaMultipleParametersRule) Confidence() float64 { return 0.75 }
-
-
 
 func isInsideLambdaUnderFlat(child, stopAt uint32, file *scanner.File) bool {
 	for p, ok := file.FlatParent(child); ok && p != stopAt; p, ok = file.FlatParent(p) {

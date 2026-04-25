@@ -17,14 +17,14 @@ import (
 // --- UnsafeCast ---
 
 func TestUnsafeCast_Positive(t *testing.T) {
-	findings := runRuleByName(t, "UnsafeCast", `
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
 package test
-fun process(obj: Any) {
-    val str = obj as String
+fun process() {
+    val str = 1 as String
 }
 `)
 	if len(findings) == 0 {
-		t.Fatal("expected finding for unsafe cast 'as String', got none")
+		t.Fatal("expected finding for impossible cast 'Int as String', got none")
 	}
 }
 
@@ -69,8 +69,40 @@ func runRuleByNameWithCallTarget(t *testing.T, ruleName string, code string, cal
 	return nil
 }
 
+func runRuleByNameWithOracleDiagnostic(t *testing.T, ruleName string, code string, castText string, factoryName string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	file.FlatWalkNodes(0, "as_expression", func(idx uint32) {
+		if strings.TrimSpace(file.FlatNodeText(idx)) == castText {
+			fake.Diagnostics[file.Path] = []oracle.OracleDiagnostic{{
+				FactoryName: factoryName,
+				Severity:    "WARNING",
+				Message:     "This cast can never succeed",
+				Line:        file.FlatRow(idx) + 1,
+				Col:         file.FlatCol(idx) + 1,
+			}}
+		}
+	})
+	if len(fake.Diagnostics[file.Path]) == 0 {
+		t.Fatalf("cast expression %q not found", castText)
+	}
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range v2rules.Registry {
+		if r.ID == ruleName {
+			d := rules.NewDispatcherV2([]*v2rules.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", ruleName)
+	return nil
+}
+
 func TestUnsafeCast_Negative(t *testing.T) {
-	findings := runRuleByName(t, "UnsafeCast", `
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
 package test
 fun process(obj: Any) {
     val str = obj as? String
@@ -81,16 +113,58 @@ fun process(obj: Any) {
 	}
 }
 
-func TestUnsafeCast_DoesNotSuppressSubstringCallee(t *testing.T) {
-	findings := runRuleByName(t, "UnsafeCast", `
+func TestUnsafeCast_PositiveSafeCastNeverSucceeds(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
+package test
+fun process() {
+    val str = 1 as? String
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for impossible safe cast 'Int as? String', got none")
+	}
+	if findings[0].Fix != nil {
+		t.Fatal("expected no autofix for a safe cast that is already using as?")
+	}
+}
+
+func TestUnsafeCast_UsesOracleCastNeverSucceedsDiagnostic(t *testing.T) {
+	findings := runRuleByNameWithOracleDiagnostic(t, "UnsafeCast", `
+package test
+fun process(obj: Any) {
+    val str = obj as String
+}
+`, "obj as String", "CAST_NEVER_SUCCEEDS")
+	if len(findings) == 0 {
+		t.Fatal("expected oracle CAST_NEVER_SUCCEEDS diagnostic to emit UnsafeCast")
+	}
+}
+
+func TestUnsafeCast_UsesOracleCastNeverSucceedsDiagnosticForSafeCast(t *testing.T) {
+	findings := runRuleByNameWithOracleDiagnostic(t, "UnsafeCast", `
+package test
+fun process(obj: Any) {
+    val str = obj as? String
+}
+`, "obj as? String", "CAST_NEVER_SUCCEEDS")
+	if len(findings) == 0 {
+		t.Fatal("expected oracle CAST_NEVER_SUCCEEDS diagnostic to emit UnsafeCast for as?")
+	}
+	if findings[0].Fix != nil {
+		t.Fatal("expected no autofix for oracle-reported safe cast")
+	}
+}
+
+func TestUnsafeCast_DoesNotFlagUnknownSubstringCallee(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
 package test
 fun findViewByIdButNotReally(): Any = ""
 fun process() {
     val str = findViewByIdButNotReally() as String
 }
 `)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for local callee whose name merely contains findViewById")
+	if len(findings) != 0 {
+		t.Fatalf("expected no finding without impossible-cast proof, got %d", len(findings))
 	}
 }
 
@@ -109,7 +183,7 @@ fun process(context: Context) {
 	}
 }
 
-func TestUnsafeCast_FlagsMismatchedGetSystemServiceCast(t *testing.T) {
+func TestUnsafeCast_DoesNotTreatMismatchedGetSystemServiceAsNeverSucceeds(t *testing.T) {
 	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
 package test
 import android.content.Context
@@ -119,8 +193,48 @@ fun process(context: Context) {
     val manager = context.getSystemService(Context.ALARM_SERVICE) as PowerManager
 }
 `)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for Context.ALARM_SERVICE cast to PowerManager")
+	if len(findings) != 0 {
+		t.Fatalf("expected no UnsafeCast for Context.ALARM_SERVICE cast without compiler proof, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCast_DoesNotFlagCommonAndroidFrameworkCasts(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
+package test
+
+const val NOTIFICATION_SERVICE = "notification"
+
+open class Activity
+class RestoreActivity : Activity()
+open class Fragment {
+    fun requireActivity(): Activity = Activity()
+}
+class NotificationManager
+class Context {
+    fun getSystemService(name: String): Any = NotificationManager()
+}
+open class ViewGroupLayoutParams
+class FlexboxLayout {
+    class LayoutParams : ViewGroupLayoutParams()
+}
+class View {
+    val layoutParams: ViewGroupLayoutParams = FlexboxLayout.LayoutParams()
+}
+
+class Samples : Fragment() {
+    fun restore() {
+        val activity = requireActivity() as RestoreActivity
+    }
+    fun service(context: Context) {
+        val notificationManager = context.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+    }
+    fun flex(child: View) {
+        val params = child.layoutParams as FlexboxLayout.LayoutParams
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no UnsafeCast findings for common Android/framework casts, got %d", len(findings))
 	}
 }
 

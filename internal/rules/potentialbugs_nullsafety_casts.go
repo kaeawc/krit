@@ -10,24 +10,22 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// UnsafeCastRule detects `as Type` (non-safe casts).
-// Suppresses findings when:
-// 1. The resolver shows the expression type already matches the target (smart cast).
-// 2. The cast is guarded by an enclosing is-check (if/when) for the same variable and type.
+// UnsafeCastRule detects casts that cannot ever succeed.
+//
+// The authoritative path consumes Kotlin compiler diagnostics from the oracle
+// (CAST_NEVER_SUCCEEDS). Without compiler diagnostics, the fallback only emits
+// when the local resolver proves both source and target are final, disjoint
+// types.
 // ---------------------------------------------------------------------------
 type UnsafeCastRule struct {
 	FlatDispatchBase
 	BaseRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Without the
-// resolver this rule flags every bare `as` cast and then removes the
-// ones that match a hardcoded allow-list of idiomatic Android and
-// framework patterns (findViewById, getSystemService, itemView, etc.).
-// Even with the resolver the fallback path remains heuristic for
-// project-specific wrapper APIs. Pair with SafeCast, which targets
-// the same locations from a different angle.
-func (r *UnsafeCastRule) Confidence() float64 { return 0.75 }
+// Confidence reports a tier-1 base confidence. The oracle-backed path mirrors
+// the Kotlin compiler's CAST_NEVER_SUCCEEDS diagnostic; the non-oracle fallback
+// is intentionally limited to final, disjoint types.
+func (r *UnsafeCastRule) Confidence() float64 { return 0.95 }
 
 type unsafeCastExpressionParts struct {
 	source uint32
@@ -167,6 +165,228 @@ func unsafeCastTypeNodeIsNullableFlat(file *scanner.File, idx uint32) bool {
 func unsafeCastIsNullLiteralFlat(file *scanner.File, idx uint32) bool {
 	idx = unsafeCastUnwrapExpressionFlat(file, idx)
 	return idx != 0 && file.FlatNodeTextEquals(idx, "null")
+}
+
+var unsafeCastNeverSucceedsDiagnosticFactories = map[string]bool{
+	"CAST_NEVER_SUCCEEDS": true,
+	"CastNeverSucceeds":   true,
+}
+
+var unsafeCastKnownFinalTypeKeys = map[string]bool{
+	"Boolean":        true,
+	"Byte":           true,
+	"Char":           true,
+	"Double":         true,
+	"Float":          true,
+	"Int":            true,
+	"Long":           true,
+	"Short":          true,
+	"String":         true,
+	"Unit":           true,
+	"kotlin.Boolean": true,
+	"kotlin.Byte":    true,
+	"kotlin.Char":    true,
+	"kotlin.Double":  true,
+	"kotlin.Float":   true,
+	"kotlin.Int":     true,
+	"kotlin.Long":    true,
+	"kotlin.Short":   true,
+	"kotlin.String":  true,
+	"kotlin.Unit":    true,
+}
+
+var unsafeCastKnownSubtypeKeys = map[string][]string{
+	"kotlin.Byte":   {"kotlin.Number"},
+	"kotlin.Short":  {"kotlin.Number"},
+	"kotlin.Int":    {"kotlin.Number"},
+	"kotlin.Long":   {"kotlin.Number"},
+	"kotlin.Float":  {"kotlin.Number"},
+	"kotlin.Double": {"kotlin.Number"},
+	"kotlin.String": {"kotlin.CharSequence", "kotlin.Comparable"},
+}
+
+func unsafeCastHasNeverSucceedsDiagnosticFlat(ctx *v2.Context, idx uint32) (oracle.OracleDiagnostic, bool) {
+	if ctx == nil || ctx.File == nil || ctx.Resolver == nil {
+		return oracle.OracleDiagnostic{}, false
+	}
+	cr, ok := ctx.Resolver.(*oracle.CompositeResolver)
+	if !ok {
+		return oracle.OracleDiagnostic{}, false
+	}
+	for _, d := range cr.Oracle().LookupDiagnostics(ctx.File.Path) {
+		if !unsafeCastNeverSucceedsDiagnosticFactories[d.FactoryName] {
+			continue
+		}
+		if unsafeCastDiagnosticOverlapsFlat(ctx.File, idx, d) {
+			return d, true
+		}
+	}
+	return oracle.OracleDiagnostic{}, false
+}
+
+func unsafeCastDiagnosticOverlapsFlat(file *scanner.File, idx uint32, d oracle.OracleDiagnostic) bool {
+	if file == nil || idx == 0 || d.Line <= 0 || d.Col <= 0 {
+		return false
+	}
+	off := file.LineOffset(d.Line-1) + d.Col - 1
+	return off >= int(file.FlatStartByte(idx)) && off < int(file.FlatEndByte(idx))
+}
+
+func unsafeCastLocalNeverSucceedsFlat(ctx *v2.Context, cast unsafeCastExpressionParts) bool {
+	if ctx == nil || ctx.File == nil {
+		return false
+	}
+	if unsafeCastIsNullLiteralFlat(ctx.File, cast.source) {
+		return !cast.safe
+	}
+	if !unsafeCastSourceEligibleForLocalNeverSucceedsFlat(ctx.File, cast.source) {
+		return false
+	}
+	if ctx.Resolver == nil {
+		return false
+	}
+	sourceType := ctx.Resolver.ResolveFlatNode(cast.source, ctx.File)
+	targetType := ctx.Resolver.ResolveFlatNode(cast.target, ctx.File)
+	if !unsafeCastResolvedTypeKnown(sourceType) || !unsafeCastResolvedTypeKnown(targetType) {
+		return false
+	}
+	if unsafeCastTypesRelated(ctx.Resolver, sourceType, targetType) {
+		return false
+	}
+	return unsafeCastTypeKnownFinal(ctx.Resolver, sourceType) &&
+		unsafeCastTypeKnownFinal(ctx.Resolver, targetType)
+}
+
+func unsafeCastSourceEligibleForLocalNeverSucceedsFlat(file *scanner.File, source uint32) bool {
+	source = unsafeCastUnwrapExpressionFlat(file, source)
+	if source == 0 {
+		return false
+	}
+	switch file.FlatType(source) {
+	case "simple_identifier",
+		"integer_literal",
+		"real_literal",
+		"boolean_literal",
+		"character_literal",
+		"line_string_literal",
+		"multi_line_string_literal",
+		"string_literal":
+		return true
+	default:
+		return false
+	}
+}
+
+func unsafeCastResolvedTypeKnown(t *typeinfer.ResolvedType) bool {
+	if t == nil || t.Kind == typeinfer.TypeUnknown {
+		return false
+	}
+	key := unsafeCastTypeKey(t)
+	return key != "" && key != "Any" && key != "kotlin.Any" &&
+		key != "java.lang.Object" && key != "Nothing" && key != "kotlin.Nothing"
+}
+
+func unsafeCastTypesRelated(resolver typeinfer.TypeResolver, a, b *typeinfer.ResolvedType) bool {
+	return unsafeCastIsSubtypeOf(resolver, a, b) || unsafeCastIsSubtypeOf(resolver, b, a)
+}
+
+func unsafeCastIsSubtypeOf(resolver typeinfer.TypeResolver, sub, sup *typeinfer.ResolvedType) bool {
+	if sub == nil || sup == nil {
+		return false
+	}
+	subKey := unsafeCastTypeKey(sub)
+	supKey := unsafeCastTypeKey(sup)
+	if subKey == "" || supKey == "" {
+		return false
+	}
+	if subKey == supKey || sub.Name == sup.Name || sub.FQN == sup.FQN {
+		return true
+	}
+	if sup.FQN != "" && sub.IsSubtypeOf(sup.FQN) {
+		return true
+	}
+	if sup.Name != "" && sub.IsSubtypeOf(sup.Name) {
+		return true
+	}
+	if typeinfer.IsKnownSubtype(subKey, supKey) {
+		return true
+	}
+	for _, knownSuper := range unsafeCastKnownSubtypeKeys[subKey] {
+		if knownSuper == supKey || simpleTypeName(knownSuper) == sup.Name {
+			return true
+		}
+	}
+	if info := unsafeCastClassInfoForType(resolver, sub); info != nil {
+		for _, st := range info.Supertypes {
+			if st == supKey || simpleTypeName(st) == sup.Name || st == sup.Name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func unsafeCastTypeKnownFinal(resolver typeinfer.TypeResolver, t *typeinfer.ResolvedType) bool {
+	key := unsafeCastTypeKey(t)
+	if unsafeCastKnownFinalTypeKeys[key] {
+		return true
+	}
+	info := unsafeCastClassInfoForType(resolver, t)
+	if info == nil {
+		return false
+	}
+	kind := strings.ToLower(info.Kind)
+	if strings.Contains(kind, "interface") {
+		return false
+	}
+	if strings.Contains(kind, "enum") || kind == "object" {
+		return true
+	}
+	if info.IsOpen || info.IsAbstract || info.IsSealed {
+		return false
+	}
+	// Kotlin source classes are final by default. External classes from the
+	// built-in framework tables are not treated as final unless listed above.
+	return info.File != ""
+}
+
+func unsafeCastClassInfoForType(resolver typeinfer.TypeResolver, t *typeinfer.ResolvedType) *typeinfer.ClassInfo {
+	if resolver == nil || t == nil {
+		return nil
+	}
+	for _, name := range []string{t.FQN, t.Name} {
+		if name == "" {
+			continue
+		}
+		if info := resolver.ClassHierarchy(name); info != nil {
+			return info
+		}
+	}
+	return nil
+}
+
+func unsafeCastTypeKey(t *typeinfer.ResolvedType) string {
+	if t == nil {
+		return ""
+	}
+	key := strings.TrimSpace(t.FQN)
+	if key == "" {
+		key = strings.TrimSpace(t.Name)
+	}
+	if mapped := typeinfer.MapJavaToKotlin(key); mapped != "" {
+		key = mapped
+	}
+	return key
+}
+
+func unsafeCastFindingMessage(cast unsafeCastExpressionParts, d oracle.OracleDiagnostic) string {
+	if d.Message != "" {
+		return "Cast can never succeed: " + d.Message
+	}
+	if cast.safe {
+		return "Safe cast can never succeed and always returns null."
+	}
+	return "Cast can never succeed."
 }
 
 func unsafeCastTypesCompatible(exprType, targetType *typeinfer.ResolvedType) bool {
@@ -583,20 +803,30 @@ func (r *UnsafeCastRule) check(ctx *v2.Context) {
 		return
 	}
 	cast, ok := unsafeCastExpressionPartsFlat(file, idx)
-	if !ok || cast.safe {
+	if !ok {
 		return
 	}
 
 	castVar := unsafeCastComparableExpressionFlat(file, cast.source)
 	castTarget := unsafeCastTypeNameFlat(file, cast.target)
-	// Skip `null as Type?` — cast of null literal for overload resolution.
-	if unsafeCastIsNullLiteralFlat(file, cast.source) {
+	// Casts to nullable target syntax (`as T?`) stay owned by
+	// CastToNullableType. A safe cast (`as? T`) still reaches this rule when
+	// the target syntax itself is non-nullable and the cast can never match.
+	if unsafeCastTypeNodeIsNullableFlat(file, cast.target) {
 		return
 	}
-	// Skip casts to nullable types `as T?` — they can never throw
-	// ClassCastException on null input and are often used for generic
-	// variance widening.
-	if unsafeCastTypeNodeIsNullableFlat(file, cast.target) {
+	if d, ok := unsafeCastHasNeverSucceedsDiagnosticFlat(ctx, idx); ok {
+		f := r.Finding(file, d.Line, d.Col, unsafeCastFindingMessage(cast, d))
+		f.Confidence = 0.95
+		if !cast.safe {
+			f.Fix = &scanner.Fix{
+				ByteMode:    true,
+				StartByte:   int(file.FlatStartByte(cast.op)),
+				EndByte:     int(file.FlatEndByte(cast.op)),
+				Replacement: "as?",
+			}
+		}
+		ctx.Emit(f)
 		return
 	}
 	// Skip `other as ThisClass` inside an `equals(other: Any?)` method,
@@ -657,30 +887,19 @@ func (r *UnsafeCastRule) check(ctx *v2.Context) {
 	if isCastGuardedByTypePredicateFlat(file, idx, castVar, castTarget) {
 		return
 	}
-
-	confidence := 0.75
-	if !unsafeCastTargetResolvableFlat(file, cast.target, castTarget, ctx.Resolver) {
-		if !unsafeCastSourceClearlyLocalFlat(file, cast.source) {
-			return
-		}
-		confidence = 0.6
+	if !unsafeCastLocalNeverSucceedsFlat(ctx, cast) {
+		return
 	}
 
 	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Unsafe cast. Use 'as?' for a safe cast instead.")
-	f.Confidence = confidence
-	// Find the "as" keyword child node in the as_expression AST node
-	// and replace it with "as?" using its precise byte range.
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		child := file.FlatChild(idx, i)
-		if file.FlatNodeTextEquals(child, "as") {
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   int(file.FlatStartByte(child)),
-				EndByte:     int(file.FlatEndByte(child)),
-				Replacement: "as?",
-			}
-			break
+		unsafeCastFindingMessage(cast, oracle.OracleDiagnostic{}))
+	f.Confidence = 0.95
+	if !cast.safe {
+		f.Fix = &scanner.Fix{
+			ByteMode:    true,
+			StartByte:   int(file.FlatStartByte(cast.op)),
+			EndByte:     int(file.FlatEndByte(cast.op)),
+			Replacement: "as?",
 		}
 	}
 	ctx.Emit(f)

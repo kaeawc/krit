@@ -5,6 +5,8 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
+import org.jetbrains.kotlin.analysis.api.components.collectDiagnostics
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
 import org.jetbrains.kotlin.analysis.api.resolution.KaCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
@@ -1728,6 +1730,12 @@ class AnalysisMemo {
     val annotationFqnsByKey: HashMap<String, List<String>> = hashMapOf()
 }
 
+val retainedDiagnosticFactories = setOf(
+    "UNREACHABLE_CODE",
+    "USELESS_ELVIS",
+    "CAST_NEVER_SUCCEEDS",
+)
+
 fun KotlinPerf.recordCacheDepsSummary(tracker: DepTracker) {
     if (!enabled) return
     addInstant(
@@ -2248,33 +2256,38 @@ fun analyzeKtFile(
             }
             expressionCount = expressions.size.toLong()
 
-        // TODO: Collect compiler diagnostics for unreachable code detection.
-        // When implemented, add diagnostic collection here and pass to FileResult:
-        //
-        //   val diagnostics = mutableListOf<DiagnosticResult>()
-        //   for (diagnostic in ktFile.collectDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)) {
-        //       when (diagnostic) {
-        //           is KaDiagnosticWithPsi<*> -> {
-        //               val offset = diagnostic.psi.textRange.startOffset
-        //               val line = document?.getLineNumber(offset)?.plus(1) ?: continue
-        //               val col = document?.let { offset - it.getLineStartOffset(line - 1) + 1 } ?: 1
-        //               diagnostics.add(DiagnosticResult(
-        //                   factoryName = diagnostic.factoryName,
-        //                   severity = diagnostic.severity.name,
-        //                   message = diagnostic.defaultMessage,
-        //                   line = line,
-        //                   col = col
-        //               ))
-        //           }
-        //       }
-        //   }
-        //
-        // Then change FileResult construction below to:
-        //   files[path] = FileResult(pkg, declarations, expressions, diagnostics)
-        //
-        // Key diagnostic factory names consumed by Go rules:
-        //   - UNREACHABLE_CODE — unreachable code after return/throw/etc.
-        //   - USELESS_ELVIS — useless elvis operator (right side is dead code)
+            val diagnostics = mutableListOf<DiagnosticResult>()
+            val diagnosticsStart = System.nanoTime()
+            try {
+                val document = ktFile.viewProvider.document
+                if (document != null) {
+                    for (diagnostic in ktFile.collectDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)) {
+                        try {
+                            val factoryName = diagnostic.factoryName
+                            if (factoryName !in retainedDiagnosticFactories) continue
+                            val offset = diagnostic.psi.textRange.startOffset
+                            val line = document.getLineNumber(offset) + 1
+                            val col = offset - document.getLineStartOffset(line - 1) + 1
+                            diagnostics.add(
+                                DiagnosticResult(
+                                    factoryName = factoryName,
+                                    severity = diagnostic.severity.name,
+                                    message = diagnostic.defaultMessage,
+                                    line = line,
+                                    col = col
+                                )
+                            )
+                            perf?.count("kotlinDiagnosticsRetained")
+                        } catch (_: Throwable) {
+                            perf?.count("kotlinDiagnosticsEntryException")
+                        }
+                    }
+                }
+            } catch (_: Throwable) {
+                perf?.count("kotlinDiagnosticsException")
+            } finally {
+                perf?.addPhaseTotal("kotlinDiagnostics", System.nanoTime() - diagnosticsStart)
+            }
 
             // Always emit a FileResult, even if the file contributes zero
             // declarations and zero expressions. The empty entry tells the
@@ -2284,7 +2297,7 @@ fun analyzeKtFile(
             // (package-only, comments-only, object initializers at file
             // scope) become permanent cache misses and pin the warm-no-edit
             // wall time at the JVM+session cold-start cost (~4 s).
-            files[path] = FileResult(pkg, declarations, expressions)
+            files[path] = FileResult(pkg, declarations, expressions, diagnostics)
             }
         } finally {
             analysisSessionNs += System.nanoTime() - sessionStart

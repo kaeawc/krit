@@ -26,6 +26,7 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 		{"ObjectAnimatorBinding", []string{"ObjectAnimator", "ofFloat", "ofInt", "ofObject"}, nil},
 		{"UnreachableCode", []string{"return", "throw", "break", "continue"}, nil},
 		{"UseIsNullOrEmpty", []string{"isEmpty", "count", ".size", ".length", "\"\""}, nil},
+		{"UnsafeCast", []string{" as ", " as?"}, nil},
 		{"CastNullableToNonNullableType", []string{" as "}, nil},
 	}
 

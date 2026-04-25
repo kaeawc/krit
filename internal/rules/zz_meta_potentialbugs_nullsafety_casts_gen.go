@@ -35,9 +35,9 @@ func (r *UnsafeCastRule) Meta() registry.RuleDescriptor {
 		ID:            "UnsafeCast",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
-		Description:   "Detects non-safe casts using 'as Type' that may throw ClassCastException at runtime.",
+		Description:   "Detects casts that Kotlin reports can never succeed.",
 		DefaultActive: true,
 		FixLevel:      "semantic",
-		Confidence:    0.75,
+		Confidence:    0.95,
 	}
 }

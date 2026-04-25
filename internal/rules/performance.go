@@ -812,3 +812,73 @@ type UnnecessaryTypeCastingRule struct {
 // that are no-ops; needs the resolver to confirm the source type matches
 // the target, falls back to textual comparison. Classified per roadmap/17.
 func (r *UnnecessaryTypeCastingRule) Confidence() float64 { return 0.75 }
+
+func safeCastExpressionParts(file *scanner.File, idx uint32) (source, target uint32, ok bool) {
+	if file == nil || idx == 0 || file.FlatType(idx) != "as_expression" {
+		return 0, 0, false
+	}
+	seenSafeAs := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "as?":
+			seenSafeAs = true
+			continue
+		}
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		if !seenSafeAs {
+			source = child
+			continue
+		}
+		if target == 0 {
+			target = child
+		}
+	}
+	return source, target, seenSafeAs && source != 0 && target != 0
+}
+
+func safeCastComparedNotNullParts(file *scanner.File, idx uint32) (sourceText, targetText string, ok bool) {
+	if file == nil || idx == 0 || file.FlatType(idx) != "equality_expression" {
+		return "", "", false
+	}
+	var left, op, right uint32
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "!=":
+			op = child
+		default:
+			if left == 0 {
+				left = child
+			} else if right == 0 {
+				right = child
+			}
+		}
+	}
+	if op == 0 || left == 0 || right == 0 {
+		return "", "", false
+	}
+	left = flatUnwrapParenExpr(file, left)
+	right = flatUnwrapParenExpr(file, right)
+
+	var cast uint32
+	switch {
+	case file.FlatType(left) == "as_expression" && file.FlatType(right) == "null":
+		cast = left
+	case file.FlatType(left) == "null" && file.FlatType(right) == "as_expression":
+		cast = right
+	default:
+		return "", "", false
+	}
+
+	source, target, ok := safeCastExpressionParts(file, cast)
+	if !ok {
+		return "", "", false
+	}
+	if file.FlatType(target) == "nullable_type" {
+		return "", "", false
+	}
+	sourceText = strings.TrimSpace(file.FlatNodeText(source))
+	targetText = strings.TrimSpace(file.FlatNodeText(target))
+	return sourceText, targetText, sourceText != "" && targetText != ""
+}

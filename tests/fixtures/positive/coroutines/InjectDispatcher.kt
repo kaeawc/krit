@@ -1,11 +1,19 @@
-package coroutines
+package test
 
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-suspend fun fetchData(ioDispatcher: CoroutineDispatcher = Dispatchers.IO): String {
-    return withContext(Dispatchers.IO) {
-        "data"
+suspend fun directWithContext() {
+    withContext(Dispatchers.IO) {
+        fetchFromNetwork()
     }
 }
+
+suspend fun directLaunch() {
+    launch(Dispatchers.Default) {
+        fetchFromNetwork()
+    }
+}
+
+fun fetchFromNetwork() = Unit

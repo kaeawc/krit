@@ -6778,6 +6778,10 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Needs:                  v2.NeedsTypeInfo,
+			TypeInfo:               v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true},
+			Oracle:                 &v2.OracleFilter{Identifiers: []string{"Dispatchers"}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if first := file.FlatChild(idx, 0); first != 0 && file.FlatType(first) == "call_expression" {
@@ -6787,15 +6791,15 @@ func registerAllRules() {
 				if args == 0 {
 					return
 				}
-				dispatcherNode, dispatcherName := findDirectDispatcherArgumentFlat(file, args)
+				dispatcherNode, dispatcherName := findDirectDispatcherArgumentFlat(file, args, injectDispatcherNames(r.DispatcherNames))
 				if dispatcherNode == 0 {
+					return
+				}
+				if !injectDispatcherTypeConfirmedOrUnknown(ctx.Resolver, file, dispatcherNode) {
 					return
 				}
 				receiver, method := callCalleePartsFlat(file, idx)
 				if isIdiomaticDispatcherHost(receiver, method) {
-					return
-				}
-				if dispatcherName == "Main" {
 					return
 				}
 				if isInsideObjectOrJvmStaticFlat(file, idx) {

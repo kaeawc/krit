@@ -1,7 +1,15 @@
 package rules_test
 
 import (
+	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // --- CollectInOnCreateWithoutLifecycle ---
@@ -223,6 +231,22 @@ suspend fun loadData() {
 	}
 }
 
+func TestInjectDispatcher_PositiveBareLaunch(t *testing.T) {
+	findings := runRuleByName(t, "InjectDispatcher", `
+package test
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+suspend fun loadData() {
+    launch(Dispatchers.Default) {
+        fetchFromNetwork()
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Error("expected InjectDispatcher to flag hardcoded Dispatchers.Default in launch")
+	}
+}
+
 func TestInjectDispatcher_Negative(t *testing.T) {
 	findings := runRuleByName(t, "InjectDispatcher", `
 package test
@@ -235,6 +259,87 @@ suspend fun loadData(dispatcher: CoroutineDispatcher) {
 `)
 	if len(findings) != 0 {
 		t.Errorf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestInjectDispatcher_NegativeInjectedPatterns(t *testing.T) {
+	findings := runRuleByName(t, "InjectDispatcher", `
+package test
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+class Repository(
+    private val ioDispatcher: CoroutineDispatcher,
+    provider: DispatcherProvider,
+) {
+    private val defaultDispatcher: CoroutineDispatcher = ioDispatcher
+    private val providerDispatcher: CoroutineDispatcher = provider.io
+
+    suspend fun fromFunctionParam(dispatcher: CoroutineDispatcher = Dispatchers.IO) {
+        withContext(dispatcher) { fetchFromNetwork() }
+    }
+
+    suspend fun fromConstructorParam() {
+        withContext(ioDispatcher) { fetchFromNetwork() }
+    }
+
+    suspend fun fromClassProperty() {
+        withContext(defaultDispatcher) { fetchFromNetwork() }
+    }
+
+    suspend fun fromProvider() {
+        withContext(providerDispatcher) { fetchFromNetwork() }
+    }
+}
+
+interface DispatcherProvider {
+    val io: CoroutineDispatcher
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected injected dispatcher patterns to be clean, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestInjectDispatcher_TypeInfoConfirmsCoroutineDispatcher(t *testing.T) {
+	findings := runInjectDispatcherWithExpressionType(t, `
+package test
+import kotlinx.coroutines.Dispatchers
+suspend fun loadData() {
+    withContext(Dispatchers.IO) { fetchFromNetwork() }
+}
+`, "Dispatchers.IO", &typeinfer.ResolvedType{Name: "CoroutineDispatcher", FQN: "kotlinx.coroutines.CoroutineDispatcher", Kind: typeinfer.TypeClass})
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding when oracle confirms CoroutineDispatcher, got %d", len(findings))
+	}
+}
+
+func TestInjectDispatcher_TypeInfoSuppressesNonDispatcher(t *testing.T) {
+	findings := runInjectDispatcherWithExpressionType(t, `
+package test
+object Dispatchers {
+    val IO: String = "io"
+}
+suspend fun loadData() {
+    withContext(Dispatchers.IO) { fetchFromNetwork() }
+}
+`, "Dispatchers.IO", &typeinfer.ResolvedType{Name: "String", FQN: "kotlin.String", Kind: typeinfer.TypePrimitive})
+	if len(findings) != 0 {
+		t.Fatalf("expected type-info mismatch to suppress finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestInjectDispatcher_DefaultDoesNotFlagMain(t *testing.T) {
+	findings := runRuleByName(t, "InjectDispatcher", `
+package test
+import kotlinx.coroutines.Dispatchers
+suspend fun loadData() {
+    withContext(Dispatchers.Main) { renderUi() }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected Dispatchers.Main to be clean by default, got %d: %v", len(findings), findings)
 	}
 }
 
@@ -265,6 +370,31 @@ suspend fun foo() {
 	if len(lines) != 2 {
 		t.Errorf("expected findings on 2 distinct lines, got %d distinct lines", len(lines))
 	}
+}
+
+func runInjectDispatcherWithExpressionType(t *testing.T, code string, exprText string, typ *typeinfer.ResolvedType) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.Expressions[file.Path] = map[string]*typeinfer.ResolvedType{}
+	file.FlatWalkNodes(0, "navigation_expression", func(idx uint32) {
+		if strings.TrimSpace(file.FlatNodeText(idx)) == exprText {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.Expressions[file.Path][key] = typ
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range v2rules.Registry {
+		if r.ID == "InjectDispatcher" {
+			d := rules.NewDispatcherV2([]*v2rules.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", "InjectDispatcher")
+	return nil
 }
 
 func TestInjectDispatcher_LinePointsToDispatcher(t *testing.T) {

@@ -23,6 +23,10 @@ type Lookup interface {
 	LookupExpression(filePath string, line, col int) *typeinfer.ResolvedType
 	LookupAnnotations(key string) []string
 	LookupCallTarget(filePath string, line, col int) string
+	// LookupCallTargetSuspend returns suspend-call evidence for a resolved
+	// callable at the given source position. The second return value is false
+	// when the oracle has no resolved callable metadata for the position.
+	LookupCallTargetSuspend(filePath string, line, col int) (bool, bool)
 	// LookupCallTargetAnnotations returns the annotation FQNs recorded directly
 	// on the resolved call-target symbol at the given source position. Unlike
 	// LookupAnnotations (which requires Members+MemberAnnotations in the
@@ -34,18 +38,20 @@ type Lookup interface {
 
 // Oracle holds pre-computed type information from the Kotlin compiler.
 type Oracle struct {
-	raw            *OracleData
-	classByFQN     map[string]*typeinfer.ClassInfo
-	classBySimple  map[string]*typeinfer.ClassInfo
-	sealedVariants map[string][]string
-	enumEntries    map[string][]string
-	functions      map[string]*typeinfer.ResolvedType
-	supertypeMap   map[string][]string                           // FQN → all ancestor FQNs (transitive)
-	subtypeSet     map[string]map[string]bool                    // FQN → set of ancestor FQNs for O(1) IsSubtype
-	expressions          map[string]map[uint64]*typeinfer.ResolvedType // file path → (packed line:col → type)
-	annotations          map[string][]string                           // "ClassName.memberName" → annotation FQNs
-	callTargets          map[string]map[uint64]string                  // file path → (packed line:col → call target FQN)
-	callTargetAnnotations map[string]map[uint64][]string               // file path → (packed line:col → annotation FQNs on resolved symbol)
+	raw                   *OracleData
+	classByFQN            map[string]*typeinfer.ClassInfo
+	classBySimple         map[string]*typeinfer.ClassInfo
+	sealedVariants        map[string][]string
+	enumEntries           map[string][]string
+	functions             map[string]*typeinfer.ResolvedType
+	supertypeMap          map[string][]string                           // FQN → all ancestor FQNs (transitive)
+	subtypeSet            map[string]map[string]bool                    // FQN → set of ancestor FQNs for O(1) IsSubtype
+	expressions           map[string]map[uint64]*typeinfer.ResolvedType // file path → (packed line:col → type)
+	annotations           map[string][]string                           // "ClassName.memberName" → annotation FQNs
+	callTargets           map[string]map[uint64]string                  // file path → (packed line:col → call target FQN)
+	callTargetResolved    map[string]map[uint64]bool                    // file path → (packed line:col → KAA-resolved target marker)
+	callTargetSuspend     map[string]map[uint64]bool                    // file path → (packed line:col → suspend callable marker)
+	callTargetAnnotations map[string]map[uint64][]string                // file path → (packed line:col → annotation FQNs on resolved symbol)
 
 	// Hit/miss counters, updated by LookupClass/LookupExpression/LookupFunction.
 	exprHits    atomic.Int64
@@ -130,6 +136,8 @@ func Load(path string) (*Oracle, error) {
 		expressions:           make(map[string]map[uint64]*typeinfer.ResolvedType),
 		annotations:           make(map[string][]string),
 		callTargets:           make(map[string]map[uint64]string),
+		callTargetResolved:    make(map[string]map[uint64]bool),
+		callTargetSuspend:     make(map[string]map[uint64]bool),
 		callTargetAnnotations: make(map[string]map[uint64][]string),
 	}
 
@@ -148,6 +156,8 @@ func Load(path string) (*Oracle, error) {
 		if len(file.Expressions) > 0 {
 			exprMap := make(map[uint64]*typeinfer.ResolvedType, len(file.Expressions))
 			var ctMap map[uint64]string
+			var ctrMap map[uint64]bool
+			var ctsMap map[uint64]bool
 			var ctaMap map[uint64][]string
 			for pos, et := range file.Expressions {
 				key, ok := parseLineCol(pos)
@@ -161,6 +171,18 @@ func Load(path string) (*Oracle, error) {
 					}
 					ctMap[key] = et.CallTarget
 				}
+				if et.CallTargetResolved {
+					if ctrMap == nil {
+						ctrMap = make(map[uint64]bool)
+					}
+					ctrMap[key] = true
+					if et.CallTargetSuspend {
+						if ctsMap == nil {
+							ctsMap = make(map[uint64]bool)
+						}
+						ctsMap[key] = true
+					}
+				}
 				if len(et.Annotations) > 0 {
 					if ctaMap == nil {
 						ctaMap = make(map[uint64][]string)
@@ -171,6 +193,12 @@ func Load(path string) (*Oracle, error) {
 			o.expressions[path] = exprMap
 			if ctMap != nil {
 				o.callTargets[path] = ctMap
+			}
+			if ctrMap != nil {
+				o.callTargetResolved[path] = ctrMap
+			}
+			if ctsMap != nil {
+				o.callTargetSuspend[path] = ctsMap
 			}
 			if ctaMap != nil {
 				o.callTargetAnnotations[path] = ctaMap
@@ -215,6 +243,8 @@ func LoadFromData(raw *OracleData) (*Oracle, error) {
 		expressions:           make(map[string]map[uint64]*typeinfer.ResolvedType),
 		annotations:           make(map[string][]string),
 		callTargets:           make(map[string]map[uint64]string),
+		callTargetResolved:    make(map[string]map[uint64]bool),
+		callTargetSuspend:     make(map[string]map[uint64]bool),
 		callTargetAnnotations: make(map[string]map[uint64][]string),
 	}
 
@@ -231,6 +261,8 @@ func LoadFromData(raw *OracleData) (*Oracle, error) {
 		if len(file.Expressions) > 0 {
 			exprMap := make(map[uint64]*typeinfer.ResolvedType, len(file.Expressions))
 			var ctMap map[uint64]string
+			var ctrMap map[uint64]bool
+			var ctsMap map[uint64]bool
 			var ctaMap map[uint64][]string
 			for pos, et := range file.Expressions {
 				key, ok := parseLineCol(pos)
@@ -244,6 +276,18 @@ func LoadFromData(raw *OracleData) (*Oracle, error) {
 					}
 					ctMap[key] = et.CallTarget
 				}
+				if et.CallTargetResolved {
+					if ctrMap == nil {
+						ctrMap = make(map[uint64]bool)
+					}
+					ctrMap[key] = true
+					if et.CallTargetSuspend {
+						if ctsMap == nil {
+							ctsMap = make(map[uint64]bool)
+						}
+						ctsMap[key] = true
+					}
+				}
 				if len(et.Annotations) > 0 {
 					if ctaMap == nil {
 						ctaMap = make(map[uint64][]string)
@@ -254,6 +298,12 @@ func LoadFromData(raw *OracleData) (*Oracle, error) {
 			o.expressions[path] = exprMap
 			if ctMap != nil {
 				o.callTargets[path] = ctMap
+			}
+			if ctrMap != nil {
+				o.callTargetResolved[path] = ctrMap
+			}
+			if ctsMap != nil {
+				o.callTargetSuspend[path] = ctsMap
 			}
 			if ctaMap != nil {
 				o.callTargetAnnotations[path] = ctaMap
@@ -518,6 +568,19 @@ func (o *Oracle) LookupCallTarget(filePath string, line, col int) string {
 		return ""
 	}
 	return fileCTs[packLineCol(line, col)]
+}
+
+// LookupCallTargetSuspend returns whether a KAA-resolved callable target is
+// suspend at a specific source position. ok is false when the target is absent
+// or came from lexical fallback rather than KAA resolution.
+func (o *Oracle) LookupCallTargetSuspend(filePath string, line, col int) (isSuspend bool, ok bool) {
+	key := packLineCol(line, col)
+	fileResolved := o.callTargetResolved[filePath]
+	if fileResolved == nil || !fileResolved[key] {
+		return false, false
+	}
+	fileSuspend := o.callTargetSuspend[filePath]
+	return fileSuspend != nil && fileSuspend[key], true
 }
 
 // LookupDiagnostics returns compiler diagnostics for a source file.

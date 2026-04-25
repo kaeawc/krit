@@ -80,7 +80,6 @@ type InjectDispatcherRule struct {
 // gap noted in roadmap/17.
 func (r *InjectDispatcherRule) Confidence() float64 { return 0.75 }
 
-
 func directCallArgumentsFlat(file *scanner.File, idx uint32) uint32 {
 	for i := 0; i < file.FlatNamedChildCount(idx); i++ {
 		child := file.FlatNamedChild(idx, i)
@@ -186,12 +185,12 @@ func injectDispatcherResolvedTypeIsCoroutineDispatcher(typ *typeinfer.ResolvedTy
 	return false
 }
 
-
 // RedundantSuspendModifierRule detects suspend functions with no suspend calls inside.
 // With type inference: uses ResolveNode on call expressions to check if the call
 // target is a suspend function, beyond the hardcoded known list.
-// With oracle: uses LookupCallTarget to resolve the FQN of called functions and
-// check if they are known suspend functions or in kotlinx.coroutines.
+// With oracle: uses KAA call-target metadata to distinguish resolved suspend
+// calls from resolved non-suspend calls, with known FQN/name fallbacks for older
+// oracle payloads.
 type RedundantSuspendModifierRule struct {
 	FlatDispatchBase
 	BaseRule
@@ -199,7 +198,7 @@ type RedundantSuspendModifierRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence because this
 // rule uses a name-based allow-list (commonNonSuspendCallees) and a
-// known-suspend-FQN set to decide whether a call is suspending. It
+// call-target suspend metadata and the known-suspend-FQN set to decide whether a call is suspending. It
 // relies on the oracle for the accurate case; without it, any
 // identifier not in the allow-list is treated as potentially-suspend
 // and the rule suppresses the finding, so the remaining positives are

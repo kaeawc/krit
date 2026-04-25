@@ -2,9 +2,9 @@ package oracle
 
 // OracleData is the top-level JSON structure produced by krit-types.
 type OracleData struct {
-	Version       int                    `json:"version"`
-	KotlinVersion string                 `json:"kotlinVersion"`
-	Files         map[string]*OracleFile `json:"files"`        // source file path → declarations
+	Version       int                     `json:"version"`
+	KotlinVersion string                  `json:"kotlinVersion"`
+	Files         map[string]*OracleFile  `json:"files"`        // source file path → declarations
 	Dependencies  map[string]*OracleClass `json:"dependencies"` // FQN → class info from JARs
 }
 
@@ -12,7 +12,7 @@ type OracleData struct {
 type OracleFile struct {
 	Package      string                     `json:"package"`
 	Declarations []*OracleClass             `json:"declarations"`
-	Expressions  map[string]*ExpressionType `json:"expressions,omitempty"`  // "line:col" → type
+	Expressions  map[string]*ExpressionType `json:"expressions,omitempty"` // "line:col" → type
 	Diagnostics  []*OracleDiagnostic        `json:"diagnostics,omitempty"` // compiler diagnostics
 }
 
@@ -27,10 +27,12 @@ type OracleDiagnostic struct {
 
 // ExpressionType holds a compiler-resolved type for an expression at a source position.
 type ExpressionType struct {
-	Type        string   `json:"type"`                  // FQN like "kotlin.String"
-	Nullable    bool     `json:"nullable"`
-	CallTarget  string   `json:"callTarget,omitempty"`  // FQN of resolved function
-	Annotations []string `json:"annotations,omitempty"` // FQNs of annotations on the resolved symbol
+	Type               string   `json:"type"` // FQN like "kotlin.String"
+	Nullable           bool     `json:"nullable"`
+	CallTarget         string   `json:"callTarget,omitempty"`         // FQN of resolved function or lexical fallback
+	CallTargetResolved bool     `json:"callTargetResolved,omitempty"` // true when callTarget came from KAA resolution
+	CallTargetSuspend  bool     `json:"callTargetSuspend,omitempty"`  // true when the resolved callable symbol is suspend
+	Annotations        []string `json:"annotations,omitempty"`        // FQNs of annotations on the resolved symbol
 }
 
 // OracleClass describes a class, interface, object, or enum.

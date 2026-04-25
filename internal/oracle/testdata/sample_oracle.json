@@ -29,7 +29,8 @@
         }
       ],
       "expressions": {
-        "10:5": {"type": "kotlin.String", "nullable": false, "callTarget": "kotlin.text.lowercase"},
+        "10:5": {"type": "kotlin.String", "nullable": false, "callTarget": "kotlin.text.lowercase", "callTargetResolved": true},
+        "11:5": {"type": "kotlin.Unit", "nullable": false, "callTarget": "com.example.projectSuspend", "callTargetResolved": true, "callTargetSuspend": true},
         "12:9": {"type": "kotlin.Int", "nullable": false},
         "15:3": {"type": "android.app.Application", "nullable": true}
       }

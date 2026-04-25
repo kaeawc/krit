@@ -6815,11 +6815,12 @@ func registerAllRules() {
 			Needs:  v2.NeedsTypeInfo,
 			Oracle: &v2.OracleFilter{Identifiers: []string{"suspend"}},
 			OracleCallTargets: &v2.OracleCallTargetFilter{
+				AllCalls:             true,
 				CalleeNames:          redundantSuspendCallTargetCallees(),
 				LexicalHintsByCallee: redundantSuspendCallTargetLexicalHints(),
 			},
-			// Only uses LookupCallTarget to get the FQN of called functions;
-			// never walks the declarations map.
+			// Uses expression-level call metadata only; never walks the
+			// declarations map.
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
@@ -6856,12 +6857,18 @@ func registerAllRules() {
 					if hasSuspendCall {
 						return
 					}
-					resolved := false
+					provenNonSuspend := false
 					if oracleLookup != nil {
 						line := file.FlatRow(callIdx) + 1
 						col := file.FlatCol(callIdx) + 1
+						if isSuspend, ok := oracleLookup.LookupCallTargetSuspend(file.Path, line, col); ok {
+							if isSuspend {
+								hasSuspendCall = true
+								return
+							}
+							provenNonSuspend = true
+						}
 						if ct := oracleLookup.LookupCallTarget(file.Path, line, col); ct != "" {
-							resolved = true
 							if knownSuspendFQNs[ct] {
 								hasSuspendCall = true
 								return
@@ -6886,7 +6893,6 @@ func registerAllRules() {
 					if ctx.Resolver != nil {
 						resolvedType := ctx.Resolver.ResolveFlatNode(callIdx, file)
 						if resolvedType.Kind != typeinfer.TypeUnknown {
-							resolved = true
 							callName := resolvedType.Name
 							if callName != "" && knownSuspendFunctions[callName] {
 								hasSuspendCall = true
@@ -6898,7 +6904,6 @@ func registerAllRules() {
 							funcName := file.FlatNodeText(funcIdent)
 							resolvedByName := ctx.Resolver.ResolveByNameFlat(funcName, funcIdent, file)
 							if resolvedByName != nil && resolvedByName.Kind != typeinfer.TypeUnknown {
-								resolved = true
 								if strings.Contains(resolvedByName.FQN, "kotlinx.coroutines") {
 									hasSuspendCall = true
 									return
@@ -6906,7 +6911,7 @@ func registerAllRules() {
 							}
 						}
 					}
-					if file.FlatChildCount(callIdx) > 0 {
+					if !provenNonSuspend && file.FlatChildCount(callIdx) > 0 {
 						first := file.FlatChild(callIdx, 0)
 						if first != 0 {
 							ft := file.FlatType(first)
@@ -6921,7 +6926,6 @@ func registerAllRules() {
 							}
 						}
 					}
-					_ = resolved
 				})
 				if !hasSuspendCall && hasUnresolvedCall {
 					return

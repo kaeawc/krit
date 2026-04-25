@@ -160,6 +160,103 @@ suspend fun doWork() {
 	}
 }
 
+func TestRedundantSuspendModifier_ProjectNonSuspendCallWithOracle(t *testing.T) {
+	findings := runRedundantSuspendModifierWithCallTargetSuspend(t, `
+package test
+fun helper() = Unit
+
+suspend fun redundant() {
+    helper()
+}
+`, map[string]bool{"helper()": false})
+	if len(findings) == 0 {
+		t.Fatal("expected redundant suspend finding when project helper resolves non-suspend")
+	}
+}
+
+func TestRedundantSuspendModifier_ProjectSuspendCallWithOracle(t *testing.T) {
+	findings := runRedundantSuspendModifierWithCallTargetSuspend(t, `
+package test
+open class Service {
+    open suspend fun projectSuspend() = Unit
+}
+
+suspend fun needed(service: Service) {
+    service.projectSuspend()
+}
+`, map[string]bool{"service.projectSuspend()": true})
+	if len(findings) != 0 {
+		t.Fatalf("expected project suspend call to suppress finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRedundantSuspendModifier_UnresolvedProjectCallStaysConservative(t *testing.T) {
+	findings := runRedundantSuspendModifierWithCallTargetSuspend(t, `
+package test
+fun helper() = Unit
+
+suspend fun maybeNeeded() {
+    helper()
+}
+`, nil)
+	if len(findings) != 0 {
+		t.Fatalf("expected unresolved project call to suppress finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRedundantSuspendModifier_OpenOverrideAbstractStaySuppressed(t *testing.T) {
+	findings := runRuleByName(t, "RedundantSuspendModifier", `
+package test
+
+open suspend fun overridable() {}
+
+abstract class Base {
+    abstract suspend fun required()
+    open suspend fun inherited() {}
+}
+
+class Child : Base() {
+    override suspend fun inherited() {}
+    override suspend fun required() {}
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected open/override/abstract suspend functions to stay suppressed, got %d: %v", len(findings), findings)
+	}
+}
+
+func runRedundantSuspendModifierWithCallTargetSuspend(t *testing.T, code string, suspendByCallText map[string]bool) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	if len(suspendByCallText) > 0 {
+		fake.CallTargets[file.Path] = map[string]string{}
+		fake.CallTargetSuspend[file.Path] = map[string]bool{}
+		file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+			callText := strings.TrimSpace(file.FlatNodeText(idx))
+			isSuspend, ok := suspendByCallText[callText]
+			if !ok {
+				return
+			}
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = "test." + strings.TrimSuffix(callText, "()")
+			fake.CallTargetSuspend[file.Path][key] = isSuspend
+		})
+	}
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range v2rules.Registry {
+		if r.ID == "RedundantSuspendModifier" {
+			d := rules.NewDispatcherV2([]*v2rules.Rule{r}, composite)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", "RedundantSuspendModifier")
+	return nil
+}
+
 // --- SleepInsteadOfDelay ---
 
 func TestSleepInsteadOfDelay_Positive(t *testing.T) {

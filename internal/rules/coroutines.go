@@ -415,6 +415,76 @@ type SuspendFunSwallowedCancellationRule struct {
 // CancellationException. Classified per roadmap/17.
 func (r *SuspendFunSwallowedCancellationRule) Confidence() float64 { return 0.75 }
 
+func enclosingTryExpressionFlat(file *scanner.File, idx uint32) uint32 {
+	if file == nil || idx == 0 {
+		return 0
+	}
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		if file.FlatType(parent) == "try_expression" {
+			return parent
+		}
+		if file.FlatType(parent) == "function_declaration" {
+			return 0
+		}
+	}
+	return 0
+}
+
+func isInsideSuspendFunctionFlat(file *scanner.File, idx uint32) bool {
+	fn, ok := flatEnclosingAncestor(file, idx, "function_declaration")
+	return ok && hasSuspendModifierFlat(file, fn)
+}
+
+func tryBlockHasSuspendCallFlat(file *scanner.File, tryExpr uint32, resolver typeinfer.TypeResolver) bool {
+	body := tryBodyFlat(file, tryExpr)
+	if body == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(body, "call_expression", func(call uint32) {
+		if found {
+			return
+		}
+		if callInsideNestedFunctionFlat(file, body, call) {
+			return
+		}
+		if resolver != nil {
+			if provider, ok := resolver.(oracleLookupProvider); ok && provider.Oracle() != nil {
+				if isSuspend, ok := provider.Oracle().LookupCallTargetSuspend(file.Path, file.FlatRow(call)+1, file.FlatCol(call)+1); ok {
+					found = isSuspend
+					return
+				}
+			}
+		}
+		found = knownSuspendFunctions[flatCallExpressionName(file, call)]
+	})
+	return found
+}
+
+func tryBodyFlat(file *scanner.File, tryExpr uint32) uint32 {
+	if file == nil || tryExpr == 0 {
+		return 0
+	}
+	for child := file.FlatFirstChild(tryExpr); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "catch_block", "finally_block":
+			return 0
+		case "control_structure_body", "statements":
+			return child
+		}
+	}
+	return 0
+}
+
+func callInsideNestedFunctionFlat(file *scanner.File, root, call uint32) bool {
+	for parent, ok := file.FlatParent(call); ok && parent != root; parent, ok = file.FlatParent(parent) {
+		if file.FlatType(parent) == "function_declaration" || file.FlatType(parent) == "lambda_literal" {
+			return true
+		}
+	}
+	return false
+}
+
 // SuspendFunWithCoroutineScopeReceiverRule detects suspend fun CoroutineScope.x().
 type SuspendFunWithCoroutineScopeReceiverRule struct {
 	FlatDispatchBase

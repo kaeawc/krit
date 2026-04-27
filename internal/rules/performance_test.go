@@ -259,6 +259,18 @@ fun bar() {
 	}
 }
 
+func TestArrayPrimitive_FactoryCallPositive(t *testing.T) {
+	findings := runRuleByName(t, "ArrayPrimitive", `
+package test
+fun bar() {
+    val arr = arrayOf<Int>(1, 2, 3)
+    val empty = emptyArray<Boolean>()
+}`)
+	if len(findings) != 2 {
+		t.Fatalf("ArrayPrimitive should flag primitive array factory calls, got %d", len(findings))
+	}
+}
+
 func TestArrayPrimitive_Negative(t *testing.T) {
 	findings := runRuleByName(t, "ArrayPrimitive", `
 package test
@@ -344,8 +356,8 @@ package test
 fun bar() {
     val result = listOf(1, 2, 3).filter { it > 1 }.map { it * 2 }.sorted()
 }`)
-	if len(findings) == 0 {
-		t.Error("CouldBeSequence should flag chain of 3 collection operations")
+	if len(findings) != 1 {
+		t.Errorf("CouldBeSequence should flag chain of 3 collection operations once, got %d", len(findings))
 	}
 }
 
@@ -375,7 +387,12 @@ func TestCouldBeSequence_NegativeAsSequence(t *testing.T) {
 	findings := runRuleByName(t, "CouldBeSequence", `
 package test
 fun bar(items: List<Int>) {
-    val result = items.asSequence().filter { it > 1 }.map { it * 2 }.toList()
+    val result = items.asSequence()
+        .filter { it > 1 }
+        .map { it * 2 }
+        .distinct()
+        .map { it.toString() }
+        .toList()
 }`)
 	if len(findings) != 0 {
 		t.Errorf("CouldBeSequence should not flag existing sequence chains, got %d findings", len(findings))

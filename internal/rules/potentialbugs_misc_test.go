@@ -450,6 +450,43 @@ fun main(value: Double) {
 	}
 }
 
+func TestImplicitDefaultLocale_EmptyOracleFallsBackToAst(t *testing.T) {
+	file := parseInline(t, `
+package test
+fun main(count: Int) {
+    "%d".format(count)
+}
+`)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	composite := oracle.NewCompositeResolver(oracle.NewFakeOracle(), resolver)
+
+	for _, r := range v2rules.Registry {
+		if r.ID == "ImplicitDefaultLocale" {
+			dispatcher := rules.NewDispatcherV2([]*v2rules.Rule{r}, composite)
+			cols := dispatcher.Run(file)
+			findings := cols.Findings()
+			if len(findings) != 1 {
+				t.Fatalf("expected AST fallback finding when oracle has no call target, got %d", len(findings))
+			}
+			return
+		}
+	}
+	t.Fatal("rule \"ImplicitDefaultLocale\" not found in registry")
+}
+
+func TestImplicitDefaultLocale_LexicalOracleTargetFallsBackToAst(t *testing.T) {
+	findings := runRuleByNameWithCallTarget(t, "ImplicitDefaultLocale", `
+package test
+fun main(count: Int) {
+    "%d".format(count)
+}
+`, `"%d".format(count)`, "format")
+	if len(findings) != 1 {
+		t.Fatalf("expected AST fallback finding when oracle target is lexical fallback, got %d", len(findings))
+	}
+}
+
 func TestImplicitDefaultLocale_OracleSuppressesNonStringFormatTargets(t *testing.T) {
 	findings := runRuleByNameWithCallTarget(t, "ImplicitDefaultLocale", `
 package test

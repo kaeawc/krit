@@ -104,6 +104,21 @@ func primitiveArrayReplacementForTypeRef(typeRef string) (primitive string, repl
 	return "", "", false
 }
 
+func callExpressionTypeArgumentsFlat(file *scanner.File, call uint32) uint32 {
+	if file == nil || call == 0 || file.FlatType(call) != "call_expression" {
+		return 0
+	}
+	if typeArgs, ok := file.FlatFindChild(call, "type_arguments"); ok {
+		return typeArgs
+	}
+	suffix, _ := file.FlatFindChild(call, "call_suffix")
+	if suffix == 0 {
+		return 0
+	}
+	typeArgs, _ := file.FlatFindChild(suffix, "type_arguments")
+	return typeArgs
+}
+
 // CouldBeSequenceRule detects collection operation chains that could be sequences.
 type CouldBeSequenceRule struct {
 	FlatDispatchBase
@@ -197,6 +212,43 @@ func collectCollectionChainCallsFlat(file *scanner.File, idx uint32) []uint32 {
 		break
 	}
 	return calls
+}
+
+func collectionChainShouldSkipStartFlat(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "call_expression" {
+		return true
+	}
+	receiver := collectionCallReceiverFlat(file, idx)
+	if receiver != 0 && collectionOps[flatCallExpressionName(file, receiver)] {
+		return true
+	}
+	return collectionChainHasReceiverCallNamedFlat(file, idx, obviousSequenceSourceCalls)
+}
+
+func collectionCallReceiverFlat(file *scanner.File, call uint32) uint32 {
+	navExpr, _ := flatCallExpressionParts(file, call)
+	if navExpr == 0 || file.FlatNamedChildCount(navExpr) == 0 {
+		return 0
+	}
+	receiver := flatUnwrapParenExpr(file, file.FlatNamedChild(navExpr, 0))
+	if file.FlatType(receiver) == "call_expression" {
+		return receiver
+	}
+	return 0
+}
+
+func collectionChainHasReceiverCallNamedFlat(file *scanner.File, idx uint32, names map[string]bool) bool {
+	for current := idx; current != 0 && file.FlatType(current) == "call_expression"; {
+		receiver := collectionCallReceiverFlat(file, current)
+		if receiver == 0 {
+			return false
+		}
+		if names[flatCallExpressionName(file, receiver)] {
+			return true
+		}
+		current = receiver
+	}
+	return false
 }
 
 func sequenceOperationReturnsSequence(name string) bool {

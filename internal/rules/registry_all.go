@@ -37,7 +37,12 @@ func implicitDefaultLocaleOracleCallTarget(ctx *v2.Context, idx uint32) (target 
 	if !ok || cr.Oracle() == nil {
 		return "", false
 	}
-	return oracleLookupCallTargetFlat(cr.Oracle(), ctx.File, idx), true
+	target = oracleLookupCallTargetFlat(cr.Oracle(), ctx.File, idx)
+	target = strings.TrimSpace(target)
+	if target == "" || target == flatCallExpressionName(ctx.File, idx) {
+		return "", false
+	}
+	return target, true
 }
 
 func implicitDefaultLocaleIsStringFormatTarget(target string) bool {
@@ -779,17 +784,10 @@ func registerAllRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: 0.8, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				parent, ok := file.FlatParent(idx)
-				if !ok {
+				if strings.HasSuffix(file.Path, ".gradle.kts") {
 					return
 				}
-				// Require the call's result to be discarded — i.e. the
-				// call_expression is a standalone statement, not the target
-				// of an assignment or the operand of a larger expression.
-				switch file.FlatType(parent) {
-				case "statements", "function_body", "control_structure_body", "block":
-					// fall through
-				default:
+				if flatIsUsedAsExpression(file, idx) {
 					return
 				}
 				name := flatCallExpressionName(file, idx)
@@ -7055,7 +7053,8 @@ func registerAllRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"catch_block"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
-			Needs: v2.NeedsResolver,
+			Needs:                  v2.NeedsTypeInfo,
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				caughtType := extractCaughtTypeNameFlat(file, idx)
@@ -7071,6 +7070,10 @@ func registerAllRules() {
 					catchesCancellation = typeinfer.IsSubtypeOfException("CancellationException", caughtType)
 				}
 				if !catchesCancellation {
+					return
+				}
+				tryExpr := enclosingTryExpressionFlat(file, idx)
+				if tryExpr == 0 || !isInsideSuspendFunctionFlat(file, tryExpr) || !tryBlockHasSuspendCallFlat(file, tryExpr, ctx.Resolver) {
 					return
 				}
 				caughtVar := extractCaughtVarNameFlat(file, idx)
@@ -9769,10 +9772,28 @@ func registerAllRules() {
 		r := &ArrayPrimitiveRule{BaseRule: BaseRule{RuleName: "ArrayPrimitive", RuleSetName: "performance", Sev: "warning", Desc: "Detects Array<Int> and similar boxed primitive arrays that should use IntArray, LongArray, etc."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"user_type"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"user_type", "call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
 			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if file.FlatType(idx) == "call_expression" {
+					name := flatCallExpressionName(file, idx)
+					if name != "arrayOf" && name != "emptyArray" {
+						return
+					}
+					typeArgs := callExpressionTypeArgumentsFlat(file, idx)
+					if typeArgs == 0 {
+						return
+					}
+					primitive, replacement, ok := primitiveArrayReplacementForTypeRef(file.FlatNodeText(typeArgs))
+					if !ok {
+						return
+					}
+					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						fmt.Sprintf("Use '%s' instead of '%s<%s>()' for better performance.", replacement, name, primitive))
+					ctx.Emit(f)
+					return
+				}
 				ident, _ := file.FlatFindChild(idx, "type_identifier")
 				typeArgs, _ := file.FlatFindChild(idx, "type_arguments")
 				if ident == 0 || typeArgs == 0 {
@@ -9867,6 +9888,9 @@ func registerAllRules() {
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if collectionChainShouldSkipStartFlat(file, idx) {
+					return
+				}
 				calls := collectCollectionChainCallsFlat(file, idx)
 				count := len(calls)
 				if count <= r.AllowedOperations {

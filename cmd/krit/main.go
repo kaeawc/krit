@@ -181,6 +181,7 @@ func main() {
 	noCrossFileCacheFlag := flag.Bool("no-cross-file-cache", false, "Disable the on-disk cross-file index cache (forces a full crossFileAnalysis rebuild)")
 	daemonFlag := flag.Bool("daemon", false, "Use long-lived krit-types daemon instead of one-shot invocation")
 	noOracleFilterFlag := flag.Bool("no-oracle-filter", false, "Disable the rule-classification oracle filter (feeds every file to krit-types, matching the pre-filter baseline; used to validate findings-equivalence)")
+	oracleDiagnosticsFlag := flag.Bool("oracle-diagnostics", false, "Collect Kotlin compiler diagnostics in the type oracle (slower; enables diagnostic-backed oracle findings)")
 	oracleFilterFingerprintFlag := flag.Bool("oracle-filter-fingerprint", false, "Compute the oracle filter input-set fingerprint for the given paths and print JSON to stdout; exits without running rules. Used by the CI drift gate.")
 	firFlag := flag.Bool("fir", false, "Enable FIR checker pass (krit-fir JVM subprocess); default off during pilot phase")
 	noFirFlag := flag.Bool("no-fir", false, "Disable FIR checker pass even when enabled by config")
@@ -797,6 +798,7 @@ potential-bugs:
 			InputTypesPath:    *inputTypesFlag,
 			NoCacheOracle:     *noCacheOracleFlag,
 			NoOracleFilter:    *noOracleFilterFlag,
+			OracleDiagnostics: *oracleDiagnosticsFlag,
 			UseDaemon:         *daemonFlag,
 			Store:             oracleStore,
 			OracleCacheWriter: oracleCacheWriter,
@@ -1180,10 +1182,32 @@ potential-bugs:
 		firStart := time.Now()
 		firTracker := tracker.Serial("firCheck")
 		firJar := firchecks.FindFirJar(paths)
-		firKtFiles, _ := firchecks.CollectFirKtFiles(paths)
+		activeRuleIDs := make([]string, 0, len(activeRules))
+		for _, r := range activeRules {
+			if r != nil {
+				activeRuleIDs = append(activeRuleIDs, r.ID)
+			}
+		}
+		activeFir := firchecks.ActiveFirRules(activeRuleIDs)
+		firSummary := firchecks.CollectFirCheckFiles(activeFir.Filters, parsedFiles)
+		firKtFiles := firSummary.Paths
+		if firSummary.AllFiles {
+			firKtFiles = make([]string, 0, len(parsedFiles))
+			for _, file := range parsedFiles {
+				if file == nil {
+					continue
+				}
+				abs, err := filepath.Abs(file.Path)
+				if err != nil {
+					abs = file.Path
+				}
+				firKtFiles = append(firKtFiles, abs)
+			}
+			sort.Strings(firKtFiles)
+		}
 		firRepoDir := oracle.FindRepoDir(paths)
 		firUseDaemon := !*noFirDaemonFlag
-		firResult, firErr := firchecks.InvokeCached(firJar, firKtFiles, nil, nil, nil, firRepoDir, firUseDaemon, *verboseFlag)
+		firResult, firErr := firchecks.InvokeCached(firJar, firKtFiles, nil, nil, activeFir.Names, firRepoDir, firUseDaemon, *verboseFlag)
 		firTracker.End()
 		if firErr != nil {
 			if *verboseFlag {
@@ -1193,9 +1217,9 @@ potential-bugs:
 			allFindings = firchecks.MergeFindings(allFindings, firResult.Findings)
 			if *verboseFlag {
 				firStats := firchecks.Stats()
-				fmt.Fprintf(os.Stderr, "verbose: FIR checker in %v (%d findings, cache hits=%d misses=%d)\n",
+				fmt.Fprintf(os.Stderr, "verbose: FIR checker in %v (%d findings, %d/%d files, cache hits=%d misses=%d)\n",
 					time.Since(firStart).Round(time.Millisecond), len(firResult.Findings),
-					firStats.Hits, firStats.Misses)
+					firSummary.MarkedFiles, firSummary.TotalFiles, firStats.Hits, firStats.Misses)
 			}
 		}
 	}

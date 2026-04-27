@@ -1437,7 +1437,7 @@ func wrongConstantOracleCallTarget(ctx *v2.Context, idx uint32) string {
 	if lookup == nil {
 		return ""
 	}
-	return lookup.LookupCallTarget(ctx.File.Path, ctx.File.FlatRow(idx)+1, ctx.File.FlatCol(idx)+1)
+	return oracleLookupCallTargetFlat(lookup, ctx.File, idx)
 }
 
 func wrongConstantFrameworkTargetMatches(target, method string) bool {

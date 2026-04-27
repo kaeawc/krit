@@ -97,6 +97,11 @@ type IndexInput struct {
 	// NoOracleFilter mirrors --no-oracle-filter: disables the
 	// rule-classification oracle filter pre-scan.
 	NoOracleFilter bool
+	// OracleDiagnostics enables expensive Kotlin compiler diagnostic
+	// collection in krit-types. The default oracle path leaves this off;
+	// FlatNode/rule fallbacks cover the common cases without forcing every
+	// KAA run through collectDiagnostics().
+	OracleDiagnostics bool
 	// UseDaemon mirrors --daemon: use the long-lived krit-types daemon
 	// instead of one-shot invocation.
 	UseDaemon bool
@@ -598,7 +603,13 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 				// universe first, then the cache classifies what's left.
 				callFilterPtr := buildOracleCallTargetFilterForInvocation(in.ActiveRules, loadOracleFilterFiles, jvmTracker, in.Verbose)
 				declarationProfileSummary := rules.BuildOracleDeclarationProfileV2(in.ActiveRules)
-				invokeOpts := oracle.InvocationOptions{Tracker: jvmTracker, CacheWriter: in.OracleCacheWriter, CallFilter: callFilterPtr, DeclarationProfile: &declarationProfileSummary}
+				invokeOpts := oracle.InvocationOptions{
+					Tracker:            jvmTracker,
+					CacheWriter:        in.OracleCacheWriter,
+					CallFilter:         callFilterPtr,
+					DeclarationProfile: &declarationProfileSummary,
+					DisableDiagnostics: !in.OracleDiagnostics || !rules.NeedsOracleDiagnostics(in.ActiveRules),
+				}
 				var res string
 				var err error
 				if in.NoCacheOracle {

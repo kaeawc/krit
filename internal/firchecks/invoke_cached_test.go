@@ -114,13 +114,16 @@ func TestToScannerFinding_SetsRuleSetFirForUnknownDiagnostic(t *testing.T) {
 }
 
 func TestToScannerFinding_MapsKnownDiagnosticToCatalogRule(t *testing.T) {
-	fir := FirFinding{Path: "/src/A.kt", Line: 5, Col: 2, Rule: "INJECT_DISPATCHER", Severity: "warning", Message: "msg", Confidence: 0.9}
+	fir := FirFinding{Path: "/src/A.kt", Line: 5, Col: 2, StartByte: 12, EndByte: 23, Rule: "INJECT_DISPATCHER", Severity: "warning", Message: "msg", Confidence: 0.9}
 	f := ToScannerFinding(fir)
 	if f.Rule != "InjectDispatcher" {
 		t.Errorf("expected mapped Rule=InjectDispatcher, got %q", f.Rule)
 	}
 	if f.RuleSet != "coroutines" {
 		t.Errorf("expected mapped RuleSet=coroutines, got %q", f.RuleSet)
+	}
+	if f.StartByte != 12 || f.EndByte != 23 {
+		t.Errorf("expected byte range 12..23, got %d..%d", f.StartByte, f.EndByte)
 	}
 }
 
@@ -133,6 +136,37 @@ func TestMergeFindings_DeduplicatesPilotRuleOnSameLine(t *testing.T) {
 	}
 	if merged[0].Message != "go message" {
 		t.Errorf("expected Go finding to win, got message: %q", merged[0].Message)
+	}
+}
+
+func TestMergeFindings_ByteRangesAvoidPilotLineDedupe(t *testing.T) {
+	goFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 5, StartByte: 100, EndByte: 110, Rule: "CollectInOnCreateWithoutLifecycle", RuleSet: "coroutines", Message: "go message"}
+	firFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 12, StartByte: 130, EndByte: 140, Rule: "CollectInOnCreateWithoutLifecycle", RuleSet: "coroutines", Message: "fir message"}
+	merged := MergeFindings([]scanner.Finding{goFinding}, []scanner.Finding{firFinding})
+	if len(merged) != 2 {
+		t.Fatalf("expected byte-distinct findings to survive line dedup, got %d", len(merged))
+	}
+}
+
+func TestMergeFindings_PilotLineDedupeWhenExistingHasNoByteRange(t *testing.T) {
+	goFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 5, Rule: "CollectInOnCreateWithoutLifecycle", RuleSet: "coroutines", Message: "go message"}
+	firFinding := scanner.Finding{File: "/src/A.kt", Line: 10, Col: 12, StartByte: 130, EndByte: 140, Rule: "CollectInOnCreateWithoutLifecycle", RuleSet: "coroutines", Message: "fir message"}
+	merged := MergeFindings([]scanner.Finding{goFinding}, []scanner.Finding{firFinding})
+	if len(merged) != 1 {
+		t.Fatalf("expected old line dedupe to remain when existing finding has no byte range, got %d", len(merged))
+	}
+}
+
+func TestToScannerFindingWithRange_DerivesByteRange(t *testing.T) {
+	tmp := t.TempDir()
+	ktFile := tmp + "/A.kt"
+	if err := os.WriteFile(ktFile, []byte("fun main() {\n    Dispatchers.IO\n}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fir := FirFinding{Path: ktFile, Line: 2, Col: 5, Rule: "INJECT_DISPATCHER", Severity: "warning", Message: "msg"}
+	f := toScannerFindingWithRange(fir, map[string][]byte{})
+	if f.StartByte != 17 || f.EndByte != 31 {
+		t.Fatalf("expected Dispatchers.IO byte range 17..31, got %d..%d", f.StartByte, f.EndByte)
 	}
 }
 

@@ -23,6 +23,8 @@ type FirFinding struct {
 	Path       string  `json:"path"`
 	Line       int     `json:"line"`
 	Col        int     `json:"col"`
+	StartByte  int     `json:"startByte,omitempty"`
+	EndByte    int     `json:"endByte,omitempty"`
 	Rule       string  `json:"rule"`
 	Severity   string  `json:"severity"`
 	Message    string  `json:"message"`
@@ -59,6 +61,8 @@ func ToScannerFinding(f FirFinding) scanner.Finding {
 		File:       f.Path,
 		Line:       f.Line,
 		Col:        f.Col,
+		StartByte:  f.StartByte,
+		EndByte:    f.EndByte,
 		RuleSet:    ruleSet,
 		Rule:       rule,
 		Severity:   sev,

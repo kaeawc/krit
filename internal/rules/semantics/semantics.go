@@ -10,6 +10,13 @@ import (
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
+type flatOracleLookup interface {
+	LookupCallTargetFlat(file *scanner.File, idx uint32) string
+	LookupCallTargetSuspendFlat(file *scanner.File, idx uint32) (bool, bool)
+	LookupCallTargetAnnotationsFlat(file *scanner.File, idx uint32) []string
+	LookupDiagnosticsForFlatRange(file *scanner.File, idx uint32) []oracle.OracleDiagnostic
+}
+
 // NodeRef identifies a flat syntax node in a source file.
 type NodeRef struct {
 	File *scanner.File
@@ -478,6 +485,11 @@ func EnclosingCaughtExceptionHandlers(ctx *v2.Context, call uint32) []ExceptionH
 }
 
 func oracleCallTarget(ctx *v2.Context, idx uint32) string {
+	return OracleCallTarget(ctx, idx)
+}
+
+// OracleCallTarget resolves the compiler-backed call target for a FlatNode.
+func OracleCallTarget(ctx *v2.Context, idx uint32) string {
 	if ctx == nil || ctx.Resolver == nil || ctx.File == nil {
 		return ""
 	}
@@ -488,7 +500,55 @@ func oracleCallTarget(ctx *v2.Context, idx uint32) string {
 	if lookup == nil {
 		return ""
 	}
+	if flat, ok := lookup.(flatOracleLookup); ok {
+		return flat.LookupCallTargetFlat(ctx.File, idx)
+	}
 	return lookup.LookupCallTarget(ctx.File.Path, ctx.File.FlatRow(idx)+1, ctx.File.FlatCol(idx)+1)
+}
+
+// OracleCallTargetSuspend resolves suspend-call evidence for a FlatNode.
+func OracleCallTargetSuspend(ctx *v2.Context, idx uint32) (bool, bool) {
+	if ctx == nil || ctx.Resolver == nil || ctx.File == nil {
+		return false, false
+	}
+	if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+		lookup := cr.Oracle()
+		if flat, ok := lookup.(flatOracleLookup); ok {
+			return flat.LookupCallTargetSuspendFlat(ctx.File, idx)
+		}
+		return lookup.LookupCallTargetSuspend(ctx.File.Path, ctx.File.FlatRow(idx)+1, ctx.File.FlatCol(idx)+1)
+	}
+	return false, false
+}
+
+// OracleCallTargetAnnotations returns annotations on the resolved call target.
+func OracleCallTargetAnnotations(ctx *v2.Context, idx uint32) []string {
+	if ctx == nil || ctx.Resolver == nil || ctx.File == nil {
+		return nil
+	}
+	if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+		lookup := cr.Oracle()
+		if flat, ok := lookup.(flatOracleLookup); ok {
+			return flat.LookupCallTargetAnnotationsFlat(ctx.File, idx)
+		}
+		return lookup.LookupCallTargetAnnotations(ctx.File.Path, ctx.File.FlatRow(idx)+1, ctx.File.FlatCol(idx)+1)
+	}
+	return nil
+}
+
+// OracleDiagnosticsForFlatRange returns compiler diagnostics inside a FlatNode.
+func OracleDiagnosticsForFlatRange(ctx *v2.Context, idx uint32) []oracle.OracleDiagnostic {
+	if ctx == nil || ctx.Resolver == nil || ctx.File == nil {
+		return nil
+	}
+	if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+		lookup := cr.Oracle()
+		if flat, ok := lookup.(flatOracleLookup); ok {
+			return flat.LookupDiagnosticsForFlatRange(ctx.File, idx)
+		}
+		return lookup.LookupDiagnostics(ctx.File.Path)
+	}
+	return nil
 }
 
 func callExpressionParts(file *scanner.File, idx uint32) (uint32, uint32) {

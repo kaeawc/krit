@@ -266,6 +266,9 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	if profileArg := declarationProfileCLIValue(opts); profileArg != "" {
 		args = append(args, "--declaration-profile", profileArg)
 	}
+	if opts.DisableDiagnostics {
+		args = append(args, "--no-diagnostics")
+	}
 	var cleanupTimings func()
 	if tracker.IsEnabled() {
 		timingsPath, cleanup, err := tempTimingsPath()

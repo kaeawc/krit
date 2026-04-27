@@ -16,6 +16,7 @@ complete -c krit -l cache-dir -d 'Shared cache directory' -xa '(__fish_complete_
 complete -c krit -l no-type-inference -d 'Disable type inference'
 complete -c krit -l no-type-oracle -d 'Disable type oracle'
 complete -c krit -l daemon -d 'Enable persistent type oracle daemon'
+complete -c krit -l oracle-diagnostics -d 'Collect Kotlin compiler diagnostics in the type oracle'
 complete -c krit -l input-types -d 'Load pre-built type oracle JSON' -rF
 complete -c krit -l output-types -d 'Output type oracle JSON' -rF
 complete -c krit -l baseline -d 'Baseline file' -rF

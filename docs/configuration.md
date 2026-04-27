@@ -86,6 +86,8 @@ krit --baseline baseline.xml .
 
 Cold type-oracle cache misses use one-shot `krit-types` analysis with `--experimental-parallel-files 4` by default. Override the worker count with `KRIT_TYPES_PARALLEL_FILES=N`; set it to `0` or `1` to disable in-JVM file parallelism. Set `KRIT_DAEMON_CACHE=on` to use the persistent daemon miss-analysis path instead.
 
+Kotlin compiler diagnostics are disabled in the default type-oracle path because `collectDiagnostics()` is expensive on large projects and most type-aware rules use FlatNode or expression facts instead. Pass `--oracle-diagnostics` when you need diagnostic-backed oracle findings such as compiler-proven unreachable code or impossible casts.
+
 `KRIT_DAEMON_POOL=N` is an opt-in benchmark knob for warm type-oracle cache misses. The default is `1`. Values greater than `1` keep additional persistent Kotlin Analysis API JVM daemons for the same source tree and shard miss analysis only for larger miss sets.
 
 Each pool member is a full JVM with its own Analysis API session, so idle memory use scales roughly with the pool size. Use this only while measuring warm edit runs, not as a default project setting.

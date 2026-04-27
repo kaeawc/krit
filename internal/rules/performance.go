@@ -211,7 +211,7 @@ func sequenceOracleDecisionFlat(file *scanner.File, resolver typeinfer.TypeResol
 	}
 	for _, call := range calls {
 		name := flatCallExpressionName(file, call)
-		target := provider.Oracle().LookupCallTarget(file.Path, file.FlatRow(call)+1, file.FlatCol(call)+1)
+		target := oracleLookupCallTargetFlat(provider.Oracle(), file, call)
 		if target == "" || target == name {
 			return false, false
 		}
@@ -615,7 +615,7 @@ func spreadOperatorCallTargetFlat(file *scanner.File, call uint32, resolver type
 	if !ok {
 		return ""
 	}
-	return cr.Oracle().LookupCallTarget(file.Path, file.FlatRow(call)+1, file.FlatCol(call)+1)
+	return oracleLookupCallTargetFlat(cr.Oracle(), file, call)
 }
 
 func isSpreadIntoSqlBuilderFlat(file *scanner.File, idx uint32) bool {

@@ -15,6 +15,8 @@ type findingColumnsJSON struct {
 	FileIdx        []uint32    `json:"fileIdx,omitempty"`
 	Line           []uint32    `json:"line,omitempty"`
 	Col            []uint16    `json:"col,omitempty"`
+	StartByte      []uint32    `json:"startByte,omitempty"`
+	EndByte        []uint32    `json:"endByte,omitempty"`
 	RuleSetIdx     []uint16    `json:"ruleSetIdx,omitempty"`
 	RuleIdx        []uint16    `json:"ruleIdx,omitempty"`
 	SeverityID     []uint8     `json:"severityID,omitempty"`
@@ -38,6 +40,8 @@ func (c FindingColumns) MarshalJSON() ([]byte, error) {
 		FileIdx:        c.FileIdx,
 		Line:           c.Line,
 		Col:            c.Col,
+		StartByte:      omitZeroUint32Column(c.StartByte),
+		EndByte:        omitZeroUint32Column(c.EndByte),
 		RuleSetIdx:     c.RuleSetIdx,
 		RuleIdx:        c.RuleIdx,
 		SeverityID:     c.SeverityID,
@@ -69,6 +73,12 @@ func (c *FindingColumns) UnmarshalJSON(data []byte) error {
 		len(payload.FixStart),
 		len(payload.BinaryFixStart),
 	}
+	if len(payload.StartByte) > 0 {
+		rowSlices = append(rowSlices, len(payload.StartByte))
+	}
+	if len(payload.EndByte) > 0 {
+		rowSlices = append(rowSlices, len(payload.EndByte))
+	}
 	for _, size := range rowSlices {
 		switch {
 		case rowCount == 0:
@@ -90,6 +100,8 @@ func (c *FindingColumns) UnmarshalJSON(data []byte) error {
 		FileIdx:        append([]uint32(nil), payload.FileIdx...),
 		Line:           append([]uint32(nil), payload.Line...),
 		Col:            append([]uint16(nil), payload.Col...),
+		StartByte:      normalizeOptionalUint32Column(payload.StartByte, rowCount),
+		EndByte:        normalizeOptionalUint32Column(payload.EndByte, rowCount),
 		RuleSetIdx:     append([]uint16(nil), payload.RuleSetIdx...),
 		RuleIdx:        append([]uint16(nil), payload.RuleIdx...),
 		SeverityID:     append([]uint8(nil), payload.SeverityID...),
@@ -103,6 +115,22 @@ func (c *FindingColumns) UnmarshalJSON(data []byte) error {
 		c.BinaryFixPool = make([]BinaryFix, len(payload.BinaryFixPool))
 		for i, fix := range payload.BinaryFixPool {
 			c.BinaryFixPool[i] = cloneBinaryFix(fix)
+		}
+	}
+	return nil
+}
+
+func normalizeOptionalUint32Column(values []uint32, rowCount int) []uint32 {
+	if len(values) == rowCount {
+		return append([]uint32(nil), values...)
+	}
+	return make([]uint32, rowCount)
+}
+
+func omitZeroUint32Column(values []uint32) []uint32 {
+	for _, value := range values {
+		if value != 0 {
+			return values
 		}
 	}
 	return nil

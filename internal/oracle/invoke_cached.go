@@ -525,6 +525,9 @@ func runKritTypesCached(
 	if profileArg := declarationProfileCLIValue(opts); profileArg != "" {
 		args = append(args, "--declaration-profile", profileArg)
 	}
+	if opts.DisableDiagnostics {
+		args = append(args, "--no-diagnostics")
+	}
 	var timingsPath string
 	if tracker != nil && tracker.IsEnabled() {
 		path, cleanup, err := tempTimingsPath()

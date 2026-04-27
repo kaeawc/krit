@@ -435,6 +435,79 @@ func TestLookupExpression_FileWithoutExpressions(t *testing.T) {
 	}
 }
 
+func TestFlatRangeLookups(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "A.kt")
+	if err := os.WriteFile(path, []byte("fun main() { foo() }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseKotlinFileCached(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var call uint32
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		if call == 0 && file.FlatNodeText(idx) == "foo()" {
+			call = idx
+		}
+	})
+	if call == 0 {
+		t.Fatal("expected foo call")
+	}
+
+	o, err := LoadFromData(&OracleData{
+		Version:       1,
+		KotlinVersion: "2.1.0",
+		Files: map[string]*OracleFile{
+			path: {
+				Expressions: map[string]*ExpressionType{
+					"1:14": {
+						Type:               "kotlin.String",
+						StartByte:          int(file.FlatStartByte(call)),
+						EndByte:            int(file.FlatEndByte(call)),
+						CallTarget:         "com.example.foo",
+						CallTargetResolved: true,
+						CallTargetSuspend:  true,
+						Annotations:        []string{"javax.annotation.CheckReturnValue"},
+					},
+				},
+				Diagnostics: []*OracleDiagnostic{
+					{
+						FactoryName: "UNREACHABLE_CODE",
+						Severity:    "WARNING",
+						Message:     "unreachable",
+						Line:        1,
+						Col:         14,
+						StartByte:   int(file.FlatStartByte(call)),
+						EndByte:     int(file.FlatEndByte(call)),
+					},
+				},
+			},
+		},
+		Dependencies: map[string]*OracleClass{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := o.LookupExpressionFlat(file, call)
+	if rt == nil || rt.FQN != "kotlin.String" {
+		t.Fatalf("expected flat expression type kotlin.String, got %#v", rt)
+	}
+	if target := o.LookupCallTargetFlat(file, call); target != "com.example.foo" {
+		t.Fatalf("expected flat call target, got %q", target)
+	}
+	if suspend, ok := o.LookupCallTargetSuspendFlat(file, call); !ok || !suspend {
+		t.Fatalf("expected suspend flat call target, got suspend=%v ok=%v", suspend, ok)
+	}
+	annotations := o.LookupCallTargetAnnotationsFlat(file, call)
+	if len(annotations) != 1 || annotations[0] != "javax.annotation.CheckReturnValue" {
+		t.Fatalf("expected flat annotations, got %#v", annotations)
+	}
+	diags := o.LookupDiagnosticsForFlatRange(file, call)
+	if len(diags) != 1 || diags[0].FactoryName != "UNREACHABLE_CODE" {
+		t.Fatalf("expected flat diagnostics, got %#v", diags)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Annotation lookup tests
 // ---------------------------------------------------------------------------

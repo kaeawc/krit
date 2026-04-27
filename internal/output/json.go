@@ -37,6 +37,8 @@ type JSONFinding struct {
 	File       string  `json:"file"`
 	Line       int     `json:"line"`
 	Column     int     `json:"column"`
+	StartByte  *int    `json:"startByte,omitempty"`
+	EndByte    *int    `json:"endByte,omitempty"`
 	RuleSet    string  `json:"ruleSet"`
 	Rule       string  `json:"rule"`
 	Severity   string  `json:"severity"`
@@ -149,10 +151,18 @@ func buildJSONFindings(columns *scanner.FindingColumns, fixLevels map[string]str
 		ruleSet := cols.RuleSetAt(row)
 		rule := cols.RuleAt(row)
 		isFixable := cols.HasFix(row)
+		var startByte, endByte *int
+		start, end := cols.StartByteAt(row), cols.EndByteAt(row)
+		if end > start {
+			startByte = &start
+			endByte = &end
+		}
 		finding := JSONFinding{
 			File:       cols.FileAt(row),
 			Line:       cols.LineAt(row),
 			Column:     cols.ColumnAt(row),
+			StartByte:  startByte,
+			EndByte:    endByte,
 			RuleSet:    ruleSet,
 			Rule:       rule,
 			Severity:   cols.SeverityAt(row),

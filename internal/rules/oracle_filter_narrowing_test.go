@@ -118,9 +118,7 @@ func TestOracleCallTargetFilterDefaultRulesEnabled(t *testing.T) {
 	if slices.Contains(summary.DisabledBy, "IgnoredReturnValue") {
 		t.Fatalf("IgnoredReturnValue should not disable default call filtering: %+v", summary)
 	}
-	for _, ruleID := range summary.DisabledBy {
-		if ruleID != "RedundantSuspendModifier" {
-			t.Fatalf("unexpected default rule disabled oracle call filtering: disabledBy=%v", summary.DisabledBy)
-		}
+	for range summary.DisabledBy {
+		t.Fatalf("unexpected default rule disabled oracle call filtering: disabledBy=%v", summary.DisabledBy)
 	}
 }

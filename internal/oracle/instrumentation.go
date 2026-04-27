@@ -19,6 +19,10 @@ type InvocationOptions struct {
 	CacheWriter  *OracleCacheWriter
 	CallFilter   *CallTargetFilterSummary
 	ExtraJVMArgs []string
+	// DisableDiagnostics skips krit-types collectDiagnostics(), which is
+	// expensive on large projects and only needed by rules that consume
+	// compiler diagnostic facts.
+	DisableDiagnostics bool
 	// DeclarationProfile narrows which fields krit-types populates per
 	// class/member. Nil or a full profile preserves pre-profile extraction;
 	// narrow profiles skip KAA traversal for unused sections.

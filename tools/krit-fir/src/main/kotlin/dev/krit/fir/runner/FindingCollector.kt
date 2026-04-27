@@ -9,6 +9,8 @@ data class Finding(
     val path: String,
     val line: Int,
     val col: Int,
+    val startByte: Int = 0,
+    val endByte: Int = 0,
     val rule: String,
     val severity: String,
     val message: String,

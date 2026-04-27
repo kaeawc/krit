@@ -213,7 +213,7 @@ func unsafeCastHasNeverSucceedsDiagnosticFlat(ctx *v2.Context, idx uint32) (orac
 	if !ok {
 		return oracle.OracleDiagnostic{}, false
 	}
-	for _, d := range cr.Oracle().LookupDiagnostics(ctx.File.Path) {
+	for _, d := range oracleLookupDiagnosticsForFlatRange(cr.Oracle(), ctx.File, idx) {
 		if !unsafeCastNeverSucceedsDiagnosticFactories[d.FactoryName] {
 			continue
 		}
@@ -225,7 +225,13 @@ func unsafeCastHasNeverSucceedsDiagnosticFlat(ctx *v2.Context, idx uint32) (orac
 }
 
 func unsafeCastDiagnosticOverlapsFlat(file *scanner.File, idx uint32, d oracle.OracleDiagnostic) bool {
-	if file == nil || idx == 0 || d.Line <= 0 || d.Col <= 0 {
+	if file == nil || idx == 0 {
+		return false
+	}
+	if d.EndByte > d.StartByte {
+		return d.StartByte < int(file.FlatEndByte(idx)) && d.EndByte > int(file.FlatStartByte(idx))
+	}
+	if d.Line <= 0 || d.Col <= 0 {
 		return false
 	}
 	off := file.LineOffset(d.Line-1) + d.Col - 1
@@ -508,7 +514,7 @@ func unsafeCastOracleCallTargetFlat(ctx *v2.Context, idx uint32) string {
 	if oracleLookup == nil {
 		return ""
 	}
-	return oracleLookup.LookupCallTarget(ctx.File.Path, ctx.File.FlatRow(idx)+1, ctx.File.FlatCol(idx)+1)
+	return oracleLookupCallTargetFlat(oracleLookup, ctx.File, idx)
 }
 
 func unsafeCastCallTargetMatches(callTarget, callee string) bool {

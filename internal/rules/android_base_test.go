@@ -178,6 +178,17 @@ fun setup(webView: WebView) {
 	}
 }
 
+func TestSetJavaScriptEnabled_AssignmentPositive(t *testing.T) {
+	findings := runRuleByName(t, "SetJavaScriptEnabled", `
+package test
+fun setup(webView: WebView) {
+    webView.settings.javaScriptEnabled = true
+}`)
+	if len(findings) == 0 {
+		t.Error("expected SetJavaScriptEnabled finding for property assignment")
+	}
+}
+
 func TestSetJavaScriptEnabled_Negative(t *testing.T) {
 	findings := runRuleByName(t, "SetJavaScriptEnabled", `
 package test

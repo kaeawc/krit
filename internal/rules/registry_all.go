@@ -413,24 +413,17 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"preferredWidth", "preferredHeight", "preferredSize"}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				replacements := map[string]string{
-					"preferredWidth":  "width",
-					"preferredHeight": "height",
-					"preferredSize":   "size",
-				}
-				matches := obsoleteLayoutParamRe.FindAllString(text, -1)
-				if len(matches) == 0 {
+				name, replacement, ok := obsoleteComposeModifierCall(ctx, idx)
+				if !ok {
 					return
 				}
-				for _, m := range matches {
-					replacement := replacements[m]
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Obsolete Compose layout modifier '"+m+"' was renamed to '"+replacement+"' in Compose 1.0.")
-				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"Obsolete Compose layout modifier '"+name+"' was renamed to '"+replacement+"' in Compose 1.0.")
 			},
 		})
 	}
@@ -443,40 +436,13 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Needs: v2.NeedsResolver, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				headerEnd := strings.Index(text, "{")
-				header := text
-				if headerEnd > 0 {
-					header = text[:headerEnd]
-				}
-				if !adapterClassRe.MatchString(header) {
+				if !isRecyclerAdapterClassFlat(ctx, idx) {
 					return
 				}
-				hasViewHolder := false
-				for i := 0; i < file.FlatChildCount(idx); i++ {
-					child := file.FlatChild(idx, i)
-					if file.FlatType(child) == "class_body" {
-						bodyText := file.FlatNodeText(child)
-						for _, line := range strings.Split(bodyText, "\n") {
-							if strings.Contains(line, "onCreateViewHolder") {
-								hasViewHolder = true
-								break
-							}
-							if strings.Contains(line, "class") && strings.Contains(line, "ViewHolder") {
-								hasViewHolder = true
-								break
-							}
-							if strings.Contains(line, ": RecyclerView.ViewHolder") {
-								hasViewHolder = true
-								break
-							}
-						}
-					}
-				}
-				if hasViewHolder {
+				if classHasMemberFunctionFlat(file, idx, "onCreateViewHolder") || classHasNestedViewHolderFlat(file, idx) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,
@@ -537,27 +503,16 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"v", "d", "i", "println", "isLoggable"}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				navExpr, _ := flatCallExpressionParts(file, idx)
-				if navExpr == 0 {
+				if !logCallIsAndroidLog(ctx, idx) {
 					return
 				}
-				if receiver := flatReceiverNameFromCall(file, idx); receiver != "Log" {
+				if hasAndroidLogGuardFlat(ctx, idx) {
 					return
-				}
-				if !logLevelNames[flatCallExpressionName(file, idx)] {
-					return
-				}
-				for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-					if file.FlatType(p) == "if_expression" && strings.Contains(file.FlatNodeText(p), "isLoggable") {
-						return
-					}
-					if file.FlatType(p) == "function_declaration" || file.FlatType(p) == "class_declaration" ||
-						file.FlatType(p) == "lambda_literal" || file.FlatType(p) == "source_file" {
-						break
-					}
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,
 					"Unconditional logging call. Wrap in Log.isLoggable() for performance.")
@@ -597,14 +552,12 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"acquire", "release"}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if flatCallExpressionName(file, idx) != "acquire" {
-					return
-				}
-				receiver := flatReceiverNameFromCall(file, idx)
-				if receiver == "" {
+				if !wakeLockAcquireCall(ctx, idx) {
 					return
 				}
 				fn, ok := flatEnclosingFunction(file, idx)
@@ -619,10 +572,7 @@ func registerAllRules() {
 					if call == idx {
 						return
 					}
-					if flatCallExpressionName(file, call) != "release" {
-						return
-					}
-					if flatReceiverNameFromCall(file, call) == receiver {
+					if wakeLockReleaseCallOnSameReceiver(ctx, idx, call) {
 						foundRelease = true
 					}
 				})
@@ -643,12 +593,14 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "assignment"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "assignment"}, Needs: v2.NeedsTypeInfo, Confidence: 0.9, OriginalV1: r,
+			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"setJavaScriptEnabled"}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				switch file.FlatType(idx) {
 				case "call_expression":
-					if flatCallExpressionName(file, idx) != "setJavaScriptEnabled" {
+					if !setJavaScriptEnabledCall(ctx, idx) {
 						return
 					}
 					args := flatCallKeyArguments(file, idx)
@@ -661,12 +613,9 @@ func registerAllRules() {
 						return
 					}
 				case "assignment":
-					// Target's final simple_identifier must be `javaScriptEnabled`
-					target, _ := file.FlatFindChild(idx, "directly_assignable_expression")
-					if target == 0 || finalSimpleIdentifier(file, target) != "javaScriptEnabled" {
+					if !webSettingsAssignmentTarget(ctx, idx) {
 						return
 					}
-					// RHS must be the boolean literal `true`.
 					if !isBooleanLiteralTrue(file, assignmentRHS(file, idx)) {
 						return
 					}
@@ -5240,23 +5189,22 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "simple_identifier", "user_type"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "simple_identifier", "user_type", "navigation_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"setElevation", "getSystemService", "setDecorFitsSystemWindows", "requestPermissions", "checkSelfPermission", "getColor", "getDrawable", "setTranslationZ", "setClipToOutline", "createNotificationChannel"}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
 				line := file.FlatRow(idx)
-				if line < len(file.Lines) {
-					trimmed := strings.TrimSpace(file.Lines[line])
-					if scanner.IsCommentLine(file.Lines[line]) || strings.HasPrefix(trimmed, "import ") {
-						return
-					}
-					if strings.Contains(file.Lines[line], "@RequiresApi") || strings.Contains(file.Lines[line], "@TargetApi") ||
-						strings.Contains(file.Lines[line], "Build.VERSION.SDK_INT") {
-						return
-					}
+				if nodeHasAncestorTypeFlat(file, idx, "import_header") {
+					return
 				}
+				if apiGuardedByVersionCheckFlat(file, idx) {
+					return
+				}
+				name := apiNodeNameFlat(file, idx)
 				for api, level := range newApiTable {
-					if strings.Contains(text, api) {
+					key := strings.TrimSuffix(strings.TrimSuffix(api, "<"), "(")
+					if name == key {
 						ctx.EmitAt(line+1, 1,
 							api+" requires API "+strconv.Itoa(level)+"; verify that the call is guarded or the project minSdk is at least "+strconv.Itoa(level)+".")
 						return
@@ -5274,23 +5222,20 @@ func registerAllRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"simple_identifier", "navigation_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"simple_identifier", "navigation_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
 				line := file.FlatRow(idx)
-				if line < len(file.Lines) {
-					trimmed := strings.TrimSpace(file.Lines[line])
-					if scanner.IsCommentLine(file.Lines[line]) || strings.HasPrefix(trimmed, "import ") {
-						return
-					}
-					if strings.Contains(file.Lines[line], "@RequiresApi") || strings.Contains(file.Lines[line], "@TargetApi") ||
-						strings.Contains(file.Lines[line], "Build.VERSION.SDK_INT") {
-						return
-					}
+				if nodeHasAncestorTypeFlat(file, idx, "import_header") {
+					return
 				}
+				if apiGuardedByVersionCheckFlat(file, idx) {
+					return
+				}
+				ref := inlinedApiReferenceNameFlat(file, idx)
 				for _, entry := range inlinedApiTable {
-					if strings.Contains(text, entry.Pattern) {
+					if ref == entry.Pattern || strings.HasSuffix(ref, "."+entry.Pattern) {
 						ctx.EmitAt(line+1, 1,
 							"Constant "+entry.Pattern+" is inlined from API "+strconv.Itoa(entry.Level)+"; the value may be available at runtime but the constant was introduced in API "+strconv.Itoa(entry.Level)+".")
 						return
@@ -7791,8 +7736,10 @@ func registerAllRules() {
 		r := &MainDispatcherInLibraryCodeRule{BaseRule: BaseRule{RuleName: "MainDispatcherInLibraryCode", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Dispatchers.Main usage in library modules that lack the kotlinx-coroutines-android dependency."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			Needs: v2.NeedsModuleIndex | v2.NeedsTypeInfo, Confidence: r.Confidence(), OriginalV1: r,
+			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"Main"}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			Check:                  r.check,
 		})
 	}
 
@@ -12154,24 +12101,30 @@ func registerAllRules() {
 		r := &SharedPreferencesForSensitiveKeyRule{BaseRule: BaseRule{RuleName: "SharedPreferencesForSensitiveKey", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects SharedPreferences put calls with key names matching sensitive patterns like token, password, or secret."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"putString", "putInt", "putLong", "putFloat", "putBoolean", "putStringSet"}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			Check:                  r.check,
 		})
 	}
 	{
 		r := &PlainFileWriteOfSensitiveRule{BaseRule: BaseRule{RuleName: "PlainFileWriteOfSensitive", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects plain-file writes to paths containing sensitive terms without using EncryptedFile."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"writeText", "writeBytes", "File"}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			Check:                  r.check,
 		})
 	}
 	{
 		r := &LogOfSharedPreferenceReadRule{BaseRule: BaseRule{RuleName: "LogOfSharedPreferenceRead", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects logger calls that directly pass SharedPreferences values with sensitive keys."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"d", "i", "w", "e", "v", "wtf", "getString", "getInt", "getLong", "getFloat", "getBoolean", "getStringSet"}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			Check:                  r.check,
 		})
 	}
 
@@ -17604,37 +17557,12 @@ func registerAllRules() {
 			NodeTypes: []string{"import_header"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				trimmed := strings.TrimSpace(text)
-				if !strings.HasPrefix(trimmed, "import ") {
+				shortName := importShortNameFlat(file, idx)
+				if shortName == "" {
 					return
-				}
-				imp := strings.TrimPrefix(trimmed, "import ")
-				imp = strings.TrimSpace(imp)
-				parts := strings.Split(imp, ".")
-				shortName := parts[len(parts)-1]
-				if shortName == "*" {
-					return
-				}
-				if i := strings.Index(imp, " as "); i >= 0 {
-					shortName = strings.TrimSpace(imp[i+4:])
 				}
 				importLine := file.FlatRow(idx) + 1
-				used := false
-				for i, line := range file.Lines {
-					if i+1 == importLine {
-						continue
-					}
-					lt := strings.TrimSpace(line)
-					if strings.HasPrefix(lt, "import ") || strings.HasPrefix(lt, "package ") {
-						continue
-					}
-					if strings.Contains(line, shortName) {
-						used = true
-						break
-					}
-				}
-				if used {
+				if fileHasReferenceNameOutsideNode(file, shortName, idx) {
 					return
 				}
 				f := r.Finding(file, importLine, 1,
@@ -17780,9 +17708,7 @@ func registerAllRules() {
 				if name == "" {
 					return
 				}
-				content := string(file.Content)
-				count := strings.Count(content, name)
-				if count <= 1 {
+				if !fileHasReferenceNameOutsideNode(file, name, idx) {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,
 						fmt.Sprintf("Private class '%s' is never used.", name))
 				}
@@ -17812,9 +17738,7 @@ func registerAllRules() {
 				if flatHasEntryPointAnnotation(file, idx) {
 					return
 				}
-				content := string(file.Content)
-				count := strings.Count(content, name)
-				if count <= 1 {
+				if !fileHasReferenceNameOutsideNode(file, name, idx) {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,
 						fmt.Sprintf("Private function '%s' is never called.", name))
 				}
@@ -17842,14 +17766,11 @@ func registerAllRules() {
 					return
 				}
 				if name == "TAG" {
-					nodeText := file.FlatNodeText(idx)
-					if strings.Contains(nodeText, "Log.tag(") {
+					if propertyInitializerCallCalleeName(file, idx) == "tag" {
 						return
 					}
 				}
-				content := string(file.Content)
-				count := strings.Count(content, name)
-				if count <= 1 {
+				if !fileHasReferenceNameOutsideNode(file, name, idx) {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,
 						fmt.Sprintf("Private property '%s' is never used.", name))
 				}
@@ -17886,9 +17807,7 @@ func registerAllRules() {
 				if r.AllowedNames != nil && r.AllowedNames.MatchString(name) {
 					return
 				}
-				content := string(file.Content)
-				count := strings.Count(content, name)
-				if count <= 1 {
+				if !fileHasReferenceNameOutsideNode(file, name, idx) {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,
 						fmt.Sprintf("Private member '%s' is never used.", name))
 				}

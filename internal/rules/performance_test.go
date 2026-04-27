@@ -539,6 +539,17 @@ fun bar() {
 	}
 }
 
+func TestUnnecessaryInitOnArray_ConversionPositive(t *testing.T) {
+	findings := runRuleByName(t, "UnnecessaryInitOnArray", `
+package test
+fun bar() {
+    val arr = IntArray(10) { 0.toInt() }
+}`)
+	if len(findings) == 0 {
+		t.Error("UnnecessaryInitOnArray should flag IntArray(n) { 0.toInt() }")
+	}
+}
+
 func TestUnnecessaryInitOnArray_Negative(t *testing.T) {
 	findings := runRuleByName(t, "UnnecessaryInitOnArray", `
 package test
@@ -547,6 +558,20 @@ fun bar() {
 }`)
 	if len(findings) != 0 {
 		t.Errorf("UnnecessaryInitOnArray should not flag non-default init, got %d findings", len(findings))
+	}
+}
+
+func TestUnnecessaryInitOnArray_SideEffectNegative(t *testing.T) {
+	findings := runRuleByName(t, "UnnecessaryInitOnArray", `
+package test
+fun bar() {
+    val arr = IntArray(10) {
+        println("init")
+        0
+    }
+}`)
+	if len(findings) != 0 {
+		t.Errorf("UnnecessaryInitOnArray should not flag side-effecting init lambda, got %d findings", len(findings))
 	}
 }
 

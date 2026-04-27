@@ -2,10 +2,11 @@ package rules
 
 import (
 	"bytes"
-	"regexp"
 	"strings"
 	"sync"
 
+	rulesem "github.com/kaeawc/krit/internal/rules/semantics"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -666,31 +667,6 @@ type scopeReassignmentsKey struct {
 	end      int
 }
 
-// varCouldBeValFileWideReassigned returns true if the file contains a
-// textual reassignment of the given name — `name =`, `name +=`, `name++`,
-// `++name`, or `this.name =`. Matches are precise enough to avoid most
-// false positives while catching reassignments hidden behind parse errors
-// or nested scopes.
-func varCouldBeValFileWideReassigned(file *scanner.File, name string) bool {
-	// Build regexes: `\bname\s*(=|\+=|-=|\*=|/=|%=|\|=|&=|\^=|<<=|>>=|\+\+|--)`
-	// and `(\+\+|--)\s*\bname\b`. Keep it simple with substring scanning:
-	escName := regexp.QuoteMeta(name)
-	assignRe := regexp.MustCompile(`\b` + escName + `\s*(=[^=]|\+=|-=|\*=|/=|%=|\|=|&=|\^=|<<=|>>=|\+\+|--)`)
-	prefixRe := regexp.MustCompile(`(\+\+|--)\s*` + escName + `\b`)
-	thisRe := regexp.MustCompile(`\bthis\.` + escName + `\s*=[^=]`)
-	for _, line := range file.Lines {
-		// Skip the declaration line itself (which contains `var name =`)
-		// by excluding lines matching `var name` pattern.
-		if strings.Contains(line, "var "+name) || strings.Contains(line, "val "+name) {
-			continue
-		}
-		if assignRe.MatchString(line) || prefixRe.MatchString(line) || thisRe.MatchString(line) {
-			return true
-		}
-	}
-	return false
-}
-
 func (r *VarCouldBeValRule) reassignedNamesFlat(scope uint32, file *scanner.File) map[string]bool {
 	key := scopeReassignmentsKey{
 		filePath: file.Path,
@@ -709,23 +685,16 @@ func (r *VarCouldBeValRule) reassignedNamesFlat(scope uint32, file *scanner.File
 				return
 			}
 			lhs := file.FlatChild(child, 0)
-			lhsText := strings.TrimSpace(file.FlatNodeText(lhs))
-			if lhsText == "" {
-				return
-			}
-			reassigned[lhsText] = true
-			if strings.HasPrefix(lhsText, "this.") {
-				reassigned[strings.TrimPrefix(lhsText, "this.")] = true
+			if name, ok := reassignedLocalOrThisNameFlat(file, lhs); ok {
+				reassigned[name] = true
 			}
 		case "postfix_expression":
-			childText := strings.TrimSpace(file.FlatNodeText(child))
-			if strings.HasSuffix(childText, "++") || strings.HasSuffix(childText, "--") {
-				reassigned[strings.TrimSuffix(strings.TrimSuffix(childText, "++"), "--")] = true
+			if name, ok := reassignedPostfixNameFlat(file, child); ok {
+				reassigned[name] = true
 			}
 		case "prefix_expression":
-			childText := strings.TrimSpace(file.FlatNodeText(child))
-			if strings.HasPrefix(childText, "++") || strings.HasPrefix(childText, "--") {
-				reassigned[strings.TrimPrefix(strings.TrimPrefix(childText, "++"), "--")] = true
+			if name, ok := reassignedPrefixNameFlat(file, child); ok {
+				reassigned[name] = true
 			}
 		}
 	})
@@ -736,15 +705,144 @@ func (r *VarCouldBeValRule) reassignedNamesFlat(scope uint32, file *scanner.File
 	return reassigned
 }
 
+func reassignedLocalOrThisNameFlat(file *scanner.File, lhs uint32) (string, bool) {
+	lhs = flatUnwrapParenExpr(file, lhs)
+	switch file.FlatType(lhs) {
+	case "simple_identifier":
+		return file.FlatNodeText(lhs), true
+	case "directly_assignable_expression":
+		if file.FlatNamedChildCount(lhs) == 1 {
+			return reassignedLocalOrThisNameFlat(file, file.FlatNamedChild(lhs, 0))
+		}
+	case "navigation_expression":
+		return reassignedThisReceiverNameFlat(file, lhs)
+	}
+	return "", false
+}
+
+func reassignedThisReceiverNameFlat(file *scanner.File, nav uint32) (string, bool) {
+	if file == nil || nav == 0 || file.FlatType(nav) != "navigation_expression" || file.FlatNamedChildCount(nav) == 0 {
+		return "", false
+	}
+	first := flatUnwrapParenExpr(file, file.FlatNamedChild(nav, 0))
+	if file.FlatType(first) != "this_expression" && !file.FlatNodeTextEquals(first, "this") {
+		return "", false
+	}
+	name := flatNavigationExpressionLastIdentifier(file, nav)
+	return name, name != ""
+}
+
+func reassignedPostfixNameFlat(file *scanner.File, idx uint32) (string, bool) {
+	if file == nil || idx == 0 || file.FlatType(idx) != "postfix_expression" {
+		return "", false
+	}
+	var operand uint32
+	hasMutation := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatNodeTextEquals(child, "++") || file.FlatNodeTextEquals(child, "--") {
+			hasMutation = true
+			continue
+		}
+		if operand == 0 && file.FlatIsNamed(child) {
+			operand = child
+		}
+	}
+	if !hasMutation {
+		return "", false
+	}
+	return reassignedLocalOrThisNameFlat(file, operand)
+}
+
+func reassignedPrefixNameFlat(file *scanner.File, idx uint32) (string, bool) {
+	if file == nil || idx == 0 || file.FlatType(idx) != "prefix_expression" {
+		return "", false
+	}
+	hasMutation := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatNodeTextEquals(child, "++") || file.FlatNodeTextEquals(child, "--") {
+			hasMutation = true
+			continue
+		}
+		if hasMutation && file.FlatIsNamed(child) {
+			return reassignedLocalOrThisNameFlat(file, child)
+		}
+	}
+	return "", false
+}
+
 // MayBeConstantRule detects top-level vals that could be const.
 type MayBeConstantRule struct {
 	FlatDispatchBase
 	BaseRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection is pattern-based and the preferred form
-// is a style preference. Classified per roadmap/17.
+// Confidence reports a tier-2 (medium) base confidence. Initializers are
+// checked structurally and same-file constant references are resolved when
+// they share the same owner, but the finding remains a style preference.
 func (r *MayBeConstantRule) Confidence() float64 { return 0.75 }
+
+func mayBeConstantExpressionFlat(ctx *v2.Context, expr uint32) bool {
+	if ctx == nil || ctx.File == nil || expr == 0 {
+		return false
+	}
+	file := ctx.File
+	expr = flatUnwrapParenExpr(file, expr)
+	switch file.FlatType(expr) {
+	case "string_literal", "line_string_literal", "multi_line_string_literal":
+		return !flatContainsStringInterpolation(file, expr)
+	case "integer_literal", "long_literal", "real_literal", "hex_literal", "bin_literal", "character_literal", "boolean_literal":
+		return true
+	case "prefix_expression":
+		return prefixConstantExpressionFlat(ctx, expr)
+	case "simple_identifier", "navigation_expression":
+		_, ok := rulesem.EvalConst(ctx, expr)
+		return ok
+	case "additive_expression", "multiplicative_expression":
+		return binaryConstantExpressionFlat(ctx, expr)
+	}
+	return false
+}
+
+func prefixConstantExpressionFlat(ctx *v2.Context, expr uint32) bool {
+	file := ctx.File
+	seenSign := false
+	for child := file.FlatFirstChild(expr); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatNodeTextEquals(child, "+") || file.FlatNodeTextEquals(child, "-") {
+			seenSign = true
+			continue
+		}
+		if seenSign && file.FlatIsNamed(child) {
+			child = flatUnwrapParenExpr(file, child)
+			switch file.FlatType(child) {
+			case "integer_literal", "long_literal", "real_literal", "hex_literal", "bin_literal":
+				return true
+			default:
+				return mayBeConstantExpressionFlat(ctx, child)
+			}
+		}
+	}
+	return false
+}
+
+func binaryConstantExpressionFlat(ctx *v2.Context, expr uint32) bool {
+	file := ctx.File
+	named := make([]uint32, 0, 2)
+	validOp := false
+	for child := file.FlatFirstChild(expr); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatIsNamed(child) {
+			named = append(named, child)
+			continue
+		}
+		switch file.FlatNodeText(child) {
+		case "+", "-", "*", "/", "%":
+			validOp = true
+		}
+	}
+	if !validOp || len(named) != 2 {
+		return false
+	}
+	return mayBeConstantExpressionFlat(ctx, named[0]) && mayBeConstantExpressionFlat(ctx, named[1])
+}
 
 // ModifierOrderRule detects modifiers not in the recommended order.
 type ModifierOrderRule struct {

@@ -2,7 +2,7 @@ package rules
 
 import (
 	"bytes"
-	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/oracle"
@@ -736,18 +736,154 @@ type UnnecessaryInitOnArrayRule struct {
 	BaseRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Performance rule. Detection pattern-matches anti-patterns (allocation in
-// loops, primitive boxing, collection chains) with optional resolver
-// support; fallback is heuristic. Classified per roadmap/17.
+// Confidence reports a tier-2 (medium) base confidence. The rule now
+// inspects only array-constructor call expressions and single-expression
+// init lambdas; confidence remains medium because the constructor target may
+// be unresolved in parser-only runs.
 func (r *UnnecessaryInitOnArrayRule) Confidence() float64 { return 0.75 }
 
-var defaultZeroArrayRe = regexp.MustCompile(`(IntArray|LongArray|ShortArray|ByteArray|FloatArray|DoubleArray)\s*\([^)]+\)\s*\{\s*0+\.?0*\s*\}`)
-var defaultFalseArrayRe = regexp.MustCompile(`BooleanArray\s*\([^)]+\)\s*\{\s*false\s*\}`)
-var defaultCharArrayRe = regexp.MustCompile(`CharArray\s*\([^)]+\)\s*\{\s*'\\u0000'\s*\}`)
+var arrayDefaultKinds = map[string]string{
+	"IntArray":     "zero",
+	"UIntArray":    "zero",
+	"LongArray":    "zero",
+	"ULongArray":   "zero",
+	"ShortArray":   "zero",
+	"UShortArray":  "zero",
+	"ByteArray":    "zero",
+	"UByteArray":   "zero",
+	"FloatArray":   "zero",
+	"DoubleArray":  "zero",
+	"BooleanArray": "false",
+	"CharArray":    "zero-char",
+}
 
-var defaultInitRemoveRe = regexp.MustCompile(`((IntArray|LongArray|ShortArray|ByteArray|FloatArray|DoubleArray)\s*\([^)]+\))\s*\{\s*0+\.?0*\s*\}`)
-var defaultFalseRemoveRe = regexp.MustCompile(`(BooleanArray\s*\([^)]+\))\s*\{\s*false\s*\}`)
-var defaultCharRemoveRe = regexp.MustCompile(`(CharArray\s*\([^)]+\))\s*\{\s*'\\u0000'\s*\}`)
+var zeroConversionMethods = map[string]bool{
+	"toInt": true, "toUInt": true, "toLong": true, "toULong": true,
+	"toShort": true, "toUShort": true, "toByte": true, "toUByte": true,
+	"toFloat": true, "toDouble": true, "toChar": true,
+}
+
+func unnecessaryInitArrayDefaultLambdaFlat(file *scanner.File, call uint32) (name string, lambda uint32, ok bool) {
+	if file == nil || call == 0 || file.FlatType(call) != "call_expression" {
+		return "", 0, false
+	}
+	name = flatCallNameAny(file, call)
+	if _, exists := arrayDefaultKinds[name]; !exists {
+		return "", 0, false
+	}
+	lambda = flatCallTrailingLambda(file, call)
+	if lambda == 0 {
+		return "", 0, false
+	}
+	expr := singleExpressionLambdaBodyFlat(file, lambda)
+	if expr == 0 || !arrayDefaultExpressionFlat(file, name, expr) {
+		return "", 0, false
+	}
+	return name, lambda, true
+}
+
+func singleExpressionLambdaBodyFlat(file *scanner.File, lambda uint32) uint32 {
+	if file == nil || lambda == 0 {
+		return 0
+	}
+	if file.FlatType(lambda) == "annotated_lambda" {
+		lambda, _ = file.FlatFindChild(lambda, "lambda_literal")
+	}
+	if lambda == 0 || file.FlatType(lambda) != "lambda_literal" {
+		return 0
+	}
+	statements, _ := file.FlatFindChild(lambda, "statements")
+	if statements == 0 || file.FlatNamedChildCount(statements) != 1 {
+		return 0
+	}
+	return flatUnwrapParenExpr(file, file.FlatNamedChild(statements, 0))
+}
+
+func arrayDefaultExpressionFlat(file *scanner.File, arrayName string, expr uint32) bool {
+	switch arrayDefaultKinds[arrayName] {
+	case "zero":
+		return flatNumericZeroExpression(file, expr)
+	case "false":
+		return file.FlatType(expr) == "boolean_literal" && file.FlatNodeTextEquals(expr, "false")
+	case "zero-char":
+		if file.FlatType(expr) == "character_literal" {
+			text := file.FlatNodeText(expr)
+			return text == `'\\u0000'` || text == `'\u0000'`
+		}
+		return flatZeroConversionCall(file, expr, "toChar")
+	default:
+		return false
+	}
+}
+
+func flatNumericZeroExpression(file *scanner.File, expr uint32) bool {
+	expr = flatUnwrapParenExpr(file, expr)
+	switch file.FlatType(expr) {
+	case "integer_literal", "long_literal", "real_literal", "hex_literal", "bin_literal":
+		return numericLiteralIsZero(file.FlatNodeText(expr))
+	case "call_expression":
+		return flatZeroConversionCall(file, expr, "")
+	}
+	return false
+}
+
+func numericLiteralIsZero(text string) bool {
+	clean := strings.ReplaceAll(strings.TrimSpace(text), "_", "")
+	clean = strings.TrimRight(clean, "uUlLfFdD")
+	if clean == "" {
+		return false
+	}
+	if strings.HasPrefix(clean, "0x") || strings.HasPrefix(clean, "0X") {
+		v, err := strconv.ParseUint(clean[2:], 16, 64)
+		return err == nil && v == 0
+	}
+	if strings.HasPrefix(clean, "0b") || strings.HasPrefix(clean, "0B") {
+		v, err := strconv.ParseUint(clean[2:], 2, 64)
+		return err == nil && v == 0
+	}
+	v, err := strconv.ParseFloat(clean, 64)
+	return err == nil && v == 0
+}
+
+func flatZeroConversionCall(file *scanner.File, expr uint32, wantMethod string) bool {
+	if file == nil || expr == 0 || file.FlatType(expr) != "call_expression" {
+		return false
+	}
+	method := flatCallExpressionName(file, expr)
+	if wantMethod != "" {
+		if method != wantMethod {
+			return false
+		}
+	} else if !zeroConversionMethods[method] {
+		return false
+	}
+	nav, _ := flatCallExpressionParts(file, expr)
+	if nav == 0 || file.FlatNamedChildCount(nav) == 0 {
+		return false
+	}
+	return flatNumericZeroExpression(file, file.FlatNamedChild(nav, 0))
+}
+
+func unnecessaryInitArrayFixFlat(file *scanner.File, lambda uint32) *scanner.Fix {
+	if file == nil || lambda == 0 {
+		return nil
+	}
+	start := int(file.FlatStartByte(lambda))
+	end := int(file.FlatEndByte(lambda))
+	for start > 0 {
+		b := file.Content[start-1]
+		if b != ' ' && b != '\t' {
+			break
+		}
+		start--
+	}
+	return &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   start,
+		EndByte:     end,
+		Replacement: "",
+	}
+}
 
 // UnnecessaryPartOfBinaryExpressionRule detects x && true, x || false, etc.
 type UnnecessaryPartOfBinaryExpressionRule struct {

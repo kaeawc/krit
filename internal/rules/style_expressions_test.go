@@ -201,6 +201,21 @@ fun example() {
 	}
 }
 
+func TestVarCouldBeVal_DoesNotTreatOtherReceiverAssignmentAsReassignment(t *testing.T) {
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+class Box(var x: Int)
+fun example(other: Box) {
+    var x = 0
+    other.x = 42
+    println(x)
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for local var when only another receiver's property is reassigned")
+	}
+}
+
 func BenchmarkVarCouldBeValSharedScope(b *testing.B) {
 	var src strings.Builder
 	src.WriteString("package test\nfun example() {\n")
@@ -268,6 +283,27 @@ const val MAX_COUNT = 100
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for const val, got %d", len(findings))
+	}
+}
+
+func TestMayBeConstant_SameFileReferenceAndBinaryPositive(t *testing.T) {
+	findings := runRuleByName(t, "MayBeConstant", `
+package test
+val BASE = 40
+val MAX_COUNT = BASE + 2
+`)
+	if len(findings) < 2 {
+		t.Fatalf("expected findings for literal and same-file constant expression, got %d", len(findings))
+	}
+}
+
+func TestMayBeConstant_NullNegative(t *testing.T) {
+	findings := runRuleByName(t, "MayBeConstant", `
+package test
+val NOTHING = null
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for null initializer, got %d", len(findings))
 	}
 }
 

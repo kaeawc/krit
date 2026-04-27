@@ -9998,39 +9998,13 @@ func registerAllRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !defaultZeroArrayRe.MatchString(text) && !defaultFalseArrayRe.MatchString(text) && !defaultCharArrayRe.MatchString(text) {
+				_, lambda, ok := unnecessaryInitArrayDefaultLambdaFlat(file, idx)
+				if !ok {
 					return
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"Unnecessary initialization. The default value is already the array's default.")
-				startByte := int(file.FlatStartByte(idx))
-				var m []int
-				if m = defaultInitRemoveRe.FindStringSubmatchIndex(text); m != nil {
-					keep := text[m[2]:m[3]]
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   startByte + m[0],
-						EndByte:     startByte + m[1],
-						Replacement: keep,
-					}
-				} else if m = defaultFalseRemoveRe.FindStringSubmatchIndex(text); m != nil {
-					keep := text[m[2]:m[3]]
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   startByte + m[0],
-						EndByte:     startByte + m[1],
-						Replacement: keep,
-					}
-				} else if m = defaultCharRemoveRe.FindStringSubmatchIndex(text); m != nil {
-					keep := text[m[2]:m[3]]
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   startByte + m[0],
-						EndByte:     startByte + m[1],
-						Replacement: keep,
-					}
-				}
+				f.Fix = unnecessaryInitArrayFixFlat(file, lambda)
 				ctx.Emit(f)
 			},
 		})
@@ -14374,11 +14348,6 @@ func registerAllRules() {
 				}
 				reassigned := r.reassignedNamesFlat(parent, file)[varName]
 				if !reassigned {
-					if varCouldBeValFileWideReassigned(file, varName) {
-						reassigned = true
-					}
-				}
-				if !reassigned {
 					f := r.Finding(file, file.FlatRow(idx)+1, 1,
 						fmt.Sprintf("'var %s' is never reassigned. Use 'val' instead.", varName))
 					f.Fix = &scanner.Fix{
@@ -14426,8 +14395,7 @@ func registerAllRules() {
 				if initExpr == 0 {
 					return
 				}
-				init := strings.TrimSpace(file.FlatNodeText(initExpr))
-				if isConstant(init) {
+				if mayBeConstantExpressionFlat(ctx, initExpr) {
 					f := r.Finding(file, file.FlatRow(idx)+1, 1,
 						"Property may be declared as 'const val'.")
 					mods, _ := file.FlatFindChild(idx, "modifiers")

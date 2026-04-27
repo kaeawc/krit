@@ -184,6 +184,26 @@ fun example() {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+	t.Run("negative lambda result replace", func(t *testing.T) {
+		findings := runRuleByName(t, "CheckResult", `
+package test
+fun example(values: List<String>) {
+    values.map { value -> value.replace("a", "b") }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("positive discarded replace result", func(t *testing.T) {
+		findings := runRuleByName(t, "CheckResult", `
+package test
+fun example() {
+    "hello".replace("h", "j")
+}`)
+		if len(findings) == 0 {
+			t.Fatal("expected finding for discarded replace result")
+		}
+	})
 	t.Run("negative no check-result methods", func(t *testing.T) {
 		findings := runRuleByName(t, "CheckResult", `
 package test

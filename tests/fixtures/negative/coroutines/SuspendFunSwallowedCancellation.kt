@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 
 suspend fun doWork() {
     try {
+        delay(1000)
         println("working")
     } catch (e: CancellationException) {
         println("cancelled: $e")

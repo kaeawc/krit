@@ -625,6 +625,22 @@ suspend fun doWork() {
 	}
 }
 
+func TestSuspendFunSwallowedCancellation_PositiveSuperclassCatch(t *testing.T) {
+	findings := runRuleByName(t, "SuspendFunSwallowedCancellation", `
+package test
+suspend fun doWork() {
+    try {
+        delay(1000)
+    } catch (e: Exception) {
+        println("cancelled")
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Error("expected finding for catching Exception around suspend call without rethrowing")
+	}
+}
+
 func TestSuspendFunSwallowedCancellation_Negative(t *testing.T) {
 	findings := runRuleByName(t, "SuspendFunSwallowedCancellation", `
 package test
@@ -640,6 +656,36 @@ suspend fun doWork() {
 `)
 	if len(findings) != 0 {
 		t.Errorf("expected no findings when CancellationException is rethrown, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestSuspendFunSwallowedCancellation_NegativeNonSuspendContext(t *testing.T) {
+	findings := runRuleByName(t, "SuspendFunSwallowedCancellation", `
+package test
+fun getProcessedEmoji(emoji: CharSequence): CharSequence = try {
+    process(emoji)
+} catch (e: IllegalStateException) {
+    emoji
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings outside a suspend function, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestSuspendFunSwallowedCancellation_NegativeNoSuspendCall(t *testing.T) {
+	findings := runRuleByName(t, "SuspendFunSwallowedCancellation", `
+package test
+suspend fun doWork() {
+    try {
+        println("done")
+    } catch (e: Exception) {
+        println("ignored")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings when try block has no suspend calls, got %d: %v", len(findings), findings)
 	}
 }
 

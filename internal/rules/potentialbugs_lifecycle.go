@@ -3,10 +3,13 @@ package rules
 import (
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/rules/semantics"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // ---------------------------------------------------------------------------
@@ -22,7 +25,6 @@ type ExitOutsideMainRule struct {
 // detection. Classified per roadmap/17.
 func (r *ExitOutsideMainRule) Confidence() float64 { return 0.75 }
 
-
 // ---------------------------------------------------------------------------
 // ExplicitGarbageCollectionCallRule detects System.gc() calls.
 // ---------------------------------------------------------------------------
@@ -35,7 +37,6 @@ type ExplicitGarbageCollectionCallRule struct {
 // hook shapes by name and annotation; project-specific wrappers can escape
 // detection. Classified per roadmap/17.
 func (r *ExplicitGarbageCollectionCallRule) Confidence() float64 { return 0.75 }
-
 
 // ---------------------------------------------------------------------------
 // InvalidRangeRule detects backwards ranges like 10..1.
@@ -50,7 +51,6 @@ type InvalidRangeRule struct {
 // detection. Classified per roadmap/17.
 func (r *InvalidRangeRule) Confidence() float64 { return 0.75 }
 
-
 // ---------------------------------------------------------------------------
 // IteratorHasNextCallsNextMethodRule detects hasNext() calling next().
 // ---------------------------------------------------------------------------
@@ -63,7 +63,6 @@ type IteratorHasNextCallsNextMethodRule struct {
 // hook shapes by name and annotation; project-specific wrappers can escape
 // detection. Classified per roadmap/17.
 func (r *IteratorHasNextCallsNextMethodRule) Confidence() float64 { return 0.75 }
-
 
 // ---------------------------------------------------------------------------
 // IteratorNotThrowingNoSuchElementExceptionRule detects next() without throw.
@@ -78,32 +77,160 @@ type IteratorNotThrowingNoSuchElementExceptionRule struct {
 // detection. Classified per roadmap/17.
 func (r *IteratorNotThrowingNoSuchElementExceptionRule) Confidence() float64 { return 0.75 }
 
-
 // enclosingImplementsIterator returns true if the node's enclosing class
 // has a delegation specifier naming Iterator / MutableIterator / ListIterator
 // (with or without a qualifier).
-func enclosingImplementsIteratorFlat(file *scanner.File, idx uint32) bool {
+func enclosingImplementsIteratorFlat(ctx *v2.Context, idx uint32) bool {
+	if ctx == nil || ctx.File == nil {
+		return false
+	}
+	file := ctx.File
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		pt := file.FlatType(p)
 		if pt != "class_declaration" && pt != "object_declaration" {
 			continue
 		}
-		for i := 0; i < file.FlatChildCount(p); i++ {
-			c := file.FlatChild(p, i)
-			if c == 0 || file.FlatType(c) != "delegation_specifier" {
-				continue
+		found := false
+		file.FlatWalkNodes(p, "delegation_specifier", func(c uint32) {
+			if found {
+				return
 			}
-			t := file.FlatNodeText(c)
-			if strings.HasPrefix(t, "Iterator") || strings.HasPrefix(t, "Iterator<") ||
-				strings.HasPrefix(t, "MutableIterator") || strings.HasPrefix(t, "ListIterator") ||
-				strings.HasPrefix(t, "kotlin.collections.Iterator") ||
-				strings.HasPrefix(t, "java.util.Iterator") {
-				return true
+			if iteratorSupertypeConfirmed(ctx, c) {
+				found = true
 			}
-		}
-		return false
+		})
+		return found
 	}
 	return false
+}
+
+func iteratorSupertypeConfirmed(ctx *v2.Context, idx uint32) bool {
+	if ctx == nil || ctx.File == nil || idx == 0 {
+		return false
+	}
+	file := ctx.File
+	if ctx.Resolver != nil {
+		if typ := ctx.Resolver.ResolveFlatNode(idx, file); iteratorTypeMatches(typ) {
+			return true
+		}
+	}
+	found := false
+	file.FlatWalkAllNodes(idx, func(n uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(n) {
+		case "user_type", "navigation_expression", "simple_identifier", "type_identifier":
+			name := semantics.ReferenceName(file, n)
+			if name == "" {
+				name = extractIdentifierFlat(file, n)
+			}
+			if name == "" {
+				return
+			}
+			if iteratorSimpleName(name) {
+				if ctx.Resolver != nil {
+					if fqn := ctx.Resolver.ResolveImport(name, file); fqn != "" {
+						found = iteratorFQN(fqn)
+						return
+					}
+				}
+				if !sameFileDeclarationNamed(file, name) {
+					found = true
+				}
+			}
+			segments := flatNavigationChainIdentifiers(file, n)
+			if len(segments) > 0 && iteratorFQN(strings.Join(segments, ".")) {
+				found = true
+			}
+		}
+	})
+	return found
+}
+
+func iteratorTypeMatches(typ *typeinfer.ResolvedType) bool {
+	if typ == nil || typ.Kind == typeinfer.TypeUnknown {
+		return false
+	}
+	if iteratorFQN(typ.FQN) || iteratorSimpleName(typ.Name) {
+		return true
+	}
+	for _, st := range typ.Supertypes {
+		if iteratorFQN(st) || iteratorSimpleName(st) {
+			return true
+		}
+	}
+	return false
+}
+
+func iteratorSimpleName(name string) bool {
+	switch name {
+	case "Iterator", "MutableIterator", "ListIterator":
+		return true
+	default:
+		return false
+	}
+}
+
+func iteratorFQN(name string) bool {
+	switch name {
+	case "kotlin.collections.Iterator", "kotlin.collections.MutableIterator", "kotlin.collections.ListIterator", "java.util.Iterator":
+		return true
+	default:
+		return false
+	}
+}
+
+func sameFileDeclarationNamed(file *scanner.File, name string) bool {
+	if file == nil || name == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(0, func(n uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(n) {
+		case "class_declaration", "object_declaration", "function_declaration", "property_declaration", "type_alias":
+			if extractIdentifierFlat(file, n) == name || propertyDeclarationNameFlat(file, n) == name {
+				found = true
+			}
+		}
+	})
+	return found
+}
+
+func functionThrowsNoSuchElementExceptionFlat(ctx *v2.Context, body uint32) bool {
+	if ctx == nil || ctx.File == nil || body == 0 {
+		return false
+	}
+	file := ctx.File
+	found := false
+	file.FlatWalkNodes(body, "jump_expression", func(jmp uint32) {
+		if found {
+			return
+		}
+		first := file.FlatFirstChild(jmp)
+		if first == 0 || !file.FlatNodeTextEquals(first, "throw") {
+			return
+		}
+		file.FlatWalkNodes(jmp, "call_expression", func(call uint32) {
+			if found || flatCallExpressionName(file, call) != "NoSuchElementException" {
+				return
+			}
+			if ctx.Resolver != nil {
+				if target, ok := semantics.ResolveCallTarget(ctx, call); ok && target.Resolved {
+					found = strings.HasPrefix(strings.ReplaceAll(target.QualifiedName, "#", "."), "kotlin.NoSuchElementException.") ||
+						strings.HasPrefix(strings.ReplaceAll(target.QualifiedName, "#", "."), "java.util.NoSuchElementException.")
+					return
+				}
+			}
+			if !sameFileDeclarationNamed(file, "NoSuchElementException") {
+				found = true
+			}
+		})
+	})
+	return found
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +246,6 @@ type LateinitUsageRule struct {
 // hook shapes by name and annotation; project-specific wrappers can escape
 // detection. Classified per roadmap/17.
 func (r *LateinitUsageRule) Confidence() float64 { return 0.75 }
-
 
 // ---------------------------------------------------------------------------
 // MissingPackageDeclarationRule detects .kt file without package statement.
@@ -227,7 +353,6 @@ type MissingSuperCallRule struct {
 // detection. Classified per roadmap/17.
 func (r *MissingSuperCallRule) Confidence() float64 { return 0.75 }
 
-
 // ---------------------------------------------------------------------------
 // MissingUseCallRule detects Closeable/AutoCloseable resource creation without
 // .use {} block. Operates on call_expression AST nodes.
@@ -271,8 +396,103 @@ var closeableTypes = map[string]bool{
 	"ZipOutputStream":       true,
 }
 
+var closeableTypeFQNs = map[string]bool{
+	"java.io.FileInputStream":        true,
+	"java.io.FileOutputStream":       true,
+	"java.io.BufferedReader":         true,
+	"java.io.BufferedWriter":         true,
+	"java.io.InputStreamReader":      true,
+	"java.io.OutputStreamWriter":     true,
+	"java.io.PrintWriter":            true,
+	"java.io.RandomAccessFile":       true,
+	"java.net.Socket":                true,
+	"java.net.ServerSocket":          true,
+	"java.io.DataInputStream":        true,
+	"java.io.DataOutputStream":       true,
+	"java.io.ObjectInputStream":      true,
+	"java.io.ObjectOutputStream":     true,
+	"java.io.FileReader":             true,
+	"java.io.FileWriter":             true,
+	"java.io.PrintStream":            true,
+	"java.io.ByteArrayInputStream":   true,
+	"java.io.ByteArrayOutputStream":  true,
+	"java.io.BufferedInputStream":    true,
+	"java.io.BufferedOutputStream":   true,
+	"java.util.zip.GZIPInputStream":  true,
+	"java.util.zip.GZIPOutputStream": true,
+	"java.util.zip.ZipInputStream":   true,
+	"java.util.zip.ZipOutputStream":  true,
+}
+
+func closeableConstructorCallees() []string {
+	callees := make([]string, 0, len(closeableTypes))
+	for name := range closeableTypes {
+		callees = append(callees, name)
+	}
+	sort.Strings(callees)
+	return callees
+}
+
 func missingUseCalleeIdentFlat(file *scanner.File, idx uint32) string {
 	return flatCallExpressionName(file, idx)
+}
+
+func missingUseCloseableConstructorConfirmed(ctx *v2.Context, idx uint32) (string, bool) {
+	if ctx == nil || ctx.File == nil || ctx.File.FlatType(idx) != "call_expression" {
+		return "", false
+	}
+	file := ctx.File
+	callee := missingUseCalleeIdentFlat(file, idx)
+	if callee == "" {
+		return "", false
+	}
+	if ctx.Resolver != nil {
+		if target, ok := semantics.ResolveCallTarget(ctx, idx); ok && target.Resolved {
+			if closeableTypeFQNs[strings.TrimSuffix(strings.ReplaceAll(target.QualifiedName, "#", "."), ".<init>")] {
+				return callee, true
+			}
+		}
+		if typ := ctx.Resolver.ResolveFlatNode(idx, file); closeableResolvedTypeMatches(typ, ctx.Resolver) {
+			return callee, true
+		}
+		if fqn := ctx.Resolver.ResolveImport(callee, file); closeableTypeFQNs[fqn] {
+			return callee, true
+		}
+	}
+	if closeableTypes[callee] && !sameFileDeclarationNamed(file, callee) {
+		return callee, true
+	}
+	return "", false
+}
+
+func closeableResolvedTypeMatches(typ *typeinfer.ResolvedType, resolver typeinfer.TypeResolver) bool {
+	if typ == nil || typ.Kind == typeinfer.TypeUnknown {
+		return false
+	}
+	if closeableTypeFQNs[typ.FQN] || typ.FQN == "java.io.Closeable" || typ.FQN == "java.lang.AutoCloseable" {
+		return true
+	}
+	for _, st := range typ.Supertypes {
+		if closeableTypeFQNs[st] || st == "java.io.Closeable" || st == "java.lang.AutoCloseable" {
+			return true
+		}
+	}
+	if resolver != nil {
+		name := typ.FQN
+		if name == "" {
+			name = typ.Name
+		}
+		if name != "" {
+			if info := resolver.ClassHierarchy(name); info != nil {
+				for _, st := range info.Supertypes {
+					if st == "java.io.Closeable" || st == "java.lang.AutoCloseable" {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // Restructured: check .use {} chain using file content.
@@ -334,17 +554,31 @@ func missingUseAssignedWithUseFlat(file *scanner.File, idx uint32) bool {
 	if !ok {
 		return false
 	}
-	for i := 0; i < file.FlatChildCount(scope); i++ {
-		child := file.FlatChild(scope, i)
-		if file.FlatStartByte(child) <= file.FlatEndByte(parent) {
-			continue
-		}
-		childText := file.FlatNodeText(child)
-		if strings.Contains(childText, varName+".use") {
-			return true
-		}
+	return missingUseLaterCallOnVariableFlat(file, scope, parent, varName, "use")
+}
+
+func missingUseLaterCallOnVariableFlat(file *scanner.File, scope uint32, declaration uint32, varName string, callee string) bool {
+	if file == nil || scope == 0 || declaration == 0 || varName == "" || callee == "" {
+		return false
 	}
-	return false
+	found := false
+	file.FlatWalkNodes(scope, "call_expression", func(call uint32) {
+		if found || file.FlatStartByte(call) <= file.FlatEndByte(declaration) {
+			return
+		}
+		if flatCallExpressionName(file, call) != callee {
+			return
+		}
+		navExpr, _ := flatCallExpressionParts(file, call)
+		if navExpr == 0 || file.FlatNamedChildCount(navExpr) == 0 {
+			return
+		}
+		receiver := file.FlatNamedChild(navExpr, 0)
+		if semantics.ReferenceName(file, receiver) == varName {
+			found = true
+		}
+	})
+	return found
 }
 
 // missingUseIsClassProperty checks if the node is a class-level property declaration.

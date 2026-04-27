@@ -69,36 +69,25 @@ func registerAllRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "assignment"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "assignment"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{
+				"ofArgb", "ofFloat", "ofInt", "ofObject", "setDuration",
+			}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if animatorDurationScaleReferenced(file) {
+				if animatorDurationScaleReferenced(ctx, idx) {
 					return
 				}
 				switch file.FlatType(idx) {
 				case "call_expression":
-					navExpr, _ := flatCallExpressionParts(file, idx)
-					if navExpr == 0 || flatNavigationExpressionLastIdentifier(file, navExpr) != "setDuration" {
-						return
-					}
-					if !animatorReceiverLooksLikeAnimatorFlat(file, navExpr) {
+					if !animatorReceiverConfirmed(ctx, idx) {
 						return
 					}
 					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 						"Animator duration ignores the system animation scale. Read Settings.Global.ANIMATOR_DURATION_SCALE and scale the duration before starting the animation.")
 				case "assignment":
-					if file.FlatNamedChildCount(idx) == 0 {
-						return
-					}
-					lhs := file.FlatNamedChild(idx, 0)
-					target := strings.TrimSpace(file.FlatNodeText(lhs))
-					if i := strings.LastIndex(target, "."); i >= 0 {
-						target = target[i+1:]
-					}
-					if target != "duration" {
-						return
-					}
-					if !assignmentInsideAnimatorContextFlat(file, idx) {
+					if !animatorAssignmentTargetConfirmed(ctx, idx) {
 						return
 					}
 					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -113,14 +102,21 @@ func registerAllRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{
+				"clickable", "height", "minimumInteractiveComponentSize", "size", "width",
+			}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				navExpr, _ := flatCallExpressionParts(file, idx)
+				if flatCallNameAny(file, idx) != "clickable" {
+					return
+				}
+				navExpr, _ := accessibilityCallExpressionParts(file, idx)
 				if navExpr == 0 || flatNavigationExpressionLastIdentifier(file, navExpr) != "clickable" {
 					return
 				}
-				chain, rootedAtModifier := composeModifierCallChainFlat(file, composeModifierChainReceiverFlat(file, navExpr))
+				chain, rootedAtModifier := composeModifierCallChainSemantic(ctx, composeModifierChainReceiverFlat(file, navExpr))
 				if !rootedAtModifier || composeModifierChainContainsCall(chain, "minimumInteractiveComponentSize") {
 					return
 				}
@@ -279,7 +275,7 @@ func registerAllRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsResolver, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				navExpr, args := flatCallExpressionParts(file, idx)
@@ -6751,6 +6747,7 @@ func registerAllRules() {
 			Needs:                  v2.NeedsTypeInfo,
 			TypeInfo:               v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true},
 			Oracle:                 &v2.OracleFilter{Identifiers: []string{"Dispatchers"}},
+			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"async", "launch", "withContext"}},
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
@@ -6765,7 +6762,7 @@ func registerAllRules() {
 				if dispatcherNode == 0 {
 					return
 				}
-				if !injectDispatcherTypeConfirmedOrUnknown(ctx.Resolver, file, dispatcherNode) {
+				if !injectDispatcherReferenceConfirmed(ctx, dispatcherNode) {
 					return
 				}
 				matchLine := file.FlatRow(dispatcherNode) + 1
@@ -7658,13 +7655,15 @@ func registerAllRules() {
 		r := &WithContextInSuspendFunctionNoopRule{BaseRule: BaseRule{RuleName: "WithContextInSuspendFunctionNoop", RuleSetName: "coroutines", Sev: "info", Desc: "Detects nested withContext calls using the same dispatcher as the parent, which is redundant."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"withContext"}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "withContext" {
 					return
 				}
-				dispatcher := extractWithContextDispatcher(file, idx)
+				dispatcher := extractWithContextDispatcher(ctx, idx)
 				if dispatcher == "" {
 					return
 				}
@@ -7677,14 +7676,14 @@ func registerAllRules() {
 						continue
 					}
 					if !skippedSelf && flatCallNameAny(file, p) == "withContext" {
-						pd := extractWithContextDispatcher(file, p)
+						pd := extractWithContextDispatcher(ctx, p)
 						if pd == dispatcher {
 							skippedSelf = true
 							continue
 						}
 					}
 					if flatCallNameAny(file, p) == "withContext" {
-						parentDispatcher := extractWithContextDispatcher(file, p)
+						parentDispatcher := extractWithContextDispatcher(ctx, p)
 						if parentDispatcher == dispatcher {
 							ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 								fmt.Sprintf("Redundant nested withContext(%s). The parent already switches to this dispatcher.", dispatcher))
@@ -10406,11 +10405,14 @@ func registerAllRules() {
 		r := &IteratorHasNextCallsNextMethodRule{BaseRule: BaseRule{RuleName: "IteratorHasNextCallsNextMethod", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects hasNext() implementations that call next(), which modifies iterator state."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Needs: v2.NeedsResolver, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := extractIdentifierFlat(file, idx)
 				if name != "hasNext" {
+					return
+				}
+				if !enclosingImplementsIteratorFlat(ctx, idx) {
 					return
 				}
 				body, _ := file.FlatFindChild(idx, "function_body")
@@ -10437,31 +10439,21 @@ func registerAllRules() {
 		r := &IteratorNotThrowingNoSuchElementExceptionRule{BaseRule: BaseRule{RuleName: "IteratorNotThrowingNoSuchElementException", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Iterator.next() implementations that do not throw NoSuchElementException when exhausted."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Needs: v2.NeedsResolver, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := extractIdentifierFlat(file, idx)
 				if name != "next" {
 					return
 				}
-				if !enclosingImplementsIteratorFlat(file, idx) {
+				if !enclosingImplementsIteratorFlat(ctx, idx) {
 					return
 				}
 				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
-				found := false
-				file.FlatWalkNodes(body, "jump_expression", func(jmp uint32) {
-					if found {
-						return
-					}
-					jmpText := file.FlatNodeText(jmp)
-					if strings.HasPrefix(jmpText, "throw") && strings.Contains(jmpText, "NoSuchElementException") {
-						found = true
-					}
-				})
-				if !found {
+				if !functionThrowsNoSuchElementExceptionFlat(ctx, body) {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,
 						"Iterator's next() method should throw NoSuchElementException when there are no more elements.")
 				}
@@ -10573,11 +10565,13 @@ func registerAllRules() {
 		r := &MissingUseCallRule{BaseRule: BaseRule{RuleName: "MissingUseCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Closeable or AutoCloseable resources opened without a .use {} block."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: closeableConstructorCallees()},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				callee := missingUseCalleeIdentFlat(file, idx)
-				if callee == "" || !closeableTypes[callee] {
+				callee, ok := missingUseCloseableConstructorConfirmed(ctx, idx)
+				if !ok {
 					return
 				}
 				if missingUseHasUseChainFlat(file, idx) {
@@ -15086,39 +15080,34 @@ func registerAllRules() {
 		r := &ForbiddenMethodCallRule{BaseRule: BaseRule{RuleName: "ForbiddenMethodCall", RuleSetName: "style", Sev: "warning", Desc: "Detects calls to methods that are configured as forbidden."}, Methods: defaultForbiddenMethods}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"print", "println"}},
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				funcName := flatCallExpressionName(file, idx)
-				if funcName == "" {
+				methodName, ok := forbiddenMethodCallMatch(ctx, idx, r.Methods)
+				if !ok {
 					return
 				}
-				for _, m := range r.Methods {
-					// m is e.g. "print(" or "println(" — compare against funcName
-					methodName := strings.TrimSuffix(m, "(")
-					if funcName == methodName {
-						f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-							fmt.Sprintf("Forbidden method call '%s'.", methodName))
-						// Auto-fix: remove the call statement using AST node byte offsets
-						startByte := int(file.FlatStartByte(idx))
-						endByte := int(file.FlatEndByte(idx))
-						// Expand to cover the full line (leading whitespace + trailing newline)
-						for startByte > 0 && file.Content[startByte-1] != '\n' {
-							startByte--
-						}
-						if endByte < len(file.Content) && file.Content[endByte] == '\n' {
-							endByte++
-						}
-						f.Fix = &scanner.Fix{
-							ByteMode:    true,
-							StartByte:   startByte,
-							EndByte:     endByte,
-							Replacement: "",
-						}
-						ctx.Emit(f)
-						return
-					}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("Forbidden method call '%s'.", methodName))
+				// Auto-fix: remove the call statement using AST node byte offsets
+				startByte := int(file.FlatStartByte(idx))
+				endByte := int(file.FlatEndByte(idx))
+				// Expand to cover the full line (leading whitespace + trailing newline)
+				for startByte > 0 && file.Content[startByte-1] != '\n' {
+					startByte--
 				}
+				if endByte < len(file.Content) && file.Content[endByte] == '\n' {
+					endByte++
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   startByte,
+					EndByte:     endByte,
+					Replacement: "",
+				}
+				ctx.Emit(f)
 			},
 		})
 	}

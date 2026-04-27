@@ -1,7 +1,15 @@
 package rules_test
 
 import (
+	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/oracle"
+	rulespkg "github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // --- ForbiddenComment: FIXME and STOPSHIP edge cases ---
@@ -104,13 +112,40 @@ fun example() {}
 
 // --- ForbiddenMethodCall ---
 
-func TestForbiddenMethodCall_Println(t *testing.T) {
-	findings := runRuleByName(t, "ForbiddenMethodCall", `
-package test
-fun example() {
-    println("hello")
+func runForbiddenMethodCallWithTargets(t *testing.T, code string, targets map[string]string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.CallTargets[file.Path] = map[string]string{}
+	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+		callText := strings.TrimSpace(file.FlatNodeText(idx))
+		for needle, target := range targets {
+			if strings.Contains(callText, needle) {
+				key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+				fake.CallTargets[file.Path][key] = target
+			}
+		}
+	})
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range v2rules.Registry {
+		if r.ID == "ForbiddenMethodCall" {
+			cols := rulespkg.NewDispatcherV2([]*v2rules.Rule{r}, composite).Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatal("rule ForbiddenMethodCall not found in registry")
+	return nil
 }
-`)
+
+func TestForbiddenMethodCall_Println(t *testing.T) {
+	findings := runForbiddenMethodCallWithTargets(t, `
+	package test
+	fun example() {
+	    println("hello")
+	}
+	`, map[string]string{"println": "kotlin.io.println"})
 	found := false
 	for _, f := range findings {
 		if f.Rule == "ForbiddenMethodCall" {
@@ -123,12 +158,12 @@ fun example() {
 }
 
 func TestForbiddenMethodCall_Print(t *testing.T) {
-	findings := runRuleByName(t, "ForbiddenMethodCall", `
-package test
-fun example() {
-    print("hello")
-}
-`)
+	findings := runForbiddenMethodCallWithTargets(t, `
+	package test
+	fun example() {
+	    print("hello")
+	}
+	`, map[string]string{"print": "kotlin.io.print"})
 	found := false
 	for _, f := range findings {
 		if f.Rule == "ForbiddenMethodCall" {
@@ -150,6 +185,21 @@ fun example() {
 	for _, f := range findings {
 		if f.Rule == "ForbiddenMethodCall" {
 			t.Errorf("Should NOT flag allowed method call, got: %s", f.Message)
+		}
+	}
+}
+
+func TestForbiddenMethodCall_LocalPrintlnResolvedTarget(t *testing.T) {
+	findings := runForbiddenMethodCallWithTargets(t, `
+	package test
+	fun println(message: String) {}
+	fun example() {
+	    println("hello")
+	}
+	`, map[string]string{"println": "test.println"})
+	for _, f := range findings {
+		if f.Rule == "ForbiddenMethodCall" {
+			t.Errorf("Should NOT flag a local println declaration with a resolved non-forbidden target, got: %s", f.Message)
 		}
 	}
 }

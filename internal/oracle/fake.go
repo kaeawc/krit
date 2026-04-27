@@ -3,6 +3,7 @@ package oracle
 import (
 	"fmt"
 
+	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -85,6 +86,13 @@ func (f *FakeOracle) LookupExpression(filePath string, line, col int) *typeinfer
 	return fileExprs[key]
 }
 
+func (f *FakeOracle) LookupExpressionFlat(file *scanner.File, idx uint32) *typeinfer.ResolvedType {
+	if file == nil {
+		return nil
+	}
+	return f.LookupExpression(file.Path, file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+}
+
 func (f *FakeOracle) LookupAnnotations(key string) []string {
 	return f.Annotations[key]
 }
@@ -98,6 +106,13 @@ func (f *FakeOracle) LookupCallTarget(filePath string, line, col int) string {
 	return fileCTs[key]
 }
 
+func (f *FakeOracle) LookupCallTargetFlat(file *scanner.File, idx uint32) string {
+	if file == nil {
+		return ""
+	}
+	return f.LookupCallTarget(file.Path, file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+}
+
 func (f *FakeOracle) LookupCallTargetSuspend(filePath string, line, col int) (bool, bool) {
 	fileCTS := f.CallTargetSuspend[filePath]
 	if fileCTS == nil {
@@ -106,6 +121,13 @@ func (f *FakeOracle) LookupCallTargetSuspend(filePath string, line, col int) (bo
 	key := fmt.Sprintf("%d:%d", line, col)
 	isSuspend, ok := fileCTS[key]
 	return isSuspend, ok
+}
+
+func (f *FakeOracle) LookupCallTargetSuspendFlat(file *scanner.File, idx uint32) (bool, bool) {
+	if file == nil {
+		return false, false
+	}
+	return f.LookupCallTargetSuspend(file.Path, file.FlatRow(idx)+1, file.FlatCol(idx)+1)
 }
 
 func (f *FakeOracle) LookupCallTargetAnnotations(filePath string, line, col int) []string {
@@ -117,8 +139,22 @@ func (f *FakeOracle) LookupCallTargetAnnotations(filePath string, line, col int)
 	return fileCTAs[key]
 }
 
+func (f *FakeOracle) LookupCallTargetAnnotationsFlat(file *scanner.File, idx uint32) []string {
+	if file == nil {
+		return nil
+	}
+	return f.LookupCallTargetAnnotations(file.Path, file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+}
+
 func (f *FakeOracle) LookupDiagnostics(filePath string) []OracleDiagnostic {
 	return f.Diagnostics[filePath]
+}
+
+func (f *FakeOracle) LookupDiagnosticsForFlatRange(file *scanner.File, idx uint32) []OracleDiagnostic {
+	if file == nil {
+		return nil
+	}
+	return f.LookupDiagnostics(file.Path)
 }
 
 // Compile-time check that FakeOracle implements Lookup.

@@ -28,14 +28,14 @@ func (r *PrintStackTraceRule) Confidence() float64 { return 0.75 }
 // Classes that extend one of these types are treated as async boundaries where
 // catching generic exceptions is a best practice.
 var asyncBoundaryFQNs = map[string]bool{
-	"kotlinx.coroutines.Job":              true,
+	"kotlinx.coroutines.Job":               true,
 	"kotlinx.coroutines.AbstractCoroutine": true,
-	"androidx.work.Worker":                true,
-	"androidx.work.CoroutineWorker":       true,
-	"androidx.work.ListenableWorker":      true,
-	"java.util.concurrent.Callable":       true,
-	"java.lang.Runnable":                  true,
-	"android.os.AsyncTask":                true,
+	"androidx.work.Worker":                 true,
+	"androidx.work.CoroutineWorker":        true,
+	"androidx.work.ListenableWorker":       true,
+	"java.util.concurrent.Callable":        true,
+	"java.lang.Runnable":                   true,
+	"android.os.AsyncTask":                 true,
 }
 
 // asyncBoundarySimpleToFQN maps unqualified supertype names to their canonical FQN.
@@ -608,7 +608,7 @@ func (r *UnreachableCodeRule) checkNode(ctx *v2.Context) {
 		oracleLookup = cr.Oracle()
 	}
 	if oracleLookup != nil {
-		diags := oracleLookup.LookupDiagnostics(file.Path)
+		diags := oracleLookupDiagnosticsForFlatRange(oracleLookup, file, idx)
 		if len(diags) > 0 {
 			r.checkWithDiagnosticsFlat(ctx, diags)
 			return

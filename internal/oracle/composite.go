@@ -25,6 +25,10 @@ type trackedParallelIndexer interface {
 	IndexFilesParallelWithTracker([]*scanner.File, int, perf.Tracker)
 }
 
+type flatExpressionLookup interface {
+	LookupExpressionFlat(file *scanner.File, idx uint32) *typeinfer.ResolvedType
+}
+
 // NewCompositeResolver creates a resolver that checks the oracle first for
 // dependency types and falls back to the tree-sitter resolver for source types.
 func NewCompositeResolver(oracle Lookup, fallback typeinfer.TypeResolver) *CompositeResolver {
@@ -50,6 +54,11 @@ func (c *CompositeResolver) IndexFilesParallelWithTracker(files []*scanner.File,
 }
 
 func (c *CompositeResolver) ResolveFlatNode(idx uint32, file *scanner.File) *typeinfer.ResolvedType {
+	if flat, ok := c.oracle.(flatExpressionLookup); ok {
+		if t := flat.LookupExpressionFlat(file, idx); t != nil {
+			return t
+		}
+	}
 	if file != nil {
 		line := file.FlatRow(idx) + 1
 		col := file.FlatCol(idx) + 1

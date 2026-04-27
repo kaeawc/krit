@@ -489,7 +489,7 @@ func swallowedOracleCallTarget(ctx *v2.Context, idx uint32) string {
 	if oracleLookup == nil {
 		return ""
 	}
-	return oracleLookup.LookupCallTarget(ctx.File.Path, ctx.File.FlatRow(idx)+1, ctx.File.FlatCol(idx)+1)
+	return oracleLookupCallTargetFlat(oracleLookup, ctx.File, idx)
 }
 
 func swallowedCallTarget(file *scanner.File, node uint32) (string, []string) {

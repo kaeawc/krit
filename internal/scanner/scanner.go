@@ -41,6 +41,8 @@ type Finding struct {
 	File       string
 	Line       int
 	Col        int
+	StartByte  int
+	EndByte    int
 	RuleSet    string
 	Rule       string
 	Severity   string

@@ -314,7 +314,7 @@ class DaemonSession(
 
         for (ktFile in filesToAnalyze) {
             try {
-                analyzeKtFile(ktFile, files, deps, args.expressions, memo = memo, callFilter = callFilter, declarationProfile = args.declarationProfile, callTargetMemo = callTargetMemo)
+                analyzeKtFile(ktFile, files, deps, args.expressions, memo = memo, callFilter = callFilter, declarationProfile = args.declarationProfile, callTargetMemo = callTargetMemo, includeDiagnostics = args.diagnostics)
             } catch (e: Exception) {
                 errors[ktFile.virtualFilePath] = e.message ?: "Analysis failed"
                 System.err.println("Error analyzing ${ktFile.virtualFilePath}: ${e.message}")
@@ -403,7 +403,7 @@ class DaemonSession(
         perf.track("kotlinDaemonAnalyzeFiles") {
             for (ktFile in filesToAnalyze) {
                 try {
-                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, callFilter, memo, declarationProfile, callTargetMemo)
+                    val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, callFilter, memo, declarationProfile, callTargetMemo, args.diagnostics)
                     if (ok) processed++ else skipped++
                 } catch (e: Exception) {
                     skipped++
@@ -439,7 +439,7 @@ class DaemonSession(
 
         for (ktFile in ktFiles) {
             try {
-                analyzeKtFile(ktFile, files, deps, args.expressions, memo = memo, callFilter = callFilter, declarationProfile = args.declarationProfile, callTargetMemo = callTargetMemo)
+                analyzeKtFile(ktFile, files, deps, args.expressions, memo = memo, callFilter = callFilter, declarationProfile = args.declarationProfile, callTargetMemo = callTargetMemo, includeDiagnostics = args.diagnostics)
                 val fileOnDisk = File(ktFile.virtualFilePath)
                 if (fileOnDisk.exists()) {
                     fileTimestamps[ktFile.virtualFilePath] = fileOnDisk.lastModified()
@@ -1604,6 +1604,9 @@ fun buildJsonCompact(files: Map<String, FileResult>, deps: Map<String, ClassResu
         file.expressions.entries.forEachIndexed { j, (key, expr) ->
             if (j > 0) sb.append(",")
             sb.append("${esc(key)}:{\"type\":${esc(expr.type)},\"nullable\":${expr.nullable}")
+            if (expr.endByte > expr.startByte) {
+                sb.append(",\"startByte\":${expr.startByte},\"endByte\":${expr.endByte}")
+            }
             if (expr.callTarget != null) sb.append(",\"callTarget\":${esc(expr.callTarget)}")
             if (expr.callTargetResolved) sb.append(",\"callTargetResolved\":true")
             if (expr.callTargetSuspend) sb.append(",\"callTargetSuspend\":true")
@@ -1620,7 +1623,11 @@ fun buildJsonCompact(files: Map<String, FileResult>, deps: Map<String, ClassResu
             sb.append(""""diagnostics":[""")
             file.diagnostics.forEachIndexed { j, d ->
                 if (j > 0) sb.append(",")
-                sb.append("{\"factoryName\":${esc(d.factoryName)},\"severity\":${esc(d.severity)},\"message\":${esc(d.message)},\"line\":${d.line},\"col\":${d.col}}")
+                sb.append("{\"factoryName\":${esc(d.factoryName)},\"severity\":${esc(d.severity)},\"message\":${esc(d.message)},\"line\":${d.line},\"col\":${d.col}")
+                if (d.endByte > d.startByte) {
+                    sb.append(",\"startByte\":${d.startByte},\"endByte\":${d.endByte}")
+                }
+                sb.append("}")
             }
             sb.append("]")
         }
@@ -1738,6 +1745,34 @@ val retainedDiagnosticFactories = setOf(
     "CAST_NEVER_SUCCEEDS",
 )
 
+val diagnosticLexicalHints = listOf(
+    "?:"
+)
+
+fun CharSequence.containsLiteral(needle: String): Boolean {
+    if (needle.isEmpty()) return true
+    if (needle.length > length) return false
+    val max = length - needle.length
+    for (i in 0..max) {
+        var matched = true
+        for (j in needle.indices) {
+            if (this[i + j] != needle[j]) {
+                matched = false
+                break
+            }
+        }
+        if (matched) return true
+    }
+    return false
+}
+
+fun shouldCollectDiagnostics(chars: CharSequence): Boolean {
+    for (hint in diagnosticLexicalHints) {
+        if (chars.containsLiteral(hint)) return true
+    }
+    return false
+}
+
 fun KotlinPerf.recordCacheDepsSummary(tracker: DepTracker) {
     if (!enabled) return
     addInstant(
@@ -1853,6 +1888,46 @@ fun PsiElement.isPossiblyDiscardedExpression(): Boolean {
     }
 }
 
+// Converts IntelliJ/Kotlin PSI UTF-16 offsets to UTF-8 byte offsets used by
+// tree-sitter FlatNode.StartByte/EndByte. The prefix table is built once per
+// file so per-call and per-diagnostic range export is O(1).
+class Utf8ByteOffsets(private val text: CharSequence) {
+    private val prefix = IntArray(text.length + 1)
+
+    init {
+        var i = 0
+        var bytes = 0
+        while (i < text.length) {
+            val cp = Character.codePointAt(text, i)
+            val chars = Character.charCount(cp)
+            val width = when {
+                cp <= 0x7F -> 1
+                cp <= 0x7FF -> 2
+                cp <= 0xFFFF -> 3
+                else -> 4
+            }
+            for (j in 0 until chars) {
+                prefix[i + j] = bytes
+            }
+            bytes += width
+            i += chars
+        }
+        prefix[text.length] = bytes
+    }
+
+    fun byteOffset(utf16Offset: Int): Int {
+        return prefix[utf16Offset.coerceIn(0, text.length)]
+    }
+}
+
+fun contentHash(chars: CharSequence): Int {
+    var hash = 0
+    for (i in 0 until chars.length) {
+        hash = 31 * hash + chars[i].code
+    }
+    return hash
+}
+
 fun lexicalHintMatches(site: LexicalCallSite, hint: String): Boolean {
     val normalizedHint = hint.trim().removeSuffix(".*")
     if (normalizedHint.isEmpty()) return false
@@ -1925,7 +2000,8 @@ fun analyzeKtFile(
     callFilter: CallFilter? = null,
     memo: AnalysisMemo? = null,
     declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full(),
-    callTargetMemo: CallTargetMemo? = null
+    callTargetMemo: CallTargetMemo? = null,
+    includeDiagnostics: Boolean = true
 ): Boolean {
     val path = ktFile.virtualFilePath
     val fileStart = System.nanoTime()
@@ -2041,9 +2117,22 @@ fun analyzeKtFile(
             }
 
             val expressions = mutableMapOf<String, ExpressionResult>()
+            var byteOffsets: Utf8ByteOffsets? = null
+            fun byteOffsetsFor(chars: CharSequence): Utf8ByteOffsets {
+                val existing = byteOffsets
+                if (existing != null) return existing
+                val start = System.nanoTime()
+                val created = Utf8ByteOffsets(chars)
+                val duration = System.nanoTime() - start
+                perf?.count("kotlinByteOffsets.build", duration)
+                perf?.addPhaseTotal("kotlinByteOffsets", duration)
+                byteOffsets = created
+                return created
+            }
             if (includeExpressions) {
                 val document = ktFile.viewProvider.document
                 if (document != null) {
+                    val fileChars = document.charsSequence
                     // Single-loop walker: only collect KtCallExpressions and use
                     // resolveToCall() against the symbol graph to extract a
                     // fully-qualified call target. The previous three-loop walker
@@ -2073,7 +2162,7 @@ fun analyzeKtFile(
                     val lexicalImports = ktFile.lexicalImportSet()
                     // Stable hash over file content; stale memo entries for
                     // changed content become unreachable (different hash).
-                    val fileContentHash = ktFile.text.hashCode()
+                    val fileContentHash = contentHash(fileChars)
                     for (expr in callExprs) {
                         // Per-expression try-catch: the FIR lazy resolver can
                         // crash while building the containing function's FIR
@@ -2094,6 +2183,7 @@ fun analyzeKtFile(
                         try {
                             val locationStart = System.nanoTime()
                             val offset = expr.textRange.startOffset
+                            val endOffset = expr.textRange.endOffset
                             line = document.getLineNumber(offset) + 1
                             col = offset - document.getLineStartOffset(line - 1) + 1
                             val key = "$line:$col"
@@ -2230,6 +2320,8 @@ fun analyzeKtFile(
                             val result = ExpressionResult(
                                 type = "",
                                 nullable = false,
+                                startByte = byteOffsetsFor(fileChars).byteOffset(offset),
+                                endByte = byteOffsetsFor(fileChars).byteOffset(endOffset),
                                 callTarget = callTarget,
                                 callTargetResolved = callTargetResolved,
                                 callTargetSuspend = callTargetSuspend,
@@ -2266,36 +2358,46 @@ fun analyzeKtFile(
             expressionCount = expressions.size.toLong()
 
             val diagnostics = mutableListOf<DiagnosticResult>()
-            val diagnosticsStart = System.nanoTime()
-            try {
-                val document = ktFile.viewProvider.document
-                if (document != null) {
-                    for (diagnostic in ktFile.collectDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)) {
-                        try {
-                            val factoryName = diagnostic.factoryName
-                            if (factoryName !in retainedDiagnosticFactories) continue
-                            val offset = diagnostic.psi.textRange.startOffset
-                            val line = document.getLineNumber(offset) + 1
-                            val col = offset - document.getLineStartOffset(line - 1) + 1
-                            diagnostics.add(
-                                DiagnosticResult(
-                                    factoryName = factoryName,
-                                    severity = diagnostic.severity.name,
-                                    message = diagnostic.defaultMessage,
-                                    line = line,
-                                    col = col
-                                )
-                            )
-                            perf?.count("kotlinDiagnosticsRetained")
-                        } catch (_: Throwable) {
-                            perf?.count("kotlinDiagnosticsEntryException")
+            if (includeDiagnostics) {
+                val diagnosticsStart = System.nanoTime()
+                try {
+                    val document = ktFile.viewProvider.document
+                    if (document != null) {
+                        val fileChars = document.charsSequence
+                        if (!shouldCollectDiagnostics(fileChars)) {
+                            perf?.count("kotlinDiagnosticsSkippedByLexicalGate")
+                        } else {
+                            for (diagnostic in ktFile.collectDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)) {
+                                try {
+                                    val factoryName = diagnostic.factoryName
+                                    if (factoryName !in retainedDiagnosticFactories) continue
+                                    val offset = diagnostic.psi.textRange.startOffset
+                                    val endOffset = diagnostic.psi.textRange.endOffset
+                                    val line = document.getLineNumber(offset) + 1
+                                    val col = offset - document.getLineStartOffset(line - 1) + 1
+                                    diagnostics.add(
+                                        DiagnosticResult(
+                                            factoryName = factoryName,
+                                            severity = diagnostic.severity.name,
+                                            message = diagnostic.defaultMessage,
+                                            line = line,
+                                            col = col,
+                                            startByte = byteOffsetsFor(fileChars).byteOffset(offset),
+                                            endByte = byteOffsetsFor(fileChars).byteOffset(endOffset)
+                                        )
+                                    )
+                                    perf?.count("kotlinDiagnosticsRetained")
+                                } catch (_: Throwable) {
+                                    perf?.count("kotlinDiagnosticsEntryException")
+                                }
+                            }
                         }
                     }
+                } catch (_: Throwable) {
+                    perf?.count("kotlinDiagnosticsException")
+                } finally {
+                    perf?.addPhaseTotal("kotlinDiagnostics", System.nanoTime() - diagnosticsStart)
                 }
-            } catch (_: Throwable) {
-                perf?.count("kotlinDiagnosticsException")
-            } finally {
-                perf?.addPhaseTotal("kotlinDiagnostics", System.nanoTime() - diagnosticsStart)
             }
 
             // Always emit a FileResult, even if the file contributes zero
@@ -2373,6 +2475,7 @@ data class ParsedArgs(
     val timingsOut: String? = null,     // --timings-out PATH: emit perf.TimingEntry-compatible JSON
     val callFilter: CallFilter? = null, // --call-filter JSON: narrow resolveToCall by lexical callee
     val declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full(),
+    val diagnostics: Boolean = true,
     // Experiment 2 probe: run analyzeKtFile on N parallel platform threads within one KAA session.
     // 0 or 1 = sequential (default). Safety is NOT established — use only for benchmarking.
     val parallelFiles: Int = 0
@@ -2455,6 +2558,7 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
     var timingsOut: String? = null
     var callFilterPath: String? = null
     var declarationProfile: DeclarationExportProfile = DeclarationExportProfile.full()
+    var diagnostics = true
     var parallelFiles = 0
 
     var i = 0
@@ -2465,6 +2569,7 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
             "--jdk-home" -> { i++; if (i >= args.size) return null; jdkHome = args[i] }
             "--output", "-o" -> { i++; if (i >= args.size) return null; output = args[i] }
             "--no-expressions" -> { expressions = false }
+            "--no-diagnostics" -> { diagnostics = false }
             "--daemon" -> { daemon = true }
             "--port" -> { i++; if (i >= args.size) return null; port = args[i].toIntOrNull() ?: run { System.err.println("Error: --port requires an integer"); return null } }
             "--exclude" -> {
@@ -2500,7 +2605,7 @@ fun parseArgs(args: Array<String>): ParsedArgs? {
         i++
     }
     if (sources.isEmpty()) { System.err.println("Error: --sources is required"); return null }
-    return ParsedArgs(sources, classpath, jdkHome, output, expressions, daemon, port, exclude, filesList, cacheDepsOut, timingsOut, loadCallFilter(callFilterPath), declarationProfile, parallelFiles)
+    return ParsedArgs(sources, classpath, jdkHome, output, expressions, daemon, port, exclude, filesList, cacheDepsOut, timingsOut, loadCallFilter(callFilterPath), declarationProfile, diagnostics, parallelFiles)
 }
 
 fun printUsage() {
@@ -2513,6 +2618,7 @@ fun printUsage() {
         |  --jdk-home PATH         JDK home directory (optional)
         |  --output FILE           Output file (default: stdout)
         |  --no-expressions        Skip expression-level type export
+        |  --no-diagnostics        Skip compiler diagnostic export
         |  --daemon                Run in daemon mode (JSON-RPC over stdin/stdout)
         |  --port N                TCP port for daemon (-1=stdin/stdout, 0=auto-assign, >0=specific port)
         |  --exclude GLOB[,GLOB]   Skip files whose paths match any glob (default: **/testData/**,**/test-resources/**; pass "" to disable)
@@ -2646,7 +2752,7 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
                 var localProcessed = 0
                 var localSkipped = 0
                 for (ktFile in chunk) {
-                    val ok = analyzeKtFile(ktFile, localFiles, localDeps, args.expressions, localTracker, localPerf, args.callFilter, localMemo, args.declarationProfile)
+                    val ok = analyzeKtFile(ktFile, localFiles, localDeps, args.expressions, localTracker, localPerf, args.callFilter, localMemo, args.declarationProfile, includeDiagnostics = args.diagnostics)
                     if (ok) localProcessed++ else localSkipped++
                 }
                 WorkerResult(localFiles, localDeps, localTracker, localPerf, localProcessed, localSkipped)
@@ -2683,7 +2789,7 @@ fun analyzeAndExport(disposable: Disposable, args: ParsedArgs, perf: KotlinPerf 
     } else {
         perf.track("kotlinAnalyzeFiles") {
             for ((i, ktFile) in ktFiles.withIndex()) {
-                val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, args.callFilter, memo, args.declarationProfile)
+                val ok = analyzeKtFile(ktFile, files, deps, args.expressions, tracker, activePerf, args.callFilter, memo, args.declarationProfile, includeDiagnostics = args.diagnostics)
                 if (ok) processed++ else skipped++
                 if ((i + 1) % progressStep == 0) {
                     System.err.println("  ... ${i + 1}/$total (${processed} processed, ${skipped} skipped)")
@@ -3114,6 +3220,8 @@ fun org.jetbrains.kotlin.analysis.api.KaSession.recordSupertypeSourceOrigins(
 data class ExpressionResult(
     val type: String,
     val nullable: Boolean,
+    val startByte: Int = 0,
+    val endByte: Int = 0,
     val callTarget: String? = null,
     val callTargetResolved: Boolean = false,
     val callTargetSuspend: Boolean = false,
@@ -3127,7 +3235,9 @@ data class DiagnosticResult(
     val severity: String,
     val message: String,
     val line: Int,
-    val col: Int
+    val col: Int,
+    val startByte: Int = 0,
+    val endByte: Int = 0
 )
 
 data class FileResult(
@@ -3172,6 +3282,9 @@ fun buildJson(files: Map<String, FileResult>, deps: Map<String, ClassResult>): S
         sb.appendLine("      \"expressions\": {")
         file.expressions.entries.forEachIndexed { j, (key, expr) ->
             sb.append("        ${esc(key)}: {\"type\": ${esc(expr.type)}, \"nullable\": ${expr.nullable}")
+            if (expr.endByte > expr.startByte) {
+                sb.append(", \"startByte\": ${expr.startByte}, \"endByte\": ${expr.endByte}")
+            }
             if (expr.callTarget != null) sb.append(", \"callTarget\": ${esc(expr.callTarget)}")
             if (expr.callTargetResolved) sb.append(", \"callTargetResolved\": true")
             if (expr.callTargetSuspend) sb.append(", \"callTargetSuspend\": true")
@@ -3187,7 +3300,11 @@ fun buildJson(files: Map<String, FileResult>, deps: Map<String, ClassResult>): S
             sb.appendLine("      },")
             sb.appendLine("      \"diagnostics\": [")
             file.diagnostics.forEachIndexed { j, d ->
-                sb.append("        {\"factoryName\": ${esc(d.factoryName)}, \"severity\": ${esc(d.severity)}, \"message\": ${esc(d.message)}, \"line\": ${d.line}, \"col\": ${d.col}}")
+                sb.append("        {\"factoryName\": ${esc(d.factoryName)}, \"severity\": ${esc(d.severity)}, \"message\": ${esc(d.message)}, \"line\": ${d.line}, \"col\": ${d.col}")
+                if (d.endByte > d.startByte) {
+                    sb.append(", \"startByte\": ${d.startByte}, \"endByte\": ${d.endByte}")
+                }
+                sb.append("}")
                 if (j < file.diagnostics.size - 1) sb.appendLine(",") else sb.appendLine()
             }
             sb.appendLine("      ]")

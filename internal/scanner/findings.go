@@ -32,6 +32,8 @@ type FindingColumns struct {
 	FileIdx        []uint32
 	Line           []uint32
 	Col            []uint16
+	StartByte      []uint32
+	EndByte        []uint32
 	RuleSetIdx     []uint16
 	RuleIdx        []uint16
 	SeverityID     []uint8
@@ -71,6 +73,8 @@ func NewFindingCollector(capacity int) *FindingCollector {
 			FileIdx:        make([]uint32, 0, capacity),
 			Line:           make([]uint32, 0, capacity),
 			Col:            make([]uint16, 0, capacity),
+			StartByte:      make([]uint32, 0, capacity),
+			EndByte:        make([]uint32, 0, capacity),
 			RuleSetIdx:     make([]uint16, 0, capacity),
 			RuleIdx:        make([]uint16, 0, capacity),
 			SeverityID:     make([]uint8, 0, capacity),
@@ -101,6 +105,8 @@ func (c *FindingCollector) Append(f Finding) {
 	c.columns.FileIdx = append(c.columns.FileIdx, c.internFile(f.File))
 	c.columns.Line = append(c.columns.Line, clampUint32(f.Line))
 	c.columns.Col = append(c.columns.Col, clampUint16(f.Col))
+	c.columns.StartByte = append(c.columns.StartByte, clampUint32(f.StartByte))
+	c.columns.EndByte = append(c.columns.EndByte, clampUint32(f.EndByte))
 	c.columns.RuleSetIdx = append(c.columns.RuleSetIdx, c.internRuleSet(f.RuleSet))
 	c.columns.RuleIdx = append(c.columns.RuleIdx, c.internRule(f.Rule))
 	c.columns.SeverityID = append(c.columns.SeverityID, severityToID(f.Severity))
@@ -127,6 +133,8 @@ func (c *FindingCollector) AppendRow(columns *FindingColumns, row int) {
 	c.columns.FileIdx = append(c.columns.FileIdx, c.internFile(columns.Files[columns.FileIdx[row]]))
 	c.columns.Line = append(c.columns.Line, columns.Line[row])
 	c.columns.Col = append(c.columns.Col, columns.Col[row])
+	c.columns.StartByte = append(c.columns.StartByte, columnValueOrZero(columns.StartByte, row))
+	c.columns.EndByte = append(c.columns.EndByte, columnValueOrZero(columns.EndByte, row))
 	c.columns.RuleSetIdx = append(c.columns.RuleSetIdx, c.internRuleSet(columns.RuleSets[columns.RuleSetIdx[row]]))
 	c.columns.RuleIdx = append(c.columns.RuleIdx, c.internRule(columns.Rules[columns.RuleIdx[row]]))
 	c.columns.SeverityID = append(c.columns.SeverityID, columns.SeverityID[row])
@@ -175,6 +183,8 @@ func (c *FindingCollector) AppendColumns(columns *FindingColumns) {
 		c.columns.FileIdx = append(c.columns.FileIdx, fileIdx[columns.FileIdx[i]])
 		c.columns.Line = append(c.columns.Line, columns.Line[i])
 		c.columns.Col = append(c.columns.Col, columns.Col[i])
+		c.columns.StartByte = append(c.columns.StartByte, columnValueOrZero(columns.StartByte, i))
+		c.columns.EndByte = append(c.columns.EndByte, columnValueOrZero(columns.EndByte, i))
 		c.columns.RuleSetIdx = append(c.columns.RuleSetIdx, ruleSetIdx[columns.RuleSetIdx[i]])
 		c.columns.RuleIdx = append(c.columns.RuleIdx, ruleIdx[columns.RuleIdx[i]])
 		c.columns.SeverityID = append(c.columns.SeverityID, columns.SeverityID[i])
@@ -249,6 +259,8 @@ func (c *FindingColumns) Clone() FindingColumns {
 		FileIdx:        append([]uint32(nil), c.FileIdx...),
 		Line:           append([]uint32(nil), c.Line...),
 		Col:            append([]uint16(nil), c.Col...),
+		StartByte:      append([]uint32(nil), c.StartByte...),
+		EndByte:        append([]uint32(nil), c.EndByte...),
 		RuleSetIdx:     append([]uint16(nil), c.RuleSetIdx...),
 		RuleIdx:        append([]uint16(nil), c.RuleIdx...),
 		SeverityID:     append([]uint8(nil), c.SeverityID...),
@@ -287,6 +299,16 @@ func (c *FindingColumns) LineAt(i int) int {
 // ColumnAt returns the 1-based column number for row i.
 func (c *FindingColumns) ColumnAt(i int) int {
 	return int(c.Col[i])
+}
+
+// StartByteAt returns the byte offset where row i starts, or 0 when unset.
+func (c *FindingColumns) StartByteAt(i int) int {
+	return int(columnValueOrZero(c.StartByte, i))
+}
+
+// EndByteAt returns the byte offset where row i ends, or 0 when unset.
+func (c *FindingColumns) EndByteAt(i int) int {
+	return int(columnValueOrZero(c.EndByte, i))
 }
 
 // RuleSetAt returns the ruleset name for row i.
@@ -403,6 +425,8 @@ func (c *FindingColumns) Finding(i int) Finding {
 		File:       c.FileAt(i),
 		Line:       c.LineAt(i),
 		Col:        c.ColumnAt(i),
+		StartByte:  c.StartByteAt(i),
+		EndByte:    c.EndByteAt(i),
 		RuleSet:    c.RuleSetAt(i),
 		Rule:       c.RuleAt(i),
 		Severity:   c.SeverityAt(i),
@@ -542,6 +566,8 @@ func (c *FindingColumns) SortByFileLine() {
 		swapSlice(c.FileIdx, i, j)
 		swapSlice(c.Line, i, j)
 		swapSlice(c.Col, i, j)
+		swapSlice(c.StartByte, i, j)
+		swapSlice(c.EndByte, i, j)
 		swapSlice(c.RuleSetIdx, i, j)
 		swapSlice(c.RuleIdx, i, j)
 		swapSlice(c.SeverityID, i, j)
@@ -604,6 +630,13 @@ func (c *FindingColumns) sortRowOrderByFileLine(order, scratch []int) {
 	radixSortOrderByUint16(order, scratch, c.Col)
 	radixSortOrderByUint32(order, scratch, c.Line)
 	radixSortOrderByUint32Lookup(order, scratch, c.FileIdx, fileRanks)
+}
+
+func columnValueOrZero(values []uint32, row int) uint32 {
+	if row < 0 || row >= len(values) {
+		return 0
+	}
+	return values[row]
 }
 
 func (c *FindingCollector) internFile(value string) uint32 {

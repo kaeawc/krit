@@ -13,6 +13,7 @@ package firchecks
 import (
 	"fmt"
 	"os"
+	"unicode/utf8"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -84,8 +85,9 @@ func InvokeCached(
 
 	// Assemble hits + fresh findings.
 	result := assembleFromCache(hits)
+	contentCache := map[string][]byte{}
 	for _, f := range resp.Findings {
-		result.Findings = append(result.Findings, ToScannerFinding(f))
+		result.Findings = append(result.Findings, toScannerFindingWithRange(f, contentCache))
 	}
 	for path, msg := range resp.Crashed {
 		result.Crashed[path] = msg
@@ -107,8 +109,9 @@ func runUncached(
 		return nil, err
 	}
 	result := &Result{Crashed: map[string]string{}}
+	contentCache := map[string][]byte{}
 	for _, f := range resp.Findings {
-		result.Findings = append(result.Findings, ToScannerFinding(f))
+		result.Findings = append(result.Findings, toScannerFindingWithRange(f, contentCache))
 	}
 	for path, msg := range resp.Crashed {
 		result.Crashed[path] = msg
@@ -161,16 +164,95 @@ func buildFileRefs(files []string) []fileRef {
 
 func assembleFromCache(hits []*FirCacheEntry) *Result {
 	result := &Result{Crashed: map[string]string{}}
+	contentCache := map[string][]byte{}
 	for _, entry := range hits {
 		if entry.Crashed {
 			result.Crashed[entry.FilePath] = entry.CrashError
 			continue
 		}
 		for _, f := range entry.Findings {
-			result.Findings = append(result.Findings, ToScannerFinding(f))
+			result.Findings = append(result.Findings, toScannerFindingWithRange(f, contentCache))
 		}
 	}
 	return result
+}
+
+func toScannerFindingWithRange(f FirFinding, contents map[string][]byte) scanner.Finding {
+	finding := ToScannerFinding(f)
+	if finding.EndByte > finding.StartByte {
+		return finding
+	}
+	start, end, ok := firPointRange(f.Path, f.Line, f.Col, contents)
+	if !ok {
+		return finding
+	}
+	finding.StartByte = start
+	finding.EndByte = end
+	return finding
+}
+
+func firPointRange(path string, line, col int, contents map[string][]byte) (int, int, bool) {
+	if line <= 0 || col <= 0 || path == "" {
+		return 0, 0, false
+	}
+	content, ok := contents[path]
+	if !ok {
+		var err error
+		content, err = os.ReadFile(path)
+		if err != nil {
+			return 0, 0, false
+		}
+		if contents != nil {
+			contents[path] = content
+		}
+	}
+	lineStart := 0
+	currentLine := 1
+	for lineStart < len(content) && currentLine < line {
+		if content[lineStart] == '\n' {
+			currentLine++
+		}
+		lineStart++
+	}
+	if currentLine != line {
+		return 0, 0, false
+	}
+	start := lineStart
+	currentCol := 1
+	for start < len(content) && currentCol < col {
+		if content[start] == '\n' || content[start] == '\r' {
+			return 0, 0, false
+		}
+		_, width := utf8.DecodeRune(content[start:])
+		if width <= 0 {
+			width = 1
+		}
+		start += width
+		currentCol++
+	}
+	if start >= len(content) {
+		return 0, 0, false
+	}
+	end := start
+	for end < len(content) {
+		r, width := utf8.DecodeRune(content[end:])
+		if width <= 0 {
+			width = 1
+		}
+		if !(r == '_' || r == '$' || r == '.' || r == '#' ||
+			r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z') {
+			break
+		}
+		end += width
+	}
+	if end <= start {
+		_, width := utf8.DecodeRune(content[start:])
+		if width <= 0 {
+			width = 1
+		}
+		end = start + width
+	}
+	return start, end, true
 }
 
 var firLineDedupeRules = map[string]struct{}{
@@ -193,27 +275,59 @@ func MergeFindings(allFindings []scanner.Finding, firFindings []scanner.Finding)
 		file, rule string
 		line       int
 	}
+	type byteKey struct {
+		file, rule string
+		start, end int
+	}
 	existing := make(map[key]struct{}, len(allFindings))
 	existingLines := make(map[lineKey]struct{}, len(allFindings))
+	existingLineWithoutBytes := make(map[lineKey]struct{}, len(allFindings))
+	existingBytes := make(map[byteKey]struct{}, len(allFindings))
 	for _, f := range allFindings {
 		existing[key{f.File, f.Rule, f.Line, f.Col}] = struct{}{}
+		if f.EndByte > f.StartByte {
+			existingBytes[byteKey{f.File, f.Rule, f.StartByte, f.EndByte}] = struct{}{}
+		}
 		if _, ok := firLineDedupeRules[f.Rule]; ok {
-			existingLines[lineKey{f.File, f.Rule, f.Line}] = struct{}{}
+			lk := lineKey{f.File, f.Rule, f.Line}
+			existingLines[lk] = struct{}{}
+			if f.EndByte <= f.StartByte {
+				existingLineWithoutBytes[lk] = struct{}{}
+			}
 		}
 	}
 	for _, f := range firFindings {
 		k := key{f.File, f.Rule, f.Line, f.Col}
+		bk := byteKey{f.File, f.Rule, f.StartByte, f.EndByte}
+		if f.EndByte > f.StartByte {
+			if _, ok := existingBytes[bk]; ok {
+				continue
+			}
+		}
 		if _, ok := existing[k]; !ok {
 			lk := lineKey{f.File, f.Rule, f.Line}
 			if _, lineDedupe := firLineDedupeRules[f.Rule]; lineDedupe {
+				if f.EndByte > f.StartByte {
+					if _, ok := existingLineWithoutBytes[lk]; ok {
+						continue
+					}
+				}
 				if _, ok := existingLines[lk]; ok {
-					continue
+					if f.EndByte <= f.StartByte {
+						continue
+					}
 				}
 			}
 			allFindings = append(allFindings, f)
 			existing[k] = struct{}{}
+			if f.EndByte > f.StartByte {
+				existingBytes[bk] = struct{}{}
+			}
 			if _, lineDedupe := firLineDedupeRules[f.Rule]; lineDedupe {
 				existingLines[lk] = struct{}{}
+				if f.EndByte <= f.StartByte {
+					existingLineWithoutBytes[lk] = struct{}{}
+				}
 			}
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -47,6 +48,7 @@ type Oracle struct {
 	supertypeMap          map[string][]string                           // FQN → all ancestor FQNs (transitive)
 	subtypeSet            map[string]map[string]bool                    // FQN → set of ancestor FQNs for O(1) IsSubtype
 	expressions           map[string]map[uint64]*typeinfer.ResolvedType // file path → (packed line:col → type)
+	expressionRanges      map[string][]expressionRange                  // file path → byte-range keyed expression facts
 	annotations           map[string][]string                           // "ClassName.memberName" → annotation FQNs
 	callTargets           map[string]map[uint64]string                  // file path → (packed line:col → call target FQN)
 	callTargetResolved    map[string]map[uint64]bool                    // file path → (packed line:col → KAA-resolved target marker)
@@ -60,6 +62,15 @@ type Oracle struct {
 	classMisses atomic.Int64
 	funcHits    atomic.Int64
 	funcMisses  atomic.Int64
+}
+
+type expressionRange struct {
+	start, end int
+	typ        *typeinfer.ResolvedType
+	target     string
+	resolved   bool
+	suspend    bool
+	ann        []string
 }
 
 // OracleStats is a snapshot of Oracle lookup hit/miss counters.
@@ -134,6 +145,7 @@ func Load(path string) (*Oracle, error) {
 		supertypeMap:          make(map[string][]string),
 		subtypeSet:            make(map[string]map[string]bool),
 		expressions:           make(map[string]map[uint64]*typeinfer.ResolvedType),
+		expressionRanges:      make(map[string][]expressionRange),
 		annotations:           make(map[string][]string),
 		callTargets:           make(map[string]map[uint64]string),
 		callTargetResolved:    make(map[string]map[uint64]bool),
@@ -159,12 +171,25 @@ func Load(path string) (*Oracle, error) {
 			var ctrMap map[uint64]bool
 			var ctsMap map[uint64]bool
 			var ctaMap map[uint64][]string
+			var ranges []expressionRange
 			for pos, et := range file.Expressions {
 				key, ok := parseLineCol(pos)
 				if !ok {
 					continue
 				}
-				exprMap[key] = makeResolvedType(et.Type, et.Nullable)
+				typ := makeResolvedType(et.Type, et.Nullable)
+				exprMap[key] = typ
+				if et.EndByte > et.StartByte {
+					ranges = append(ranges, expressionRange{
+						start:    et.StartByte,
+						end:      et.EndByte,
+						typ:      typ,
+						target:   et.CallTarget,
+						resolved: et.CallTargetResolved,
+						suspend:  et.CallTargetSuspend,
+						ann:      append([]string(nil), et.Annotations...),
+					})
+				}
 				if et.CallTarget != "" {
 					if ctMap == nil {
 						ctMap = make(map[uint64]string)
@@ -191,6 +216,9 @@ func Load(path string) (*Oracle, error) {
 				}
 			}
 			o.expressions[path] = exprMap
+			if len(ranges) > 0 {
+				o.expressionRanges[path] = ranges
+			}
 			if ctMap != nil {
 				o.callTargets[path] = ctMap
 			}
@@ -241,6 +269,7 @@ func LoadFromData(raw *OracleData) (*Oracle, error) {
 		supertypeMap:          make(map[string][]string),
 		subtypeSet:            make(map[string]map[string]bool),
 		expressions:           make(map[string]map[uint64]*typeinfer.ResolvedType),
+		expressionRanges:      make(map[string][]expressionRange),
 		annotations:           make(map[string][]string),
 		callTargets:           make(map[string]map[uint64]string),
 		callTargetResolved:    make(map[string]map[uint64]bool),
@@ -264,12 +293,25 @@ func LoadFromData(raw *OracleData) (*Oracle, error) {
 			var ctrMap map[uint64]bool
 			var ctsMap map[uint64]bool
 			var ctaMap map[uint64][]string
+			var ranges []expressionRange
 			for pos, et := range file.Expressions {
 				key, ok := parseLineCol(pos)
 				if !ok {
 					continue
 				}
-				exprMap[key] = makeResolvedType(et.Type, et.Nullable)
+				typ := makeResolvedType(et.Type, et.Nullable)
+				exprMap[key] = typ
+				if et.EndByte > et.StartByte {
+					ranges = append(ranges, expressionRange{
+						start:    et.StartByte,
+						end:      et.EndByte,
+						typ:      typ,
+						target:   et.CallTarget,
+						resolved: et.CallTargetResolved,
+						suspend:  et.CallTargetSuspend,
+						ann:      append([]string(nil), et.Annotations...),
+					})
+				}
 				if et.CallTarget != "" {
 					if ctMap == nil {
 						ctMap = make(map[uint64]string)
@@ -296,6 +338,9 @@ func LoadFromData(raw *OracleData) (*Oracle, error) {
 				}
 			}
 			o.expressions[path] = exprMap
+			if len(ranges) > 0 {
+				o.expressionRanges[path] = ranges
+			}
 			if ctMap != nil {
 				o.callTargets[path] = ctMap
 			}
@@ -543,6 +588,20 @@ func (o *Oracle) LookupExpression(filePath string, line, col int) *typeinfer.Res
 	return nil
 }
 
+// LookupExpressionFlat returns the compiler-resolved type for the FlatNode's
+// byte range when byte-range oracle data is available, falling back to the
+// legacy line/column lookup otherwise.
+func (o *Oracle) LookupExpressionFlat(file *scanner.File, idx uint32) *typeinfer.ResolvedType {
+	if file == nil {
+		return nil
+	}
+	if fact := o.lookupRangeFact(file, idx); fact != nil && fact.typ != nil {
+		o.exprHits.Add(1)
+		return fact.typ
+	}
+	return o.LookupExpression(file.Path, file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+}
+
 // LookupAnnotations returns annotation FQNs for a class or member key
 // (e.g., "ClassName" or "ClassName.memberName").
 func (o *Oracle) LookupAnnotations(key string) []string {
@@ -560,6 +619,18 @@ func (o *Oracle) LookupCallTargetAnnotations(filePath string, line, col int) []s
 	return fileCTAs[packLineCol(line, col)]
 }
 
+// LookupCallTargetAnnotationsFlat returns annotations recorded on the resolved
+// symbol for the FlatNode's byte range, falling back to line/column lookup.
+func (o *Oracle) LookupCallTargetAnnotationsFlat(file *scanner.File, idx uint32) []string {
+	if file == nil {
+		return nil
+	}
+	if fact := o.lookupRangeFact(file, idx); fact != nil && len(fact.ann) > 0 {
+		return append([]string(nil), fact.ann...)
+	}
+	return o.LookupCallTargetAnnotations(file.Path, file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+}
+
 // LookupCallTarget returns the FQN of the resolved call target for an
 // expression at a specific source position (1-based line and column).
 func (o *Oracle) LookupCallTarget(filePath string, line, col int) string {
@@ -568,6 +639,18 @@ func (o *Oracle) LookupCallTarget(filePath string, line, col int) string {
 		return ""
 	}
 	return fileCTs[packLineCol(line, col)]
+}
+
+// LookupCallTargetFlat returns the FQN of the resolved call target for a
+// FlatNode's byte range, falling back to line/column lookup.
+func (o *Oracle) LookupCallTargetFlat(file *scanner.File, idx uint32) string {
+	if file == nil {
+		return ""
+	}
+	if fact := o.lookupRangeFact(file, idx); fact != nil && fact.target != "" {
+		return fact.target
+	}
+	return o.LookupCallTarget(file.Path, file.FlatRow(idx)+1, file.FlatCol(idx)+1)
 }
 
 // LookupCallTargetSuspend returns whether a KAA-resolved callable target is
@@ -583,6 +666,50 @@ func (o *Oracle) LookupCallTargetSuspend(filePath string, line, col int) (isSusp
 	return fileSuspend != nil && fileSuspend[key], true
 }
 
+// LookupCallTargetSuspendFlat returns suspend-call evidence for the FlatNode's
+// byte range, falling back to line/column lookup.
+func (o *Oracle) LookupCallTargetSuspendFlat(file *scanner.File, idx uint32) (bool, bool) {
+	if file == nil {
+		return false, false
+	}
+	if fact := o.lookupRangeFact(file, idx); fact != nil && fact.resolved {
+		return fact.suspend, true
+	}
+	return o.LookupCallTargetSuspend(file.Path, file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+}
+
+func (o *Oracle) lookupRangeFact(file *scanner.File, idx uint32) *expressionRange {
+	if file == nil {
+		return nil
+	}
+	ranges := o.expressionRanges[file.Path]
+	if len(ranges) == 0 {
+		return nil
+	}
+	start := int(file.FlatStartByte(idx))
+	end := int(file.FlatEndByte(idx))
+	if end <= start {
+		return nil
+	}
+	var best *expressionRange
+	bestSpan := int(^uint(0) >> 1)
+	for i := range ranges {
+		r := &ranges[i]
+		if r.start < start || r.end > end {
+			continue
+		}
+		span := r.end - r.start
+		if span < bestSpan {
+			best = r
+			bestSpan = span
+		}
+		if r.start == start && r.end == end {
+			return r
+		}
+	}
+	return best
+}
+
 // LookupDiagnostics returns compiler diagnostics for a source file.
 func (o *Oracle) LookupDiagnostics(filePath string) []OracleDiagnostic {
 	file := o.raw.Files[filePath]
@@ -594,6 +721,43 @@ func (o *Oracle) LookupDiagnostics(filePath string) []OracleDiagnostic {
 		result[i] = *d
 	}
 	return result
+}
+
+// LookupDiagnosticsForFlatRange returns diagnostics whose byte range is inside
+// the FlatNode. When old oracle data has no byte ranges it falls back to row
+// containment so existing caches remain usable.
+func (o *Oracle) LookupDiagnosticsForFlatRange(file *scanner.File, idx uint32) []OracleDiagnostic {
+	if file == nil {
+		return nil
+	}
+	diags := o.LookupDiagnostics(file.Path)
+	if len(diags) == 0 {
+		return nil
+	}
+	start := int(file.FlatStartByte(idx))
+	end := int(file.FlatEndByte(idx))
+	startLine := file.FlatRow(idx) + 1
+	endLine := startLine
+	if end > start {
+		for i := start; i < end && i < len(file.Content); i++ {
+			if file.Content[i] == '\n' {
+				endLine++
+			}
+		}
+	}
+	out := make([]OracleDiagnostic, 0, len(diags))
+	for _, d := range diags {
+		if d.EndByte > d.StartByte {
+			if d.StartByte >= start && d.EndByte <= end {
+				out = append(out, d)
+			}
+			continue
+		}
+		if d.Line >= startLine && d.Line <= endLine {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // Compile-time check that Oracle implements Lookup.

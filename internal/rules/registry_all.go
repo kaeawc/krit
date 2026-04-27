@@ -37,7 +37,7 @@ func implicitDefaultLocaleOracleCallTarget(ctx *v2.Context, idx uint32) (target 
 	if !ok || cr.Oracle() == nil {
 		return "", false
 	}
-	return cr.Oracle().LookupCallTarget(ctx.File.Path, ctx.File.FlatRow(idx)+1, ctx.File.FlatCol(idx)+1), true
+	return oracleLookupCallTargetFlat(cr.Oracle(), ctx.File, idx), true
 }
 
 func implicitDefaultLocaleIsStringFormatTarget(target string) bool {
@@ -6785,7 +6785,6 @@ func registerAllRules() {
 			Needs:  v2.NeedsTypeInfo,
 			Oracle: &v2.OracleFilter{Identifiers: []string{"suspend"}},
 			OracleCallTargets: &v2.OracleCallTargetFilter{
-				AllCalls:             true,
 				CalleeNames:          redundantSuspendCallTargetCallees(),
 				LexicalHintsByCallee: redundantSuspendCallTargetLexicalHints(),
 			},
@@ -6829,16 +6828,14 @@ func registerAllRules() {
 					}
 					provenNonSuspend := false
 					if oracleLookup != nil {
-						line := file.FlatRow(callIdx) + 1
-						col := file.FlatCol(callIdx) + 1
-						if isSuspend, ok := oracleLookup.LookupCallTargetSuspend(file.Path, line, col); ok {
+						if isSuspend, ok := oracleLookupCallTargetSuspendFlat(oracleLookup, file, callIdx); ok {
 							if isSuspend {
 								hasSuspendCall = true
 								return
 							}
 							provenNonSuspend = true
 						}
-						if ct := oracleLookup.LookupCallTarget(file.Path, line, col); ct != "" {
+						if ct := oracleLookupCallTargetFlat(oracleLookup, file, callIdx); ct != "" {
 							if knownSuspendFQNs[ct] {
 								hasSuspendCall = true
 								return
@@ -10634,7 +10631,7 @@ func registerAllRules() {
 				// 1. Oracle-based check: annotations are embedded in the call-target
 				// resolution entry, so no member-declaration extraction is needed.
 				if oracleLookup != nil {
-					annotations := oracleLookup.LookupCallTargetAnnotations(file.Path, line, col)
+					annotations := oracleLookupCallTargetAnnotationsFlat(oracleLookup, file, idx)
 					for _, ann := range annotations {
 						if ann == "kotlin.Deprecated" || ann == "java.lang.Deprecated" {
 							ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -10792,10 +10789,7 @@ func registerAllRules() {
 						ignoredReturnValueTypeIsUnitOrNothing(oracleReturnType) {
 						return
 					}
-				}
-
-				if oracleLookup != nil {
-					annotations := ignoredReturnValueOracleAnnotations(oracleLookup, file.Path, line, col)
+					annotations := ignoredReturnValueMergedOracleAnnotations(oracleLookup, file, idx, line, col)
 					hasCheck, hasIgnore := ignoredReturnValueAnnotationEvidence(annotations, r.ReturnValueAnnotations, r.IgnoreReturnValueAnnotations)
 					if hasIgnore {
 						return

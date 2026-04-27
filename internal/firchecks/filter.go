@@ -32,6 +32,54 @@ type FirFilterRule struct {
 	Filter *FirFilterSpec
 }
 
+type FirActiveRules struct {
+	Filters []FirFilterRule
+	Names   []string
+}
+
+var firRuleFilters = map[string]FirFilterRule{
+	"CollectInOnCreateWithoutLifecycle": {
+		Name:   "FLOW_COLLECT_IN_ON_CREATE",
+		Filter: &FirFilterSpec{Identifiers: []string{"collect", "Flow", "onCreate", "onStart", "onViewCreated"}},
+	},
+	"ComposeRememberWithoutKey": {
+		Name:   "COMPOSE_REMEMBER_WITHOUT_KEY",
+		Filter: &FirFilterSpec{Identifiers: []string{"remember", "@Composable", "Composable"}},
+	},
+	"InjectDispatcher": {
+		Name:   "INJECT_DISPATCHER",
+		Filter: &FirFilterSpec{Identifiers: []string{"Dispatchers."}},
+	},
+	"UnsafeCastWhenNullable": {
+		Name:   "UNSAFE_CAST_WHEN_NULLABLE",
+		Filter: &FirFilterSpec{Identifiers: []string{" as "}},
+	},
+	"SmokeChecker": {
+		Name:   "SMOKE_CLASS",
+		Filter: &FirFilterSpec{Identifiers: []string{"class "}},
+	},
+}
+
+// ActiveFirRules returns the FIR check names and coarse file filters that
+// correspond to enabled Krit catalog rule IDs.
+func ActiveFirRules(enabledRuleIDs []string) FirActiveRules {
+	out := FirActiveRules{}
+	seen := make(map[string]struct{}, len(enabledRuleIDs))
+	for _, id := range enabledRuleIDs {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		rule, ok := firRuleFilters[id]
+		if !ok {
+			continue
+		}
+		out.Filters = append(out.Filters, rule)
+		out.Names = append(out.Names, rule.Name)
+	}
+	return out
+}
+
 // FirFilterSummary describes the outcome of a filter evaluation.
 type FirFilterSummary struct {
 	TotalFiles  int

@@ -23,12 +23,16 @@ type OracleDiagnostic struct {
 	Message     string `json:"message"`
 	Line        int    `json:"line"` // 1-based
 	Col         int    `json:"col"`  // 1-based
+	StartByte   int    `json:"startByte,omitempty"`
+	EndByte     int    `json:"endByte,omitempty"`
 }
 
 // ExpressionType holds a compiler-resolved type for an expression at a source position.
 type ExpressionType struct {
 	Type               string   `json:"type"` // FQN like "kotlin.String"
 	Nullable           bool     `json:"nullable"`
+	StartByte          int      `json:"startByte,omitempty"`
+	EndByte            int      `json:"endByte,omitempty"`
 	CallTarget         string   `json:"callTarget,omitempty"`         // FQN of resolved function or lexical fallback
 	CallTargetResolved bool     `json:"callTargetResolved,omitempty"` // true when callTarget came from KAA resolution
 	CallTargetSuspend  bool     `json:"callTargetSuspend,omitempty"`  // true when the resolved callable symbol is suspend

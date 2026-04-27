@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -610,6 +611,26 @@ func ignoredReturnValueOracleAnnotations(lookup oracleAnnotationLookup, filePath
 			add(lookup.LookupAnnotations(simple))
 		}
 	}
+	return out
+}
+
+func ignoredReturnValueMergedOracleAnnotations(lookup oracle.Lookup, file *scanner.File, idx uint32, line, col int) []string {
+	if lookup == nil || file == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	add := func(values []string) {
+		for _, ann := range values {
+			if ann == "" || seen[ann] {
+				continue
+			}
+			seen[ann] = true
+			out = append(out, ann)
+		}
+	}
+	add(oracleLookupCallTargetAnnotationsFlat(lookup, file, idx))
+	add(ignoredReturnValueOracleAnnotations(lookup, file.Path, line, col))
 	return out
 }
 

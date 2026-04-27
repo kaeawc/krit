@@ -906,7 +906,7 @@ func rangeOracleCallTarget(ctx *v2.Context, call uint32) string {
 	if lookup == nil {
 		return ""
 	}
-	return lookup.LookupCallTarget(ctx.File.Path, ctx.File.FlatRow(call)+1, ctx.File.FlatCol(call)+1)
+	return oracleLookupCallTargetFlat(lookup, ctx.File, call)
 }
 
 func rangeFrameworkSpecsForTarget(target, callName string) []rangeArgSpec {
@@ -1464,7 +1464,7 @@ func objectAnimatorOracleCallTarget(ctx *v2.Context, call uint32) string {
 	if lookup == nil {
 		return ""
 	}
-	return lookup.LookupCallTarget(ctx.File.Path, ctx.File.FlatRow(call)+1, ctx.File.FlatCol(call)+1)
+	return oracleLookupCallTargetFlat(lookup, ctx.File, call)
 }
 
 func objectAnimatorCallTargetMatches(target, methodName string) bool {

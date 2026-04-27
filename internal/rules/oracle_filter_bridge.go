@@ -89,6 +89,21 @@ func BuildOracleDeclarationProfileV2(enabled []*v2.Rule) oracle.DeclarationProfi
 	return oracle.FinalizeDeclarationProfile(union)
 }
 
+// NeedsOracleDiagnostics reports whether active rules should request expensive
+// compiler diagnostics from krit-types.
+func NeedsOracleDiagnostics(enabled []*v2.Rule) bool {
+	for _, r := range enabled {
+		if r == nil || !r.Needs.Has(v2.NeedsOracle) {
+			continue
+		}
+		switch r.ID {
+		case "UnsafeCast", "UnreachableCode":
+			return true
+		}
+	}
+	return false
+}
+
 // BuildOracleCallTargetFilterV2 unions the call-target interest declared by
 // active rules. If any enabled oracle rule declares AllCalls, the returned
 // summary is disabled and callers must preserve the old "resolve every call"

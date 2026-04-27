@@ -82,3 +82,13 @@ func TestCollectFirCheckFiles_NilFilter(t *testing.T) {
 		t.Error("expected AllFiles=true for nil filter")
 	}
 }
+
+func TestActiveFirRules_MapsEnabledCatalogRules(t *testing.T) {
+	active := ActiveFirRules([]string{"InjectDispatcher", "UnrelatedRule", "InjectDispatcher"})
+	if len(active.Names) != 1 || active.Names[0] != "INJECT_DISPATCHER" {
+		t.Fatalf("expected one FIR checker name, got %#v", active.Names)
+	}
+	if len(active.Filters) != 1 || active.Filters[0].Name != "INJECT_DISPATCHER" {
+		t.Fatalf("expected one FIR filter, got %#v", active.Filters)
+	}
+}

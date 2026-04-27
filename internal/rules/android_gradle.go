@@ -12,6 +12,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/kaeawc/krit/internal/android"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
@@ -135,37 +137,115 @@ func (r *StringIntegerRule) Confidence() float64 { return 0.75 }
 func (r *StringIntegerRule) check(ctx *v2.Context) {
 	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	for i, line := range strings.Split(content, "\n") {
-		if isGradleCommentLine(line) {
-			continue
-		}
-		for _, prop := range sdkPropertyNames {
-			if !strings.Contains(line, prop) {
-				continue
-			}
-			// After the property name there must be `=` or `(` and then a
-			// quoted numeric value. We check by finding the property token,
-			// then scanning forward for a quote following `=` or `(`.
-			idx := strings.Index(line, prop)
-			rest := strings.TrimSpace(line[idx+len(prop):])
-			// Strip leading `=`, `(`, or `Version` suffix disambiguation.
-			rest = strings.TrimPrefix(rest, "Version")
-			rest = strings.TrimSpace(rest)
-			if len(rest) == 0 {
-				continue
-			}
-			// Must start with `=` or `(`, then optional whitespace, then `"` or `'`.
-			if rest[0] != '=' && rest[0] != '(' {
-				continue
-			}
-			rest = strings.TrimSpace(rest[1:])
-			if len(rest) == 0 || (rest[0] != '"' && rest[0] != '\'') {
-				continue
-			}
+		if gradleLineHasQuotedIntegerSDKProperty(line) {
 			ctx.Emit(gradleFinding(path, i+1, r.BaseRule,
 				"SDK version should be an integer, not a string. Remove quotes."))
-			break
 		}
 	}
+}
+
+func gradleLineHasQuotedIntegerSDKProperty(line string) bool {
+	line = stripGradleLineComment(line)
+	if strings.TrimSpace(line) == "" {
+		return false
+	}
+	for _, prop := range sdkPropertyNames {
+		if gradleLineHasQuotedIntegerAssignment(line, prop) {
+			return true
+		}
+	}
+	return false
+}
+
+func stripGradleLineComment(line string) string {
+	inQuote := rune(0)
+	escaped := false
+	for i, r := range line {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inQuote != 0 {
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == inQuote {
+				inQuote = 0
+			}
+			continue
+		}
+		if r == '"' || r == '\'' {
+			inQuote = r
+			continue
+		}
+		if r == '/' && i+1 < len(line) && line[i+1] == '/' {
+			return line[:i]
+		}
+	}
+	return line
+}
+
+func gradleLineHasQuotedIntegerAssignment(line, prop string) bool {
+	for i := 0; i < len(line); {
+		r, size := utf8.DecodeRuneInString(line[i:])
+		if !isGradleIdentStart(r) {
+			i += size
+			continue
+		}
+		start := i
+		i += size
+		for i < len(line) {
+			r, size = utf8.DecodeRuneInString(line[i:])
+			if !isGradleIdentPart(r) {
+				break
+			}
+			i += size
+		}
+		if line[start:i] != prop {
+			continue
+		}
+		if start > 0 {
+			prev, _ := utf8.DecodeLastRuneInString(line[:start])
+			if isGradleIdentPart(prev) {
+				continue
+			}
+		}
+		rest := strings.TrimSpace(line[i:])
+		if rest == "" {
+			return false
+		}
+		if rest[0] == '=' || rest[0] == '(' {
+			rest = strings.TrimSpace(rest[1:])
+		}
+		if rest == "" || (rest[0] != '"' && rest[0] != '\'') {
+			return false
+		}
+		quote := rest[0]
+		end := 1
+		for end < len(rest) && rest[end] != quote {
+			end++
+		}
+		if end == 1 || end >= len(rest) {
+			return false
+		}
+		value := rest[1:end]
+		for _, ch := range value {
+			if !unicode.IsDigit(ch) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func isGradleIdentStart(r rune) bool {
+	return r == '_' || unicode.IsLetter(r)
+}
+
+func isGradleIdentPart(r rune) bool {
+	return isGradleIdentStart(r) || unicode.IsDigit(r)
 }
 
 // ---------------------------------------------------------------------------

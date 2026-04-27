@@ -7,7 +7,6 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/module"
-	"github.com/kaeawc/krit/internal/oracle"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -135,18 +134,27 @@ func findDirectDispatcherArgumentFlat(file *scanner.File, args uint32, names map
 	return 0, ""
 }
 
-func injectDispatcherTypeConfirmedOrUnknown(resolver typeinfer.TypeResolver, file *scanner.File, idx uint32) bool {
-	if resolver == nil {
-		return true
+func injectDispatcherReferenceConfirmed(ctx *v2.Context, idx uint32) bool {
+	if ctx == nil || ctx.File == nil || idx == 0 {
+		return false
 	}
-	if _, ok := resolver.(*oracle.CompositeResolver); !ok {
-		return true
+	file := ctx.File
+	segments := flatNavigationChainIdentifiers(file, idx)
+	if len(segments) != 2 || segments[0] != "Dispatchers" {
+		return false
 	}
-	typ := resolver.ResolveFlatNode(idx, file)
-	if typ == nil || typ.Kind == typeinfer.TypeUnknown {
-		return true
+	if ctx.Resolver != nil {
+		typ := ctx.Resolver.ResolveFlatNode(idx, file)
+		if typ != nil && typ.Kind != typeinfer.TypeUnknown {
+			if injectDispatcherResolvedTypeIsCoroutineDispatcher(typ, ctx.Resolver) {
+				return true
+			}
+		}
+		if fqn := ctx.Resolver.ResolveImport("Dispatchers", file); fqn != "" {
+			return fqn == "kotlinx.coroutines.Dispatchers"
+		}
 	}
-	return injectDispatcherResolvedTypeIsCoroutineDispatcher(typ, resolver)
+	return fileImportsFQN(file, "kotlinx.coroutines.Dispatchers")
 }
 
 func injectDispatcherResolvedTypeIsCoroutineDispatcher(typ *typeinfer.ResolvedType, resolver typeinfer.TypeResolver) bool {
@@ -731,7 +739,11 @@ type WithContextInSuspendFunctionNoopRule struct {
 
 func (r *WithContextInSuspendFunctionNoopRule) Confidence() float64 { return 0.75 }
 
-func extractWithContextDispatcher(file *scanner.File, callIdx uint32) string {
+func extractWithContextDispatcher(ctx *v2.Context, callIdx uint32) string {
+	if ctx == nil || ctx.File == nil {
+		return ""
+	}
+	file := ctx.File
 	args := flatCallKeyArguments(file, callIdx)
 	if args == 0 {
 		return ""
@@ -740,9 +752,13 @@ func extractWithContextDispatcher(file *scanner.File, callIdx uint32) string {
 	if firstArg == 0 {
 		return ""
 	}
-	argText := strings.TrimSpace(file.FlatNodeText(firstArg))
-	if strings.HasPrefix(argText, "Dispatchers.") {
-		return argText
+	expr := flatValueArgumentExpression(file, firstArg)
+	if expr == 0 || !injectDispatcherReferenceConfirmed(ctx, expr) {
+		return ""
+	}
+	segments := flatNavigationChainIdentifiers(file, expr)
+	if len(segments) == 2 {
+		return strings.Join(segments, ".")
 	}
 	return ""
 }

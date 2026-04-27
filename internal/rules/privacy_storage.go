@@ -2,7 +2,6 @@ package rules
 
 import (
 	"regexp"
-	"strings"
 
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
@@ -27,17 +26,13 @@ func (r *SharedPreferencesForSensitiveKeyRule) check(ctx *v2.Context) {
 	if !isSharedPrefsPutMethod(name) {
 		return
 	}
-
-	navExpr, args := flatCallExpressionParts(file, idx)
-	if args == 0 {
+	if !sharedPrefsEditorCall(ctx, idx) || encryptedStorageReceiver(ctx, idx) {
 		return
 	}
 
-	if navExpr != 0 {
-		chainText := compactKotlinExpr(file.FlatNodeText(navExpr))
-		if strings.Contains(chainText, "EncryptedSharedPreferences") {
-			return
-		}
+	_, args := flatCallExpressionParts(file, idx)
+	if args == 0 {
+		return
 	}
 
 	arg := flatPositionalValueArgument(file, args, 0)
@@ -81,22 +76,12 @@ func (r *PlainFileWriteOfSensitiveRule) check(ctx *v2.Context) {
 	if name != "writeText" && name != "writeBytes" {
 		return
 	}
-
-	navExpr, _ := flatCallExpressionParts(file, idx)
-	if navExpr == 0 {
+	if !plainFileWriteCall(ctx, idx) || encryptedStorageReceiver(ctx, idx) {
 		return
 	}
 
-	receiverText := compactKotlinExpr(file.FlatNodeText(navExpr))
-	if !strings.Contains(receiverText, "File(") {
-		return
-	}
-
-	if strings.Contains(receiverText, "EncryptedFile") {
-		return
-	}
-
-	if !sensitiveFileNamePattern.MatchString(receiverText) {
+	receiverLiteral := sensitiveFileReceiverLiteral(ctx, idx)
+	if receiverLiteral == "" || !sensitiveFileNamePattern.MatchString(receiverLiteral) {
 		return
 	}
 
@@ -137,6 +122,9 @@ func (r *LogOfSharedPreferenceReadRule) check(ctx *v2.Context) {
 	file.FlatWalkNodes(args, "call_expression", func(innerCall uint32) {
 		innerName := flatCallExpressionName(file, innerCall)
 		if !isSharedPrefsGetMethod(innerName) {
+			return
+		}
+		if !sharedPrefsEditorCall(ctx, innerCall) || encryptedStorageReceiver(ctx, innerCall) {
 			return
 		}
 

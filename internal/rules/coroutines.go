@@ -713,20 +713,24 @@ func (r *MainDispatcherInLibraryCodeRule) check(ctx *v2.Context) {
 		}
 		files := pmi.ModuleFiles[modPath]
 		for _, file := range files {
-			for i, line := range file.Lines {
-				if strings.Contains(line, "Dispatchers.Main") {
-					col := strings.Index(line, "Dispatchers.Main") + 1
+			if file == nil || file.FlatTree == nil {
+				continue
+			}
+			localCtx := *ctx
+			localCtx.File = file
+			file.FlatWalkNodes(0, "navigation_expression", func(idx uint32) {
+				if mainDispatcherReferenceFlat(&localCtx, idx) {
 					ctx.Emit(scanner.Finding{
 						File:     file.Path,
-						Line:     i + 1,
-						Col:      col,
+						Line:     file.FlatRow(idx) + 1,
+						Col:      file.FlatCol(idx) + 1,
 						RuleSet:  r.RuleSetName,
 						Rule:     r.RuleName,
 						Severity: r.Sev,
 						Message:  "Dispatchers.Main used in a library module without kotlinx-coroutines-android dependency.",
 					})
 				}
-			}
+			})
 		}
 	}
 }

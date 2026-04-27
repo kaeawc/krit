@@ -30,6 +30,20 @@ fun main() {
 	}
 }
 
+func TestUnusedImport_IgnoresOtherImports(t *testing.T) {
+	findings := runRuleByName(t, "UnusedImport", `
+package test
+import a.Foo
+import b.Foo as Other
+fun main() {
+    println("hello")
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for import only referenced by another import")
+	}
+}
+
 // --- UnusedParameter ---
 
 func TestUnusedParameter_Positive(t *testing.T) {

@@ -90,8 +90,8 @@ type ManifestElement struct {
 }
 
 // ManifestBase is an empty marker type embedded by manifest rule
-// implementations. registry_all.go records AndroidDependencies() metadata on
-// v2.Rule.AndroidDeps in registry_all.go.
+// implementations. The v2 registry source records AndroidDependencies()
+// metadata on v2.Rule.AndroidDeps.
 type ManifestBase struct{}
 
 func (ManifestBase) AndroidDependencies() AndroidDataDependency {

@@ -20,8 +20,8 @@ go test ./... -count=1          # Full Go test suite
 
 After implementation changes, run `go build -o krit ./cmd/krit/ && go vet ./...`. Run `go test ./... -count=1` for test validation; use focused package tests while iterating.
 
-Rule metadata and registry entries are checked-in Go source. Update
-`internal/rules/registry_all.go` and the relevant `Meta()` descriptor directly.
+Rule metadata and registry entries are checked-in Go source. Update the
+relevant `internal/rules/registry_*.go` file and `Meta()` descriptor directly.
 
 ## Git
 

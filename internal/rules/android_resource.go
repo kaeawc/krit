@@ -20,8 +20,8 @@ import (
 )
 
 // Resource-rule marker types. These are empty structs embedded by
-// resource rule implementations. registry_all.go records Android dependency
-// metadata on v2.Rule.AndroidDeps.
+// resource rule implementations. The v2 registry source records Android
+// dependency metadata on v2.Rule.AndroidDeps.
 
 type ResourceBase struct{}
 

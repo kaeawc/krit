@@ -21,8 +21,8 @@ import (
 )
 
 // GradleBase is an empty marker type embedded by Gradle rule
-// implementations. registry_all.go records AndroidDependencies() metadata on
-// v2.Rule.AndroidDeps in registry_all.go.
+// implementations. The v2 registry source records AndroidDependencies()
+// metadata on v2.Rule.AndroidDeps.
 type GradleBase struct{}
 
 func (GradleBase) AndroidDependencies() AndroidDataDependency {

@@ -30,7 +30,7 @@ make watch          # Re-run tests on file changes (requires fswatch)
 
 1. Create the rule struct in the appropriate `internal/rules/*.go` file.
 2. Implement `DispatchRule` (preferred) or `LineRule`.
-3. Register the rule in `internal/rules/registry_all.go` with the appropriate
+3. Register the rule in the relevant `internal/rules/registry_*.go` file with the appropriate
    v2 metadata (`NodeTypes`, `Needs`, `Languages`, `Fix`, and Android data
    dependencies where relevant).
 4. If the rule has config options, add or update its `Meta()` descriptor.

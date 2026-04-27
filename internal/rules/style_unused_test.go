@@ -44,6 +44,39 @@ fun main() {
 	}
 }
 
+func TestUnusedImport_DoesNotReadFollowingKDocAsImportName(t *testing.T) {
+	findings := runRuleByName(t, "UnusedImport", `
+package test
+import kotlin.math.sqrt
+
+/**
+ * Uses sqrt below.
+ */
+fun main() {
+    println(sqrt(4.0))
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
+	}
+}
+
+func TestUnusedImport_IgnoresImplicitOperatorImports(t *testing.T) {
+	findings := runRuleByName(t, "UnusedImport", `
+package test
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.channels.plusAssign
+import example.component1
+fun main() {
+    println("implicit")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
+	}
+}
+
 // --- UnusedParameter ---
 
 func TestUnusedParameter_Positive(t *testing.T) {

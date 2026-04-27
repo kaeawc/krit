@@ -28,6 +28,25 @@ class MyView : View {
 	}
 }
 
+func TestNewApi_ReportsCallOnce(t *testing.T) {
+	findings := runRuleByName(t, "NewApi", `
+package test
+class MyView : View {
+    fun setup() {
+        view.setElevation(4f)
+    }
+}`)
+	count := 0
+	for _, f := range findings {
+		if f.Rule == "NewApi" && strings.Contains(f.Message, "setElevation") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected one setElevation finding, got %d: %#v", count, findings)
+	}
+}
+
 func TestNewApi_FlagsNotificationChannel(t *testing.T) {
 	findings := runRuleByName(t, "NewApi", `
 package test

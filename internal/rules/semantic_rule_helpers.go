@@ -515,6 +515,49 @@ func apiNodeNameFlat(file *scanner.File, idx uint32) string {
 	return semantics.ReferenceName(file, idx)
 }
 
+func newApiNestedAccessHandledByOuterNode(file *scanner.File, idx uint32) bool {
+	name := apiNodeNameFlat(file, idx)
+	if name == "" {
+		return false
+	}
+	switch file.FlatType(idx) {
+	case "simple_identifier", "type_identifier":
+		for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+			switch file.FlatType(parent) {
+			case "call_expression", "navigation_expression", "user_type":
+				if apiNodeNameFlat(file, parent) == name {
+					return true
+				}
+			case "source_file":
+				return false
+			}
+		}
+	case "navigation_expression":
+		for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+			switch file.FlatType(parent) {
+			case "call_expression", "user_type":
+				if apiNodeNameFlat(file, parent) == name {
+					return true
+				}
+			case "source_file":
+				return false
+			}
+		}
+	case "user_type":
+		for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+			switch file.FlatType(parent) {
+			case "user_type":
+				if apiNodeNameFlat(file, parent) == name {
+					return true
+				}
+			case "call_expression", "navigation_expression", "source_file":
+				return false
+			}
+		}
+	}
+	return false
+}
+
 func inlinedApiReferenceNameFlat(file *scanner.File, idx uint32) string {
 	segments := flatNavigationChainIdentifiers(file, idx)
 	if len(segments) > 0 {
@@ -748,7 +791,11 @@ func sameFileFunctionDeclaredInOwner(file *scanner.File, call uint32, owners ...
 }
 
 func importShortNameFlat(file *scanner.File, idx uint32) string {
-	text := strings.TrimSpace(file.FlatNodeText(idx))
+	text := string(file.FlatNodeBytes(idx))
+	if lineEnd := strings.IndexByte(text, '\n'); lineEnd >= 0 {
+		text = text[:lineEnd]
+	}
+	text = strings.TrimSpace(text)
 	if !strings.HasPrefix(text, "import ") {
 		return ""
 	}
@@ -761,6 +808,51 @@ func importShortNameFlat(file *scanner.File, idx uint32) string {
 		return ""
 	}
 	return parts[len(parts)-1]
+}
+
+var kotlinImplicitOperatorImportNames = map[string]struct{}{
+	"unaryPlus":       {},
+	"unaryMinus":      {},
+	"not":             {},
+	"inc":             {},
+	"dec":             {},
+	"plus":            {},
+	"minus":           {},
+	"times":           {},
+	"div":             {},
+	"mod":             {},
+	"rangeTo":         {},
+	"rangeUntil":      {},
+	"contains":        {},
+	"get":             {},
+	"set":             {},
+	"invoke":          {},
+	"plusAssign":      {},
+	"minusAssign":     {},
+	"timesAssign":     {},
+	"divAssign":       {},
+	"modAssign":       {},
+	"equals":          {},
+	"compareTo":       {},
+	"iterator":        {},
+	"getValue":        {},
+	"setValue":        {},
+	"provideDelegate": {},
+}
+
+func unusedImportImplicitlyUsedByKotlin(shortName string) bool {
+	if _, ok := kotlinImplicitOperatorImportNames[shortName]; ok {
+		return true
+	}
+	if !strings.HasPrefix(shortName, "component") || len(shortName) == len("component") {
+		return false
+	}
+	for _, r := range shortName[len("component"):] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func fileHasReferenceNameOutsideNode(file *scanner.File, name string, exclude uint32) bool {

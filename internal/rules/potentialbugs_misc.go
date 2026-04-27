@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"strings"
 	"sync"
 
@@ -34,9 +35,10 @@ type DeprecationRule struct {
 	// per-file cache of deprecated declaration info. cacheMu guards
 	// concurrent access from parallel file-scan goroutines which all
 	// share the same DeprecationRule instance.
-	cacheMu         sync.Mutex
-	cachedFile      string
-	deprecatedInfos map[string]*deprecationInfo
+	cacheMu               sync.Mutex
+	cachedFile            string
+	deprecatedInfos       map[string]*deprecationInfo
+	deprecatedInfosByFile map[string]map[string]*deprecationInfo
 }
 
 // Confidence reports a tier-2 (medium) base confidence — matches on
@@ -47,12 +49,22 @@ func (r *DeprecationRule) Confidence() float64 { return 0.75 }
 // ensureDeprecatedIndex lazily builds a set of deprecated declaration info
 // for the current file. The index is rebuilt when the file path changes.
 func (r *DeprecationRule) ensureDeprecatedIndex(file *scanner.File) {
-	if r.cachedFile == file.Path {
+	if file == nil {
 		return
 	}
+	if r.deprecatedInfosByFile == nil {
+		r.deprecatedInfosByFile = make(map[string]map[string]*deprecationInfo)
+	}
+	if infos, ok := r.deprecatedInfosByFile[file.Path]; ok {
+		r.cachedFile = file.Path
+		r.deprecatedInfos = infos
+		return
+	}
+
 	r.cachedFile = file.Path
 	r.deprecatedInfos = make(map[string]*deprecationInfo)
-	if file == nil || file.FlatTree == nil {
+	r.deprecatedInfosByFile[file.Path] = r.deprecatedInfos
+	if file.FlatTree == nil || !bytes.Contains(file.Content, []byte("Deprecated")) {
 		return
 	}
 	collectDeprecatedDeclsFlat(file, r.deprecatedInfos)

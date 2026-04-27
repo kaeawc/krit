@@ -5194,6 +5194,9 @@ func registerAllRules() {
 				if nodeHasAncestorTypeFlat(file, idx, "import_header") {
 					return
 				}
+				if newApiNestedAccessHandledByOuterNode(file, idx) {
+					return
+				}
 				if apiGuardedByVersionCheckFlat(file, idx) {
 					return
 				}
@@ -17570,8 +17573,11 @@ func registerAllRules() {
 				if shortName == "" {
 					return
 				}
+				if unusedImportImplicitlyUsedByKotlin(shortName) {
+					return
+				}
 				importLine := file.FlatRow(idx) + 1
-				if fileHasReferenceNameOutsideNode(file, shortName, idx) {
+				if r.hasReferenceName(file, shortName) {
 					return
 				}
 				f := r.Finding(file, importLine, 1,

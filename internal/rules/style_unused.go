@@ -3,7 +3,9 @@ package rules
 import (
 	"regexp"
 	"strings"
+	"sync"
 
+	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -11,12 +13,49 @@ import (
 type UnusedImportRule struct {
 	FlatDispatchBase
 	BaseRule
+	cacheMu        sync.Mutex
+	refNamesByFile map[string]map[string]struct{}
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Style/unused rule. Detection uses substring presence in the enclosing
-// scope body to decide whether a declaration is referenced, which
-// false-positives on substring collisions. Classified per roadmap/17.
+// Confidence reports a tier-2 (medium) base confidence. Style/unused rule.
+// Detection uses a structural per-file reference-name index, but it does not
+// fully resolve ambiguous imports the way KAA-backed detekt does.
 func (r *UnusedImportRule) Confidence() float64 { return 0.75 }
+
+func (r *UnusedImportRule) hasReferenceName(file *scanner.File, name string) bool {
+	if file == nil || name == "" {
+		return false
+	}
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	if r.refNamesByFile == nil {
+		r.refNamesByFile = make(map[string]map[string]struct{})
+	}
+	names, ok := r.refNamesByFile[file.Path]
+	if !ok {
+		names = collectReferenceNamesOutsideImports(file)
+		r.refNamesByFile[file.Path] = names
+	}
+	_, ok = names[name]
+	return ok
+}
+
+func collectReferenceNamesOutsideImports(file *scanner.File) map[string]struct{} {
+	names := make(map[string]struct{})
+	file.FlatWalkAllNodes(0, func(n uint32) {
+		if nodeHasAncestorTypeFlat(file, n, "import_header", "package_header") {
+			return
+		}
+		t := file.FlatType(n)
+		if t != "simple_identifier" && t != "type_identifier" && t != "navigation_expression" && t != "user_type" {
+			return
+		}
+		if name := semantics.ReferenceName(file, n); name != "" {
+			names[name] = struct{}{}
+		}
+	})
+	return names
+}
 
 // UnusedParameterRule detects function parameters that are never used in the body.
 type UnusedParameterRule struct {

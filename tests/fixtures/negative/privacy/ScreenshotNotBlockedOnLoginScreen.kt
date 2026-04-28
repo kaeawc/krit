@@ -11,3 +11,29 @@ class LoginActivity : AppCompatActivity() {
         setContentView(R.layout.login)
     }
 }
+
+annotation class Composable
+annotation class Preview
+
+@Composable
+@Preview
+fun PaymentScreenPreview() {
+    Text("Preview only")
+}
+
+@Composable
+fun ShippingAddressView() {
+    Text("Address")
+}
+
+@Composable
+fun RewardCard() {
+    Text("Reward")
+}
+
+class StoredCard
+
+@Composable
+fun KSCardElement(card: StoredCard) {
+    Text(card.toString())
+}

@@ -134,6 +134,73 @@ fun PaymentScreen() {
 		}
 	})
 
+	t.Run("ignores preview composables", func(t *testing.T) {
+		findings := runRuleByName(t, "ScreenshotNotBlockedOnLoginScreen", `
+package test
+
+annotation class Composable
+annotation class Preview
+
+@Composable
+@Preview
+fun PaymentScreenPreview() {
+    Text("Preview only")
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("ignores shipping pin substring", func(t *testing.T) {
+		findings := runRuleByName(t, "ScreenshotNotBlockedOnLoginScreen", `
+package test
+
+annotation class Composable
+
+@Composable
+fun ShippingAddressView() {
+    Text("Address")
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("ignores generic card composables without payment evidence", func(t *testing.T) {
+		findings := runRuleByName(t, "ScreenshotNotBlockedOnLoginScreen", `
+package test
+
+annotation class Composable
+
+@Composable
+fun RewardCard() {
+    Text("Reward")
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("ignores stored card helper composable", func(t *testing.T) {
+		findings := runRuleByName(t, "ScreenshotNotBlockedOnLoginScreen", `
+package test
+
+annotation class Composable
+class StoredCard
+
+@Composable
+fun KSCardElement(card: StoredCard) {
+    Text(card.toString())
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
 	t.Run("ignores non-sensitive class names", func(t *testing.T) {
 		findings := runRuleByName(t, "ScreenshotNotBlockedOnLoginScreen", `
 package test

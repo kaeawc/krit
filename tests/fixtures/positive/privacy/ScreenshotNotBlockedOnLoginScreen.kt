@@ -10,3 +10,10 @@ class LoginActivity : AppCompatActivity() {
         setContentView(R.layout.login)
     }
 }
+
+annotation class Composable
+
+@Composable
+fun PaymentScreen() {
+    Text("Enter payment details")
+}

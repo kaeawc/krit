@@ -297,24 +297,17 @@ func registerTestingQualityRules() {
 				if !testingQualityIsTestFunction(file, idx) {
 					return
 				}
+				if testingQualityTestExpectsException(file, idx) {
+					return
+				}
+				if testingQualityIsIgnoredTest(file, idx) {
+					return
+				}
 				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
 				}
-				found := false
-				file.FlatWalkAllNodes(body, func(n uint32) {
-					if found {
-						return
-					}
-					if file.FlatType(n) != "call_expression" {
-						return
-					}
-					name := flatCallNameAny(file, n)
-					if testingQualityIsAssertionCall(name) || testingQualityIsVerifyCall(name) {
-						found = true
-					}
-				})
-				if found {
+				if testingQualityBodyHasAssertionOrVerification(file, body) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Test function has no assertion; add a verification.")

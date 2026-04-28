@@ -1307,6 +1307,47 @@ fun Controls(
 	}
 }
 
+func TestComposeSideEffectInComposition_Negative_LocalConstructorCallbackParameter(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+data class State(val count: Int, val eventSink: (Event) -> Unit)
+sealed interface Event
+data class Selected(val index: Int) : Event
+@Composable fun Screen() {
+    var selectedIndex = 0
+    returnState(
+        State(count = selectedIndex) { event ->
+            when (event) {
+                is Selected -> selectedIndex = event.index
+            }
+        }
+    )
+}
+fun returnState(state: State) {}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected local constructor callback parameter to be a deferred boundary, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_ProduceRetainedState(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+import com.slack.circuit.retained.produceRetainedState
+@Composable fun Screen(repo: Repo) {
+    val items by produceRetainedState(initialValue = emptyList<String>()) {
+        value = repo.load()
+    }
+    Content(items)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected produceRetainedState to be a deferred state producer boundary, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestComposeSideEffectInComposition_Positive_NamedContentLambda(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test

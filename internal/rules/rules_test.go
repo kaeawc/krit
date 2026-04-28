@@ -55,7 +55,12 @@ func TestComposeSideEffectInCompositionStaysASTOnly(t *testing.T) {
 }
 
 func TestVettedRulesStayLocalASTOnly(t *testing.T) {
-	for _, id := range []string{"MissingSuperCall", "RunTestWithDelay"} {
+	for _, id := range []string{
+		"ComposeSemanticsMissingRole",
+		"InjectDispatcher",
+		"MissingSuperCall",
+		"RunTestWithDelay",
+	} {
 		rule := buildRuleIndex()[id]
 		if rule == nil {
 			t.Fatalf("%s not registered", id)

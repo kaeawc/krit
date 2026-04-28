@@ -7,10 +7,8 @@ import (
 	"sync"
 
 	"github.com/kaeawc/krit/internal/experiment"
-	"github.com/kaeawc/krit/internal/oracle"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // ExceptionRaisedInUnexpectedLocationRule detects throw inside equals/hashCode/toString/finalize.
@@ -232,12 +230,12 @@ func analyzeSwallowedCatchBody(ctx *v2.Context, catchNode uint32, caughtVar stri
 		}
 		switch file.FlatType(node) {
 		case "jump_expression":
-			throwResult := swallowedAnalyzeThrow(file, node, directAliases, derivedAliases)
-			if throwResult.handled {
+			jumpResult := swallowedAnalyzeJump(file, node, directAliases, derivedAliases)
+			if jumpResult.handled {
 				result.handled = true
 				return false
 			}
-			result.indirectOnly = result.indirectOnly || throwResult.indirectOnly
+			result.indirectOnly = result.indirectOnly || jumpResult.indirectOnly
 		case "call_expression":
 			callResult := swallowedAnalyzeCall(ctx, catchNode, node, directAliases, derivedAliases)
 			if callResult.handled {
@@ -370,10 +368,18 @@ func swallowedUnwrapExpression(file *scanner.File, expr uint32) uint32 {
 	return 0
 }
 
-func swallowedAnalyzeThrow(file *scanner.File, node uint32, directAliases, derivedAliases map[string]bool) swallowedEvidence {
-	if !swallowedIsThrowExpression(file, node) {
+func swallowedAnalyzeJump(file *scanner.File, node uint32, directAliases, derivedAliases map[string]bool) swallowedEvidence {
+	switch {
+	case swallowedIsThrowExpression(file, node):
+		return swallowedAnalyzeThrow(file, node, directAliases, derivedAliases)
+	case swallowedIsReturnExpression(file, node):
+		return swallowedAnalyzeReturn(file, node, directAliases, derivedAliases)
+	default:
 		return swallowedEvidence{}
 	}
+}
+
+func swallowedAnalyzeThrow(file *scanner.File, node uint32, directAliases, derivedAliases map[string]bool) swallowedEvidence {
 	expr := swallowedJumpExpressionValue(file, node)
 	if swallowedExpressionIsDirectAlias(file, expr, directAliases) {
 		return swallowedEvidence{handled: true}
@@ -394,12 +400,40 @@ func swallowedAnalyzeThrow(file *scanner.File, node uint32, directAliases, deriv
 	return swallowedEvidence{}
 }
 
+func swallowedAnalyzeReturn(file *scanner.File, node uint32, directAliases, derivedAliases map[string]bool) swallowedEvidence {
+	expr := swallowedJumpExpressionValue(file, node)
+	if swallowedExpressionIsDirectAlias(file, expr, directAliases) {
+		return swallowedEvidence{handled: true}
+	}
+	if file.FlatType(expr) == "call_expression" {
+		args := flatCallKeyArguments(file, expr)
+		argUse := swallowedAnalyzeArguments(file, args, directAliases, derivedAliases)
+		if argUse.handled || argUse.indirectOnly {
+			return swallowedEvidence{handled: true}
+		}
+	}
+	if swallowedExpressionAliasKind(file, expr, directAliases, derivedAliases) != swallowedAliasNone {
+		return swallowedEvidence{handled: true}
+	}
+	return swallowedEvidence{}
+}
+
 func swallowedIsThrowExpression(file *scanner.File, node uint32) bool {
 	if file.FlatType(node) != "jump_expression" {
 		return false
 	}
 	for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
 		return file.FlatType(child) == "throw"
+	}
+	return false
+}
+
+func swallowedIsReturnExpression(file *scanner.File, node uint32) bool {
+	if file.FlatType(node) != "jump_expression" {
+		return false
+	}
+	for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+		return file.FlatType(child) == "return"
 	}
 	return false
 }
@@ -456,40 +490,16 @@ func swallowedClassifyCall(ctx *v2.Context, catchNode, node uint32) swallowedCal
 	if callee == "" {
 		return swallowedCallUnknown
 	}
-	if target := swallowedOracleCallTarget(ctx, node); target != "" {
-		switch {
-		case swallowedCallTargetIsLogging(target, callee):
-			return swallowedCallLogging
-		case swallowedCallTargetIsUI(target, callee):
-			return swallowedCallUI
-		case swallowedCallTargetLooksResolved(target):
-			return swallowedCallUnknown
-		}
-	}
-	if swallowedIsQualifiedLoggingCall(callee, receivers) || swallowedReceiverTypeIsLogging(ctx, node) {
+	if swallowedIsQualifiedLoggingCall(file, callee, receivers) || swallowedReceiverTypeIsLogging(file, node) {
 		return swallowedCallLogging
 	}
-	if swallowedIsQualifiedUICall(callee, receivers) || swallowedReceiverTypeIsUI(ctx, node) {
+	if swallowedIsQualifiedUICall(file, callee, receivers) || swallowedReceiverTypeIsUI(file, node) {
 		return swallowedCallUI
 	}
-	if swallowedIsHandlerName(callee) && swallowedSameOwnerLocalFunctionExists(file, catchNode, callee) {
+	if swallowedIsHandlerName(callee) && (len(receivers) > 0 || swallowedSameOwnerLocalFunctionExists(file, catchNode, callee)) {
 		return swallowedCallLocalHandler
 	}
 	return swallowedCallUnknown
-}
-
-func swallowedOracleCallTarget(ctx *v2.Context, idx uint32) string {
-	if ctx == nil || ctx.Resolver == nil || ctx.File == nil {
-		return ""
-	}
-	var oracleLookup oracle.Lookup
-	if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
-		oracleLookup = cr.Oracle()
-	}
-	if oracleLookup == nil {
-		return ""
-	}
-	return oracleLookupCallTargetFlat(oracleLookup, ctx.File, idx)
 }
 
 func swallowedCallTarget(file *scanner.File, node uint32) (string, []string) {
@@ -536,7 +546,7 @@ func swallowedNavigationIdentifiers(file *scanner.File, navExpr uint32) []string
 	return parts
 }
 
-func swallowedIsQualifiedLoggingCall(callee string, receivers []string) bool {
+func swallowedIsQualifiedLoggingCall(file *scanner.File, callee string, receivers []string) bool {
 	if len(receivers) == 0 {
 		return false
 	}
@@ -544,66 +554,49 @@ func swallowedIsQualifiedLoggingCall(callee string, receivers []string) bool {
 		return false
 	}
 	path := strings.Join(receivers, ".")
-	switch path {
-	case "Log", "android.util.Log", "Timber", "timber.log.Timber":
-		return true
-	default:
-		return false
-	}
-}
-
-func swallowedReceiverTypeIsLogging(ctx *v2.Context, call uint32) bool {
-	receiver := swallowedCallReceiverNode(ctx.File, call)
-	if receiver == 0 || ctx.Resolver == nil {
-		return false
-	}
-	return swallowedResolvedTypeIsLogging(ctx.Resolver.ResolveFlatNode(receiver, ctx.File))
-}
-
-func swallowedCallReceiverNode(file *scanner.File, node uint32) uint32 {
-	core := node
-	if flatCallExpressionName(file, core) == "" {
-		for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
-			if file.FlatType(child) == "call_expression" {
-				core = child
-				break
-			}
+	for _, receiver := range receivers {
+		if receiver == "Log" && swallowedFileImportsKnownLogReceiver(file) {
+			return true
+		}
+		if receiver == "Timber" && fileImportsFQN(file, "timber.log.Timber") {
+			return true
 		}
 	}
-	navExpr, _ := flatCallExpressionParts(file, core)
-	if navExpr == 0 || file.FlatNamedChildCount(navExpr) == 0 {
-		return 0
+	switch path {
+	case "android.util.Log", "org.signal.core.util.logging.Log", "timber.log.Timber":
+		return true
+	case "Log":
+		if fileImportsFQN(file, "android.util.Log") ||
+			fileImportsFQN(file, "org.signal.core.util.logging.Log") ||
+			fileImportsFQN(file, "org.signal.libsignal.protocol.logging.Log") {
+			return true
+		}
+		_, aliases := buildLoggerImportsFromAST(file)
+		_, ok := aliases[path]
+		return ok
+	case "Timber":
+		return fileImportsFQN(file, "timber.log.Timber")
+	default:
+		_, aliases := buildLoggerImportsFromAST(file)
+		_, ok := aliases[path]
+		return ok
 	}
-	return file.FlatNamedChild(navExpr, 0)
 }
 
-func swallowedResolvedTypeIsLogging(t *typeinfer.ResolvedType) bool {
-	if t == nil || t.FQN == "" {
-		return false
+func swallowedFileImportsKnownLogReceiver(file *scanner.File) bool {
+	if fileImportsFQN(file, "android.util.Log") ||
+		fileImportsFQN(file, "org.signal.core.util.logging.Log") ||
+		fileImportsFQN(file, "org.signal.libsignal.protocol.logging.Log") {
+		return true
 	}
-	return swallowedFQNMatchesAny(t.FQN,
-		"android.util.Log",
-		"timber.log.Timber",
-		"org.slf4j.Logger",
-		"java.util.logging.Logger",
-		"kotlin.io.ConsoleKt",
-	)
+	_, aliases := buildLoggerImportsFromAST(file)
+	_, ok := aliases["Log"]
+	return ok
 }
 
-func swallowedCallTargetIsLogging(target, callee string) bool {
-	if !swallowedLoggingCallee(callee) {
-		return false
-	}
-	return swallowedFQNHasAnyPrefix(target,
-		"android.util.Log.",
-		"android.util.Log#",
-		"timber.log.Timber.",
-		"timber.log.Timber#",
-		"org.slf4j.Logger.",
-		"org.slf4j.Logger#",
-		"java.util.logging.Logger.",
-		"java.util.logging.Logger#",
-	)
+func swallowedReceiverTypeIsLogging(file *scanner.File, call uint32) bool {
+	receiver := flatReceiverNameFromCall(file, call)
+	return swallowedReceiverHasKnownType(file, call, receiver, swallowedKnownLoggerType)
 }
 
 func swallowedLoggingCallee(callee string) bool {
@@ -618,19 +611,6 @@ func swallowedLoggingCallee(callee string) bool {
 	}
 }
 
-func swallowedCallTargetLooksResolved(target string) bool {
-	return strings.Contains(target, ".") || strings.Contains(target, "#")
-}
-
-func swallowedFQNHasAnyPrefix(fqn string, prefixes ...string) bool {
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(fqn, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 func swallowedFQNMatchesAny(fqn string, wants ...string) bool {
 	for _, want := range wants {
 		if fqn == want || strings.HasSuffix(fqn, "."+want) {
@@ -640,14 +620,14 @@ func swallowedFQNMatchesAny(fqn string, wants ...string) bool {
 	return false
 }
 
-func swallowedIsQualifiedUICall(callee string, receivers []string) bool {
+func swallowedIsQualifiedUICall(file *scanner.File, callee string, receivers []string) bool {
 	uiReceivers := map[string]bool{
 		"Toast": true, "Snackbar": true, "AlertDialog": true,
 		"MaterialAlertDialog": true, "MaterialAlertDialogBuilder": true,
 	}
 	if len(receivers) > 0 {
 		for _, receiver := range receivers {
-			if uiReceivers[receiver] {
+			if uiReceivers[receiver] && swallowedUIReceiverHasImportEvidence(file, receiver) {
 				return true
 			}
 		}
@@ -660,19 +640,105 @@ func swallowedIsQualifiedUICall(callee string, receivers []string) bool {
 	}
 }
 
-func swallowedReceiverTypeIsUI(ctx *v2.Context, call uint32) bool {
-	receiver := swallowedCallReceiverNode(ctx.File, call)
-	if receiver == 0 || ctx.Resolver == nil {
-		return false
+func swallowedUIReceiverHasImportEvidence(file *scanner.File, receiver string) bool {
+	switch receiver {
+	case "Toast":
+		return fileImportsFQN(file, "android.widget.Toast")
+	case "Snackbar":
+		return fileImportsFQN(file, "com.google.android.material.snackbar.Snackbar")
+	case "AlertDialog":
+		return fileImportsFQN(file, "android.app.AlertDialog")
+	case "MaterialAlertDialog", "MaterialAlertDialogBuilder":
+		return fileImportsFQN(file, "com.google.android.material.dialog.MaterialAlertDialogBuilder")
+	default:
+		return strings.Contains(receiver, ".")
 	}
-	return swallowedResolvedTypeIsUI(ctx.Resolver.ResolveFlatNode(receiver, ctx.File))
 }
 
-func swallowedResolvedTypeIsUI(t *typeinfer.ResolvedType) bool {
-	if t == nil || t.FQN == "" {
+func swallowedReceiverTypeIsUI(file *scanner.File, call uint32) bool {
+	receiver := flatReceiverNameFromCall(file, call)
+	return swallowedReceiverHasKnownType(file, call, receiver, swallowedKnownUIType)
+}
+
+func swallowedReceiverHasKnownType(file *scanner.File, call uint32, receiver string, match func(*scanner.File, string) bool) bool {
+	if file == nil || call == 0 || receiver == "" {
 		return false
 	}
-	return swallowedFQNMatchesAny(t.FQN,
+	for parent, ok := file.FlatParent(call); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "function_declaration":
+			if swallowedReceiverHasKnownTypeInParameters(file, parent, receiver, match) {
+				return true
+			}
+		case "statements", "class_body", "source_file":
+			if swallowedReceiverHasKnownTypeInProperties(file, parent, receiver, match) {
+				return true
+			}
+		case "class_declaration":
+			if swallowedReceiverHasKnownTypeInClassParameters(file, parent, receiver, match) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func swallowedReceiverHasKnownTypeInParameters(file *scanner.File, function uint32, receiver string, match func(*scanner.File, string) bool) bool {
+	params, _ := file.FlatFindChild(function, "function_value_parameters")
+	if params == 0 {
+		return false
+	}
+	for param := file.FlatFirstChild(params); param != 0; param = file.FlatNextSib(param) {
+		if file.FlatType(param) == "parameter" && extractIdentifierFlat(file, param) == receiver && match(file, explicitTypeTextFlat(file, param)) {
+			return true
+		}
+	}
+	return false
+}
+
+func swallowedReceiverHasKnownTypeInProperties(file *scanner.File, container uint32, receiver string, match func(*scanner.File, string) bool) bool {
+	for child := file.FlatFirstChild(container); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "property_declaration" && extractIdentifierFlat(file, child) == receiver && match(file, explicitTypeTextFlat(file, child)) {
+			return true
+		}
+	}
+	return false
+}
+
+func swallowedReceiverHasKnownTypeInClassParameters(file *scanner.File, classDecl uint32, receiver string, match func(*scanner.File, string) bool) bool {
+	ctor, _ := file.FlatFindChild(classDecl, "primary_constructor")
+	if ctor == 0 {
+		return false
+	}
+	for i := 0; i < file.FlatNamedChildCount(ctor); i++ {
+		param := file.FlatNamedChild(ctor, i)
+		if param == 0 || file.FlatType(param) != "class_parameter" {
+			continue
+		}
+		if extractIdentifierFlat(file, param) == receiver && classParameterDefinesPropertyFlat(file, param) && match(file, explicitTypeTextFlat(file, param)) {
+			return true
+		}
+	}
+	return false
+}
+
+func swallowedKnownLoggerType(file *scanner.File, text string) bool {
+	return swallowedTypeTextMatches(file, text,
+		"org.signal.core.util.logging.Log",
+		"org.signal.libsignal.protocol.logging.Log",
+		"android.util.Log",
+		"timber.log.Timber",
+		"org.slf4j.Logger",
+		"java.util.logging.Logger",
+		"ch.qos.logback.classic.Logger",
+		"org.apache.logging.log4j.Logger",
+		"mu.KLogger",
+		"io.github.oshai.kotlinlogging.KLogger",
+	)
+}
+
+func swallowedKnownUIType(file *scanner.File, text string) bool {
+	return swallowedTypeTextMatches(file, text,
 		"android.widget.Toast",
 		"com.google.android.material.snackbar.Snackbar",
 		"android.app.AlertDialog",
@@ -680,22 +746,28 @@ func swallowedResolvedTypeIsUI(t *typeinfer.ResolvedType) bool {
 	)
 }
 
-func swallowedCallTargetIsUI(target, callee string) bool {
-	switch callee {
-	case "make", "makeText", "show", "showError", "showDialog", "showErrorDialog":
-	default:
+func swallowedTypeTextMatches(file *scanner.File, text string, fqns ...string) bool {
+	text = compactConditionText(strings.TrimSuffix(strings.TrimSpace(text), "?"))
+	if text == "" {
 		return false
 	}
-	return swallowedFQNHasAnyPrefix(target,
-		"android.widget.Toast.",
-		"android.widget.Toast#",
-		"com.google.android.material.snackbar.Snackbar.",
-		"com.google.android.material.snackbar.Snackbar#",
-		"android.app.AlertDialog.",
-		"android.app.AlertDialog#",
-		"com.google.android.material.dialog.MaterialAlertDialogBuilder.",
-		"com.google.android.material.dialog.MaterialAlertDialogBuilder#",
-	)
+	for _, fqn := range fqns {
+		if text == fqn {
+			return true
+		}
+		if simple := fqn[strings.LastIndex(fqn, ".")+1:]; text == simple && fileImportsFQN(file, fqn) {
+			return true
+		}
+	}
+	_, aliases := buildLoggerImportsFromAST(file)
+	if fqn, ok := aliases[text]; ok {
+		for _, want := range fqns {
+			if fqn == want {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func swallowedExceptionCallTargetCallees() []string {
@@ -728,7 +800,7 @@ func swallowedIsHandlerName(name string) bool {
 	switch name {
 	case "toastOn", "showError", "showErrorDialog", "handleError",
 		"reportError", "recoverFrom", "onError", "fallback", "notifyError",
-		"logError", "logWarning", "logWarn":
+		"logError", "logWarning", "logWarn", "onLoadFailed", "onFailure":
 		return true
 	default:
 		return false

@@ -109,6 +109,9 @@ func flatFirstStringTemplateNode(file *scanner.File, idx uint32) uint32 {
 }
 
 var knownLoggerPackagePrefixes = []string{
+	"java.util.logging.",
+	"org.signal.core.util.logging.",
+	"org.signal.libsignal.protocol.logging.",
 	"org.slf4j.",
 	"ch.qos.logback.",
 	"org.apache.logging.log4j.",
@@ -138,10 +141,7 @@ func buildLoggerImportsFromAST(file *scanner.File) (bool, map[string]string) {
 	found := false
 	aliases := make(map[string]string)
 	file.FlatWalkNodes(0, "import_header", func(node uint32) {
-		text := strings.TrimSpace(file.FlatNodeText(node))
-		text = strings.TrimPrefix(text, "import ")
-		text = strings.TrimSuffix(text, ";")
-		text = strings.TrimSpace(text)
+		text := cleanImportHeaderTextWithAlias(file.FlatNodeText(node))
 
 		fqn := text
 		alias := ""

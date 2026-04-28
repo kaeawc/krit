@@ -178,6 +178,8 @@ fun test() {
 
 func TestExc_SwallowedException_Negative(t *testing.T) {
 	findings := runRuleByName(t, "SwallowedException", `
+import org.signal.core.util.logging.Log
+
 fun test() {
     try {
         doWork()
@@ -258,6 +260,18 @@ fun test(sink: WarningSink) {
         work()
     } catch (e: java.io.IOException) {
         sink.warn(e)
+    }
+}
+`,
+		"local log lookalike": `
+object Log {
+    fun e(tag: String, message: String, error: Throwable) {}
+}
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        Log.e("tag", "failed", e)
     }
 }
 `,
@@ -358,12 +372,70 @@ fun test() {
 }
 `,
 		"recognized logger": `
+import org.signal.core.util.logging.Log
+
 fun test() {
     try {
         work()
     } catch (e: java.io.IOException) {
         Log.e("tag", "failed", e)
         recover()
+    }
+}
+`,
+		"java util logger parameter": `
+import java.util.logging.Logger
+import java.util.logging.Level
+
+fun test(logger: Logger) {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        logger.log(Level.WARNING, "failed", e)
+    }
+}
+`,
+		"returned domain failure": `
+sealed class ChangeNumberResult {
+    data class SvrWrongPin(val cause: Throwable): ChangeNumberResult()
+}
+fun test(): ChangeNumberResult {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        return ChangeNumberResult.SvrWrongPin(e)
+    }
+    return ChangeNumberResult.SvrWrongPin(RuntimeException())
+}
+`,
+		"callback load failure": `
+interface Callback {
+    fun onLoadFailed(error: Throwable)
+}
+fun test(callback: Callback) {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        callback.onLoadFailed(e)
+    }
+}
+`,
+		"signal logger with tag helper": `
+import org.signal.core.util.logging.Log
+
+/**
+ * Import header regression: tree-sitter may include this comment in the
+ * previous import_header node.
+ */
+
+object Migration {
+    private val TAG = Log.tag(Migration::class.java)
+    fun migrate() {
+        try {
+            work()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to perform migration!", t)
+        }
     }
 }
 `,
@@ -422,6 +494,8 @@ class Test(private val logger: Logger) {
 func TestExc_SwallowedException_ASTNegativeCasesWithoutResolver(t *testing.T) {
 	cases := map[string]string{
 		"qualified android log": `
+import android.util.Log
+
 fun test() {
     try {
         work()
@@ -431,6 +505,8 @@ fun test() {
 }
 `,
 		"ui handling": `
+import android.widget.Toast
+
 fun test() {
     try {
         work()

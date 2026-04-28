@@ -23,6 +23,22 @@ type WildcardImportRule struct {
 // entries. Classified per roadmap/17.
 func (r *WildcardImportRule) Confidence() float64 { return 0.75 }
 
+func wildcardImportExcluded(imp, excl string) bool {
+	imp = strings.TrimSpace(imp)
+	excl = strings.TrimSpace(excl)
+	if imp == "" || excl == "" {
+		return false
+	}
+	if imp == excl {
+		return true
+	}
+	if strings.HasSuffix(excl, ".**") {
+		prefix := strings.TrimSuffix(excl, "**")
+		return strings.HasPrefix(imp, prefix)
+	}
+	return false
+}
+
 // ForbiddenCommentRule detects TODO:, FIXME:, STOPSHIP: markers.
 type ForbiddenCommentRule struct {
 	FlatDispatchBase
@@ -552,7 +568,11 @@ func callExpressionHasDurationUnitArg(file *scanner.File, callIdx uint32) bool {
 // / mock / stub — UI tooling scaffolding rather than production code.
 func isInsidePreviewOrSampleFunctionFlat(file *scanner.File, idx uint32) bool {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-		if file.FlatType(p) != "function_declaration" {
+		nodeType := file.FlatType(p)
+		if nodeType != "function_declaration" {
+			if nodeType != "source_file" && previewOrSampleFunctionLikeText(file.FlatNodeText(p)) {
+				return true
+			}
 			continue
 		}
 		name := extractIdentifierFlat(file, p)
@@ -577,6 +597,59 @@ func isInsidePreviewOrSampleFunctionFlat(file *scanner.File, idx uint32) bool {
 		return false
 	}
 	return false
+}
+
+func previewOrSampleFunctionLikeText(text string) bool {
+	if text == "" || !strings.Contains(text, "fun ") {
+		return false
+	}
+	signature := text
+	if open := strings.Index(signature, "{"); open >= 0 {
+		signature = signature[:open]
+	}
+	if len(signature) > 500 {
+		signature = signature[:500]
+	}
+	if strings.Contains(signature, "@Preview") || strings.Contains(signature, "@SignalPreview") ||
+		strings.Contains(signature, "@DarkPreview") || strings.Contains(signature, "@LightPreview") ||
+		strings.Contains(signature, "@DayNightPreviews") {
+		return true
+	}
+	name := functionNameFromSignature(signature)
+	lower := strings.ToLower(name)
+	return strings.HasPrefix(lower, "preview") || strings.HasPrefix(lower, "sample") ||
+		strings.HasPrefix(lower, "fake") || strings.HasPrefix(lower, "mock") ||
+		strings.HasPrefix(lower, "stub") || strings.HasPrefix(lower, "fixture") ||
+		strings.HasSuffix(lower, "preview") || strings.HasSuffix(lower, "sample") ||
+		strings.HasSuffix(lower, "fixture")
+}
+
+func functionNameFromSignature(signature string) string {
+	i := strings.Index(signature, "fun ")
+	if i < 0 {
+		return ""
+	}
+	rest := strings.TrimLeft(signature[i+len("fun "):], " \t\r\n")
+	start := 0
+	for start < len(rest) {
+		c := rest[start]
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' {
+			break
+		}
+		start++
+	}
+	end := start
+	for end < len(rest) {
+		c := rest[end]
+		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+			break
+		}
+		end++
+	}
+	if end <= start {
+		return ""
+	}
+	return rest[start:end]
 }
 
 // dimensionConversionMethods are methods where a numeric argument is a dp/sp

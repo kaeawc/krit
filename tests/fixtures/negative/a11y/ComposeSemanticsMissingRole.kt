@@ -36,3 +36,24 @@ fun ExplicitRoles(
         ),
     ) {}
 }
+
+object LocalModifier {
+    fun clickable(onClick: () -> Unit): LocalModifier = this
+}
+
+fun LocalModifierLookalike(onClick: () -> Unit) {
+    LocalModifier.clickable { onClick() }
+}
+
+annotation class SignalPreview
+
+@SignalPreview
+@Composable
+fun RadioRowPreview(onClick: () -> Unit) {
+    Row(Modifier.clickable { onClick() }) {}
+}
+
+@Composable
+fun DisabledClickable(onClick: () -> Unit) {
+    Row(Modifier.clickable(enabled = false) { onClick() }) {}
+}

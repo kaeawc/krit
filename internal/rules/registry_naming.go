@@ -584,8 +584,7 @@ func registerNamingRules() {
 				if name == "" {
 					return
 				}
-				if experiment.Enabled("naming-allow-backing-properties") &&
-					strings.HasPrefix(name, "_") &&
+				if strings.HasPrefix(name, "_") &&
 					file.FlatHasModifier(idx, "private") {
 					return
 				}

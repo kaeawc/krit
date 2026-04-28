@@ -1,6 +1,10 @@
 package rules_test
 
-import "testing"
+import (
+	"testing"
+
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+)
 
 // --- PrintStackTrace ---
 
@@ -36,6 +40,39 @@ fun main() {
 	}
 }
 
+func TestPrintStackTrace_NegativeLocalLookalike(t *testing.T) {
+	findings := runRuleByName(t, "PrintStackTrace", `
+package test
+
+class Printer {
+    fun printStackTrace() {}
+}
+
+fun main(printer: Printer) {
+    printer.printStackTrace()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for local printStackTrace lookalike, got %d", len(findings))
+	}
+}
+
+func TestPrintStackTrace_NegativeNonCaughtReceiver(t *testing.T) {
+	findings := runRuleByName(t, "PrintStackTrace", `
+package test
+fun main(other: Throwable) {
+    try {
+        doSomething()
+    } catch (e: Exception) {
+        other.printStackTrace()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when printStackTrace receiver is not the caught exception, got %d", len(findings))
+	}
+}
+
 // --- TooGenericExceptionCaught ---
 
 func TestTooGenericExceptionCaught_Positive(t *testing.T) {
@@ -67,6 +104,20 @@ fun main() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestTooGenericExceptionCaught_DoesNotRequireTypeContext(t *testing.T) {
+	rule := buildRuleIndex()["TooGenericExceptionCaught"]
+	if rule == nil {
+		t.Fatal("TooGenericExceptionCaught rule not found")
+	}
+	if rule.Needs.Has(v2rules.NeedsResolver) || rule.Needs.Has(v2rules.NeedsOracle) ||
+		rule.Needs.Has(v2rules.NeedsParsedFiles) || rule.Needs.Has(v2rules.NeedsCrossFile) {
+		t.Fatalf("TooGenericExceptionCaught should stay AST/import-only; got Needs=%b", rule.Needs)
+	}
+	if rule.TypeInfo != (v2rules.TypeInfoHint{}) {
+		t.Fatalf("TooGenericExceptionCaught TypeInfo=%+v, want zero value", rule.TypeInfo)
 	}
 }
 

@@ -12,7 +12,7 @@ func registerStyleForbiddenRules() {
 
 	// --- from style_forbidden.go ---
 	{
-		r := &WildcardImportRule{BaseRule: BaseRule{RuleName: "WildcardImport", RuleSetName: "style", Sev: "warning", Desc: "Detects wildcard import statements that should be replaced with explicit imports."}, ExcludeImports: []string{"java.util.*"}}
+		r := &WildcardImportRule{BaseRule: BaseRule{RuleName: "WildcardImport", RuleSetName: "style", Sev: "warning", Desc: "Detects wildcard import statements that should be replaced with explicit imports."}, ExcludeImports: []string{"java.util.*", "platform.**", "kotlinx.cinterop.*"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"import_header"}, Confidence: 0.95, OriginalV1: r,
@@ -36,7 +36,7 @@ func registerStyleForbiddenRules() {
 				fqn := file.FlatNodeText(ident)
 				imp := fqn + ".*"
 				for _, excl := range r.ExcludeImports {
-					if strings.Contains(imp, excl) {
+					if wildcardImportExcluded(imp, excl) {
 						return
 					}
 				}

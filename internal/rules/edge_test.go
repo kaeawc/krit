@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
@@ -431,6 +432,57 @@ class Foo
 		if f.Rule == "WildcardImport" && strings.Contains(f.Message, "java.util") {
 			t.Error("Should skip java.util.* (default exclude)")
 		}
+	}
+}
+
+func TestWildcardImport_SkipsKotlinNativeInterop(t *testing.T) {
+	findings := runRuleByName(t, "WildcardImport", `
+package test
+import kotlinx.cinterop.*
+import platform.AVFoundation.*
+class Foo
+`)
+	for _, f := range findings {
+		if f.Rule == "WildcardImport" {
+			t.Errorf("Should skip Kotlin/Native interop wildcard imports, got: %s", f.Message)
+		}
+	}
+}
+
+func TestWildcardImport_DefaultConfigSkipsKotlinNativeInterop(t *testing.T) {
+	cfg, err := config.LoadAndMerge("", filepath.Join("..", "..", "config", "default-krit.yml"))
+	if err != nil {
+		t.Fatalf("load default config: %v", err)
+	}
+	excludes := cfg.GetStringList("style", "WildcardImport", "excludeImports")
+	for _, want := range []string{"java.util.*", "platform.**", "kotlinx.cinterop.*"} {
+		found := false
+		for _, got := range excludes {
+			if got == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("default WildcardImport excludeImports missing %q in %v", want, excludes)
+		}
+	}
+}
+
+func TestWildcardImport_FlagsJavaUtilSubpackage(t *testing.T) {
+	findings := runRuleByName(t, "WildcardImport", `
+package test
+import java.util.concurrent.*
+class Foo
+`)
+	found := false
+	for _, f := range findings {
+		if f.Rule == "WildcardImport" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Should flag java.util subpackage wildcard import")
 	}
 }
 

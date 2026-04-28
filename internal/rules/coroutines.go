@@ -134,27 +134,74 @@ func findDirectDispatcherArgumentFlat(file *scanner.File, args uint32, names map
 	return 0, ""
 }
 
-func injectDispatcherReferenceConfirmed(ctx *v2.Context, idx uint32) bool {
-	if ctx == nil || ctx.File == nil || idx == 0 {
+func injectDispatcherReferenceConfirmed(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
 		return false
 	}
-	file := ctx.File
 	segments := flatNavigationChainIdentifiers(file, idx)
 	if len(segments) != 2 || segments[0] != "Dispatchers" {
 		return false
 	}
-	if ctx.Resolver != nil {
-		typ := ctx.Resolver.ResolveFlatNode(idx, file)
-		if typ != nil && typ.Kind != typeinfer.TypeUnknown {
-			if injectDispatcherResolvedTypeIsCoroutineDispatcher(typ, ctx.Resolver) {
+	if fileDeclaresIdentifierNamed(file, idx, "Dispatchers") {
+		return false
+	}
+	return fileImportsFQN(file, "kotlinx.coroutines.Dispatchers")
+}
+
+func fileDeclaresIdentifierNamed(file *scanner.File, except uint32, name string) bool {
+	if file == nil || name == "" {
+		return false
+	}
+	targetStart := file.FlatStartByte(except)
+	for idx := file.FlatFirstChild(0); idx != 0; idx = file.FlatNextSib(idx) {
+		switch file.FlatType(idx) {
+		case "class_declaration", "object_declaration", "property_declaration":
+			if idx != except && extractIdentifierFlat(file, idx) == name {
 				return true
 			}
 		}
-		if fqn := ctx.Resolver.ResolveImport("Dispatchers", file); fqn != "" {
-			return fqn == "kotlinx.coroutines.Dispatchers"
+	}
+	for p, ok := file.FlatParent(except); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "function_declaration":
+			if declarationSubtreeHasNameBefore(file, p, targetStart, name, map[string]bool{
+				"parameter":             true,
+				"property_declaration":  true,
+				"variable_declaration":  true,
+				"class_declaration":     true,
+				"object_declaration":    true,
+				"function_declaration":  false,
+				"anonymous_initializer": false,
+			}) {
+				return true
+			}
+		case "class_body":
+			if declarationSubtreeHasNameBefore(file, p, targetStart, name, map[string]bool{
+				"property_declaration": true,
+				"class_declaration":    true,
+				"object_declaration":   true,
+			}) {
+				return true
+			}
 		}
 	}
-	return fileImportsFQN(file, "kotlinx.coroutines.Dispatchers")
+	return false
+}
+
+func declarationSubtreeHasNameBefore(file *scanner.File, root uint32, targetStart uint32, name string, types map[string]bool) bool {
+	found := false
+	file.FlatWalkAllNodes(root, func(idx uint32) {
+		if found || idx == root || file.FlatStartByte(idx) > targetStart {
+			return
+		}
+		if !types[file.FlatType(idx)] {
+			return
+		}
+		if extractIdentifierFlat(file, idx) == name {
+			found = true
+		}
+	})
+	return found
 }
 
 func injectDispatcherResolvedTypeIsCoroutineDispatcher(typ *typeinfer.ResolvedType, resolver typeinfer.TypeResolver) bool {
@@ -753,7 +800,7 @@ func extractWithContextDispatcher(ctx *v2.Context, callIdx uint32) string {
 		return ""
 	}
 	expr := flatValueArgumentExpression(file, firstArg)
-	if expr == 0 || !injectDispatcherReferenceConfirmed(ctx, expr) {
+	if expr == 0 || !injectDispatcherReferenceConfirmed(file, expr) {
 		return ""
 	}
 	segments := flatNavigationChainIdentifiers(file, expr)

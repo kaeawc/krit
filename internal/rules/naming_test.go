@@ -208,6 +208,21 @@ val myProperty = "hello"
 	}
 }
 
+func TestTopLevelPropertyNaming_AcceptsPrivateBackingProperty(t *testing.T) {
+	findings := runRuleByName(t, "TopLevelPropertyNaming", `
+package test
+import kotlinx.coroutines.flow.MutableStateFlow
+
+val state = _state
+private val _state = MutableStateFlow(0)
+`)
+	for _, f := range findings {
+		if f.Rule == "TopLevelPropertyNaming" {
+			t.Errorf("TopLevelPropertyNaming should accept private backing property, got: %s", f.Message)
+		}
+	}
+}
+
 func TestTopLevelPropertyNaming_FlagsPascalCaseNonConst(t *testing.T) {
 	findings := runRuleByName(t, "TopLevelPropertyNaming", `
 package test

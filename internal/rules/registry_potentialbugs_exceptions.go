@@ -50,7 +50,6 @@ func registerPotentialbugsExceptionsRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"catch_block"}, OriginalV1: r,
-			Needs: v2.NeedsResolver,
 			Check: r.checkNode,
 		})
 	}

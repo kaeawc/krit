@@ -11,6 +11,7 @@ package rules
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
@@ -85,7 +86,7 @@ func allParamsHaveDefaults(params string) bool {
 // GetSignaturesRule flags use of the deprecated PackageManager.GET_SIGNATURES
 // constant. GET_SIGNING_CERTIFICATES should be used instead (API 28+).
 type GetSignaturesRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
 
@@ -97,15 +98,113 @@ type GetSignaturesRule struct {
 // Classified per roadmap/17.
 func (r *GetSignaturesRule) Confidence() float64 { return 0.75 }
 
-func (r *GetSignaturesRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if strings.Contains(line, "GET_SIGNATURES") &&
-			!strings.Contains(line, "GET_SIGNING_CERTIFICATES") {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"GET_SIGNATURES is deprecated and can be spoofed. Use GET_SIGNING_CERTIFICATES (API 28+) instead."))
-		}
+const getSignaturesFlagValue int64 = 0x40
+
+func getSignaturesCallUsesDeprecatedFlag(file *scanner.File, call uint32) bool {
+	if file == nil || call == 0 || flatCallExpressionName(file, call) != "getPackageInfo" {
+		return false
 	}
+	args := flatCallKeyArguments(file, call)
+	if args == 0 {
+		return false
+	}
+	flagArg := flatPositionalValueArgument(file, args, 1)
+	if flagArg == 0 {
+		flagArg = flatNamedValueArgument(file, args, "flags")
+	}
+	if flagArg == 0 {
+		return false
+	}
+	expr := flatValueArgumentExpression(file, flagArg)
+	if getSignaturesExprContainsFlag(file, expr) {
+		return true
+	}
+	name := flatReferenceSimpleName(file, expr)
+	if name == "" {
+		return false
+	}
+	fn, ok := flatEnclosingFunction(file, call)
+	if !ok {
+		return false
+	}
+	return functionLocalInitializerContainsGetSignatures(file, fn, name, call)
+}
+
+func getSignaturesExprContainsFlag(file *scanner.File, expr uint32) bool {
+	if file == nil || expr == 0 {
+		return false
+	}
+	expr = flatUnwrapParenExpr(file, expr)
+	switch file.FlatType(expr) {
+	case "simple_identifier":
+		return file.FlatNodeText(expr) == "GET_SIGNATURES"
+	case "navigation_expression":
+		return flatNavigationExpressionLastIdentifier(file, expr) == "GET_SIGNATURES"
+	case "integer_literal", "long_literal", "hex_literal":
+		v, ok := parseIntegerLiteralForFlag(file.FlatNodeText(expr))
+		return ok && (v&getSignaturesFlagValue) != 0
+	}
+	found := false
+	file.FlatWalkAllNodes(expr, func(node uint32) {
+		if found || node == expr {
+			return
+		}
+		if getSignaturesExprContainsFlag(file, node) {
+			found = true
+		}
+	})
+	return found
+}
+
+func flatReferenceSimpleName(file *scanner.File, expr uint32) string {
+	if file == nil || expr == 0 {
+		return ""
+	}
+	expr = flatUnwrapParenExpr(file, expr)
+	switch file.FlatType(expr) {
+	case "simple_identifier":
+		return file.FlatNodeText(expr)
+	case "navigation_expression":
+		return flatNavigationExpressionLastIdentifier(file, expr)
+	default:
+		return ""
+	}
+}
+
+func functionLocalInitializerContainsGetSignatures(file *scanner.File, fn uint32, name string, before uint32) bool {
+	if file == nil || fn == 0 || name == "" {
+		return false
+	}
+	found := false
+	targetRow := file.FlatRow(before)
+	file.FlatWalkNodes(fn, "property_declaration", func(decl uint32) {
+		if found || file.FlatRow(decl) > targetRow || propertyDeclarationName(file, decl) != name {
+			return
+		}
+		if getSignaturesExprContainsFlag(file, propertyInitializerExpression(file, decl)) {
+			found = true
+		}
+	})
+	return found
+}
+
+func parseIntegerLiteralForFlag(text string) (int64, bool) {
+	text = strings.TrimSpace(text)
+	text = strings.TrimSuffix(strings.TrimSuffix(text, "L"), "l")
+	text = strings.ReplaceAll(text, "_", "")
+	if text == "" {
+		return 0, false
+	}
+	base := 10
+	if strings.HasPrefix(text, "0x") || strings.HasPrefix(text, "0X") {
+		base = 16
+		text = text[2:]
+	} else if strings.HasPrefix(text, "0b") || strings.HasPrefix(text, "0B") {
+		base = 2
+		text = text[2:]
+	}
+	v, err := strconv.ParseInt(text, base, 64)
+	return v, err == nil
 }
 
 // =====================================================================
@@ -196,7 +295,6 @@ type LogTagMismatchRule struct {
 // Classified per roadmap/17.
 func (r *LogTagMismatchRule) Confidence() float64 { return 0.75 }
 
-
 var (
 	tagConstRe  = regexp.MustCompile(`(?:const\s+val|val)\s+TAG\s*(?::\s*String)?\s*=\s*"([^"]*)"`)
 	classNameRe = regexp.MustCompile(`(?:class|object)\s+(\w+)`)
@@ -275,7 +373,6 @@ type ServiceCastRule struct {
 // Classified per roadmap/17.
 func (r *ServiceCastRule) Confidence() float64 { return 0.75 }
 
-
 // serviceCastMap maps service constant names to their correct manager types.
 var serviceCastMap = map[string]string{
 	"ACCESSIBILITY_SERVICE":   "AccessibilityManager",
@@ -330,3 +427,51 @@ type ToastRule struct {
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
 func (r *ToastRule) Confidence() float64 { return 0.85 }
+
+func toastMakeTextIsShown(file *scanner.File, call uint32) bool {
+	if ancestorCallNameMatches(file, call, "show") {
+		return true
+	}
+	if ancestorApplyLambdaShowsToast(file, call) {
+		return true
+	}
+	toastVar := initializerAssignedName(file, call)
+	if toastVar == "" {
+		return false
+	}
+	fn, ok := flatEnclosingFunction(file, call)
+	if !ok {
+		return false
+	}
+	return functionHasReceiverCallAfter(file, fn, call, toastVar, showCallName, nil)
+}
+
+func ancestorApplyLambdaShowsToast(file *scanner.File, idx uint32) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "call_expression":
+			if flatCallExpressionName(file, parent) != "apply" {
+				continue
+			}
+			lambda := flatCallTrailingLambda(file, parent)
+			if lambda == 0 {
+				continue
+			}
+			found := false
+			file.FlatWalkNodes(lambda, "call_expression", func(call uint32) {
+				if found || flatCallExpressionName(file, call) != "show" {
+					return
+				}
+				if flatReceiverNameFromCall(file, call) == "" {
+					found = true
+				}
+			})
+			if found {
+				return true
+			}
+		case "function_declaration", "source_file":
+			return false
+		}
+	}
+	return false
+}

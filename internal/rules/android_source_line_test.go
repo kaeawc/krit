@@ -52,11 +52,25 @@ class Foo
 }
 
 func TestGetSignaturesRule(t *testing.T) {
-	t.Run("flags GET_SIGNATURES usage", func(t *testing.T) {
+	t.Run("flags GET_SIGNATURES in getPackageInfo flags", func(t *testing.T) {
 		findings := runRuleByName(t, "GetSignatures", `package test
 class Foo {
-    fun check() {
+    fun check(pm: PackageManager) {
+        pm.getPackageInfo("com.example", PackageManager.GET_SIGNATURES)
+    }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected finding for GET_SIGNATURES")
+		}
+	})
+
+	t.Run("flags local GET_SIGNATURES flag variable passed to getPackageInfo", func(t *testing.T) {
+		findings := runRuleByName(t, "GetSignatures", `package test
+class Foo {
+    fun check(pm: PackageManager) {
         val flags = PackageManager.GET_SIGNATURES
+        pm.getPackageInfo("com.example", flags)
     }
 }
 `)
@@ -68,8 +82,8 @@ class Foo {
 	t.Run("ignores GET_SIGNING_CERTIFICATES", func(t *testing.T) {
 		findings := runRuleByName(t, "GetSignatures", `package test
 class Foo {
-    fun check() {
-        val flags = PackageManager.GET_SIGNING_CERTIFICATES
+    fun check(pm: PackageManager) {
+        pm.getPackageInfo("com.example", PackageManager.GET_SIGNING_CERTIFICATES)
     }
 }
 `)
@@ -88,6 +102,20 @@ class Foo {
 `)
 		if len(findings) != 0 {
 			t.Fatalf("expected no findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("ignores incidental GET_SIGNATURES constant not used as package info flag", func(t *testing.T) {
+		findings := runRuleByName(t, "GetSignatures", `package test
+class Foo {
+    fun check() {
+        val flags = PackageManager.GET_SIGNATURES
+        println(flags)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings for incidental constant, got %d", len(findings))
 		}
 	})
 }

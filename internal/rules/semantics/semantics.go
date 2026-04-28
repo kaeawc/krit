@@ -334,11 +334,19 @@ func IsMapLikeReceiver(ctx *v2.Context, expr uint32) bool {
 
 // EvalConst evaluates simple literal constants and same-file constant refs.
 func EvalConst(ctx *v2.Context, expr uint32) (ConstValue, bool) {
+	return evalConst(ctx, expr, make(map[uint32]bool, 4))
+}
+
+func evalConst(ctx *v2.Context, expr uint32, seen map[uint32]bool) (ConstValue, bool) {
 	if ctx == nil || ctx.File == nil || expr == 0 {
 		return ConstValue{}, false
 	}
 	file := ctx.File
 	expr = unwrapExpression(file, expr)
+	if seen[expr] {
+		return ConstValue{}, false
+	}
+	seen[expr] = true
 	switch file.FlatType(expr) {
 	case "string_literal", "line_string_literal", "multi_line_string_literal":
 		if containsStringInterpolation(file, expr) {
@@ -367,12 +375,12 @@ func EvalConst(ctx *v2.Context, expr uint32) (ConstValue, bool) {
 			return ConstValue{Kind: "bool", Bool: false, Resolved: true}, true
 		}
 	case "prefix_expression":
-		return evalPrefixConst(ctx, expr)
+		return evalPrefixConst(ctx, expr, seen)
 	case "simple_identifier", "navigation_expression":
-		return EvalSameFileConst(ctx, expr)
+		return evalSameFileConst(ctx, expr, seen)
 	case "value_argument":
 		if argExpr := valueArgumentExpression(file, expr); argExpr != 0 {
-			return EvalConst(ctx, argExpr)
+			return evalConst(ctx, argExpr, seen)
 		}
 	}
 	return ConstValue{}, false
@@ -381,6 +389,10 @@ func EvalConst(ctx *v2.Context, expr uint32) (ConstValue, bool) {
 // EvalSameFileConst resolves a same-file val/const reference to a literal
 // initializer when the declaration belongs to the same owner.
 func EvalSameFileConst(ctx *v2.Context, ref uint32) (ConstValue, bool) {
+	return evalSameFileConst(ctx, ref, make(map[uint32]bool, 4))
+}
+
+func evalSameFileConst(ctx *v2.Context, ref uint32, seen map[uint32]bool) (ConstValue, bool) {
 	if ctx == nil || ctx.File == nil || ref == 0 {
 		return ConstValue{}, false
 	}
@@ -399,7 +411,7 @@ func EvalSameFileConst(ctx *v2.Context, ref uint32) (ConstValue, bool) {
 		if init == 0 {
 			return
 		}
-		out, ok = EvalConst(ctx, init)
+		out, ok = evalConst(ctx, init, seen)
 	})
 	return out, ok
 }
@@ -855,7 +867,7 @@ func unwrapExpression(file *scanner.File, idx uint32) uint32 {
 	return idx
 }
 
-func evalPrefixConst(ctx *v2.Context, idx uint32) (ConstValue, bool) {
+func evalPrefixConst(ctx *v2.Context, idx uint32, seen map[uint32]bool) (ConstValue, bool) {
 	file := ctx.File
 	sign := int64(1)
 	var childExpr uint32
@@ -871,7 +883,7 @@ func evalPrefixConst(ctx *v2.Context, idx uint32) (ConstValue, bool) {
 			}
 		}
 	}
-	val, ok := EvalConst(ctx, childExpr)
+	val, ok := evalConst(ctx, childExpr, seen)
 	if !ok {
 		return ConstValue{}, false
 	}

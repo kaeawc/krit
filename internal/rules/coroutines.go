@@ -730,6 +730,123 @@ var threadSafeTypes = map[string]bool{
 	"AtomicReference": true, "ConcurrentHashMap": true, "CopyOnWriteArrayList": true,
 }
 
+func mutableStateInObjectShouldSkip(file *scanner.File, objectIdx, propIdx uint32, propText, propName string) bool {
+	if file == nil || objectIdx == 0 || propIdx == 0 {
+		return true
+	}
+	if isTestFile(file.Path) {
+		return true
+	}
+	if propName == "" {
+		return true
+	}
+	if strings.Contains(propText, "@Volatile") || strings.Contains(propText, "Volatile") {
+		return true
+	}
+	for typeName := range threadSafeTypes {
+		if strings.Contains(propText, typeName) {
+			return true
+		}
+	}
+	if strings.Contains(propText, "private") && mutableObjectPropertyReferencesAreSynchronized(file, objectIdx, propIdx, propName) {
+		return true
+	}
+	return false
+}
+
+func mutableObjectPropertyReferencesAreSynchronized(file *scanner.File, objectIdx, propIdx uint32, propName string) bool {
+	if mutableObjectPropertyReferencesAreSynchronizedByText(file, objectIdx, propName) {
+		return true
+	}
+	seenReference := false
+	allSynchronized := true
+	file.FlatWalkNodes(objectIdx, "simple_identifier", func(candidate uint32) {
+		if !allSynchronized {
+			return
+		}
+		if candidate == 0 || !file.FlatNodeTextEquals(candidate, propName) {
+			return
+		}
+		if flatNodeHasAncestor(file, candidate, propIdx) {
+			return
+		}
+		seenReference = true
+		if !flatNodeInsideCallNamed(file, candidate, "synchronized") {
+			allSynchronized = false
+		}
+	})
+	return seenReference && allSynchronized
+}
+
+func mutableObjectPropertyReferencesAreSynchronizedByText(file *scanner.File, objectIdx uint32, propName string) bool {
+	objectText := file.FlatNodeText(objectIdx)
+	if objectText == "" || propName == "" || !strings.Contains(objectText, "synchronized") {
+		return false
+	}
+	lines := strings.Split(objectText, "\n")
+	syncDepth := 0
+	pendingSync := false
+	seenReference := false
+	for _, line := range lines {
+		lineHasSync := strings.Contains(line, "synchronized(")
+		lineSyncDepth := syncDepth
+		if pendingSync || lineHasSync {
+			lineSyncDepth = 1
+		}
+		if mutableStateLineReferencesProperty(line, propName) && !mutableStateLineDeclaresProperty(line, propName) {
+			seenReference = true
+			if lineSyncDepth == 0 {
+				return false
+			}
+		}
+		opens := strings.Count(line, "{")
+		closes := strings.Count(line, "}")
+		if lineHasSync {
+			pendingSync = true
+		}
+		if pendingSync && opens > 0 {
+			syncDepth += opens
+			pendingSync = false
+		} else if syncDepth > 0 {
+			syncDepth += opens
+		}
+		if syncDepth > 0 {
+			syncDepth -= closes
+			if syncDepth < 0 {
+				syncDepth = 0
+			}
+		}
+	}
+	return seenReference
+}
+
+func mutableStateLineReferencesProperty(line, propName string) bool {
+	return strings.Contains(line, propName)
+}
+
+func mutableStateLineDeclaresProperty(line, propName string) bool {
+	line = strings.TrimSpace(line)
+	return strings.Contains(line, "var "+propName) || strings.Contains(line, "var\t"+propName)
+}
+
+func flatNodeHasAncestor(file *scanner.File, idx, ancestor uint32) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		if parent == ancestor {
+			return true
+		}
+	}
+	return false
+}
+
+func flatNodeInsideCallNamed(file *scanner.File, idx uint32, name string) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		if file.FlatType(parent) == "call_expression" && flatCallExpressionName(file, parent) == name {
+			return true
+		}
+	}
+	return false
+}
+
 // ---------------------------------------------------------------------------
 // Batch 3: Flow / StateFlow rules
 // ---------------------------------------------------------------------------

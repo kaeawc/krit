@@ -8,8 +8,8 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/experiment"
-	"github.com/kaeawc/krit/internal/scanner"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // ---------------------------------------------------------------------------
@@ -274,6 +274,7 @@ func (r *InOrMmUsageResourceRule) check(ctx *v2.Context) {
 type NegativeMarginResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
+	AllowedNegativeMargins []string
 }
 
 var marginAttrs = []string{
@@ -305,6 +306,9 @@ func (r *NegativeMarginResourceRule) check(ctx *v2.Context) {
 			for _, attr := range marginAttrs {
 				val := v.Attributes[attr]
 				if isNegativeMargin(val) {
+					if r.negativeMarginAllowed(v.Type, attr, val) {
+						continue
+					}
 					offenders = append(offenders, fmt.Sprintf("`%s=\"%s\"`", attr, val))
 				}
 			}
@@ -322,6 +326,36 @@ func (r *NegativeMarginResourceRule) check(ctx *v2.Context) {
 					v.Type, strings.Join(offenders, ", "))))
 		})
 	}
+}
+
+func (r *NegativeMarginResourceRule) negativeMarginAllowed(viewType, attr, val string) bool {
+	for _, pattern := range r.AllowedNegativeMargins {
+		if negativeMarginPatternMatches(pattern, viewType, attr, val) {
+			return true
+		}
+	}
+	return false
+}
+
+func negativeMarginPatternMatches(pattern, viewType, attr, val string) bool {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return false
+	}
+	candidates := []string{
+		viewType + ":" + attr + "=" + val,
+		viewType + ":" + attr,
+		viewType + ":*=" + val,
+		attr + "=" + val,
+		attr,
+		val,
+	}
+	for _, candidate := range candidates {
+		if pattern == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------

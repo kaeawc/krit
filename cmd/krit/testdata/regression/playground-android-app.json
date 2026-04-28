@@ -491,14 +491,6 @@
       "message": "Parameter 'message' is unused."
     },
     {
-      "rule": "LayoutMinTouchTargetInButtonRow",
-      "ruleSet": "android-lint",
-      "file": "src/main/res/layout/fragment_home.xml",
-      "line": 74,
-      "col": 0,
-      "message": "`Button` in `LinearLayout` with `wrap_content` height and no `minHeight \u003e= 48dp`. Ensure a minimum 48dp touch target."
-    },
-    {
       "rule": "StringNotLocalizableResource",
       "ruleSet": "android-lint",
       "file": "src/main/res/values/strings.xml",

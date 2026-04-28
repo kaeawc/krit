@@ -1099,6 +1099,67 @@ object Counter {
 	}
 }
 
+func TestMutableStateInObject_IgnoresTestSharedSourceSet(t *testing.T) {
+	findings := runRuleByNameOnPath(t, "MutableStateInObject", "src/testShared/Fake.kt", `
+package test
+object FakeState {
+    var total = 0
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected testShared source to be clean, got %d", len(findings))
+	}
+}
+
+func TestMutableStateInObject_IgnoresPrivateSynchronizedState(t *testing.T) {
+	findings := runRuleByName(t, "MutableStateInObject", `
+package test
+object Counter {
+    private var total = 0
+    fun next(): Int {
+        synchronized(this) {
+            total++
+            return total
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected synchronized private state to be clean, got %d", len(findings))
+	}
+}
+
+func TestMutableStateInObject_FlagsPrivateUnsynchronizedState(t *testing.T) {
+	findings := runRuleByName(t, "MutableStateInObject", `
+package test
+object Counter {
+    private var total = 0
+    fun next(): Int {
+        total++
+        return total
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Error("expected finding for unsynchronized private mutable state")
+	}
+}
+
+func TestMutableStateInObject_NoTypeOracleCapability(t *testing.T) {
+	for _, rule := range v2rules.Registry {
+		if rule.ID != "MutableStateInObject" {
+			continue
+		}
+		if rule.Needs.Has(v2rules.NeedsResolver) || rule.Needs.Has(v2rules.NeedsTypeInfo) || rule.Needs.Has(v2rules.NeedsOracle) ||
+			rule.Oracle != nil || rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil {
+			t.Fatalf("MutableStateInObject should remain AST-only, got Needs=%b Oracle=%+v CallTargets=%+v DeclarationNeeds=%+v",
+				rule.Needs, rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+		}
+		return
+	}
+	t.Fatal("MutableStateInObject rule not found")
+}
+
 // --- StateFlowMutableLeak ---
 
 func TestStateFlowMutableLeak_Positive(t *testing.T) {

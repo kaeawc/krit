@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
-	"github.com/kaeawc/krit/internal/scanner"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // ---------------------------------------------------------------------------
@@ -569,10 +569,21 @@ func (r *LayoutMinTouchTargetInButtonRowRule) check(ctx *v2.Context) {
 			if v.Type != "LinearLayout" && v.Type != "AppCompatLinearLayout" {
 				return
 			}
+			orientation := v.Attributes["android:orientation"]
+			if orientation != "horizontal" {
+				return
+			}
+			if countDirectButtonChildren(v) < 2 {
+				return
+			}
 			for _, child := range v.Children {
-				if child.Type != "Button" && child.Type != "AppCompatButton" &&
-					child.Type != "com.google.android.material.button.MaterialButton" &&
-					child.Type != "ImageButton" {
+				if !isButtonLikeViewType(child.Type) {
+					continue
+				}
+				// A styled button may inherit minHeight from the project style
+				// graph. Until style resolution is wired into this rule, do not
+				// report styled buttons based only on local layout attributes.
+				if child.Attributes["style"] != "" {
 					continue
 				}
 				h := child.LayoutHeight
@@ -586,6 +597,28 @@ func (r *LayoutMinTouchTargetInButtonRowRule) check(ctx *v2.Context) {
 				}
 			}
 		})
+	}
+}
+
+func countDirectButtonChildren(v *android.View) int {
+	if v == nil {
+		return 0
+	}
+	count := 0
+	for _, child := range v.Children {
+		if isButtonLikeViewType(child.Type) {
+			count++
+		}
+	}
+	return count
+}
+
+func isButtonLikeViewType(t string) bool {
+	switch t {
+	case "Button", "AppCompatButton", "com.google.android.material.button.MaterialButton", "MaterialButton", "ImageButton":
+		return true
+	default:
+		return false
 	}
 }
 

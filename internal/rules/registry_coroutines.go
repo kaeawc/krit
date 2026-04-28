@@ -880,12 +880,10 @@ func registerCoroutinesRules() {
 					if !isVar {
 						return
 					}
-					for typeName := range threadSafeTypes {
-						if strings.Contains(propText, typeName) {
-							return
-						}
-					}
 					propName := extractIdentifierFlat(file, propIdx)
+					if mutableStateInObjectShouldSkip(file, idx, propIdx, propText, propName) {
+						return
+					}
 					ctx.EmitAt(file.FlatRow(propIdx)+1, file.FlatCol(propIdx)+1,
 						fmt.Sprintf("Mutable 'var %s' in object declaration. Shared mutable state without synchronization is a race condition.", propName))
 				})

@@ -180,17 +180,75 @@ fun bad(id: String, box: PairBox) {
 			wantHits: 1,
 		},
 		{
-			name: "nested function body does not count",
+			name: "nested function capture counts",
 			code: `
 package test
-fun bad(id: String) {
+fun ok(id: String) {
     fun nested() {
         println(id)
     }
     nested()
 }
 `,
+			wantHits: 0,
+		},
+		{
+			name: "nested function parameter shadows function parameter",
+			code: `
+package test
+fun bad(id: String) {
+    fun nested(id: String) {
+        println(id)
+    }
+    nested("local")
+}
+`,
 			wantHits: 1,
+		},
+		{
+			name: "anonymous object callback capture counts",
+			code: `
+package test
+abstract class Listener {
+    abstract fun onSuccess(result: Boolean?)
+}
+fun ok(timeRemaining: Long) {
+    register(object : Listener() {
+        override fun onSuccess(result: Boolean?) {
+            println(timeRemaining)
+        }
+    })
+}
+fun register(listener: Listener) = listener.onSuccess(true)
+`,
+			wantHits: 0,
+		},
+		{
+			name: "later default argument counts",
+			code: `
+package test
+fun ok(
+    oldState: State,
+    value: String = oldState.value
+) {
+    println(value)
+}
+class State(val value: String)
+`,
+			wantHits: 0,
+		},
+		{
+			name: "extension function type receiver call counts",
+			code: `
+package test
+class Config
+fun configure(init: Config.() -> Unit): Config {
+    val configuration = Config()
+    configuration.init()
+    return configuration
+}
+`,
+			wantHits: 0,
 		},
 		{
 			name: "override is excluded",

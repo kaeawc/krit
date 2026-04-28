@@ -17,3 +17,10 @@ fun commentsAndStringsDoNotCount(id: String) {
 fun shadowedByLambda(id: String) {
     listOf("x").forEach { id -> println(id) }
 }
+
+fun shadowedByNestedFunction(id: String) {
+    fun nested(id: String) {
+        println(id)
+    }
+    nested("local")
+}

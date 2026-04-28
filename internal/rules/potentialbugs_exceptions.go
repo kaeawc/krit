@@ -24,6 +24,23 @@ type PrintStackTraceRule struct {
 // sharing the same simple name. Classified per roadmap/17.
 func (r *PrintStackTraceRule) Confidence() float64 { return 0.75 }
 
+func printStackTraceReceiverIsThrowable(ctx *v2.Context, call uint32) bool {
+	if ctx == nil || ctx.File == nil {
+		return false
+	}
+	file := ctx.File
+	receiverName := flatReceiverNameFromCall(file, call)
+	if receiverName == "" {
+		return false
+	}
+	if catchNode, ok := flatEnclosingAncestor(file, call, "catch_block", "catch_clause"); ok {
+		if receiverName == extractCaughtVarNameFlat(file, catchNode) {
+			return true
+		}
+	}
+	return false
+}
+
 // asyncBoundaryFQNs is the canonical FQN allow-list of async execution boundaries.
 // Classes that extend one of these types are treated as async boundaries where
 // catching generic exceptions is a best practice.
@@ -401,41 +418,15 @@ func (r *TooGenericExceptionThrownRule) Confidence() float64 { return 0.75 }
 
 var defaultGenericThrownNames = []string{"Exception", "Throwable", "Error", "RuntimeException"}
 
-var genericThrownRe = regexp.MustCompile(`\bthrow\s+(\w+)\s*\(([^)]*)\)`)
-
-// isLikelyCaughtException returns true if args looks like a single identifier
-// that could be a caught exception variable (single word, starts lowercase).
-// Used to exempt the exception-chaining idiom `throw RuntimeException(e)`.
-func isLikelyCaughtException(args string) bool {
-	// Must be a single identifier, no commas, no string literals, no dots.
-	if strings.ContainsAny(args, `,".(`) {
-		return false
-	}
-	if args == "" {
-		return false
-	}
-	c := args[0]
-	if !(c >= 'a' && c <= 'z') && c != '_' {
-		return false
-	}
-	// Common caught-exception names.
-	switch args {
-	case "e", "ex", "exc", "t", "throwable", "cause", "err":
-		return true
-	}
-	// Single lowercase identifier — likely a local variable.
-	for i := 0; i < len(args); i++ {
-		c := args[i]
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '_') {
-			return false
-		}
-	}
-	return true
+var genericThrownFQNs = map[string]bool{
+	"java.lang.Error":            true,
+	"java.lang.Exception":        true,
+	"java.lang.RuntimeException": true,
+	"java.lang.Throwable":        true,
 }
 
 func (r *TooGenericExceptionThrownRule) check(ctx *v2.Context) {
-	file := ctx.File
+	idx, file := ctx.Idx, ctx.File
 	// Skip Gradle build scripts — they legitimately throw RuntimeException
 	// for build errors where the user's primary observability is stderr.
 	if strings.HasSuffix(file.Path, ".gradle.kts") {
@@ -449,32 +440,91 @@ func (r *TooGenericExceptionThrownRule) check(ctx *v2.Context) {
 	for _, n := range names {
 		nameSet[n] = true
 	}
-	for i, line := range file.Lines {
-		if m := genericThrownRe.FindStringSubmatch(line); m != nil {
-			thrownType := m[1]
-			args := strings.TrimSpace(m[2])
-			// Skip exception-chaining idiom: `throw RuntimeException(e)` where
-			// `e` is a caught Throwable being wrapped.
-			if args != "" && isLikelyCaughtException(args) {
-				continue
-			}
-			// Direct match against known generic types
-			if nameSet[thrownType] {
-				ctx.Emit(r.Finding(file, i+1, 1,
-					fmt.Sprintf("Too-generic exception type '%s' thrown.", thrownType)))
-				continue
-			}
-			// With resolver, check if the thrown type resolves to a known generic exception
-			// (e.g., imported under an alias). Do NOT flag subtypes — only the generic types themselves.
-			if ctx.Resolver != nil {
-				info := ctx.Resolver.ClassHierarchy(thrownType)
-				if info != nil && nameSet[info.Name] {
-					ctx.Emit(r.Finding(file, i+1, 1,
-						fmt.Sprintf("Too-generic exception type '%s' thrown.", info.Name)))
-				}
-			}
+	thrownType, call := thrownExceptionConstructorNameFlat(file, idx)
+	if thrownType == "" || call == 0 {
+		return
+	}
+	if thrownConstructorWrapsCaughtException(file, call, idx) {
+		return
+	}
+	if !thrownGenericExceptionMatches(ctx, thrownType, nameSet) {
+		return
+	}
+	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		fmt.Sprintf("Too-generic exception type '%s' thrown.", thrownType)))
+}
+
+func thrownExceptionConstructorNameFlat(file *scanner.File, throwNode uint32) (string, uint32) {
+	if file == nil || throwNode == 0 {
+		return "", 0
+	}
+	var call uint32
+	file.FlatWalkNodes(throwNode, "call_expression", func(candidate uint32) {
+		if call == 0 {
+			call = candidate
+		}
+	})
+	if call != 0 {
+		return flatCallExpressionName(file, call), call
+	}
+	file.FlatWalkNodes(throwNode, "object_creation_expression", func(candidate uint32) {
+		if call == 0 {
+			call = candidate
+		}
+	})
+	if call != 0 {
+		return flatLastIdentifierInNode(file, call), call
+	}
+	return "", 0
+}
+
+func thrownConstructorWrapsCaughtException(file *scanner.File, call uint32, throwNode uint32) bool {
+	catchNode, ok := flatEnclosingAncestor(file, throwNode, "catch_block", "catch_clause")
+	if !ok {
+		return false
+	}
+	caughtVar := extractCaughtVarNameFlat(file, catchNode)
+	if caughtVar == "" {
+		return false
+	}
+	_, args := flatCallExpressionParts(file, call)
+	if args == 0 {
+		return false
+	}
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		expr := flatValueArgumentExpression(file, arg)
+		if expr != 0 && file.FlatType(expr) == "simple_identifier" && file.FlatNodeString(expr, nil) == caughtVar {
+			return true
 		}
 	}
+	return false
+}
+
+func thrownGenericExceptionMatches(ctx *v2.Context, thrownType string, nameSet map[string]bool) bool {
+	if !nameSet[thrownType] {
+		return false
+	}
+	if ctx == nil || ctx.File == nil {
+		return true
+	}
+	// A same-file class with the same simple name shadows java.lang.Exception,
+	// RuntimeException, etc. Skip rather than guessing.
+	if flatFindSameFileClassLikeDeclaration(ctx.File, thrownType) != 0 {
+		return false
+	}
+	if ctx.Resolver == nil {
+		return true
+	}
+	if fqn := ctx.Resolver.ResolveImport(thrownType, ctx.File); fqn != "" {
+		return genericThrownFQNs[fqn]
+	}
+	if info := ctx.Resolver.ClassHierarchy(thrownType); info != nil && info.FQN != "" {
+		return genericThrownFQNs[info.FQN]
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------
@@ -489,8 +539,6 @@ type UnreachableCatchBlockRule struct {
 // reachability depends on the thrown-type hierarchy from the resolver;
 // heuristic fallback uses name containment. Classified per roadmap/17.
 func (r *UnreachableCatchBlockRule) Confidence() float64 { return 0.75 }
-
-var catchTypeRe = regexp.MustCompile(`catch\s*\(\s*\w+\s*:\s*(\w+)`)
 
 func (r *UnreachableCatchBlockRule) checkFlatNode(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
@@ -550,10 +598,6 @@ func extractCatchTypeFlat(file *scanner.File, catchNode uint32) string {
 				return text
 			}
 		}
-	}
-	text := file.FlatNodeText(catchNode)
-	if m := catchTypeRe.FindStringSubmatch(text); m != nil {
-		return m[1]
 	}
 	return ""
 }

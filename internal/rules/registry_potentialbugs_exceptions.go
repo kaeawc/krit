@@ -19,36 +19,29 @@ func registerPotentialbugsExceptionsRules() {
 				if strings.HasSuffix(file.Path, ".gradle.kts") {
 					return
 				}
-				text := file.FlatNodeText(idx)
-				if !strings.HasSuffix(text, ".printStackTrace()") {
+				if !flatCallExpressionNameEquals(file, idx, "printStackTrace") {
 					return
 				}
-				for i := 0; i < file.FlatChildCount(idx); i++ {
-					child := file.FlatChild(idx, i)
-					if file.FlatType(child) == "navigation_expression" {
-						navText := file.FlatNodeText(child)
-						if strings.HasSuffix(navText, ".printStackTrace") {
-							f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-								"Use a logger instead of printStackTrace().")
-							startByte := int(file.FlatStartByte(idx))
-							endByte := int(file.FlatEndByte(idx))
-							for startByte > 0 && file.Content[startByte-1] != '\n' {
-								startByte--
-							}
-							if endByte < len(file.Content) && file.Content[endByte] == '\n' {
-								endByte++
-							}
-							f.Fix = &scanner.Fix{
-								ByteMode:    true,
-								StartByte:   startByte,
-								EndByte:     endByte,
-								Replacement: "",
-							}
-							ctx.Emit(f)
-							return
-						}
-					}
+				if !printStackTraceReceiverIsThrowable(ctx, idx) {
+					return
 				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Use a logger instead of printStackTrace().")
+				startByte := int(file.FlatStartByte(idx))
+				endByte := int(file.FlatEndByte(idx))
+				for startByte > 0 && file.Content[startByte-1] != '\n' {
+					startByte--
+				}
+				if endByte < len(file.Content) && file.Content[endByte] == '\n' {
+					endByte++
+				}
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   startByte,
+					EndByte:     endByte,
+					Replacement: "",
+				}
+				ctx.Emit(f)
 			},
 		})
 	}
@@ -65,7 +58,7 @@ func registerPotentialbugsExceptionsRules() {
 		r := &TooGenericExceptionThrownRule{BaseRule: BaseRule{RuleName: "TooGenericExceptionThrown", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects throwing overly generic exception types like Exception or Throwable."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass | v2.NeedsResolver, OriginalV1: r,
+			NodeTypes: []string{"jump_expression", "throw_expression", "throw_statement"}, Needs: v2.NeedsResolver, OriginalV1: r,
 			Check: r.check,
 		})
 	}

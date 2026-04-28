@@ -321,6 +321,217 @@ func receiverContainsCallName(file *scanner.File, call uint32, names ...string) 
 	return found
 }
 
+func callReceiverConstructedOrTyped(ctx *v2.Context, call uint32, constructorName string, receiverTypes ...string) bool {
+	if semanticCallTargetOrReceiverType(ctx, call, receiverTypes, receiverTypes) {
+		return true
+	}
+	return receiverDeclaredFromCall(ctx.File, call, constructorName) || receiverContainsCallName(ctx.File, call, constructorName)
+}
+
+func callReceiverParameterHasType(ctx *v2.Context, call uint32, typeNames ...string) bool {
+	if ctx == nil || ctx.File == nil || call == 0 {
+		return false
+	}
+	receiver := semanticsReceiverNode(ctx, call)
+	if receiver == 0 {
+		receiver = astReceiverNodeFromCall(ctx.File, call)
+	}
+	name := semantics.ReferenceName(ctx.File, receiver)
+	if name == "" {
+		return false
+	}
+	fn, ok := flatEnclosingFunction(ctx.File, call)
+	if !ok {
+		return false
+	}
+	for _, typeName := range typeNames {
+		if parameterHasTypeFlat(ctx.File, fn, name, typeName) {
+			return true
+		}
+	}
+	return false
+}
+
+func whileConditionHasCallName(file *scanner.File, stmt uint32, names ...string) bool {
+	if file == nil || stmt == 0 || file.FlatType(stmt) != "while_statement" {
+		return false
+	}
+	for child := file.FlatFirstChild(stmt); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "control_structure_body" || file.FlatType(child) == "statements" {
+			return false
+		}
+		if subtreeHasCallName(file, child, names...) {
+			return true
+		}
+	}
+	return false
+}
+
+func subtreeHasCallName(file *scanner.File, root uint32, names ...string) bool {
+	if file == nil || root == 0 || len(names) == 0 {
+		return false
+	}
+	allowed := make(map[string]bool, len(names))
+	for _, name := range names {
+		allowed[name] = true
+	}
+	found := false
+	file.FlatWalkNodes(root, "call_expression", func(call uint32) {
+		if found {
+			return
+		}
+		if allowed[flatCallNameAny(file, call)] {
+			found = true
+		}
+	})
+	return found
+}
+
+func subtreeHasNavigationChain(file *scanner.File, root uint32, chains ...[]string) bool {
+	if file == nil || root == 0 || len(chains) == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(root, "navigation_expression", func(nav uint32) {
+		if found {
+			return
+		}
+		segments := flatNavigationChainIdentifiers(file, nav)
+		for _, chain := range chains {
+			if sameStringSlice(segments, chain) {
+				found = true
+				return
+			}
+		}
+	})
+	return found
+}
+
+func subtreeHasReferenceName(file *scanner.File, root uint32, names ...string) bool {
+	if file == nil || root == 0 || len(names) == 0 {
+		return false
+	}
+	allowed := make(map[string]bool, len(names))
+	for _, name := range names {
+		allowed[name] = true
+	}
+	found := false
+	file.FlatWalkAllNodes(root, func(n uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(n) {
+		case "simple_identifier", "type_identifier":
+			if allowed[file.FlatNodeText(n)] {
+				found = true
+			}
+		}
+	})
+	return found
+}
+
+func constructorParameterTypeFlags(file *scanner.File, ctor uint32, typeNames ...string) map[string]bool {
+	flags := make(map[string]bool, len(typeNames))
+	if file == nil || ctor == 0 {
+		return flags
+	}
+	allowed := make(map[string]bool, len(typeNames))
+	for _, name := range typeNames {
+		allowed[name] = true
+	}
+	for _, paramType := range []string{"parameter", "class_parameter"} {
+		file.FlatWalkNodes(ctor, paramType, func(param uint32) {
+			if nearestConstructorAncestorFlat(file, param) != ctor {
+				return
+			}
+			file.FlatWalkNodes(param, "user_type", func(typ uint32) {
+				name := apiNodeNameFlat(file, typ)
+				for want := range allowed {
+					if semanticTypeNameMatches(name, want) {
+						flags[want] = true
+					}
+				}
+			})
+		})
+	}
+	return flags
+}
+
+func callHasBooleanArgument(file *scanner.File, call uint32, want bool) bool {
+	args := flatCallKeyArguments(file, call)
+	if args == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(args, "boolean_literal", func(lit uint32) {
+		if found {
+			return
+		}
+		found = (file.FlatNodeText(lit) == "true") == want
+	})
+	return found
+}
+
+func callArgHasBoolean(file *scanner.File, arg uint32, want bool) bool {
+	expr := flatValueArgumentExpression(file, arg)
+	if expr == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(expr, "boolean_literal", func(lit uint32) {
+		if found {
+			return
+		}
+		found = (file.FlatNodeText(lit) == "true") == want
+	})
+	return found
+}
+
+func callHasReferenceArgument(file *scanner.File, call uint32, names ...string) bool {
+	args := flatCallKeyArguments(file, call)
+	if args == 0 {
+		return false
+	}
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) == "value_argument" && callArgHasReference(file, arg, names...) {
+			return true
+		}
+	}
+	return false
+}
+
+func callArgHasReference(file *scanner.File, arg uint32, names ...string) bool {
+	expr := flatValueArgumentExpression(file, arg)
+	if expr == 0 {
+		return false
+	}
+	return subtreeHasReferenceName(file, expr, names...)
+}
+
+func postfixExpressionHasBangBang(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "postfix_expression" {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) && file.FlatNodeTextEquals(child, "!!") {
+			return true
+		}
+	}
+	return false
+}
+
+func sameStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func setJavaScriptEnabledCall(ctx *v2.Context, call uint32) bool {
 	if flatCallExpressionName(ctx.File, call) != "setJavaScriptEnabled" {
 		return false

@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"bytes"
 	"fmt"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"strconv"
@@ -22,11 +21,10 @@ func registerResourceCostRules() {
 				if name != "read" {
 					return
 				}
-				nodeText := file.FlatNodeText(idx)
-				if !strings.Contains(nodeText, "FileInputStream") {
+				if !callReceiverConstructedOrTyped(ctx, idx, "FileInputStream", "java.io.FileInputStream", "FileInputStream") {
 					return
 				}
-				if strings.Contains(nodeText, "buffered") {
+				if receiverContainsCallName(file, idx, "buffered", "BufferedInputStream") {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "FileInputStream.read() without BufferedInputStream; wrap in .buffered() for efficient reads.")
@@ -40,19 +38,7 @@ func registerResourceCostRules() {
 			NodeTypes: []string{"while_statement"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				condText := ""
-				for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-					if file.FlatType(child) == "call_expression" || file.FlatType(child) == "navigation_expression" {
-						condText = file.FlatNodeText(child)
-						break
-					}
-				}
-				if condText == "" {
-					wholeText := file.FlatNodeText(idx)
-					if !strings.Contains(wholeText, "moveToNext") {
-						return
-					}
-				} else if !strings.Contains(condText, "moveToNext") {
+				if !whileConditionHasCallName(file, idx, "moveToNext") {
 					return
 				}
 				body, _ := file.FlatFindChild(idx, "statements")
@@ -91,9 +77,12 @@ func registerResourceCostRules() {
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
-				nodeText := file.FlatNodeText(idx)
-				isDirectConstruction := name == "OkHttpClient" && !strings.Contains(nodeText, "Builder")
-				isBuilderBuild := name == "build" && strings.Contains(nodeText, "OkHttpClient")
+				receiver := semanticsReceiverNode(ctx, idx)
+				if receiver == 0 {
+					receiver = astReceiverNodeFromCall(file, idx)
+				}
+				isDirectConstruction := name == "OkHttpClient"
+				isBuilderBuild := name == "build" && receiver != 0 && receiverChainHasQualifiedRoot(file, receiver, "OkHttpClient")
 				if !isDirectConstruction && !isBuilderBuild {
 					return
 				}
@@ -136,20 +125,12 @@ func registerResourceCostRules() {
 				if navExpr == 0 {
 					return
 				}
-				navText := file.FlatNodeText(navExpr)
-				if !strings.Contains(navText, "newCall") && !strings.Contains(navText, "Call") {
-					nodeText := file.FlatNodeText(idx)
-					if !strings.Contains(nodeText, "execute()") {
-						return
-					}
-					receiver := flatReceiverNameFromCall(file, idx)
-					if receiver == "" {
-						return
-					}
-					receiverLower := strings.ToLower(receiver)
-					if !strings.Contains(receiverLower, "call") && !strings.Contains(receiverLower, "response") {
-						return
-					}
+				if !semanticCallTargetOrReceiverType(ctx, idx,
+					[]string{"okhttp3.Call"},
+					[]string{"okhttp3.Call", "Call"},
+				) && !receiverContainsCallName(file, idx, "newCall") &&
+					!callReceiverParameterHasType(ctx, idx, "okhttp3.Call", "Call") {
+					return
 				}
 				fn, ok := flatEnclosingFunction(file, idx)
 				if !ok {
@@ -173,8 +154,14 @@ func registerResourceCostRules() {
 				if name != "create" {
 					return
 				}
-				nodeText := file.FlatNodeText(idx)
-				if !strings.Contains(nodeText, "Retrofit") {
+				receiver := semanticsReceiverNode(ctx, idx)
+				if receiver == 0 {
+					receiver = astReceiverNodeFromCall(file, idx)
+				}
+				if !semanticCallTargetOrReceiverType(ctx, idx,
+					[]string{"retrofit2.Retrofit"},
+					[]string{"retrofit2.Retrofit", "Retrofit"},
+				) && (receiver == 0 || !receiverChainHasQualifiedRoot(file, receiver, "Retrofit")) {
 					return
 				}
 				if _, ok := flatEnclosingAncestor(file, idx, "object_declaration"); ok {
@@ -241,8 +228,10 @@ func registerResourceCostRules() {
 				if !sqliteQueryMethods[name] {
 					return
 				}
-				nodeText := file.FlatNodeText(idx)
-				if !strings.Contains(nodeText, name+"(") {
+				if !semanticCallTargetOrReceiverType(ctx, idx,
+					[]string{"android.database.sqlite.SQLiteDatabase"},
+					[]string{"android.database.sqlite.SQLiteDatabase", "SQLiteDatabase"},
+				) && !callReceiverParameterHasType(ctx, idx, "android.database.sqlite.SQLiteDatabase", "SQLiteDatabase") {
 					return
 				}
 				fn, ok := flatEnclosingFunction(file, idx)
@@ -253,8 +242,7 @@ func registerResourceCostRules() {
 					return
 				}
 				if _, ok := flatEnclosingAncestor(file, idx, "lambda_literal"); ok {
-					fnBody := file.FlatNodeText(fn)
-					if strings.Contains(fnBody, "withContext") || strings.Contains(fnBody, "Dispatchers.IO") {
+					if subtreeHasCallName(file, fn, "withContext") || subtreeHasNavigationChain(file, fn, []string{"Dispatchers", "IO"}) {
 						return
 					}
 				}
@@ -277,16 +265,6 @@ func registerResourceCostRules() {
 				if navExpr == 0 {
 					return
 				}
-				receiverText := ""
-				for child := file.FlatFirstChild(navExpr); child != 0; child = file.FlatNextSib(child) {
-					if file.FlatIsNamed(child) {
-						receiverText = file.FlatNodeText(child)
-						break
-					}
-				}
-				if receiverText == "" {
-					return
-				}
 				receiverCallName := ""
 				for child := file.FlatFirstChild(navExpr); child != 0; child = file.FlatNextSib(child) {
 					if file.FlatType(child) == "call_expression" {
@@ -305,20 +283,22 @@ func registerResourceCostRules() {
 		r := &RecyclerAdapterWithoutDiffUtilRule{BaseRule: BaseRule{RuleName: "RecyclerAdapterWithoutDiffUtil", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects RecyclerView.Adapter subclasses using notifyDataSetChanged() without DiffUtil."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes:              []string{"class_declaration"},
+			Needs:                  v2.NeedsTypeInfo,
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
+			Confidence:             0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				nodeText := file.FlatNodeText(idx)
-				if !strings.Contains(nodeText, "RecyclerView") || !strings.Contains(nodeText, "Adapter") {
+				if !isRecyclerAdapterClassFlat(ctx, idx) {
 					return
 				}
-				if strings.Contains(nodeText, "ListAdapter") {
+				if classExtendsAnyFlat(file, idx, "androidx.recyclerview.widget.ListAdapter", "ListAdapter") {
 					return
 				}
-				if !strings.Contains(nodeText, "notifyDataSetChanged") {
+				if !subtreeHasCallName(file, idx, "notifyDataSetChanged") {
 					return
 				}
-				if strings.Contains(nodeText, "DiffUtil") {
+				if subtreeHasReferenceName(file, idx, "DiffUtil", "ListAdapter") {
 					return
 				}
 				name := extractIdentifierFlat(file, idx)
@@ -333,17 +313,19 @@ func registerResourceCostRules() {
 		r := &RecyclerAdapterStableIdsDefaultRule{BaseRule: BaseRule{RuleName: "RecyclerAdapterStableIdsDefault", RuleSetName: "resource-cost", Sev: "info", Desc: "Detects RecyclerView.Adapter subclasses that do not enable stable IDs for better animation."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes:              []string{"class_declaration"},
+			Needs:                  v2.NeedsTypeInfo,
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
+			Confidence:             0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				nodeText := file.FlatNodeText(idx)
-				if !strings.Contains(nodeText, "RecyclerView") || !strings.Contains(nodeText, "Adapter") {
+				if !isRecyclerAdapterClassFlat(ctx, idx) {
 					return
 				}
-				if strings.Contains(nodeText, "ListAdapter") {
+				if classExtendsAnyFlat(file, idx, "androidx.recyclerview.widget.ListAdapter", "ListAdapter") {
 					return
 				}
-				if strings.Contains(nodeText, "setHasStableIds") || strings.Contains(nodeText, "hasStableIds") {
+				if subtreeHasCallName(file, idx, "setHasStableIds", "hasStableIds") {
 					return
 				}
 				name := extractIdentifierFlat(file, idx)
@@ -365,20 +347,19 @@ func registerResourceCostRules() {
 				if name != "Column" && name != "Row" {
 					return
 				}
-				nodeText := file.FlatNodeText(idx)
 				isVertical := name == "Column"
 				if isVertical {
-					if !bytes.Contains([]byte(nodeText), []byte("verticalScroll")) {
+					if !subtreeHasCallName(file, idx, "verticalScroll") {
 						return
 					}
-					if !bytes.Contains([]byte(nodeText), lazyColumnToken) {
+					if !subtreeHasCallName(file, idx, "LazyColumn") {
 						return
 					}
 				} else {
-					if !bytes.Contains([]byte(nodeText), []byte("horizontalScroll")) {
+					if !subtreeHasCallName(file, idx, "horizontalScroll") {
 						return
 					}
-					if !bytes.Contains([]byte(nodeText), lazyRowToken) {
+					if !subtreeHasCallName(file, idx, "LazyRow") {
 						return
 					}
 				}
@@ -403,17 +384,16 @@ func registerResourceCostRules() {
 				if name != "AndroidView" {
 					return
 				}
-				nodeText := file.FlatNodeText(idx)
-				if !strings.Contains(nodeText, "RecyclerView") {
+				if !subtreeHasReferenceName(file, idx, "RecyclerView") {
 					return
 				}
 				if !composeLambdaBelongsToCallFlat(file, idx, "items", "itemsIndexed", "item") {
 					if _, ok := flatEnclosingAncestor(file, idx, "lambda_literal"); ok {
-						parentText := ""
 						if p, ok := flatEnclosingAncestor(file, idx, "call_expression"); ok {
-							parentText = file.FlatNodeText(p)
-						}
-						if !strings.Contains(parentText, "LazyColumn") && !strings.Contains(parentText, "LazyRow") {
+							if !subtreeHasCallName(file, p, "LazyColumn", "LazyRow") {
+								return
+							}
+						} else {
 							return
 						}
 					} else {
@@ -428,30 +408,37 @@ func registerResourceCostRules() {
 		r := &ImageLoadedAtFullSizeInListRule{BaseRule: BaseRule{RuleName: "ImageLoadedAtFullSizeInList", RuleSetName: "resource-cost", Sev: "info", Desc: "Detects Glide or Coil image loading without size constraints in list item contexts."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes:              []string{"call_expression"},
+			Needs:                  v2.NeedsTypeInfo,
+			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
+			Confidence:             0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
 				if name != "load" && name != "into" {
 					return
 				}
-				nodeText := file.FlatNodeText(idx)
-				isGlide := strings.Contains(nodeText, "Glide") || strings.Contains(nodeText, "RequestManager")
-				isCoil := strings.Contains(nodeText, "ImageRequest") || strings.Contains(nodeText, "rememberAsyncImagePainter")
+				receiver := semanticsReceiverNode(ctx, idx)
+				if receiver == 0 {
+					receiver = astReceiverNodeFromCall(file, idx)
+				}
+				isGlide := (receiver != 0 && receiverChainHasQualifiedRoot(file, receiver, "Glide")) ||
+					callReceiverConstructedOrTyped(ctx, idx, "RequestManager", "com.bumptech.glide.RequestManager", "RequestManager")
+				isCoil := receiverContainsCallName(file, idx, "ImageRequest", "rememberAsyncImagePainter")
 				if !isGlide && !isCoil {
 					return
 				}
-				if strings.Contains(nodeText, "override(") || strings.Contains(nodeText, "size(") {
+				if receiverContainsCallName(file, idx, "override", "size") || subtreeHasCallName(file, idx, "override", "size") {
 					return
 				}
 				inList := false
 				if _, ok := flatEnclosingAncestor(file, idx, "class_declaration"); ok {
-					classText := ""
 					if cls, ok2 := flatEnclosingAncestor(file, idx, "class_declaration"); ok2 {
-						classText = file.FlatNodeText(cls)
-					}
-					if strings.Contains(classText, "ViewHolder") || strings.Contains(classText, "RecyclerView") {
-						inList = true
+						if classHasNestedViewHolderFlat(file, cls) ||
+							classExtendsAnyFlat(file, cls, "RecyclerView.ViewHolder", "ViewHolder") ||
+							isRecyclerAdapterClassFlat(ctx, cls) {
+							inList = true
+						}
 					}
 				}
 				if composeLambdaBelongsToCallFlat(file, idx, "items", "itemsIndexed", "item") {
@@ -472,12 +459,11 @@ func registerResourceCostRules() {
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
-				nodeText := file.FlatNodeText(idx)
-				if name == "skipMemoryCache" && strings.Contains(nodeText, "true") {
+				if name == "skipMemoryCache" && callHasBooleanArgument(file, idx, true) {
 					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "skipMemoryCache(true) disables the memory cache; this causes repeated decoding and GC pressure.")
 					return
 				}
-				if name == "memoryCachePolicy" && strings.Contains(nodeText, "DISABLED") {
+				if name == "memoryCachePolicy" && callHasReferenceArgument(file, idx, "DISABLED") {
 					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "memoryCachePolicy(DISABLED) disables the memory cache; this causes repeated decoding and GC pressure.")
 					return
 				}
@@ -547,7 +533,6 @@ func registerResourceCostRules() {
 				if name != "PeriodicWorkRequestBuilder" && name != "PeriodicWorkRequest" {
 					return
 				}
-				nodeText := file.FlatNodeText(idx)
 				args := flatCallKeyArguments(file, idx)
 				if args == 0 {
 					return
@@ -556,14 +541,22 @@ func registerResourceCostRules() {
 				if intervalArg == 0 {
 					return
 				}
-				argText := strings.TrimSpace(file.FlatNodeText(intervalArg))
-				if strings.Contains(nodeText, "MINUTES") {
+				argExpr := flatValueArgumentExpression(file, intervalArg)
+				argText := ""
+				if argExpr != 0 {
+					argText = strings.TrimSpace(file.FlatNodeText(argExpr))
+				}
+				unitArg := flatPositionalValueArgument(file, args, 1)
+				if unitArg == 0 {
+					unitArg = flatNamedValueArgument(file, args, "repeatIntervalTimeUnit")
+				}
+				if callArgHasReference(file, unitArg, "MINUTES") {
 					if val, err := strconv.Atoi(argText); err == nil && val < 15 {
 						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("PeriodicWorkRequest interval %d minutes is below the 15-minute minimum; WorkManager will coerce it to 15 minutes.", val))
 						return
 					}
 				}
-				if strings.Contains(nodeText, "SECONDS") {
+				if callArgHasReference(file, unitArg, "SECONDS") {
 					if val, err := strconv.Atoi(argText); err == nil && val < 900 {
 						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("PeriodicWorkRequest interval %d seconds is below the 15-minute (900s) minimum; WorkManager will coerce it to 15 minutes.", val))
 						return
@@ -583,11 +576,14 @@ func registerResourceCostRules() {
 				if name != "build" {
 					return
 				}
-				nodeText := file.FlatNodeText(idx)
-				if !strings.Contains(nodeText, "OneTimeWorkRequest") && !strings.Contains(nodeText, "OneTimeWorkRequestBuilder") {
+				if !receiverContainsCallName(file, idx, "OneTimeWorkRequest", "OneTimeWorkRequestBuilder") &&
+					!semanticCallTargetOrReceiverType(ctx, idx,
+						[]string{"androidx.work.OneTimeWorkRequest.Builder"},
+						[]string{"androidx.work.OneTimeWorkRequest.Builder", "OneTimeWorkRequest.Builder"},
+					) {
 					return
 				}
-				if strings.Contains(nodeText, "setBackoffCriteria") {
+				if receiverContainsCallName(file, idx, "setBackoffCriteria") {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "OneTimeWorkRequest without setBackoffCriteria; add a backoff policy for retry-able work.")
@@ -605,19 +601,13 @@ func registerResourceCostRules() {
 				if name != "enqueueUniqueWork" && name != "enqueueUniquePeriodicWork" {
 					return
 				}
-				nodeText := file.FlatNodeText(idx)
-				if !strings.Contains(nodeText, "KEEP") {
+				if !callHasReferenceArgument(file, idx, "KEEP") {
 					return
 				}
-				fnBody := ""
 				if fn, ok := flatEnclosingFunction(file, idx); ok {
-					fnBody = file.FlatNodeText(fn)
-				}
-				if fnBody == "" {
-					return
-				}
-				if strings.Contains(fnBody, "cancelUniqueWork") || strings.Contains(fnBody, "cancelAllWork") {
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "enqueueUniqueWork with KEEP policy followed by cancel logic; REPLACE may be intended to restart the work.")
+					if subtreeHasCallName(file, fn, "cancelUniqueWork", "cancelAllWork") {
+						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "enqueueUniqueWork with KEEP policy followed by cancel logic; REPLACE may be intended to restart the work.")
+					}
 				}
 			},
 		})

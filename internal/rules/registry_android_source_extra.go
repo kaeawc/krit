@@ -44,29 +44,32 @@ func registerAndroidSourceExtraRules() {
 				hasContextCtor, hasAttrSetCtor := false, false
 				for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
 					if file.FlatType(child) == "primary_constructor" {
-						ctorText := file.FlatNodeText(child)
-						if strings.Contains(ctorText, "Context") {
-							if strings.Contains(ctorText, "AttributeSet") {
-								hasAttrSetCtor = true
-							} else {
-								hasContextCtor = true
-							}
+						types := constructorParameterTypeFlags(file, child, "Context", "AttributeSet")
+						if types["Context"] {
+							hasContextCtor = true
 						}
-					}
-					if file.FlatType(child) == "class_body" {
-						bodyText := file.FlatNodeText(child)
-						if strings.Contains(bodyText, "constructor") {
-							if strings.Contains(bodyText, "Context") && strings.Contains(bodyText, "AttributeSet") {
-								hasAttrSetCtor = true
-							}
-							if strings.Contains(bodyText, "Context") {
-								hasContextCtor = true
-							}
+						if types["Context"] && types["AttributeSet"] {
+							hasAttrSetCtor = true
 						}
-						if strings.Contains(file.FlatNodeText(idx), "@JvmOverloads") {
+						if hasAnnotationNamed(file, child, "JvmOverloads") && types["Context"] && types["AttributeSet"] {
 							hasContextCtor = true
 							hasAttrSetCtor = true
 						}
+					}
+					if file.FlatType(child) == "class_body" {
+						file.FlatWalkNodes(child, "secondary_constructor", func(ctor uint32) {
+							types := constructorParameterTypeFlags(file, ctor, "Context", "AttributeSet")
+							if types["Context"] {
+								hasContextCtor = true
+							}
+							if types["Context"] && types["AttributeSet"] {
+								hasAttrSetCtor = true
+							}
+							if hasAnnotationNamed(file, ctor, "JvmOverloads") && types["Context"] && types["AttributeSet"] {
+								hasContextCtor = true
+								hasAttrSetCtor = true
+							}
+						})
 					}
 				}
 				if !hasContextCtor && !hasAttrSetCtor {

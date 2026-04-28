@@ -1,6 +1,6 @@
 {
   "project": "../../playground/android-app/",
-  "findings_count": 47,
+  "findings_count": 48,
   "findings": [
     {
       "rule": "MagicNumber",
@@ -145,6 +145,14 @@
       "line": 53,
       "col": 0,
       "message": "Parameter 'verbose' is unused."
+    },
+    {
+      "rule": "RecyclerAdapterWithoutDiffUtil",
+      "ruleSet": "resource-cost",
+      "file": "src/main/kotlin/com/example/app/adapters/UserAdapter.kt",
+      "line": 12,
+      "col": 0,
+      "message": "'UserAdapter' uses notifyDataSetChanged() without DiffUtil; use ListAdapter or DiffUtil.calculateDiff() for efficient updates."
     },
     {
       "rule": "SwallowedException",

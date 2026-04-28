@@ -2,6 +2,7 @@ package rules
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
@@ -1070,24 +1071,67 @@ func fileHasReferenceNameOutsideNode(file *scanner.File, name string, exclude ui
 	if file == nil || name == "" {
 		return false
 	}
-	found := false
-	file.FlatWalkAllNodes(0, func(n uint32) {
-		if found || n == exclude {
-			return
+	summary := fileReferenceSummaryForUnusedChecks(file)
+	excludeStart := file.FlatStartByte(exclude)
+	excludeEnd := file.FlatEndByte(exclude)
+	for _, ref := range summary.byName[name] {
+		if ref.start >= excludeStart && ref.end <= excludeEnd {
+			continue
 		}
-		if file.FlatStartByte(n) >= file.FlatStartByte(exclude) && file.FlatEndByte(n) <= file.FlatEndByte(exclude) {
+		return true
+	}
+	return false
+}
+
+type fileReferenceRange struct {
+	start uint32
+	end   uint32
+}
+
+type fileReferenceSummary struct {
+	byName map[string][]fileReferenceRange
+}
+
+var fileReferenceSummaryCache sync.Map // *scanner.File -> *fileReferenceSummary
+
+func fileReferenceSummaryForUnusedChecks(file *scanner.File) *fileReferenceSummary {
+	if file == nil {
+		return &fileReferenceSummary{byName: map[string][]fileReferenceRange{}}
+	}
+	if cached, ok := fileReferenceSummaryCache.Load(file); ok {
+		return cached.(*fileReferenceSummary)
+	}
+	summary := &fileReferenceSummary{byName: make(map[string][]fileReferenceRange)}
+	file.FlatWalkAllNodes(0, func(n uint32) {
+		name := unusedCheckReferenceName(file, n)
+		if name == "" {
 			return
 		}
 		if nodeHasAncestorTypeFlat(file, n, "import_header", "package_header") {
 			return
 		}
-		t := file.FlatType(n)
-		if t != "simple_identifier" && t != "type_identifier" && t != "navigation_expression" && t != "user_type" {
-			return
-		}
-		if semantics.ReferenceName(file, n) == name {
-			found = true
-		}
+		summary.byName[name] = append(summary.byName[name], fileReferenceRange{
+			start: file.FlatStartByte(n),
+			end:   file.FlatEndByte(n),
+		})
 	})
-	return found
+	if cached, loaded := fileReferenceSummaryCache.LoadOrStore(file, summary); loaded {
+		return cached.(*fileReferenceSummary)
+	}
+	return summary
+}
+
+func unusedCheckReferenceName(file *scanner.File, idx uint32) string {
+	switch file.FlatType(idx) {
+	case "simple_identifier", "type_identifier", "navigation_expression", "user_type":
+		return semantics.ReferenceName(file, idx)
+	case "interpolated_identifier", "line_str_ref", "multi_line_str_ref":
+		text := strings.TrimSpace(file.FlatNodeText(idx))
+		text = strings.TrimPrefix(text, "$")
+		text = strings.TrimPrefix(text, "{")
+		text = strings.TrimSuffix(text, "}")
+		return strings.Trim(text, "`")
+	default:
+		return ""
+	}
 }

@@ -47,3 +47,7 @@ fun durationCalls() {
     events.throttleLatest(500, TimeUnit.MILLISECONDS)
     completable.timeout(10, TimeUnit.SECONDS, fallback)
 }
+
+fun color(alpha: Int, red: Int, green: Int, blue: Int): Int {
+    return (alpha shl 24) or (red shl 16) or (green shl 8) or blue
+}

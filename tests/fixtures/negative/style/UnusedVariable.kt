@@ -9,6 +9,14 @@ class Bar {
     val classProperty = "not a local variable"
 }
 
+fun interface Strategy {
+    fun apply(): Boolean
+
+    companion object {
+        @JvmField val IGNORE = Strategy { false }
+    }
+}
+
 enum class Direction(val degrees: Int) {
     NORTH(0),
     SOUTH(180);

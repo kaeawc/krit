@@ -280,6 +280,9 @@ func registerTestingQualityRules() {
 					(segments[1] != "IO" && segments[1] != "Default" && segments[1] != "Main") {
 					return
 				}
+				if testingQualityDispatcherReferenceAllowedInTest(file, idx, segments[1]) {
+					return
+				}
 				fn, ok := flatEnclosingFunction(file, idx)
 				if !ok || !testingQualityIsTestFunction(file, fn) {
 					return
@@ -304,6 +307,9 @@ func registerTestingQualityRules() {
 					return
 				}
 				if testingQualityIsIgnoredTest(file, idx) {
+					return
+				}
+				if testingQualityIsBenchmarkOrGoldenFile(file) {
 					return
 				}
 				body, _ := file.FlatFindChild(idx, "function_body")

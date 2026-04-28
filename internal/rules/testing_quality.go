@@ -560,7 +560,11 @@ var assertionCallNames = map[string]bool{
 	"expectThat": true, "expect": true,
 	"shouldBe": true, "shouldNotBe": true,
 	"shouldThrow": true, "shouldNotThrow": true,
-	"check": true,
+	"check":    true,
+	"snapshot": true, "captureRoboImage": true, "captureToImage": true,
+	"measureRepeated": true,
+	"waitUntil":       true, "testExecute": true, "testEnqueue": true,
+	"complete": true,
 }
 
 func testingQualityIsAssertionCall(name string) bool {
@@ -668,6 +672,48 @@ func testingQualityBodyHasAssertionOrVerification(file *scanner.File, body uint3
 		}
 	})
 	return found
+}
+
+func testingQualityIsBenchmarkOrGoldenFile(file *scanner.File) bool {
+	if file == nil {
+		return false
+	}
+	return fileImportsFQN(file, "androidx.benchmark.macro.junit4.MacrobenchmarkRule") ||
+		fileImportsFQN(file, "androidx.benchmark.macro.junit4.BaselineProfileRule") ||
+		fileImportsFQN(file, "com.github.takahirom.roborazzi.RoborazziRule")
+}
+
+func testingQualityDispatcherReferenceAllowedInTest(file *scanner.File, idx uint32, dispatcher string) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	if dispatcher == "Main" {
+		for cur := idx; cur != 0; {
+			text := file.FlatNodeText(cur)
+			if strings.Contains(text, "Dispatchers.Main.immediate") {
+				return true
+			}
+			parent, ok := file.FlatParent(cur)
+			if !ok {
+				break
+			}
+			if file.FlatType(parent) != "navigation_expression" {
+				break
+			}
+			cur = parent
+		}
+	}
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "call_expression":
+			if strings.Contains(flatCallNameAny(file, cur), "CoroutineContext") {
+				return true
+			}
+		case "function_body", "statements", "function_declaration", "source_file":
+			return false
+		}
+	}
+	return false
 }
 
 func testingQualityInsideRunTest(file *scanner.File, idx uint32) bool {

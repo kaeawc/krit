@@ -95,11 +95,17 @@ func registerAccessibilityRules() {
 				if !namedArgRHSIsNullLiteral(file, cdArg) {
 					return
 				}
+				if !composeContentDescriptionCallConfirmed(file, idx, name) {
+					return
+				}
 				if subtreeHasCalleeIn(file, idx, composeSemanticsEscapeHatches) {
 					return
 				}
+				if !subtreeHasCalleeIn(file, idx, composeInteractionModifiers) {
+					return
+				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Decorative image with `contentDescription = null` should use `Modifier.clearAndSetSemantics {}` or `semantics { invisibleToUser() }` to hide from TalkBack.")
+					"Interactive image with `contentDescription = null` is hidden from TalkBack; add a meaningful description or remove the interaction.")
 			},
 		})
 	}

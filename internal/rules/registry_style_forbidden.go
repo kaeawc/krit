@@ -429,6 +429,12 @@ func registerStyleForbiddenRules() {
 				if strings.Contains(text, "_") {
 					return
 				}
+				if magicNumberIsBitOperationLiteral(file, idx) {
+					return
+				}
+				if magicNumberIsBinaryProtocolLiteral(file, idx) {
+					return
+				}
 				// Strip suffixes for comparison against ignore list
 				clean := strings.TrimRight(text, "fFdDlLuU")
 				clean = strings.ReplaceAll(clean, "_", "")

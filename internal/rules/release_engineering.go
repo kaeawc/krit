@@ -949,25 +949,6 @@ func resolveVisibleForTestingCallTarget(file *scanner.File, call uint32, targets
 		}
 	}
 
-	callOwner := flatEnclosingOwnerName(file, call)
-	if callOwner != "" {
-		if target, ok := uniqueVisibleForTestingTarget(candidates, func(t visibleForTestingTarget) bool {
-			return visibleForTestingArityMatches(t, argCount) && t.file == file.Path &&
-				t.owner == callOwner && semantics.SameEnclosingOwner(file, t.node, call)
-		}); ok {
-			confidence, ok := semantics.ConfidenceForEvidence(0.90, semantics.EvidenceSameOwner)
-			return target, confidence, ok
-		}
-	}
-
-	if target, ok := uniqueVisibleForTestingTarget(candidates, func(t visibleForTestingTarget) bool {
-		return visibleForTestingArityMatches(t, argCount) && t.file == file.Path &&
-			t.owner == "" && callOwner == "" && semantics.SameFileDeclarationMatch(&v2.Context{File: file}, t.node, call)
-	}); ok {
-		confidence, ok := semantics.ConfidenceForEvidence(0.80, semantics.EvidenceSameFileDeclaration)
-		return target, confidence, ok
-	}
-
 	return visibleForTestingTarget{}, 0, false
 }
 

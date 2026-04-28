@@ -545,6 +545,9 @@ func registerComposeRules() {
 				if composeAssignmentIsMutableTransitionTargetState(file, idx, fn) {
 					return
 				}
+				if composeAssignmentSynchronizesRememberedObject(file, idx, fn) {
+					return
+				}
 				for cur, ok := file.FlatParent(idx); ok && cur != fn; cur, ok = file.FlatParent(cur) {
 					if file.FlatType(cur) != "lambda_literal" {
 						continue

@@ -535,6 +535,41 @@ fun example() {
 	}
 }
 
+func TestNaming_NoNameShadowing_SkipsSuppressedAndSelfAlias(t *testing.T) {
+	findings := runRuleByName(t, "NoNameShadowing", `
+package test
+
+val context = "global"
+
+fun example(options: String, pathSegments: List<String>) {
+    @Suppress("NAME_SHADOWING")
+    var options = options
+    val pathSegments = pathSegments
+    println(options)
+    println(pathSegments)
+}
+
+fun acceptsContext(context: String) {
+    println(context)
+}
+
+fun catchFallback() {
+    try {
+        val result = "ok"
+        println(result)
+    } catch (e: Exception) {
+        val result = "fallback"
+        println(result)
+    }
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "NoNameShadowing" {
+			t.Fatalf("NoNameShadowing should ignore local suppression and self-alias narrowing, got: %s", f.Message)
+		}
+	}
+}
+
 func TestNaming_NoNameShadowing_SkipsClassPropertyShadowingInMemberFunction(t *testing.T) {
 	findings := runRuleByName(t, "NoNameShadowing", `
 package test

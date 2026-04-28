@@ -103,3 +103,12 @@ fun MutableTransitionTargetState(expanded: Boolean) {
     expandedStates.targetState = expanded
     Content(expandedStates.currentState || expandedStates.targetState)
 }
+
+@Composable
+fun RememberedObjectSynchronization(input: Input) {
+    val holder = remember { Holder(input) }
+    holder.input = input
+    Content(holder.input)
+}
+
+private class Holder(var input: Input)

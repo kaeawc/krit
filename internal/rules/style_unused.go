@@ -422,6 +422,12 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 	nameNode := uint32(0)
 	switch nodeType {
 	case "property_declaration":
+		if strings.Contains(file.FlatNodeText(idx), "@JvmField") {
+			return target, false
+		}
+		if !strings.Contains(file.FlatNodeText(idx), "=") {
+			return target, false
+		}
 		if _, ok := file.FlatFindChild(idx, "multi_variable_declaration"); ok {
 			return target, false
 		}
@@ -451,6 +457,13 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 	if name == "" {
 		return target, false
 	}
+	if _, ok := flatEnclosingAncestor(file, stmt, "class_declaration", "object_declaration"); ok {
+		return target, false
+	}
+	if !file.FlatHasAncestorOfType(stmt, "function_body") &&
+		!file.FlatHasAncestorOfType(stmt, "lambda_literal") {
+		return target, false
+	}
 	if !unusedVariableIsLocalProperty(file, stmt) {
 		return target, false
 	}
@@ -476,7 +489,7 @@ func unusedVariableIsLocalProperty(file *scanner.File, idx uint32) bool {
 	if parentType == "source_file" ||
 		parentType == "class_body" || parentType == "enum_class_body" ||
 		parentType == "companion_object" || parentType == "object_declaration" ||
-		parentType == "class_member_declarations" {
+		parentType == "class_member_declaration" || parentType == "class_member_declarations" {
 		return false
 	}
 	localOwner := false
@@ -487,7 +500,7 @@ func unusedVariableIsLocalProperty(file *scanner.File, idx uint32) bool {
 		}
 		if t == "class_body" || t == "enum_class_body" ||
 			t == "companion_object" || t == "object_declaration" ||
-			t == "class_member_declarations" {
+			t == "class_member_declaration" || t == "class_member_declarations" {
 			return false
 		}
 		if t == "function_body" || t == "function_declaration" ||

@@ -427,6 +427,38 @@ suspend fun loadData() {
 	}
 }
 
+func TestInjectDispatcher_WildcardImportLocalDispatchersLookalike(t *testing.T) {
+	findings := runRuleByName(t, "InjectDispatcher", `
+package test
+import kotlinx.coroutines.*
+
+object Dispatchers {
+    val IO: String = "io"
+}
+
+suspend fun loadData() {
+    withContext(Dispatchers.IO) { fetchFromNetwork() }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected local Dispatchers lookalike to suppress finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestInjectDispatcher_DoesNotRequireTypeContext(t *testing.T) {
+	rule := buildRuleIndex()["InjectDispatcher"]
+	if rule == nil {
+		t.Fatal("InjectDispatcher rule not found")
+	}
+	if rule.Needs.Has(v2rules.NeedsResolver) || rule.Needs.Has(v2rules.NeedsOracle) ||
+		rule.Needs.Has(v2rules.NeedsParsedFiles) || rule.Needs.Has(v2rules.NeedsCrossFile) {
+		t.Fatalf("InjectDispatcher should stay AST/import-only; got Needs=%b", rule.Needs)
+	}
+	if rule.TypeInfo != (v2rules.TypeInfoHint{}) {
+		t.Fatalf("InjectDispatcher TypeInfo=%+v, want zero value", rule.TypeInfo)
+	}
+}
+
 func TestInjectDispatcher_PositiveMain(t *testing.T) {
 	findings := runRuleByName(t, "InjectDispatcher", `
 package test

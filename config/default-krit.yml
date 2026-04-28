@@ -822,6 +822,8 @@ style:
     active: true
     excludeImports:
       - 'java.util.*'
+      - 'platform.**'
+      - 'kotlinx.cinterop.*'
   AlsoCouldBeApply:
     active: false
   BracesOnWhenStatements:

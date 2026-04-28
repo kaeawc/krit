@@ -47,8 +47,7 @@ func registerAccessibilityRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsResolver, Confidence: 0.75, OriginalV1: r,
-			TypeInfo: v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true},
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallNameAny(file, idx) != "clickable" {
@@ -58,8 +57,9 @@ func registerAccessibilityRules() {
 				if navExpr == 0 || flatNavigationExpressionLastIdentifier(file, navExpr) != "clickable" {
 					return
 				}
-				chain, rootedAtModifier := composeModifierCallChainSemantic(ctx, composeModifierChainReceiverFlat(file, navExpr))
-				if !rootedAtModifier || composeModifierChainContainsCall(chain, "minimumInteractiveComponentSize") {
+				chain, rootedAtModifier := composeModifierCallChainFlat(file, composeModifierChainReceiverFlat(file, navExpr))
+				if !rootedAtModifier || !composeModifierCallChainImportsConfirmed(file, chain) ||
+					composeModifierChainContainsCall(chain, "minimumInteractiveComponentSize") {
 					return
 				}
 				minDp, hasExplicitSize := composeModifierChainSmallestDpFlat(file, chain)
@@ -228,7 +228,7 @@ func registerAccessibilityRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsResolver, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				navExpr, args := flatCallExpressionParts(file, idx)
@@ -239,8 +239,14 @@ func registerAccessibilityRules() {
 				if !composeInteractionModifiers[name] {
 					return
 				}
+				if isInsidePreviewOrSampleFunctionFlat(file, idx) {
+					return
+				}
 				_, rootedAtModifier := composeModifierCallChainFlat(file, composeModifierChainReceiverFlat(file, navExpr))
 				if !rootedAtModifier {
+					return
+				}
+				if args != 0 && flatNamedBooleanArgumentIsFalse(file, args, "enabled") {
 					return
 				}
 				if args != 0 && flatNamedValueArgument(file, args, "role") != 0 {

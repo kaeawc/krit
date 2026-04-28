@@ -18,3 +18,11 @@ class Service {
         throw RuntimeException("failure")
     }
 }
+
+class Printer {
+    fun printStackTrace() {}
+}
+
+fun localLookalike(printer: Printer) {
+    printer.printStackTrace()
+}

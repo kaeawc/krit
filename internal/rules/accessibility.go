@@ -271,17 +271,40 @@ func composeModifierCallChainFlat(file *scanner.File, idx uint32) ([]composeModi
 		}
 		return append(chain, composeModifierCall{name: name, args: args}), rootedAtModifier
 	case "navigation_expression":
-		return nil, composeModifierRootConfirmed(nil, file, idx)
+		return nil, composeModifierRootImported(file, idx)
 	case "parenthesized_expression":
 		if file.FlatNamedChildCount(idx) == 1 {
 			return composeModifierCallChainFlat(file, file.FlatNamedChild(idx, 0))
 		}
 		return nil, false
 	case "simple_identifier":
-		return nil, composeModifierRootConfirmed(nil, file, idx)
+		return nil, composeModifierRootImported(file, idx)
 	default:
 		return nil, false
 	}
+}
+
+func composeModifierCallChainImportsConfirmed(file *scanner.File, chain []composeModifierCall) bool {
+	if file == nil {
+		return false
+	}
+	for _, call := range chain {
+		switch call.name {
+		case "clickable":
+			if fileImportsFQN(file, "androidx.compose.foundation.clickable") {
+				return true
+			}
+		case "minimumInteractiveComponentSize":
+			if fileImportsFQN(file, "androidx.compose.foundation.minimumInteractiveComponentSize") {
+				return true
+			}
+		case "height", "size", "width":
+			if fileImportsFQN(file, "androidx.compose.foundation.layout."+call.name) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func composeModifierCallChainSemantic(ctx *v2.Context, idx uint32) ([]composeModifierCall, bool) {
@@ -312,6 +335,14 @@ func composeModifierRootConfirmed(ctx *v2.Context, file *scanner.File, idx uint3
 				return true
 			}
 		}
+	}
+	segments := accessibilityReferenceSegments(file, idx)
+	return len(segments) >= 1 && segments[0] == "Modifier" && fileImportsFQN(file, "androidx.compose.ui.Modifier")
+}
+
+func composeModifierRootImported(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
 	}
 	segments := accessibilityReferenceSegments(file, idx)
 	return len(segments) >= 1 && segments[0] == "Modifier" && fileImportsFQN(file, "androidx.compose.ui.Modifier")
@@ -679,6 +710,15 @@ var composeInteractionModifiers = map[string]bool{
 	"clickable":  true,
 	"toggleable": true,
 	"selectable": true,
+}
+
+func flatNamedBooleanArgumentIsFalse(file *scanner.File, args uint32, name string) bool {
+	arg := flatNamedValueArgument(file, args, name)
+	if arg == 0 {
+		return false
+	}
+	expr := flatUnwrapParenExpr(file, flatValueArgumentExpression(file, arg))
+	return expr != 0 && file.FlatType(expr) == "boolean_literal" && strings.TrimSpace(file.FlatNodeText(expr)) == "false"
 }
 
 // ---------------------------------------------------------------------------

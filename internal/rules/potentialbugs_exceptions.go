@@ -133,7 +133,7 @@ func (r *TooGenericExceptionCaughtRule) checkNode(ctx *v2.Context) {
 	// Skip catches inside Job/Worker/Runnable classes — these are async
 	// execution boundaries where catching generic Exception is a best practice
 	// to prevent uncaught exception crashes.
-	if isInsideAsyncBoundaryFlat(file, idx, ctx.Resolver) {
+	if isInsideAsyncBoundaryFlat(file, idx) {
 		return
 	}
 	// Skip when the caught variable is passed as an argument to any function
@@ -179,28 +179,15 @@ func (r *TooGenericExceptionCaughtRule) checkNode(ctx *v2.Context) {
 		return
 	}
 
-	// With resolver, check if the caught type is a known subtype of a generic exception.
-	if ctx.Resolver != nil {
-		for _, generic := range exNames {
-			if ctx.Resolver.IsExceptionSubtype(generic, caughtType) {
-				// generic IS-A caughtType means caughtType is more general
-				f := r.Finding(file, file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Caught too-generic exception type '%s' (catches subtypes like '%s').", caughtType, generic))
-				f.Confidence = 0.9
-				ctx.Emit(f)
-				return
-			}
-		}
-	} else {
-		// Fallback without resolver: use global subtype table — name-only.
-		for _, generic := range exNames {
-			if typeinfer.IsSubtypeOfException(generic, caughtType) {
-				f := r.Finding(file, file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Caught too-generic exception type '%s' (catches subtypes like '%s').", caughtType, generic))
-				f.Confidence = 0.8
-				ctx.Emit(f)
-				return
-			}
+	// Use the built-in subtype table for known exception names. Project-specific
+	// inheritance is intentionally out of scope for this AST/import-only rule.
+	for _, generic := range exNames {
+		if typeinfer.IsSubtypeOfException(generic, caughtType) {
+			f := r.Finding(file, file.FlatRow(idx)+1, 1,
+				fmt.Sprintf("Caught too-generic exception type '%s' (catches subtypes like '%s').", caughtType, generic))
+			f.Confidence = 0.8
+			ctx.Emit(f)
+			return
 		}
 	}
 }
@@ -296,7 +283,7 @@ func flatTypeLastIdentifier(file *scanner.File, idx uint32) string {
 	return last
 }
 
-func isInsideAsyncBoundaryFlat(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) bool {
+func isInsideAsyncBoundaryFlat(file *scanner.File, idx uint32) bool {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		if file.FlatType(p) == "lambda_literal" {
 			call := p
@@ -336,19 +323,8 @@ func isInsideAsyncBoundaryFlat(file *scanner.File, idx uint32, resolver typeinfe
 			if typeName == "" {
 				continue
 			}
-			if resolver != nil {
-				// KAA path: resolve FQN via import table and check against FQN set.
-				fqn := resolver.ResolveImport(typeName, file)
-				if fqn == "" {
-					// Unresolvable — fall through to import-based heuristic.
-				} else if asyncBoundaryFQNs[fqn] {
-					return true
-				} else {
-					continue
-				}
-			}
-			// No-KAA fallback: match simple name AND verify the file imports
-			// the corresponding package. java.lang.* types need no import.
+			// Match simple name AND verify the file imports the corresponding
+			// package. java.lang.* types need no import.
 			fqn, known := asyncBoundarySimpleToFQN[typeName]
 			if !known {
 				continue

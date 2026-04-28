@@ -20,3 +20,15 @@ fun AccessibleClickableExamples(onTap: () -> Unit) {
             .clickable { onTap() },
     )
 }
+
+object LocalModifier {
+    fun size(value: LocalDp): LocalModifier = this
+    fun clickable(onClick: () -> Unit): LocalModifier = this
+}
+
+class LocalDp
+val Int.localDp: LocalDp get() = LocalDp()
+
+fun LocalModifierLookalike(onTap: () -> Unit) {
+    LocalModifier.size(24.localDp).clickable { onTap() }
+}

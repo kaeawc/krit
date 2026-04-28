@@ -116,8 +116,6 @@ func registerCoroutinesRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Needs:    v2.NeedsResolver,
-			TypeInfo: v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -134,7 +132,7 @@ func registerCoroutinesRules() {
 				if dispatcherNode == 0 {
 					return
 				}
-				if !injectDispatcherReferenceConfirmed(ctx, dispatcherNode) {
+				if !injectDispatcherReferenceConfirmed(file, dispatcherNode) {
 					return
 				}
 				matchLine := file.FlatRow(dispatcherNode) + 1

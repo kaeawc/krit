@@ -335,7 +335,7 @@ func (r *WildcardImportRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "excludeImports",
 				Type:        registry.OptStringList,
-				Default:     []string{"java.util.*"},
+				Default:     []string{"java.util.*", "platform.**", "kotlinx.cinterop.*"},
 				Description: "Wildcard imports to exclude from this rule.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*WildcardImportRule).ExcludeImports = value.([]string)

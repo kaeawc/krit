@@ -1,6 +1,10 @@
 package rules_test
 
-import "testing"
+import (
+	"testing"
+
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+)
 
 func TestAnimatorDurationIgnoresScale_Positive(t *testing.T) {
 	findings := runRuleByName(t, "AnimatorDurationIgnoresScale", `
@@ -129,6 +133,40 @@ fun Example(onTap: () -> Unit) {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeClickableWithoutMinTouchTarget_NegativeLocalModifierLookalike(t *testing.T) {
+	findings := runRuleByName(t, "ComposeClickableWithoutMinTouchTarget", `
+package test
+
+object Modifier {
+    fun size(value: Dp): Modifier = this
+    fun clickable(onClick: () -> Unit): Modifier = this
+}
+class Dp
+val Int.dp: Dp get() = Dp()
+
+fun Example(onTap: () -> Unit) {
+    Modifier.size(24.dp).clickable { onTap() }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for local Modifier lookalike, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeClickableWithoutMinTouchTarget_DoesNotRequireTypeContext(t *testing.T) {
+	rule := buildRuleIndex()["ComposeClickableWithoutMinTouchTarget"]
+	if rule == nil {
+		t.Fatal("ComposeClickableWithoutMinTouchTarget rule not found")
+	}
+	if rule.Needs.Has(v2rules.NeedsResolver) || rule.Needs.Has(v2rules.NeedsOracle) ||
+		rule.Needs.Has(v2rules.NeedsParsedFiles) || rule.Needs.Has(v2rules.NeedsCrossFile) {
+		t.Fatalf("ComposeClickableWithoutMinTouchTarget should stay AST/import-only; got Needs=%b", rule.Needs)
+	}
+	if rule.TypeInfo != (v2rules.TypeInfoHint{}) {
+		t.Fatalf("ComposeClickableWithoutMinTouchTarget TypeInfo=%+v, want zero value", rule.TypeInfo)
 	}
 }
 
@@ -410,6 +448,124 @@ fun Example(onClick: () -> Unit) {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSemanticsMissingRole_NegativePreview(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSemanticsMissingRole", `
+package test
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+annotation class SignalPreview
+
+@SignalPreview
+@Composable
+fun RadioRowPreview(onClick: () -> Unit) {
+    Row(Modifier.clickable { onClick() }) {}
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings in preview code, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSemanticsMissingRole_NegativePrivatePreviewNestedCall(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSemanticsMissingRole", `
+package test
+
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+annotation class SignalPreview
+interface RowScope
+
+object Rows {
+    @Composable
+    fun RadioRow(
+        content: @Composable RowScope.() -> Unit,
+        selected: Boolean,
+        modifier: Modifier = Modifier,
+        enabled: Boolean = true,
+    ) {}
+
+    @Composable
+    fun RadioRow(selected: Boolean, text: String, modifier: Modifier = Modifier) {}
+}
+
+object Previews {
+    @Composable
+    fun Preview(content: @Composable () -> Unit) {}
+}
+
+@SignalPreview
+@Composable
+private fun RadioRowPreview() {
+    Previews.Preview {
+        Rows.RadioRow(
+            true,
+            "RadioRow",
+            modifier = Modifier.clickable {},
+        )
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings in nested private preview code, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSemanticsMissingRole_NegativeDisabled(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSemanticsMissingRole", `
+package test
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun Example(onClick: () -> Unit) {
+    Row(Modifier.clickable(enabled = false) { onClick() }) {}
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for disabled clickable, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSemanticsMissingRole_NegativeLocalModifierLookalike(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSemanticsMissingRole", `
+package test
+
+object Modifier {
+    fun clickable(onClick: () -> Unit): Modifier = this
+}
+
+fun Example(onTap: () -> Unit) {
+    Modifier.clickable { onTap() }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for local Modifier lookalike, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSemanticsMissingRole_DoesNotRequireTypeContext(t *testing.T) {
+	rule := buildRuleIndex()["ComposeSemanticsMissingRole"]
+	if rule == nil {
+		t.Fatal("ComposeSemanticsMissingRole rule not found")
+	}
+	if rule.Needs.Has(v2rules.NeedsResolver) || rule.Needs.Has(v2rules.NeedsOracle) ||
+		rule.Needs.Has(v2rules.NeedsParsedFiles) || rule.Needs.Has(v2rules.NeedsCrossFile) {
+		t.Fatalf("ComposeSemanticsMissingRole should stay AST/import-only; got Needs=%b", rule.Needs)
+	}
+	if rule.TypeInfo != (v2rules.TypeInfoHint{}) {
+		t.Fatalf("ComposeSemanticsMissingRole TypeInfo=%+v, want zero value", rule.TypeInfo)
 	}
 }
 

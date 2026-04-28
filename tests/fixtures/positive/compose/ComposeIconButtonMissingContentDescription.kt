@@ -16,6 +16,10 @@ fun ComposeIconButtonMissingContentDescriptionPositive() {
         Icon(Icons.Filled.ArrowBack)
     }
 
+    androidx.compose.material3.IconButton(onClick = { }) {
+        androidx.compose.material3.Icon(Icons.Filled.ArrowBack)
+    }
+
     Image(
         painter = painterResource(R.drawable.avatar),
         modifier = Modifier,

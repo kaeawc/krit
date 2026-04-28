@@ -224,6 +224,69 @@ fun Example() {
 	}
 }
 
+func TestComposeIconButtonMissingContentDescription_NegativeNullIsPresentDescription(t *testing.T) {
+	findings := runRuleByName(t, "ComposeIconButtonMissingContentDescription", `
+package test
+
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Example() {
+    IconButton(onClick = { }) {
+        Icon(
+            imageVector = Icons.Filled.ArrowBack,
+            contentDescription = null,
+        )
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeIconButtonMissingContentDescription_NegativeLocalLookalikes(t *testing.T) {
+	findings := runRuleByName(t, "ComposeIconButtonMissingContentDescription", `
+package test
+
+fun Icon(value: Any? = null) = Unit
+fun Image(value: Any? = null) = Unit
+fun AsyncImage(value: Any? = null) = Unit
+fun IconButton(onClick: () -> Unit, content: () -> Unit) = content()
+
+fun Example() {
+    IconButton(onClick = { }) {
+        Icon()
+    }
+    Image()
+    AsyncImage()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeIconButtonMissingContentDescription_PositiveFullyQualifiedCall(t *testing.T) {
+	findings := runRuleByName(t, "ComposeIconButtonMissingContentDescription", `
+package test
+
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Example() {
+    androidx.compose.material3.IconButton(onClick = { }) {
+        androidx.compose.material3.Icon(Icons.Filled.ArrowBack)
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
 // --- ComposeRawTextLiteral ---
 
 func TestComposeRawTextLiteral_Positive(t *testing.T) {

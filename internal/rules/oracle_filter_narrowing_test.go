@@ -142,6 +142,17 @@ func TestResolverOnlyRulesDoNotContributeToOracle(t *testing.T) {
 	}
 }
 
+func TestComposeIconButtonMissingContentDescriptionStaysLocalASTOnly(t *testing.T) {
+	rule := findRegisteredRule(t, "ComposeIconButtonMissingContentDescription")
+	if rule.Needs != 0 {
+		t.Fatalf("ComposeIconButtonMissingContentDescription should not require resolver, type info, parsed files, or project indexes; got Needs=%b", rule.Needs)
+	}
+	if RuleNeedsKotlinOracle(rule) {
+		t.Fatalf("ComposeIconButtonMissingContentDescription should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+	}
+}
+
 func TestTimberTreeNotPlantedUsesLexicalHintsForLoggerCallees(t *testing.T) {
 	rule := findRegisteredRule(t, "TimberTreeNotPlanted")
 	if rule.OracleCallTargets == nil {

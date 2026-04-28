@@ -3,6 +3,7 @@ package rules
 import (
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
@@ -472,6 +473,184 @@ var composeContentDescriptionCalls = map[string]bool{
 	"IconButton": true,
 	"Image":      true,
 	"AsyncImage": true,
+}
+
+var composeContentDescriptionImportsCache sync.Map
+
+type composeContentDescriptionImportFacts struct {
+	imports     map[string]map[string]bool
+	wildcards   map[string]bool
+	hasRelevant bool
+}
+
+var composeContentDescriptionCanonicalFQNs = map[string][]string{
+	"Icon": {
+		"androidx.compose.material.Icon",
+		"androidx.compose.material3.Icon",
+	},
+	"IconButton": {
+		"androidx.compose.material.IconButton",
+		"androidx.compose.material3.IconButton",
+	},
+	"Image": {
+		"androidx.compose.foundation.Image",
+	},
+	"AsyncImage": {
+		"coil.compose.AsyncImage",
+	},
+}
+
+func composeContentDescriptionCallConfirmed(file *scanner.File, idx uint32, name string) bool {
+	if file == nil || idx == 0 || name == "" {
+		return false
+	}
+	navText := flatCallNavigationTextAny(file, idx)
+	if navText == "" {
+		return false
+	}
+	if strings.Contains(navText, ".") {
+		for _, fqn := range composeContentDescriptionCanonicalFQNs[name] {
+			if navText == fqn {
+				return true
+			}
+		}
+		return false
+	}
+	facts := composeContentDescriptionImports(file)
+	if fqns := facts.imports[name]; len(fqns) > 0 {
+		for _, fqn := range composeContentDescriptionCanonicalFQNs[name] {
+			if fqns[fqn] {
+				return true
+			}
+		}
+	}
+	for _, fqn := range composeContentDescriptionCanonicalFQNs[name] {
+		pkg := fqn[:strings.LastIndex(fqn, ".")]
+		if facts.wildcards[pkg] {
+			return true
+		}
+	}
+	return false
+}
+
+func composeContentDescriptionFileMayUse(file *scanner.File) bool {
+	return composeContentDescriptionImports(file).hasRelevant
+}
+
+func flatCallNavigationTextAny(file *scanner.File, idx uint32) string {
+	if navExpr, _ := flatCallExpressionParts(file, idx); navExpr != 0 {
+		return strings.TrimSpace(file.FlatNodeText(navExpr))
+	}
+	if name := flatCallExpressionName(file, idx); name != "" {
+		return name
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "call_expression" {
+			return flatCallNavigationTextAny(file, child)
+		}
+	}
+	return ""
+}
+
+func composeHasConfirmedIconButtonAncestor(file *scanner.File, idx uint32) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		if file.FlatType(parent) != "call_expression" {
+			continue
+		}
+		if flatCallNameAny(file, parent) == "IconButton" && composeContentDescriptionCallConfirmed(file, parent, "IconButton") {
+			return true
+		}
+	}
+	return false
+}
+
+func composeContentDescriptionImports(file *scanner.File) composeContentDescriptionImportFacts {
+	if cached, ok := composeContentDescriptionImportsCache.Load(file); ok {
+		return cached.(composeContentDescriptionImportFacts)
+	}
+	facts := composeContentDescriptionImportFacts{
+		imports:   make(map[string]map[string]bool),
+		wildcards: make(map[string]bool),
+	}
+	for _, line := range file.Lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "import ") {
+			continue
+		}
+		imp := strings.TrimSpace(strings.TrimPrefix(trimmed, "import "))
+		if cut := strings.Index(imp, "//"); cut >= 0 {
+			imp = strings.TrimSpace(imp[:cut])
+		}
+		if imp == "" {
+			continue
+		}
+		if strings.HasSuffix(imp, ".*") {
+			pkg := strings.TrimSuffix(imp, ".*")
+			facts.wildcards[pkg] = true
+			if composeContentDescriptionRelevantPackage(pkg) {
+				facts.hasRelevant = true
+			}
+			continue
+		}
+		alias := ""
+		if i := strings.Index(imp, " as "); i >= 0 {
+			alias = strings.TrimSpace(imp[i+4:])
+			imp = strings.TrimSpace(imp[:i])
+		}
+		parts := strings.Split(imp, ".")
+		if len(parts) == 0 {
+			continue
+		}
+		short := parts[len(parts)-1]
+		if alias != "" {
+			short = alias
+		}
+		if facts.imports[short] == nil {
+			facts.imports[short] = make(map[string]bool)
+		}
+		facts.imports[short][imp] = true
+		if composeContentDescriptionRelevantFQN(imp) {
+			facts.hasRelevant = true
+		}
+	}
+	if !facts.hasRelevant {
+		content := string(file.Content)
+		for _, fqns := range composeContentDescriptionCanonicalFQNs {
+			for _, fqn := range fqns {
+				if strings.Contains(content, fqn) {
+					facts.hasRelevant = true
+					break
+				}
+			}
+			if facts.hasRelevant {
+				break
+			}
+		}
+	}
+	composeContentDescriptionImportsCache.Store(file, facts)
+	return facts
+}
+
+func composeContentDescriptionRelevantFQN(imp string) bool {
+	for _, fqns := range composeContentDescriptionCanonicalFQNs {
+		for _, fqn := range fqns {
+			if imp == fqn {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func composeContentDescriptionRelevantPackage(pkg string) bool {
+	for _, fqns := range composeContentDescriptionCanonicalFQNs {
+		for _, fqn := range fqns {
+			if pkg == fqn[:strings.LastIndex(fqn, ".")] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------

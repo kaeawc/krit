@@ -292,6 +292,10 @@ func testingQualityIsAssertionCall(name string) bool {
 	return strings.HasPrefix(name, "assert")
 }
 
+func testingQualityIsAssertionOrVerify(name string) bool {
+	return testingQualityIsAssertionCall(name) || testingQualityIsVerifyCall(name)
+}
+
 var verifyCallNames = map[string]bool{
 	"verify": true, "coVerify": true,
 	"confirmVerified": true, "every": true,
@@ -316,6 +320,76 @@ func testingQualityIsTestFunction(file *scanner.File, idx uint32) bool {
 		return false
 	}
 	return flatHasAnnotationNamed(file, idx, "Test")
+}
+
+func testingQualityTestExpectsException(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	if mods, ok := file.FlatFindChild(idx, "modifiers"); ok {
+		for child := file.FlatFirstChild(mods); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) != "annotation" && file.FlatType(child) != "modifier" {
+				continue
+			}
+			text := file.FlatNodeText(child)
+			if strings.Contains(text, "Test") && strings.Contains(text, "expected") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func testingQualityIsIgnoredTest(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	if flatHasAnnotationNamed(file, idx, "Ignore") || flatHasAnnotationNamed(file, idx, "Disabled") {
+		return true
+	}
+	if owner, ok := flatEnclosingAncestor(file, idx, "class_declaration", "object_declaration"); ok {
+		return flatHasAnnotationNamed(file, owner, "Ignore") || flatHasAnnotationNamed(file, owner, "Disabled")
+	}
+	return false
+}
+
+func testingQualityInfixOperatorName(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 || file.FlatType(idx) != "infix_expression" {
+		return ""
+	}
+	seenLeft := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		if !seenLeft {
+			seenLeft = true
+			continue
+		}
+		if file.FlatType(child) == "simple_identifier" {
+			return file.FlatNodeString(child, nil)
+		}
+	}
+	return ""
+}
+
+func testingQualityBodyHasAssertionOrVerification(file *scanner.File, body uint32) bool {
+	if file == nil || body == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(body, func(n uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(n) {
+		case "call_expression":
+			found = testingQualityIsAssertionOrVerify(flatCallNameAny(file, n))
+		case "infix_expression":
+			found = testingQualityIsAssertionOrVerify(testingQualityInfixOperatorName(file, n))
+		}
+	})
+	return found
 }
 
 func testingQualityInsideRunTest(file *scanner.File, idx uint32) bool {

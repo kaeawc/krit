@@ -342,6 +342,77 @@ class TestWithoutAssertionNegative {
 	}
 }
 
+func TestTestWithoutAssertion_NegativeInfixAssertion(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+import org.thoughtcrime.securesms.testing.assertIsSize
+
+class TestWithoutAssertionInfixNegative {
+    @Test
+    fun loads() {
+        val values = listOf(1, 2)
+        values assertIsSize 2
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for infix assertion, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeIgnoredClass(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Ignore
+import org.junit.Test
+
+@Ignore("manual preview")
+class TestWithoutAssertionIgnoredNegative {
+    @Test
+    fun preview() {
+        println("manual")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for ignored test class, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeExpectedException(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class TestWithoutAssertionExpectedExceptionNegative {
+    @Test(expected = IllegalArgumentException::class)
+    fun throwsOnBadInput() {
+        parse("")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for expected-exception test, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_UsesLocalASTOnly(t *testing.T) {
+	rule := buildRuleIndex()["TestWithoutAssertion"]
+	if rule == nil {
+		t.Fatal("TestWithoutAssertion rule is not registered")
+	}
+	if rule.Needs != 0 {
+		t.Fatalf("TestWithoutAssertion should remain AST-only, got needs %v", rule.Needs)
+	}
+	if rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil || rule.Oracle != nil {
+		t.Fatal("TestWithoutAssertion should not declare oracle metadata")
+	}
+}
+
 func TestTestWithOnlyTodo_Positive(t *testing.T) {
 	findings := runRuleByName(t, "TestWithOnlyTodo", `
 package test

@@ -29,8 +29,8 @@ func registerTestingQualityRules() {
 				if len(valueArgs) != 2 {
 					return
 				}
-				firstArg := strings.TrimSpace(file.FlatNodeText(valueArgs[0]))
-				secondArg := strings.TrimSpace(file.FlatNodeText(valueArgs[1]))
+				firstArg := apiNodeNameFlat(file, flatValueArgumentExpression(file, valueArgs[0]))
+				secondArg := apiNodeNameFlat(file, flatValueArgumentExpression(file, valueArgs[1]))
 				if firstArg != "actual" || secondArg != "expected" {
 					return
 				}
@@ -103,8 +103,7 @@ func registerTestingQualityRules() {
 						return
 					}
 					if file.FlatType(n) == "postfix_expression" {
-						text := file.FlatNodeText(n)
-						if strings.HasSuffix(text, "!!") {
+						if postfixExpressionHasBangBang(file, n) {
 							found = true
 						}
 					}
@@ -173,9 +172,8 @@ func registerTestingQualityRules() {
 					default:
 						return
 					}
-					nodeText := file.FlatNodeText(n)
 					for _, name := range mockNames {
-						if strings.Contains(nodeText, name) {
+						if subtreeHasReferenceName(file, n, name) {
 							used[name] = true
 						}
 					}
@@ -274,8 +272,9 @@ func registerTestingQualityRules() {
 			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if text != "Dispatchers.IO" && text != "Dispatchers.Default" && text != "Dispatchers.Main" {
+				segments := flatNavigationChainIdentifiers(file, idx)
+				if len(segments) != 2 || segments[0] != "Dispatchers" ||
+					(segments[1] != "IO" && segments[1] != "Default" && segments[1] != "Main") {
 					return
 				}
 				fn, ok := flatEnclosingFunction(file, idx)
@@ -420,8 +419,7 @@ func registerTestingQualityRules() {
 							if file.FlatType(member) != "property_declaration" {
 								continue
 							}
-							text := file.FlatNodeText(member)
-							if strings.HasPrefix(strings.TrimSpace(text), "var ") {
+							if propertyDeclarationIsVar(file, member) {
 								ctx.EmitAt(file.FlatRow(member)+1, file.FlatCol(member)+1, "Mutable state in companion/object is shared across tests.")
 							}
 						}
@@ -476,8 +474,8 @@ func registerTestingQualityRules() {
 				if flatCallNameAny(file, idx) != "mockk" {
 					return
 				}
-				nodeText := file.FlatNodeText(idx)
-				if !strings.Contains(nodeText, "relaxed") {
+				relaxedArg := flatNamedValueArgument(file, flatCallKeyArguments(file, idx), "relaxed")
+				if relaxedArg == 0 || !callArgHasBoolean(file, relaxedArg, true) {
 					return
 				}
 				typeArg := testingQualityTypeArgument(file, idx)

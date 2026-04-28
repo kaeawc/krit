@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/kaeawc/krit/internal/librarymodel"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -225,20 +226,6 @@ type DatabaseQueryOnMainThreadRule struct {
 }
 
 func (r *DatabaseQueryOnMainThreadRule) Confidence() float64 { return 0.75 }
-
-var sqliteQueryMethods = map[string]bool{
-	"rawQuery": true,
-	"query":    true,
-	"execSQL":  true,
-}
-
-var sqlDelightQueryExecutionMethods = map[string]bool{
-	"executeAsList":      true,
-	"executeAsOne":       true,
-	"executeAsOneOrNull": true,
-	"executeAsOptional":  true,
-	"executeAsCursor":    true,
-}
 
 var databaseMainThreadFunctionNames = map[string]bool{
 	"afterTextChanged":           true,
@@ -480,8 +467,10 @@ func (r *DatabaseQueryOnMainThreadRule) checkParsedFiles(ctx *v2.Context) {
 	if ctx == nil || len(ctx.ParsedFiles) == 0 {
 		return
 	}
-	roomOps := databaseCollectBlockingRoomDaoOperations(ctx.ParsedFiles)
-	functions := databaseCollectFunctionSummaries(ctx.ParsedFiles, roomOps)
+	facts := librarymodel.EnsureFacts(ctx.LibraryFacts)
+	dbFacts := facts.Database
+	roomOps := databaseCollectBlockingRoomDaoOperations(ctx.ParsedFiles, dbFacts.Room)
+	functions := databaseCollectFunctionSummaries(ctx.ParsedFiles, roomOps, dbFacts)
 	databaseResolveFunctionCalls(functions)
 	databasePropagateBlockingDB(functions)
 	signalOps := databaseCollectSignalDatabaseOperations(functions)
@@ -566,14 +555,14 @@ func databaseCallSummaryDisplay(call databaseCallSummary) string {
 	return fmt.Sprintf("%s()", call.name)
 }
 
-func databaseCollectBlockingRoomDaoOperations(files []*scanner.File) map[string]bool {
+func databaseCollectBlockingRoomDaoOperations(files []*scanner.File, roomFacts librarymodel.RoomFacts) map[string]bool {
 	counts := make(map[string]int)
 	for _, file := range files {
 		if file == nil || file.FlatTree == nil {
 			continue
 		}
 		file.FlatWalkAllNodes(0, func(idx uint32) {
-			if file.FlatType(idx) != "class_declaration" || !hasAnnotationFlat(file, idx, "Dao") {
+			if file.FlatType(idx) != "class_declaration" || !databaseClassHasRoomDaoEvidence(file, idx, roomFacts) {
 				return
 			}
 			body, _ := file.FlatFindChild(idx, "class_body")
@@ -581,10 +570,10 @@ func databaseCollectBlockingRoomDaoOperations(files []*scanner.File) map[string]
 				return
 			}
 			for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
-				if file.FlatType(child) != "function_declaration" || !daoFunctionHasAllowedAnnotationFlat(file, child) {
+				if file.FlatType(child) != "function_declaration" || !databaseFunctionHasRoomAnnotationEvidence(file, child, roomFacts.OperationAnnotations, roomFacts) {
 					continue
 				}
-				if file.FlatHasModifier(child, "suspend") || databaseFunctionReturnsAsyncRoomType(file, child) {
+				if file.FlatHasModifier(child, "suspend") || databaseFunctionReturnsAsyncRoomType(file, child, roomFacts) {
 					continue
 				}
 				if name := flatFunctionName(file, child); name != "" {
@@ -602,18 +591,55 @@ func databaseCollectBlockingRoomDaoOperations(files []*scanner.File) map[string]
 	return ops
 }
 
-func databaseFunctionReturnsAsyncRoomType(file *scanner.File, fn uint32) bool {
+func databaseFunctionReturnsAsyncRoomType(file *scanner.File, fn uint32, roomFacts librarymodel.RoomFacts) bool {
 	text := file.FlatNodeText(fn)
 	if bodyIdx := strings.Index(text, "{"); bodyIdx >= 0 {
 		text = text[:bodyIdx]
 	}
-	return strings.Contains(text, "Flow<") ||
-		strings.Contains(text, "LiveData<") ||
-		strings.Contains(text, "PagingSource<") ||
-		strings.Contains(text, "DataSource.Factory<")
+	return roomFacts.IsAsyncReturnType(text)
 }
 
-func databaseCollectFunctionSummaries(files []*scanner.File, roomOps map[string]bool) map[string]*databaseFunctionSummary {
+func databaseHasAnyAnnotationFlat(file *scanner.File, idx uint32, names []string) bool {
+	for _, name := range names {
+		if hasAnnotationFlat(file, idx, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func databaseClassHasRoomDaoEvidence(file *scanner.File, idx uint32, roomFacts librarymodel.RoomFacts) bool {
+	if roomFacts.Enabled && databaseHasAnyAnnotationFlat(file, idx, roomFacts.DaoAnnotations) {
+		return true
+	}
+	return databaseHasRoomSourceEvidence(file, idx, roomFacts.DaoAnnotations)
+}
+
+func databaseFunctionHasRoomAnnotationEvidence(file *scanner.File, idx uint32, names []string, roomFacts librarymodel.RoomFacts) bool {
+	if roomFacts.Enabled && databaseHasAnyAnnotationFlat(file, idx, names) {
+		return true
+	}
+	return databaseHasRoomSourceEvidence(file, idx, names)
+}
+
+func databaseHasRoomSourceEvidence(file *scanner.File, idx uint32, annotationNames []string) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	text := string(file.Content)
+	if !strings.Contains(text, "androidx.room") {
+		return false
+	}
+	nodeText := file.FlatNodeText(idx)
+	for _, name := range annotationNames {
+		if strings.Contains(nodeText, "@"+name) {
+			return true
+		}
+	}
+	return false
+}
+
+func databaseCollectFunctionSummaries(files []*scanner.File, roomOps map[string]bool, dbFacts librarymodel.DatabaseFacts) map[string]*databaseFunctionSummary {
 	functions := make(map[string]*databaseFunctionSummary)
 	for _, file := range files {
 		if file == nil || file.FlatTree == nil {
@@ -635,7 +661,7 @@ func databaseCollectFunctionSummaries(files []*scanner.File, roomOps map[string]
 				owner: databaseFunctionOwner(file, idx),
 			}
 			fn.databaseTableOwner = databaseFunctionOwnerLooksSignalTable(file, idx, fn.owner)
-			databaseCollectFunctionBody(file, fn, roomOps)
+			databaseCollectFunctionBody(file, fn, roomOps, dbFacts)
 			if databaseHasImmediateDBCall(fn.dbCalls) {
 				fn.reachesDB = true
 			}
@@ -654,7 +680,7 @@ func databaseHasImmediateDBCall(calls []databaseCallSummary) bool {
 	return false
 }
 
-func databaseCollectFunctionBody(file *scanner.File, fn *databaseFunctionSummary, roomOps map[string]bool) {
+func databaseCollectFunctionBody(file *scanner.File, fn *databaseFunctionSummary, roomOps map[string]bool, dbFacts librarymodel.DatabaseFacts) {
 	file.FlatWalkAllNodes(fn.idx, func(idx uint32) {
 		if idx == fn.idx || !databaseIsCallExpression(file, idx) {
 			return
@@ -667,7 +693,7 @@ func databaseCollectFunctionBody(file *scanner.File, fn *databaseFunctionSummary
 			return
 		}
 		deferred := databaseCallInsideDeferredCallback(file, fn.idx, idx)
-		if sqliteQueryMethods[name] {
+		if dbFacts.IsSQLiteBlockingMethod(name) {
 			if !strings.Contains(file.FlatNodeText(idx), name+"(") {
 				return
 			}
@@ -697,7 +723,7 @@ func databaseCollectFunctionBody(file *scanner.File, fn *databaseFunctionSummary
 			fn.dbCalls = append(fn.dbCalls, databaseCallSummary{file: file, idx: idx, name: name, display: fmt.Sprintf("Room DAO %s()", name), deferred: deferred})
 			return
 		}
-		if databaseSQLDelightCallLooksBlocking(file, idx, name) {
+		if databaseSQLDelightCallLooksBlocking(file, idx, name, dbFacts.SQLDelight) {
 			if databaseQueryInsideBackgroundBoundary(file, idx) {
 				return
 			}
@@ -838,8 +864,8 @@ func databaseRoomDaoCallLooksBlocking(file *scanner.File, idx uint32, name strin
 	return receiver == "dao" || strings.Contains(receiver, "dao")
 }
 
-func databaseSQLDelightCallLooksBlocking(file *scanner.File, idx uint32, name string) bool {
-	if !sqlDelightQueryExecutionMethods[name] {
+func databaseSQLDelightCallLooksBlocking(file *scanner.File, idx uint32, name string, facts librarymodel.SQLDelightFacts) bool {
+	if !facts.IsBlockingExecutionMethod(name) {
 		return false
 	}
 	text := strings.ToLower(file.FlatNodeText(idx))
@@ -1106,7 +1132,8 @@ func (r *RoomLoadsAllWhereFirstUsedRule) checkParsedFiles(ctx *v2.Context) {
 	if ctx == nil || len(ctx.ParsedFiles) == 0 {
 		return
 	}
-	roomLoadAll := roomCollectLoadAllDaoOperations(ctx.ParsedFiles)
+	roomFacts := librarymodel.EnsureFacts(ctx.LibraryFacts).Database.Room
+	roomLoadAll := roomCollectLoadAllDaoOperations(ctx.ParsedFiles, roomFacts)
 	if len(roomLoadAll) == 0 {
 		return
 	}
@@ -1119,7 +1146,7 @@ func (r *RoomLoadsAllWhereFirstUsedRule) checkParsedFiles(ctx *v2.Context) {
 				return
 			}
 			terminal := flatCallExpressionName(file, idx)
-			if !loadAllTerminalMethods[terminal] {
+			if !roomFacts.IsLoadOneTerminal(terminal) {
 				return
 			}
 			receiverCall, receiverName := roomLoadAllReceiverCall(file, idx)
@@ -1139,14 +1166,14 @@ func (r *RoomLoadsAllWhereFirstUsedRule) checkParsedFiles(ctx *v2.Context) {
 	}
 }
 
-func roomCollectLoadAllDaoOperations(files []*scanner.File) map[string]bool {
+func roomCollectLoadAllDaoOperations(files []*scanner.File, roomFacts librarymodel.RoomFacts) map[string]bool {
 	counts := make(map[string]int)
 	for _, file := range files {
 		if file == nil || file.FlatTree == nil {
 			continue
 		}
 		file.FlatWalkAllNodes(0, func(idx uint32) {
-			if file.FlatType(idx) != "class_declaration" || !hasAnnotationFlat(file, idx, "Dao") {
+			if file.FlatType(idx) != "class_declaration" || !databaseClassHasRoomDaoEvidence(file, idx, roomFacts) {
 				return
 			}
 			body, _ := file.FlatFindChild(idx, "class_body")
@@ -1154,11 +1181,11 @@ func roomCollectLoadAllDaoOperations(files []*scanner.File) map[string]bool {
 				return
 			}
 			for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
-				if file.FlatType(child) != "function_declaration" || !hasAnnotationFlat(file, child, "Query") {
+				if file.FlatType(child) != "function_declaration" || !databaseFunctionHasRoomAnnotationEvidence(file, child, roomFacts.QueryAnnotationNames, roomFacts) {
 					continue
 				}
 				name := flatFunctionName(file, child)
-				if !loadAllMethods[name] {
+				if !roomFacts.IsLoadAllMethod(name) {
 					continue
 				}
 				if roomQueryHasLimit(file, child) {
@@ -1206,24 +1233,6 @@ func roomLoadAllReceiverLooksDao(file *scanner.File, receiverCall uint32) bool {
 	receiver := strings.ToLower(flatReceiverNameFromCall(file, receiverCall))
 	text := strings.ToLower(file.FlatNodeText(receiverCall))
 	return strings.Contains(receiver, "dao") || strings.Contains(text, "dao.")
-}
-
-var loadAllTerminalMethods = map[string]bool{
-	"first":        true,
-	"firstOrNull":  true,
-	"single":       true,
-	"singleOrNull": true,
-	"last":         true,
-	"lastOrNull":   true,
-}
-
-var loadAllMethods = map[string]bool{
-	"getAll":    true,
-	"findAll":   true,
-	"loadAll":   true,
-	"fetchAll":  true,
-	"queryAll":  true,
-	"selectAll": true,
 }
 
 // ---------------------------------------------------------------------------

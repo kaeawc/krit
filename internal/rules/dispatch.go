@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -122,6 +123,14 @@ func NewDispatcherV2(activeRules []*v2.Rule, resolver ...typeinfer.TypeResolver)
 		d = NewV2Dispatcher(activeRules)
 	}
 	return &Dispatcher{v2: d, typeResolver: res}
+}
+
+// SetLibraryFacts wires project-wide library semantics into v2 rule contexts.
+func (d *Dispatcher) SetLibraryFacts(facts *librarymodel.Facts) {
+	if d == nil || d.v2 == nil {
+		return
+	}
+	d.v2.SetLibraryFacts(facts)
 }
 
 // Run executes all rules on a file using single-pass dispatch.

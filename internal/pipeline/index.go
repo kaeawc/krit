@@ -13,6 +13,7 @@ import (
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
@@ -58,6 +59,9 @@ type IndexInput struct {
 	// call is made. When nil, IndexPhase builds one if any active rule
 	// declares NeedsResolver.
 	PrebuiltResolver typeinfer.TypeResolver
+	// PrebuiltLibraryFacts, when non-nil, is passed through to downstream
+	// rule contexts instead of being rebuilt from detected Gradle files.
+	PrebuiltLibraryFacts *librarymodel.Facts
 	// Logger, when non-nil, receives verbose progress messages. Nil
 	// means no-op.
 	Logger func(format string, args ...any)
@@ -244,7 +248,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		return IndexResult{}, err
 	}
 
-	result := IndexResult{ParseResult: in.ParseResult}
+	result := IndexResult{ParseResult: in.ParseResult, LibraryFacts: in.PrebuiltLibraryFacts}
 
 	caps := unionNeeds(in.ActiveRules)
 
@@ -308,6 +312,10 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	// Android project
 	if !p.SkipAndroid {
 		result.AndroidProject = android.DetectAndroidProject(in.Paths)
+		if result.LibraryFacts == nil && result.AndroidProject != nil {
+			profile := librarymodel.ProfileFromGradlePaths(result.AndroidProject.GradlePaths)
+			result.LibraryFacts = librarymodel.FactsForProfile(profile)
+		}
 	}
 
 	// CodeIndex build (+ Java collection/parse) under the

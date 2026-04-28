@@ -2,6 +2,7 @@ package rules
 
 import (
 	"strings"
+	"sync"
 
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -265,6 +266,283 @@ type VerifyWithoutMockRule struct {
 }
 
 func (r *VerifyWithoutMockRule) Confidence() float64 { return 0.6 }
+
+var testingQualityMockCreationCalls = map[string]bool{
+	"mockk":        true,
+	"relaxedMockk": true,
+	"mockkClass":   true,
+	"spyk":         true,
+	"mock":         true,
+	"spy":          true,
+}
+
+var testingQualityObjectMockCreationCalls = map[string]bool{
+	"mockkObject":      true,
+	"mockkStatic":      true,
+	"mockkConstructor": true,
+}
+
+var testingQualityMockHelperCache sync.Map
+var testingQualityMockNamesCache sync.Map
+
+type testingQualityMockNamesCacheKey struct {
+	file *scanner.File
+	fn   uint32
+}
+
+func testingQualityIsMockKVerifyCall(file *scanner.File, idx uint32, name string) bool {
+	if name != "verify" && name != "coVerify" {
+		return false
+	}
+	nav, _ := flatCallExpressionParts(file, idx)
+	if nav != 0 {
+		segments := flatNavigationChainIdentifiers(file, nav)
+		if len(segments) == 3 && segments[0] == "io" && segments[1] == "mockk" && segments[2] == name {
+			return true
+		}
+		return false
+	}
+	return fileImportsFQN(file, "io.mockk."+name)
+}
+
+func testingQualityDirectVerifyReceivers(file *scanner.File, lambda uint32) []string {
+	if file == nil || lambda == 0 {
+		return nil
+	}
+	var receivers []string
+	addReceiver := func(stmt uint32) {
+		if stmt == 0 || file.FlatType(stmt) != "call_expression" {
+			return
+		}
+		if receiver := flatReceiverNameFromCall(file, stmt); receiver != "" {
+			receivers = append(receivers, receiver)
+		}
+	}
+	if statements, ok := file.FlatFindChild(lambda, "statements"); ok {
+		for stmt := file.FlatFirstChild(statements); stmt != 0; stmt = file.FlatNextSib(stmt) {
+			if file.FlatIsNamed(stmt) {
+				addReceiver(stmt)
+			}
+		}
+		return receivers
+	}
+	for child := file.FlatFirstChild(lambda); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatIsNamed(child) {
+			addReceiver(child)
+		}
+	}
+	return receivers
+}
+
+func testingQualityIdentifierFromDeclaration(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 {
+		return ""
+	}
+	varDecl, _ := file.FlatFindChild(idx, "variable_declaration")
+	if varDecl == 0 {
+		return ""
+	}
+	ident, _ := file.FlatFindChild(varDecl, "simple_identifier")
+	if ident == 0 {
+		return ""
+	}
+	return file.FlatNodeText(ident)
+}
+
+func testingQualityPropertyInitializer(file *scanner.File, idx uint32) uint32 {
+	return propertyInitializerExpression(file, idx)
+}
+
+func testingQualityCallCreatesMock(file *scanner.File, idx uint32, helperFuncs map[string]bool) bool {
+	name := flatCallNameAny(file, idx)
+	return testingQualityMockCreationCalls[name] || helperFuncs[name]
+}
+
+func testingQualityExprCreatesMock(file *scanner.File, idx uint32, helperFuncs map[string]bool) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	idx = flatUnwrapParenExpr(file, idx)
+	if file.FlatType(idx) != "call_expression" {
+		return false
+	}
+	return testingQualityCallCreatesMock(file, idx, helperFuncs)
+}
+
+func testingQualityAssignmentParts(file *scanner.File, idx uint32) (string, uint32) {
+	if file == nil || idx == 0 || file.FlatType(idx) != "assignment" {
+		return "", 0
+	}
+	var lhs uint32
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		lhs = child
+		break
+	}
+	rhs := assignmentRHS(file, idx)
+	if lhs == 0 || rhs == 0 {
+		return "", 0
+	}
+	name := ""
+	file.FlatWalkAllNodes(lhs, func(n uint32) {
+		if name == "" && file.FlatType(n) == "simple_identifier" {
+			name = file.FlatNodeText(n)
+		}
+	})
+	return name, rhs
+}
+
+func testingQualityMockedObjectName(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 || !testingQualityObjectMockCreationCalls[flatCallNameAny(file, idx)] {
+		return ""
+	}
+	args := flatCallKeyArguments(file, idx)
+	if args == 0 {
+		return ""
+	}
+	arg := flatPositionalValueArgument(file, args, 0)
+	expr := flatValueArgumentExpression(file, arg)
+	if expr == 0 {
+		return ""
+	}
+	switch file.FlatType(expr) {
+	case "simple_identifier":
+		return file.FlatNodeText(expr)
+	case "navigation_expression":
+		segments := flatNavigationChainIdentifiers(file, expr)
+		if len(segments) > 0 {
+			return segments[0]
+		}
+	case "class_literal":
+		if file.FlatNamedChildCount(expr) > 0 {
+			first := file.FlatNamedChild(expr, 0)
+			switch file.FlatType(first) {
+			case "simple_identifier":
+				return file.FlatNodeText(first)
+			case "navigation_expression":
+				segments := flatNavigationChainIdentifiers(file, first)
+				if len(segments) > 0 {
+					return segments[0]
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func testingQualityMockHelperFunctions(file *scanner.File) map[string]bool {
+	helpers := make(map[string]bool)
+	if file == nil {
+		return helpers
+	}
+	if cached, ok := testingQualityMockHelperCache.Load(file); ok {
+		return cached.(map[string]bool)
+	}
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		name := testingQualityFunctionName(file, fn)
+		if name == "" {
+			return
+		}
+		mockVars := make(map[string]bool)
+		if body, ok := file.FlatFindChild(fn, "function_body"); ok {
+			file.FlatWalkAllNodes(body, func(n uint32) {
+				switch file.FlatType(n) {
+				case "property_declaration":
+					varName := testingQualityIdentifierFromDeclaration(file, n)
+					init := testingQualityPropertyInitializer(file, n)
+					if varName != "" && testingQualityExprCreatesMock(file, init, helpers) {
+						mockVars[varName] = true
+					}
+				case "jump_expression":
+					if !strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(n)), "return") {
+						return
+					}
+					if file.FlatNamedChildCount(n) == 0 {
+						return
+					}
+					expr := file.FlatNamedChild(n, 0)
+					if testingQualityExprCreatesMock(file, expr, helpers) {
+						helpers[name] = true
+						return
+					}
+					if file.FlatType(expr) == "simple_identifier" && mockVars[file.FlatNodeText(expr)] {
+						helpers[name] = true
+					}
+				}
+			})
+		}
+	})
+	testingQualityMockHelperCache.Store(file, helpers)
+	return helpers
+}
+
+func testingQualityCollectMockNames(file *scanner.File, fn uint32, helperFuncs map[string]bool) map[string]bool {
+	mockVars := make(map[string]bool)
+	if file == nil {
+		return mockVars
+	}
+	key := testingQualityMockNamesCacheKey{file: file, fn: fn}
+	if cached, ok := testingQualityMockNamesCache.Load(key); ok {
+		return cached.(map[string]bool)
+	}
+	classProps := make(map[string]bool)
+	recordProperty := func(prop uint32) {
+		name := testingQualityIdentifierFromDeclaration(file, prop)
+		if name == "" {
+			return
+		}
+		if flatHasAnnotationNamed(file, prop, "MockK") || flatHasAnnotationNamed(file, prop, "RelaxedMockK") {
+			mockVars[name] = true
+			return
+		}
+		if testingQualityExprCreatesMock(file, testingQualityPropertyInitializer(file, prop), helperFuncs) {
+			mockVars[name] = true
+		}
+	}
+	recordCall := func(call uint32) {
+		if objectName := testingQualityMockedObjectName(file, call); objectName != "" {
+			mockVars[objectName] = true
+		}
+	}
+	file.FlatWalkNodes(0, "property_declaration", func(prop uint32) {
+		if _, insideFunction := flatEnclosingFunction(file, prop); insideFunction {
+			return
+		}
+		if name := testingQualityIdentifierFromDeclaration(file, prop); name != "" {
+			classProps[name] = true
+		}
+		recordProperty(prop)
+	})
+	file.FlatWalkNodes(0, "assignment", func(assign uint32) {
+		name, rhs := testingQualityAssignmentParts(file, assign)
+		if name != "" && classProps[name] && testingQualityExprCreatesMock(file, rhs, helperFuncs) {
+			mockVars[name] = true
+		}
+	})
+	file.FlatWalkNodes(0, "call_expression", recordCall)
+	if fn != 0 {
+		body, _ := file.FlatFindChild(fn, "function_body")
+		if body != 0 {
+			file.FlatWalkAllNodes(body, func(n uint32) {
+				switch file.FlatType(n) {
+				case "property_declaration":
+					recordProperty(n)
+				case "assignment":
+					name, rhs := testingQualityAssignmentParts(file, n)
+					if name != "" && testingQualityExprCreatesMock(file, rhs, helperFuncs) {
+						mockVars[name] = true
+					}
+				case "call_expression":
+					recordCall(n)
+				}
+			})
+		}
+	}
+	testingQualityMockNamesCache.Store(key, mockVars)
+	return mockVars
+}
 
 // ---------------------------------------------------------------------------
 // Testing-quality helpers

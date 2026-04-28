@@ -23,7 +23,13 @@ PROJECT="${1:-.}"
 RUNS="${2:-2}"
 ORACLE_JSON="${PROJECT}/.krit/types.json"
 KRIT="${KRIT:-./krit}"
-TMPOUT="$(mktemp /tmp/krit-oracle-bench-XXXXXX).json"
+
+portable_mktemp() {
+    local template="$1"
+    mktemp "$template" 2>/dev/null || mktemp -t "$(basename "$template" | sed 's/-XXXXXX.*//')"
+}
+
+TMPOUT=$(portable_mktemp /tmp/krit-oracle-bench-XXXXXX)
 trap 'rm -f "$TMPOUT"' EXIT
 
 if [ ! -d "$PROJECT" ]; then
@@ -89,7 +95,7 @@ for i in $(seq 1 "$RUNS"); do
     WALL_MS=$(( END_TS - START_TS ))
 
     # Parse timing from JSON output into a sourceable temp file
-    PARSED_VARS="$(mktemp /tmp/krit-bench-vars-XXXXXX).sh"
+    PARSED_VARS=$(portable_mktemp /tmp/krit-bench-vars-XXXXXX)
     parse_timing "$TMPOUT" | sed 's/^/export /' > "$PARSED_VARS"
     # shellcheck disable=SC1090
     source "$PARSED_VARS"

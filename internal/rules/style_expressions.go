@@ -251,19 +251,32 @@ func fileImportsFQN(file *scanner.File, fqn string) bool {
 		if found {
 			return
 		}
-		text := strings.TrimSpace(file.FlatNodeText(node))
-		text = strings.TrimPrefix(text, "import ")
-		text = strings.TrimSuffix(text, ";")
-		text = strings.TrimSpace(text)
-		if alias := strings.Index(text, " as "); alias >= 0 {
-			text = strings.TrimSpace(text[:alias])
-		}
+		text := cleanImportHeaderText(file.FlatNodeText(node))
 		if text == fqn || text == wantWildcard {
 			found = true
 		}
 	})
 	importFQNCache.Store(key, found)
 	return found
+}
+
+func cleanImportHeaderText(text string) string {
+	text = cleanImportHeaderTextWithAlias(text)
+	if alias := strings.Index(text, " as "); alias >= 0 {
+		text = strings.TrimSpace(text[:alias])
+	}
+	return text
+}
+
+func cleanImportHeaderTextWithAlias(text string) string {
+	text = strings.TrimSpace(text)
+	if nl := strings.IndexAny(text, "\r\n"); nl >= 0 {
+		text = strings.TrimSpace(text[:nl])
+	}
+	text = strings.TrimPrefix(text, "import ")
+	text = strings.TrimSuffix(text, ";")
+	text = strings.TrimSpace(text)
+	return text
 }
 
 func collectWhenDispatchJumpsFlat(fn uint32, file *scanner.File) map[int]bool {

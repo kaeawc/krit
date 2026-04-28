@@ -34,6 +34,14 @@ class Processor {
         }
     }
 
+    fun localLogLookalike(log: LocalLog) {
+        try {
+            doWork()
+        } catch (e: Exception) {
+            log.warn(e)
+        }
+    }
+
     fun nestedLambdaIgnored() {
         try {
             doWork()
@@ -47,4 +55,8 @@ class Processor {
     private fun doWork() {
         throw RuntimeException("failure")
     }
+}
+
+class LocalLog {
+    fun warn(error: Throwable) {}
 }

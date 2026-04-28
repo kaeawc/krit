@@ -24,7 +24,6 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 		{"IgnoredReturnValue", []string{"Sequence", "Flow", "Stream", "Function", "->", "CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}, []string{"CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}},
 		{"NullableToStringCall", []string{"toString", "$"}, []string{"toString"}},
 		{"ObjectAnimatorBinding", []string{"ObjectAnimator", "ofFloat", "ofInt", "ofObject"}, nil},
-		{"SwallowedException", []string{"catch", "Log", "Timber", "Logger", "println", "trace", "debug", "info", "warn", "warning", "severe", "error", "log", "makeText", "Snackbar", "AlertDialog", "showDialog", "showError", "handleError", "reportError", "recoverFrom", "onError", "fallback", "notifyError"}, swallowedExceptionCallTargetCallees()},
 		{"UnreachableCode", []string{"return", "throw", "break", "continue"}, nil},
 		{"UseIsNullOrEmpty", []string{"isEmpty", "count", ".size", ".length", "\"\""}, nil},
 		{"UnsafeCast", []string{" as ", " as?"}, nil},
@@ -132,6 +131,7 @@ func TestResolverOnlyRulesDoNotContributeToOracle(t *testing.T) {
 		"PlainFileWriteOfSensitive",
 		"SharedPreferencesForSensitiveKey",
 		"SpreadOperator",
+		"SwallowedException",
 		"UnsafeCallOnNullableType",
 		"UnnecessaryNotNullOperator",
 	} {

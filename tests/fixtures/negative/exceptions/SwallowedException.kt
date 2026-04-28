@@ -1,5 +1,7 @@
 package com.example.exceptions
 
+import org.signal.core.util.logging.Log
+
 class Processor {
 
     fun process() {
@@ -54,9 +56,35 @@ class Processor {
         }
     }
 
+    fun returnedDomainFailure(): Result {
+        try {
+            doWork()
+        } catch (e: IllegalStateException) {
+            return Result.Failure(e)
+        }
+        return Result.Success
+    }
+
+    fun callbackFailure(callback: Callback) {
+        try {
+            doWork()
+        } catch (e: IllegalStateException) {
+            callback.onLoadFailed(e)
+        }
+    }
+
     private fun transform(i: Int): String = i.toString()
 
     private fun doWork() {
         throw RuntimeException("failure")
     }
+}
+
+sealed class Result {
+    object Success : Result()
+    data class Failure(val error: Throwable) : Result()
+}
+
+interface Callback {
+    fun onLoadFailed(error: Throwable)
 }

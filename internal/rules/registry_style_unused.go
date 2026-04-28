@@ -121,7 +121,14 @@ func registerStyleUnusedRules() {
 							strings.Contains(paramText, "\"UNUSED_PARAMETER\"")) {
 						continue
 					}
-					used, unknown := unusedParameterUsageFlat(file, summary.body, param.idx, paramName)
+					used := false
+					unknown := false
+					if summary.paramsNode != 0 {
+						used, unknown = unusedParameterUsageFlat(file, summary.paramsNode, param.idx, paramName, param.isFunctionType)
+					}
+					if !used && !unknown {
+						used, unknown = unusedParameterUsageFlat(file, summary.body, param.idx, paramName, param.isFunctionType)
+					}
 					if unknown {
 						continue
 					}

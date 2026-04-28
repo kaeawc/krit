@@ -524,22 +524,14 @@ func registerTestingQualityRules() {
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallNameAny(file, idx)
-				if name != "verify" && name != "coVerify" {
+				if !testingQualityIsMockKVerifyCall(file, idx, name) {
 					return
 				}
 				lambda := flatCallTrailingLambda(file, idx)
 				if lambda == 0 {
 					return
 				}
-				var receivers []string
-				file.FlatWalkAllNodes(lambda, func(n uint32) {
-					if file.FlatType(n) == "navigation_expression" {
-						first := file.FlatNamedChild(n, 0)
-						if first != 0 && file.FlatType(first) == "simple_identifier" {
-							receivers = append(receivers, file.FlatNodeText(first))
-						}
-					}
-				})
+				receivers := testingQualityDirectVerifyReceivers(file, lambda)
 				if len(receivers) == 0 {
 					return
 				}
@@ -547,32 +539,8 @@ func registerTestingQualityRules() {
 				if !ok {
 					return
 				}
-				body, _ := file.FlatFindChild(fn, "function_body")
-				if body == 0 {
-					return
-				}
-				mockVars := make(map[string]bool)
-				file.FlatWalkAllNodes(body, func(n uint32) {
-					if file.FlatType(n) != "property_declaration" {
-						return
-					}
-					varDecl, _ := file.FlatFindChild(n, "variable_declaration")
-					if varDecl == 0 {
-						return
-					}
-					ident, _ := file.FlatFindChild(varDecl, "simple_identifier")
-					if ident == 0 {
-						return
-					}
-					for rhs := file.FlatFirstChild(n); rhs != 0; rhs = file.FlatNextSib(rhs) {
-						if file.FlatType(rhs) == "call_expression" {
-							cn := flatCallNameAny(file, rhs)
-							if cn == "mockk" || cn == "mock" || cn == "spyk" || cn == "spy" {
-								mockVars[file.FlatNodeText(ident)] = true
-							}
-						}
-					}
-				})
+				helperFuncs := testingQualityMockHelperFunctions(file)
+				mockVars := testingQualityCollectMockNames(file, fn, helperFuncs)
 				for _, recv := range receivers {
 					if !mockVars[recv] {
 						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("Calling `verify` on a non-mock object; ensure `%s` is a mock.", recv))

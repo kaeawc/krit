@@ -1,6 +1,9 @@
 package rules_test
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAssertEqualsArgumentOrder_Positive(t *testing.T) {
 	findings := runRuleByName(t, "AssertEqualsArgumentOrder", `
@@ -595,8 +598,8 @@ class VerifyWithoutMockPositive {
     }
 }
 `)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for verify without mock")
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding for verify without mock, got %d", len(findings))
 	}
 }
 
@@ -623,5 +626,116 @@ class VerifyWithoutMockNegative {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestVerifyWithoutMock_Negative_ClassAndHelperMocks(t *testing.T) {
+	findings := runRuleByName(t, "VerifyWithoutMock", `
+package test
+
+import io.mockk.mockk
+import io.mockk.spyk
+import io.mockk.verify
+import org.junit.Before
+import org.junit.Test
+
+interface Api {
+    fun get(value: String): String
+}
+
+object DataSet {
+    val VALUE = "data"
+}
+
+class VerifyWithoutMockSignalStyleNegative {
+    private val fieldMock = mockk<Api>()
+    private lateinit var setupMock: Api
+    private lateinit var helperMock: Api
+    private lateinit var spyMock: Api
+
+    @Before
+    fun setUp() {
+        setupMock = mockk()
+        helperMock = buildMock()
+        spyMock = spyk(fieldMock)
+    }
+
+    @Test
+    fun works() {
+        val localMock = buildMock()
+        verify { fieldMock.get(DataSet.VALUE) }
+        verify { setupMock.get(DataSet.VALUE) }
+        verify { helperMock.get(DataSet.VALUE) }
+        verify { spyMock.get(DataSet.VALUE) }
+        verify { localMock.get(DataSet.VALUE) }
+    }
+
+    private fun buildMock(): Api {
+        val mock = mockk<Api>()
+        return mock
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestVerifyWithoutMock_Negative_NonMockKVerifyLambda(t *testing.T) {
+	findings := runRuleByName(t, "VerifyWithoutMock", `
+package test
+
+import org.mockito.MockedStatic
+import org.mockito.kotlin.verify
+import org.junit.Test
+
+object IdentityUtil {
+    fun saveIdentity(value: String) {}
+}
+
+class VerifyWithoutMockMockitoStaticNegative {
+    lateinit var staticIdentityUtil: MockedStatic<IdentityUtil>
+
+    @Test
+    fun works() {
+        val otherAci = "aci"
+        staticIdentityUtil.verify { IdentityUtil.saveIdentity(otherAci.toString()) }
+        verify(staticIdentityUtil).close()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestVerifyWithoutMock_Positive_DirectReceiverOnly(t *testing.T) {
+	findings := runRuleByName(t, "VerifyWithoutMock", `
+package test
+
+import io.mockk.verify
+import org.junit.Test
+
+class Api {
+    fun update(value: String) {}
+}
+
+object DataSet {
+    val VALUE = "data"
+}
+
+class VerifyWithoutMockDirectReceiverPositive {
+    @Test
+    fun works() {
+        val api = Api()
+        verify { api.update(DataSet.VALUE) }
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding for the direct verified receiver, got %d", len(findings))
+	}
+	if findings[0].Message == "" || !strings.Contains(findings[0].Message, "`api`") {
+		t.Fatalf("expected finding to mention api receiver, got %q", findings[0].Message)
 	}
 }

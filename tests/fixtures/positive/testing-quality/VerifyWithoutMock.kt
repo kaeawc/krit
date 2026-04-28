@@ -14,4 +14,18 @@ class VerifyWithoutMockPositive {
         api.get()
         verify { api.get() }
     }
+
+    @Test
+    fun ignoresNestedArgumentReceivers() {
+        val api = RealApi()
+        verify { api.consume(DataSet.VALUE) }
+    }
+}
+
+object DataSet {
+    val VALUE = "data"
+}
+
+fun RealApi.consume(value: String) {
+    get()
 }

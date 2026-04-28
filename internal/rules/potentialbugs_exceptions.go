@@ -107,6 +107,12 @@ func (r *TooGenericExceptionCaughtRule) checkNode(ctx *v2.Context) {
 			return
 		}
 	}
+	if caughtVar != "" && catchBodyRethrowsCaughtException(file, idx, caughtVar) {
+		return
+	}
+	if caughtVar != "" && catchBodyCallsOnCaughtVar(file, idx, caughtVar, "printStackTrace") {
+		return
+	}
 	// Skip catches inside Job/Worker/Runnable classes — these are async
 	// execution boundaries where catching generic Exception is a best practice
 	// to prevent uncaught exception crashes.
@@ -218,6 +224,30 @@ func catchBodyPassesVarAsArgFlat(file *scanner.File, catchNode uint32, varName s
 				}
 			})
 		}
+	})
+	return found
+}
+
+func catchBodyRethrowsCaughtException(file *scanner.File, catchNode uint32, varName string) bool {
+	found := false
+	file.FlatWalkNodes(catchNode, "jump_expression", func(idx uint32) {
+		if found {
+			return
+		}
+		text := strings.TrimSpace(file.FlatNodeText(idx))
+		found = text == "throw "+varName
+	})
+	return found
+}
+
+func catchBodyCallsOnCaughtVar(file *scanner.File, catchNode uint32, varName string, callee string) bool {
+	found := false
+	file.FlatWalkNodes(catchNode, "call_expression", func(idx uint32) {
+		if found || flatCallNameAny(file, idx) != callee {
+			return
+		}
+		text := strings.TrimSpace(file.FlatNodeText(idx))
+		found = strings.HasPrefix(text, varName+".")
 	})
 	return found
 }

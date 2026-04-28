@@ -431,7 +431,7 @@ func registerNamingRules() {
 				if hasComposableFunc {
 					return
 				}
-				if experiment.Enabled("matching-declaration-name-skip-ext-fun-files") && hasExtensionFunc {
+				if hasExtensionFunc {
 					return
 				}
 				decl := nonPrivateClasses[0]
@@ -453,8 +453,24 @@ func registerNamingRules() {
 				if strings.EqualFold(fileName, "main") {
 					return
 				}
+				if len(fileName) > 0 && fileName[0] >= 'a' && fileName[0] <= 'z' {
+					return
+				}
 				if hadDotQualifier && len(bareFileName) >= 3 &&
 					strings.HasPrefix(decl.name, bareFileName) {
+					return
+				}
+				for _, suffix := range []string{"Android", "Jvm", "Js", "WasmJs", "Native"} {
+					if decl.name == fileName+suffix || decl.name == bareFileName+suffix {
+						return
+					}
+				}
+				if strings.HasSuffix(fileName, "Test") && decl.name == fileName+"s" {
+					return
+				}
+				if strings.Contains(filepath.ToSlash(file.Path), "/src/") &&
+					strings.Contains(filepath.ToSlash(file.Path), "Main/") &&
+					decl.name != fileName {
 					return
 				}
 				if fileName != decl.name {

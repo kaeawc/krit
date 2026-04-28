@@ -120,6 +120,9 @@ func registerCoroutinesRules() {
 			TypeInfo: v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) {
+					return
+				}
 				if first := file.FlatChild(idx, 0); first != 0 && file.FlatType(first) == "call_expression" {
 					return
 				}
@@ -902,7 +905,11 @@ func registerCoroutinesRules() {
 				if !strings.Contains(propText, "MutableStateFlow") {
 					return
 				}
-				if file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "protected") {
+				if isTestFile(file.Path) || file.FlatHasAncestorOfType(idx, "function_body") {
+					return
+				}
+				if file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "protected") ||
+					file.FlatHasModifier(idx, "internal") {
 					return
 				}
 				propName := extractIdentifierFlat(file, idx)

@@ -321,6 +321,45 @@ func (r *MagicNumberRule) ignoredNumberSet() map[string]bool {
 	return r.ignoredNumbersMap
 }
 
+func magicNumberIsBitOperationLiteral(file *scanner.File, idx uint32) bool {
+	if strings.HasPrefix(file.FlatNodeText(idx), "0b") || strings.HasPrefix(file.FlatNodeText(idx), "0B") {
+		return true
+	}
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		t := file.FlatType(cur)
+		if t == "infix_expression" {
+			text := file.FlatNodeText(cur)
+			return strings.Contains(text, " shl ") ||
+				strings.Contains(text, " shr ") ||
+				strings.Contains(text, " ushr ") ||
+				strings.Contains(text, " and ") ||
+				strings.Contains(text, " or ") ||
+				strings.Contains(text, " xor ")
+		}
+		if t == "function_body" || t == "statements" || t == "property_declaration" ||
+			t == "function_declaration" || t == "source_file" {
+			return false
+		}
+	}
+	return false
+}
+
+func magicNumberIsBinaryProtocolLiteral(file *scanner.File, idx uint32) bool {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "call_expression":
+			switch flatCallNameAny(file, cur) {
+			case "rangeEquals", "request":
+				return true
+			}
+			return false
+		case "function_body", "statements", "property_declaration", "function_declaration", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
 // Confidence reports a tier-2 (medium) base confidence. MagicNumber is
 // structurally accurate but highly context-dependent: whether a
 // literal is "magic" depends on call context, domain, and convention,

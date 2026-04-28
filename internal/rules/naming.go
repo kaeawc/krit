@@ -22,7 +22,6 @@ type ClassNamingRule struct {
 // Classified per roadmap/17.
 func (r *ClassNamingRule) Confidence() float64 { return 0.95 }
 
-
 // FunctionNamingRule checks function names match a pattern.
 type FunctionNamingRule struct {
 	FlatDispatchBase
@@ -37,7 +36,6 @@ type FunctionNamingRule struct {
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
 func (r *FunctionNamingRule) Confidence() float64 { return 0.95 }
-
 
 func functionDeclarationHasExplicitReturnTypeFlat(file *scanner.File, idx uint32) bool {
 	seenParams := false
@@ -109,7 +107,6 @@ type VariableNamingRule struct {
 // Classified per roadmap/17.
 func (r *VariableNamingRule) Confidence() float64 { return 0.95 }
 
-
 // PackageNamingRule checks package names.
 type PackageNamingRule struct {
 	FlatDispatchBase
@@ -121,7 +118,6 @@ type PackageNamingRule struct {
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
 func (r *PackageNamingRule) Confidence() float64 { return 0.95 }
-
 
 // EnumNamingRule checks enum entry names.
 type EnumNamingRule struct {
@@ -135,13 +131,14 @@ type EnumNamingRule struct {
 // Classified per roadmap/17.
 func (r *EnumNamingRule) Confidence() float64 { return 0.95 }
 
-
 // isTestFile checks if a file is in a test directory.
 func isTestFile(path string) bool {
 	testDirs := []string{"/test/", "/androidTest/", "/commonTest/", "/jvmTest/",
 		"/commonJvmTest/", "/browserCommonTest/", "/jvmCommonTest/",
 		"/androidUnitTest/", "/androidInstrumentedTest/", "/jsTest/", "/iosTest/",
+		"/nativeTest/", "/nonJvmCommonTest/",
 		"/benchmark/", "/canary/",
+		"/test-utils/",
 		// Google-style Java/Kotlin test roots parallel to `java/`:
 		//   <module>/javatests/foo/Bar.kt  (Dagger, Bazel layouts)
 		//   <module>/kotlintests/foo/Bar.kt
@@ -187,7 +184,6 @@ type BooleanPropertyNamingRule struct {
 // Classified per roadmap/17.
 func (r *BooleanPropertyNamingRule) Confidence() float64 { return 0.95 }
 
-
 func isBooleanPropertyFlat(file *scanner.File, idx uint32) bool {
 	text := file.FlatNodeText(idx)
 	return strings.Contains(text, ": Boolean") || strings.Contains(text, "= true") || strings.Contains(text, "= false")
@@ -207,7 +203,6 @@ type ConstructorParameterNamingRule struct {
 // Classified per roadmap/17.
 func (r *ConstructorParameterNamingRule) Confidence() float64 { return 0.95 }
 
-
 // ForbiddenClassNameRule flags disallowed class names.
 type ForbiddenClassNameRule struct {
 	FlatDispatchBase
@@ -219,7 +214,6 @@ type ForbiddenClassNameRule struct {
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
 func (r *ForbiddenClassNameRule) Confidence() float64 { return 0.95 }
-
 
 // FunctionNameMaxLengthRule flags function names exceeding a max length.
 type FunctionNameMaxLengthRule struct {
@@ -233,7 +227,6 @@ type FunctionNameMaxLengthRule struct {
 // Classified per roadmap/17.
 func (r *FunctionNameMaxLengthRule) Confidence() float64 { return 0.95 }
 
-
 // FunctionNameMinLengthRule flags function names below a min length.
 type FunctionNameMinLengthRule struct {
 	FlatDispatchBase
@@ -245,7 +238,6 @@ type FunctionNameMinLengthRule struct {
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
 func (r *FunctionNameMinLengthRule) Confidence() float64 { return 0.95 }
-
 
 // FunctionParameterNamingRule checks function parameter names.
 type FunctionParameterNamingRule struct {
@@ -260,7 +252,6 @@ type FunctionParameterNamingRule struct {
 // Classified per roadmap/17.
 func (r *FunctionParameterNamingRule) Confidence() float64 { return 0.95 }
 
-
 // InvalidPackageDeclarationRule checks that the package declaration matches the directory structure.
 type InvalidPackageDeclarationRule struct {
 	FlatDispatchBase
@@ -274,7 +265,6 @@ type InvalidPackageDeclarationRule struct {
 // Classified per roadmap/17.
 func (r *InvalidPackageDeclarationRule) Confidence() float64 { return 0.95 }
 
-
 // LambdaParameterNamingRule checks lambda parameter names.
 type LambdaParameterNamingRule struct {
 	FlatDispatchBase
@@ -286,7 +276,6 @@ type LambdaParameterNamingRule struct {
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
 func (r *LambdaParameterNamingRule) Confidence() float64 { return 0.95 }
-
 
 // MatchingDeclarationNameRule checks that a file with a single non-private
 // top-level class or object has a filename matching that declaration's name.
@@ -306,7 +295,6 @@ type MatchingDeclarationNameRule struct {
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
 func (r *MatchingDeclarationNameRule) Confidence() float64 { return 0.95 }
-
 
 // fileNameWithoutSuffix strips multiplatform and .kt/.kts suffixes from a path.
 // For example "Foo.android.kt" with target "android" yields "Foo".
@@ -333,7 +321,6 @@ type MemberNameEqualsClassNameRule struct {
 // Classified per roadmap/17.
 func (r *MemberNameEqualsClassNameRule) Confidence() float64 { return 0.95 }
 
-
 // NoNameShadowingRule flags inner declarations that shadow outer ones.
 // Matches detekt's NoNameShadowing behavior:
 //   - Skips underscore "_" names
@@ -354,7 +341,6 @@ type NoNameShadowingRule struct {
 // --min-confidence=medium pipelines but lets strict pipelines filter
 // it out of their default gate.
 func (r *NoNameShadowingRule) Confidence() float64 { return 0.75 }
-
 
 type noNameShadowFindingKey struct {
 	line int
@@ -449,6 +435,9 @@ func (r *NoNameShadowingRule) walkScopeFlat(node uint32, ctx *shadowScanCtx, vis
 			// Handle destructuring: `val (a, b) = expr` has multiple
 			// variable_declaration children inside a multi_variable_declaration.
 			if childType == "property_declaration" || childType == "variable_declaration" {
+				if parent, ok := file.FlatParent(child); ok && file.FlatType(parent) == "source_file" {
+					continue
+				}
 				// Tree-sitter-kotlin mis-parses `class X\ninternal constructor(...)`
 				// as a property_declaration with user_type "constructor" and a
 				// multi_variable_declaration holding the constructor params.
@@ -482,6 +471,14 @@ func (r *NoNameShadowingRule) walkScopeFlat(node uint32, ctx *shadowScanCtx, vis
 				}
 				name := extractIdentifierFlat(file, child)
 				if name != "" && name != "_" {
+					if file.FlatHasAncestorOfType(child, "catch_block") {
+						addLocalName(name)
+						continue
+					}
+					if noNameShadowHasLocalSuppression(file, child) {
+						addLocalName(name)
+						continue
+					}
 					// Skip the self-shadowing null-narrowing idiom:
 					//     val foo = foo ?: default
 					//     val foo = foo ?: return
@@ -490,6 +487,10 @@ func (r *NoNameShadowingRule) walkScopeFlat(node uint32, ctx *shadowScanCtx, vis
 					// The new binding replaces the nullable one in-scope with
 					// an identical name — no reader confusion possible.
 					if isNullNarrowingSelfShadowFlat(file, child, name) {
+						addLocalName(name)
+						continue
+					}
+					if isSimpleSelfAliasShadowFlat(file, child, name) {
 						addLocalName(name)
 						continue
 					}
@@ -628,6 +629,25 @@ func isNullNarrowingSelfShadowFlat(file *scanner.File, decl uint32, name string)
 	return strings.HasPrefix(after, "?:") || strings.HasPrefix(after, "?.")
 }
 
+func noNameShadowHasLocalSuppression(file *scanner.File, decl uint32) bool {
+	text := file.FlatNodeText(decl)
+	return strings.Contains(text, "NAME_SHADOWING") ||
+		strings.Contains(text, "NoNameShadowing") ||
+		strings.Contains(text, "detekt:NoNameShadowing") ||
+		strings.Contains(text, "detekt.NoNameShadowing")
+}
+
+func isSimpleSelfAliasShadowFlat(file *scanner.File, decl uint32, name string) bool {
+	text := file.FlatNodeText(decl)
+	eq := strings.Index(text, "=")
+	if eq < 0 {
+		return false
+	}
+	rhs := strings.TrimSpace(text[eq+1:])
+	rhs = strings.TrimPrefix(rhs, "this.")
+	return rhs == name
+}
+
 func isExtensionFunctionDeclFlat(file *scanner.File, idx uint32) bool {
 	if file == nil || file.FlatType(idx) != "function_declaration" {
 		return false
@@ -759,7 +779,6 @@ type NonBooleanPropertyPrefixedWithIsRule struct {
 // Classified per roadmap/17.
 func (r *NonBooleanPropertyPrefixedWithIsRule) Confidence() float64 { return 0.95 }
 
-
 // ObjectPropertyNamingRule checks property names inside object declarations.
 type ObjectPropertyNamingRule struct {
 	FlatDispatchBase
@@ -773,7 +792,6 @@ type ObjectPropertyNamingRule struct {
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
 func (r *ObjectPropertyNamingRule) Confidence() float64 { return 0.95 }
-
 
 // TopLevelPropertyNamingRule checks top-level property names.
 type TopLevelPropertyNamingRule struct {
@@ -789,7 +807,6 @@ type TopLevelPropertyNamingRule struct {
 // Classified per roadmap/17.
 func (r *TopLevelPropertyNamingRule) Confidence() float64 { return 0.95 }
 
-
 // VariableMaxLengthRule flags variable names that are too long.
 type VariableMaxLengthRule struct {
 	FlatDispatchBase
@@ -802,7 +819,6 @@ type VariableMaxLengthRule struct {
 // Classified per roadmap/17.
 func (r *VariableMaxLengthRule) Confidence() float64 { return 0.95 }
 
-
 // VariableMinLengthRule flags variable names that are too short.
 type VariableMinLengthRule struct {
 	FlatDispatchBase
@@ -814,7 +830,6 @@ type VariableMinLengthRule struct {
 // deterministic — the identifier is what it is. No heuristic path.
 // Classified per roadmap/17.
 func (r *VariableMinLengthRule) Confidence() float64 { return 0.95 }
-
 
 func walkFunctionParametersFlat(file *scanner.File, idx uint32, visit func(uint32)) {
 	if file == nil || idx == 0 {

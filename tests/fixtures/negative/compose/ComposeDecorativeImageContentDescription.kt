@@ -13,4 +13,9 @@ fun ComposeDecorativeImageContentDescriptionNegative() {
         contentDescription = null,
         modifier = Modifier.clearAndSetSemantics { },
     )
+
+    Image(
+        painter = painterResource(R.drawable.decoration),
+        contentDescription = null,
+    )
 }

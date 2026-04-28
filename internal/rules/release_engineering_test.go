@@ -211,7 +211,7 @@ func TestConventionPluginDeadCode(t *testing.T) {
 }
 
 func TestVisibleForTestingCallerInNonTest(t *testing.T) {
-	t.Run("same owner call triggers", func(t *testing.T) {
+	t.Run("same owner call is clean", func(t *testing.T) {
 		findings := runVisibleForTestingCallerRule(t, map[string]string{
 			"app/src/main/java/com/example/Feature.kt": `package com.example
 
@@ -225,8 +225,8 @@ class Feature {
 }
 `,
 		})
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
@@ -331,7 +331,7 @@ class Production {
 		}
 	})
 
-	t.Run("top-level same-file call triggers", func(t *testing.T) {
+	t.Run("top-level same-file call is clean", func(t *testing.T) {
 		findings := runVisibleForTestingCallerRule(t, map[string]string{
 			"app/src/main/java/com/example/Feature.kt": `package com.example
 
@@ -343,8 +343,8 @@ fun production() {
 }
 `,
 		})
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 

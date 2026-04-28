@@ -904,6 +904,33 @@ func composeAssignmentIsMutableTransitionTargetState(file *scanner.File, assignm
 		strings.Contains(prefix, "var "+receiver+" = remember { MutableTransitionState(")
 }
 
+func composeAssignmentSynchronizesRememberedObject(file *scanner.File, assignment uint32, fn uint32) bool {
+	text := file.FlatNodeText(assignment)
+	eq := strings.Index(text, "=")
+	if eq < 0 {
+		return false
+	}
+	lhs := strings.TrimSpace(text[:eq])
+	dot := strings.Index(lhs, ".")
+	if dot <= 0 {
+		return false
+	}
+	receiver := strings.TrimSpace(strings.TrimPrefix(lhs[:dot], "this."))
+	if receiver == "" || strings.ContainsAny(receiver, " \t\n(){}[]") {
+		return false
+	}
+	start := file.FlatStartByte(fn)
+	end := file.FlatStartByte(assignment)
+	if end <= start || int(end) > len(file.Content) {
+		return false
+	}
+	prefix := string(file.Content[start:end])
+	return strings.Contains(prefix, "val "+receiver+" = remember {") ||
+		strings.Contains(prefix, "var "+receiver+" = remember {") ||
+		strings.Contains(prefix, "val "+receiver+" = remember(") ||
+		strings.Contains(prefix, "var "+receiver+" = remember(")
+}
+
 func composeSideEffectAllowedLambdaBoundary(file *scanner.File, lambdaIdx uint32, root uint32) bool {
 	if composeLambdaIsNamedEventCallback(file, lambdaIdx, root) {
 		return true

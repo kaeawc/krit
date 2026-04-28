@@ -77,6 +77,9 @@ func registerResourceCostRules() {
 			NodeTypes: []string{"call_expression", "method_invocation", "object_creation_expression"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) {
+					return
+				}
 				name := databaseCallName(file, idx)
 				nodeText := file.FlatNodeText(idx)
 				receiver := semanticsReceiverNode(ctx, idx)

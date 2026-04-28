@@ -9,4 +9,10 @@ class TestDispatcherNotInjectedNegative {
     fun works() = runTest(UnconfinedTestDispatcher()) {
         assert(true)
     }
+
+    @Test
+    fun mainImmediateIsSubjectUnderTest() = runTest {
+        val dispatcher = kotlinx.coroutines.Dispatchers.Main.immediate
+        assert(dispatcher != null)
+    }
 }

@@ -65,9 +65,20 @@ fun rethrow() {
     }
 }
 
+fun cleanupThenRethrow() {
+    try {
+        doSomething()
+    } catch (throwable: Throwable) {
+        cleanup()
+        throw throwable
+    }
+}
+
 private fun doSomething() {
     error("stub")
 }
+
+private fun cleanup() {}
 
 private const val TAG = "tag"
 

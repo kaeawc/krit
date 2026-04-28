@@ -22,6 +22,16 @@ class TestWithoutAssertionNegative {
     fun expectedException() {
         parse("")
     }
+
+    @Test
+    fun visualSnapshot() {
+        paparazzi.snapshot(Unit)
+    }
+
+    @Test
+    fun macrobenchmark() {
+        benchmarkRule.measureRepeated()
+    }
 }
 
 @Ignore("manual preview")

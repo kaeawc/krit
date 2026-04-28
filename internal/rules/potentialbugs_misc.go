@@ -810,6 +810,24 @@ var implicitLocaleMethods = map[string]bool{
 	"decapitalize": true,
 }
 
+func fileDeclaresStringFormatExtension(file *scanner.File) bool {
+	if file == nil {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		if found || flatFunctionName(file, fn) != "format" {
+			return
+		}
+		compact := compactKotlinExpr(file.FlatNodeText(fn))
+		if strings.Contains(compact, "funString.format(") ||
+			strings.Contains(compact, "funkotlin.String.format(") {
+			found = true
+		}
+	})
+	return found
+}
+
 // LocaleDefaultForCurrencyRule detects Currency.getInstance(Locale.getDefault())
 // inside money-related classes. Currency in these flows should come from the
 // business data being formatted, not from the user's device locale.

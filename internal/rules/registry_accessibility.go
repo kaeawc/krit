@@ -47,11 +47,8 @@ func registerAccessibilityRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
-			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{
-				"clickable", "height", "minimumInteractiveComponentSize", "size", "width",
-			}},
-			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsResolver, Confidence: 0.75, OriginalV1: r,
+			TypeInfo: v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallNameAny(file, idx) != "clickable" {

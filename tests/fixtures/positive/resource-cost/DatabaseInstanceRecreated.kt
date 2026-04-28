@@ -1,14 +1,8 @@
 package test
 
-object Room {
-    fun databaseBuilder(context: Context, klass: Class<AppDb>, name: String): Builder = Builder()
-}
+import androidx.room.Room
 
 class Context
-
-class Builder {
-    fun build(): AppDb = AppDb()
-}
 
 class AppDb {
     fun userDao(): UserDao = UserDao()

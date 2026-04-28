@@ -8,39 +8,38 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-func TestBuildOracleFilterRulesV2_SkipsRulesWithoutNeedsOracle(t *testing.T) {
+func TestBuildOracleFilterRulesV2_SkipsRulesWithoutOracleNeed(t *testing.T) {
 	rules := []*v2.Rule{
-		{ID: "SyntacticRule"},                         // no NeedsOracle → excluded
-		{ID: "ResolverOnly", Needs: v2.NeedsResolver}, // no NeedsOracle → excluded
+		{ID: "SyntacticRule"},                         // no oracle need → excluded
+		{ID: "ResolverOnly", Needs: v2.NeedsResolver}, // no oracle need → excluded
 		{ID: "OracleAll", Needs: v2.NeedsOracle},      // included, AllFiles default
 		{ID: "OracleFiltered", Needs: v2.NeedsResolver | v2.NeedsOracle,
 			Oracle: &v2.OracleFilter{Identifiers: []string{"suspend"}}},
-		// NeedsTypeInfo subsumes NeedsOracle → included.
-		{ID: "TypeInfoAll", Needs: v2.NeedsTypeInfo},
+		{ID: "TypeInfoOnly", Needs: v2.NeedsTypeInfo},
 		{ID: "TypeInfoFiltered", Needs: v2.NeedsTypeInfo,
 			Oracle: &v2.OracleFilter{Identifiers: []string{"!!"}}},
 	}
 	got := BuildOracleFilterRulesV2(rules)
-	if len(got) != 4 {
-		t.Fatalf("got %d rules, want 4 (only NeedsOracle / NeedsTypeInfo rules pass through)", len(got))
+	if len(got) != 3 {
+		t.Fatalf("got %d rules, want 3 (only explicit oracle consumers pass through)", len(got))
 	}
 
 	byName := map[string]oracle.OracleFilterRule{}
 	for _, r := range got {
 		byName[r.Name] = r
 	}
-	for _, want := range []string{"OracleAll", "OracleFiltered", "TypeInfoAll", "TypeInfoFiltered"} {
+	for _, want := range []string{"OracleAll", "OracleFiltered", "TypeInfoFiltered"} {
 		if _, ok := byName[want]; !ok {
 			t.Errorf("%s missing from filter set: %+v", want, byName)
 		}
 	}
-	for _, skip := range []string{"SyntacticRule", "ResolverOnly"} {
+	for _, skip := range []string{"SyntacticRule", "ResolverOnly", "TypeInfoOnly"} {
 		if _, leaked := byName[skip]; leaked {
 			t.Errorf("non-oracle rule leaked through: %s", skip)
 		}
 	}
 
-	for _, name := range []string{"OracleAll", "TypeInfoAll"} {
+	for _, name := range []string{"OracleAll"} {
 		r := byName[name]
 		if r.Filter == nil || !r.Filter.AllFiles {
 			t.Errorf("%s: Filter=%+v, want AllFiles:true default", name, r.Filter)
@@ -214,7 +213,7 @@ func TestBuildOracleDeclarationProfileV2_FallsBackWhenUnoptedIn(t *testing.T) {
 	rules := []*v2.Rule{
 		{ID: "Narrow", Needs: v2.NeedsTypeInfo,
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true}},
-		{ID: "NotOptedIn", Needs: v2.NeedsTypeInfo}, // nil → conservative
+		{ID: "NotOptedIn", Needs: v2.NeedsOracle}, // nil → conservative
 	}
 	got := BuildOracleDeclarationProfileV2(rules)
 	if got.Fingerprint != "" {
@@ -274,13 +273,13 @@ func TestBuildOracleDeclarationProfileV2_EmptyRulesYieldsNarrow(t *testing.T) {
 }
 
 func TestBuildOracleDeclarationProfileV2_LiveRuleSet(t *testing.T) {
-	// Verify that all registered NeedsOracle rules have opted in to narrowing
+	// Verify that all registered oracle-consuming rules have opted in to narrowing
 	// and that the resulting profile is non-full (skips MemberSignatures etc.).
 	all := v2.Registry
 	var oracleRules []*v2.Rule
 	var notOptedIn []string
 	for _, r := range all {
-		if r == nil || !r.Needs.Has(v2.NeedsOracle) {
+		if !RuleNeedsKotlinOracle(r) {
 			continue
 		}
 		oracleRules = append(oracleRules, r)

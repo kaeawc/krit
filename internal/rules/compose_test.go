@@ -1121,6 +1121,42 @@ fun Screen(vm: VM) {
 	}
 }
 
+func TestComposeSideEffectInComposition_Negative_NamedEventCallback(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen(vm: VM) {
+    Content(
+        onConfirm = {
+            vm.tracker.seen = true
+        }
+    )
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for event callback assignment, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Positive_NamedContentLambda(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen(vm: VM) {
+    Column(content = {
+        vm.tracker.seen = true
+    })
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected finding for composition content lambda assignment, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestComposeSideEffectInComposition_Negative_NotComposable(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test

@@ -85,14 +85,11 @@ func TestCapabilities_NeedsTypeInfo(t *testing.T) {
 	if !NeedsTypeInfo.Has(NeedsResolver) {
 		t.Error("NeedsTypeInfo should include NeedsResolver")
 	}
-	if !NeedsTypeInfo.Has(NeedsOracle) {
-		t.Error("NeedsTypeInfo should include NeedsOracle")
+	if NeedsTypeInfo.Has(NeedsOracle) {
+		t.Error("NeedsTypeInfo should not include NeedsOracle")
 	}
-	// Composite Has is conjunctive: a solo bit must not satisfy a
-	// multi-bit check, or callers would silently see the unified
-	// capability flagged present when only half is declared.
-	if NeedsResolver.Has(NeedsTypeInfo) {
-		t.Error("NeedsResolver alone should not satisfy NeedsTypeInfo")
+	if !NeedsResolver.Has(NeedsTypeInfo) {
+		t.Error("NeedsResolver alone should satisfy the resolver-only NeedsTypeInfo alias")
 	}
 	if NeedsOracle.Has(NeedsTypeInfo) {
 		t.Error("NeedsOracle alone should not satisfy NeedsTypeInfo")

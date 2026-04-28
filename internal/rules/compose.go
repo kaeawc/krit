@@ -569,13 +569,13 @@ type ComposeLaunchedEffectWithoutKeysRule struct {
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeLaunchedEffectWithoutKeysRule) Confidence() float64 { return 0.75 }
 
-
 var composeConstantKeyTexts = map[string]struct{}{
 	"Unit":  {},
 	"true":  {},
 	"false": {},
 	"null":  {},
 }
+
 // ComposeUnstableParameterRule flags `@Composable fun X(users: List<User>)`
 // whose parameters use the mutable Kotlin collection types (`List`, `Map`,
 // `Set`, `MutableList`, etc.) directly. Compose considers these unstable
@@ -656,12 +656,25 @@ type ComposeSideEffectInCompositionRule struct {
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeSideEffectInCompositionRule) Confidence() float64 { return 0.75 }
 
-
 var composeEffectBlockCalls = map[string]struct{}{
 	"LaunchedEffect":   {},
 	"SideEffect":       {},
 	"DisposableEffect": {},
 }
+
+func composeLambdaIsNamedEventCallback(file *scanner.File, lambdaIdx uint32, root uint32) bool {
+	for cur, ok := file.FlatParent(lambdaIdx); ok && cur != root; cur, ok = file.FlatParent(cur) {
+		if file.FlatType(cur) != "value_argument" {
+			continue
+		}
+		label := flatValueArgumentLabel(file, cur)
+		if len(label) > 2 && strings.HasPrefix(label, "on") && label[2] >= 'A' && label[2] <= 'Z' {
+			return true
+		}
+	}
+	return false
+}
+
 // composeLambdaOwningCall returns the call_expression that a lambda_literal
 // is passed as a trailing lambda to, if any.
 func composeLambdaOwningCall(file *scanner.File, lambdaIdx uint32) (uint32, bool) {

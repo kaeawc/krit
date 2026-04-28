@@ -348,9 +348,20 @@ func registerReleaseEngineeringRules() {
 		r := &TimberTreeNotPlantedRule{BaseRule: BaseRule{RuleName: "TimberTreeNotPlanted", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects Timber logging usage without any Timber.plant() call in the project."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs:             v2.NeedsCrossFile | v2.NeedsTypeInfo,
-			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"v", "d", "i", "w", "e", "wtf", "plant"}},
-			TypeInfo:          v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true},
+			Needs: v2.NeedsCrossFile | v2.NeedsTypeInfo,
+			OracleCallTargets: &v2.OracleCallTargetFilter{
+				CalleeNames: []string{"v", "d", "i", "w", "e", "wtf", "plant"},
+				LexicalHintsByCallee: map[string][]string{
+					"v":     {"timber.log.Timber", "Timber"},
+					"d":     {"timber.log.Timber", "Timber"},
+					"i":     {"timber.log.Timber", "Timber"},
+					"w":     {"timber.log.Timber", "Timber"},
+					"e":     {"timber.log.Timber", "Timber"},
+					"wtf":   {"timber.log.Timber", "Timber"},
+					"plant": {"timber.log.Timber", "Timber"},
+				},
+			},
+			TypeInfo: v2.TypeInfoHint{PreferBackend: v2.PreferOracle, Required: true},
 			// Uses call target FQNs to detect Timber.v/d/i/w/e calls and
 			// Timber.plant(); never reads class declarations.
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},

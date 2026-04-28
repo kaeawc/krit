@@ -620,13 +620,14 @@ func (d *V2Dispatcher) Stats() (dispatched, aggregate, lineRules, crossFile, mod
 
 // ReportMissingCapabilities emits one diagnostic line per rule whose
 // declared capabilities cannot be satisfied by the dispatcher's current
-// wiring: NeedsResolver without a resolver, or NeedsOracle when the
-// caller indicates no oracle is configured.
+// wiring: NeedsResolver without a resolver, or an explicit KAA consumer when
+// the caller indicates no oracle is configured.
 //
 // The log format is:
 //
 //	verbose: skipped rule <ID>: NeedsResolver declared but no resolver configured
 //	verbose: skipped rule <ID>: NeedsOracle declared but no oracle configured
+//	verbose: skipped rule <ID>: oracle metadata declared but no oracle configured
 //
 // A sync.Once guard inside the dispatcher ensures that even if multiple
 // callers share the instance (CLI + LSP), the diagnostic is emitted at
@@ -648,8 +649,12 @@ func (d *V2Dispatcher) ReportMissingCapabilities(oracleAvailable bool, logger fu
 			if missingResolver && r.Needs.Has(v2.NeedsResolver) {
 				logger("verbose: skipped rule %s: NeedsResolver declared but no resolver configured\n", r.ID)
 			}
-			if missingOracle && r.Needs.Has(v2.NeedsOracle) {
-				logger("verbose: skipped rule %s: NeedsOracle declared but no oracle configured\n", r.ID)
+			if missingOracle && RuleNeedsKotlinOracle(r) {
+				reason := "oracle metadata declared"
+				if r.Needs.Has(v2.NeedsOracle) {
+					reason = "NeedsOracle declared"
+				}
+				logger("verbose: skipped rule %s: %s but no oracle configured\n", r.ID, reason)
 			}
 		}
 	})

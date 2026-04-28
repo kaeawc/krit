@@ -255,7 +255,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	// pipeline verbatim so verbose log lines and perf tracker labels
 	// stay byte-identical.
 	resolverForOracle := in.BaseResolver
-	if !in.SkipOracle && in.OracleEnabled && resolverForOracle != nil {
+	if !in.SkipOracle && in.OracleEnabled && resolverForOracle != nil && len(rules.KotlinOracleRulesV2(in.ActiveRules)) > 0 {
 		resolverForOracle = p.runOracle(in, resolverForOracle, &result)
 	}
 
@@ -419,6 +419,10 @@ var _ Phase[IndexInput, IndexResult] = IndexPhase{}
 // pre-refactor output exactly.
 func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
 	resolver := base
+	oracleRules := rules.KotlinOracleRulesV2(in.ActiveRules)
+	if len(oracleRules) == 0 {
+		return resolver
+	}
 	scanPaths := in.OracleScanPaths
 	if scanPaths == nil {
 		scanPaths = in.Paths
@@ -434,7 +438,7 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 	}
 
 	if in.UseDaemon {
-		callFilterPtr := buildOracleCallTargetFilterForInvocation(in.ActiveRules, loadOracleFilterFiles, oracleTracker, in.Verbose)
+		callFilterPtr := buildOracleCallTargetFilterForInvocation(oracleRules, loadOracleFilterFiles, oracleTracker, in.Verbose)
 
 		// Daemon mode: start a long-lived JVM process
 		var d *oracle.Daemon
@@ -543,7 +547,7 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 				if !in.NoOracleFilter {
 					var filterRules []oracle.OracleFilterRule
 					jvmTracker.Track("oracleFilterBuildRules", func() error {
-						filterRules = rules.BuildOracleFilterRulesV2(in.ActiveRules)
+						filterRules = rules.BuildOracleFilterRulesV2(oracleRules)
 						return nil
 					})
 					var lightFiles []*scanner.File
@@ -601,14 +605,14 @@ func (p IndexPhase) runOracle(in IndexInput, base typeinfer.TypeResolver, result
 				// Both paths accept filterListPath so rule filtering and
 				// per-file caching compose: the filter narrows the
 				// universe first, then the cache classifies what's left.
-				callFilterPtr := buildOracleCallTargetFilterForInvocation(in.ActiveRules, loadOracleFilterFiles, jvmTracker, in.Verbose)
-				declarationProfileSummary := rules.BuildOracleDeclarationProfileV2(in.ActiveRules)
+				callFilterPtr := buildOracleCallTargetFilterForInvocation(oracleRules, loadOracleFilterFiles, jvmTracker, in.Verbose)
+				declarationProfileSummary := rules.BuildOracleDeclarationProfileV2(oracleRules)
 				invokeOpts := oracle.InvocationOptions{
 					Tracker:            jvmTracker,
 					CacheWriter:        in.OracleCacheWriter,
 					CallFilter:         callFilterPtr,
 					DeclarationProfile: &declarationProfileSummary,
-					DisableDiagnostics: !in.OracleDiagnostics || !rules.NeedsOracleDiagnostics(in.ActiveRules),
+					DisableDiagnostics: !in.OracleDiagnostics || !rules.NeedsOracleDiagnostics(oracleRules),
 				}
 				var res string
 				var err error
@@ -706,27 +710,31 @@ func (p IndexPhase) runCodeIndexBuild(in IndexInput, result *IndexResult) {
 	}
 
 	var javaFilePaths []string
-	var parsedJavaFiles []*scanner.File
+	parsedJavaFiles := in.JavaFiles
 
 	javaTracker := crossTracker.Serial("javaIndexing")
 	javaPerf := &scanner.JavaIndexPerf{}
-	collectStart := time.Now()
-	var err error
-	javaFilePaths, err = scanner.CollectJavaFiles(paths, nil) // err non-fatal: Java indexing is best-effort
-	perf.AddEntry(javaTracker, "collectJavaFiles", time.Since(collectStart))
-	if err != nil && in.Verbose {
-		fmt.Fprintf(os.Stderr, "verbose: Java file collection: %v\n", err)
-	}
-	if len(javaFilePaths) > 0 {
-		crossWorkers = phaseWorkerCount("crossFileAnalysis", in.CrossFileJobsFlag, len(parsedFiles)+len(javaFilePaths))
-		var javaErrs []error
-		parsedJavaFiles, javaErrs = scanner.ScanJavaFilesCachedForIndex(javaFilePaths, crossWorkers, in.ParseCache, javaPerf)
-		if len(javaErrs) > 0 && in.Verbose {
-			fmt.Fprintf(os.Stderr, "verbose: Java file parsing: %d errors\n", len(javaErrs))
+	if len(parsedJavaFiles) == 0 {
+		collectStart := time.Now()
+		var err error
+		javaFilePaths, err = scanner.CollectJavaFiles(paths, nil) // err non-fatal: Java indexing is best-effort
+		perf.AddEntry(javaTracker, "collectJavaFiles", time.Since(collectStart))
+		if err != nil && in.Verbose {
+			fmt.Fprintf(os.Stderr, "verbose: Java file collection: %v\n", err)
 		}
-		if in.Verbose {
-			fmt.Fprintf(os.Stderr, "verbose: Parsed %d Java files for cross-reference indexing\n", len(parsedJavaFiles))
+		if len(javaFilePaths) > 0 {
+			crossWorkers = phaseWorkerCount("crossFileAnalysis", in.CrossFileJobsFlag, len(parsedFiles)+len(javaFilePaths))
+			var javaErrs []error
+			parsedJavaFiles, javaErrs = scanner.ScanJavaFilesCachedForIndex(javaFilePaths, crossWorkers, in.ParseCache, javaPerf)
+			if len(javaErrs) > 0 && in.Verbose {
+				fmt.Fprintf(os.Stderr, "verbose: Java file parsing: %d errors\n", len(javaErrs))
+			}
+			if in.Verbose {
+				fmt.Fprintf(os.Stderr, "verbose: Parsed %d Java files for cross-reference indexing\n", len(parsedJavaFiles))
+			}
 		}
+	} else if in.Verbose {
+		fmt.Fprintf(os.Stderr, "verbose: Reusing %d parsed Java files for cross-reference indexing\n", len(parsedJavaFiles))
 	}
 	addJavaIndexPerfEntries(javaTracker, javaPerf.Snapshot())
 	javaTracker.End()
@@ -934,7 +942,7 @@ func buildOracleCallTargetFilterForInvocation(activeRules []*v2.Rule, loadFiles 
 }
 
 func recordOracleRuleNeedProfile(activeRules []*v2.Rule, tracker perf.Tracker) {
-	var active, needsOracle, needsTypeInfo, needsResolver int64
+	var active, needsOracle, needsTypeInfo, needsResolver, oracleConsumers int64
 	var oracleAllFiles, oracleFiltered int64
 	var callTargetRules, callTargetAllCalls, callTargetCalleeRules, callTargetFqnRules, callTargetLexicalRules, callTargetLexicalSkipRules, callTargetAnnotatedRules int64
 	for _, r := range activeRules {
@@ -947,6 +955,9 @@ func recordOracleRuleNeedProfile(activeRules []*v2.Rule, tracker perf.Tracker) {
 		}
 		if r.Needs.Has(v2.NeedsOracle) {
 			needsOracle++
+		}
+		if rules.RuleNeedsKotlinOracle(r) {
+			oracleConsumers++
 			if r.Oracle == nil || r.Oracle.AllFiles {
 				oracleAllFiles++
 			} else if len(r.Oracle.Identifiers) > 0 {
@@ -982,6 +993,7 @@ func recordOracleRuleNeedProfile(activeRules []*v2.Rule, tracker perf.Tracker) {
 		"activeRules":              active,
 		"needsResolver":            needsResolver,
 		"needsOracle":              needsOracle,
+		"oracleConsumers":          oracleConsumers,
 		"needsTypeInfo":            needsTypeInfo,
 		"oracleAllFilesRules":      oracleAllFiles,
 		"oracleFilteredRules":      oracleFiltered,

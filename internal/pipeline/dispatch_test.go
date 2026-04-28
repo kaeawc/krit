@@ -28,6 +28,19 @@ func writeKotlin(t *testing.T, dir, name, code string) *scanner.File {
 	return file
 }
 
+func writeJava(t *testing.T, dir, name, code string) *scanner.File {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
+		t.Fatalf("WriteFile(%s): %v", path, err)
+	}
+	file, err := scanner.ParseJavaFile(path)
+	if err != nil {
+		t.Fatalf("ParseJavaFile(%s): %v", path, err)
+	}
+	return file
+}
+
 const classDeclKotlin = "package test\n\nclass X\n"
 
 func TestDispatchPhase_Name(t *testing.T) {
@@ -66,6 +79,37 @@ func TestDispatchPhase_Run_InvokesRuleOnFile(t *testing.T) {
 	}
 	if got := out.Findings.RuleAt(0); got != "DispatchPhaseTestClassDecl" {
 		t.Errorf("RuleAt(0) = %q, want DispatchPhaseTestClassDecl", got)
+	}
+}
+
+func TestDispatchPhase_Run_DispatchesJavaFilesToJavaRules(t *testing.T) {
+	file := writeJava(t, t.TempDir(), "Sample.java", "package test; class X {}\n")
+
+	rule := v2.FakeRule("DispatchPhaseTestJavaClassDecl",
+		v2.WithNodeTypes("class_declaration"),
+		v2.WithSeverity(v2.SeverityWarning),
+		v2.WithCheck(func(ctx *v2.Context) {
+			ctx.EmitAt(int(ctx.Node.StartRow)+1, 1, "java class declared")
+		}),
+	)
+	rule.Languages = []scanner.Language{scanner.LangJava}
+
+	in := IndexResult{
+		ParseResult: ParseResult{
+			ActiveRules: []*v2.Rule{rule},
+			JavaFiles:   []*scanner.File{file},
+		},
+	}
+
+	out, err := (DispatchPhase{}).Run(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := out.Findings.Len(); got != 1 {
+		t.Fatalf("Findings.Len() = %d, want 1", got)
+	}
+	if got := out.Findings.RuleAt(0); got != "DispatchPhaseTestJavaClassDecl" {
+		t.Errorf("RuleAt(0) = %q, want DispatchPhaseTestJavaClassDecl", got)
 	}
 }
 

@@ -54,6 +54,31 @@ func resolveCrossFileCacheDir(paths []string, disabled bool) string {
 	return scanner.CrossFileCacheDir(repoDir)
 }
 
+func detectConfigForScanArgs(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	root := args[0]
+	if root == "" {
+		return ""
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return ""
+	}
+	dir := root
+	if !info.IsDir() {
+		dir = filepath.Dir(root)
+	}
+	for _, name := range []string{"krit.yml", ".krit.yml"} {
+		candidate := filepath.Join(dir, name)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return ""
+}
+
 // resolvedStore returns a *store.FileStore for the given --store-dir flag
 // pointer, or nil when no store directory is configured and the default
 // .krit/store does not yet exist.
@@ -449,7 +474,11 @@ potential-bugs:
 
 	// Load YAML configuration and apply to rules
 	defaultCfgPath := config.FindDefaultConfig()
-	cfg, cfgErr := config.LoadAndMerge(*configFlag, defaultCfgPath)
+	userCfgPath := *configFlag
+	if userCfgPath == "" {
+		userCfgPath = detectConfigForScanArgs(flag.Args())
+	}
+	cfg, cfgErr := config.LoadAndMerge(userCfgPath, defaultCfgPath)
 	if cfgErr != nil {
 		fmt.Fprintf(os.Stderr, "warning: config: %v\n", cfgErr)
 	}
@@ -771,6 +800,7 @@ potential-bugs:
 	// runs per-file hit/miss lookup. Both operate on the raw file path
 	// list so they can run before ParsePhase.
 	var daemon *oracle.Daemon
+	var typeOracle *oracle.Oracle
 	var analysisCache *cache.Cache
 	var cacheResult *cache.CacheResult
 	var ruleHash string
@@ -828,6 +858,7 @@ potential-bugs:
 			daemon = oracleIdxResult.Daemon
 			defer daemon.Close()
 		}
+		typeOracle = oracleIdxResult.Oracle
 		if useCache {
 			analysisCache = oracleIdxResult.Cache
 			cacheResult = oracleIdxResult.CacheResult
@@ -951,10 +982,11 @@ potential-bugs:
 	parseResult, err := pipeline.ParsePhase{}.Run(context.Background(), pipeline.ParseInput{
 		Config:             cfg,
 		Paths:              paths,
+		ActiveRules:        activeRules,
 		KotlinPaths:        files,
 		Workers:            parseWorkers,
 		IncludeGenerated:   *includeGeneratedFlag,
-		SkipJavaCollection: true,
+		SkipJavaCollection: !pipeline.NeedsJavaBeforeDispatch(activeRules),
 		Logger:             verboseLogger,
 		Tracker:            tracker,
 		ParseCache:         parseCache,
@@ -1011,6 +1043,7 @@ potential-bugs:
 	dispatchIdx := pipeline.IndexResult{
 		ParseResult:      parseResult,
 		Resolver:         resolver,
+		Oracle:           typeOracle,
 		CacheResult:      cacheResult,
 		Cache:            analysisCache,
 		RuleHash:         ruleHash,

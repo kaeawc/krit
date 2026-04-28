@@ -1,5 +1,7 @@
 package fixtures.positive.resourcecost
 
+import okhttp3.OkHttpClient
+
 class OkHttpClientCreatedPerCall {
     fun makeRequest(url: String) {
         val client = OkHttpClient.Builder()

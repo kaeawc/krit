@@ -26,8 +26,8 @@ type DispatchPhase struct {
 // Name returns the stable phase identifier used for timing and error tags.
 func (DispatchPhase) Name() string { return "dispatch" }
 
-// Run executes the Dispatch phase. It walks every non-cached file in
-// in.KotlinFiles in parallel, dispatching per-file rules through the
+// Run executes the Dispatch phase. It walks every non-cached source file in
+// in.KotlinFiles and in.JavaFiles in parallel, dispatching per-file rules through the
 // shared dispatcher, and accumulates the findings and run statistics.
 //
 // It creates the dispatcher from in.ActiveRules ([]*v2.Rule) via
@@ -86,7 +86,13 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	}
 
 	sem := make(chan struct{}, workers)
-	for _, f := range in.KotlinFiles {
+	sourceFiles := make([]*scanner.File, 0, len(in.KotlinFiles)+len(in.JavaFiles))
+	sourceFiles = append(sourceFiles, in.KotlinFiles...)
+	sourceFiles = append(sourceFiles, in.JavaFiles...)
+	sort.SliceStable(sourceFiles, func(i, j int) bool {
+		return len(sourceFiles[i].Content) > len(sourceFiles[j].Content)
+	})
+	for _, f := range sourceFiles {
 		if in.CacheResult != nil && in.CacheResult.CachedPaths[f.Path] {
 			continue
 		}

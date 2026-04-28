@@ -12,6 +12,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/perf"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // writeKt is a small helper that writes a .kt file at path with content
@@ -52,6 +53,28 @@ func TestParsePhase_Run_SingleFile(t *testing.T) {
 	}
 	if !strings.HasSuffix(out.KotlinFiles[0].Path, "Foo.kt") {
 		t.Errorf("KotlinFiles[0].Path = %q, want suffix Foo.kt", out.KotlinFiles[0].Path)
+	}
+}
+
+func TestParsePhase_Run_CollectsJavaForJavaSourceRule(t *testing.T) {
+	dir := t.TempDir()
+	writeKt(t, filepath.Join(dir, "Foo.kt"), "class Foo {}\n")
+	if err := os.WriteFile(filepath.Join(dir, "Bar.java"), []byte("class Bar {}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile Bar.java: %v", err)
+	}
+
+	rule := v2.FakeRule("ParsePhaseJavaSourceRule", v2.WithNodeTypes("class_declaration"))
+	rule.Languages = []scanner.Language{scanner.LangJava}
+
+	out, err := (ParsePhase{}).Run(context.Background(), ParseInput{
+		Paths:       []string{dir},
+		ActiveRules: []*v2.Rule{rule},
+	})
+	if err != nil {
+		t.Fatalf("Run: unexpected error: %v", err)
+	}
+	if len(out.JavaFiles) != 1 {
+		t.Fatalf("JavaFiles = %d, want 1", len(out.JavaFiles))
 	}
 }
 
@@ -101,9 +124,9 @@ func TestParsePhase_Run_GeneratedFilesKept_WhenFlagSet(t *testing.T) {
 func TestParsePhase_Run_LPTSortDescending(t *testing.T) {
 	dir := t.TempDir()
 	// Build three files with clearly distinct content sizes.
-	short := "class A {}\n"                                    // ~11 bytes
-	medium := strings.Repeat("class B { val x = 1 }\n", 3)    // ~66 bytes
-	long := strings.Repeat("class C { val x = 1 }\n", 10)     // ~220 bytes
+	short := "class A {}\n"                                // ~11 bytes
+	medium := strings.Repeat("class B { val x = 1 }\n", 3) // ~66 bytes
+	long := strings.Repeat("class C { val x = 1 }\n", 10)  // ~220 bytes
 	writeKt(t, filepath.Join(dir, "A.kt"), short)
 	writeKt(t, filepath.Join(dir, "B.kt"), medium)
 	writeKt(t, filepath.Join(dir, "C.kt"), long)

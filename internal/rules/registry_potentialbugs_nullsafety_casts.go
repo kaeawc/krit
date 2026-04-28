@@ -40,12 +40,10 @@ func registerPotentialbugsNullsafetyCastsRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
-			Needs:  v2.NeedsTypeInfo,
-			Oracle: &v2.OracleFilter{Identifiers: []string{" as "}},
-			// Uses expression-type resolution; no class declarations needed.
-			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
-			OriginalV1:             r,
-			Check:                  r.check,
+			Needs:      v2.NeedsResolver,
+			TypeInfo:   v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true},
+			OriginalV1: r,
+			Check:      r.check,
 		})
 	}
 	{

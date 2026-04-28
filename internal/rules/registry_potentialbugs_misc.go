@@ -274,12 +274,6 @@ func registerPotentialbugsMiscRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Needs: v2.NeedsTypeInfo,
-			OracleCallTargets: &v2.OracleCallTargetFilter{
-				TargetFQNs:  []string{"java.lang.String.format", "kotlin.text.format", "kotlin.text.StringsKt.format"},
-				CalleeNames: []string{"format"},
-			},
-			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if strings.HasSuffix(file.Path, ".gradle.kts") {
@@ -324,11 +318,6 @@ func registerPotentialbugsMiscRules() {
 					if receiverIdx == 0 {
 						return
 					}
-					if target, ok := implicitDefaultLocaleOracleCallTarget(ctx, idx); ok {
-						if !implicitDefaultLocaleIsStringFormatTarget(target) {
-							return
-						}
-					}
 					receiverType := file.FlatType(receiverIdx)
 
 					isStringLiteral := receiverType == "string_literal" || receiverType == "line_string_literal" || receiverType == "multi_line_string_literal"
@@ -349,6 +338,9 @@ func registerPotentialbugsMiscRules() {
 					}
 					if receiverText == "" {
 						receiverText = file.FlatNodeText(receiverIdx)
+					}
+					if isStringLiteral && fileDeclaresStringFormatExtension(file) {
+						return
 					}
 
 					if isExplicitLocaleArgFlat(file, firstArg) {

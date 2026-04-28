@@ -6,23 +6,46 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// BuildOracleFilterRulesV2 converts the subset of v2 rules that declare
-// NeedsOracle into the minimal OracleFilterRule representation consumed
+// RuleNeedsKotlinOracle reports whether a rule is an actual KAA consumer.
+// NeedsTypeInfo is intentionally not enough: it is resolver-only legacy type
+// information. Oracle participation must come from the explicit NeedsOracle
+// bit or rule metadata that the pipeline passes to krit-types.
+func RuleNeedsKotlinOracle(r *v2.Rule) bool {
+	if r == nil {
+		return false
+	}
+	if r.Needs.Has(v2.NeedsOracle) || r.Oracle != nil || r.OracleCallTargets != nil || r.OracleDeclarationNeeds != nil {
+		return true
+	}
+	return ruleNeedsOracleDiagnostics(r)
+}
+
+// KotlinOracleRulesV2 returns the active subset that should contribute to KAA
+// file selection, call-target filtering, declaration export, and diagnostics.
+func KotlinOracleRulesV2(enabled []*v2.Rule) []*v2.Rule {
+	out := make([]*v2.Rule, 0, len(enabled))
+	for _, r := range enabled {
+		if RuleNeedsKotlinOracle(r) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// BuildOracleFilterRulesV2 converts the subset of v2 rules that need the
+// Kotlin oracle into the minimal OracleFilterRule representation consumed
 // by oracle.CollectOracleFiles.
 //
 // Inversion semantics (roadmap/core-infra/oracle-filter-inversion.md):
-// rules that do NOT declare NeedsOracle are excluded from the oracle
-// selection entirely — the oracle is only invoked on files an
-// oracle-needing rule asked for. A rule that declares NeedsOracle with
-// no Oracle filter set (or an AllFiles: true filter) is treated as
+// rules that do NOT need the oracle are excluded from oracle selection
+// entirely — the oracle is only invoked on files an oracle-needing rule
+// asked for. A rule that needs the oracle with no Oracle filter set (or
+// an AllFiles: true filter) is treated as
 // wanting every file.
 func BuildOracleFilterRulesV2(enabled []*v2.Rule) []oracle.OracleFilterRule {
 	out := make([]oracle.OracleFilterRule, 0, len(enabled))
 	for _, r := range enabled {
-		if r == nil {
-			continue
-		}
-		if !r.Needs.Has(v2.NeedsOracle) {
+		if !RuleNeedsKotlinOracle(r) {
 			continue
 		}
 		var spec *oracle.OracleFilterSpec
@@ -32,7 +55,7 @@ func BuildOracleFilterRulesV2(enabled []*v2.Rule) []oracle.OracleFilterRule {
 				AllFiles:    r.Oracle.AllFiles,
 			}
 		} else {
-			// The rule declared NeedsOracle but did not narrow by
+			// The rule needs the oracle but did not narrow by
 			// content — it wants every file.
 			spec = &oracle.OracleFilterSpec{AllFiles: true}
 		}
@@ -57,7 +80,7 @@ func BuildOracleDeclarationProfileV2(enabled []*v2.Rule) oracle.DeclarationProfi
 	// A single nil OracleDeclarationNeeds forces the full profile.
 	allOptedIn := true
 	for _, r := range enabled {
-		if r == nil || !r.Needs.Has(v2.NeedsOracle) {
+		if !RuleNeedsKotlinOracle(r) {
 			continue
 		}
 		if r.OracleDeclarationNeeds == nil {
@@ -72,7 +95,7 @@ func BuildOracleDeclarationProfileV2(enabled []*v2.Rule) oracle.DeclarationProfi
 	// Second pass: union the declared profiles.
 	var union oracle.DeclarationProfile
 	for _, r := range enabled {
-		if r == nil || !r.Needs.Has(v2.NeedsOracle) {
+		if !RuleNeedsKotlinOracle(r) {
 			continue
 		}
 		n := r.OracleDeclarationNeeds
@@ -93,13 +116,20 @@ func BuildOracleDeclarationProfileV2(enabled []*v2.Rule) oracle.DeclarationProfi
 // compiler diagnostics from krit-types.
 func NeedsOracleDiagnostics(enabled []*v2.Rule) bool {
 	for _, r := range enabled {
-		if r == nil || !r.Needs.Has(v2.NeedsOracle) {
-			continue
-		}
-		switch r.ID {
-		case "UnsafeCast", "UnreachableCode":
+		if ruleNeedsOracleDiagnostics(r) {
 			return true
 		}
+	}
+	return false
+}
+
+func ruleNeedsOracleDiagnostics(r *v2.Rule) bool {
+	if r == nil {
+		return false
+	}
+	switch r.ID {
+	case "UnsafeCast", "UnreachableCode":
+		return true
 	}
 	return false
 }
@@ -117,7 +147,7 @@ func BuildOracleCallTargetFilterV2(enabled []*v2.Rule) oracle.CallTargetFilterSu
 // the call-target filter to derive lexical callee names from source files.
 func OracleCallTargetFilterNeedsFiles(enabled []*v2.Rule) bool {
 	for _, r := range enabled {
-		if r == nil || !r.Needs.Has(v2.NeedsOracle) || r.OracleCallTargets == nil {
+		if !RuleNeedsKotlinOracle(r) || r.OracleCallTargets == nil {
 			continue
 		}
 		if len(r.OracleCallTargets.AnnotatedIdentifiers) > 0 {
@@ -135,7 +165,7 @@ func OracleCallTargetFilterNeedsFiles(enabled []*v2.Rule) bool {
 func BuildOracleCallTargetFilterV2ForFiles(enabled []*v2.Rule, files []*scanner.File) oracle.CallTargetFilterSummary {
 	summary := oracle.CallTargetFilterSummary{Enabled: true}
 	for _, r := range enabled {
-		if r == nil || !r.Needs.Has(v2.NeedsOracle) {
+		if !RuleNeedsKotlinOracle(r) {
 			continue
 		}
 		spec := r.OracleCallTargets

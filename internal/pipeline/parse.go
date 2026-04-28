@@ -17,7 +17,7 @@ import (
 // out generated files, sorts by content length for LPT scheduling, builds
 // a per-file SuppressionIndex so downstream cross-file rules can share the
 // same suppression map, and collects Java sources when any active rule
-// declares NeedsCrossFile.
+// declares NeedsCrossFile, NeedsParsedFiles, or Java source dispatch.
 type ParsePhase struct {
 	// Workers overrides the parse worker count. Zero = runtime.NumCPU().
 	// When ParseInput.Workers is non-zero, that takes precedence.
@@ -118,13 +118,14 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 		f.SuppressionIdx = f.Suppression.Annotations()
 	}
 
-	// Collect Java files only when at least one active rule needs them.
-	// All 481 rules already declare their Needs; rules that don't need
-	// cross-file data leave this work undone. Callers that manage Java
-	// collection themselves (e.g. inside a later phase tracker scope)
-	// pass SkipJavaCollection=true.
+	caps := unionNeeds(in.ActiveRules)
+
+	// Collect Java files only when at least one active rule needs them:
+	// cross-file indexing, parsed-file rules, or direct Java source AST
+	// dispatch. Callers that manage Java collection themselves (e.g.
+	// inside a later phase tracker scope) pass SkipJavaCollection=true.
 	var javaFiles []*scanner.File
-	if !in.SkipJavaCollection && unionNeeds(in.ActiveRules).Has(v2.NeedsCrossFile) {
+	if !in.SkipJavaCollection && (caps.Has(v2.NeedsCrossFile) || caps.Has(v2.NeedsParsedFiles) || NeedsJavaSourceDispatch(in.ActiveRules)) {
 		javaPaths, javaErr := scanner.CollectJavaFiles(in.Paths, nil)
 		if javaErr != nil {
 			// Java indexing is best-effort — surface the error via
@@ -160,6 +161,29 @@ func unionNeeds(rules []*v2.Rule) v2.Capabilities {
 		caps |= r.Needs
 	}
 	return caps
+}
+
+// NeedsJavaSourceDispatch reports whether any active per-file source rule is
+// declared for Java. Project-resource rule families are intentionally excluded
+// because their inputs are provided by later Android/Gradle phases.
+func NeedsJavaSourceDispatch(rules []*v2.Rule) bool {
+	for _, r := range rules {
+		if r == nil || len(r.NodeTypes) == 0 || !v2.RuleAppliesToLanguage(r, scanner.LangJava) {
+			continue
+		}
+		if r.Needs.Has(v2.NeedsManifest) || r.Needs.Has(v2.NeedsResources) || r.Needs.Has(v2.NeedsGradle) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// NeedsJavaBeforeDispatch reports whether Java sources must be parsed before
+// the normal dispatch/cross-file handoff. Parsed-file rules need the complete
+// source set, and Java source rules need Java ASTs for per-file dispatch.
+func NeedsJavaBeforeDispatch(rules []*v2.Rule) bool {
+	return unionNeeds(rules).Has(v2.NeedsParsedFiles) || NeedsJavaSourceDispatch(rules)
 }
 
 // Compile-time check: ParsePhase satisfies Phase[ParseInput, ParseResult].

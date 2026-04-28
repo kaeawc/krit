@@ -54,6 +54,25 @@ func TestComposeSideEffectInCompositionStaysASTOnly(t *testing.T) {
 	}
 }
 
+func TestVettedRulesStayLocalASTOnly(t *testing.T) {
+	for _, id := range []string{"MissingSuperCall", "RunTestWithDelay"} {
+		rule := buildRuleIndex()[id]
+		if rule == nil {
+			t.Fatalf("%s not registered", id)
+		}
+		if rule.Needs != 0 {
+			t.Fatalf("%s Needs=%v, want AST/import-only zero capabilities", id, rule.Needs)
+		}
+		if rule.Oracle != nil || rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil {
+			t.Fatalf("%s has oracle metadata: Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+				id, rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+		}
+		if rule.TypeInfo != (v2rules.TypeInfoHint{}) {
+			t.Fatalf("%s TypeInfo=%+v, want zero value", id, rule.TypeInfo)
+		}
+	}
+}
+
 // runRule runs a single rule against a parsed file using the dispatcher
 // for correct single-pass behavior.
 func runRule(t *testing.T, rule *v2rules.Rule, file *scanner.File) []scanner.Finding {

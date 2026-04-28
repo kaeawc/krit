@@ -208,6 +208,26 @@ class RunTestWithDelayPositive {
 	}
 }
 
+func TestRunTestWithDelay_PositiveFullyQualifiedDelay(t *testing.T) {
+	findings := runRuleByName(t, "RunTestWithDelay", `
+package test
+
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class RunTestWithDelayPositiveFqn {
+    @Test
+    fun works() = runTest {
+        kotlinx.coroutines.delay(1000)
+        assert(true)
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for fully-qualified coroutine delay inside runTest")
+	}
+}
+
 func TestRunTestWithDelay_Negative(t *testing.T) {
 	findings := runRuleByName(t, "RunTestWithDelay", `
 package test
@@ -225,6 +245,54 @@ class RunTestWithDelayNegative {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestRunTestWithDelay_NegativeProjectDelayReceiver(t *testing.T) {
+	findings := runRuleByName(t, "RunTestWithDelay", `
+package test
+
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class FakeTimer {
+    suspend fun delay(millis: Long) {}
+}
+
+class RunTestWithDelayProjectReceiver {
+    private val timer = FakeTimer()
+
+    @Test
+    fun works() = runTest {
+        timer.delay(1000)
+        assert(true)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for project-local delay receiver, got %d", len(findings))
+	}
+}
+
+func TestRunTestWithDelay_NegativeLocalDelayLookalike(t *testing.T) {
+	findings := runRuleByName(t, "RunTestWithDelay", `
+package test
+
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+suspend fun delay(millis: Long) {}
+
+class RunTestWithDelayLocalLookalike {
+    @Test
+    fun works() = runTest {
+        delay(1000)
+        assert(true)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for local delay lookalike, got %d", len(findings))
 	}
 }
 

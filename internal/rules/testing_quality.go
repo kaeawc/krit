@@ -674,12 +674,30 @@ func testingQualityInsideRunTest(file *scanner.File, idx uint32) bool {
 	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
 		if file.FlatType(current) == "call_expression" {
 			name := flatCallNameAny(file, current)
-			if name == "runTest" {
+			if name == "runTest" && testingQualityIsCoroutineRunTestCall(file, current) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func testingQualityIsDirectCoroutineDelayCall(file *scanner.File, idx uint32) bool {
+	navExpr, _ := flatCallExpressionParts(file, idx)
+	if navExpr == 0 {
+		return fileImportsFQN(file, "kotlinx.coroutines.delay")
+	}
+	segments := flatNavigationChainIdentifiers(file, navExpr)
+	return strings.Join(segments, ".") == "kotlinx.coroutines.delay"
+}
+
+func testingQualityIsCoroutineRunTestCall(file *scanner.File, idx uint32) bool {
+	navExpr, _ := flatCallExpressionParts(file, idx)
+	if navExpr == 0 {
+		return fileImportsFQN(file, "kotlinx.coroutines.test.runTest")
+	}
+	segments := flatNavigationChainIdentifiers(file, navExpr)
+	return strings.Join(segments, ".") == "kotlinx.coroutines.test.runTest"
 }
 
 func testingQualityFunctionName(file *scanner.File, idx uint32) string {

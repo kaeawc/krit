@@ -33,21 +33,22 @@ func flatNavigationExpressionLastIdentifier(file *scanner.File, idx uint32) stri
 		return ""
 	}
 	last := ""
-	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-		if !file.FlatIsNamed(child) {
-			continue
-		}
-		switch file.FlatType(child) {
-		case "navigation_suffix":
-			for gc := file.FlatFirstChild(child); gc != 0; gc = file.FlatNextSib(gc) {
-				if file.FlatIsNamed(gc) && file.FlatType(gc) == "simple_identifier" {
-					last = file.FlatNodeString(gc, nil)
-				}
-			}
+	var walk func(uint32)
+	walk = func(n uint32) {
+		switch file.FlatType(n) {
 		case "simple_identifier":
-			last = file.FlatNodeString(child, nil)
+			last = file.FlatNodeString(n, nil)
+			return
+		case "value_arguments", "value_argument", "call_suffix", "lambda_literal", "string_literal":
+			return
+		}
+		for child := file.FlatFirstChild(n); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatIsNamed(child) {
+				walk(child)
+			}
 		}
 	}
+	walk(idx)
 	return last
 }
 

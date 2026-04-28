@@ -519,6 +519,27 @@ fun main() {
 	}
 }
 
+func TestUnusedVariable_ObjectExpressionOverrideAccessorIsNotLocalVariable(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+
+abstract class Launcher {
+    abstract val contract: String
+}
+
+fun main() {
+    val holder = object : Launcher() {
+        override val contract: String
+            get() = "ready"
+    }
+    println(holder)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected object expression override accessor to be ignored, got %d", len(findings))
+	}
+}
+
 func TestUnusedVariable_DestructuringEntries(t *testing.T) {
 	findings := runRuleByName(t, "UnusedVariable", `
 package test

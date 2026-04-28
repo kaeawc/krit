@@ -413,6 +413,46 @@ class TestWithoutAssertionNegative {
 	}
 }
 
+func TestTestWithoutAssertion_NegativeAndroidLintExpect(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class AndroidLintExpectNegative {
+    @Test
+    fun reportsLintError() {
+        lint()
+            .files(kotlin("fun broken() = Unit"))
+            .run()
+            .expect("1 errors, 0 warnings")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected Android lint expect chain to count as verification, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeTruthChain(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import com.google.common.truth.Truth.assertThat
+import org.junit.Test
+
+class TruthChainNegative {
+    @Test
+    fun comparesResult() {
+        assertThat(loadValue()).isEqualTo("ready")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected Truth assertion chain to count as assertion, got %d", len(findings))
+	}
+}
+
 func TestTestWithoutAssertion_NegativeInfixAssertion(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test

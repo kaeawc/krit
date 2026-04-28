@@ -1,5 +1,7 @@
 package style
 
+import java.util.concurrent.TimeUnit
+
 const val MAX_COUNT = 42
 
 fun example() {
@@ -37,4 +39,11 @@ class Foo(val x: Int = 42)
 fun maxSize() = 100
 fun getDefault(): Int {
     return 42
+}
+
+// Duration literals paired with a canonical TimeUnit are self-documenting.
+fun durationCalls() {
+    Observable.interval(0, 5, TimeUnit.SECONDS)
+    events.throttleLatest(500, TimeUnit.MILLISECONDS)
+    completable.timeout(10, TimeUnit.SECONDS, fallback)
 }

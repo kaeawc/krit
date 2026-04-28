@@ -599,6 +599,209 @@ fun normalize(query: String?): String {
 	}
 }
 
+func TestUnsafeCallOnNullableType_NegativeShortCircuitNullGuard(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+fun enabled(flags: Int?): Boolean {
+    return flags != null && flags!! and 1 != 0
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for same-expression && null guard, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCallOnNullableType_NegativeShortCircuitStableMatcherGroup(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+class Matcher {
+    fun group(index: Int): String? = null
+}
+fun scrub(matcher: Matcher): Boolean {
+    return matcher.group(1) != null && matcher.group(1)!!.isNotEmpty()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for stable Matcher.group same-expression guard, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCallOnNullableType_NegativeShortCircuitUnresolvedSimpleIdentifier(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+class Message(val flags: Int?) {
+    val enabled: Boolean get() = flags != null && flags!! and 1 != 0
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for same-expression simple identifier guard, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCallOnNullableType_PositiveShortCircuitRepeatedFunctionCall(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+fun nextName(): String? = null
+fun greet(): Int {
+    return if (nextName() != null && nextName()!!.isNotEmpty()) 1 else 0
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for repeated function call in && guard")
+	}
+}
+
+func TestUnsafeCallOnNullableType_NegativeAndroidCompatAccessors(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+
+class Intent {
+    fun getBundleExtra(key: String): Bundle? = null
+    fun <T> getParcelableExtraCompat(key: String, clazz: Class<T>): T? = null
+    fun <T> getParcelableArrayListExtraCompat(key: String, clazz: Class<T>): ArrayList<T>? = null
+}
+class Bundle
+class Parcel {
+    fun <T> readParcelableCompat(clazz: Class<T>): T? = null
+    fun <T> readSerializableCompat(clazz: Class<T>): T? = null
+}
+class Args
+
+fun read(intent: Intent, parcel: Parcel) {
+    val bundle = intent.getBundleExtra("args")!!
+    val args = intent.getParcelableExtraCompat("args", Args::class.java)!!
+    val list = intent.getParcelableArrayListExtraCompat("args", Args::class.java)!!
+    val parcelable = parcel.readParcelableCompat(Args::class.java)!!
+    val serializable = parcel.readSerializableCompat(Args::class.java)!!
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for Android compat accessor assertions, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCallOnNullableType_NegativeProtoNestedBangChain(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+
+import org.whispersystems.signalservice.internal.push.SyncMessage
+
+class GroupV2
+class Message(val groupV2: GroupV2?)
+class Sent(val message: Message?)
+class SyncMessage(val sent: Sent?)
+class DataMessage(val flags: Int?)
+
+fun group(syncMessage: SyncMessage): GroupV2 {
+    return syncMessage.sent!!.message!!.groupV2!!
+}
+val DataMessage.hasFlag: Boolean get() = flags!! and 1 != 0
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for proto nested !! field chain, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCallOnNullableType_PositiveUnqualifiedProtoFieldOutsideExtensionReceiver(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+
+import org.whispersystems.signalservice.internal.push.DataMessage
+
+fun hasFlag(flags: Int?): Boolean {
+    return flags!! and 1 != 0
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected unqualified proto-like local outside an extension receiver to be flagged")
+	}
+}
+
+func TestUnsafeCallOnNullableType_PositiveUnqualifiedProtoLikeFieldOutsideProtoFile(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+fun hasFlag(flags: Int?): Boolean {
+    return flags!! and 1 != 0
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected ordinary unqualified proto-like field name outside proto imports to be flagged")
+	}
+}
+
+func TestUnsafeCallOnNullableType_NegativeRequireFunctionBody(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+class State(private val username: String?) {
+    fun requireUsername(): String = username!!
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for require* single-expression body, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCallOnNullableType_NegativeSameBlockConstructorAssignment(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+class Controller {
+    fun start() {}
+}
+class Holder {
+    private var controller: Controller? = null
+    fun update() {
+        if (controller == null) {
+            controller = Controller()
+        }
+        controller!!.start()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for same-block constructor assignment guard, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCallOnNullableType_PositiveSameBlockNullableFactoryAssignment(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+class Controller {
+    fun start() {}
+}
+fun createController(): Controller? = null
+class Holder {
+    private var controller: Controller? = null
+    fun update() {
+        controller = createController()
+        controller!!.start()
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding when same-block assignment comes from nullable-looking factory")
+	}
+}
+
+func TestUnsafeCallOnNullableType_PositiveSameBlockOverwrittenWithNull(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+class Controller {
+    fun start() {}
+}
+class Holder {
+    private var controller: Controller? = null
+    fun update() {
+        controller = Controller()
+        controller = null
+        controller!!.start()
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding when same-block non-null assignment is overwritten with null")
+	}
+}
+
 // --- NullableToStringCall ---
 
 func TestNullableToStringCall_Positive(t *testing.T) {

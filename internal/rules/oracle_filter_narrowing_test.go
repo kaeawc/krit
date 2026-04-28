@@ -132,6 +132,7 @@ func TestResolverOnlyRulesDoNotContributeToOracle(t *testing.T) {
 		"PlainFileWriteOfSensitive",
 		"SharedPreferencesForSensitiveKey",
 		"SpreadOperator",
+		"UnsafeCallOnNullableType",
 		"UnnecessaryNotNullOperator",
 	} {
 		rule := findRegisteredRule(t, id)

@@ -180,6 +180,224 @@ func isEarlyReturnGuardedFlat(file *scanner.File, idx uint32, receiver uint32) b
 	return false
 }
 
+func isShortCircuitGuardedNonNullFlat(file *scanner.File, idx uint32, receiver uint32) bool {
+	if file == nil || idx == 0 || receiver == 0 {
+		return false
+	}
+	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "function_declaration", "lambda_literal", "if_expression", "when_expression", "try_expression":
+			return false
+		case "conjunction_expression":
+			return conjunctionPrecedingOperandsProveNonNullFlat(file, current, idx, receiver)
+		}
+	}
+	return false
+}
+
+func conjunctionPrecedingOperandsProveNonNullFlat(file *scanner.File, conjunction, useIdx, receiver uint32) bool {
+	for child := file.FlatFirstChild(conjunction); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		if flatNodeWithin(file, child, useIdx) {
+			return false
+		}
+		if conditionTrueProvesNonNullFlat(file, child, receiver, useIdx) {
+			return true
+		}
+	}
+	return false
+}
+
+func isSameBlockAssignedNonNullBeforeUseFlat(file *scanner.File, idx uint32, receiver uint32, resolver typeinfer.TypeResolver) bool {
+	name := simpleReceiverNameFlat(file, receiver)
+	if name == "" {
+		return false
+	}
+	statements, statement := enclosingStatementInStatementsFlat(file, idx)
+	if statements == 0 || statement == 0 {
+		return false
+	}
+	proven := false
+	for child := file.FlatFirstChild(statements); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		if child == statement || flatNodeWithin(file, child, idx) {
+			return proven
+		}
+		if statementDominatesNonNullAssignmentFlat(file, child, name, receiver, idx, resolver) {
+			proven = true
+			continue
+		}
+		if statementMayWriteSimpleNameFlat(file, child, name) {
+			proven = false
+		}
+	}
+	return proven
+}
+
+func simpleReceiverNameFlat(file *scanner.File, receiver uint32) string {
+	if file == nil || receiver == 0 {
+		return ""
+	}
+	receiver = flatUnwrapParenExpr(file, receiver)
+	text := strings.TrimPrefix(strings.TrimSpace(file.FlatNodeText(receiver)), "this.")
+	if text == "" {
+		return ""
+	}
+	for _, c := range text {
+		if c == '_' || (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
+			continue
+		}
+		return ""
+	}
+	return text
+}
+
+func enclosingStatementInStatementsFlat(file *scanner.File, idx uint32) (statements uint32, statement uint32) {
+	if file == nil || idx == 0 {
+		return 0, 0
+	}
+	child := idx
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		if file.FlatType(parent) == "function_declaration" || file.FlatType(parent) == "lambda_literal" {
+			return 0, 0
+		}
+		if file.FlatType(parent) == "statements" {
+			return parent, child
+		}
+		child = parent
+	}
+	return 0, 0
+}
+
+func statementDominatesNonNullAssignmentFlat(file *scanner.File, stmt uint32, name string, receiver, useIdx uint32, resolver typeinfer.TypeResolver) bool {
+	switch file.FlatType(stmt) {
+	case "assignment":
+		return assignmentWritesSimpleNameFlat(file, stmt, name) && assignmentRHSIsNonNullFlat(file, stmt, resolver)
+	case "if_expression":
+		condition, thenBody, elseBody := ifConditionThenElseBodiesFlat(file, stmt)
+		if condition == 0 || thenBody == 0 || elseBody != 0 {
+			return false
+		}
+		return conditionTrueProvesNullFlat(file, condition, receiver, useIdx) &&
+			nodeAssignsSimpleNameNonNullFlat(file, thenBody, name, resolver)
+	default:
+		return false
+	}
+}
+
+func nodeAssignsSimpleNameNonNullFlat(file *scanner.File, node uint32, name string, resolver typeinfer.TypeResolver) bool {
+	if file == nil || node == 0 {
+		return false
+	}
+	switch file.FlatType(node) {
+	case "control_structure_body":
+		if stmts, ok := file.FlatFindChild(node, "statements"); ok {
+			return nodeAssignsSimpleNameNonNullFlat(file, stmts, name, resolver)
+		}
+		if file.FlatNamedChildCount(node) == 1 {
+			return nodeAssignsSimpleNameNonNullFlat(file, file.FlatNamedChild(node, 0), name, resolver)
+		}
+	case "statements":
+		for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+			if !file.FlatIsNamed(child) {
+				continue
+			}
+			return file.FlatType(child) == "assignment" &&
+				assignmentWritesSimpleNameFlat(file, child, name) &&
+				assignmentRHSIsNonNullFlat(file, child, resolver)
+		}
+	case "assignment":
+		return assignmentWritesSimpleNameFlat(file, node, name) && assignmentRHSIsNonNullFlat(file, node, resolver)
+	}
+	return false
+}
+
+func statementMayWriteSimpleNameFlat(file *scanner.File, stmt uint32, name string) bool {
+	if file == nil || stmt == 0 || name == "" {
+		return false
+	}
+	writes := false
+	file.FlatWalkNodes(stmt, "assignment", func(assign uint32) {
+		if writes {
+			return
+		}
+		writes = assignmentWritesSimpleNameFlat(file, assign, name)
+	})
+	return writes
+}
+
+func assignmentWritesSimpleNameFlat(file *scanner.File, assignment uint32, name string) bool {
+	if file == nil || assignment == 0 || file.FlatType(assignment) != "assignment" {
+		return false
+	}
+	left := firstNamedChildBeforeTokenFlat(file, assignment, "=")
+	if left == 0 {
+		return false
+	}
+	return finalSimpleIdentifier(file, left) == name
+}
+
+func assignmentRHSIsNonNullFlat(file *scanner.File, assignment uint32, resolver typeinfer.TypeResolver) bool {
+	if file == nil || assignment == 0 || file.FlatType(assignment) != "assignment" {
+		return false
+	}
+	rhs := firstNamedChildAfterTokenFlat(file, assignment, "=")
+	rhs = flatUnwrapParenExpr(file, rhs)
+	if rhs == 0 || flatIsNullLiteral(file, rhs) {
+		return false
+	}
+	if resolver != nil {
+		if nullable := resolver.IsNullableFlat(rhs, file); nullable != nil {
+			return !*nullable
+		}
+	}
+	switch file.FlatType(rhs) {
+	case "string_literal", "integer_literal", "real_literal", "boolean_literal", "collection_literal", "object_literal":
+		return true
+	case "call_expression":
+		name := flatCallExpressionName(file, rhs)
+		if name == "" {
+			name = flatCallNameAny(file, rhs)
+		}
+		if name != "" {
+			first := name[0]
+			return first >= 'A' && first <= 'Z'
+		}
+	}
+	return false
+}
+
+func firstNamedChildBeforeTokenFlat(file *scanner.File, parent uint32, token string) uint32 {
+	var last uint32
+	for child := file.FlatFirstChild(parent); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == token {
+			return last
+		}
+		if file.FlatIsNamed(child) {
+			last = child
+		}
+	}
+	return 0
+}
+
+func firstNamedChildAfterTokenFlat(file *scanner.File, parent uint32, token string) uint32 {
+	seen := false
+	for child := file.FlatFirstChild(parent); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == token {
+			seen = true
+			continue
+		}
+		if seen && file.FlatIsNamed(child) {
+			return child
+		}
+	}
+	return 0
+}
+
 func isPostFilterSmartCastFlat(file *scanner.File, idx uint32, receiverText string) bool {
 	base := strings.TrimSuffix(receiverText, ".")
 	if !strings.HasPrefix(base, "it.") && base != "it" {
@@ -660,7 +878,9 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	// Skip only pure dotted field-chain receivers (2+ segments, no
 	// parentheses), preserving checks on single-identifier locals and
 	// method-call chains.
-	if fileImportsProto(file) && isDottedFieldChain(receiverText) {
+	normalized := strings.ReplaceAll(receiverText, "!!", "")
+	normalized = strings.TrimPrefix(normalized, "this.")
+	if fileImportsProto(file) && isDottedFieldChain(normalized) {
 		return
 	}
 	// Skip idiomatic Android patterns where !! is the canonical way to
@@ -674,15 +894,12 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	if strings.HasSuffix(receiverText, "]") {
 		return
 	}
-	if isIdiomaticNullAssertionReceiver(receiverText, file) {
+	if isIdiomaticNullAssertionReceiver(receiverText, file, receiverIdx) {
 		return
 	}
-	// Normalize the receiver: strip inner `!!` and `this.` so that
-	// `dialog!!.window` and `this.window` match the plain `window` in
-	// the allowlist.
-	normalized := strings.ReplaceAll(receiverText, "!!", "")
-	normalized = strings.TrimPrefix(normalized, "this.")
-	if normalized != receiverText && isIdiomaticNullAssertionReceiver(normalized, file) {
+	// Normalize the receiver so that `dialog!!.window` and `this.window`
+	// match the plain `window` in the allowlist.
+	if normalized != receiverText && isIdiomaticNullAssertionReceiver(normalized, file, receiverIdx) {
 		return
 	}
 
@@ -698,6 +915,17 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	if isEarlyReturnGuardedFlat(file, idx, receiverIdx) {
 		return
 	}
+	// Same-expression short-circuit guard: `x != null && x!!.y` proves the
+	// right-hand `!!` safe without relying on Kotlin smart casts.
+	if isShortCircuitGuardedNonNullFlat(file, idx, receiverIdx) {
+		return
+	}
+	// Same-block assignment guard: `if (x == null) x = create(); x!!.y` and
+	// `x = create(); x!!.y` prove simple mutable fields/locals non-null in
+	// the current statement sequence.
+	if isSameBlockAssignedNonNullBeforeUseFlat(file, idx, receiverIdx, ctx.Resolver) {
+		return
+	}
 	// Post-filter smart cast: `.filter { it.x != null }.map { it.x!! }` —
 	// if an enclosing lambda is inside a `.map` / `.forEach` / `.let` call
 	// whose chain has a preceding `.filter { it.<field> != null }`, the
@@ -708,8 +936,7 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	// `fun requireXxx(): T = field!!` — the function name explicitly
 	// documents the precondition ("the caller must have verified this").
 	// The `!!` is the idiomatic implementation. Detekt skips these too.
-	if experiment.Enabled("unsafe-call-skip-require-function-body") &&
-		isRequireFunctionBangBodyFlat(file, idx) {
+	if isRequireFunctionBangBodyFlat(file, idx) {
 		return
 	}
 
@@ -743,6 +970,8 @@ func fileImportsProto(file *scanner.File) bool {
 		strings.Contains(header, ".databaseprotos.") ||
 		strings.Contains(header, ".storageservice.protos.") ||
 		strings.Contains(header, ".signalservice.protos.") ||
+		strings.Contains(header, ".api.crypto.protos.") ||
+		strings.Contains(header, ".internal.serialize.protos.") ||
 		strings.Contains(header, "signalservice.internal.push")
 }
 
@@ -953,6 +1182,10 @@ func nullPredicateCallFalseProvesNonNullFlat(file *scanner.File, call, receiver,
 func conditionReferenceMatchesReceiverFlat(file *scanner.File, candidate, receiver, useIdx uint32) bool {
 	candidate = flatUnwrapParenExpr(file, candidate)
 	receiver = flatUnwrapParenExpr(file, receiver)
+	if file.FlatNodeTextEquals(candidate, file.FlatNodeText(receiver)) &&
+		stableRepeatedNullCheckReceiverText(file.FlatNodeText(receiver)) {
+		return true
+	}
 	candPath, candOK := flatReferencePathFromExpr(file, candidate)
 	recvPath, recvOK := flatReferencePathFromExpr(file, receiver)
 	if !candOK || !recvOK {
@@ -968,6 +1201,21 @@ func conditionReferenceMatchesReceiverFlat(file *scanner.File, candidate, receiv
 	}
 	return referencePathsMatchReceiverFlat(file, candTrimmed, recvTrimmed, useIdx) &&
 		sameExplicitThisReferenceTargetFlat(file, candPath, recvPath, useIdx)
+}
+
+func stableRepeatedNullCheckReceiverText(text string) bool {
+	if text == "" {
+		return false
+	}
+	simple := true
+	for _, c := range text {
+		if c == '_' || (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
+			continue
+		}
+		simple = false
+		break
+	}
+	return simple || strings.Contains(text, ".group(")
 }
 
 func referencePathsMatchReceiverFlat(file *scanner.File, candPath, recvPath flatReferencePath, useIdx uint32) bool {
@@ -1235,7 +1483,7 @@ func allConditionOperandsFlat(file *scanner.File, idx uint32, predicate func(uin
 // isIdiomaticNullAssertionReceiver returns true if the receiver text matches
 // a known Android API where !! is the standard (and often only) consumption
 // pattern.
-func isIdiomaticNullAssertionReceiver(receiver string, file *scanner.File) bool {
+func isIdiomaticNullAssertionReceiver(receiver string, file *scanner.File, receiverIdx uint32) bool {
 	// `_binding!!` — the canonical Fragment ViewBinding idiom.
 	// Google's recommended pattern:
 	//   private var _binding: FooBinding? = null
@@ -1277,7 +1525,11 @@ func isIdiomaticNullAssertionReceiver(receiver string, file *scanner.File) bool 
 	// Android drawable/resource accessors that are non-null in practice.
 	if strings.Contains(receiver, "getDrawable(") ||
 		strings.Contains(receiver, "getColorStateList(") ||
+		strings.Contains(receiver, "getBundleExtra(") ||
 		strings.Contains(receiver, "getParcelableExtra(") ||
+		strings.Contains(receiver, "getParcelableExtraCompat(") ||
+		strings.Contains(receiver, "getParcelableArrayExtraCompat(") ||
+		strings.Contains(receiver, "getParcelableArrayListExtraCompat(") ||
 		strings.Contains(receiver, "getStringExtra(") ||
 		strings.Contains(receiver, "getIntExtra(") {
 		return true
@@ -1306,6 +1558,12 @@ func isIdiomaticNullAssertionReceiver(receiver string, file *scanner.File) bool 
 	// Kotlin compiler / IR / FIR code commonly resolves symbol metadata via
 	// lookup APIs that are guaranteed by the surrounding compiler phase.
 	if fileImportsCompilerApis(file) && isCompilerLookupReceiver(receiver) {
+		return true
+	}
+	// Unqualified Wire generated fields inside extension/helper files, e.g.
+	// `val DataMessage.isEndSession get() = flags != null && flags!! ...`.
+	if fileImportsProto(file) && isUnqualifiedWireProtoField(receiver) &&
+		isInsideWireProtoReceiverExtensionFlat(file, receiverIdx) {
 		return true
 	}
 	// ViewModelProvider.Factory idiom — `modelClass.cast(X())!!` is the
@@ -1349,7 +1607,7 @@ func isIdiomaticNullAssertionReceiver(receiver string, file *scanner.File) bool 
 		".id", ".data_", ".targetSentTimestamp", ".latestRevisionId",
 		".direction", ".conversationId", ".event", ".peekInfo",
 		".ringUpdate", ".acknowledgedReceipt", ".observedReceipt",
-		".flags", ".delete", ".edit", ".reaction", ".thread",
+		".flags", ".delete", ".edit", ".reaction", ".thread", ".groupV2",
 		".sticker", ".preview", ".attachments", ".quote",
 	}
 	for _, field := range wireProtoFields {
@@ -1386,7 +1644,9 @@ func isIdiomaticNullAssertionReceiver(receiver string, file *scanner.File) bool 
 		".readInt(", ".readLong(", ".readFloat(", ".readDouble(",
 		".readByte(", ".readByteArray(", ".readBundle(",
 		".readParcelable(", ".readParcelableArray(", ".readParcelableList(",
+		".readParcelableCompat(", ".readParcelableArrayCompat(",
 		".readSerializable(",
+		".readSerializableCompat(",
 	}
 	for _, m := range parcelMethods {
 		if strings.Contains(receiver, m) {
@@ -1399,6 +1659,78 @@ func isIdiomaticNullAssertionReceiver(receiver string, file *scanner.File) bool 
 		return true
 	}
 	return false
+}
+
+func isUnqualifiedWireProtoField(receiver string) bool {
+	if receiver == "" || strings.ContainsAny(receiver, ".()[]") {
+		return false
+	}
+	switch receiver {
+	case "accessControl", "address", "amount", "attachments", "badge", "body",
+		"callEvent", "callLinkUpdate", "callLogEvent", "callMessage", "cdn",
+		"ciphertextHash", "configuration", "contacts", "content", "dataMessage",
+		"data_", "delete", "deleteForMe", "destination", "destinationServiceId",
+		"direction", "edit", "editMessage", "event", "failureReason", "fetchLatest",
+		"flags", "giftBadge", "groupId", "groupV2", "groupChange", "hangup",
+		"id", "inAppPayment", "keys", "latestRevisionId", "length", "masterKey",
+		"message", "messageRequestResponse", "metadata", "needsReceipt", "opaque",
+		"outgoingPayment", "paymentMethod", "paymentNotification", "preview",
+		"query", "reaction", "receiptCredentialPresentation", "recipient",
+		"redemption", "remoteDigest", "ringUpdate", "senderDevice", "sent",
+		"serverGuid", "serverReceivedTimestamp", "serverTimestamp", "sourceDevice",
+		"sourceServiceId", "start", "sticker", "storageService", "storyMessage",
+		"syncMessage", "targetSentTimestamp", "thread", "timestamp", "type",
+		"uploadSpec", "uri", "value", "verified", "viewOnceOpen":
+		return true
+	default:
+		return false
+	}
+}
+
+func isInsideWireProtoReceiverExtensionFlat(file *scanner.File, receiverIdx uint32) bool {
+	if file == nil || receiverIdx == 0 {
+		return false
+	}
+	if fn, ok := flatEnclosingFunction(file, receiverIdx); ok {
+		typeName, _ := flatFunctionReceiverTypeInfo(file, fn)
+		return isWireProtoReceiverTypeName(typeName)
+	}
+	prop, ok := flatEnclosingAncestor(file, receiverIdx, "property_declaration")
+	if !ok {
+		return false
+	}
+	typeName := flatPropertyReceiverTypeName(file, prop)
+	return isWireProtoReceiverTypeName(typeName)
+}
+
+func isWireProtoReceiverTypeName(typeName string) bool {
+	switch typeName {
+	case "DataMessage", "GroupContextV2", "SyncMessage", "Content", "Envelope",
+		"PendingOneTimeDonation", "FiatValue", "DecimalValue", "DecryptedGroup":
+		return true
+	default:
+		return false
+	}
+}
+
+func flatPropertyReceiverTypeName(file *scanner.File, prop uint32) string {
+	if file == nil || prop == 0 || file.FlatType(prop) != "property_declaration" {
+		return ""
+	}
+	var name string
+	for child := file.FlatFirstChild(prop); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "nullable_type", "user_type", "type_identifier":
+			if name == "" {
+				name = flatLastIdentifierInNode(file, child)
+			}
+		case ".":
+			return name
+		case "property_delegate", "property_declaration_body", "=", "getter":
+			return ""
+		}
+	}
+	return ""
 }
 
 // isCompilerLookupReceiver reports compiler-plugin symbol lookups where `!!`

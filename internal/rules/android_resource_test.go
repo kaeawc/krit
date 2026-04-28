@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
+	rulespkg "github.com/kaeawc/krit/internal/rules"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -1163,6 +1164,29 @@ func TestNegativeMarginResource(t *testing.T) {
 		if !strings.Contains(findings[0].Message, "layout_marginTop") ||
 			!strings.Contains(findings[0].Message, "layout_marginLeft") {
 			t.Fatalf("expected combined message mentioning both attributes, got %q", findings[0].Message)
+		}
+	})
+
+	t.Run("project allowlist suppresses matching negative margins", func(t *testing.T) {
+		rule := r.OriginalV1.(*rulespkg.NegativeMarginResourceRule)
+		orig := append([]string(nil), rule.AllowedNegativeMargins...)
+		rule.AllowedNegativeMargins = []string{
+			"TextView:android:layout_marginTop=-8dp",
+			"android:layout_marginLeft=-4dp",
+		}
+		defer func() { rule.AllowedNegativeMargins = orig }()
+
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "TextView",
+			Line: 5,
+			Attributes: map[string]string{
+				"android:layout_marginTop":  "-8dp",
+				"android:layout_marginLeft": "-4dp",
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected allowlisted margins to be clean, got %d", len(findings))
 		}
 	})
 }
@@ -5401,11 +5425,13 @@ func TestLayoutAutofillHintMismatch(t *testing.T) {
 func TestLayoutMinTouchTargetInButtonRow(t *testing.T) {
 	r := findResourceRule(t, "LayoutMinTouchTargetInButtonRow")
 
-	t.Run("button in linear layout with wrap_content and no minHeight triggers", func(t *testing.T) {
+	t.Run("single button in linear layout is clean", func(t *testing.T) {
 		idx := indexWithLayout("dialog", "res/layout/dialog.xml", &android.View{
 			Type: "LinearLayout",
 			Line: 3,
-			Attributes: map[string]string{},
+			Attributes: map[string]string{
+				"android:orientation": "horizontal",
+			},
 			Children: []*android.View{
 				{
 					Type:         "Button",
@@ -5418,21 +5444,130 @@ func TestLayoutMinTouchTargetInButtonRow(t *testing.T) {
 			},
 		})
 		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
-	t.Run("button with minHeight >= 48dp is clean", func(t *testing.T) {
+	t.Run("horizontal button row with wrap_content and no minHeight triggers", func(t *testing.T) {
 		idx := indexWithLayout("dialog", "res/layout/dialog.xml", &android.View{
-			Type:       "LinearLayout",
-			Line:       3,
-			Attributes: map[string]string{},
+			Type: "LinearLayout",
+			Line: 3,
+			Attributes: map[string]string{
+				"android:orientation": "horizontal",
+			},
 			Children: []*android.View{
 				{
 					Type:         "Button",
 					LayoutHeight: "wrap_content",
 					Line:         5,
+					Attributes: map[string]string{
+						"android:layout_height": "wrap_content",
+					},
+				},
+				{
+					Type:         "Button",
+					LayoutHeight: "wrap_content",
+					Line:         6,
+					Attributes: map[string]string{
+						"android:layout_height": "wrap_content",
+					},
+				},
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("vertical button container is clean", func(t *testing.T) {
+		idx := indexWithLayout("dialog", "res/layout/dialog.xml", &android.View{
+			Type: "LinearLayout",
+			Line: 3,
+			Attributes: map[string]string{
+				"android:orientation": "vertical",
+			},
+			Children: []*android.View{
+				{
+					Type:         "Button",
+					LayoutHeight: "wrap_content",
+					Line:         5,
+					Attributes: map[string]string{
+						"android:layout_height": "wrap_content",
+					},
+				},
+				{
+					Type:         "Button",
+					LayoutHeight: "wrap_content",
+					Line:         6,
+					Attributes: map[string]string{
+						"android:layout_height": "wrap_content",
+					},
+				},
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("styled button row is clean without style resolution", func(t *testing.T) {
+		idx := indexWithLayout("dialog", "res/layout/dialog.xml", &android.View{
+			Type: "LinearLayout",
+			Line: 3,
+			Attributes: map[string]string{
+				"android:orientation": "horizontal",
+			},
+			Children: []*android.View{
+				{
+					Type:         "Button",
+					LayoutHeight: "wrap_content",
+					Line:         5,
+					Attributes: map[string]string{
+						"android:layout_height": "wrap_content",
+						"style":                 "@style/AppButton",
+					},
+				},
+				{
+					Type:         "Button",
+					LayoutHeight: "wrap_content",
+					Line:         6,
+					Attributes: map[string]string{
+						"android:layout_height": "wrap_content",
+						"style":                 "@style/AppButton",
+					},
+				},
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("button with minHeight >= 48dp is clean", func(t *testing.T) {
+		idx := indexWithLayout("dialog", "res/layout/dialog.xml", &android.View{
+			Type: "LinearLayout",
+			Line: 3,
+			Attributes: map[string]string{
+				"android:orientation": "horizontal",
+			},
+			Children: []*android.View{
+				{
+					Type:         "Button",
+					LayoutHeight: "wrap_content",
+					Line:         5,
+					Attributes: map[string]string{
+						"android:layout_height": "wrap_content",
+						"android:minHeight":     "48dp",
+					},
+				},
+				{
+					Type:         "Button",
+					LayoutHeight: "wrap_content",
+					Line:         6,
 					Attributes: map[string]string{
 						"android:layout_height": "wrap_content",
 						"android:minHeight":     "48dp",
@@ -5460,7 +5595,7 @@ func TestStringNotSelectable(t *testing.T) {
 			Line: 5,
 			Attributes: map[string]string{
 				"android:textIsSelectable": "false",
-				"android:text":            "Visit https://example.com for info",
+				"android:text":             "Visit https://example.com for info",
 			},
 		})
 		findings := runResourceRule(r, idx)
@@ -5475,7 +5610,7 @@ func TestStringNotSelectable(t *testing.T) {
 			Line: 5,
 			Attributes: map[string]string{
 				"android:textIsSelectable": "false",
-				"android:text":            "Hello World",
+				"android:text":             "Hello World",
 			},
 		})
 		findings := runResourceRule(r, idx)
@@ -5494,8 +5629,8 @@ func TestStringRepeatedInContentDescription(t *testing.T) {
 
 	t.Run("contentDescription duplicates sibling text triggers", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "LinearLayout",
-			Line: 3,
+			Type:       "LinearLayout",
+			Line:       3,
 			Attributes: map[string]string{},
 			Children: []*android.View{
 				{
@@ -5520,8 +5655,8 @@ func TestStringRepeatedInContentDescription(t *testing.T) {
 
 	t.Run("contentDescription differs from sibling text is clean", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "LinearLayout",
-			Line: 3,
+			Type:       "LinearLayout",
+			Line:       3,
 			Attributes: map[string]string{},
 			Children: []*android.View{
 				{

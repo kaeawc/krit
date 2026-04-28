@@ -2,6 +2,19 @@ config:
   validation: true
   warningsAsErrors: false
 
+android-lint:
+  active: true
+  NegativeMarginResource:
+    active: true
+    # Project-approved negative margin patterns:
+    #   - 'android:layout_marginTop'
+    #   - 'android:layout_marginTop=-8dp'
+    #   - '-8dp'
+    #   - 'TextView:android:layout_marginTop'
+    #   - 'TextView:android:layout_marginTop=-8dp'
+    #   - 'TextView:*=-8dp'
+    allowedNegativeMargins: []
+
 comments:
   active: true
   AbsentOrWrongFileLicense:
@@ -686,6 +699,14 @@ style:
       - '0'
       - '1'
       - '2'
+      - '4'
+      - '4f'
+      - '8'
+      - '8f'
+      - '16'
+      - '16f'
+      - '24'
+      - '24L'
       # Common UI/animation/color constants.
       - '0f'
       - '0.0f'
@@ -714,6 +735,10 @@ style:
       - '60L'
       - '1000'
       - '1000L'
+      - '10000'
+      - '10000L'
+      - '60000'
+      - '60000L'
       # Hash multiplier — universal Java/Kotlin idiom in `hashCode()`
       # implementations (e.g. `result = 31 * result + x.hashCode()`).
       - '31'

@@ -14,6 +14,9 @@ func runRuleByNameOnPath(t *testing.T, ruleName, filename, code string) []scanne
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), filename)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
 		t.Fatal(err)
 	}

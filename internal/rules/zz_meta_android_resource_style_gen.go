@@ -75,6 +75,17 @@ func (r *NegativeMarginResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
+		Options: []registry.ConfigOption{
+			{
+				Name:        "allowedNegativeMargins",
+				Type:        registry.OptStringList,
+				Default:     []string(nil),
+				Description: "Project-approved negative margin patterns. Accepts attr, attr=value, value, ViewType:attr, ViewType:attr=value, or ViewType:*=value.",
+				Apply: func(target interface{}, value interface{}) {
+					target.(*NegativeMarginResourceRule).AllowedNegativeMargins = value.([]string)
+				},
+			},
+		},
 	}
 }
 

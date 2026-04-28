@@ -137,6 +137,7 @@ func isTestFile(path string) bool {
 		"/commonJvmTest/", "/browserCommonTest/", "/jvmCommonTest/",
 		"/androidUnitTest/", "/androidInstrumentedTest/", "/jsTest/", "/iosTest/",
 		"/nativeTest/", "/nonJvmCommonTest/",
+		"/testShared/", "/sharedTest/",
 		"/benchmark/", "/canary/",
 		"/test-utils/",
 		// Google-style Java/Kotlin test roots parallel to `java/`:

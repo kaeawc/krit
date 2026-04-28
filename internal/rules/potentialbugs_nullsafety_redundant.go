@@ -507,7 +507,7 @@ func (r *UnnecessaryNotNullOperatorRule) check(ctx *v2.Context) {
 	receiver = strings.TrimSpace(receiver)
 
 	// Skip idiomatic Android/Java platform API patterns where !! is required.
-	if isIdiomaticNullAssertionReceiver(receiver, file) {
+	if isIdiomaticNullAssertionReceiver(receiver, file, flatFirstNamedChild(file, idx)) {
 		return
 	}
 

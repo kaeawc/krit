@@ -28,3 +28,30 @@ class PostFilterUnsafePatterns {
         return list.filter { it.firstName != null }.map { it.first!! }
     }
 }
+
+class SignalInspiredUnsafePatterns {
+    class Controller {
+        fun start() {}
+    }
+
+    private var controller: Controller? = null
+
+    fun nextName(): String? = null
+
+    fun repeatedFunctionCall(): Boolean {
+        return nextName() != null && nextName()!!.isNotEmpty()
+    }
+
+    fun createController(): Controller? = null
+
+    fun nullableFactoryAssignment() {
+        controller = createController()
+        controller!!.start()
+    }
+
+    fun overwrittenWithNull() {
+        controller = Controller()
+        controller = null
+        controller!!.start()
+    }
+}

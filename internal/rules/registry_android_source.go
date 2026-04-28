@@ -47,40 +47,8 @@ func registerAndroidSourceRules() {
 				if !isFragment {
 					return
 				}
-				hasNoArgCtor := true
-				hasParamCtor := false
-				for i := 0; i < file.FlatChildCount(idx); i++ {
-					child := file.FlatChild(idx, i)
-					if file.FlatType(child) == "primary_constructor" {
-						ctorText := file.FlatNodeText(child)
-						paramStart := strings.Index(ctorText, "(")
-						if paramStart >= 0 {
-							paramBody := ctorText[paramStart+1:]
-							paramEnd := strings.LastIndex(paramBody, ")")
-							if paramEnd > 0 {
-								params := strings.TrimSpace(paramBody[:paramEnd])
-								if len(params) > 0 {
-									hasParamCtor = true
-									if allParamsHaveDefaults(params) {
-										hasNoArgCtor = true
-									} else {
-										hasNoArgCtor = false
-									}
-								}
-							}
-						}
-					}
-					if file.FlatType(child) == "class_body" {
-						bodyText := file.FlatNodeText(child)
-						if strings.Contains(bodyText, "constructor()") || strings.Contains(bodyText, "constructor ()") {
-							hasNoArgCtor = true
-						}
-						if secondaryCtorRe.MatchString(bodyText) {
-							hasParamCtor = true
-						}
-					}
-				}
-				if hasParamCtor && !hasNoArgCtor {
+				ctorState := fragmentConstructorStateFlat(file, idx)
+				if ctorState.hasParamCtor && !ctorState.hasNoArgCtor {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,
 						"Fragment subclass must have a default (no-arg) constructor for framework re-instantiation.")
 				}
@@ -389,8 +357,14 @@ func registerAndroidSourceRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				if !nonInternationalizedSmsCallFlat(ctx.File, ctx.Idx) {
+					return
+				}
+				ctx.EmitAt(ctx.File.FlatRow(ctx.Idx)+1, ctx.File.FlatCol(ctx.Idx)+1,
+					"SMS sending may not handle internationalization of phone numbers properly.")
+			},
 		})
 	}
 }

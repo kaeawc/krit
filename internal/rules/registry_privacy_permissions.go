@@ -2,7 +2,6 @@ package rules
 
 import (
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
-	"strings"
 )
 
 func registerPrivacyPermissionsRules() {
@@ -45,24 +44,16 @@ func registerPrivacyPermissionsRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				navExpr, args := flatCallExpressionParts(file, idx)
-				if navExpr == 0 || args == 0 || flatNavigationExpressionLastIdentifier(file, navExpr) != "authenticate" {
+				if !biometricAuthenticateReceiverMatchesFlat(file, idx) {
 					return
 				}
-				navText := file.FlatNodeText(navExpr)
-				if !strings.Contains(navText, "BiometricPrompt") {
-					return
-				}
+				_, args := flatCallExpressionParts(file, idx)
 				promptInfoArg := flatPositionalValueArgument(file, args, 0)
 				if promptInfoArg == 0 {
 					promptInfoArg = flatNamedValueArgument(file, args, "promptInfo")
 				}
 				promptInfoExpr := flatValueArgumentExpression(file, promptInfoArg)
-				if promptInfoExpr == 0 || file.FlatType(promptInfoExpr) != "call_expression" {
-					return
-				}
-				promptInfoText := file.FlatNodeText(promptInfoExpr)
-				if !strings.Contains(promptInfoText, "PromptInfo.Builder()") || !strings.Contains(promptInfoText, ".build()") {
+				if !biometricPromptInfoBuilderExpressionFlat(file, promptInfoExpr) {
 					return
 				}
 				if biometricPromptAllowsDeviceCredentialFlat(file, promptInfoExpr) {
@@ -124,12 +115,10 @@ func registerPrivacyPermissionsRules() {
 				if args == 0 {
 					return
 				}
-				argsText := compactKotlinExpr(file.FlatNodeText(args))
-				if !strings.Contains(argsText, "ACCESS_BACKGROUND_LOCATION") {
+				if !privacyValueArgumentsContainBackgroundLocationFlat(file, args) {
 					return
 				}
-				content := string(file.Content)
-				if strings.Contains(content, "shouldShowRequestPermissionRationale") {
+				if privacyOwnerHasBackgroundLocationRationaleFlat(file, idx) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -146,15 +135,14 @@ func registerPrivacyPermissionsRules() {
 				idx, file := ctx.Idx, ctx.File
 				nodeType := file.FlatType(idx)
 				name := extractIdentifierFlat(file, idx)
-				if name == "" || !loginScreenNamePattern.MatchString(name) {
+				if name == "" || !privacySensitiveScreenName(name) {
 					return
 				}
-				bodyText := compactKotlinExpr(file.FlatNodeText(idx))
 				if nodeType == "class_declaration" {
 					if !privacyClassExtendsActivity(file, idx) {
 						return
 					}
-					if strings.Contains(bodyText, "FLAG_SECURE") {
+					if privacyNodeContainsFlagSecureReferenceFlat(file, idx) {
 						return
 					}
 					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -165,7 +153,7 @@ func registerPrivacyPermissionsRules() {
 					if !privacyHasComposableAnnotation(file, idx) {
 						return
 					}
-					if strings.Contains(bodyText, "FLAG_SECURE") || strings.Contains(bodyText, "ScreenshotBlocker") {
+					if privacyNodeContainsFlagSecureReferenceFlat(file, idx) || privacyNodeContainsScreenshotBlockerReferenceFlat(file, idx) {
 						return
 					}
 					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -188,8 +176,7 @@ func registerPrivacyPermissionsRules() {
 				if args == 0 {
 					return
 				}
-				argsText := file.FlatNodeText(args)
-				if !passwordVarNamePattern.MatchString(argsText) {
+				if !privacyClipboardCallHasSensitiveSourceFlat(file, idx) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,

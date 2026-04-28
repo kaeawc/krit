@@ -112,6 +112,9 @@ func registerAccessibilityRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if !composeContentDescriptionFileMayUse(file) {
+					return
+				}
 				// In the trailing-lambda idiom `IconButton(args) { ... }`,
 				// tree-sitter emits an outer call_expression whose first
 				// named child is the inner `IconButton(args)` call_expression.
@@ -129,6 +132,12 @@ func registerAccessibilityRules() {
 				}
 				name := flatCallNameAny(file, idx)
 				if !composeContentDescriptionCalls[name] {
+					return
+				}
+				if !composeContentDescriptionCallConfirmed(file, idx, name) {
+					return
+				}
+				if name != "IconButton" && composeHasConfirmedIconButtonAncestor(file, idx) {
 					return
 				}
 				_, args := flatCallExpressionParts(file, idx)
@@ -153,14 +162,10 @@ func registerAccessibilityRules() {
 				}
 				cdArg := flatNamedValueArgument(file, args, "contentDescription")
 				if cdArg != 0 {
-					// Only fire when the value is specifically `null`; any other
-					// expression (even a "" string) is the developer's call.
-					if !namedArgRHSIsNullLiteral(file, cdArg) {
-						return
-					}
-					if subtreeHasCalleeIn(file, idx, composeSemanticsEscapeHatches) {
-						return
-					}
+					return
+				}
+				if subtreeHasCalleeIn(file, idx, composeSemanticsEscapeHatches) {
+					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					name+" is missing `contentDescription`. Set a description for accessibility or mark as decorative.")

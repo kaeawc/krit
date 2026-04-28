@@ -21,9 +21,22 @@ fun ComposeIconButtonMissingContentDescriptionNegative() {
         )
     }
 
+    IconButton(onClick = { }) {
+        Icon(
+            imageVector = Icons.Filled.ArrowBack,
+            contentDescription = null,
+        )
+    }
+
     Image(
         painter = painterResource(R.drawable.avatar),
         contentDescription = "Avatar",
+        modifier = Modifier,
+    )
+
+    Image(
+        painter = painterResource(R.drawable.avatar),
+        contentDescription = null,
         modifier = Modifier,
     )
 

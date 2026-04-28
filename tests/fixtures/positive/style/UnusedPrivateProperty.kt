@@ -1,7 +1,7 @@
 package fixtures.positive.style
 
-private val unused = 1
+class DataAndStorageSettingsRepository {
+    private val context = "application"
 
-fun main() {
-    println("hello")
+    fun totalStorageUse(): Long = 0L
 }

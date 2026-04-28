@@ -1,6 +1,10 @@
 package rules_test
 
-import "testing"
+import (
+	"testing"
+
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+)
 
 // --- UnusedImport ---
 
@@ -566,6 +570,54 @@ fun main() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUnusedPrivateProperty_NegativeStringTemplateReferences(t *testing.T) {
+	findings := runRuleByName(t, "UnusedPrivateProperty", `
+package test
+
+class BadgeSpriteTransformation {
+    private val id = "BadgeSpriteTransformation.$VERSION"
+
+    fun key(): String = id
+
+    companion object {
+        private const val VERSION = 3
+    }
+}
+
+object Fonts {
+    private const val BASE_STATIC_BUCKET_URI = "https://cdn.example.test/story-fonts"
+    private const val MANIFEST = "manifest.json"
+
+    fun manifestPath(version: String): String = "$BASE_STATIC_BUCKET_URI/$version/$MANIFEST"
+}
+
+class GroupsV2StateProcessor(private val groupId: String) {
+    private val logPrefix = "[$groupId]"
+
+    fun message(): String = "$logPrefix Local state and server state are equal"
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for properties used in string templates, got %d", len(findings))
+	}
+}
+
+func TestUnusedPrivateProperty_DoesNotRequireTypeCapabilities(t *testing.T) {
+	rule := buildRuleIndex()["UnusedPrivateProperty"]
+	if rule == nil {
+		t.Fatal("UnusedPrivateProperty rule not registered")
+	}
+	if rule.Needs != 0 {
+		t.Fatalf("UnusedPrivateProperty Needs = %b, want no extra capabilities", rule.Needs)
+	}
+	if rule.Oracle != nil || rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil {
+		t.Fatalf("UnusedPrivateProperty declared oracle metadata: Oracle=%+v CallTargets=%+v Declarations=%+v", rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+	}
+	if rule.TypeInfo.PreferBackend != v2rules.PreferAny || rule.TypeInfo.Required {
+		t.Fatalf("UnusedPrivateProperty TypeInfo = %+v, want zero-value PreferAny/Required=false", rule.TypeInfo)
 	}
 }
 

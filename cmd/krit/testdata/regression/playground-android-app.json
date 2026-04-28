@@ -1,6 +1,6 @@
 {
   "project": "../../playground/android-app/",
-  "findings_count": 48,
+  "findings_count": 64,
   "findings": [
     {
       "rule": "MagicNumber",
@@ -115,6 +115,22 @@
       "message": "Toast.makeText() called without .show(). The toast will not be displayed."
     },
     {
+      "rule": "SimpleDateFormat",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 25,
+      "col": 0,
+      "message": "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 39,
+      "col": 0,
+      "message": "Magic number '1000'. Consider extracting it to a named constant."
+    },
+    {
       "rule": "MagicNumber",
       "ruleSet": "style",
       "file": "src/main/kotlin/com/example/app/MainActivity.kt",
@@ -147,6 +163,14 @@
       "message": "Parameter 'verbose' is unused."
     },
     {
+      "rule": "SimpleDateFormat",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 54,
+      "col": 0,
+      "message": "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs."
+    },
+    {
       "rule": "RecyclerAdapterWithoutDiffUtil",
       "ruleSet": "resource-cost",
       "file": "src/main/kotlin/com/example/app/adapters/UserAdapter.kt",
@@ -177,6 +201,14 @@
       "line": 12,
       "col": 0,
       "message": "Fragment subclass must have a default (no-arg) constructor for framework re-instantiation."
+    },
+    {
+      "rule": "LongParameterList",
+      "ruleSet": "complexity",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 33,
+      "col": 0,
+      "message": "Function 'updateContent' has 7 parameters (allowed: 6)."
     },
     {
       "rule": "UnusedParameter",
@@ -256,6 +288,22 @@
       "file": "src/main/kotlin/com/example/app/fragments/SettingsFragment.kt",
       "line": 15,
       "col": 0,
+      "message": "Magic number '1024'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/fragments/SettingsFragment.kt",
+      "line": 15,
+      "col": 0,
+      "message": "Magic number '1024'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/fragments/SettingsFragment.kt",
+      "line": 15,
+      "col": 0,
       "message": "Magic number '50'. Consider extracting it to a named constant."
     },
     {
@@ -265,6 +313,14 @@
       "line": 19,
       "col": 0,
       "message": "Function 'getRetryInterval' only returns a constant. Consider replacing with a const val."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 54,
+      "col": 0,
+      "message": "Magic number '100'. Consider extracting it to a named constant."
     },
     {
       "rule": "EmptyCatchBlock",
@@ -299,6 +355,14 @@
       "message": "Magic number '200'. Consider extracting it to a named constant."
     },
     {
+      "rule": "SimpleDateFormat",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 71,
+      "col": 0,
+      "message": "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs."
+    },
+    {
       "rule": "UnusedVariable",
       "ruleSet": "style",
       "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
@@ -318,9 +382,49 @@
       "rule": "MagicNumber",
       "ruleSet": "style",
       "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 77,
+      "col": 0,
+      "message": "Magic number '1000L'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
       "line": 79,
       "col": 0,
       "message": "Magic number '200'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "Wakelock",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 93,
+      "col": 0,
+      "message": "WakeLock acquired without release. Ensure WakeLock.release() is called."
+    },
+    {
+      "rule": "SetJavaScriptEnabled",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 19,
+      "col": 0,
+      "message": "Using setJavaScriptEnabled(true). Review for XSS vulnerabilities."
+    },
+    {
+      "rule": "AddJavascriptInterface",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 20,
+      "col": 0,
+      "message": "Injected JavaScript interface has no @JavascriptInterface-annotated methods for targetSdk 17 or higher."
+    },
+    {
+      "rule": "TrustedServer",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 25,
+      "col": 0,
+      "message": "Trust manager overrides checkClientTrusted/checkServerTrusted with an empty body. Perform real certificate validation."
     },
     {
       "rule": "UseEmptyCounterpart",
@@ -339,6 +443,14 @@
       "message": "Function 'getCachePath' only returns a constant. Consider replacing with a const val."
     },
     {
+      "rule": "SdCardPath",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 41,
+      "col": 0,
+      "message": "Hardcoded /sdcard path. Use Environment.getExternalStorageDirectory() instead."
+    },
+    {
       "rule": "MagicNumber",
       "ruleSet": "style",
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
@@ -350,9 +462,25 @@
       "rule": "MagicNumber",
       "ruleSet": "style",
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 56,
+      "col": 0,
+      "message": "Magic number '10000'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
       "line": 61,
       "col": 0,
       "message": "Magic number '200'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "SetJavaScriptEnabled",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 73,
+      "col": 0,
+      "message": "Using setJavaScriptEnabled(true). Review for XSS vulnerabilities."
     },
     {
       "rule": "EmptyFunctionBlock",

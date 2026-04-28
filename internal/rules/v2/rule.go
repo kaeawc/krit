@@ -39,10 +39,10 @@ const (
 	// (Collect per node, Finalize per file, Reset between files).
 	NeedsAggregate
 	// NeedsOracle marks this rule as requiring the JVM oracle
-	// (krit-types) for accurate analysis. Rules that do NOT declare
-	// NeedsOracle are never fed to the oracle's file selection — they
-	// run tree-sitter-only and the JVM oracle is skipped entirely if no
-	// enabled rule declares this bit.
+	// (krit-types) for accurate analysis. Use this only for KAA-only
+	// facts such as resolved call targets, dependency annotations,
+	// compiler diagnostics, suspend-call identity, or declaration data.
+	// Source-level type facts should use NeedsResolver instead.
 	NeedsOracle
 	// NeedsConcurrent marks this rule as safe to execute in parallel
 	// across worker goroutines at a phase boundary. The dispatcher
@@ -59,16 +59,15 @@ const (
 	NeedsConcurrent
 )
 
-// NeedsTypeInfo is the unified type-information capability: rules
-// declaring it ask the dispatcher both to populate ctx.Resolver AND
-// to include the rule in the oracle's file-selection pass. The
-// ChainedResolver behind ctx.Resolver picks the cheapest backend
-// (oracle > source-level) per call, so rule authors do not need to
-// know which one answers.
+// NeedsTypeInfo is the legacy source type-information capability. It now
+// aliases NeedsResolver only: rules that need KAA must declare NeedsOracle
+// or explicit oracle metadata (Oracle, OracleCallTargets,
+// OracleDeclarationNeeds, diagnostics). This keeps source-level AT/typeinfer
+// rules from accidentally widening the Kotlin Analysis API workload.
 //
-// Prefer NeedsTypeInfo over declaring NeedsResolver and NeedsOracle
-// individually. See roadmap/clusters/core-infra/type-resolution-service.md.
-const NeedsTypeInfo Capabilities = NeedsResolver | NeedsOracle
+// Prefer NeedsResolver for new rules unless the implementation consumes
+// KAA-only facts.
+const NeedsTypeInfo Capabilities = NeedsResolver
 
 // TypeInfoBackend is a per-rule hint telling the dispatcher which
 // type-information backend to prefer when both the in-process resolver
@@ -78,9 +77,9 @@ const NeedsTypeInfo Capabilities = NeedsResolver | NeedsOracle
 //
 // Decision matrix for rule authors:
 //
-//	PreferResolver — cheap source-level lookups: type-hierarchy only,
-//	  no FQN / no call-target. Examples: "does receiver extend
-//	  Throwable", sealed-subclass enumeration against project types.
+//	PreferResolver — cheap source-level lookups: imports, local
+//	  declarations, type hierarchy/nullability. No resolved overload,
+//	  external annotation, compiler diagnostic, or suspend-call truth.
 //	PreferOracle   — requires dependency metadata the in-process
 //	  resolver cannot see: full FQN resolution, call-target / overload
 //	  resolution, annotation-argument lookups against library types.

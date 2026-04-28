@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func registerDatabaseRules() {
@@ -12,17 +13,14 @@ func registerDatabaseRules() {
 		r := &DatabaseInstanceRecreatedRule{BaseRule: BaseRule{RuleName: "DatabaseInstanceRecreated", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects Room.databaseBuilder calls inside regular functions that recreate the database on each invocation."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isRoomDatabaseBuilderCallFlat(file, idx) {
 					return
 				}
-				fn, ok := flatEnclosingFunction(file, idx)
+				fn, ok := flatEnclosingCallable(file, idx)
 				if !ok {
-					return
-				}
-				if _, ok := flatEnclosingAncestor(file, idx, "function_body"); !ok {
 					return
 				}
 				if hasAnnotationFlat(file, fn, "Provides") {

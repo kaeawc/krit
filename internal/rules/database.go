@@ -95,6 +95,16 @@ func jdbcPreparedStatementHasCleanupFlat(file *scanner.File, idx uint32, stmtNam
 }
 
 func isRoomDatabaseBuilderCallFlat(file *scanner.File, idx uint32) bool {
+	if !sourceImportsOrMentions(file, "androidx.room.Room") {
+		return false
+	}
+	if file.FlatType(idx) == "method_invocation" {
+		if databaseCallName(file, idx) != "databaseBuilder" {
+			return false
+		}
+		receiver := databaseCallReceiverName(file, idx)
+		return receiver == "Room" || strings.HasSuffix(receiver, ".Room")
+	}
 	navExpr, _ := flatCallExpressionParts(file, idx)
 	if navExpr == 0 || flatNavigationExpressionLastIdentifier(file, navExpr) != "databaseBuilder" {
 		return false
@@ -107,7 +117,7 @@ func isRoomDatabaseBuilderCallFlat(file *scanner.File, idx uint32) bool {
 		return false
 	}
 
-	return parts[len(parts)-2] == "Room"
+	return parts[len(parts)-2] == "Room" || strings.HasSuffix(parts[len(parts)-2], "androidx.room.Room")
 }
 
 func hasModuleAnnotatedAncestorFlat(file *scanner.File, idx uint32) bool {

@@ -4,21 +4,15 @@ import "testing"
 
 func TestDatabaseInstanceRecreated_Positive(t *testing.T) {
 	findings := runRuleByName(t, "DatabaseInstanceRecreated", `
-package test
+	package test
 
-object Room {
-    fun databaseBuilder(context: Context, klass: Class<AppDb>, name: String): Builder = Builder()
-}
+	import androidx.room.Room
 
-class Context
+	class Context
 
-class Builder {
-    fun build(): AppDb = AppDb()
-}
-
-class AppDb {
-    fun userDao(): UserDao = UserDao()
-}
+	class AppDb {
+	    fun userDao(): UserDao = UserDao()
+	}
 
 class UserDao {
     fun all(): List<User> = emptyList()
@@ -39,24 +33,18 @@ class UserRepository(private val context: Context) {
 
 func TestDatabaseInstanceRecreated_Negative(t *testing.T) {
 	findings := runRuleByName(t, "DatabaseInstanceRecreated", `
-package test
+	package test
 
-annotation class Module
-annotation class Provides
+	import androidx.room.Room
 
-object Room {
-    fun databaseBuilder(context: Context, klass: Class<AppDb>, name: String): Builder = Builder()
-}
+	annotation class Module
+	annotation class Provides
 
-class Context
+	class Context
 
-fun appContext(): Context = Context()
+	fun appContext(): Context = Context()
 
-class Builder {
-    fun build(): AppDb = AppDb()
-}
-
-class AppDb
+	class AppDb
 
 @Module
 object DbModule {
@@ -73,6 +61,56 @@ class Holder {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for @Provides or companion object initialization, got %v", findings)
+	}
+}
+
+func TestDatabaseInstanceRecreated_PositiveJava(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "DatabaseInstanceRecreated", `
+package test;
+
+import androidx.room.Room;
+
+class Context {}
+class AppDb {}
+
+class UserRepository {
+  private final Context context;
+
+  UserRepository(Context context) {
+    this.context = context;
+  }
+
+  AppDb open() {
+    return Room.databaseBuilder(context, AppDb.class, "app.db").build();
+  }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected finding for Java Room.databaseBuilder inside a regular method, got %d", len(findings))
+	}
+}
+
+func TestDatabaseInstanceRecreated_NegativeJavaLocalRoomTypeName(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "DatabaseInstanceRecreated", `
+package test;
+
+class Context {}
+class AppDb {}
+class Builder {
+  AppDb build() { return new AppDb(); }
+}
+class Room {
+  static Builder databaseBuilder(Context context, Class<AppDb> klass, String name) { return new Builder(); }
+}
+
+class UserRepository {
+  AppDb open(Context context) {
+    return Room.databaseBuilder(context, AppDb.class, "app.db").build();
+  }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no finding for Java local Room type without androidx.room import, got %d", len(findings))
 	}
 }
 

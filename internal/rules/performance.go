@@ -610,7 +610,7 @@ var kotlinArrayConstructorCallTargets = map[string]bool{
 	"kotlin.emptyArray":     true,
 }
 
-func spreadOperatorShouldReportFlat(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) bool {
+func spreadOperatorShouldReportFlat(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
 		return false
 	}
@@ -620,11 +620,9 @@ func spreadOperatorShouldReportFlat(file *scanner.File, idx uint32, resolver typ
 	if file.FlatChildCount(idx) > 0 {
 		child := file.FlatChild(idx, file.FlatChildCount(idx)-1)
 		if file.FlatType(child) == "call_expression" {
-			if isArrayConstructorCallFlat(file, child, resolver) {
-				return false
-			}
 			// Preserve the historical fast-path behavior: computed call
-			// results are not classified as guaranteed array-copy sites.
+			// results, including array factory calls, are not classified
+			// as guaranteed array-copy sites.
 			return false
 		}
 		if file.FlatType(child) == "simple_identifier" {
@@ -640,13 +638,6 @@ func spreadOperatorShouldReportFlat(file *scanner.File, idx uint32, resolver typ
 	return true
 }
 
-func isArrayConstructorCallFlat(file *scanner.File, call uint32, resolver typeinfer.TypeResolver) bool {
-	if target := spreadOperatorCallTargetFlat(file, call, resolver); target != "" {
-		return isKotlinArrayConstructorCallTarget(target)
-	}
-	return arrayConstructors[flatCallExpressionName(file, call)]
-}
-
 func isKotlinArrayConstructorCallTarget(target string) bool {
 	if kotlinArrayConstructorCallTargets[target] {
 		return true
@@ -657,17 +648,6 @@ func isKotlinArrayConstructorCallTarget(target string) bool {
 		}
 	}
 	return false
-}
-
-func spreadOperatorCallTargetFlat(file *scanner.File, call uint32, resolver typeinfer.TypeResolver) string {
-	if file == nil || call == 0 || resolver == nil {
-		return ""
-	}
-	cr, ok := resolver.(*oracle.CompositeResolver)
-	if !ok {
-		return ""
-	}
-	return oracleLookupCallTargetFlat(cr.Oracle(), file, call)
 }
 
 func isSpreadIntoSqlBuilderFlat(file *scanner.File, idx uint32) bool {

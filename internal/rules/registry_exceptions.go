@@ -152,6 +152,12 @@ func registerExceptionsRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"catch_block"},
 			Needs:     v2.NeedsTypeInfo,
+			Oracle: &v2.OracleFilter{Identifiers: []string{
+				"catch", "Log", "Timber", "Logger", "println",
+				"trace", "debug", "info", "warn", "warning", "severe", "error", "log",
+				"makeText", "Snackbar", "AlertDialog", "showDialog", "showError",
+				"handleError", "reportError", "recoverFrom", "onError", "fallback", "notifyError",
+			}},
 			OracleCallTargets: &v2.OracleCallTargetFilter{
 				CalleeNames:         swallowedExceptionCallTargetCallees(),
 				LexicalSkipByCallee: swallowedExceptionCallTargetLexicalSkips(),

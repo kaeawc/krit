@@ -21,12 +21,10 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
-			Needs:  v2.NeedsTypeInfo,
-			Oracle: &v2.OracleFilter{Identifiers: []string{"!!"}},
-			// Resolves expression nullability; uses expressions map only.
-			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
-			OriginalV1:             r,
-			Check:                  r.check,
+			Needs:      v2.NeedsResolver,
+			TypeInfo:   v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true},
+			OriginalV1: r,
+			Check:      r.check,
 		})
 	}
 	{

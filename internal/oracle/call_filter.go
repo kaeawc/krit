@@ -3,6 +3,7 @@ package oracle
 import (
 	"encoding/hex"
 	"encoding/json"
+	"hash"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,10 +26,9 @@ type CallTargetFilterSummary struct {
 	Fingerprint          string
 }
 
-// CallTargetRuleProfile carries attribution metadata for instrumentation.
-// It does not change the filter fingerprint; the effective JVM resolution
-// scope is defined by the summary's CalleeNames, TargetFQNs, and
-// LexicalHintsByCallee.
+// CallTargetRuleProfile carries per-rule filtering metadata. The JVM uses
+// these profiles to decide whether a matching lexical call site should be
+// resolved, so they are part of the effective filter fingerprint.
 type CallTargetRuleProfile struct {
 	RuleID               string              `json:"ruleID"`
 	AllCalls             bool                `json:"allCalls"`
@@ -92,7 +92,7 @@ func FinalizeCallTargetFilter(summary CallTargetFilterSummary) CallTargetFilterS
 	sort.Slice(summary.RuleProfiles, func(i, j int) bool {
 		return summary.RuleProfiles[i].RuleID < summary.RuleProfiles[j].RuleID
 	})
-	summary.Fingerprint = fingerprintCallTargetFilter(summary.CalleeNames, summary.TargetFQNs, summary.LexicalHintsByCallee, summary.LexicalSkipByCallee)
+	summary.Fingerprint = fingerprintCallTargetFilter(summary.CalleeNames, summary.TargetFQNs, summary.LexicalHintsByCallee, summary.LexicalSkipByCallee, summary.RuleProfiles)
 	return summary
 }
 
@@ -171,7 +171,7 @@ func lexicalHintsForTargetFQN(fqn string) []string {
 	return hints
 }
 
-func fingerprintCallTargetFilter(calleeNames, targetFQNs []string, lexicalHintsByCallee, lexicalSkipByCallee map[string][]string) string {
+func fingerprintCallTargetFilter(calleeNames, targetFQNs []string, lexicalHintsByCallee, lexicalSkipByCallee map[string][]string, ruleProfiles []CallTargetRuleProfile) string {
 	h := hashutil.Hasher().New()
 	_, _ = h.Write([]byte("call-filter-v2\ncallee\n"))
 	for _, name := range calleeNames {
@@ -203,7 +203,49 @@ func fingerprintCallTargetFilter(calleeNames, targetFQNs []string, lexicalHintsB
 		}
 		_, _ = h.Write([]byte{'\n'})
 	}
+	_, _ = h.Write([]byte("rule-profiles\n"))
+	for _, profile := range ruleProfiles {
+		_, _ = h.Write([]byte(profile.RuleID))
+		_, _ = h.Write([]byte{0})
+		if profile.AllCalls {
+			_, _ = h.Write([]byte("all"))
+		}
+		_, _ = h.Write([]byte{0})
+		if profile.DiscardedOnly {
+			_, _ = h.Write([]byte("discarded"))
+		}
+		_, _ = h.Write([]byte{0})
+		writeFingerprintStrings(h, profile.CalleeNames)
+		writeFingerprintStrings(h, profile.TargetFQNs)
+		writeFingerprintStringMap(h, profile.LexicalHintsByCallee)
+		writeFingerprintStringMap(h, profile.LexicalSkipByCallee)
+		writeFingerprintStrings(h, profile.AnnotatedIdentifiers)
+		writeFingerprintStrings(h, profile.DerivedCalleeNames)
+		_, _ = h.Write([]byte(profile.DisabledReason))
+		_, _ = h.Write([]byte{'\n'})
+	}
 	return hex.EncodeToString(h.Sum(nil)[:8])
+}
+
+func writeFingerprintStrings(h hash.Hash, values []string) {
+	for _, value := range values {
+		_, _ = h.Write([]byte(value))
+		_, _ = h.Write([]byte{0})
+	}
+	_, _ = h.Write([]byte{'\n'})
+}
+
+func writeFingerprintStringMap(h hash.Hash, values map[string][]string) {
+	for _, key := range sortedStringMapKeys(values) {
+		_, _ = h.Write([]byte(key))
+		_, _ = h.Write([]byte{0})
+		for _, value := range values[key] {
+			_, _ = h.Write([]byte(value))
+			_, _ = h.Write([]byte{0})
+		}
+		_, _ = h.Write([]byte{'\n'})
+	}
+	_, _ = h.Write([]byte{'\n'})
 }
 
 func appendStringMapValue(m map[string][]string, key, value string) map[string][]string {

@@ -1,5 +1,7 @@
 package fixtures.negative.resourcecost
 
+import okhttp3.OkHttpClient
+
 object OkHttpClientCreatedPerCall {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)

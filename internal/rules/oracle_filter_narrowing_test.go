@@ -24,10 +24,10 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 		{"IgnoredReturnValue", []string{"Sequence", "Flow", "Stream", "Function", "->", "CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}, []string{"CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}},
 		{"NullableToStringCall", []string{"toString", "$"}, []string{"toString"}},
 		{"ObjectAnimatorBinding", []string{"ObjectAnimator", "ofFloat", "ofInt", "ofObject"}, nil},
+		{"SwallowedException", []string{"catch", "Log", "Timber", "Logger", "println", "trace", "debug", "info", "warn", "warning", "severe", "error", "log", "makeText", "Snackbar", "AlertDialog", "showDialog", "showError", "handleError", "reportError", "recoverFrom", "onError", "fallback", "notifyError"}, swallowedExceptionCallTargetCallees()},
 		{"UnreachableCode", []string{"return", "throw", "break", "continue"}, nil},
 		{"UseIsNullOrEmpty", []string{"isEmpty", "count", ".size", ".length", "\"\""}, nil},
 		{"UnsafeCast", []string{" as ", " as?"}, nil},
-		{"CastNullableToNonNullableType", []string{" as "}, nil},
 	}
 
 	byID := map[string]*v2.Rule{}
@@ -41,8 +41,8 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 			t.Errorf("%s: rule not found in v2.Registry", tc.id)
 			continue
 		}
-		if !r.Needs.Has(v2.NeedsOracle) {
-			t.Errorf("%s: expected NeedsOracle capability, got Needs=%b", tc.id, r.Needs)
+		if !RuleNeedsKotlinOracle(r) {
+			t.Errorf("%s: expected oracle consumer, got Needs=%b", tc.id, r.Needs)
 		}
 		if r.Oracle == nil {
 			t.Errorf("%s: Oracle filter is nil (would default to AllFiles); expected identifier-based narrowing", tc.id)
@@ -121,4 +121,47 @@ func TestOracleCallTargetFilterDefaultRulesEnabled(t *testing.T) {
 	for range summary.DisabledBy {
 		t.Fatalf("unexpected default rule disabled oracle call filtering: disabledBy=%v", summary.DisabledBy)
 	}
+}
+
+func TestResolverOnlyRulesDoNotContributeToOracle(t *testing.T) {
+	for _, id := range []string{
+		"CastNullableToNonNullableType",
+		"ComposeClickableWithoutMinTouchTarget",
+		"InjectDispatcher",
+		"LogOfSharedPreferenceRead",
+		"PlainFileWriteOfSensitive",
+		"SharedPreferencesForSensitiveKey",
+		"SpreadOperator",
+		"UnnecessaryNotNullOperator",
+	} {
+		rule := findRegisteredRule(t, id)
+		if RuleNeedsKotlinOracle(rule) {
+			t.Fatalf("%s should be resolver-only, got Needs=%b Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+				id, rule.Needs, rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+		}
+	}
+}
+
+func TestTimberTreeNotPlantedUsesLexicalHintsForLoggerCallees(t *testing.T) {
+	rule := findRegisteredRule(t, "TimberTreeNotPlanted")
+	if rule.OracleCallTargets == nil {
+		t.Fatal("TimberTreeNotPlanted OracleCallTargets is nil")
+	}
+	for _, callee := range []string{"v", "d", "i", "w", "e", "wtf", "plant"} {
+		hints := rule.OracleCallTargets.LexicalHintsByCallee[callee]
+		if !slices.Contains(hints, "timber.log.Timber") || !slices.Contains(hints, "Timber") {
+			t.Fatalf("TimberTreeNotPlanted hints for %q = %v, want Timber hints", callee, hints)
+		}
+	}
+}
+
+func findRegisteredRule(t *testing.T, id string) *v2.Rule {
+	t.Helper()
+	for _, r := range v2.Registry {
+		if r.ID == id {
+			return r
+		}
+	}
+	t.Fatalf("%s rule not found in v2.Registry", id)
+	return nil
 }

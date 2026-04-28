@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 	"strconv"
 	"strings"
 )
@@ -73,17 +74,22 @@ func registerResourceCostRules() {
 		r := &OkHttpClientCreatedPerCallRule{BaseRule: BaseRule{RuleName: "OkHttpClientCreatedPerCall", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects OkHttpClient construction in function bodies instead of reusing a singleton instance."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation", "object_creation_expression"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				name := flatCallExpressionName(file, idx)
+				name := databaseCallName(file, idx)
+				nodeText := file.FlatNodeText(idx)
 				receiver := semanticsReceiverNode(ctx, idx)
 				if receiver == 0 {
 					receiver = astReceiverNodeFromCall(file, idx)
 				}
 				isDirectConstruction := name == "OkHttpClient"
 				isBuilderBuild := name == "build" && receiver != 0 && receiverChainHasQualifiedRoot(file, receiver, "OkHttpClient")
-				if !isDirectConstruction && !isBuilderBuild {
+				if !okHTTPClientConstructionLooksReal(file, idx, name, nodeText) &&
+					(!semanticCallTargetOrReceiverType(ctx, idx,
+						[]string{"okhttp3.OkHttpClient", "okhttp3.OkHttpClient.Builder"},
+						[]string{"okhttp3.OkHttpClient", "okhttp3.OkHttpClient.Builder", "OkHttpClient", "Builder"},
+					) || (!isDirectConstruction && !isBuilderBuild)) {
 					return
 				}
 				if _, ok := flatEnclosingAncestor(file, idx, "object_declaration"); ok {
@@ -92,11 +98,14 @@ func registerResourceCostRules() {
 				if _, ok := flatEnclosingAncestor(file, idx, "companion_object"); ok {
 					return
 				}
-				fn, ok := flatEnclosingFunction(file, idx)
+				fn, ok := flatEnclosingCallable(file, idx)
 				if !ok {
 					return
 				}
 				if hasAnnotationFlat(file, fn, "Provides") || hasAnnotationFlat(file, fn, "Singleton") {
+					return
+				}
+				if okHTTPClientCreationAssignedToStaticField(file, idx) {
 					return
 				}
 				prop, hasProp := flatEnclosingAncestor(file, idx, "property_declaration")
@@ -114,24 +123,18 @@ func registerResourceCostRules() {
 		r := &OkHttpCallExecuteSyncRule{BaseRule: BaseRule{RuleName: "OkHttpCallExecuteSync", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects synchronous OkHttp Call.execute() inside suspend functions that block the coroutine thread."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
 				if name != "execute" {
 					return
 				}
-				navExpr, _ := flatCallExpressionParts(file, idx)
-				if navExpr == 0 {
-					return
-				}
-				if !semanticCallTargetOrReceiverType(ctx, idx,
+				semanticOkHTTPCall := semanticCallTargetOrReceiverType(ctx, idx,
 					[]string{"okhttp3.Call"},
 					[]string{"okhttp3.Call", "Call"},
-				) && !receiverContainsCallName(file, idx, "newCall") &&
-					!callReceiverParameterHasType(ctx, idx, "okhttp3.Call", "Call") {
-					return
-				}
+				) || receiverContainsCallName(file, idx, "newCall") ||
+					callReceiverParameterHasType(ctx, idx, "okhttp3.Call", "Call")
 				fn, ok := flatEnclosingFunction(file, idx)
 				if !ok {
 					return
@@ -139,7 +142,13 @@ func registerResourceCostRules() {
 				if !file.FlatHasModifier(fn, "suspend") {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "OkHttp Call.execute() in suspend function blocks the coroutine thread; use enqueue() or withContext(Dispatchers.IO).")
+				if !semanticOkHTTPCall && !okHTTPExecuteCallLooksBlocking(file, idx, fn) {
+					return
+				}
+				if databaseQueryInsideBackgroundBoundary(file, idx) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Synchronous OkHttp Call.execute() in a suspend function has no IO dispatcher evidence; wrap the call in withContext(Dispatchers.IO) or use an async OkHttp/Retrofit adapter.")
 			},
 		})
 	}
@@ -147,21 +156,18 @@ func registerResourceCostRules() {
 		r := &RetrofitCreateInHotPathRule{BaseRule: BaseRule{RuleName: "RetrofitCreateInHotPath", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects Retrofit.Builder().build().create() in function bodies instead of a singleton or @Provides."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				name := flatCallExpressionName(file, idx)
+				name := databaseCallName(file, idx)
 				if name != "create" {
 					return
 				}
-				receiver := semanticsReceiverNode(ctx, idx)
-				if receiver == 0 {
-					receiver = astReceiverNodeFromCall(file, idx)
-				}
-				if !semanticCallTargetOrReceiverType(ctx, idx,
+				nodeText := file.FlatNodeText(idx)
+				if !retrofitCreateLooksReal(file, idx, nodeText) && !semanticCallTargetOrReceiverType(ctx, idx,
 					[]string{"retrofit2.Retrofit"},
 					[]string{"retrofit2.Retrofit", "Retrofit"},
-				) && (receiver == 0 || !receiverChainHasQualifiedRoot(file, receiver, "Retrofit")) {
+				) {
 					return
 				}
 				if _, ok := flatEnclosingAncestor(file, idx, "object_declaration"); ok {
@@ -170,7 +176,7 @@ func registerResourceCostRules() {
 				if _, ok := flatEnclosingAncestor(file, idx, "companion_object"); ok {
 					return
 				}
-				fn, ok := flatEnclosingFunction(file, idx)
+				fn, ok := flatEnclosingCallable(file, idx)
 				if !ok {
 					return
 				}
@@ -185,19 +191,14 @@ func registerResourceCostRules() {
 		r := &HttpClientNotReusedRule{BaseRule: BaseRule{RuleName: "HttpClientNotReused", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects Java HttpClient.newHttpClient() in function bodies without singleton reuse."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				name := flatCallExpressionName(file, idx)
+				name := databaseCallName(file, idx)
 				if name != "newHttpClient" && name != "newBuilder" {
 					return
 				}
-				navExpr, _ := flatCallExpressionParts(file, idx)
-				if navExpr == 0 {
-					return
-				}
-				receiver := flatReceiverNameFromCall(file, idx)
-				if receiver != "HttpClient" {
+				if !javaHTTPClientCallLooksReal(file, idx) {
 					return
 				}
 				if _, ok := flatEnclosingAncestor(file, idx, "object_declaration"); ok {
@@ -206,7 +207,7 @@ func registerResourceCostRules() {
 				if _, ok := flatEnclosingAncestor(file, idx, "companion_object"); ok {
 					return
 				}
-				fn, ok := flatEnclosingFunction(file, idx)
+				fn, ok := flatEnclosingCallable(file, idx)
 				if !ok {
 					return
 				}
@@ -218,65 +219,19 @@ func registerResourceCostRules() {
 		})
 	}
 	{
-		r := &DatabaseQueryOnMainThreadRule{BaseRule: BaseRule{RuleName: "DatabaseQueryOnMainThread", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects SQLiteDatabase query calls in non-suspend functions that may block the main thread."}}
+		r := &DatabaseQueryOnMainThreadRule{BaseRule: BaseRule{RuleName: "DatabaseQueryOnMainThread", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects SQLiteDatabase query calls in code with positive main-thread evidence."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				name := flatCallExpressionName(file, idx)
-				if !sqliteQueryMethods[name] {
-					return
-				}
-				if !semanticCallTargetOrReceiverType(ctx, idx,
-					[]string{"android.database.sqlite.SQLiteDatabase"},
-					[]string{"android.database.sqlite.SQLiteDatabase", "SQLiteDatabase"},
-				) && !callReceiverParameterHasType(ctx, idx, "android.database.sqlite.SQLiteDatabase", "SQLiteDatabase") {
-					return
-				}
-				fn, ok := flatEnclosingFunction(file, idx)
-				if !ok {
-					return
-				}
-				if file.FlatHasModifier(fn, "suspend") {
-					return
-				}
-				if _, ok := flatEnclosingAncestor(file, idx, "lambda_literal"); ok {
-					if subtreeHasCallName(file, fn, "withContext") || subtreeHasNavigationChain(file, fn, []string{"Dispatchers", "IO"}) {
-						return
-					}
-				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("SQLiteDatabase.%s() in non-suspend function may block the main thread; use withContext(Dispatchers.IO) or a suspend function.", name))
-			},
+			Needs: v2.NeedsParsedFiles, Confidence: 0.75, OriginalV1: r,
+			Check: r.checkParsedFiles,
 		})
 	}
 	{
 		r := &RoomLoadsAllWhereFirstUsedRule{BaseRule: BaseRule{RuleName: "RoomLoadsAllWhereFirstUsed", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects getAll().first() patterns that load an entire table for a single element instead of using LIMIT 1."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
-			Check: func(ctx *v2.Context) {
-				idx, file := ctx.Idx, ctx.File
-				name := flatCallExpressionName(file, idx)
-				if !loadAllTerminalMethods[name] {
-					return
-				}
-				navExpr, _ := flatCallExpressionParts(file, idx)
-				if navExpr == 0 {
-					return
-				}
-				receiverCallName := ""
-				for child := file.FlatFirstChild(navExpr); child != 0; child = file.FlatNextSib(child) {
-					if file.FlatType(child) == "call_expression" {
-						receiverCallName = flatCallExpressionName(file, child)
-						break
-					}
-				}
-				if !loadAllMethods[receiverCallName] {
-					return
-				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("%s().%s() loads the entire table for a single element; add a LIMIT 1 query instead.", receiverCallName, name))
-			},
+			Needs: v2.NeedsParsedFiles, Confidence: 0.75, OriginalV1: r,
+			Check: r.checkParsedFiles,
 		})
 	}
 	{

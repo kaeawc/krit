@@ -106,6 +106,32 @@ func TestWriteCallTargetFilterFile(t *testing.T) {
 	}
 }
 
+func TestFinalizeCallTargetFilter_FingerprintIncludesRuleProfiles(t *testing.T) {
+	base := FinalizeCallTargetFilter(CallTargetFilterSummary{
+		Enabled:     true,
+		CalleeNames: []string{"w"},
+		RuleProfiles: []CallTargetRuleProfile{{
+			RuleID:      "LoggerRule",
+			CalleeNames: []string{"w"},
+		}},
+	})
+	narrowed := FinalizeCallTargetFilter(CallTargetFilterSummary{
+		Enabled:     true,
+		CalleeNames: []string{"w"},
+		RuleProfiles: []CallTargetRuleProfile{{
+			RuleID:               "LoggerRule",
+			CalleeNames:          []string{"w"},
+			LexicalHintsByCallee: map[string][]string{"w": {"Timber"}},
+		}},
+	})
+	if base.Fingerprint == "" || narrowed.Fingerprint == "" {
+		t.Fatalf("fingerprints must be non-empty: base=%q narrowed=%q", base.Fingerprint, narrowed.Fingerprint)
+	}
+	if base.Fingerprint == narrowed.Fingerprint {
+		t.Fatalf("fingerprint must change when rule profiles change: %q", base.Fingerprint)
+	}
+}
+
 func TestDaemonParamsIncludeRuleProfilesJSON(t *testing.T) {
 	// Verify that a summary with rule profiles serializes correctly so the
 	// Kotlin daemon's extractJsonObjectArray can find "callFilterRuleProfiles".
@@ -121,7 +147,7 @@ func TestDaemonParamsIncludeRuleProfilesJSON(t *testing.T) {
 	})
 
 	params := map[string]interface{}{
-		"callFilterCalleeNames": summary.CalleeNames,
+		"callFilterCalleeNames":  summary.CalleeNames,
 		"callFilterRuleProfiles": summary.RuleProfiles,
 	}
 	data, err := json.Marshal(params)

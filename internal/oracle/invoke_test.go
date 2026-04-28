@@ -91,6 +91,19 @@ func TestFindSourceDirs_SkipsBuildDir(t *testing.T) {
 	}
 }
 
+func TestFindSourceDirs_SkipsKritCacheDir(t *testing.T) {
+	tmp := t.TempDir()
+	kotlinDir := filepath.Join(tmp, "src", "main", "res", ".krit", "parse-cache", "kotlin")
+	if err := os.MkdirAll(kotlinDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	dirs := FindSourceDirs([]string{tmp})
+	if len(dirs) != 0 {
+		t.Errorf("expected 0 source dirs (.krit cache should be skipped), got %d: %v", len(dirs), dirs)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // CachePath tests
 // ---------------------------------------------------------------------------

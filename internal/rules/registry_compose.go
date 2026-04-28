@@ -543,6 +543,9 @@ func registerComposeRules() {
 					if file.FlatType(cur) != "lambda_literal" {
 						continue
 					}
+					if composeLambdaIsNamedEventCallback(file, cur, fn) {
+						return
+					}
 					if owningCall, ok := composeLambdaOwningCall(file, cur); ok {
 						if _, effect := composeEffectBlockCalls[flatCallNameAny(file, owningCall)]; effect {
 							return

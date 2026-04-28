@@ -1,5 +1,7 @@
 package fixtures.negative.resourcecost
 
+import retrofit2.Retrofit
+
 object RetrofitCreateInHotPath {
     private val api = Retrofit.Builder()
         .baseUrl("https://api.example.com/")

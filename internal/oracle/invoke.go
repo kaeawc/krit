@@ -107,7 +107,7 @@ func FindSourceDirs(scanPaths []string) []string {
 			}
 			// Skip build/hidden directories
 			base := filepath.Base(path)
-			if base == "build" || base == ".gradle" || base == ".git" || base == "node_modules" {
+			if base == "build" || base == ".gradle" || base == ".git" || base == ".krit" || base == "node_modules" {
 				return filepath.SkipDir
 			}
 			// Check if this dir contains .kt files

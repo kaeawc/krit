@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/librarymodel"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -34,14 +35,20 @@ func parseJavaInline(t *testing.T, code string) *scanner.File {
 
 func runDatabaseQueryOnMainThreadFiles(t *testing.T, files ...*scanner.File) []scanner.Finding {
 	t.Helper()
+	return runDatabaseQueryOnMainThreadFilesWithFacts(t, nil, files...)
+}
+
+func runDatabaseQueryOnMainThreadFilesWithFacts(t *testing.T, facts *librarymodel.Facts, files ...*scanner.File) []scanner.Finding {
+	t.Helper()
 	for _, r := range v2rules.Registry {
 		if r.ID != "DatabaseQueryOnMainThread" {
 			continue
 		}
 		ctx := &v2rules.Context{
-			ParsedFiles: files,
-			Collector:   scanner.NewFindingCollector(0),
-			Rule:        r,
+			ParsedFiles:  files,
+			Collector:    scanner.NewFindingCollector(0),
+			Rule:         r,
+			LibraryFacts: facts,
 		}
 		r.Check(ctx)
 		return ctx.Collector.Columns().Findings()
@@ -52,14 +59,20 @@ func runDatabaseQueryOnMainThreadFiles(t *testing.T, files ...*scanner.File) []s
 
 func runParsedFilesRule(t *testing.T, ruleName string, files ...*scanner.File) []scanner.Finding {
 	t.Helper()
+	return runParsedFilesRuleWithFacts(t, ruleName, nil, files...)
+}
+
+func runParsedFilesRuleWithFacts(t *testing.T, ruleName string, facts *librarymodel.Facts, files ...*scanner.File) []scanner.Finding {
+	t.Helper()
 	for _, r := range v2rules.Registry {
 		if r.ID != ruleName {
 			continue
 		}
 		ctx := &v2rules.Context{
-			ParsedFiles: files,
-			Collector:   scanner.NewFindingCollector(0),
-			Rule:        r,
+			ParsedFiles:  files,
+			Collector:    scanner.NewFindingCollector(0),
+			Rule:         r,
+			LibraryFacts: facts,
 		}
 		r.Check(ctx)
 		return ctx.Collector.Columns().Findings()
@@ -122,6 +135,124 @@ func TestRoomLoadsAllWhereFirstUsed_Fixtures(t *testing.T) {
 			t.Fatalf("expected 0 findings for negative fixture, got %d", len(findings))
 		}
 	})
+}
+
+func TestDatabaseLibraryFacts_DisableRoomWhenKnownAbsent(t *testing.T) {
+	file := parseInline(t, `
+package test
+
+annotation class Dao
+annotation class Query(val value: String)
+
+@Dao
+interface UserDao {
+  @Query("SELECT * FROM users")
+  fun getAllUsers(): List<String>
+}
+
+class UserActivity(private val userDao: UserDao) : android.app.Activity() {
+  override fun onCreate() {
+    userDao.getAllUsers()
+  }
+}
+`)
+	facts := librarymodel.FactsForProfile(librarymodel.ProjectProfile{
+		HasGradle:                    true,
+		DependencyExtractionComplete: true,
+		Dependencies: []librarymodel.Dependency{
+			{Group: "com.squareup.okhttp3", Name: "okhttp", Version: "4.12.0"},
+		},
+	})
+	findings := runDatabaseQueryOnMainThreadFilesWithFacts(t, facts, file)
+	if len(findings) != 0 {
+		t.Fatalf("expected no Room finding when project profile proves Room absent, got %d", len(findings))
+	}
+}
+
+func TestDatabaseLibraryFacts_AllowFullyQualifiedRoomEvidenceWhenProfilePartial(t *testing.T) {
+	file := parseInline(t, `
+package test
+
+@androidx.room.Dao
+interface UserDao {
+  @androidx.room.Query("SELECT * FROM users")
+  fun getAllUsers(): List<String>
+}
+
+class UserActivity(private val userDao: UserDao) : android.app.Activity() {
+  override fun onCreate() {
+    userDao.getAllUsers()
+  }
+}
+`)
+	facts := librarymodel.FactsForProfile(librarymodel.ProjectProfile{
+		HasGradle:                   true,
+		HasUnresolvedDependencyRefs: true,
+	})
+	findings := runDatabaseQueryOnMainThreadFilesWithFacts(t, facts, file)
+	if len(findings) != 1 {
+		t.Fatalf("expected Room finding from fully-qualified source evidence with partial profile, got %d", len(findings))
+	}
+}
+
+func TestDatabaseLibraryFacts_DoNotAllowLocalRoomLookalikeWhenKnownAbsent(t *testing.T) {
+	file := parseInline(t, `
+package test
+
+annotation class Dao
+annotation class Query(val value: String)
+
+@Dao
+interface UserDao {
+  @Query("SELECT * FROM users")
+  fun getAllUsers(): List<String>
+}
+
+class UserActivity(private val userDao: UserDao) : android.app.Activity() {
+  override fun onCreate() {
+    userDao.getAllUsers()
+  }
+}
+`)
+	facts := librarymodel.FactsForProfile(librarymodel.ProjectProfile{
+		HasGradle:                    true,
+		DependencyExtractionComplete: true,
+	})
+	findings := runDatabaseQueryOnMainThreadFilesWithFacts(t, facts, file)
+	if len(findings) != 0 {
+		t.Fatalf("expected no local Room-lookalike finding when profile proves Room absent, got %d", len(findings))
+	}
+}
+
+func TestDatabaseLibraryFacts_EnableRoomWhenDependencyPresent(t *testing.T) {
+	file := parseInline(t, `
+package test
+
+annotation class Dao
+annotation class Query(val value: String)
+
+@Dao
+interface UserDao {
+  @Query("SELECT * FROM users")
+  fun getAllUsers(): List<String>
+}
+
+class UserActivity(private val userDao: UserDao) : android.app.Activity() {
+  override fun onCreate() {
+    userDao.getAllUsers()
+  }
+}
+`)
+	facts := librarymodel.FactsForProfile(librarymodel.ProjectProfile{
+		HasGradle: true,
+		Dependencies: []librarymodel.Dependency{
+			{Group: "androidx.room", Name: "room-runtime", Version: "2.6.1"},
+		},
+	})
+	findings := runDatabaseQueryOnMainThreadFilesWithFacts(t, facts, file)
+	if len(findings) != 1 {
+		t.Fatalf("expected Room finding when project profile includes Room, got %d", len(findings))
+	}
 }
 
 func TestOkHttpCallExecuteSync_PositiveSuspendCall(t *testing.T) {

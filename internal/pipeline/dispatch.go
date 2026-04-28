@@ -45,6 +45,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	// Pass the resolver through unconditionally — NewDispatcherV2 handles a
 	// nil resolver gracefully.
 	dispatcher := rules.NewDispatcherV2(in.ActiveRules, in.Resolver)
+	dispatcher.SetLibraryFacts(in.LibraryFacts)
 
 	// Emit --verbose diagnostics naming any active rule whose declared
 	// capability (NeedsResolver / NeedsOracle) is not satisfied by the

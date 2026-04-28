@@ -8,6 +8,7 @@ import (
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
@@ -150,6 +151,9 @@ type IndexResult struct {
 	// resources, gradle). Nil when no Android manifest is found or no
 	// rule needs Android data.
 	AndroidProject *android.AndroidProject
+	// LibraryFacts is the project-wide library semantic model derived from
+	// Gradle where available.
+	LibraryFacts *librarymodel.Facts
 	// Cache is the incremental analysis cache. Nil when --no-cache or
 	// the cache file cannot be opened.
 	Cache *cache.Cache

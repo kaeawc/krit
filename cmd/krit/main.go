@@ -23,6 +23,7 @@ import (
 	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/pipeline"
@@ -660,6 +661,7 @@ potential-bugs:
 	}
 
 	androidProject := android.DetectAndroidProject(paths)
+	libraryFacts := librarymodel.FactsForProfile(librarymodel.ProfileFromGradlePaths(androidProject.GradlePaths))
 
 	// Resolve cache directory and file path
 	_, cacheFilePath := cache.ResolveCacheDir(*cacheDirFlag, paths)
@@ -1044,6 +1046,7 @@ potential-bugs:
 		ParseResult:      parseResult,
 		Resolver:         resolver,
 		Oracle:           typeOracle,
+		LibraryFacts:     libraryFacts,
 		CacheResult:      cacheResult,
 		Cache:            analysisCache,
 		RuleHash:         ruleHash,
@@ -1138,6 +1141,7 @@ potential-bugs:
 		ModuleScanRoot:         scanRoot,
 		ModuleJobsFlag:         *jobsFlag,
 		ModuleHasAwareRule:     hasModuleAwareRule,
+		PrebuiltLibraryFacts:   libraryFacts,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -1186,6 +1190,7 @@ potential-bugs:
 	androidStart := time.Now()
 	androidTracker := tracker.Serial("androidProjectAnalysis")
 	androidDispatcher := rules.NewDispatcherV2(activeRules, resolver)
+	androidDispatcher.SetLibraryFacts(libraryFacts)
 	androidRes, err := (pipeline.AndroidPhase{}).Run(context.Background(), pipeline.AndroidInput{
 		Project:     androidProject,
 		ActiveRules: activeRules,

@@ -10,6 +10,7 @@ package v2
 
 import (
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -384,6 +385,11 @@ type Context struct {
 	GradlePath    string
 	GradleContent string
 	GradleConfig  *android.BuildConfig
+
+	// Project-wide library and platform facts derived from Gradle where
+	// available. Rules should use this instead of baking library-version
+	// assumptions directly into AST heuristics.
+	LibraryFacts *librarymodel.Facts
 }
 
 // Emit reports a finding. The finding is stamped with rule metadata and

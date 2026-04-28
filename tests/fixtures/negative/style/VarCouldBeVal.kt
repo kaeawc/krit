@@ -32,5 +32,18 @@ class Container {
     private var withSetter: Int = 0
         set(value) { field = value }
 
+    private var listener: (() -> Unit)? = null
+
+    fun setListener(value: (() -> Unit)?) {
+        this.listener = value
+    }
+
+    private var builderFlag = false
+
+    fun enable(): Container {
+        this.builderFlag = true
+        return this
+    }
+
     fun use() = publicProp + withSetter
 }

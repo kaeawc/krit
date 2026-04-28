@@ -711,6 +711,9 @@ func reassignedLocalOrThisNameFlat(file *scanner.File, lhs uint32) (string, bool
 	case "simple_identifier":
 		return file.FlatNodeText(lhs), true
 	case "directly_assignable_expression":
+		if name, ok := reassignedThisQualifiedNameFlat(file, lhs); ok {
+			return name, true
+		}
 		if file.FlatNamedChildCount(lhs) == 1 {
 			return reassignedLocalOrThisNameFlat(file, file.FlatNamedChild(lhs, 0))
 		}
@@ -724,12 +727,32 @@ func reassignedThisReceiverNameFlat(file *scanner.File, nav uint32) (string, boo
 	if file == nil || nav == 0 || file.FlatType(nav) != "navigation_expression" || file.FlatNamedChildCount(nav) == 0 {
 		return "", false
 	}
-	first := flatUnwrapParenExpr(file, file.FlatNamedChild(nav, 0))
-	if file.FlatType(first) != "this_expression" && !file.FlatNodeTextEquals(first, "this") {
+	return reassignedThisQualifiedNameFlat(file, nav)
+}
+
+func reassignedThisQualifiedNameFlat(file *scanner.File, idx uint32) (string, bool) {
+	if file == nil || idx == 0 || file.FlatNamedChildCount(idx) == 0 {
 		return "", false
 	}
-	name := flatNavigationExpressionLastIdentifier(file, nav)
-	return name, name != ""
+	first := flatUnwrapParenExpr(file, file.FlatNamedChild(idx, 0))
+	if file.FlatType(first) != "this_expression" && !file.FlatNodeTextEquals(first, "this") && !strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(first)), "this@") {
+		return "", false
+	}
+
+	name := ""
+	suffixes := 0
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "navigation_suffix" {
+			continue
+		}
+		for gc := file.FlatFirstChild(child); gc != 0; gc = file.FlatNextSib(gc) {
+			if file.FlatIsNamed(gc) && file.FlatType(gc) == "simple_identifier" {
+				name = file.FlatNodeText(gc)
+				suffixes++
+			}
+		}
+	}
+	return name, suffixes == 1 && name != ""
 }
 
 func reassignedPostfixNameFlat(file *scanner.File, idx uint32) (string, bool) {

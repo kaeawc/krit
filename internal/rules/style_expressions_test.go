@@ -216,6 +216,37 @@ fun example(other: Box) {
 	}
 }
 
+func TestVarCouldBeVal_TreatsThisReceiverAssignmentAsReassignment(t *testing.T) {
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+class SendButton {
+    private var scheduledSendListener: (() -> Unit)? = null
+
+    fun setScheduledSendListener(listener: (() -> Unit)?) {
+        this.scheduledSendListener = listener
+    }
+
+    fun fire() = scheduledSendListener?.invoke()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for private property assigned through this receiver, got %d", len(findings))
+	}
+}
+
+func TestVarCouldBeVal_DoesNotRequireTypeContext(t *testing.T) {
+	for _, rule := range v2rules.Registry {
+		if rule.ID == "VarCouldBeVal" {
+			if rule.Needs.Has(v2rules.NeedsResolver) || rule.Needs.Has(v2rules.NeedsOracle) ||
+				rule.Needs.Has(v2rules.NeedsParsedFiles) || rule.Needs.Has(v2rules.NeedsCrossFile) {
+				t.Fatalf("VarCouldBeVal should stay AST-only; got needs %v", rule.Needs)
+			}
+			return
+		}
+	}
+	t.Fatal("VarCouldBeVal rule not found")
+}
+
 func BenchmarkVarCouldBeValSharedScope(b *testing.B) {
 	var src strings.Builder
 	src.WriteString("package test\nfun example() {\n")

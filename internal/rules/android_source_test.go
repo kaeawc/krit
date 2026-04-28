@@ -395,12 +395,12 @@ class Foo {
 }
 
 func TestGetSignatures(t *testing.T) {
-	t.Run("flags GET_SIGNATURES usage", func(t *testing.T) {
+	t.Run("flags GET_SIGNATURES package info flag usage", func(t *testing.T) {
 		findings := runRuleByName(t, "GetSignatures", `
 package test
 class Foo {
-    fun check() {
-        val flags = PackageManager.GET_SIGNATURES
+    fun check(pm: PackageManager) {
+        pm.getPackageInfo("com.example", PackageManager.GET_SIGNATURES)
     }
 }`)
 		if len(findings) == 0 {
@@ -412,8 +412,8 @@ class Foo {
 		findings := runRuleByName(t, "GetSignatures", `
 package test
 class Foo {
-    fun check() {
-        val flags = PackageManager.GET_SIGNING_CERTIFICATES
+    fun check(pm: PackageManager) {
+        pm.getPackageInfo("com.example", PackageManager.GET_SIGNING_CERTIFICATES)
     }
 }`)
 		if len(findings) != 0 {

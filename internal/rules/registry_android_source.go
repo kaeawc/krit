@@ -161,20 +161,8 @@ func registerAndroidSourceRules() {
 				if !isReceiverNamed(file, idx, "Toast") {
 					return
 				}
-				// Chained: `Toast.makeText(...).show()` — look upward for an
-				// enclosing call_expression whose callee is `show`.
-				if ancestorCallNameMatches(file, idx, "show") {
+				if toastMakeTextIsShown(file, idx) {
 					return
-				}
-				// Stored then shown: walk the enclosing function's
-				// call_expression nodes for any `show` call. This catches
-				//   val t = Toast.makeText(...)
-				//   t.show()
-				// without a line-scan heuristic.
-				if fn, ok := flatEnclosingFunction(file, idx); ok {
-					if enclosingFunctionHasCallNamed(file, fn, idx, showCallName) {
-						return
-					}
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1,
 					"Toast.makeText() called without .show(). The toast will not be displayed.")
@@ -190,8 +178,15 @@ func registerAndroidSourceRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !getSignaturesCallUsesDeprecatedFlag(file, idx) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					"GET_SIGNATURES is deprecated and can be spoofed. Use GET_SIGNING_CERTIFICATES (API 28+) instead.")
+			},
 		})
 	}
 	{

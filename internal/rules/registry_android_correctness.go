@@ -18,7 +18,16 @@ func registerAndroidCorrectnessRules() {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
 				switch name {
-				case "toLowerCase", "toUpperCase", "lowercase", "uppercase":
+				case "lowercase", "uppercase":
+					// Kotlin's modern lowercase()/uppercase() overloads are
+					// locale-invariant when called without a Locale. The
+					// deprecated toLowerCase()/toUpperCase() forms are the
+					// default-locale APIs this Android lint check targets.
+					_, args := flatCallExpressionParts(file, idx)
+					if args == 0 {
+						return
+					}
+				case "toLowerCase", "toUpperCase":
 					// Only flag the zero-argument form that uses the default locale.
 					_, args := flatCallExpressionParts(file, idx)
 					if args == 0 {
@@ -88,11 +97,15 @@ func registerAndroidCorrectnessRules() {
 				if args := flatCallKeyArguments(file, idx); args != 0 && file.FlatNamedChildCount(args) > 0 {
 					return // `edit(n)` on a Collection/Array — not SharedPreferences.edit().
 				}
+				if ancestorFinalizesEditor(file, idx) {
+					return
+				}
 				fn, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
 				if !ok {
 					return
 				}
-				if enclosingFunctionHasCallNamed(file, fn, idx, commitOrApplyNames) {
+				if editorVar := initializerAssignedName(file, idx); editorVar != "" &&
+					functionHasReceiverCallAfter(file, fn, idx, editorVar, commitOrApplyNames, editorFinalizeCallShape) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, 1, "SharedPreferences.edit() without commit() or apply().")

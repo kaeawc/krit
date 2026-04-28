@@ -951,6 +951,90 @@ func enclosingFunctionHasCallNamed(file *scanner.File, fn, except uint32, names 
 	return found
 }
 
+// initializerAssignedName returns the local property name whose initializer
+// contains idx. It covers Kotlin `val name = expr` and `var name = expr`.
+func initializerAssignedName(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 {
+		return ""
+	}
+	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "property_declaration":
+			init := propertyInitializerExpression(file, current)
+			if init == 0 {
+				return ""
+			}
+			for n := idx; n != 0; {
+				if n == init {
+					return propertyDeclarationName(file, current)
+				}
+				parent, ok := file.FlatParent(n)
+				if !ok || parent == current {
+					break
+				}
+				n = parent
+			}
+			return ""
+		case "function_declaration", "class_declaration", "object_declaration", "source_file":
+			return ""
+		}
+	}
+	return ""
+}
+
+// functionHasReceiverCallAfter reports whether fn contains a call after target
+// whose receiver name and callee match. accept can reject same-name calls that
+// are not the API being searched for, such as Kotlin scope-function apply.
+func functionHasReceiverCallAfter(file *scanner.File, fn, target uint32, receiverName string, names map[string]bool, accept func(*scanner.File, uint32) bool) bool {
+	if file == nil || fn == 0 || target == 0 || receiverName == "" {
+		return false
+	}
+	targetStart := file.FlatStartByte(target)
+	found := false
+	file.FlatWalkNodes(fn, "call_expression", func(call uint32) {
+		if found || call == target || file.FlatStartByte(call) < targetStart {
+			return
+		}
+		if !names[flatCallExpressionName(file, call)] {
+			return
+		}
+		if flatReceiverNameFromCall(file, call) != receiverName {
+			return
+		}
+		if accept != nil && !accept(file, call) {
+			return
+		}
+		found = true
+	})
+	return found
+}
+
+func editorFinalizeCallShape(file *scanner.File, call uint32) bool {
+	name := flatCallExpressionName(file, call)
+	if name != "commit" && name != "apply" {
+		return false
+	}
+	if flatCallTrailingLambda(file, call) != 0 {
+		return false
+	}
+	args := flatCallKeyArguments(file, call)
+	return args == 0 || file.FlatNamedChildCount(args) == 0
+}
+
+func ancestorFinalizesEditor(file *scanner.File, idx uint32) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "call_expression":
+			if editorFinalizeCallShape(file, parent) {
+				return true
+			}
+		case "function_declaration", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
 // hasAnnotationNamed returns true when the declaration at idx has a
 // modifier-list annotation whose final name is exactly `name`. Checks
 // both the declaration's `modifiers` child and its immediately preceding

@@ -169,6 +169,23 @@ fun request() {
 	}
 }
 
+func TestEvalConstSameFileConstCycleDoesNotRecurseForever(t *testing.T) {
+	file := parseKotlin(t, `package com.example
+
+const val A = B
+const val B = A
+
+fun check() {
+    println(A)
+}
+`)
+	ctx := &v2.Context{File: file}
+	ref := findIdentifierAfter(t, file, "A", "println")
+	if val, ok := EvalSameFileConst(ctx, ref); ok {
+		t.Fatalf("cyclic const evaluated unexpectedly: %+v", val)
+	}
+}
+
 func TestDominatingTypeFactsAndConfidencePolicy(t *testing.T) {
 	file := parseKotlin(t, `package com.example
 

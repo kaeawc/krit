@@ -149,6 +149,33 @@ fun foo() {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+
+	t.Run("makeText_with_unrelated_show_still_triggers", func(t *testing.T) {
+		findings := runRuleByName(t, "ShowToast", `
+package test
+fun foo() {
+    val toast = Toast.makeText(ctx, "hi", Toast.LENGTH_SHORT)
+    dialog.show()
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("makeText_with_apply_lambda_show_no_trigger", func(t *testing.T) {
+		findings := runRuleByName(t, "ShowToast", `
+package test
+fun foo() {
+    Toast.makeText(ctx, "hi", Toast.LENGTH_SHORT).apply {
+        show()
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
 }
 
 // =====================================================================

@@ -59,6 +59,17 @@ fun example() {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+	t.Run("negative Kotlin lowercase uppercase no-arg are locale invariant", func(t *testing.T) {
+		findings := runRuleByName(t, "DefaultLocale", `
+package test
+fun example() {
+    val a = name.lowercase()
+    val b = name.uppercase()
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +108,29 @@ fun save() {
 }`)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("positive unrelated apply does not finalize editor", func(t *testing.T) {
+		findings := runRuleByName(t, "CommitPrefEdits", `
+package test
+fun save() {
+    val editor = prefs.edit()
+    other.apply()
+}`)
+		if len(findings) == 0 {
+			t.Fatal("expected findings")
+		}
+	})
+	t.Run("positive Kotlin scope apply does not persist edits", func(t *testing.T) {
+		findings := runRuleByName(t, "CommitPrefEdits", `
+package test
+fun save() {
+    prefs.edit().apply {
+        putString("key", "value")
+    }
+}`)
+		if len(findings) == 0 {
+			t.Fatal("expected findings")
 		}
 	})
 }

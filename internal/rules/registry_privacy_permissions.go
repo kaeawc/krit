@@ -135,7 +135,7 @@ func registerPrivacyPermissionsRules() {
 				idx, file := ctx.Idx, ctx.File
 				nodeType := file.FlatType(idx)
 				name := extractIdentifierFlat(file, idx)
-				if name == "" || !privacySensitiveScreenName(name) {
+				if name == "" || !privacySensitiveScreenDeclaration(file, idx, name) {
 					return
 				}
 				if nodeType == "class_declaration" {
@@ -151,6 +151,12 @@ func registerPrivacyPermissionsRules() {
 				}
 				if nodeType == "function_declaration" {
 					if !privacyHasComposableAnnotation(file, idx) {
+						return
+					}
+					if !privacyComposableLooksLikeScreen(name) {
+						return
+					}
+					if privacyHasPreviewAnnotation(file, idx) {
 						return
 					}
 					if privacyNodeContainsFlagSecureReferenceFlat(file, idx) || privacyNodeContainsScreenshotBlockerReferenceFlat(file, idx) {

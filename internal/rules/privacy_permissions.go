@@ -3,6 +3,7 @@ package rules
 import (
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -596,13 +597,84 @@ func privacyOwnerHasBackgroundLocationRationaleFlat(file *scanner.File, call uin
 }
 
 func privacySensitiveScreenName(name string) bool {
-	name = strings.ToLower(name)
-	for _, part := range []string{"login", "password", "pin", "secure", "payment", "card"} {
-		if strings.Contains(name, part) {
+	tokens := privacyIdentifierTokenSet(name)
+	for _, token := range []string{"login", "password", "passwd", "pwd", "pin", "secure", "payment", "payments", "credential", "credentials", "checkout"} {
+		if tokens[token] {
 			return true
 		}
 	}
 	return false
+}
+
+func privacySensitiveScreenDeclaration(file *scanner.File, idx uint32, name string) bool {
+	if privacySensitiveScreenName(name) {
+		return true
+	}
+	if !privacyNameHasCardToken(name) {
+		return false
+	}
+	text := strings.ToLower(file.FlatNodeText(idx))
+	for _, marker := range []string{"storedcard", "creditcard", "credit_card", "paymentcard", "payment_card", "billingcard", "billing_card"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func privacyNameHasCardToken(name string) bool {
+	tokens := privacyIdentifierTokenSet(name)
+	return tokens["card"] || tokens["cards"]
+}
+
+func privacyComposableLooksLikeScreen(name string) bool {
+	tokens := privacyIdentifierTokenSet(name)
+	for _, token := range []string{"screen", "activity", "page", "route"} {
+		if tokens[token] {
+			return true
+		}
+	}
+	return false
+}
+
+func privacyIdentifierTokenSet(name string) map[string]bool {
+	out := make(map[string]bool)
+	for _, token := range privacyIdentifierTokens(name) {
+		out[token] = true
+	}
+	return out
+}
+
+func privacyIdentifierTokens(name string) []string {
+	runes := []rune(strings.Trim(name, "`"))
+	var tokens []string
+	var current []rune
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		tokens = append(tokens, strings.ToLower(string(current)))
+		current = current[:0]
+	}
+	for i, r := range runes {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			flush()
+			continue
+		}
+		if unicode.IsUpper(r) && len(current) > 0 {
+			prev := current[len(current)-1]
+			var next rune
+			if i+1 < len(runes) {
+				next = runes[i+1]
+			}
+			if unicode.IsLower(prev) || unicode.IsDigit(prev) || (unicode.IsUpper(prev) && next != 0 && unicode.IsLower(next)) {
+				flush()
+			}
+		}
+		current = append(current, r)
+	}
+	flush()
+	return tokens
 }
 
 // ScreenshotNotBlockedOnLoginScreenRule flags Activity classes or @Composable
@@ -630,6 +702,10 @@ func privacyClassExtendsActivity(file *scanner.File, idx uint32) bool {
 
 func privacyHasComposableAnnotation(file *scanner.File, idx uint32) bool {
 	return hasAnnotationNamed(file, idx, "Composable")
+}
+
+func privacyHasPreviewAnnotation(file *scanner.File, idx uint32) bool {
+	return hasAnnotationNamed(file, idx, "Preview")
 }
 
 func privacyNodeContainsFlagSecureReferenceFlat(file *scanner.File, idx uint32) bool {

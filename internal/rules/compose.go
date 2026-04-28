@@ -3,6 +3,7 @@ package rules
 import (
 	"bytes"
 	"strings"
+	"sync"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -660,6 +661,30 @@ var composeEffectBlockCalls = map[string]struct{}{
 	"LaunchedEffect":   {},
 	"SideEffect":       {},
 	"DisposableEffect": {},
+	"produceState":     {},
+}
+
+var composeRememberInitializerCalls = map[string]struct{}{
+	"remember":             {},
+	"rememberSaveable":     {},
+	"derivedStateOf":       {},
+	"rememberUpdatedState": {},
+}
+
+var composeKnownCallbackBuilderCalls = map[string]struct{}{
+	"rememberDraggableState":       {},
+	"rememberDraggable2DState":     {},
+	"DropdownMenuPositionProvider": {},
+}
+
+var composeModifierCallbackCalls = map[string]struct{}{
+	"graphicsLayer":        {},
+	"drawWithCache":        {},
+	"drawBehind":           {},
+	"onGloballyPositioned": {},
+	"onFocusChanged":       {},
+	"onSizeChanged":        {},
+	"semantics":            {},
 }
 
 func composeLambdaIsNamedEventCallback(file *scanner.File, lambdaIdx uint32, root uint32) bool {
@@ -673,6 +698,243 @@ func composeLambdaIsNamedEventCallback(file *scanner.File, lambdaIdx uint32, roo
 		}
 	}
 	return false
+}
+
+func composeFileHasRuntimeComposableEvidence(file *scanner.File) bool {
+	return fileImportsFQN(file, "androidx.compose.runtime.Composable") ||
+		bytes.Contains(file.Content, []byte("@androidx.compose.runtime.Composable"))
+}
+
+func composeCallbackLabelLooksDeferred(label string) bool {
+	if label == "factory" || label == "update" {
+		return true
+	}
+	if len(label) > 2 && strings.HasPrefix(label, "on") && label[2] >= 'A' && label[2] <= 'Z' {
+		return true
+	}
+	return false
+}
+
+type composeParamInfo struct {
+	name string
+	text string
+}
+
+type composeFunctionInfo struct {
+	composable bool
+	params     []composeParamInfo
+}
+
+type composeFileFunctionParams struct {
+	byName map[string][]composeFunctionInfo
+}
+
+var composeFunctionParamCache sync.Map
+
+func composeFunctionParamsForFile(file *scanner.File) composeFileFunctionParams {
+	if file == nil {
+		return composeFileFunctionParams{}
+	}
+	if cached, ok := composeFunctionParamCache.Load(file); ok {
+		return cached.(composeFileFunctionParams)
+	}
+	result := composeFileFunctionParams{byName: make(map[string][]composeFunctionInfo)}
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		nameNode, ok := file.FlatFindChild(fn, "simple_identifier")
+		if !ok || nameNode == 0 {
+			return
+		}
+		name := file.FlatNodeString(nameNode, nil)
+		params, _ := file.FlatFindChild(fn, "function_value_parameters")
+		if params == 0 {
+			return
+		}
+		var infos []composeParamInfo
+		for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) != "parameter" {
+				continue
+			}
+			info := composeParamInfo{text: file.FlatNodeText(child)}
+			if ident, ok := file.FlatFindChild(child, "simple_identifier"); ok {
+				info.name = file.FlatNodeString(ident, nil)
+			}
+			infos = append(infos, info)
+		}
+		if len(infos) > 0 {
+			result.byName[name] = append(result.byName[name], composeFunctionInfo{
+				composable: flatHasAnnotationNamed(file, fn, "Composable"),
+				params:     infos,
+			})
+		}
+	})
+	composeFunctionParamCache.Store(file, result)
+	return result
+}
+
+func composeParameterIsNonComposableCallback(text string) bool {
+	return strings.Contains(text, "->") && !strings.Contains(text, "@Composable")
+}
+
+func composeLocalFunctionParamIsNonComposableCallback(file *scanner.File, callName, label string, position int, trailing bool) bool {
+	if callName == "" {
+		return false
+	}
+	for _, fn := range composeFunctionParamsForFile(file).byName[callName] {
+		if !fn.composable {
+			continue
+		}
+		params := fn.params
+		if label != "" {
+			for _, param := range params {
+				if param.name == label && composeParameterIsNonComposableCallback(param.text) {
+					return true
+				}
+			}
+			continue
+		}
+		if position >= 0 && position < len(params) && composeParameterIsNonComposableCallback(params[position].text) {
+			return true
+		}
+		if trailing && len(params) > 0 && composeParameterIsNonComposableCallback(params[len(params)-1].text) {
+			return true
+		}
+	}
+	return false
+}
+
+func composeValueArgumentPosition(file *scanner.File, arg uint32) int {
+	if arg == 0 || flatHasValueArgumentLabel(file, arg) {
+		return -1
+	}
+	args, ok := file.FlatParent(arg)
+	if !ok || file.FlatType(args) != "value_arguments" {
+		return -1
+	}
+	pos := 0
+	for child := file.FlatFirstChild(args); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "value_argument" {
+			continue
+		}
+		if child == arg {
+			return pos
+		}
+		if !flatHasValueArgumentLabel(file, child) {
+			pos++
+		}
+	}
+	return -1
+}
+
+func composeLambdaCallContext(file *scanner.File, lambdaIdx uint32) (call uint32, label string, position int, trailing bool) {
+	position = -1
+	for cur, ok := file.FlatParent(lambdaIdx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "value_argument":
+			label = flatValueArgumentLabel(file, cur)
+			position = composeValueArgumentPosition(file, cur)
+		case "call_expression":
+			return cur, label, position, trailing
+		case "call_suffix":
+			if label == "" && position < 0 {
+				trailing = true
+			}
+		}
+	}
+	return 0, "", -1, false
+}
+
+func composeCallIsChained(file *scanner.File, call uint32, name string) bool {
+	if call == 0 || name == "" {
+		return false
+	}
+	return strings.Contains(file.FlatNodeText(call), "."+name)
+}
+
+func composeCallIsKnownImportedCallbackBuilder(file *scanner.File, callName string) bool {
+	switch callName {
+	case "AndroidView":
+		return fileImportsFQN(file, "androidx.compose.ui.viewinterop.AndroidView")
+	case "navArgument":
+		return fileImportsFQN(file, "androidx.navigation.navArgument")
+	default:
+		return false
+	}
+}
+
+func composeCallIsInSubscribeAsStateChain(file *scanner.File, call uint32) bool {
+	if call == 0 || !fileImportsFQN(file, "androidx.compose.runtime.rxjava3.subscribeAsState") {
+		return false
+	}
+	for cur, ok := file.FlatParent(call); ok; cur, ok = file.FlatParent(cur) {
+		if file.FlatType(cur) != "call_expression" && file.FlatType(cur) != "navigation_expression" {
+			continue
+		}
+		if strings.Contains(file.FlatNodeText(cur), "subscribeAsState") {
+			return true
+		}
+	}
+	return false
+}
+
+func composeAssignmentIsMutableTransitionTargetState(file *scanner.File, assignment uint32, fn uint32) bool {
+	if !fileImportsFQN(file, "androidx.compose.animation.core.MutableTransitionState") {
+		return false
+	}
+	text := file.FlatNodeText(assignment)
+	eq := strings.Index(text, "=")
+	if eq < 0 {
+		return false
+	}
+	lhs := strings.TrimSpace(text[:eq])
+	if !strings.HasSuffix(lhs, ".targetState") {
+		return false
+	}
+	receiver := strings.TrimSpace(strings.TrimSuffix(lhs, ".targetState"))
+	receiver = strings.TrimPrefix(receiver, "this.")
+	if receiver == "" || strings.ContainsAny(receiver, " \t\n(){}") {
+		return false
+	}
+	start := file.FlatStartByte(fn)
+	end := file.FlatStartByte(assignment)
+	if end <= start || int(end) > len(file.Content) {
+		return false
+	}
+	prefix := string(file.Content[start:end])
+	return strings.Contains(prefix, "val "+receiver+" = remember { MutableTransitionState(") ||
+		strings.Contains(prefix, "var "+receiver+" = remember { MutableTransitionState(")
+}
+
+func composeSideEffectAllowedLambdaBoundary(file *scanner.File, lambdaIdx uint32, root uint32) bool {
+	if composeLambdaIsNamedEventCallback(file, lambdaIdx, root) {
+		return true
+	}
+	call, label, position, trailing := composeLambdaCallContext(file, lambdaIdx)
+	if composeCallbackLabelLooksDeferred(label) {
+		return true
+	}
+	if call == 0 {
+		return false
+	}
+	callName := flatCallNameAny(file, call)
+	if _, ok := composeEffectBlockCalls[callName]; ok {
+		return true
+	}
+	if _, ok := composeRememberInitializerCalls[callName]; ok {
+		return true
+	}
+	if _, ok := composeKnownCallbackBuilderCalls[callName]; ok {
+		return true
+	}
+	if composeCallIsKnownImportedCallbackBuilder(file, callName) {
+		return true
+	}
+	if callName == "map" && composeCallIsInSubscribeAsStateChain(file, call) {
+		return true
+	}
+	if _, ok := composeModifierCallbackCalls[callName]; ok && composeCallIsChained(file, call, callName) {
+		return true
+	}
+	return composeLocalFunctionParamIsNonComposableCallback(file, callName, label, position, trailing)
 }
 
 // composeLambdaOwningCall returns the call_expression that a lambda_literal

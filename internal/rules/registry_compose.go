@@ -539,17 +539,18 @@ func registerComposeRules() {
 				if !ok || !flatHasAnnotationNamed(file, fn, "Composable") {
 					return
 				}
+				if !composeFileHasRuntimeComposableEvidence(file) {
+					return
+				}
+				if composeAssignmentIsMutableTransitionTargetState(file, idx, fn) {
+					return
+				}
 				for cur, ok := file.FlatParent(idx); ok && cur != fn; cur, ok = file.FlatParent(cur) {
 					if file.FlatType(cur) != "lambda_literal" {
 						continue
 					}
-					if composeLambdaIsNamedEventCallback(file, cur, fn) {
+					if composeSideEffectAllowedLambdaBoundary(file, cur, fn) {
 						return
-					}
-					if owningCall, ok := composeLambdaOwningCall(file, cur); ok {
-						if _, effect := composeEffectBlockCalls[flatCallNameAny(file, owningCall)]; effect {
-							return
-						}
 					}
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,

@@ -1121,6 +1121,149 @@ fun Screen(vm: VM) {
 	}
 }
 
+func TestComposeSideEffectInComposition_Negative_InRememberInitializer(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Screen(state: State) {
+    val output = remember {
+        Output().apply {
+            enabled = state.enabled
+        }
+    }
+    Content(output)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for remember initializer assignment, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_ModifierCallbackDsl(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.semantics
+
+@Composable
+fun Screen(modifier: Modifier = Modifier) {
+    var focused = false
+    Content(
+        modifier = modifier
+            .graphicsLayer {
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
+            .onFocusChanged { state -> focused = state.hasFocus }
+            .semantics { contentDescription = "content" }
+    )
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for modifier callback DSL assignment, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_AndroidViewFactoryAndUpdate(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.viewinterop.AndroidView
+
+@Composable
+fun Screen(player: Player) {
+    AndroidView(
+        factory = { context ->
+            PlayerView(context).apply {
+                this.player = player
+            }
+        },
+        update = { view ->
+            view.player = player
+        }
+    )
+    AndroidView(factory = ::PlayerView) {
+        it.player = player
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for AndroidView callback assignments, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_NavArgumentBuilder(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
+
+@Composable
+fun Screen() {
+    dialog(
+        route = "route/{id}",
+        arguments = listOf(navArgument("id") { type = NavType.IntType })
+    ) { Content() }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for navArgument builder assignment, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_RxSubscribeAsStateCallback(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rxjava3.subscribeAsState
+import androidx.compose.runtime.setValue
+
+@Composable
+fun Screen(source: Source) {
+    var expanded by remember { mutableStateOf(false) }
+    val items by source.events
+        .map { event ->
+            expanded = event.shouldExpand
+            event.items
+        }
+        .subscribeAsState(initial = emptyList())
+    Content(items)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for Rx callback feeding subscribeAsState, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_MutableTransitionTargetState(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Menu(expanded: Boolean) {
+    val expandedStates = remember { MutableTransitionState(false) }
+    expandedStates.targetState = expanded
+    Content(expandedStates.currentState || expandedStates.targetState)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for remembered MutableTransitionState.targetState assignment, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestComposeSideEffectInComposition_Negative_NamedEventCallback(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test
@@ -1140,6 +1283,30 @@ fun Screen(vm: VM) {
 	}
 }
 
+func TestComposeSideEffectInComposition_Negative_LocalNonComposableCallbackParameter(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen(vm: VM) {
+    Controls(vm.state, { vm.expanded = true }, updatePosition = { vm.position = it })
+}
+
+@Composable
+fun Controls(
+    state: State,
+    setExpanded: (Boolean) -> Unit = {},
+    updatePosition: (Float) -> Unit = {}
+) {
+    Content(state)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for same-file non-composable callback parameter assignments, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestComposeSideEffectInComposition_Positive_NamedContentLambda(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test
@@ -1154,6 +1321,43 @@ fun Screen(vm: VM) {
 `)
 	if len(findings) != 1 {
 		t.Fatalf("expected finding for composition content lambda assignment, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Positive_LocalGraphicsLayerLookalike(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+fun graphicsLayer(block: () -> Unit) {
+    block()
+}
+
+@Composable
+fun Screen(vm: VM) {
+    graphicsLayer {
+        vm.tracker.seen = true
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected finding for local graphicsLayer lookalike, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_LocalComposableLookalike(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+
+annotation class Composable
+
+@Composable
+fun Screen(vm: VM) {
+    vm.tracker.seen = true
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for local Composable annotation lookalike, got %d: %v", len(findings), findings)
 	}
 }
 

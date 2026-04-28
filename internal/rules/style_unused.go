@@ -431,6 +431,9 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 		if _, ok := file.FlatFindChild(idx, "multi_variable_declaration"); ok {
 			return target, false
 		}
+		if file.FlatHasModifier(idx, "override") || unusedVariablePropertyHasAccessor(file, idx) {
+			return target, false
+		}
 		varDecl, _ := file.FlatFindChild(idx, "variable_declaration")
 		if varDecl == 0 {
 			return target, false
@@ -478,6 +481,23 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 		emitNode: idx,
 		scope:    scope,
 	}, true
+}
+
+func unusedVariablePropertyHasAccessor(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "property_declaration" {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(idx, func(n uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(n) {
+		case "getter", "setter", "property_declaration_body":
+			found = true
+		}
+	})
+	return found
 }
 
 func unusedVariableIsLocalProperty(file *scanner.File, idx uint32) bool {

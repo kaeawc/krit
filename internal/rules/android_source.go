@@ -10,11 +10,9 @@ package rules
 //   WrongImportDetector, LayoutInflationDetector.
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 
-	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -44,39 +42,72 @@ var fragmentSuperclasses = []string{
 	"PreferenceFragmentCompat", "BottomSheetDialogFragment",
 }
 
-var secondaryCtorRe = regexp.MustCompile(`constructor\s*\([^)]+\)`)
+type fragmentConstructorState struct {
+	hasNoArgCtor bool
+	hasParamCtor bool
+}
 
-// allParamsHaveDefaults checks if every parameter in the param list has a default value.
-func allParamsHaveDefaults(params string) bool {
-	// Split by comma, accounting for nested generics
-	depth := 0
-	start := 0
-	var parts []string
-	for i, c := range params {
-		switch c {
-		case '<', '(':
-			depth++
-		case '>', ')':
-			depth--
-		case ',':
-			if depth == 0 {
-				parts = append(parts, params[start:i])
-				start = i + 1
+func fragmentConstructorStateFlat(file *scanner.File, classDecl uint32) fragmentConstructorState {
+	state := fragmentConstructorState{hasNoArgCtor: true}
+	for child := file.FlatFirstChild(classDecl); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "primary_constructor":
+			count, defaults := constructorParameterDefaultsFlat(file, child, "class_parameter")
+			if count == 0 {
+				state.hasNoArgCtor = true
+				continue
 			}
+			state.hasParamCtor = true
+			state.hasNoArgCtor = defaults == count
+		case "class_body":
+			file.FlatWalkNodes(child, "secondary_constructor", func(ctor uint32) {
+				count, defaults := constructorParameterDefaultsFlat(file, ctor, "parameter")
+				if count == 0 {
+					state.hasNoArgCtor = true
+					return
+				}
+				state.hasParamCtor = true
+				if defaults == count {
+					state.hasNoArgCtor = true
+				}
+			})
 		}
 	}
-	parts = append(parts, params[start:])
+	return state
+}
 
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if len(p) == 0 {
-			continue
+func constructorParameterDefaultsFlat(file *scanner.File, ctor uint32, paramType string) (count int, defaults int) {
+	file.FlatWalkNodes(ctor, paramType, func(param uint32) {
+		if nearestConstructorAncestorFlat(file, param) != ctor {
+			return
 		}
-		if !strings.Contains(p, "=") {
-			return false
+		count++
+		if parameterHasDefaultValueFlat(file, param) {
+			defaults++
+		}
+	})
+	return count, defaults
+}
+
+func nearestConstructorAncestorFlat(file *scanner.File, idx uint32) uint32 {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "primary_constructor", "secondary_constructor":
+			return cur
+		case "class_declaration", "class_body":
+			return 0
 		}
 	}
-	return true
+	return 0
+}
+
+func parameterHasDefaultValueFlat(file *scanner.File, param uint32) bool {
+	for child := file.FlatFirstChild(param); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) && file.FlatNodeTextEquals(child, "=") {
+			return true
+		}
+	}
+	return false
 }
 
 // =====================================================================
@@ -295,11 +326,6 @@ type LogTagMismatchRule struct {
 // Classified per roadmap/17.
 func (r *LogTagMismatchRule) Confidence() float64 { return 0.75 }
 
-var (
-	tagConstRe  = regexp.MustCompile(`(?:const\s+val|val)\s+TAG\s*(?::\s*String)?\s*=\s*"([^"]*)"`)
-	classNameRe = regexp.MustCompile(`(?:class|object)\s+(\w+)`)
-)
-
 // findDirectCompanionTag searches the direct children of a class_declaration
 // for a companion_object containing a TAG constant, returning its string value.
 // This avoids matching TAG constants defined in nested classes.
@@ -310,10 +336,8 @@ func findDirectCompanionTagFlat(file *scanner.File, classNode uint32) string {
 			for j := 0; j < file.FlatChildCount(child); j++ {
 				member := file.FlatChild(child, j)
 				if file.FlatType(member) == "companion_object" {
-					companionText := file.FlatNodeText(member)
-					m := tagConstRe.FindStringSubmatch(companionText)
-					if m != nil {
-						return m[1]
+					if tag := directCompanionTagValueFlat(file, member); tag != "" {
+						return tag
 					}
 				}
 			}
@@ -323,6 +347,37 @@ func findDirectCompanionTagFlat(file *scanner.File, classNode uint32) string {
 	return ""
 }
 
+func directCompanionTagValueFlat(file *scanner.File, companion uint32) string {
+	tag := ""
+	file.FlatWalkNodes(companion, "property_declaration", func(prop uint32) {
+		if tag != "" || extractIdentifierFlat(file, prop) != "TAG" {
+			return
+		}
+		if !nodeIsDirectlyInsideFlat(file, prop, companion) {
+			return
+		}
+		expr := propertyInitializerExpression(file, prop)
+		if expr == 0 || file.FlatType(expr) != "string_literal" || flatContainsStringInterpolation(file, expr) {
+			return
+		}
+		tag = stringLiteralContent(file, expr)
+	})
+	return tag
+}
+
+func nodeIsDirectlyInsideFlat(file *scanner.File, node uint32, container uint32) bool {
+	for cur, ok := file.FlatParent(node); ok; cur, ok = file.FlatParent(cur) {
+		if cur == container {
+			return true
+		}
+		switch file.FlatType(cur) {
+		case "class_declaration", "object_declaration", "function_declaration", "lambda_literal":
+			return false
+		}
+	}
+	return false
+}
+
 // =====================================================================
 // 7. NonInternationalizedSmsRule
 // =====================================================================
@@ -330,7 +385,7 @@ func findDirectCompanionTagFlat(file *scanner.File, classNode uint32) string {
 // NonInternationalizedSmsRule flags SmsManager.sendTextMessage() calls that
 // may not handle internationalization of phone numbers or message encoding.
 type NonInternationalizedSmsRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
 
@@ -342,16 +397,25 @@ type NonInternationalizedSmsRule struct {
 // Classified per roadmap/17.
 func (r *NonInternationalizedSmsRule) Confidence() float64 { return 0.75 }
 
-func (r *NonInternationalizedSmsRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if strings.Contains(line, "sendTextMessage") || strings.Contains(line, "sendMultipartTextMessage") {
-			if strings.Contains(line, "SmsManager") || strings.Contains(line, "smsManager") {
-				ctx.Emit(r.Finding(file, i+1, 1,
-					"SMS sending may not handle internationalization of phone numbers properly."))
-			}
-		}
+func nonInternationalizedSmsCallFlat(file *scanner.File, call uint32) bool {
+	name := flatCallExpressionName(file, call)
+	if name != "sendTextMessage" && name != "sendMultipartTextMessage" {
+		return false
 	}
+	navExpr, _ := flatCallExpressionParts(file, call)
+	if navExpr == 0 || file.FlatNamedChildCount(navExpr) == 0 {
+		return false
+	}
+	receiver := file.FlatNamedChild(navExpr, 0)
+	path := contactsIdentifierPathFlat(file, receiver)
+	if len(path) > 0 && path[0] == "SmsManager" {
+		return true
+	}
+	receiverName := flatReferenceSimpleName(file, receiver)
+	if receiverName == "smsManager" {
+		return true
+	}
+	return receiverName != "" && contactsSameOwnerDeclarationHasTypeFlat(file, call, receiverName, "SmsManager")
 }
 
 // =====================================================================

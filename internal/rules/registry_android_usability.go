@@ -96,7 +96,22 @@ func registerAndroidUsabilityRules() {
 			Category: ALCUnknown, ALSeverity: ALSError, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := extractIdentifierFlat(file, idx)
+				if !overrideMethodNames[name] || file.FlatHasModifier(idx, "override") {
+					return
+				}
+				if !overrideEnclosingAndroidComponentFlat(file, idx) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"fun "+name+"(...) should be declared with `override` in Activity/Fragment subclasses.")
+			},
+		})
 	}
 	{
 		r := &UnusedResourcesRule{AndroidRule: AndroidRule{
@@ -105,6 +120,17 @@ func registerAndroidUsabilityRules() {
 			Category: ALCUnknown, ALSeverity: ALSWarning, Priority: 3,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"navigation_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				resType, resName, ok := unusedResourceReferenceFlat(ctx.File, ctx.Idx)
+				if !ok {
+					return
+				}
+				ctx.EmitAt(ctx.File.FlatRow(ctx.Idx)+1, ctx.File.FlatCol(ctx.Idx)+1,
+					"Resource 'R."+resType+"."+resName+"' uses a test/temp naming pattern and may be unused.")
+			},
+		})
 	}
 }

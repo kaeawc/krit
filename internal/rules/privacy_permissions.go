@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -108,7 +107,7 @@ func biometricPromptAllowsDeviceCredentialFlat(file *scanner.File, idx uint32) b
 			if arg == 0 {
 				return
 			}
-			if compactKotlinExpr(file.FlatNodeText(arg)) == "true" {
+			if isBooleanLiteralTrue(file, flatValueArgumentExpression(file, arg)) {
 				allowsFallback = true
 			}
 		case "setAllowedAuthenticators":
@@ -134,6 +133,42 @@ func biometricPromptAllowsDeviceCredentialFlat(file *scanner.File, idx uint32) b
 		}
 	})
 	return allowsFallback
+}
+
+func biometricAuthenticateReceiverMatchesFlat(file *scanner.File, call uint32) bool {
+	navExpr, _ := flatCallExpressionParts(file, call)
+	if navExpr == 0 || flatNavigationExpressionLastIdentifier(file, navExpr) != "authenticate" || file.FlatNamedChildCount(navExpr) == 0 {
+		return false
+	}
+	receiver := file.FlatNamedChild(navExpr, 0)
+	if receiver == 0 {
+		return false
+	}
+	if file.FlatType(receiver) == "call_expression" && flatCallExpressionName(file, receiver) == "BiometricPrompt" {
+		return true
+	}
+	name := flatReferenceSimpleName(file, receiver)
+	return name != "" && contactsSameOwnerDeclarationHasTypeFlat(file, call, name, "BiometricPrompt")
+}
+
+func biometricPromptInfoBuilderExpressionFlat(file *scanner.File, idx uint32) bool {
+	idx = flatUnwrapParenExpr(file, idx)
+	if file == nil || idx == 0 || file.FlatType(idx) != "call_expression" || flatCallExpressionName(file, idx) != "build" {
+		return false
+	}
+	foundBuilder := false
+	file.FlatWalkNodes(idx, "call_expression", func(call uint32) {
+		if foundBuilder || flatCallExpressionName(file, call) != "Builder" {
+			return
+		}
+		navExpr, _ := flatCallExpressionParts(file, call)
+		path := contactsIdentifierPathFlat(file, navExpr)
+		if contactsIdentifierPathEquals(path, []string{"PromptInfo", "Builder"}) ||
+			contactsIdentifierPathEquals(path, []string{"BiometricPrompt", "PromptInfo", "Builder"}) {
+			foundBuilder = true
+		}
+	})
+	return foundBuilder
 }
 
 // ContactsAccessWithoutPermissionUiRule flags contacts queries that are not
@@ -455,6 +490,14 @@ func contactsIdentifierPathEquals(got, want []string) bool {
 	return true
 }
 
+func contactsIdentifierPathHasSuffix(got, want []string) bool {
+	if len(got) < len(want) {
+		return false
+	}
+	got = got[len(got)-len(want):]
+	return contactsIdentifierPathEquals(got, want)
+}
+
 // LocationBackgroundWithoutRationaleRule flags requestPermissions calls for
 // ACCESS_BACKGROUND_LOCATION when the file has no shouldShowRequestPermissionRationale call.
 type LocationBackgroundWithoutRationaleRule struct {
@@ -464,7 +507,103 @@ type LocationBackgroundWithoutRationaleRule struct {
 
 func (r *LocationBackgroundWithoutRationaleRule) Confidence() float64 { return 0.75 }
 
-var loginScreenNamePattern = regexp.MustCompile(`(?i)(Login|Password|Pin|Secure|Payment|Card)`)
+func privacyExpressionIsBackgroundLocationPermissionFlat(file *scanner.File, idx uint32) bool {
+	idx = flatUnwrapParenExpr(file, idx)
+	if file == nil || idx == 0 {
+		return false
+	}
+	switch file.FlatType(idx) {
+	case "string_literal", "line_string_literal", "multi_line_string_literal":
+		value, ok := contactsStringLiteralValueFlat(file, idx)
+		return ok && value == "android.permission.ACCESS_BACKGROUND_LOCATION"
+	case "simple_identifier":
+		name := file.FlatNodeString(idx, nil)
+		return contactsSameFileConstantIsBackgroundLocationFlat(file, idx, name)
+	case "navigation_expression":
+		path := contactsIdentifierPathFlat(file, idx)
+		return contactsIdentifierPathHasSuffix(path, []string{"Manifest", "permission", "ACCESS_BACKGROUND_LOCATION"}) ||
+			contactsIdentifierPathEquals(path, []string{"android", "Manifest", "permission", "ACCESS_BACKGROUND_LOCATION"})
+	case "call_expression":
+		return flatCallExpressionName(file, idx) == "arrayOf" && privacyValueArgumentsContainBackgroundLocationFlat(file, flatCallKeyArguments(file, idx))
+	case "value_argument", "value_arguments":
+		return privacyValueArgumentsContainBackgroundLocationFlat(file, idx)
+	}
+	found := false
+	file.FlatWalkAllNodes(idx, func(node uint32) {
+		if found || node == idx {
+			return
+		}
+		found = privacyExpressionIsBackgroundLocationPermissionFlat(file, node)
+	})
+	return found
+}
+
+func privacyValueArgumentsContainBackgroundLocationFlat(file *scanner.File, args uint32) bool {
+	if file == nil || args == 0 {
+		return false
+	}
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if !file.FlatIsNamed(arg) {
+			continue
+		}
+		expr := arg
+		if file.FlatType(arg) == "value_argument" {
+			expr = flatValueArgumentExpression(file, arg)
+		}
+		if privacyExpressionIsBackgroundLocationPermissionFlat(file, expr) {
+			return true
+		}
+	}
+	return false
+}
+
+func contactsSameFileConstantIsBackgroundLocationFlat(file *scanner.File, useIdx uint32, name string) bool {
+	if file == nil || name == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(0, "property_declaration", func(prop uint32) {
+		if found || extractIdentifierFlat(file, prop) != name {
+			return
+		}
+		if privacyExpressionIsBackgroundLocationPermissionFlat(file, contactsPropertyInitializerFlat(file, prop)) {
+			found = true
+		}
+	})
+	return found
+}
+
+func privacyOwnerHasBackgroundLocationRationaleFlat(file *scanner.File, call uint32) bool {
+	owner, ok := flatEnclosingAncestor(file, call, "function_declaration")
+	if !ok {
+		owner = contactsDeclarationOwnerFlat(file, call)
+	}
+	if owner == 0 {
+		return false
+	}
+	found := false
+	targetStart := file.FlatStartByte(call)
+	file.FlatWalkNodes(owner, "call_expression", func(candidate uint32) {
+		if found || candidate == call || file.FlatStartByte(candidate) >= targetStart {
+			return
+		}
+		if flatCallExpressionName(file, candidate) != "shouldShowRequestPermissionRationale" {
+			return
+		}
+		found = privacyValueArgumentsContainBackgroundLocationFlat(file, flatCallKeyArguments(file, candidate))
+	})
+	return found
+}
+
+func privacySensitiveScreenName(name string) bool {
+	name = strings.ToLower(name)
+	for _, part := range []string{"login", "password", "pin", "secure", "payment", "card"} {
+		if strings.Contains(name, part) {
+			return true
+		}
+	}
+	return false
+}
 
 // ScreenshotNotBlockedOnLoginScreenRule flags Activity classes or @Composable
 // functions whose name suggests a sensitive screen but do not set FLAG_SECURE.
@@ -490,19 +629,83 @@ func privacyClassExtendsActivity(file *scanner.File, idx uint32) bool {
 }
 
 func privacyHasComposableAnnotation(file *scanner.File, idx uint32) bool {
-	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-		typ := file.FlatType(child)
-		if typ == "modifiers" || typ == "annotation" {
-			text := file.FlatNodeText(child)
-			if strings.Contains(text, "Composable") {
-				return true
-			}
+	return hasAnnotationNamed(file, idx, "Composable")
+}
+
+func privacyNodeContainsFlagSecureReferenceFlat(file *scanner.File, idx uint32) bool {
+	found := false
+	file.FlatWalkNodes(idx, "simple_identifier", func(ident uint32) {
+		if found {
+			return
+		}
+		found = file.FlatNodeString(ident, nil) == "FLAG_SECURE"
+	})
+	return found
+}
+
+func privacyNodeContainsScreenshotBlockerReferenceFlat(file *scanner.File, idx uint32) bool {
+	found := false
+	file.FlatWalkNodes(idx, "simple_identifier", func(ident uint32) {
+		if found {
+			return
+		}
+		found = file.FlatNodeString(ident, nil) == "ScreenshotBlocker"
+	})
+	return found
+}
+
+func privacySensitiveIdentifierName(name string) bool {
+	name = strings.ToLower(strings.Trim(name, "`"))
+	for _, part := range []string{"password", "passwd", "pwd", "pin", "secret", "credential"} {
+		if strings.Contains(name, part) {
+			return true
 		}
 	}
 	return false
 }
 
-var passwordVarNamePattern = regexp.MustCompile(`(?i)(password|passwd|pwd|pin|secret|credential)`)
+func privacyClipboardCallHasSensitiveSourceFlat(file *scanner.File, call uint32) bool {
+	args := flatCallKeyArguments(file, call)
+	if args == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(args, "simple_identifier", func(ident uint32) {
+		if found {
+			return
+		}
+		name := file.FlatNodeString(ident, nil)
+		if !privacySensitiveIdentifierName(name) {
+			return
+		}
+		found = contactsSameOwnerDeclarationNamedFlat(file, call, name)
+	})
+	return found
+}
+
+func contactsSameOwnerDeclarationNamedFlat(file *scanner.File, useIdx uint32, name string) bool {
+	if file == nil || name == "" {
+		return false
+	}
+	for _, owner := range contactsEnclosingOwnersFlat(file, useIdx) {
+		found := false
+		file.FlatWalkAllNodes(owner, func(candidate uint32) {
+			if found || candidate == useIdx {
+				return
+			}
+			switch file.FlatType(candidate) {
+			case "class_parameter", "parameter", "property_declaration", "variable_declaration":
+				if contactsDeclarationOwnerFlat(file, candidate) == owner && extractIdentifierFlat(file, candidate) == name {
+					found = true
+				}
+			}
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
 
 // ClipboardOnSensitiveInputTypeRule flags setPrimaryClip calls where the
 // source variable name suggests a password or credential field.

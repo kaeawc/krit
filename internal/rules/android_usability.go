@@ -1,20 +1,17 @@
 package rules
 
+import (
+	"strings"
+
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
 // Android Lint rules: Usability, Icons, Messages, UNKNOWN categories.
 // Origin: https://android.googlesource.com/platform/tools/base/+/refs/heads/main/lint/libs/lint-checks/
 //
 // Stub aliases for XML/resource/manifest-only rules have been removed;
 // those checks are handled by specialized manifest, resource, Gradle, and
 // icon-check pipelines.
-
-import (
-	"fmt"
-	"regexp"
-	"strings"
-
-	"github.com/kaeawc/krit/internal/scanner"
-	v2 "github.com/kaeawc/krit/internal/rules/v2"
-)
 
 // =====================================================================
 // UNKNOWN category rule types — real source-scanning implementations
@@ -36,7 +33,6 @@ type NewApiRule struct {
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
 func (r *NewApiRule) Confidence() float64 { return 0.75 }
-
 
 // newApiTable maps method/class names to their introduction API level.
 var newApiTable = map[string]int{
@@ -60,7 +56,6 @@ var newApiTable = map[string]int{
 	"MediaBrowserServiceCompat":  21,
 }
 
-
 // InlinedApiRule detects usage of constants inlined from newer APIs using a
 // static lookup table. Guarded blocks are skipped.
 type InlinedApiRule struct {
@@ -75,7 +70,6 @@ type InlinedApiRule struct {
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
 func (r *InlinedApiRule) Confidence() float64 { return 0.75 }
-
 
 // inlinedApiEntry pairs a constant pattern with its introduction API level.
 type inlinedApiEntry struct {
@@ -105,21 +99,19 @@ var inlinedApiTable = []inlinedApiEntry{
 	{"FEATURE_NFC", 9},
 }
 
-
 // OverrideRule detects methods that need `override` for correct behavior
 // across API levels. Currently checks for `fun onBackPressed()` without
 // `override` in Activity/Fragment subclasses.
 type OverrideRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
 
-// overrideMethods lists method signatures that should have `override`.
-var overrideMethods = []string{
-	"fun onBackPressed()",
-	"fun onNavigateUp()",
-	"fun onCreateOptionsMenu(",
-	"fun onOptionsItemSelected(",
+var overrideMethodNames = map[string]bool{
+	"onBackPressed":         true,
+	"onNavigateUp":          true,
+	"onCreateOptionsMenu":   true,
+	"onOptionsItemSelected": true,
 }
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
@@ -130,35 +122,20 @@ var overrideMethods = []string{
 // Classified per roadmap/17.
 func (r *OverrideRule) Confidence() float64 { return 0.75 }
 
-func (r *OverrideRule) check(ctx *v2.Context) {
-	file := ctx.File
-	// Quick scan: does this file contain an Activity or Fragment subclass?
-	content := strings.Join(file.Lines, "\n")
-	isActivityOrFragment := false
-	for _, base := range []string{"Activity", "Fragment", "AppCompatActivity", "ComponentActivity", "FragmentActivity"} {
-		if strings.Contains(content, ": "+base+"(") || strings.Contains(content, ": "+base+" ") ||
-			strings.Contains(content, ": "+base+",") || strings.Contains(content, ": "+base+"{") {
-			isActivityOrFragment = true
-			break
+func overrideEnclosingAndroidComponentFlat(file *scanner.File, fn uint32) bool {
+	classDecl, ok := flatEnclosingAncestor(file, fn, "class_declaration")
+	if !ok {
+		return false
+	}
+	if privacyClassExtendsActivity(file, classDecl) {
+		return true
+	}
+	for _, base := range fragmentSuperclasses {
+		if privacyClassDirectlyExtendsFlat(file, classDecl, base) {
+			return true
 		}
 	}
-	if !isActivityOrFragment {
-		return
-	}
-
-	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if scanner.IsCommentLine(line) {
-			continue
-		}
-		for _, method := range overrideMethods {
-			if strings.Contains(trimmed, method) && !strings.Contains(trimmed, "override") {
-				ctx.Emit(r.Finding(file, i+1, 1,
-					method+") should be declared with `override` in Activity/Fragment subclasses."))
-				break
-			}
-		}
-	}
+	return false
 }
 
 // AssertRule is defined in android_correctness.go with CheckLines implementation.
@@ -169,11 +146,9 @@ func (r *OverrideRule) check(ctx *v2.Context) {
 // whose names follow common "temp" or "test" patterns (test_, temp_, unused_, old_).
 // Full unused-resource detection requires cross-file analysis; this is a light heuristic.
 type UnusedResourcesRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
-
-var unusedResPatternRe = regexp.MustCompile(`R\.(string|drawable|layout|color|dimen|style)\.(test_\w+|temp_\w+|unused_\w+|old_\w+)`)
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
@@ -183,18 +158,22 @@ var unusedResPatternRe = regexp.MustCompile(`R\.(string|drawable|layout|color|di
 // Classified per roadmap/17.
 func (r *UnusedResourcesRule) Confidence() float64 { return 0.75 }
 
-func (r *UnusedResourcesRule) check(ctx *v2.Context) {
-	file := ctx.File
-	for i, line := range file.Lines {
-		if scanner.IsCommentLine(line) {
-			continue
-		}
-		matches := unusedResPatternRe.FindStringSubmatch(line)
-		if matches != nil {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				fmt.Sprintf("Resource 'R.%s.%s' uses a test/temp naming pattern and may be unused.", matches[1], matches[2])))
+func unusedResourceReferenceFlat(file *scanner.File, idx uint32) (resType string, resName string, ok bool) {
+	path := contactsIdentifierPathFlat(file, idx)
+	if len(path) != 3 || path[0] != "R" {
+		return "", "", false
+	}
+	switch path[1] {
+	case "string", "drawable", "layout", "color", "dimen", "style":
+	default:
+		return "", "", false
+	}
+	for _, prefix := range []string{"test_", "temp_", "unused_", "old_"} {
+		if strings.HasPrefix(path[2], prefix) {
+			return path[1], path[2], true
 		}
 	}
+	return "", "", false
 }
 
 // InconsistentArraysRule → InconsistentArraysResourceRule (android_resource.go)

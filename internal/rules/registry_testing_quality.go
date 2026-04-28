@@ -198,6 +198,9 @@ func registerTestingQualityRules() {
 				if flatCallExpressionName(file, idx) != "delay" {
 					return
 				}
+				if !testingQualityIsDirectCoroutineDelayCall(file, idx) {
+					return
+				}
 				_, args := flatCallExpressionParts(file, idx)
 				if args != 0 {
 					valueArgs := testingQualityValueArgumentsFlat(file, args)

@@ -336,11 +336,8 @@ func derivePackageFix(file *scanner.File) *scanner.Fix {
 }
 
 // ---------------------------------------------------------------------------
-// MissingSuperCallRule detects override without super call.
-// MustInvokeSuperAnnotations lists the annotations that require a super call
-// (e.g., "androidx.annotation.CallSuper"). Without cross-file type resolution
-// the rule fires on all overrides that lack a super call; the annotation list
-// is stored for future use when type oracle support is extended.
+// MissingSuperCallRule detects high-confidence framework lifecycle overrides
+// that omit their required super call.
 // ---------------------------------------------------------------------------
 type MissingSuperCallRule struct {
 	FlatDispatchBase
@@ -352,6 +349,139 @@ type MissingSuperCallRule struct {
 // hook shapes by name and annotation; project-specific wrappers can escape
 // detection. Classified per roadmap/17.
 func (r *MissingSuperCallRule) Confidence() float64 { return 0.75 }
+
+var missingSuperCallLifecycleMethodsByOwner = map[string]map[string]bool{
+	"Activity":          missingSuperCallActivityLifecycleMethods,
+	"AppCompatActivity": missingSuperCallActivityLifecycleMethods,
+	"ComponentActivity": missingSuperCallActivityLifecycleMethods,
+	"FragmentActivity":  missingSuperCallActivityLifecycleMethods,
+	"Application":       missingSuperCallApplicationLifecycleMethods,
+	"Fragment":          missingSuperCallFragmentLifecycleMethods,
+	"DialogFragment":    missingSuperCallFragmentLifecycleMethods,
+	"Service":           missingSuperCallServiceLifecycleMethods,
+}
+
+var missingSuperCallOwnerImports = map[string][]string{
+	"Activity": {
+		"android.app.Activity",
+	},
+	"AppCompatActivity": {
+		"androidx.appcompat.app.AppCompatActivity",
+	},
+	"ComponentActivity": {
+		"androidx.activity.ComponentActivity",
+	},
+	"FragmentActivity": {
+		"androidx.fragment.app.FragmentActivity",
+	},
+	"Application": {
+		"android.app.Application",
+	},
+	"Fragment": {
+		"android.app.Fragment",
+		"androidx.fragment.app.Fragment",
+	},
+	"DialogFragment": {
+		"android.app.DialogFragment",
+		"androidx.fragment.app.DialogFragment",
+	},
+	"Service": {
+		"android.app.Service",
+	},
+}
+
+var missingSuperCallActivityLifecycleMethods = map[string]bool{
+	"onActivityResult":           true,
+	"onConfigurationChanged":     true,
+	"onCreate":                   true,
+	"onDestroy":                  true,
+	"onLowMemory":                true,
+	"onNewIntent":                true,
+	"onPause":                    true,
+	"onPostCreate":               true,
+	"onPostResume":               true,
+	"onRequestPermissionsResult": true,
+	"onRestart":                  true,
+	"onRestoreInstanceState":     true,
+	"onResume":                   true,
+	"onSaveInstanceState":        true,
+	"onStart":                    true,
+	"onStop":                     true,
+	"onTrimMemory":               true,
+}
+
+var missingSuperCallApplicationLifecycleMethods = map[string]bool{
+	"onConfigurationChanged": true,
+	"onCreate":               true,
+	"onLowMemory":            true,
+	"onTerminate":            true,
+	"onTrimMemory":           true,
+}
+
+var missingSuperCallFragmentLifecycleMethods = map[string]bool{
+	"onActivityCreated":          true,
+	"onAttach":                   true,
+	"onConfigurationChanged":     true,
+	"onCreate":                   true,
+	"onDestroy":                  true,
+	"onDestroyView":              true,
+	"onDetach":                   true,
+	"onLowMemory":                true,
+	"onPause":                    true,
+	"onRequestPermissionsResult": true,
+	"onResume":                   true,
+	"onSaveInstanceState":        true,
+	"onStart":                    true,
+	"onStop":                     true,
+	"onTrimMemory":               true,
+	"onViewStateRestored":        true,
+}
+
+var missingSuperCallServiceLifecycleMethods = map[string]bool{
+	"onConfigurationChanged": true,
+	"onCreate":               true,
+	"onDestroy":              true,
+	"onLowMemory":            true,
+	"onRebind":               true,
+	"onStart":                true,
+	"onStartCommand":         true,
+	"onTaskRemoved":          true,
+	"onTrimMemory":           true,
+	"onUnbind":               true,
+}
+
+func missingSuperCallHasRequiredSuperEvidence(file *scanner.File, idx uint32, name string) bool {
+	classNode, ok := flatEnclosingAncestor(file, idx, "class_declaration")
+	if !ok {
+		return false
+	}
+	for owner, methods := range missingSuperCallLifecycleMethodsByOwner {
+		if !methods[name] {
+			continue
+		}
+		if missingSuperCallClassExtendsOwner(file, classNode, owner) {
+			return true
+		}
+	}
+	return false
+}
+
+func missingSuperCallClassExtendsOwner(file *scanner.File, classNode uint32, owner string) bool {
+	if file == nil || classNode == 0 || owner == "" {
+		return false
+	}
+	for _, supertype := range androidDirectSupertypesFlat(file, classNode) {
+		if supertype.simple != owner {
+			continue
+		}
+		for _, fqn := range missingSuperCallOwnerImports[owner] {
+			if supertype.name == fqn || (!supertype.qualified && fileImportsFQN(file, fqn)) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // ---------------------------------------------------------------------------
 // MissingUseCallRule detects Closeable/AutoCloseable resource creation without

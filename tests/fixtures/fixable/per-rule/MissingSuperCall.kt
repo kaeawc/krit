@@ -1,12 +1,8 @@
 package fixtures.positive.potentialbugs
 
-open class Base {
-    open fun onCreate() {
-        println("base")
-    }
-}
+import android.app.Activity
 
-class MissingSuperCall : Base() {
+class MissingSuperCall : Activity() {
     override fun onCreate() {
         doWork()
     }

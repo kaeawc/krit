@@ -227,15 +227,8 @@ func registerPotentialbugsLifecycleRules() {
 				if superFound {
 					return
 				}
-				classNode, ok := flatEnclosingAncestor(file, idx, "class_declaration")
-				if ok {
-					hasClassSupertype := false
-					file.FlatWalkNodes(classNode, "constructor_invocation", func(uint32) {
-						hasClassSupertype = true
-					})
-					if !hasClassSupertype {
-						return
-					}
+				if !missingSuperCallHasRequiredSuperEvidence(file, idx, name) {
+					return
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, 1,
 					fmt.Sprintf("Override function '%s' does not call super.%s().", name, name))

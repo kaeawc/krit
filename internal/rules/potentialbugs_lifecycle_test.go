@@ -206,10 +206,10 @@ fun main() {
 func TestMissingSuperCall_Positive(t *testing.T) {
 	findings := runRuleByName(t, "MissingSuperCall", `
 package test
-open class Base {
-    open fun onCreate() {}
-}
-class Child : Base() {
+
+import android.app.Activity
+
+class Child : Activity() {
     override fun onCreate() {
         println("child")
     }
@@ -223,10 +223,10 @@ class Child : Base() {
 func TestMissingSuperCall_Negative(t *testing.T) {
 	findings := runRuleByName(t, "MissingSuperCall", `
 package test
-open class Base {
-    open fun onCreate() {}
-}
-class Child : Base() {
+
+import android.app.Activity
+
+class Child : Activity() {
     override fun onCreate() {
         super.onCreate()
         println("child")
@@ -235,6 +235,40 @@ class Child : Base() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestMissingSuperCall_NegativeOrdinaryInterfaceOverride(t *testing.T) {
+	findings := runRuleByName(t, "MissingSuperCall", `
+package test
+interface Logger {
+    fun log(message: String)
+}
+class AndroidLogger : Logger {
+    override fun log(message: String) {
+        println(message)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for ordinary interface override, got %d", len(findings))
+	}
+}
+
+func TestMissingSuperCall_NegativeLocalLifecycleLookalike(t *testing.T) {
+	findings := runRuleByName(t, "MissingSuperCall", `
+package test
+open class Base {
+    open fun onCreate() {}
+}
+class Child : Base() {
+    override fun onCreate() {
+        println("child")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for local onCreate lookalike, got %d", len(findings))
 	}
 }
 

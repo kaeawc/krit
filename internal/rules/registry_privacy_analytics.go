@@ -11,11 +11,14 @@ func registerPrivacyAnalyticsRules() {
 		r := &AnalyticsEventWithPiiParamNameRule{BaseRule: BaseRule{RuleName: "AnalyticsEventWithPiiParamName", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects analytics event parameters whose key names match PII patterns like email, phone, or SSN."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsResolver, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
 				if !isAnalyticsEventMethod(name) {
+					return
+				}
+				if !privacyCallHasReceiverType(ctx, idx, analyticsReceiverTypes) {
 					return
 				}
 				_, args := flatCallExpressionParts(file, idx)
@@ -62,11 +65,14 @@ func registerPrivacyAnalyticsRules() {
 		r := &AnalyticsUserIdFromPiiRule{BaseRule: BaseRule{RuleName: "AnalyticsUserIdFromPii", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects user-ID setter calls whose argument is a PII property like email or phoneNumber."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsResolver, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
 				if !isUserIdSetterMethod(name) {
+					return
+				}
+				if !privacyCallHasReceiverType(ctx, idx, analyticsReceiverTypes) {
 					return
 				}
 				_, args := flatCallExpressionParts(file, idx)
@@ -94,10 +100,13 @@ func registerPrivacyAnalyticsRules() {
 		r := &CrashlyticsCustomKeyWithPiiRule{BaseRule: BaseRule{RuleName: "CrashlyticsCustomKeyWithPii", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects Crashlytics setCustomKey calls where the key name matches PII patterns."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsResolver, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "setCustomKey" {
+					return
+				}
+				if !privacyCallHasReceiverType(ctx, idx, crashlyticsReceiverTypes) {
 					return
 				}
 				_, args := flatCallExpressionParts(file, idx)
@@ -127,11 +136,14 @@ func registerPrivacyAnalyticsRules() {
 		r := &FirebaseRemoteConfigDefaultsWithPiiRule{BaseRule: BaseRule{RuleName: "FirebaseRemoteConfigDefaultsWithPii", RuleSetName: privacyRuleSet, Sev: "info", Desc: "Detects Firebase Remote Config default map keys that match PII patterns."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsResolver, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
 				if name != "setDefaults" && name != "setDefaultsAsync" {
+					return
+				}
+				if !privacyCallHasReceiverType(ctx, idx, remoteConfigReceiverTypes) {
 					return
 				}
 				_, args := flatCallExpressionParts(file, idx)
@@ -157,11 +169,14 @@ func registerPrivacyAnalyticsRules() {
 		r := &AnalyticsCallWithoutConsentGateRule{BaseRule: BaseRule{RuleName: "AnalyticsCallWithoutConsentGate", RuleSetName: privacyRuleSet, Sev: "info", Desc: "Detects analytics event calls that are not guarded by a consent or GDPR check."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsResolver, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
 				if !isAnalyticsEventMethod(name) {
+					return
+				}
+				if !privacyCallHasReceiverType(ctx, idx, analyticsReceiverTypes) {
 					return
 				}
 				if privacyCallIsInsideConsentGuard(file, idx) {

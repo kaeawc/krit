@@ -68,6 +68,44 @@ func flatCallExpressionName(file *scanner.File, idx uint32) string {
 	return ""
 }
 
+func flatCallExpressionNameEquals(file *scanner.File, idx uint32, want string) bool {
+	if file == nil || file.FlatType(idx) != "call_expression" || want == "" {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "simple_identifier":
+			return file.FlatNodeTextEquals(child, want)
+		case "navigation_expression":
+			return flatNavigationExpressionLastIdentifierEquals(file, child, want)
+		}
+	}
+	return false
+}
+
+func flatNavigationExpressionLastIdentifierEquals(file *scanner.File, idx uint32, want string) bool {
+	if file == nil || idx == 0 || want == "" {
+		return false
+	}
+	var last uint32
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		switch file.FlatType(child) {
+		case "navigation_suffix":
+			for gc := file.FlatFirstChild(child); gc != 0; gc = file.FlatNextSib(gc) {
+				if file.FlatIsNamed(gc) && file.FlatType(gc) == "simple_identifier" {
+					last = gc
+				}
+			}
+		case "simple_identifier":
+			last = child
+		}
+	}
+	return last != 0 && file.FlatNodeTextEquals(last, want)
+}
+
 // flatCallNameAny returns the method name of a call_expression whether the
 // call uses the direct form (`name(args)`, `name { body }`) or the
 // trailing-lambda idiom where tree-sitter nests the arg-ful call under an

@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/rules/semantics"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -66,6 +68,90 @@ func isAnalyticsEventMethod(name string) bool {
 	switch name {
 	case "logEvent", "trackEvent", "track", "logCustomEvent":
 		return true
+	}
+	return false
+}
+
+var analyticsReceiverTypes = []string{
+	"com.google.firebase.analytics.FirebaseAnalytics",
+	"FirebaseAnalytics",
+	"Analytics",
+}
+
+var crashlyticsReceiverTypes = []string{
+	"com.google.firebase.crashlytics.FirebaseCrashlytics",
+	"FirebaseCrashlytics",
+}
+
+var remoteConfigReceiverTypes = []string{
+	"com.google.firebase.remoteconfig.FirebaseRemoteConfig",
+	"FirebaseRemoteConfig",
+	"RemoteConfig",
+}
+
+func privacyCallHasReceiverType(ctx *v2.Context, call uint32, allowed []string) bool {
+	if ctx == nil || ctx.File == nil {
+		return false
+	}
+	if ctx.Resolver != nil && semantics.MatchQualifiedReceiver(ctx, call, allowed...) {
+		return true
+	}
+	file := ctx.File
+	nav, _ := flatCallExpressionParts(file, call)
+	if nav == 0 {
+		return false
+	}
+	if privacyNavigationMentionsAllowedType(file, nav, allowed) {
+		return true
+	}
+	receiverName := flatReceiverNameFromCall(file, call)
+	return receiverName != "" && privacySameFileReceiverType(file, call, receiverName, allowed)
+}
+
+func privacyNavigationMentionsAllowedType(file *scanner.File, nav uint32, allowed []string) bool {
+	found := false
+	file.FlatWalkAllNodes(nav, func(candidate uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(candidate) {
+		case "simple_identifier", "type_identifier":
+			found = privacyAllowedTypeName(file.FlatNodeString(candidate, nil), allowed)
+		}
+	})
+	return found
+}
+
+func privacySameFileReceiverType(file *scanner.File, ref uint32, name string, allowed []string) bool {
+	found := false
+	file.FlatWalkAllNodes(0, func(decl uint32) {
+		if found || file.FlatStartByte(decl) > file.FlatStartByte(ref) {
+			return
+		}
+		switch file.FlatType(decl) {
+		case "property_declaration", "parameter", "class_parameter":
+		default:
+			return
+		}
+		if extractIdentifierFlat(file, decl) != name || !declarationVisibleFromReference(file, decl, ref) {
+			return
+		}
+		typeName := flatLastIdentifierInNode(file, decl)
+		if privacyAllowedTypeName(typeName, allowed) {
+			found = true
+		}
+	})
+	return found
+}
+
+func privacyAllowedTypeName(name string, allowed []string) bool {
+	if name == "" {
+		return false
+	}
+	for _, candidate := range allowed {
+		if name == candidate || strings.HasSuffix(candidate, "."+name) {
+			return true
+		}
 	}
 	return false
 }

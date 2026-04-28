@@ -27,15 +27,9 @@ type UnnecessaryNotNullCheckRule struct {
 // resolver is absent. Classified per roadmap/17.
 func (r *UnnecessaryNotNullCheckRule) Confidence() float64 { return 0.75 }
 
-var unnecessaryNullCheckRe = regexp.MustCompile(`\bval\s+(\w+)\s*:\s*([A-Z]\w+)\s*=`)
-
-// mutableVarPropertyRe matches `[modifiers] var name` declarations (not val).
-// Used to detect properties where Kotlin smart-cast is disabled.
-var mutableVarPropertyRe = regexp.MustCompile(`\bvar\s+(\w+)`)
-
 // isMutableVarProperty returns true if the given name is declared as `var`
-// anywhere in the file. Kotlin cannot smart-cast mutable properties because
-// their value could change between the null check and access.
+// in the file's AST. Kotlin cannot smart-cast mutable properties because their
+// value could change between the null check and access.
 //
 // Backed by the per-file nullSafetyFileSummary so repeat queries on the same
 // file are O(1). The first call builds a single-pass scan of all four
@@ -43,9 +37,6 @@ var mutableVarPropertyRe = regexp.MustCompile(`\bvar\s+(\w+)`)
 func isMutableVarProperty(file *scanner.File, name string) bool {
 	return nullSafetySummaryFor(file).mutableVar[name]
 }
-
-// explicitNullableDeclRe matches `[val|var] name : SomeType?` patterns.
-var explicitNullableDeclRe = regexp.MustCompile(`\b(?:val|var)\s+(\w+)\s*:\s*[\w<>.]+\?`)
 
 // isFrameworkNullableProperty returns true if `name` is a bare identifier that
 // in typical Android framework usage resolves to an inherited property whose
@@ -73,13 +64,9 @@ func isFrameworkNullableProperty(name string) bool {
 	return false
 }
 
-// hasMemberAccessInitializer returns true if `name` is declared as a local
-// val whose initializer is a member access expression like `something.field`
-// (without explicit non-null assertion) that a bare-name resolver cannot
-// prove non-null. Used to suppress false positives where the resolver
-// incorrectly widens a nullable member access to non-null.
-var valMemberInitRe = regexp.MustCompile(`\bval\s+(\w+)\s*=\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)\s*(?:$|//|\n)`)
-
+// hasMemberAccessInitializer returns true if `name` is declared as a local val
+// whose initializer is a member access expression like `something.field` that a
+// bare-name resolver cannot prove non-null.
 func hasMemberAccessInitializer(file *scanner.File, name string) bool {
 	return nullSafetySummaryFor(file).memberAccessInitializer[name]
 }
@@ -498,7 +485,7 @@ func (r *UnnecessaryNotNullOperatorRule) Confidence() float64 { return 0.75 }
 func (r *UnnecessaryNotNullOperatorRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
 	text := file.FlatNodeText(idx)
-	if !strings.HasSuffix(text, "!!") {
+	if !flatPostfixHasNotNullAssertion(file, idx) {
 		return
 	}
 
@@ -565,21 +552,30 @@ func (r *UnnecessaryNotNullOperatorRule) check(ctx *v2.Context) {
 				return
 			}
 		}
+		if sameFileExplicitNonNullValueDeclaration(file, idx, name) {
+			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				fmt.Sprintf("Unnecessary not-null assertion (!!) on non-nullable val '%s'.", name))
+			bangStart := int(file.FlatEndByte(idx)) - 2
+			f.Fix = &scanner.Fix{ByteMode: true, StartByte: bangStart, EndByte: int(file.FlatEndByte(idx)), Replacement: ""}
+			ctx.Emit(f)
+			return
+		}
 
-		// Fallback: heuristic — check if receiver is declared as non-nullable val in the file
-		for _, fline := range file.Lines {
-			if m := unnecessaryNullCheckRe.FindStringSubmatch(fline); m != nil {
-				if m[1] == name && !strings.HasSuffix(m[2], "?") {
-					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-						fmt.Sprintf("Unnecessary not-null assertion (!!) on non-nullable val '%s'.", name))
-					bangStart := int(file.FlatEndByte(idx)) - 2
-					f.Fix = &scanner.Fix{ByteMode: true, StartByte: bangStart, EndByte: int(file.FlatEndByte(idx)), Replacement: ""}
-					ctx.Emit(f)
-					return
-				}
-			}
+	}
+}
+
+func flatPostfixHasNotNullAssertion(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "postfix_expression" {
+		return false
+	}
+	found := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "!!" || file.FlatNodeTextEquals(child, "!!") {
+			found = true
+			break
 		}
 	}
+	return found
 }
 
 // hasBranchNullInitializer returns true if the given name is declared in
@@ -590,12 +586,6 @@ func (r *UnnecessaryNotNullOperatorRule) check(ctx *v2.Context) {
 func hasBranchNullInitializer(file *scanner.File, name string) bool {
 	return nullSafetySummaryFor(file).branchNullInitializer[name]
 }
-
-// valOrVarDeclRe matches any `[val|var] name` declaration header followed
-// by an initializer (= on the same line). Mirrors the per-name regex used
-// by the pre-summary hasBranchNullInitializer but captures the name so a
-// single pass populates the summary for every declaration in the file.
-var valOrVarDeclRe = regexp.MustCompile(`\b(?:val|var)\s+(\w+)\b[^\n=]*=`)
 
 func hasNullableGenericParamBoundFlat(file *scanner.File, idx uint32, name string) bool {
 	var fn uint32
@@ -785,68 +775,77 @@ func buildNullSafetySummary(file *scanner.File) *nullSafetyFileSummary {
 		branchNullInitializer:   make(map[string]bool),
 		memberAccessInitializer: make(map[string]bool),
 	}
-	// memberAccessInitializer matches the original helper's first-match
-	// semantics: for each name, only the first line whose val-init matches
-	// valMemberInitRe contributes, and if that first init ends with `!!`
-	// the name is NOT recorded (left false). memberSeen tracks which names
-	// have already had their first occurrence resolved.
-	memberSeen := make(map[string]bool)
-
-	for i, line := range file.Lines {
-		for _, m := range mutableVarPropertyRe.FindAllStringSubmatch(line, -1) {
-			s.mutableVar[m[1]] = true
+	file.FlatWalkNodes(0, "property_declaration", func(prop uint32) {
+		name := propertyDeclarationName(file, prop)
+		if name == "" {
+			name = extractIdentifierFlat(file, prop)
 		}
-		for _, m := range explicitNullableDeclRe.FindAllStringSubmatch(line, -1) {
-			s.explicitNullable[m[1]] = true
+		if name == "" {
+			return
 		}
-		if m := valMemberInitRe.FindStringSubmatch(line); m != nil {
-			name := m[1]
-			if !memberSeen[name] {
-				memberSeen[name] = true
-				if !strings.HasSuffix(m[2], "!!") {
-					s.memberAccessInitializer[name] = true
-				}
-			}
+		if propertyDeclarationIsVar(file, prop) {
+			s.mutableVar[name] = true
 		}
-		// branchNullInitializer: for every `[val|var] name ... =` on this
-		// line, walk forward up to 60 lines joining text until paren/brace
-		// depth falls to <= 0. Record name=true if the joined window
-		// contains any of the four branch-null markers. Mirrors the
-		// per-name hasBranchNullInitializer exactly, modulo it's now
-		// keyed by all captured names per line instead of one regex per
-		// query name.
-		declMatches := valOrVarDeclRe.FindAllStringSubmatchIndex(line, -1)
-		if len(declMatches) == 0 {
-			continue
+		if declarationHasNullableTypeFlat(file, prop) {
+			s.explicitNullable[name] = true
 		}
-		// One depth walk per line is enough: the walk starts from `i` and
-		// is independent of the captured name.
-		depth := 0
-		joined := line
-		depth += strings.Count(line, "(") + strings.Count(line, "{")
-		depth -= strings.Count(line, ")") + strings.Count(line, "}")
-		for j := i + 1; j < len(file.Lines) && j < i+60; j++ {
-			cur := file.Lines[j]
-			joined += " " + cur
-			depth += strings.Count(cur, "(") + strings.Count(cur, "{")
-			depth -= strings.Count(cur, ")") + strings.Count(cur, "}")
-			if depth <= 0 {
-				break
-			}
+		init := propertyInitializerExpression(file, prop)
+		if init == 0 {
+			return
 		}
-		hasBranchNull := strings.Contains(joined, "else null") ||
-			strings.Contains(joined, "-> null") ||
-			strings.Contains(joined, "?: null") ||
-			strings.Contains(joined, "?.let")
-		if !hasBranchNull {
-			continue
+		if !propertyDeclarationIsVar(file, prop) && initializerIsUnresolvedMemberAccessFlat(file, init) {
+			s.memberAccessInitializer[name] = true
 		}
-		for _, m := range declMatches {
-			name := line[m[2]:m[3]]
+		if initializerCanProduceNullFlat(file, init) {
 			s.branchNullInitializer[name] = true
 		}
-	}
+	})
 	return s
+}
+
+func declarationHasNullableTypeFlat(file *scanner.File, decl uint32) bool {
+	if file == nil || decl == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(decl, func(candidate uint32) {
+		if !found && file.FlatType(candidate) == "nullable_type" {
+			found = true
+		}
+	})
+	return found
+}
+
+func initializerIsUnresolvedMemberAccessFlat(file *scanner.File, init uint32) bool {
+	if file == nil || init == 0 {
+		return false
+	}
+	init = flatUnwrapParenExpr(file, init)
+	if file.FlatType(init) == "postfix_expression" && flatPostfixHasNotNullAssertion(file, init) {
+		return false
+	}
+	return file.FlatType(init) == "navigation_expression" && !flatNavigationHasSafeCall(file, init)
+}
+
+func initializerCanProduceNullFlat(file *scanner.File, init uint32) bool {
+	if file == nil || init == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(init, func(candidate uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(candidate) {
+		case "null":
+			found = true
+		case "navigation_expression":
+			if flatNavigationHasSafeCall(file, candidate) {
+				found = true
+			}
+		}
+	})
+	return found
 }
 
 // ---------------------------------------------------------------------------
@@ -855,8 +854,6 @@ func buildNullSafetySummary(file *scanner.File) *nullSafetyFileSummary {
 type UnnecessarySafeCallRule struct {
 	FlatDispatchBase
 	BaseRule
-	nonNullableVals sync.Map
-	localSummaries  sync.Map
 }
 
 // Confidence reports a tier-2 (medium) base confidence — flags ?. on a
@@ -866,10 +863,10 @@ func (r *UnnecessarySafeCallRule) Confidence() float64 { return 0.75 }
 
 func (r *UnnecessarySafeCallRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
-	text := file.FlatNodeText(idx)
-	if !strings.Contains(text, "?.") {
+	if !flatNavigationHasSafeCall(file, idx) {
 		return
 	}
+	text := file.FlatNodeText(idx)
 
 	// The navigation_expression has children: receiver, navigation_suffix
 	// The ?. operator is in the navigation_suffix
@@ -884,9 +881,7 @@ func (r *UnnecessarySafeCallRule) check(ctx *v2.Context) {
 
 	// Extract receiver name
 	receiverText := file.FlatNodeText(receiver)
-	// If receiver itself uses safe calls, the expression is nullable —
-	// the downstream ?. is justified.
-	if strings.Contains(receiverText, "?.") {
+	if flatNavigationHasSafeCall(file, receiver) {
 		return
 	}
 
@@ -901,10 +896,6 @@ func (r *UnnecessarySafeCallRule) check(ctx *v2.Context) {
 		return
 	}
 	structural := experiment.Enabled("unnecessary-safe-call-structural")
-	var localSummary *safeCallLocalSummary
-	if experiment.Enabled("unnecessary-safe-call-local-nullability") {
-		localSummary = r.localSummary(file)
-	}
 
 	// If the receiver is `this`, check if the enclosing function has a
 	// nullable receiver type (extension function on nullable type). In that
@@ -938,22 +929,18 @@ func (r *UnnecessarySafeCallRule) check(ctx *v2.Context) {
 	// Skip if the name refers to a mutable var property — Kotlin does not
 	// smart-cast mutable properties because the value can change between
 	// the null check and the access.
-	if localSummary != nil {
-		if localSummary.mutableVar[name] || localSummary.explicitNullable[name] || localSummary.branchNullInitializer[name] || localSummary.memberAccessInitializer[name] {
-			return
-		}
-	} else if isMutableVarProperty(file, name) {
+	if isMutableVarProperty(file, name) {
 		return
 	}
 
 	// Skip if the name is declared as an explicitly-nullable `val name: T?`.
-	if localSummary == nil && isExplicitNullableDeclaration(file, name) {
+	if isExplicitNullableDeclaration(file, name) {
 		return
 	}
 	// Skip if the declaration has a branch-nullable initializer like
 	// `if (...) X else null` or `?.let { ... }` — a conservative resolver
 	// widens these incorrectly to non-null.
-	if localSummary == nil && hasBranchNullInitializer(file, name) {
+	if hasBranchNullInitializer(file, name) {
 		return
 	}
 	// Skip framework-inherited nullable properties (RecyclerView.adapter,
@@ -965,7 +952,7 @@ func (r *UnnecessarySafeCallRule) check(ctx *v2.Context) {
 	// Skip local vals initialized from a member access the resolver can't
 	// prove non-null (e.g. `val attachment = mediaItem.attachment`). A bare
 	// name resolver widens the local val to the non-null path incorrectly.
-	if localSummary == nil && hasMemberAccessInitializer(file, name) {
+	if hasMemberAccessInitializer(file, name) {
 		return
 	}
 
@@ -990,8 +977,7 @@ func (r *UnnecessarySafeCallRule) check(ctx *v2.Context) {
 		}
 	}
 
-	// Fallback: heuristic — check if receiver is declared as non-nullable val
-	if r.nonNullableValNames(file)[name] {
+	if sameFileExplicitNonNullValueDeclaration(file, idx, name) {
 		f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 			fmt.Sprintf("Unnecessary safe call (?.) on non-nullable val '%s'.", name))
 		qIdx := strings.Index(text, "?.")
@@ -1001,93 +987,6 @@ func (r *UnnecessarySafeCallRule) check(ctx *v2.Context) {
 		}
 		ctx.Emit(f)
 	}
-}
-
-type safeCallLocalSummary struct {
-	explicitNullable        map[string]bool
-	branchNullInitializer   map[string]bool
-	memberAccessInitializer map[string]bool
-	mutableVar              map[string]bool
-}
-
-func (r *UnnecessarySafeCallRule) localSummary(file *scanner.File) *safeCallLocalSummary {
-	if cached, ok := r.localSummaries.Load(file.Path); ok {
-		return cached.(*safeCallLocalSummary)
-	}
-	summary := &safeCallLocalSummary{
-		explicitNullable:        make(map[string]bool),
-		branchNullInitializer:   make(map[string]bool),
-		memberAccessInitializer: make(map[string]bool),
-		mutableVar:              make(map[string]bool),
-	}
-	for i, line := range file.Lines {
-		for _, m := range mutableVarPropertyRe.FindAllStringSubmatch(line, -1) {
-			if len(m) > 1 {
-				summary.mutableVar[m[1]] = true
-			}
-		}
-		for _, m := range explicitNullableDeclRe.FindAllStringSubmatch(line, -1) {
-			if len(m) > 1 {
-				summary.explicitNullable[m[1]] = true
-			}
-		}
-		if m := valMemberInitRe.FindStringSubmatch(line); m != nil && !strings.HasSuffix(m[2], "!!") {
-			summary.memberAccessInitializer[m[1]] = true
-		}
-		if !strings.Contains(line, "=") {
-			continue
-		}
-		header := strings.TrimSpace(line)
-		if !strings.HasPrefix(header, "val ") && !strings.HasPrefix(header, "var ") {
-			continue
-		}
-		name := safeCallDeclaredNameFromLine(line)
-		if name == "" {
-			continue
-		}
-		depth := strings.Count(line, "(") + strings.Count(line, "{") - strings.Count(line, ")") - strings.Count(line, "}")
-		joined := line
-		for j := i + 1; j < len(file.Lines) && j < i+60; j++ {
-			cur := file.Lines[j]
-			joined += " " + cur
-			depth += strings.Count(cur, "(") + strings.Count(cur, "{") - strings.Count(cur, ")") - strings.Count(cur, "}")
-			if depth <= 0 {
-				break
-			}
-		}
-		if strings.Contains(joined, "else null") ||
-			strings.Contains(joined, "-> null") ||
-			strings.Contains(joined, "?: null") ||
-			strings.Contains(joined, "?.let") {
-			summary.branchNullInitializer[name] = true
-		}
-	}
-	if cached, loaded := r.localSummaries.LoadOrStore(file.Path, summary); loaded {
-		return cached.(*safeCallLocalSummary)
-	}
-	return summary
-}
-
-func safeCallDeclaredNameFromLine(line string) string {
-	line = strings.TrimSpace(line)
-	if strings.HasPrefix(line, "val ") {
-		line = strings.TrimPrefix(line, "val ")
-	} else if strings.HasPrefix(line, "var ") {
-		line = strings.TrimPrefix(line, "var ")
-	} else {
-		return ""
-	}
-	end := len(line)
-	for i, r := range line {
-		if r == ':' || r == '=' || r == ' ' || r == '\t' {
-			end = i
-			break
-		}
-	}
-	if end == 0 {
-		return ""
-	}
-	return strings.TrimSpace(line[:end])
 }
 
 func unnecessarySafeCallNullableReceiverFlat(file *scanner.File, idx uint32, structural bool) bool {
@@ -1322,28 +1221,72 @@ func unnecessarySafeCallNonNullFunctionParamFlat(file *scanner.File, idx uint32,
 	return false
 }
 
-func (r *UnnecessarySafeCallRule) nonNullableValNames(file *scanner.File) map[string]bool {
-	if cached, ok := r.nonNullableVals.Load(file.Path); ok {
-		return cached.(map[string]bool)
+func sameFileExplicitNonNullValueDeclaration(file *scanner.File, ref uint32, name string) bool {
+	if file == nil || ref == 0 || name == "" {
+		return false
 	}
+	found := false
+	file.FlatWalkAllNodes(0, func(decl uint32) {
+		if found || file.FlatStartByte(decl) > file.FlatStartByte(ref) {
+			return
+		}
+		switch file.FlatType(decl) {
+		case "property_declaration", "parameter", "class_parameter":
+		default:
+			return
+		}
+		if extractIdentifierFlat(file, decl) != name {
+			return
+		}
+		if !declarationVisibleFromReference(file, decl, ref) {
+			return
+		}
+		if declarationHasExplicitTypeFlat(file, decl) && !declarationHasNullableTypeFlat(file, decl) {
+			found = true
+		}
+	})
+	return found
+}
 
-	names := make(map[string]bool)
-	for _, line := range file.Lines {
-		if m := unnecessaryNullCheckRe.FindStringSubmatch(line); m != nil && !strings.HasSuffix(m[2], "?") {
-			names[m[1]] = true
+func declarationHasExplicitTypeFlat(file *scanner.File, decl uint32) bool {
+	if file == nil || decl == 0 {
+		return false
+	}
+	if file.FlatType(decl) == "property_declaration" {
+		varDecl, _ := file.FlatFindChild(decl, "variable_declaration")
+		return declarationHasExplicitTypeFlat(file, varDecl)
+	}
+	found := false
+	for child := file.FlatFirstChild(decl); child != 0; child = file.FlatNextSib(child) {
+		if found {
+			break
+		}
+		if file.FlatType(child) == "=" {
+			break
+		}
+		switch file.FlatType(child) {
+		case "user_type", "nullable_type", "type_identifier":
+			found = true
 		}
 	}
-	if cached, loaded := r.nonNullableVals.LoadOrStore(file.Path, names); loaded {
-		return cached.(map[string]bool)
+	return found
+}
+
+func declarationVisibleFromReference(file *scanner.File, decl uint32, ref uint32) bool {
+	declOwner := flatSemanticOwner(file, decl)
+	refOwner := flatSemanticOwner(file, ref)
+	if declOwner == refOwner {
+		return true
 	}
-	return names
+	refClass := flatEnclosingClassLike(file, ref)
+	return refClass != 0 && declOwner == refClass
 }
 
 // ---------------------------------------------------------------------------
 // NullCheckOnMutablePropertyRule detects null check on var property.
 // ---------------------------------------------------------------------------
 type NullCheckOnMutablePropertyRule struct {
-	LineBase
+	FlatDispatchBase
 	BaseRule
 }
 
@@ -1353,47 +1296,46 @@ type NullCheckOnMutablePropertyRule struct {
 func (r *NullCheckOnMutablePropertyRule) Confidence() float64 { return 0.75 }
 
 func (r *NullCheckOnMutablePropertyRule) check(ctx *v2.Context) {
-	file := ctx.File
-	// Collect var property names
-	varProps := make(map[string]bool)
-	for _, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "var ") {
-			parts := strings.Fields(trimmed)
-			if len(parts) >= 2 {
-				name := strings.TrimRight(parts[1], ":?")
-				varProps[name] = true
-			}
-		}
-	}
-	if len(varProps) == 0 {
+	idx, file := ctx.Idx, ctx.File
+	operand, _, ok := flatNullComparisonOperand(file, idx)
+	if !ok {
 		return
 	}
-	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.Contains(trimmed, "!= null") || strings.Contains(trimmed, "== null") {
-			for prop := range varProps {
-				if strings.Contains(trimmed, prop+" != null") || strings.Contains(trimmed, prop+" == null") {
-					// If resolver is available, verify property is actually nullable
-					if ctx.Resolver != nil {
-						offset := file.LineOffset(i) + strings.Index(line, prop)
-						var resolved *typeinfer.ResolvedType
-						if offset >= 0 {
-							if propIdx, ok := file.FlatNamedDescendantForByteRange(uint32(offset), uint32(offset+len(prop))); ok {
-								resolved = ctx.Resolver.ResolveByNameFlat(prop, propIdx, file)
-							}
-						}
-						if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
-							continue // property is not nullable, skip
-						}
-					}
-					ctx.Emit(r.Finding(file, i+1, 1,
-						fmt.Sprintf("Null check on mutable property '%s'. The value may change between the check and the use.", prop)))
-					break
-				}
-			}
+	operand = flatUnwrapParenExpr(file, operand)
+	if file.FlatType(operand) != "simple_identifier" {
+		return
+	}
+	name := file.FlatNodeString(operand, nil)
+	if name == "" || !sameOwnerVarPropertyDeclaration(file, operand, name) {
+		return
+	}
+	if ctx.Resolver != nil {
+		resolved := ctx.Resolver.ResolveByNameFlat(name, operand, file)
+		if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
+			return
 		}
 	}
+	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		fmt.Sprintf("Null check on mutable property '%s'. The value may change between the check and the use.", name)))
+}
+
+func sameOwnerVarPropertyDeclaration(file *scanner.File, ref uint32, name string) bool {
+	if file == nil || ref == 0 || name == "" {
+		return false
+	}
+	refOwner := flatSemanticOwner(file, ref)
+	refClass := flatEnclosingClassLike(file, ref)
+	found := false
+	file.FlatWalkNodes(0, "property_declaration", func(prop uint32) {
+		propOwner := flatSemanticOwner(file, prop)
+		if found || (propOwner != refOwner && propOwner != refClass) {
+			return
+		}
+		if propertyDeclarationName(file, prop) == name && propertyDeclarationIsVar(file, prop) {
+			found = true
+		}
+	})
+	return found
 }
 
 // ---------------------------------------------------------------------------

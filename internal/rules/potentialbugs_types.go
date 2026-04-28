@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -135,13 +136,10 @@ func enclosingBoolExprHasEqualsCall(file *scanner.File, idx uint32, names map[st
 	return found
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence — flags === / !==
 // on value types; needs resolver to confirm operand types, falls back to a
 // name-based heuristic. Classified per roadmap/17.
 func (r *AvoidReferentialEqualityRule) Confidence() float64 { return 0.75 }
-
-
 
 // ---------------------------------------------------------------------------
 // DoubleMutabilityForCollectionRule detects var with mutable collection type.
@@ -152,14 +150,12 @@ type DoubleMutabilityForCollectionRule struct {
 	MutableTypes []string
 }
 
-
-// Confidence reports a tier-2 (medium) base confidence. The rule
-// uses a fixed allow-list of mutable-collection type names and
-// factory function names; it correctly flags the common case (`var
-// xs = mutableListOf<Foo>()`) but cannot distinguish a custom
-// mutable-collection type without type resolution, and won't detect
-// the pattern when the collection is returned from a wrapper
-// function. Medium confidence matches the known scope-analysis gap.
+// Confidence reports a tier-2 (medium) base confidence. The rule uses a fixed
+// allow-list of mutable-collection type names and factory function names; it
+// correctly flags the common case (`var xs = mutableListOf<Foo>()`) with local
+// AST/import evidence, but won't detect the pattern when the collection is
+// returned from a wrapper function. Medium confidence matches the known
+// scope-analysis gap.
 func (r *DoubleMutabilityForCollectionRule) Confidence() float64 { return 0.75 }
 
 var defaultDoubleMutableTypes = []string{
@@ -182,6 +178,13 @@ var mutableCollectionFactories = map[string]bool{
 	"LinkedHashMap": true,
 	"LinkedHashSet": true,
 }
+
+type doubleMutabilityShadowCacheKey struct {
+	file   *scanner.File
+	simple string
+}
+
+var doubleMutabilityShadowCache sync.Map
 
 func simpleTypeName(text string) string {
 	text = strings.TrimSpace(text)
@@ -210,23 +213,125 @@ func (r *DoubleMutabilityForCollectionRule) configuredMutableTypes() map[string]
 	return out
 }
 
-func firstExplicitMutableTypeText(text string, mutableTypes map[string]bool) string {
-	colon := strings.Index(text, ":")
-	if colon < 0 {
-		return ""
+func doubleMutabilityHasExplicitMutableType(file *scanner.File, varDecl uint32, mutableTypes map[string]bool) bool {
+	if file == nil || varDecl == 0 {
+		return false
 	}
-	typeText := strings.TrimSpace(text[colon+1:])
-	if eq := strings.Index(typeText, "="); eq >= 0 {
-		typeText = strings.TrimSpace(typeText[:eq])
+	for child := file.FlatFirstChild(varDecl); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "user_type", "nullable_type":
+			if doubleMutabilityTypeNodeHasMutableEvidence(file, child, mutableTypes) {
+				return true
+			}
+		}
 	}
-	if typeText == "" {
-		return ""
+	return false
+}
+
+func doubleMutabilityTypeNodeHasMutableEvidence(file *scanner.File, typeNode uint32, mutableTypes map[string]bool) bool {
+	typeText := file.FlatNodeText(typeNode)
+	return doubleMutabilityTypeTextHasMutableEvidence(file, typeText, mutableTypes)
+}
+
+func doubleMutabilityTypeTextHasMutableEvidence(file *scanner.File, typeText string, mutableTypes map[string]bool) bool {
+	typeName := strings.TrimSpace(typeText)
+	typeName = strings.TrimSuffix(typeName, "?")
+	if idx := strings.Index(typeName, "<"); idx >= 0 {
+		typeName = strings.TrimSpace(typeName[:idx])
 	}
-	simple := simpleTypeName(typeText)
-	if mutableTypes[simple] {
-		return simple
+	simple := simpleTypeName(typeName)
+	if simple == "" || !mutableTypes[simple] {
+		return false
 	}
-	return ""
+	if strings.Contains(typeName, ".") {
+		return knownMutableCollectionFQN(typeName) || !knownDefaultMutableCollectionName(simple)
+	}
+	if !knownDefaultMutableCollectionName(simple) {
+		return true
+	}
+	return !doubleMutabilitySimpleTypeShadowed(file, simple)
+}
+
+func knownDefaultMutableCollectionName(name string) bool {
+	for _, typ := range defaultDoubleMutableTypes {
+		if typ == name {
+			return true
+		}
+	}
+	return false
+}
+
+func knownMutableCollectionFQN(fqn string) bool {
+	switch fqn {
+	case "kotlin.collections.MutableList",
+		"kotlin.collections.MutableSet",
+		"kotlin.collections.MutableMap",
+		"kotlin.collections.MutableCollection",
+		"kotlin.collections.ArrayList",
+		"kotlin.collections.HashMap",
+		"kotlin.collections.HashSet",
+		"kotlin.collections.LinkedHashMap",
+		"kotlin.collections.LinkedHashSet",
+		"java.util.ArrayList",
+		"java.util.HashMap",
+		"java.util.HashSet",
+		"java.util.LinkedHashMap",
+		"java.util.LinkedHashSet":
+		return true
+	default:
+		return false
+	}
+}
+
+func doubleMutabilitySimpleTypeShadowed(file *scanner.File, simple string) bool {
+	if file == nil || simple == "" {
+		return false
+	}
+	key := doubleMutabilityShadowCacheKey{file: file, simple: simple}
+	if cached, ok := doubleMutabilityShadowCache.Load(key); ok {
+		return cached.(bool)
+	}
+	shadowed := false
+	for _, nodeType := range []string{"class_declaration", "object_declaration", "interface_declaration", "type_alias"} {
+		file.FlatWalkNodes(0, nodeType, func(node uint32) {
+			if shadowed {
+				return
+			}
+			if extractIdentifierFlat(file, node) == simple {
+				shadowed = true
+			}
+		})
+	}
+	if shadowed {
+		doubleMutabilityShadowCache.Store(key, true)
+		return true
+	}
+	file.FlatWalkNodes(0, "import_header", func(node uint32) {
+		if shadowed {
+			return
+		}
+		text := cleanImportHeaderTextWithAlias(file.FlatNodeText(node))
+		if alias := strings.Index(text, " as "); alias >= 0 {
+			fqn := strings.TrimSpace(text[:alias])
+			asName := strings.TrimSpace(text[alias+4:])
+			if asName == simple && !knownMutableCollectionFQN(fqn) {
+				shadowed = true
+			}
+			return
+		}
+		if strings.HasSuffix(text, ".*") {
+			pkg := strings.TrimSuffix(text, ".*")
+			if pkg != "kotlin.collections" && pkg != "java.util" {
+				shadowed = true
+			}
+			return
+		}
+		if strings.HasSuffix(text, "."+simple) && !knownMutableCollectionFQN(text) {
+			shadowed = true
+		}
+	})
+	doubleMutabilityShadowCache.Store(key, shadowed)
+	return shadowed
 }
 
 func initializerLooksLikeMutableFactory(text string) bool {
@@ -495,7 +600,6 @@ type DontDowncastCollectionTypesRule struct {
 	BaseRule
 }
 
-
 var mutableCollectionToMethodMap = map[string]string{
 	"MutableList":         "toMutableList()",
 	"MutableSet":          "toMutableSet()",
@@ -631,7 +735,6 @@ type ImplicitUnitReturnTypeRule struct {
 	BaseRule
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence because this
 // rule fires on any function_declaration lacking an explicit return
 // type when the resolver is absent. That includes @Composable
@@ -651,7 +754,6 @@ type ElseCaseInsteadOfExhaustiveWhenRule struct {
 	FlatDispatchBase
 	BaseRule
 }
-
 
 // Confidence reports a tier-2 (medium) base confidence — with the
 // resolver it checks if sealed/enum variants are fully covered; fallback

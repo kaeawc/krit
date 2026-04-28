@@ -77,7 +77,6 @@ func registerPotentialbugsTypesRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
-			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -87,46 +86,14 @@ func registerPotentialbugsTypesRules() {
 					return
 				}
 				// text is still used downstream for the resolver-less
-				// heuristic factory check (see firstExplicitMutableTypeText
-				// and initializerLooksLikeMutableFactory below).
+				// mutable factory check.
 				text := file.FlatNodeText(idx)
 				mutableTypes := r.configuredMutableTypes()
 				varDecl, _ := file.FlatFindChild(idx, "variable_declaration")
 				if varDecl == 0 {
 					return
 				}
-				if ctx.Resolver != nil {
-					for j := 0; j < file.FlatChildCount(varDecl); j++ {
-						gc := file.FlatChild(varDecl, j)
-						if gc == 0 {
-							continue
-						}
-						if file.FlatType(gc) == "user_type" || file.FlatType(gc) == "nullable_type" {
-							resolved := ctx.Resolver.ResolveFlatNode(gc, file)
-							if resolved.Kind != typeinfer.TypeUnknown && resolved.IsMutable() {
-								f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-									"Variable with mutable collection type creates double mutability. Use val with a mutable collection or var with an immutable collection.")
-								var varKeyword uint32
-								file.FlatForEachChild(idx, func(ch uint32) {
-									if file.FlatNodeTextEquals(ch, "var") {
-										varKeyword = ch
-									}
-								})
-								if varKeyword != 0 {
-									f.Fix = &scanner.Fix{
-										ByteMode:    true,
-										StartByte:   int(file.FlatStartByte(varKeyword)),
-										EndByte:     int(file.FlatEndByte(varKeyword)),
-										Replacement: "val",
-									}
-								}
-								ctx.Emit(f)
-								return
-							}
-						}
-					}
-				}
-				if firstExplicitMutableTypeText(text, mutableTypes) == "" {
+				if !doubleMutabilityHasExplicitMutableType(file, varDecl, mutableTypes) {
 					if !initializerLooksLikeMutableFactory(text) {
 						return
 					}

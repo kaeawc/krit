@@ -161,6 +161,34 @@ fun foo() {
 	}
 }
 
+func TestDoubleMutabilityForCollection_NegativeLocalMutableListLookalike(t *testing.T) {
+	findings := runRuleByName(t, "DoubleMutabilityForCollection", `
+package test
+class MutableList<T>
+fun foo() {
+    var list: MutableList<String> = MutableList()
+}`)
+	for _, f := range findings {
+		if f.Rule == "DoubleMutabilityForCollection" {
+			t.Error("should not flag a same-file MutableList lookalike")
+		}
+	}
+}
+
+func TestDoubleMutabilityForCollection_NegativeImportedMutableListLookalike(t *testing.T) {
+	findings := runRuleByName(t, "DoubleMutabilityForCollection", `
+package test
+import sample.MutableList
+fun foo() {
+    var list: MutableList<String> = TODO()
+}`)
+	for _, f := range findings {
+		if f.Rule == "DoubleMutabilityForCollection" {
+			t.Error("should not flag an imported MutableList lookalike")
+		}
+	}
+}
+
 func TestDoubleMutabilityForCollection_PositiveFactoryWithoutExplicitType(t *testing.T) {
 	findings := runRuleByName(t, "DoubleMutabilityForCollection", `
 package test

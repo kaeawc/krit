@@ -6,3 +6,11 @@ class DoubleMutabilityForCollection {
         list.add("hello")
     }
 }
+
+class MutableList<T>
+
+class DoubleMutabilityForCollectionLookalike {
+    fun example() {
+        var list: MutableList<String> = MutableList()
+    }
+}

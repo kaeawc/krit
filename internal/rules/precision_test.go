@@ -14,7 +14,7 @@ func TestRulePrecision(t *testing.T) {
 		{"OldTargetApi", PrecisionPolicy},
 		{"MissingPermission", PrecisionTypeAware},
 		{"ArrayPrimitive", PrecisionHeuristicTextBacked},
-		{"DoubleMutabilityForCollection", PrecisionTypeAware},
+		{"DoubleMutabilityForCollection", PrecisionASTBacked},
 		{"AllowBackupManifest", PrecisionProjectStructure},
 		{"MagicNumber", PrecisionHeuristicTextBacked},
 		{"OptionalAbstractKeyword", PrecisionASTBacked},

@@ -193,6 +193,61 @@ fun getDefault(): Int {
 	}
 }
 
+func TestMagicNumber_IgnoresDurationCallsWithImportedTimeUnit(t *testing.T) {
+	findings := runRuleByName(t, "MagicNumber", `
+package test
+import java.util.concurrent.TimeUnit
+
+fun example() {
+    Observable.interval(0, 5, TimeUnit.SECONDS)
+    events.throttleLatest(500, TimeUnit.MILLISECONDS)
+    completable.timeout(10, TimeUnit.SECONDS, fallback)
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "MagicNumber" {
+			t.Errorf("MagicNumber should ignore literals paired with imported TimeUnit, got: %s at line %d", f.Message, f.Line)
+		}
+	}
+}
+
+func TestMagicNumber_FlagsDurationCallWithLocalTimeUnitLookalike(t *testing.T) {
+	findings := runRuleByName(t, "MagicNumber", `
+package test
+
+object TimeUnit {
+    const val SECONDS = "seconds"
+}
+
+fun example() {
+    pollEvery(5, TimeUnit.SECONDS)
+}
+`)
+	found := false
+	for _, f := range findings {
+		if f.Rule == "MagicNumber" && strings.Contains(f.Message, "'5'") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("MagicNumber should flag duration-looking calls when TimeUnit is only a local lookalike")
+	}
+}
+
+func TestMagicNumberDoesNotContributeToOracle(t *testing.T) {
+	for _, r := range v2rules.Registry {
+		if r.ID != "MagicNumber" {
+			continue
+		}
+		if r.Needs != 0 || rules.RuleNeedsKotlinOracle(r) {
+			t.Fatalf("MagicNumber should remain AST-only, got Needs=%b Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+				r.Needs, r.Oracle, r.OracleCallTargets, r.OracleDeclarationNeeds)
+		}
+		return
+	}
+	t.Fatal("MagicNumber rule not found in registry")
+}
+
 func TestMagicNumber_CompanionObjectRespectsConfig(t *testing.T) {
 	findings := runRuleByName(t, "MagicNumber", `
 package test

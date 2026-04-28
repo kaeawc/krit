@@ -357,7 +357,7 @@ func buildMagicNumberAncestorContext(file *scanner.File, idx uint32) *magicNumbe
 					ctx.nearestCallName = name
 				}
 			}
-			if callExpressionHasQualifiedArg(file, p, "TimeUnit") || callExpressionHasQualifiedArg(file, p, "Duration") {
+			if callExpressionHasDurationUnitArg(file, p) {
 				ctx.anyTimeUnitCall = true
 			}
 		case "function_declaration", "class_declaration":
@@ -514,8 +514,7 @@ var jvmBuilderMethods = map[string]bool{
 func isDurationLiteralWithTimeUnit(file *scanner.File, idx uint32) bool {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		if file.FlatType(p) == "call_expression" {
-			return callExpressionHasQualifiedArg(file, p, "TimeUnit") ||
-				callExpressionHasQualifiedArg(file, p, "Duration")
+			return callExpressionHasDurationUnitArg(file, p)
 		}
 		if file.FlatType(p) == "function_declaration" || file.FlatType(p) == "class_declaration" {
 			return false
@@ -524,29 +523,26 @@ func isDurationLiteralWithTimeUnit(file *scanner.File, idx uint32) bool {
 	return false
 }
 
-// callExpressionHasQualifiedArg returns true if any value_argument of the
-// call_expression at idx is a navigation_expression whose first identifier
-// matches qualifier (e.g. "TimeUnit", "Duration").
-func callExpressionHasQualifiedArg(file *scanner.File, callIdx uint32, qualifier string) bool {
-	args, ok := file.FlatFindChild(callIdx, "value_arguments")
-	if !ok {
-		return false
+// callExpressionHasDurationUnitArg returns true if any value_argument in the
+// call carries canonical duration-unit evidence such as
+// `java.util.concurrent.TimeUnit.SECONDS`, imported `TimeUnit.SECONDS`, or
+// `kotlin.time.Duration.*`. The import/FQN check keeps local TimeUnit
+// lookalikes from suppressing otherwise magic literals.
+func callExpressionHasDurationUnitArg(file *scanner.File, callIdx uint32) bool {
+	callText := strings.Join(strings.Fields(file.FlatNodeText(callIdx)), "")
+	if strings.Contains(callText, "java.util.concurrent.TimeUnit.") ||
+		strings.Contains(callText, "kotlin.time.Duration.") ||
+		strings.Contains(callText, "java.time.Duration.") {
+		return true
 	}
-	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
-		if file.FlatType(arg) != "value_argument" {
-			continue
-		}
-		for expr := file.FlatFirstChild(arg); expr != 0; expr = file.FlatNextSib(expr) {
-			if !file.FlatIsNamed(expr) {
-				continue
-			}
-			if file.FlatType(expr) == "navigation_expression" {
-				first := file.FlatFirstChild(expr)
-				if first != 0 && file.FlatNodeText(first) == qualifier {
-					return true
-				}
-			}
-		}
+	if strings.Contains(callText, "TimeUnit.") &&
+		sourceImportsOrMentions(file, "java.util.concurrent.TimeUnit") {
+		return true
+	}
+	if strings.Contains(callText, "Duration.") &&
+		(sourceImportsOrMentions(file, "kotlin.time.Duration") ||
+			sourceImportsOrMentions(file, "java.time.Duration")) {
+		return true
 	}
 	return false
 }

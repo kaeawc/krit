@@ -32,24 +32,19 @@ func (r *DeadCodeRule) IsFixable() bool { return false }
 
 // Confidence reports a tier-2 (medium) base confidence. The rule
 // relies on the cross-file code index to detect unreferenced symbols
-// and then runs shouldSkipSymbol to filter framework entry points,
-// overrides, tests, and well-known lifecycle methods. It does NOT
-// recognize DI annotations (@Provides, @Binds, @Inject,
-// @ContributesBinding, @IntoSet, etc.) — a Dagger/Hilt/Kotlin-Inject
-// binding is "unreferenced" by the code index but wired up at
-// compile time by the DI framework. This is the false-positive
-// pattern called out in roadmap/17; medium confidence keeps the
-// rule honest until DI awareness lands.
+// and then filters framework entry points, overrides, tests, lifecycle
+// methods, and DI declarations that are consumed by generated code.
 func (r *DeadCodeRule) Confidence() float64 { return 0.75 }
 
 // check runs against the full code index.
 func (r *DeadCodeRule) check(ctx *v2.Context) {
 	index := ctx.CodeIndex
+	filesByPath := deadCodeFilesByPath(index.Files)
 
 	unused := index.UnusedSymbols(r.IgnoreCommentReferences)
 	for _, sym := range unused {
 		// Skip common false positives
-		if shouldSkipSymbol(sym) {
+		if shouldSkipSymbolWithFile(sym, filesByPath[sym.File]) {
 			continue
 		}
 
@@ -144,4 +139,264 @@ func shouldSkipSymbol(sym scanner.Symbol) bool {
 	}
 
 	return false
+}
+
+func shouldSkipSymbolWithFile(sym scanner.Symbol, file *scanner.File) bool {
+	if shouldSkipSymbol(sym) {
+		return true
+	}
+	return deadCodeSymbolHasGeneratedDIUse(sym, file)
+}
+
+func deadCodeFilesByPath(files []*scanner.File) map[string]*scanner.File {
+	filesByPath := make(map[string]*scanner.File, len(files))
+	for _, file := range files {
+		if file == nil {
+			continue
+		}
+		filesByPath[file.Path] = file
+	}
+	return filesByPath
+}
+
+func deadCodeSymbolHasGeneratedDIUse(sym scanner.Symbol, file *scanner.File) bool {
+	node := deadCodeSymbolNode(sym, file)
+	if node == 0 {
+		return false
+	}
+	if deadCodeDeclarationHasDIAnnotation(file, node) {
+		return true
+	}
+	for parent, ok := file.FlatParent(node); ok; parent, ok = file.FlatParent(parent) {
+		if file.FlatType(parent) == "source_file" {
+			break
+		}
+		if deadCodeDeclarationHasDIAnnotation(file, parent) {
+			return true
+		}
+	}
+	return deadCodeSymbolInsideDIAnnotatedContainer(sym, file)
+}
+
+func deadCodeSymbolNode(sym scanner.Symbol, file *scanner.File) uint32 {
+	if file == nil || file.FlatTree == nil {
+		return 0
+	}
+	wanted := map[string]bool{}
+	switch sym.Kind {
+	case "function":
+		wanted["function_declaration"] = true
+	case "class", "interface":
+		wanted["class_declaration"] = true
+	case "object":
+		wanted["object_declaration"] = true
+	case "property":
+		wanted["property_declaration"] = true
+	default:
+		return 0
+	}
+	var found uint32
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if found != 0 || !wanted[file.FlatType(idx)] {
+			return
+		}
+		if int(file.FlatStartByte(idx)) == sym.StartByte && int(file.FlatEndByte(idx)) == sym.EndByte {
+			found = idx
+		}
+	})
+	return found
+}
+
+var deadCodeDIPackages = []string{
+	"com.squareup.anvil.annotations",
+	"dagger",
+	"dagger.hilt",
+	"dev.zacsweers.metro",
+	"jakarta.inject",
+	"javax.inject",
+	"me.tatarka.inject.annotations",
+}
+
+var deadCodeDIAnnotationNames = []string{
+	"AndroidEntryPoint",
+	"AssistedFactory",
+	"AssistedInject",
+	"Binds",
+	"BindsInstance",
+	"BindsOptionalOf",
+	"BindingContainer",
+	"Component",
+	"ContributesBinding",
+	"ContributesMultibinding",
+	"ContributesSubcomponent",
+	"ContributesTo",
+	"DependencyGraph",
+	"ElementsIntoSet",
+	"EntryPoint",
+	"GraphExtension",
+	"HiltAndroidApp",
+	"Inject",
+	"InstallIn",
+	"IntoMap",
+	"IntoSet",
+	"MergeComponent",
+	"MergeSubcomponent",
+	"Module",
+	"Multibinds",
+	"Provides",
+	"Qualifier",
+	"Scope",
+	"Subcomponent",
+}
+
+func deadCodeDeclarationHasDIAnnotation(file *scanner.File, node uint32) bool {
+	if file == nil || node == 0 {
+		return false
+	}
+	text := deadCodeDeclarationAnnotationText(file, node)
+	if text == "" || !strings.Contains(text, "@") {
+		return false
+	}
+	if deadCodeTextHasQualifiedDIAnnotation(text) {
+		return true
+	}
+	if !deadCodeFileImportsDIPackage(file) {
+		return false
+	}
+	for _, name := range deadCodeDIAnnotationNames {
+		if deadCodeTextHasAnnotationName(text, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func deadCodeDeclarationAnnotationText(file *scanner.File, node uint32) string {
+	var b strings.Builder
+	if prev, ok := file.FlatPrevSibling(node); ok {
+		switch file.FlatType(prev) {
+		case "modifiers", "annotation":
+			b.WriteString(file.FlatNodeText(prev))
+			b.WriteByte('\n')
+		}
+	}
+	if mods, ok := file.FlatFindChild(node, "modifiers"); ok {
+		b.WriteString(file.FlatNodeText(mods))
+		b.WriteByte('\n')
+	}
+	b.WriteString(file.FlatNodeText(node))
+	return b.String()
+}
+
+func deadCodeTextHasQualifiedDIAnnotation(text string) bool {
+	for _, pkg := range deadCodeDIPackages {
+		if strings.Contains(text, "@"+pkg+".") {
+			return true
+		}
+	}
+	return false
+}
+
+func deadCodeFileImportsDIPackage(file *scanner.File) bool {
+	if file == nil {
+		return false
+	}
+	content := string(file.Content)
+	for _, pkg := range deadCodeDIPackages {
+		if fileImportsFQN(file, pkg+".Inject") || fileImportsFQN(file, pkg+".Provides") || fileImportsFQN(file, pkg+".Module") {
+			return true
+		}
+		if strings.Contains(content, "import "+pkg+".") || strings.Contains(content, "import "+pkg+".*") {
+			return true
+		}
+	}
+	return false
+}
+
+func deadCodeTextHasAnnotationName(text, name string) bool {
+	needle := "@" + name
+	for searchStart := 0; searchStart < len(text); {
+		idx := strings.Index(text[searchStart:], needle)
+		if idx < 0 {
+			return false
+		}
+		pos := searchStart + idx
+		end := pos + len(needle)
+		if end >= len(text) {
+			return true
+		}
+		next := text[end]
+		if next == '(' || next == ' ' || next == '\t' || next == '\n' || next == '\r' || next == '.' {
+			return true
+		}
+		searchStart = end
+	}
+	return false
+}
+
+func deadCodeSymbolInsideDIAnnotatedContainer(sym scanner.Symbol, file *scanner.File) bool {
+	if file == nil || sym.StartByte <= 0 || sym.StartByte > len(file.Content) {
+		return false
+	}
+	content := string(file.Content)
+	searchEnd := sym.StartByte
+	for pos := strings.Index(content[:searchEnd], "@"); pos >= 0 && pos < searchEnd; {
+		annotationStart := pos
+		brace := strings.IndexByte(content[annotationStart:], '{')
+		if brace < 0 {
+			return false
+		}
+		brace += annotationStart
+		if brace >= sym.StartByte {
+			break
+		}
+		header := content[annotationStart:brace]
+		if deadCodeHeaderLooksLikeDIContainer(file, header) {
+			if closeBrace := deadCodeMatchingBrace(content, brace); closeBrace > sym.StartByte {
+				return true
+			}
+		}
+		nextRel := strings.Index(content[annotationStart+1:searchEnd], "@")
+		if nextRel < 0 {
+			break
+		}
+		pos = annotationStart + 1 + nextRel
+	}
+	return false
+}
+
+func deadCodeHeaderLooksLikeDIContainer(file *scanner.File, header string) bool {
+	if !strings.Contains(header, "class ") &&
+		!strings.Contains(header, "interface ") &&
+		!strings.Contains(header, "object ") {
+		return false
+	}
+	if deadCodeTextHasQualifiedDIAnnotation(header) {
+		return true
+	}
+	if !deadCodeFileImportsDIPackage(file) {
+		return false
+	}
+	for _, name := range deadCodeDIAnnotationNames {
+		if deadCodeTextHasAnnotationName(header, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func deadCodeMatchingBrace(content string, open int) int {
+	depth := 0
+	for i := open; i < len(content); i++ {
+		switch content[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }

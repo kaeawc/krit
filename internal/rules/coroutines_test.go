@@ -1121,11 +1121,51 @@ object Counter {
             total++
             return total
         }
-    }
+	}
 }
 `)
 	if len(findings) != 0 {
 		t.Errorf("expected synchronized private state to be clean, got %d", len(findings))
+	}
+}
+
+func TestMutableStateInObject_IgnoresPrivateStateInSynchronizedFunction(t *testing.T) {
+	findings := runRuleByName(t, "MutableStateInObject", `
+package test
+object Counter {
+    private var total = 0
+
+    @Synchronized
+    fun next(): Int {
+        total++
+        return total
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected @Synchronized private state to be clean, got %d", len(findings))
+	}
+}
+
+func TestMutableStateInObject_IgnoresPrivateHelperOnlyCalledFromSynchronizedFunction(t *testing.T) {
+	findings := runRuleByName(t, "MutableStateInObject", `
+package test
+object Counter {
+    private var total = 0
+
+    @Synchronized
+    fun next(): Int {
+        return increment()
+    }
+
+    private fun increment(): Int {
+        total++
+        return total
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected private helper reached through @Synchronized function to be clean, got %d", len(findings))
 	}
 }
 
@@ -1142,6 +1182,27 @@ object Counter {
 `)
 	if len(findings) == 0 {
 		t.Error("expected finding for unsynchronized private mutable state")
+	}
+}
+
+func TestMutableStateInObject_FlagsPrivateHelperCalledFromUnsynchronizedFunction(t *testing.T) {
+	findings := runRuleByName(t, "MutableStateInObject", `
+package test
+object Counter {
+    private var total = 0
+
+    fun next(): Int {
+        return increment()
+    }
+
+    private fun increment(): Int {
+        total++
+        return total
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Error("expected finding when private helper is reached from an unsynchronized function")
 	}
 }
 

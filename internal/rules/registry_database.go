@@ -130,6 +130,27 @@ func registerDatabaseRules() {
 		})
 	}
 	{
+		r := &JdbcResultSetLeakedFromFunctionRule{BaseRule: BaseRule{RuleName: "JdbcResultSetLeakedFromFunction", RuleSetName: "database", Sev: "warning", Desc: "Detects functions whose declared return type is java.sql.ResultSet; callers almost always forget to close the ResultSet."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !functionHasBodyFlat(file, idx) {
+					return
+				}
+				if !functionReturnsResultSetFlat(file, idx) {
+					return
+				}
+				name := extractIdentifierFlat(file, idx)
+				if name == "" {
+					name = "function"
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("Function '%s' returns ResultSet; callers almost always forget to close it. Accept a (ResultSet) -> R block and call .use {} instead.", name))
+			},
+		})
+	}
+	{
 		r := &JdbcPreparedStatementNotClosedRule{BaseRule: BaseRule{RuleName: "JdbcPreparedStatementNotClosed", RuleSetName: "database", Sev: "warning", Desc: "Detects JDBC prepared statements assigned to local properties without .use {} or .close() in the same scope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

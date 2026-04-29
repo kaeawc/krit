@@ -282,6 +282,44 @@ interface UserDao {
 	})
 }
 
+func TestJdbcResultSetLeakedFromFunction_Positive(t *testing.T) {
+	findings := runRuleByName(t, "JdbcResultSetLeakedFromFunction", `
+package test
+
+import java.sql.ResultSet
+
+interface Statement {
+    fun executeQuery(sql: String): ResultSet
+}
+
+fun query(stmt: Statement, sql: String): ResultSet =
+    stmt.executeQuery(sql)
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for function returning ResultSet, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestJdbcResultSetLeakedFromFunction_Negative(t *testing.T) {
+	findings := runRuleByName(t, "JdbcResultSetLeakedFromFunction", `
+package test
+
+import java.sql.ResultSet
+
+interface Statement {
+    fun executeQuery(sql: String): ResultSet
+}
+
+inline fun <R> ResultSet.use(block: (ResultSet) -> R): R = block(this)
+
+fun <R> query(stmt: Statement, sql: String, block: (ResultSet) -> R): R =
+    stmt.executeQuery(sql).use(block)
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when ResultSet is consumed via a block, got %v", findings)
+	}
+}
+
 func TestJdbcPreparedStatementNotClosed_Positive(t *testing.T) {
 	findings := runRuleByName(t, "JdbcPreparedStatementNotClosed", `
 package test

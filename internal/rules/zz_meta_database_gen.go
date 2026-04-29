@@ -66,6 +66,18 @@ func (r *RoomConflictStrategyReplaceOnFkRule) Meta() registry.RuleDescriptor {
 	}
 }
 
+func (r *JdbcResultSetLeakedFromFunctionRule) Meta() registry.RuleDescriptor {
+	return registry.RuleDescriptor{
+		ID:            "JdbcResultSetLeakedFromFunction",
+		RuleSet:       "database",
+		Severity:      "warning",
+		Description:   "Detects functions whose declared return type is java.sql.ResultSet; callers almost always forget to close the ResultSet.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *JdbcPreparedStatementNotClosedRule) Meta() registry.RuleDescriptor {
 	return registry.RuleDescriptor{
 		ID:            "JdbcPreparedStatementNotClosed",

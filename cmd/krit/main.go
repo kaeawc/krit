@@ -142,6 +142,7 @@ func main() {
 	apiDiffVerb := len(os.Args) > 1 && os.Args[1] == "api-diff"
 	abiHashVerb := len(os.Args) > 1 && os.Args[1] == "abi-hash"
 	impactVerb := len(os.Args) > 1 && os.Args[1] == "impact"
+	deadCodeVerb := len(os.Args) > 1 && os.Args[1] == "dead-code"
 	cacheVerb := len(os.Args) > 1 && os.Args[1] == "cache"
 	if cacheVerb {
 		os.Exit(runCacheSubcommand(os.Args[2:]))
@@ -166,6 +167,9 @@ func main() {
 	}
 	if impactVerb {
 		os.Exit(runImpactSubcommand(os.Args[2:]))
+	}
+	if deadCodeVerb {
+		os.Exit(runDeadCodeSubcommand(os.Args[2:]))
 	}
 	if baselineAuditVerb {
 		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
@@ -272,6 +276,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  krit impact <fqn>... | --from-file PATH | --since GITREF [--json]\n")
 		fmt.Fprintf(os.Stderr, "  krit harvest SOURCE:LINE --rule RuleName --out fixture.kt\n")
 		fmt.Fprintf(os.Stderr, "  krit rename [flags] <from-fqn> <to-fqn> [paths...]\n")
+		fmt.Fprintf(os.Stderr, "  krit dead-code --project [--json] [--root FQN]... [paths...]\n")
 		fmt.Fprintf(os.Stderr, "\nSARIF upload example:\n")
 		fmt.Fprintf(os.Stderr, "  krit --report=sarif -o results.sarif src/\n")
 		fmt.Fprintf(os.Stderr, "  # Then upload to GitHub Code Scanning:\n")

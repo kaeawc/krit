@@ -13,7 +13,7 @@ import (
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
-func experimentSnapshot() []string { return experiment.Current().Names() }
+func experimentSnapshot() []string     { return experiment.Current().Names() }
 func experimentRestore(names []string) { experiment.SetCurrent(names) }
 func enableExperiment(name string) {
 	cur := experiment.Current().Names()
@@ -668,6 +668,39 @@ fun test() {
         work()
     } catch (e: java.io.IOException) {
         Log.e("tag", "failed", e)
+    }
+}
+`,
+		"qualified timber log": `
+import timber.log.Timber
+
+fun test() {
+    try {
+        work()
+    } catch (e: java.io.IOException) {
+        Timber.e(e)
+    }
+}
+`,
+		"aliased timber log": `
+import timber.log.Timber as Logcat
+
+fun test() {
+    try {
+        work()
+    } catch (exception: java.io.IOException) {
+        Logcat.e(exception)
+    }
+}
+`,
+		"member timber log import": `
+import timber.log.Timber.e
+
+fun test() {
+    try {
+        work()
+    } catch (exception: java.io.IOException) {
+        e(exception)
     }
 }
 `,

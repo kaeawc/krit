@@ -52,6 +52,32 @@ fun foo(x: String?) {
 	}
 }
 
+func TestUseRequireNotNull_DoesNotFlagComplexRequireConditions(t *testing.T) {
+	findings := runRuleByName(t, "UseRequireNotNull", `
+package test
+fun foo(x: String?, y: String?) {
+    require(x != null && x.isNotBlank())
+    require(x != null || y != null) { "one value is required" }
+    require(null != x && y != null)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for complex require conditions, got %d", len(findings))
+	}
+}
+
+func TestUseRequireNotNull_FlagsParenthesizedDirectNullCheck(t *testing.T) {
+	findings := runRuleByName(t, "UseRequireNotNull", `
+package test
+fun foo(x: String?) {
+    require((x != null))
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for parenthesized require(x != null)")
+	}
+}
+
 func TestUseCheckOrError_Positive(t *testing.T) {
 	findings := runRuleByName(t, "UseCheckOrError", `
 package test

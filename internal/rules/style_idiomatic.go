@@ -20,12 +20,24 @@ func flatNonNullCheckText(file *scanner.File, idx uint32, funcName string) (argT
 	if suffix == 0 {
 		return "", "", false
 	}
-	var eq uint32
-	file.FlatWalkNodes(suffix, "equality_expression", func(candidate uint32) {
-		if eq == 0 {
-			eq = candidate
+	args := flatCallSuffixValueArgs(file, suffix)
+	if args == 0 {
+		return "", "", false
+	}
+	var arg uint32
+	for child := file.FlatFirstChild(args); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "value_argument" {
+			continue
 		}
-	})
+		if arg != 0 {
+			return "", "", false
+		}
+		arg = child
+	}
+	if arg == 0 {
+		return "", "", false
+	}
+	eq := flatUnwrapParenExpr(file, flatValueArgumentExpression(file, arg))
 	if eq == 0 || file.FlatType(eq) != "equality_expression" || file.FlatChildCount(eq) < 3 {
 		return "", "", false
 	}
@@ -762,7 +774,7 @@ func flatIsEmptyRHS(file *scanner.File, node uint32) bool {
 
 // UseCheckNotNullRule detects check(x != null) and suggests checkNotNull(x).
 // Uses AST dispatch on call_expression for precise detection, handling both
-// `x != null` and `null != x` argument order, nested expressions, and
+// `x != null` and `null != x` argument order as the full condition, plus
 // optional message lambdas like `check(x != null) { "msg" }`.
 type UseCheckNotNullRule struct {
 	FlatDispatchBase
@@ -776,7 +788,7 @@ func (r *UseCheckNotNullRule) Confidence() float64 { return 0.75 }
 
 // UseRequireNotNullRule detects require(x != null) and suggests requireNotNull(x).
 // Uses AST dispatch on call_expression for precise detection, handling both
-// `x != null` and `null != x` argument order, nested expressions, and
+// `x != null` and `null != x` argument order as the full condition, plus
 // optional message lambdas like `require(x != null) { "msg" }`.
 type UseRequireNotNullRule struct {
 	FlatDispatchBase

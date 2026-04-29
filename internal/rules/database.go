@@ -52,6 +52,32 @@ func daoFunctionHasAllowedAnnotationFlat(file *scanner.File, idx uint32) bool {
 		hasAnnotationFlat(file, idx, "Transaction")
 }
 
+// ForeignKeyWithoutOnDeleteRule detects Room @ForeignKey(...) constructions
+// that omit the named onDelete argument, falling back to NO_ACTION.
+type ForeignKeyWithoutOnDeleteRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Detection is
+// name-based and may match unrelated ForeignKey constructors.
+func (r *ForeignKeyWithoutOnDeleteRule) Confidence() float64 { return 0.75 }
+
+func foreignKeyHasOnDeleteArg(file *scanner.File, args uint32) bool {
+	if args == 0 {
+		return false
+	}
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		if flatValueArgumentLabel(file, arg) == "onDelete" {
+			return true
+		}
+	}
+	return false
+}
+
 // JdbcPreparedStatementNotClosedRule detects JDBC prepared statements assigned
 // to local properties without a later .use {} or .close() in the same scope.
 type JdbcPreparedStatementNotClosedRule struct {

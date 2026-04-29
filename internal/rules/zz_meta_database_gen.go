@@ -42,6 +42,18 @@ func (r *DatabaseInstanceRecreatedRule) Meta() registry.RuleDescriptor {
 	}
 }
 
+func (r *ForeignKeyWithoutOnDeleteRule) Meta() registry.RuleDescriptor {
+	return registry.RuleDescriptor{
+		ID:            "ForeignKeyWithoutOnDelete",
+		RuleSet:       "database",
+		Severity:      "warning",
+		Description:   "Detects Room @ForeignKey(...) without an onDelete argument; the default NO_ACTION usually leaves stale rows.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *RoomConflictStrategyReplaceOnFkRule) Meta() registry.RuleDescriptor {
 	return registry.RuleDescriptor{
 		ID:            "RoomConflictStrategyReplaceOnFk",

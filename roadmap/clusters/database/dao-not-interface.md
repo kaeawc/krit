@@ -1,6 +1,6 @@
 # DaoNotInterface
 
-**Cluster:** [database](README.md) · **Status:** planned · **Severity:** info · **Default:** inactive
+**Cluster:** [database](README.md) · **Status:** shipped · **Severity:** info · **Default:** inactive
 
 ## Catches
 

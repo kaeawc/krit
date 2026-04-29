@@ -90,6 +90,38 @@ func registerDatabaseRules() {
 		})
 	}
 	{
+		r := &ForeignKeyWithoutOnDeleteRule{BaseRule: BaseRule{RuleName: "ForeignKeyWithoutOnDelete", RuleSetName: "database", Sev: "warning", Desc: "Detects Room @ForeignKey(...) without an onDelete argument; the default NO_ACTION usually leaves stale rows."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression", "constructor_invocation"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				var args uint32
+				switch file.FlatType(idx) {
+				case "call_expression":
+					if !flatCallExpressionNameEquals(file, idx, "ForeignKey") {
+						return
+					}
+					_, args = flatCallExpressionParts(file, idx)
+				case "constructor_invocation":
+					if annotationConstructorName(file, idx) != "ForeignKey" {
+						return
+					}
+					args, _ = file.FlatFindChild(idx, "value_arguments")
+				default:
+					return
+				}
+				if args == 0 {
+					return
+				}
+				if foreignKeyHasOnDeleteArg(file, args) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "@ForeignKey is missing onDelete; default NO_ACTION leaves stale rows. Set onDelete to CASCADE, RESTRICT, or SET_NULL.")
+			},
+		})
+	}
+	{
 		r := &RoomConflictStrategyReplaceOnFkRule{BaseRule: BaseRule{RuleName: "RoomConflictStrategyReplaceOnFk", RuleSetName: "database", Sev: "warning", Desc: "Detects @Insert(onConflict = REPLACE) on a Room entity that declares foreign keys; REPLACE deletes and re-inserts, cascading FK deletes."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

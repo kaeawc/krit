@@ -30,6 +30,18 @@ func (r *LogWithoutCorrelationIdRule) Meta() registry.RuleDescriptor {
 	}
 }
 
+func (r *LoggerInterpolatedMessageRule) Meta() registry.RuleDescriptor {
+	return registry.RuleDescriptor{
+		ID:            "LoggerInterpolatedMessage",
+		RuleSet:       "observability",
+		Severity:      "warning",
+		Description:   "Detects SLF4J/Logback/log4j logger calls whose message uses Kotlin string interpolation instead of parameterized placeholders.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *LoggerWithoutLoggerFieldRule) Meta() registry.RuleDescriptor {
 	return registry.RuleDescriptor{
 		ID:            "LoggerWithoutLoggerField",

@@ -1100,3 +1100,89 @@ type LoggerWithoutLoggerFieldRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Observability rule. Detection pattern-matches logging/metrics API call
 // shapes without confirming the receiver type. Classified per roadmap/17.
 func (r *LoggerWithoutLoggerFieldRule) Confidence() float64 { return 0.75 }
+
+// LoggerInterpolatedMessageRule detects SLF4J/Logback/log4j-style logger calls
+// whose message argument is a Kotlin string template with interpolations.
+// Parameterized logging (`logger.info("user {} logged in", id)`) is preferred
+// because the template caches and the call skips argument evaluation when the
+// level is disabled. Timber is excluded — its API is designed around Kotlin
+// string interpolation. The lazy lambda form
+// (`logger.info { "user $id logged in" }`) is also excluded because it defers
+// evaluation until the level is enabled.
+type LoggerInterpolatedMessageRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Observability rule. Detection pattern-matches logging/metrics API call
+// shapes without confirming the receiver type. Classified per roadmap/17.
+func (r *LoggerInterpolatedMessageRule) Confidence() float64 { return 0.75 }
+
+// loggerLevelMethods are the SLF4J-style log level method names that take a
+// message template as the first argument.
+var loggerLevelMethods = map[string]bool{
+	"trace":   true,
+	"debug":   true,
+	"info":    true,
+	"warn":    true,
+	"warning": true,
+	"error":   true,
+}
+
+// loggerConventionalReceivers are receiver identifiers that idiomatically
+// refer to a logger instance even without an explicit type declaration.
+var loggerConventionalReceivers = map[string]bool{
+	"logger": true,
+	"log":    true,
+	"LOG":    true,
+	"LOGGER": true,
+}
+
+// receiverIsKnownLoggerFlat reports whether the receiver of `call` is
+// recognised as a logger instance. It checks the conventional names, declared
+// types, and module-level imports — but never matches Timber, which is the
+// rule's documented carve-out.
+func receiverIsKnownLoggerFlat(file *scanner.File, call uint32, receiver string) bool {
+	if receiver == "" || receiver == "Timber" {
+		return false
+	}
+	if loggerConventionalReceivers[receiver] {
+		return true
+	}
+	if receiverHasKnownLoggerTypeFlat(file, call, receiver) {
+		return true
+	}
+	knownLoggerImport, aliases := buildLoggerImportsFromAST(file)
+	if isLikelyLogReceiver(receiver, aliases) {
+		return true
+	}
+	return knownLoggerImport
+}
+
+// loggerInterpolatedMessageArgFlat returns the message argument of `call` when
+// it is a positional or named string-template argument that contains
+// interpolations. It deliberately ignores the lazy lambda form
+// (`logger.info { ... }`) because that form is the recommended substitute.
+func loggerInterpolatedMessageArgFlat(file *scanner.File, call uint32) uint32 {
+	_, args := flatCallExpressionParts(file, call)
+	if args == 0 {
+		return 0
+	}
+
+	if arg := flatNamedValueArgument(file, args, "message"); arg != 0 {
+		if flatContainsStringInterpolation(file, arg) {
+			return arg
+		}
+		return 0
+	}
+
+	first := flatPositionalValueArgument(file, args, 0)
+	if first == 0 {
+		return 0
+	}
+	if flatContainsStringInterpolation(file, first) {
+		return first
+	}
+	return 0
+}
+

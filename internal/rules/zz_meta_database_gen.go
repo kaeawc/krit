@@ -78,6 +78,18 @@ func (r *JdbcResultSetLeakedFromFunctionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
+func (r *EntityPrimaryKeyNotStableRule) Meta() registry.RuleDescriptor {
+	return registry.RuleDescriptor{
+		ID:            "EntityPrimaryKeyNotStable",
+		RuleSet:       "database",
+		Severity:      "warning",
+		Description:   "Detects @Entity @PrimaryKey declared as var without autoGenerate = true; mutable primary keys break equals/hashCode.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *JdbcPreparedStatementNotClosedRule) Meta() registry.RuleDescriptor {
 	return registry.RuleDescriptor{
 		ID:            "JdbcPreparedStatementNotClosed",

@@ -153,6 +153,7 @@ func isTestFile(path string) bool {
 		//   integration-tests/.../test-processor/src/main/kotlin/...kt
 		"/test/resources/", "/testResources/", "/testFixtures/",
 		"/integration-tests/", "/integrationTest/",
+		"/nonEmulatorCommonTest/", "/nonEmulatorJvmTest/",
 		// Kotlin-compiler / KSP / intellij test-data convention. These
 		// directories hold deliberately-crafted Kotlin/Java input files
 		// used to exercise compiler / analysis features — they have

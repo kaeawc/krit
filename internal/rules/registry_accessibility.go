@@ -191,6 +191,9 @@ func registerAccessibilityRules() {
 				if name != "Text" {
 					return
 				}
+				if composeRawTextLiteralNonProductionFile(file.Path) {
+					return
+				}
 				_, args := flatCallExpressionParts(file, idx)
 				if args == 0 {
 					return
@@ -203,18 +206,14 @@ func registerAccessibilityRules() {
 				if expr == 0 || file.FlatType(expr) != "string_literal" {
 					return
 				}
-				fn, ok := flatEnclosingFunction(file, idx)
+				if stringLiteralContent(file, expr) == "" {
+					return
+				}
+				_, ok := flatEnclosingFunction(file, idx)
 				if !ok {
 					return
 				}
-				if flatHasAnnotationNamed(file, fn, "Preview") {
-					return
-				}
-				fnName := flatFunctionName(file, fn)
-				if strings.Contains(fnName, "Preview") || strings.Contains(fnName, "Sample") {
-					return
-				}
-				if strings.HasSuffix(file.Path, "Preview.kt") || strings.HasSuffix(file.Path, "Sample.kt") {
+				if isInsidePreviewOrSampleFunctionFlat(file, idx) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,

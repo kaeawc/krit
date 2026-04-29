@@ -374,6 +374,69 @@ class RunBlockingInTestNegative {
 	}
 }
 
+func TestRunBlockingInTest_UsesLocalASTOnly(t *testing.T) {
+	rule := buildRuleIndex()["RunBlockingInTest"]
+	if rule == nil {
+		t.Fatal("RunBlockingInTest rule is not registered")
+	}
+	if rule.Needs != 0 {
+		t.Fatalf("RunBlockingInTest should remain AST-only, got needs %v", rule.Needs)
+	}
+	if rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil || rule.Oracle != nil {
+		t.Fatal("RunBlockingInTest should not declare oracle metadata")
+	}
+}
+
+func TestRunBlockingInTest_NegativeInsideAssertionBoundary(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", `
+package test
+
+import kotlin.test.assertFailsWith
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+
+class RunBlockingInAssertionNegative {
+    @Test
+    fun failsWithoutClock() {
+        assertFailsWith<IllegalStateException> {
+            runBlocking { error("boom") }
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for runBlocking inside assertion boundary, got %d", len(findings))
+	}
+}
+
+func TestRunBlockingInTest_NegativeInsideRunOnIdle(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", `
+package test
+
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+
+class ComposeRule {
+    fun runOnIdle(block: () -> Unit) = block()
+}
+
+class RunBlockingInRunOnIdleNegative {
+    val rule = ComposeRule()
+
+    @Test
+    fun waitsForIdleCallback() {
+        rule.runOnIdle {
+            runBlocking { delay(700) }
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for runBlocking inside runOnIdle boundary, got %d", len(findings))
+	}
+}
+
 func TestTestWithoutAssertion_Positive(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test
@@ -450,6 +513,51 @@ class TruthChainNegative {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected Truth assertion chain to count as assertion, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeVerificationHelper(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class HelperVerificationNegative {
+    @Test
+    fun lintPasses() {
+        verifyCompoundDrawableLintPass()
+    }
+
+    private fun verifyCompoundDrawableLintPass() {
+        println("fixture")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected verify-prefixed helper to count as verification, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeLocalAssertionHelper(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Assert.assertArrayEquals
+import org.junit.Test
+
+class LocalAssertionHelperNegative {
+    @Test
+    fun delegatesToHelper() {
+        testMacEquality()
+    }
+
+    private fun testMacEquality() {
+        assertArrayEquals(byteArrayOf(1), byteArrayOf(1))
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected local helper with assertion to count as assertion, got %d", len(findings))
 	}
 }
 

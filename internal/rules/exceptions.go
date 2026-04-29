@@ -496,7 +496,10 @@ func swallowedClassifyCall(ctx *v2.Context, catchNode, node uint32) swallowedCal
 	if swallowedIsQualifiedUICall(file, callee, receivers) || swallowedReceiverTypeIsUI(file, node) {
 		return swallowedCallUI
 	}
-	if swallowedIsHandlerName(callee) && (len(receivers) > 0 || swallowedSameOwnerLocalFunctionExists(file, catchNode, callee)) {
+	if swallowedIsHandlerName(callee) &&
+		(len(receivers) > 0 ||
+			swallowedSameOwnerLocalFunctionExists(file, catchNode, callee) ||
+			swallowedSameOwnerCallablePropertyExists(file, catchNode, callee)) {
 		return swallowedCallLocalHandler
 	}
 	return swallowedCallUnknown
@@ -800,7 +803,7 @@ func swallowedIsHandlerName(name string) bool {
 	switch name {
 	case "toastOn", "showError", "showErrorDialog", "handleError",
 		"reportError", "recoverFrom", "onError", "fallback", "notifyError",
-		"logError", "logWarning", "logWarn", "onLoadFailed", "onFailure":
+		"logError", "logWarning", "logWarn", "onLoadFailed", "onFailure", "onException":
 		return true
 	default:
 		return false
@@ -837,6 +840,79 @@ func swallowedSameOwnerLocalFunctionExists(file *scanner.File, catchNode uint32,
 		}
 	})
 	return found
+}
+
+func swallowedSameOwnerCallablePropertyExists(file *scanner.File, catchNode uint32, name string) bool {
+	for parent, ok := file.FlatParent(catchNode); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "function_declaration":
+			if swallowedCallableParameterExists(file, parent, name) {
+				return true
+			}
+		case "class_declaration", "object_declaration":
+			if swallowedCallableClassParameterExists(file, parent, name) ||
+				swallowedCallablePropertyExistsInClass(file, parent, name) {
+				return true
+			}
+		case "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+func swallowedCallableParameterExists(file *scanner.File, function uint32, name string) bool {
+	params, _ := file.FlatFindChild(function, "function_value_parameters")
+	if params == 0 {
+		return false
+	}
+	for param := file.FlatFirstChild(params); param != 0; param = file.FlatNextSib(param) {
+		if file.FlatType(param) == "parameter" &&
+			extractIdentifierFlat(file, param) == name &&
+			swallowedTypeTextLooksCallable(explicitTypeTextFlat(file, param)) {
+			return true
+		}
+	}
+	return false
+}
+
+func swallowedCallableClassParameterExists(file *scanner.File, classDecl uint32, name string) bool {
+	ctor, _ := file.FlatFindChild(classDecl, "primary_constructor")
+	if ctor == 0 {
+		return false
+	}
+	for i := 0; i < file.FlatNamedChildCount(ctor); i++ {
+		param := file.FlatNamedChild(ctor, i)
+		if param == 0 || file.FlatType(param) != "class_parameter" {
+			continue
+		}
+		if extractIdentifierFlat(file, param) == name &&
+			classParameterDefinesPropertyFlat(file, param) &&
+			swallowedTypeTextLooksCallable(explicitTypeTextFlat(file, param)) {
+			return true
+		}
+	}
+	return false
+}
+
+func swallowedCallablePropertyExistsInClass(file *scanner.File, classDecl uint32, name string) bool {
+	body, _ := file.FlatFindChild(classDecl, "class_body")
+	if body == 0 {
+		return false
+	}
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "property_declaration" &&
+			extractIdentifierFlat(file, child) == name &&
+			swallowedTypeTextLooksCallable(explicitTypeTextFlat(file, child)) {
+			return true
+		}
+	}
+	return false
+}
+
+func swallowedTypeTextLooksCallable(text string) bool {
+	text = strings.TrimSpace(text)
+	return strings.Contains(text, "->") || strings.HasPrefix(text, "Function")
 }
 
 func swallowedFunctionName(file *scanner.File, fn uint32) string {

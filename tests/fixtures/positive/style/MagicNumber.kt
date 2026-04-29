@@ -9,4 +9,5 @@ fun example() {
     val timeout = 3000
     val retries = 5
     pollEvery(5, TimeUnit.SECONDS)
+    val sample = List(200) { it }
 }

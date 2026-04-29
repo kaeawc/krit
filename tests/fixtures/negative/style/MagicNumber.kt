@@ -51,3 +51,11 @@ fun durationCalls() {
 fun color(alpha: Int, red: Int, green: Int, blue: Int): Int {
     return (alpha shl 24) or (red shl 16) or (green shl 8) or blue
 }
+
+fun httpStatusRanges(response: Response): Boolean {
+    return response.code !in 200 until 300 && response.code != HTTP_RESPONSE_NOT_MODIFIED
+}
+
+fun httpStatusComparisons(response: JavaResponse): Boolean {
+    return response.code() >= 200 && response.code() < 300
+}

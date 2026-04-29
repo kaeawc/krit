@@ -442,6 +442,9 @@ func registerStyleForbiddenRules() {
 				if magicNumberIsAndroidApiLevelLiteral(file, idx) {
 					return
 				}
+				if magicNumberIsHTTPStatusLiteral(file, idx) {
+					return
+				}
 				// Strip suffixes for comparison against ignore list
 				clean := strings.TrimRight(text, "fFdDlLuU")
 				clean = strings.ReplaceAll(clean, "_", "")

@@ -901,11 +901,17 @@ func registerCoroutinesRules() {
 				if !strings.Contains(propText, "MutableStateFlow") {
 					return
 				}
+				if !stateFlowMutableLeakHasKotlinxEvidence(file, propText) {
+					return
+				}
 				if isTestFile(file.Path) || file.FlatHasAncestorOfType(idx, "function_body") {
 					return
 				}
 				if file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "protected") ||
 					file.FlatHasModifier(idx, "internal") {
+					return
+				}
+				if file.FlatHasModifier(idx, "override") {
 					return
 				}
 				propName := extractIdentifierFlat(file, idx)

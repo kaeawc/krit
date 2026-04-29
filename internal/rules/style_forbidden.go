@@ -413,6 +413,33 @@ func magicNumberIsAndroidApiLevelLiteral(file *scanner.File, idx uint32) bool {
 	return false
 }
 
+func magicNumberIsHTTPStatusLiteral(file *scanner.File, idx uint32) bool {
+	text := strings.TrimRight(file.FlatNodeText(idx), "lLuU")
+	switch text {
+	case "200", "201", "202", "204", "206", "299", "300", "304", "308", "400", "401", "403", "404", "416", "429", "499", "500", "502", "503", "504":
+	default:
+		return false
+	}
+	row := file.FlatRow(idx)
+	if row < 0 || row >= len(file.Lines) {
+		return false
+	}
+	line := file.Lines[row]
+	hasStatusReceiver := strings.Contains(line, "response.code") ||
+		strings.Contains(line, "statusCode") ||
+		strings.Contains(line, "responseStatus") ||
+		strings.Contains(line, "status ")
+	if !hasStatusReceiver {
+		return false
+	}
+	return strings.Contains(line, "..") ||
+		strings.Contains(line, " until ") ||
+		strings.Contains(line, ">=") ||
+		strings.Contains(line, "<") ||
+		strings.Contains(line, "==") ||
+		strings.Contains(line, "!=")
+}
+
 // Confidence reports a tier-2 (medium) base confidence. MagicNumber is
 // structurally accurate but highly context-dependent: whether a
 // literal is "magic" depends on call context, domain, and convention,

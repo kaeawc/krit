@@ -232,6 +232,40 @@ fun load() {
 	}
 }
 
+func TestMagicNumber_IgnoresHTTPStatusRange(t *testing.T) {
+	findings := runRuleByName(t, "MagicNumber", `
+package test
+
+fun isSuccessful(response: Response): Boolean {
+    return response.code !in 200 until 300 && response.code != HTTP_RESPONSE_NOT_MODIFIED
+}
+
+fun isAlsoSuccessful(response: Response): Boolean {
+    return response.code() >= 200 && response.code() < 300
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected HTTP status range literals to be ignored, got %d", len(findings))
+	}
+}
+
+func TestMagicNumber_FlagsHTTPStatusLookalikeWithoutStatusEvidence(t *testing.T) {
+	findings := runRuleByName(t, "MagicNumber", `
+package test
+
+fun makeList(): List<Int> = List(200) { it }
+`)
+	found := false
+	for _, f := range findings {
+		if f.Rule == "MagicNumber" && strings.Contains(f.Message, "'200'") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected non-status 200 literal to remain a finding")
+	}
+}
+
 func TestMagicNumber_IgnoresHalfRatioLiteral(t *testing.T) {
 	findings := runRuleByName(t, "MagicNumber", `
 package test

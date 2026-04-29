@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
+import com.slack.circuit.retained.produceRetainedState
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 
@@ -112,3 +113,27 @@ fun RememberedObjectSynchronization(input: Input) {
 }
 
 private class Holder(var input: Input)
+
+data class PresenterState(val selectedIndex: Int, val eventSink: (Event) -> Unit)
+sealed interface Event
+data class Selected(val index: Int) : Event
+
+@Composable
+fun LocalConstructorCallback() {
+    var selectedIndex = 0
+    Content(
+        PresenterState(selectedIndex) { event ->
+            when (event) {
+                is Selected -> selectedIndex = event.index
+            }
+        }
+    )
+}
+
+@Composable
+fun RetainedStateProducer(repo: Repo) {
+    val items by produceRetainedState(initialValue = emptyList<String>()) {
+        value = repo.load()
+    }
+    Content(items)
+}

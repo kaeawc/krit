@@ -62,6 +62,14 @@ class MyClass {
     }
 }
 
+object LocalDispatchers {
+    val IO: String = "io"
+}
+
+fun localDispatcherLookalike() {
+    withContext(LocalDispatchers.IO) { fetchFromNetwork() }
+}
+
 interface DispatcherProvider {
     val io: CoroutineDispatcher
 }

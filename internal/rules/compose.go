@@ -775,6 +775,40 @@ func composeParameterIsNonComposableCallback(text string) bool {
 	return strings.Contains(text, "->") && !strings.Contains(text, "@Composable")
 }
 
+func composeLocalConstructorParamIsNonComposableCallback(file *scanner.File, callName, label string, position int, trailing bool) bool {
+	if callName == "" {
+		return false
+	}
+	matched := false
+	file.FlatWalkNodes(0, "class_declaration", func(classDecl uint32) {
+		if matched {
+			return
+		}
+		summary := getClassDeclSummaryFlat(file, classDecl)
+		if summary.name != callName {
+			return
+		}
+		params := summary.classParams
+		if label != "" {
+			for _, param := range params {
+				if param.name == label && composeParameterIsNonComposableCallback(file.FlatNodeText(param.idx)) {
+					matched = true
+					return
+				}
+			}
+			return
+		}
+		if position >= 0 && position < len(params) && composeParameterIsNonComposableCallback(file.FlatNodeText(params[position].idx)) {
+			matched = true
+			return
+		}
+		if trailing && len(params) > 0 && composeParameterIsNonComposableCallback(file.FlatNodeText(params[len(params)-1].idx)) {
+			matched = true
+		}
+	})
+	return matched
+}
+
 func composeLocalFunctionParamIsNonComposableCallback(file *scanner.File, callName, label string, position int, trailing bool) bool {
 	if callName == "" {
 		return false
@@ -856,6 +890,8 @@ func composeCallIsKnownImportedCallbackBuilder(file *scanner.File, callName stri
 		return fileImportsFQN(file, "androidx.compose.ui.viewinterop.AndroidView")
 	case "navArgument":
 		return fileImportsFQN(file, "androidx.navigation.navArgument")
+	case "produceRetainedState":
+		return fileImportsFQN(file, "com.slack.circuit.retained.produceRetainedState")
 	default:
 		return false
 	}
@@ -961,7 +997,8 @@ func composeSideEffectAllowedLambdaBoundary(file *scanner.File, lambdaIdx uint32
 	if _, ok := composeModifierCallbackCalls[callName]; ok && composeCallIsChained(file, call, callName) {
 		return true
 	}
-	return composeLocalFunctionParamIsNonComposableCallback(file, callName, label, position, trailing)
+	return composeLocalFunctionParamIsNonComposableCallback(file, callName, label, position, trailing) ||
+		composeLocalConstructorParamIsNonComposableCallback(file, callName, label, position, trailing)
 }
 
 // composeLambdaOwningCall returns the call_expression that a lambda_literal

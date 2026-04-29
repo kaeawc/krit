@@ -295,6 +295,35 @@ fun chain(x: Int) {
 	}
 }
 
+func TestNestedBlockDepth_ElseIfChainWithCommentsDoesNotIncreaseDepth(t *testing.T) {
+	// Regression: comments and blank lines between `else` and `if` must not
+	// defeat else-if-chain detection. The sibling-order check in
+	// isElseIfChainNodeFlat handles this; a byte-offset check would too,
+	// but extras like comments make offset-based reasoning fragile.
+	code := `package test
+fun chain(x: Int) {
+    if (x > 0) {
+        println(x)
+    } else
+        // explain the next branch
+        /* and another note */
+        if (x < 0) {
+        if (x < -1) {
+            if (x < -2) {
+                if (x < -3) {
+                    println(x)
+                }
+            }
+        }
+    }
+}
+`
+	findings := runRuleByName(t, "NestedBlockDepth", code)
+	if len(findings) != 0 {
+		t.Fatalf("expected no NestedBlockDepth finding for else-if chain with comments, got %d", len(findings))
+	}
+}
+
 // --- CognitiveComplexMethod ---
 
 func TestCognitiveComplexMethod_Positive(t *testing.T) {

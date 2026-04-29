@@ -17,3 +17,14 @@ fun LocalLookalikeStillRunsInComposition(vm: VM) {
         vm.tracker.seen = true
     }
 }
+
+fun Layout(block: () -> Unit) {
+    block()
+}
+
+@Composable
+fun LocalLayoutLookalikeStillRunsInComposition(vm: VM) {
+    Layout {
+        vm.tracker.seen = true
+    }
+}

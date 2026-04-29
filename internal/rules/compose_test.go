@@ -1422,6 +1422,59 @@ fun Viewfinder(modifier: Modifier = Modifier, coordinateTransformer: CoordinateT
 	}
 }
 
+func TestComposeSideEffectInComposition_Negative_LayoutMeasurePolicy(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.Layout
+
+@Composable
+fun Row(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Layout(modifier = modifier, content = content) { measurables, constraints ->
+        val placeables = measurables.map { it.measure(constraints) }
+        var width = 0
+        var height = 0
+        placeables.forEach {
+            width += it.width
+            height = max(height, it.height)
+        }
+        layout(width, height) {
+            var offset = 0
+            placeables.forEach {
+                it.placeRelative(offset, 0)
+                offset += it.width
+            }
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for Compose Layout measure policy assignments, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Positive_LocalLayoutLookalike(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+fun Layout(block: () -> Unit) {
+    block()
+}
+
+@Composable
+fun Screen(vm: VM) {
+    Layout {
+        vm.tracker.seen = true
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected finding for local Layout lookalike without Compose layout import, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestComposeSideEffectInComposition_Positive_PlaceWithLayerLookalike(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test

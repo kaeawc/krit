@@ -919,6 +919,14 @@ func composeCallIsDeferredLayoutPlacement(file *scanner.File, call uint32, callN
 		sourceImportsOrMentions(file, "androidx.compose.ui.layout.Placeable")
 }
 
+func composeCallIsComposeLayoutMeasurePolicy(file *scanner.File, callName string) bool {
+	if callName != "Layout" {
+		return false
+	}
+	return fileImportsFQN(file, "androidx.compose.ui.layout.Layout") ||
+		sourceImportsOrMentions(file, "androidx.compose.ui.layout.Layout")
+}
+
 func composeCallIsKnownImportedCallbackBuilder(file *scanner.File, callName string) bool {
 	switch callName {
 	case "AndroidView":
@@ -1033,6 +1041,9 @@ func composeSideEffectAllowedLambdaBoundary(file *scanner.File, lambdaIdx uint32
 		return true
 	}
 	if composeCallIsDeferredLayoutPlacement(file, call, callName) {
+		return true
+	}
+	if composeCallIsComposeLayoutMeasurePolicy(file, callName) {
 		return true
 	}
 	return composeLocalFunctionParamIsNonComposableCallback(file, callName, label, position, trailing) ||

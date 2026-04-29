@@ -1,6 +1,7 @@
 package test
 
 import com.autonomousapps.kit.GradleBuilder.build
+import androidx.compose.testutils.expectError
 import org.junit.Ignore
 import org.junit.Test
 import org.junit.Assert.assertEquals
@@ -32,6 +33,11 @@ class TestWithoutAssertionNegative {
     @Test
     fun macrobenchmark() {
         benchmarkRule.measureRepeated()
+    }
+
+    @Test
+    fun composeExpectError() {
+        expectError<IllegalStateException> { gesture.moveTo(position) }
     }
 }
 

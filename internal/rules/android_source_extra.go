@@ -507,8 +507,17 @@ func (r *WrongImportRule) check(ctx *v2.Context) {
 	if fqn != "android.R" && !strings.HasPrefix(fqn, "android.R.") {
 		return
 	}
-	ctx.EmitAt(file.FlatRow(idx)+1, 1,
+	f := r.Finding(file, file.FlatRow(idx)+1, 1,
 		"Importing android.R instead of the application's R class. This may cause resource resolution errors.")
+	if pkg := sourcePackageName(file); pkg != "" && pkg != "android" {
+		f.Fix = &scanner.Fix{
+			ByteMode:    true,
+			StartByte:   int(file.FlatStartByte(ident)),
+			EndByte:     int(file.FlatEndByte(ident)),
+			Replacement: pkg + ".R" + strings.TrimPrefix(fqn, "android.R"),
+		}
+	}
+	ctx.Emit(f)
 }
 
 type LayoutInflationRule struct {

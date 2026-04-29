@@ -274,6 +274,7 @@ func registerPotentialbugsMiscRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsTypeInfo,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if strings.HasSuffix(file.Path, ".gradle.kts") {
@@ -339,7 +340,11 @@ func registerPotentialbugsMiscRules() {
 					if receiverText == "" {
 						receiverText = file.FlatNodeText(receiverIdx)
 					}
-					if isStringLiteral && fileDeclaresStringFormatExtension(file) {
+					if target, ok := implicitDefaultLocaleOracleCallTarget(ctx, idx); ok {
+						if !implicitDefaultLocaleIsStringFormatTarget(target) {
+							return
+						}
+					} else if isStringLiteral && fileDeclaresStringFormatExtension(file) {
 						return
 					}
 

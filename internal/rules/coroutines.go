@@ -771,11 +771,61 @@ func mutableObjectPropertyReferencesAreSynchronized(file *scanner.File, objectId
 			return
 		}
 		seenReference = true
-		if !flatNodeInsideCallNamed(file, candidate, "synchronized") {
+		if !mutableStateReferenceIsSynchronized(file, objectIdx, candidate, map[uint32]bool{}) {
 			allSynchronized = false
 		}
 	})
 	return seenReference && allSynchronized
+}
+
+func mutableStateReferenceIsSynchronized(file *scanner.File, objectIdx, refIdx uint32, visiting map[uint32]bool) bool {
+	if flatNodeInsideCallNamed(file, refIdx, "synchronized") {
+		return true
+	}
+	fn, ok := flatEnclosingFunction(file, refIdx)
+	if !ok {
+		return false
+	}
+	return mutableStateFunctionIsSynchronized(file, objectIdx, fn, visiting)
+}
+
+func mutableStateFunctionIsSynchronized(file *scanner.File, objectIdx, fn uint32, visiting map[uint32]bool) bool {
+	if file == nil || fn == 0 {
+		return false
+	}
+	fnText := file.FlatNodeText(fn)
+	if strings.Contains(fnText, "@Synchronized") {
+		return true
+	}
+	if !strings.Contains(fnText, "private") {
+		return false
+	}
+	name := flatFunctionName(file, fn)
+	if name == "" {
+		return false
+	}
+	if visiting[fn] {
+		return false
+	}
+	visiting[fn] = true
+	defer delete(visiting, fn)
+
+	seenCall := false
+	allCallsSynchronized := true
+	file.FlatWalkNodes(objectIdx, "call_expression", func(call uint32) {
+		if !allCallsSynchronized || flatCallExpressionName(file, call) != name {
+			return
+		}
+		if flatNodeHasAncestor(file, call, fn) {
+			allCallsSynchronized = false
+			return
+		}
+		seenCall = true
+		if !mutableStateReferenceIsSynchronized(file, objectIdx, call, visiting) {
+			allCallsSynchronized = false
+		}
+	})
+	return seenCall && allCallsSynchronized
 }
 
 func mutableObjectPropertyReferencesAreSynchronizedByText(file *scanner.File, objectIdx uint32, propName string) bool {

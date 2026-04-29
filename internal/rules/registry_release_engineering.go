@@ -277,8 +277,8 @@ func registerReleaseEngineeringRules() {
 		r := &CommentedOutImportRule{BaseRule: BaseRule{RuleName: "CommentedOutImport", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects commented-out import statements that are either dead code or incomplete refactors."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, OriginalV1: r,
-			Check: r.check,
+			NodeTypes: []string{"line_comment"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: r.checkNode,
 		})
 	}
 	{

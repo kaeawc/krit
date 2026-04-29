@@ -405,6 +405,31 @@ class RunBlockingInTestNegative {
 	}
 }
 
+func TestRunBlockingInTest_NegativeAndroidInstrumentedTest(t *testing.T) {
+	file := parseInline(t, `
+package test
+
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+
+class InstrumentedRunBlockingTest {
+    @Test
+    fun waitsForDeviceCallback() {
+        runBlocking {
+            waitForCamera()
+        }
+    }
+}
+
+suspend fun waitForCamera() = Unit
+`)
+	file.Path = "/repo/camera/camera-core/src/androidTest/java/androidx/camera/core/DeviceTest.kt"
+	findings := runRuleByNameOnFile(t, "RunBlockingInTest", file)
+	if len(findings) != 0 {
+		t.Fatalf("expected androidTest runBlocking to be ignored, got %d", len(findings))
+	}
+}
+
 func TestRunBlockingInTest_UsesLocalASTOnly(t *testing.T) {
 	rule := buildRuleIndex()["RunBlockingInTest"]
 	if rule == nil {
@@ -566,6 +591,71 @@ class HelperVerificationNegative {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected verify-prefixed helper to count as verification, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeGradleOutputAssertionHelper(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class GradleOutputTest {
+    @Test
+    fun verifiesDryRunTasks() {
+        gradleRunner.buildAndAssertThatOutput("test", "--dry-run") {
+            contains(":testDebugUnitTest ")
+            doesNotContain(":testBenchmarkReleaseUnitTest ")
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected Gradle output assertion helper to count as assertion, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeAssertionErrorHelper(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class AssertionErrorHelperTest {
+    @Test
+    fun generatedFilesMatchGolden() {
+        runGoldenTest()
+    }
+
+    private fun runGoldenTest() {
+        if (!goldenMatches()) {
+            throw AssertionError("golden mismatch")
+        }
+    }
+}
+
+fun goldenMatches(): Boolean = true
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected AssertionError helper to count as assertion, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeNoCrashName(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class NoCrashTest {
+    @Test
+    fun expect_no_crash() {
+        logger.logFields(null)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no-crash test name to count as deliberate smoke test, got %d", len(findings))
 	}
 }
 

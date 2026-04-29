@@ -196,6 +196,18 @@ const val MY_CONST = 42
 	}
 }
 
+func TestTopLevelPropertyNaming_AcceptsPascalCaseConst(t *testing.T) {
+	findings := runRuleByName(t, "TopLevelPropertyNaming", `
+package test
+const val MillisToNanos = 1_000_000
+`)
+	for _, f := range findings {
+		if f.Rule == "TopLevelPropertyNaming" {
+			t.Errorf("TopLevelPropertyNaming should accept initial-uppercase const names, got: %s", f.Message)
+		}
+	}
+}
+
 func TestTopLevelPropertyNaming_AcceptsCamelCaseNonConst(t *testing.T) {
 	findings := runRuleByName(t, "TopLevelPropertyNaming", `
 package test
@@ -230,6 +242,19 @@ val MyProperty = "hello"
 `)
 	if len(findings) == 0 {
 		t.Error("expected TopLevelPropertyNaming to flag PascalCase non-const top-level property")
+	}
+}
+
+func TestTopLevelPropertyNaming_UsesLocalASTOnly(t *testing.T) {
+	rule := buildRuleIndex()["TopLevelPropertyNaming"]
+	if rule == nil {
+		t.Fatal("TopLevelPropertyNaming rule is not registered")
+	}
+	if rule.Needs != 0 {
+		t.Fatalf("TopLevelPropertyNaming should remain AST-only, got needs %v", rule.Needs)
+	}
+	if rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil || rule.Oracle != nil {
+		t.Fatal("TopLevelPropertyNaming should not declare oracle metadata")
 	}
 }
 

@@ -586,7 +586,7 @@ func registerNamingRules() {
 		})
 	}
 	{
-		r := &TopLevelPropertyNamingRule{BaseRule: BaseRule{RuleName: "TopLevelPropertyNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects top-level property names that do not match the expected naming pattern."}, ConstPattern: regexp.MustCompile(`^[A-Z][_A-Z0-9]*$`), PropertyPattern: regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)}
+		r := &TopLevelPropertyNamingRule{BaseRule: BaseRule{RuleName: "TopLevelPropertyNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects top-level property names that do not match the expected naming pattern."}, ConstPattern: regexp.MustCompile(`^[A-Z][_A-Za-z0-9]*$`), PropertyPattern: regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, OriginalV1: r,

@@ -409,7 +409,7 @@ func (r *ObjectPropertyNamingRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "constantPattern",
 				Type:        registry.OptRegex,
-				Default:     "[A-Za-z][_A-Za-z0-9]*",
+				Default:     "[A-Z][_A-Za-z0-9]*",
 				Description: "Regex pattern for constant properties in objects.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*ObjectPropertyNamingRule).ConstPattern = value.(*regexp.Regexp)

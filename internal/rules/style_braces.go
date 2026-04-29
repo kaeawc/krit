@@ -3,8 +3,8 @@ package rules
 import (
 	"strings"
 
-	"github.com/kaeawc/krit/internal/scanner"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // controlBodyHasBraces returns true when the control_structure_body node
@@ -31,6 +31,9 @@ func (r *BracesOnIfStatementsRule) Confidence() float64 { return 0.75 }
 
 func (r *BracesOnIfStatementsRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
+	if isTestFile(file.Path) || isGradleBuildScript(file.Path) {
+		return
+	}
 
 	body, _ := file.FlatFindChild(idx, "control_structure_body")
 	if body == 0 {
@@ -144,6 +147,9 @@ func (r *BracesOnWhenStatementsRule) Confidence() float64 { return 0.75 }
 
 func (r *BracesOnWhenStatementsRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
+	if isTestFile(file.Path) {
+		return
+	}
 
 	body, _ := file.FlatFindChild(idx, "control_structure_body")
 	if body == 0 {

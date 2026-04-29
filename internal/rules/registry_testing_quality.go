@@ -324,6 +324,9 @@ func registerTestingQualityRules() {
 				if testingQualityIsBenchmarkOrGoldenFile(file) {
 					return
 				}
+				if testingQualityTestNameDocumentsNoException(file, idx) {
+					return
+				}
 				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return

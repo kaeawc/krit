@@ -107,6 +107,46 @@ func TestModuleDeadCode_CouldBeInternal(t *testing.T) {
 	}
 }
 
+func TestModuleDeadCode_SameFileReferencesAreUsedWithinModule(t *testing.T) {
+	root := t.TempDir()
+	appSrc := filepath.Join(root, "app", "src", "main", "kotlin")
+	appFile := writeAndParse(t, appSrc, "Screen.kt", `
+package app
+
+fun Screen() {
+    Section()
+}
+
+fun Section() {}
+`)
+	graph := buildGraph(root, map[string]*module.Module{
+		":app": {Path: ":app", Dir: filepath.Join(root, "app")},
+	})
+	pmi := module.BuildPerModuleIndex(graph, []*scanner.File{appFile}, 1)
+
+	rule := &ModuleDeadCodeRule{
+		BaseRule: BaseRule{RuleName: "ModuleDeadCode", RuleSetName: "dead-code", Sev: "warning"},
+	}
+	ctx := &v2.Context{
+		ModuleIndex: pmi,
+		Collector:   scanner.NewFindingCollector(0),
+	}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
+	found := false
+	for _, f := range findings {
+		if contains(f.Message, "Section") {
+			found = true
+			if contains(f.Message, "not used by any module") {
+				t.Fatalf("expected same-file reference to avoid truly-dead classification, got: %s", f.Message)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected same-file public helper to remain a module-visibility finding")
+	}
+}
+
 func TestModuleDeadCode_UsedByConsumer(t *testing.T) {
 	root := t.TempDir()
 	libSrc := filepath.Join(root, "lib", "src", "main", "kotlin")
@@ -168,6 +208,33 @@ func TestModuleDeadCode_PublishedModuleSkip(t *testing.T) {
 		if contains(f.Message, "publicApi") {
 			t.Errorf("publicApi in published module should be skipped, but got: %s", f.Message)
 		}
+	}
+}
+
+func TestModuleDeadCode_IgnoresGradleBuildScripts(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "app")
+	buildFile := writeAndParse(t, appDir, "build.gradle.kts", `
+val gradleWorkerJvmArgs = listOf("-Xmx2g")
+
+fun killKotlinCompileDaemon() = Unit
+`)
+	graph := buildGraph(root, map[string]*module.Module{
+		":app": {Path: ":app", Dir: appDir},
+	})
+	pmi := module.BuildPerModuleIndex(graph, []*scanner.File{buildFile}, 1)
+
+	rule := &ModuleDeadCodeRule{
+		BaseRule: BaseRule{RuleName: "ModuleDeadCode", RuleSetName: "dead-code", Sev: "warning"},
+	}
+	ctx := &v2.Context{
+		ModuleIndex: pmi,
+		Collector:   scanner.NewFindingCollector(0),
+	}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
+	if len(findings) != 0 {
+		t.Fatalf("expected Gradle build script declarations to be ignored, got %d findings: %+v", len(findings), findings)
 	}
 }
 

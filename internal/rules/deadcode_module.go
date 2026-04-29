@@ -94,6 +94,9 @@ func (r *ModuleDeadCodeRule) check(ctx *v2.Context) {
 		consumers := pmi.Graph.Consumers[modPath]
 
 		for _, sym := range idx.Symbols {
+			if isGradleBuildScript(sym.File) {
+				continue
+			}
 			if shouldSkipSymbolWithFile(sym, filesByPath[sym.File]) {
 				continue
 			}
@@ -160,7 +163,7 @@ func classifySymbol(
 	}
 
 	// Check if the symbol is used within its own module (in a different file)
-	usedInOwnModule := modIndex.IsReferencedOutsideFile(sym.Name, sym.File)
+	usedInOwnModule := modIndex.IsReferencedOutsideFile(sym.Name, sym.File) || modIndex.ReferenceCount(sym.Name) > 1
 
 	switch {
 	case usedByConsumer:

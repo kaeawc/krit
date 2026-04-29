@@ -460,6 +460,32 @@ fun render(clazz: KSClassDeclaration) {
 	}
 }
 
+func TestUnsafeCallOnNullableType_NegativeNamedKClassSimpleNameLiteral(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+
+class App
+
+val tag = App::class.simpleName!!
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for named KClass simpleName literal, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCallOnNullableType_PositiveRuntimeKClassSimpleName(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+
+fun tag(value: Any): String {
+    return value::class.simpleName!!
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for runtime KClass simpleName unwrap, got none")
+	}
+}
+
 func TestUnsafeCallOnNullableType_PositiveQualifiedName(t *testing.T) {
 	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
 package test

@@ -18,6 +18,9 @@ func registerStyleExpressionsRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) {
+					return
+				}
 				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return

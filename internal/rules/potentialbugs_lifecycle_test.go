@@ -176,6 +176,32 @@ class Foo {
 	}
 }
 
+func TestLateinitUsage_IgnoresTestFixtures(t *testing.T) {
+	findings := runRuleByNameOnPath(t, "LateinitUsage", "src/test/kotlin/FooTest.kt", `
+package test
+class FooTest {
+    lateinit var subject: Foo
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for test lateinit properties, got %d", len(findings))
+	}
+}
+
+func TestLateinitUsage_IgnoresInjectedProperties(t *testing.T) {
+	findings := runRuleByName(t, "LateinitUsage", `
+package test
+import javax.inject.Inject
+class Foo {
+    @Inject lateinit var service: Service
+}
+class Service
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for injected lateinit properties, got %d", len(findings))
+	}
+}
+
 // --- MissingPackageDeclaration ---
 
 func TestMissingPackageDeclaration_Positive(t *testing.T) {

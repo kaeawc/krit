@@ -57,7 +57,18 @@ func flatPrecedingKDoc(file *scanner.File, idx uint32) (uint32, bool) {
 }
 
 func isPublicDeclarationFlat(file *scanner.File, idx uint32) bool {
-	return !file.FlatHasModifier(idx, "private") && !file.FlatHasModifier(idx, "protected") && !file.FlatHasModifier(idx, "internal")
+	if file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "protected") || file.FlatHasModifier(idx, "internal") {
+		return false
+	}
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "function_body", "statements", "lambda_literal", "control_structure_body":
+			return false
+		case "class_body", "source_file":
+			return true
+		}
+	}
+	return true
 }
 
 func isPrivateDeclarationFlat(file *scanner.File, idx uint32) bool {

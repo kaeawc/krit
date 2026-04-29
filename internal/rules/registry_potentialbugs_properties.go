@@ -147,6 +147,9 @@ func registerPotentialbugsPropertiesRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) || isGradleBuildScript(file.Path) {
+					return
+				}
 				_, args := flatCallExpressionParts(file, idx)
 				if args == 0 {
 					return
@@ -161,6 +164,9 @@ func registerPotentialbugsPropertiesRules() {
 					}
 				}
 				if count < 5 || hasNamed {
+					return
+				}
+				if flatCallForwardsEnclosingFunctionParameters(file, idx, args) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,

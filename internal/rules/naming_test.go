@@ -332,6 +332,46 @@ class Foo {
 	}
 }
 
+func TestNaming_BooleanProperty_IgnoresTestAndLocalProperties(t *testing.T) {
+	testCode := `
+package test
+class FooTest {
+    val enabled: Boolean = true
+}
+`
+	if findings := runRuleByNameOnPath(t, "BooleanPropertyNaming", "src/test/kotlin/FooTest.kt", testCode); len(findings) != 0 {
+		t.Fatalf("expected no findings for test boolean properties, got %d", len(findings))
+	}
+	localCode := `
+package test
+fun main() {
+    val enabled: Boolean = true
+}
+`
+	if findings := runRuleByName(t, "BooleanPropertyNaming", localCode); len(findings) != 0 {
+		t.Fatalf("expected no findings for local boolean vals, got %d", len(findings))
+	}
+}
+
+func TestNaming_BooleanProperty_IgnoresNonBooleanInitializerBodies(t *testing.T) {
+	findings := runRuleByName(t, "BooleanPropertyNaming", `
+package test
+class Foo {
+    val progress: Flow<State> = upstream.map {
+        false
+    }
+}
+class Flow<T> {
+    fun <R> map(block: (T) -> R): Flow<R> = Flow()
+}
+class State
+val upstream = Flow<State>()
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for non-Boolean property whose initializer contains false, got %d", len(findings))
+	}
+}
+
 // --- ConstructorParameterNaming ---
 
 func TestNaming_ConstructorParameter_FlagsBadName(t *testing.T) {
@@ -392,6 +432,22 @@ fun doStuff() {}
 	}
 }
 
+func TestNaming_FunctionNameMaxLength_IgnoresTestNames(t *testing.T) {
+	findings := runRuleByNameOnPath(t, "FunctionNameMaxLength", "src/test/kotlin/FooTest.kt", `
+package test
+
+class FooTest {
+    @Test
+    fun veryLongDescriptiveTestNameThatExplainsBehavior() {}
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "FunctionNameMaxLength" {
+			t.Errorf("FunctionNameMaxLength should ignore test function names, got: %s", f.Message)
+		}
+	}
+}
+
 // --- FunctionNameMinLength ---
 
 func TestNaming_FunctionNameMinLength_FlagsTooShort(t *testing.T) {
@@ -419,6 +475,21 @@ fun run() {}
 		if f.Rule == "FunctionNameMinLength" {
 			t.Errorf("FunctionNameMinLength should accept 3-char name, got: %s", f.Message)
 		}
+	}
+}
+
+func TestNaming_FunctionNameMinLength_AcceptsLoggerShorthand(t *testing.T) {
+	findings := runRuleByName(t, "FunctionNameMinLength", `
+package test
+interface Logger
+fun Logger.d(message: String) {}
+fun Logger.e(message: String) {}
+fun Logger.i(message: String) {}
+fun Logger.v(message: String) {}
+fun Logger.w(message: String) {}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for conventional logger shorthand functions, got %d", len(findings))
 	}
 }
 

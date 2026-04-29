@@ -35,6 +35,19 @@ fun double(x: Int): Int = x * 2
 	}
 }
 
+func TestExpressionBodySyntax_IgnoresTestSources(t *testing.T) {
+	findings := runRuleByNameOnPath(t, "ExpressionBodySyntax", "src/androidTest/kotlin/TestRunner.kt", `
+package test
+fun runner(): Runner {
+    return Runner()
+}
+class Runner
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for test sources, got %d", len(findings))
+	}
+}
+
 // --- ReturnCount ---
 
 func TestReturnCount_Positive(t *testing.T) {

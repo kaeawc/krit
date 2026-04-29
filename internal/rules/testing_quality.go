@@ -711,6 +711,8 @@ func testingQualityBodyHasAssertionOrVerificationWithHelpers(file *scanner.File,
 				testingQualityIsHarnessVerificationCall(file, n, name)
 		case "infix_expression":
 			found = testingQualityIsAssertionOrVerify(testingQualityInfixOperatorName(file, n))
+		case "jump_expression":
+			found = testingQualityThrowExpressionIsAssertion(file, n)
 		}
 	})
 	return found
@@ -759,6 +761,56 @@ func testingQualityEnclosingClassHasSupertypeSuffix(file *scanner.File, idx uint
 			if strings.HasSuffix(file.FlatNodeText(ident), suffix) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func testingQualityThrowExpressionIsAssertion(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "jump_expression" {
+		return false
+	}
+	if !strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(idx)), "throw") {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		text := file.FlatNodeText(child)
+		return strings.Contains(text, "AssertionError") || strings.Contains(text, "AssertionFailedError")
+	}
+	return false
+}
+
+func testingQualityTestNameDocumentsNoException(file *scanner.File, idx uint32) bool {
+	name := strings.ToLower(testingQualityFunctionName(file, idx))
+	if name == "" {
+		return false
+	}
+	name = strings.Trim(name, "`")
+	name = strings.ReplaceAll(name, "_", " ")
+	name = strings.ReplaceAll(name, "-", " ")
+	name = strings.Join(strings.Fields(name), " ")
+	for _, marker := range []string{
+		"no crash",
+		"not crash",
+		"without crash",
+		"without crashing",
+		"does not crash",
+		"doesn't crash",
+		"doesnt crash",
+		"no exception",
+		"not throw",
+		"without throw",
+		"without throwing",
+		"does not throw",
+		"doesn't throw",
+		"doesnt throw",
+		"completes without",
+	} {
+		if strings.Contains(name, marker) {
+			return true
 		}
 	}
 	return false

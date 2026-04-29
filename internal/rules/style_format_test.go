@@ -112,6 +112,21 @@ fun main() {
 	}
 }
 
+func TestMaxChainedCallsOnSameLine_IgnoresGradleAndTestSources(t *testing.T) {
+	code := `
+package test
+fun main() {
+    val x = a.b.c.d.e.f.g()
+}
+`
+	for _, path := range []string{"build.gradle.kts", "src/test/kotlin/FooTest.kt"} {
+		findings := runRuleByNameOnPath(t, "MaxChainedCallsOnSameLine", path, code)
+		if len(findings) != 0 {
+			t.Fatalf("expected no MaxChainedCallsOnSameLine findings for %s, got %d", path, len(findings))
+		}
+	}
+}
+
 // --- UnderscoresInNumericLiterals ---
 
 func TestUnderscoresInNumericLiterals_Positive(t *testing.T) {

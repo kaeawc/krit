@@ -169,7 +169,13 @@ func registerPotentialbugsLifecycleRules() {
 			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) {
+					return
+				}
 				if file.FlatHasModifier(idx, "lateinit") {
+					if deadCodeDeclarationHasDIAnnotation(file, idx) {
+						return
+					}
 					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 						"'lateinit' usage detected. Consider using lazy initialization or nullable types instead.")
 				}

@@ -1165,6 +1165,61 @@ func TestPrintlnInProduction(t *testing.T) {
 	})
 }
 
+func TestPrintlnInProduction_IgnoresGradleAndCustomReceivers(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+		code string
+	}{
+		{
+			name: "gradle build script",
+			path: "build.gradle.kts",
+			code: `
+plugins { id("com.android.application") }
+
+println("Using custom lint config")
+`,
+		},
+		{
+			name: "receiver qualified println",
+			path: "src/main/kotlin/Report.kt",
+			code: `
+package test
+
+class StyledOutput {
+    fun style(): StyledOutput = this
+    fun println(message: String) {}
+}
+
+fun report(out: StyledOutput) {
+    out.style().println("done")
+}
+`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByNameOnPath(t, "PrintlnInProduction", tc.path, tc.code)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings, got %d", len(findings))
+			}
+		})
+	}
+}
+
+func TestPrintlnInProduction_FlagsBareAndSystemPrints(t *testing.T) {
+	findings := runRuleByName(t, "PrintlnInProduction", `
+package test
+
+fun logDebug() {
+    println("debug")
+    System.err.println("debug")
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(findings))
+	}
+}
+
 func TestPrintStackTraceInProduction(t *testing.T) {
 	rule := buildRuleIndex()["PrintStackTraceInProduction"]
 	if rule == nil {

@@ -577,6 +577,19 @@ fun example() {}
 	}
 }
 
+func TestForbiddenComment_IgnoresMarkerInsideQuotedCommentedCode(t *testing.T) {
+	findings := runRuleByName(t, "ForbiddenComment", `
+package test
+// extraMessage.set("TODO: Once docs exist")
+fun example() {}
+`)
+	for _, f := range findings {
+		if f.Rule == "ForbiddenComment" {
+			t.Fatalf("ForbiddenComment should ignore TODO inside quoted commented-out code, got: %s", f.Message)
+		}
+	}
+}
+
 // --- Suppress integration ---
 
 func TestSuppress_SuppressesSpecificRule(t *testing.T) {

@@ -34,6 +34,34 @@ fun main() {
 	}
 }
 
+func TestMultilineLambdaItParameter_IgnoresCommentsAndNonProductionSources(t *testing.T) {
+	commentOnly := `
+package test
+fun main() {
+    initialize {
+        // Initialize it here before first use.
+        Dispatchers.Main
+    }
+}
+`
+	if findings := runRuleByName(t, "MultilineLambdaItParameter", commentOnly); len(findings) != 0 {
+		t.Fatalf("expected no findings when only comments mention it, got %d", len(findings))
+	}
+	for _, path := range []string{"build.gradle.kts", "src/test/kotlin/FooTest.kt"} {
+		findings := runRuleByNameOnPath(t, "MultilineLambdaItParameter", path, `
+package test
+fun main() {
+    listOf(1).forEach {
+        println(it)
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings for %s, got %d", path, len(findings))
+		}
+	}
+}
+
 // --- MultilineRawStringIndentation ---
 
 func TestMultilineRawStringIndentation_Positive(t *testing.T) {

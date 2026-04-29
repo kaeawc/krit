@@ -59,7 +59,7 @@ func registerStyleForbiddenRules() {
 				}
 				for _, marker := range markers {
 					if strings.Contains(text, marker) {
-						if forbiddenCommentAllowedByDefault(text, marker) {
+						if forbiddenCommentAllowedByDefault(text, marker) || markerOnlyInsideQuotedText(text, marker) {
 							continue
 						}
 						// If the comment matches the allowed pattern, skip it
@@ -750,4 +750,36 @@ func registerStyleForbiddenRules() {
 			},
 		})
 	}
+}
+
+func markerOnlyInsideQuotedText(text, marker string) bool {
+	found := false
+	for searchStart := 0; searchStart < len(text); {
+		idx := strings.Index(text[searchStart:], marker)
+		if idx < 0 {
+			return found
+		}
+		pos := searchStart + idx
+		found = true
+		inQuote := false
+		escaped := false
+		for i := 0; i < pos; i++ {
+			switch text[i] {
+			case '\\':
+				escaped = !escaped
+				continue
+			case '"':
+				if !escaped {
+					inQuote = !inQuote
+				}
+			}
+			escaped = false
+		}
+		if inQuote {
+			searchStart = pos + len(marker)
+			continue
+		}
+		return false
+	}
+	return found
 }

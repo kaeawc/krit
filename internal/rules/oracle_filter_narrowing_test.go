@@ -198,10 +198,14 @@ func TestVettedStyleAndNamingRulesStayOffKAA(t *testing.T) {
 		{"ExpressionBodySyntax", 0},
 		{"ForbiddenComment", 0},
 		{"FunctionNameMinLength", 0},
+		{"LongMethod", 0},
 		{"MaxChainedCallsOnSameLine", v2.NeedsLinePass},
 		{"MultilineLambdaItParameter", 0},
 		{"NamedArguments", 0},
+		{"NoNameShadowing", 0},
 		{"UnnamedParameterUse", 0},
+		{"UnusedParameter", 0},
+		{"VariableNaming", 0},
 	}
 	for _, tc := range cases {
 		rule := findRegisteredRule(t, tc.id)

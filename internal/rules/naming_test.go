@@ -118,6 +118,44 @@ fun example() {
 	}
 }
 
+func TestVariableNaming_AcceptsDiscardLocal(t *testing.T) {
+	findings := runRuleByName(t, "VariableNaming", `
+package test
+fun example() {
+    val _ = compute()
+}
+fun compute(): String = "value"
+`)
+	for _, f := range findings {
+		if f.Rule == "VariableNaming" {
+			t.Errorf("VariableNaming should accept Kotlin discard local '_', got: %s", f.Message)
+		}
+	}
+}
+
+func TestVariableNaming_SkipsNestedObjectMemberProperties(t *testing.T) {
+	findings := runRuleByName(t, "VariableNaming", `
+package test
+fun install(view: View) {
+    view.setOnClickListener(object : Listener {
+        private val DEBUG_TAP_TARGET = 8
+        override fun onClick(view: View) = Unit
+    })
+}
+class View {
+    fun setOnClickListener(listener: Listener) = Unit
+}
+interface Listener {
+    fun onClick(view: View)
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "VariableNaming" {
+			t.Errorf("VariableNaming should ignore member properties in a nested object, got: %s", f.Message)
+		}
+	}
+}
+
 // --- EnumNaming ---
 
 func TestEnumNaming_FlagsLowercaseEntry(t *testing.T) {
@@ -695,6 +733,25 @@ class Outer(val name: String) {
 	for _, f := range findings {
 		if f.Rule == "NoNameShadowing" {
 			t.Errorf("NoNameShadowing should ignore member function params that match class constructor params, got: %s", f.Message)
+		}
+	}
+}
+
+func TestNaming_NoNameShadowing_SkipsConstructorBackedClassProperty(t *testing.T) {
+	findings := runRuleByName(t, "NoNameShadowing", `
+package test
+class NameAllocator(allocatedNames: Set<String>) {
+    private val allocatedNames =
+        mutableMapOf<String, Unit>().apply {
+            for (allocated in allocatedNames) {
+                put(allocated, Unit)
+            }
+        }
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "NoNameShadowing" {
+			t.Fatalf("NoNameShadowing should ignore class properties backed by same-named constructor params, got: %s", f.Message)
 		}
 	}
 }

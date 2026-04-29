@@ -107,6 +107,18 @@ type VariableNamingRule struct {
 // Classified per roadmap/17.
 func (r *VariableNamingRule) Confidence() float64 { return 0.95 }
 
+func variableNamingIsFunctionLocalPropertyFlat(file *scanner.File, idx uint32) bool {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "function_body":
+			return true
+		case "class_body", "class_declaration", "object_declaration", "companion_object":
+			return false
+		}
+	}
+	return false
+}
+
 // PackageNamingRule checks package names.
 type PackageNamingRule struct {
 	FlatDispatchBase
@@ -514,6 +526,10 @@ func (r *NoNameShadowingRule) walkScopeFlat(node uint32, ctx *shadowScanCtx, vis
 						addLocalName(name)
 						continue
 					}
+					if noNameShadowIsConstructorBackedClassPropertyFlat(file, child, name) {
+						addLocalName(name)
+						continue
+					}
 					r.reportIfShadowedFlat(ctx, name, child, visible, localNames, blocked)
 					addLocalName(name)
 				}
@@ -666,6 +682,116 @@ func isSimpleSelfAliasShadowFlat(file *scanner.File, decl uint32, name string) b
 	rhs := strings.TrimSpace(text[eq+1:])
 	rhs = strings.TrimPrefix(rhs, "this.")
 	return rhs == name
+}
+
+func noNameShadowIsConstructorBackedClassPropertyFlat(file *scanner.File, decl uint32, name string) bool {
+	if file.FlatType(decl) != "property_declaration" {
+		return false
+	}
+	var classBody uint32
+	for p, ok := file.FlatParent(decl); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "class_body":
+			classBody = p
+		case "function_body", "source_file":
+			return false
+		}
+		if classBody != 0 {
+			break
+		}
+	}
+	if classBody == 0 {
+		return false
+	}
+	classDecl, ok := file.FlatParent(classBody)
+	if !ok {
+		return false
+	}
+	for classDecl != 0 && file.FlatType(classDecl) != "class_declaration" {
+		var parentOK bool
+		classDecl, parentOK = file.FlatParent(classDecl)
+		if !parentOK {
+			return false
+		}
+	}
+	if !propertyInitializerContainsIdentifierFlat(file, decl, name) {
+		return false
+	}
+	return classHeaderHasNonPropertyParameterNamedFlat(file, classDecl, name) ||
+		classHeaderTextBeforeDeclarationContainsParamFlat(file, classDecl, decl, name)
+}
+
+func classHeaderHasNonPropertyParameterNamedFlat(file *scanner.File, classDecl uint32, name string) bool {
+	var found bool
+	var visit func(uint32)
+	visit = func(node uint32) {
+		if found {
+			return
+		}
+		for i := 0; i < file.FlatNamedChildCount(node); i++ {
+			child := file.FlatNamedChild(node, i)
+			childType := file.FlatType(child)
+			if childType == "class_body" {
+				continue
+			}
+			if childType == "class_parameter" {
+				if !classParameterDefinesPropertyFlat(file, child) && extractIdentifierFlat(file, child) == name {
+					found = true
+					return
+				}
+				continue
+			}
+			visit(child)
+		}
+	}
+	visit(classDecl)
+	return found
+}
+
+func propertyInitializerContainsIdentifierFlat(file *scanner.File, decl uint32, name string) bool {
+	text := file.FlatNodeText(decl)
+	eq := strings.Index(text, "=")
+	if eq < 0 || eq+1 >= len(text) {
+		return false
+	}
+	return containsIdentifierToken(text[eq+1:], name)
+}
+
+func classHeaderTextBeforeDeclarationContainsParamFlat(file *scanner.File, classDecl, decl uint32, name string) bool {
+	start := int(file.FlatStartByte(classDecl))
+	end := int(file.FlatStartByte(decl))
+	if start < 0 || end <= start || end > len(file.Content) {
+		return false
+	}
+	header := string(file.Content[start:end])
+	if !strings.Contains(header, "constructor(") && !strings.Contains(header, "class ") {
+		return false
+	}
+	return containsIdentifierToken(header, name)
+}
+
+func containsIdentifierToken(text, name string) bool {
+	if name == "" {
+		return false
+	}
+	start := 0
+	for {
+		idx := strings.Index(text[start:], name)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		beforeOK := pos == 0 || !isIdentByte(text[pos-1])
+		after := pos + len(name)
+		afterOK := after == len(text) || !isIdentByte(text[after])
+		if beforeOK && afterOK {
+			return true
+		}
+		start = after
+		if start >= len(text) {
+			return false
+		}
+	}
 }
 
 func isExtensionFunctionDeclFlat(file *scanner.File, idx uint32) bool {

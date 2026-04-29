@@ -102,10 +102,13 @@ func registerNamingRules() {
 			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !file.FlatHasAncestorOfType(idx, "function_body") {
+				if !variableNamingIsFunctionLocalPropertyFlat(file, idx) {
 					return
 				}
 				name := extractIdentifierFlat(file, idx)
+				if name == "_" {
+					return
+				}
 				if strings.HasPrefix(name, "`") {
 					return
 				}

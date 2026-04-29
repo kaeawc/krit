@@ -36,7 +36,7 @@ type InstanceOfCheckForExceptionRule struct {
 	BaseRule
 }
 
-var isExceptionRe = regexp.MustCompile(`\bis\s+\w*Exception\w*`)
+var isExceptionRe = regexp.MustCompile(`\bis\s+\w*Exception\b`)
 
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per

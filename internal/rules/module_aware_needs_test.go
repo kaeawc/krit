@@ -91,16 +91,19 @@ func TestDeadCodeCapabilityContracts(t *testing.T) {
 		},
 		{
 			id:          "UnsafeCallOnNullableType",
-			required:    v2.NeedsResolver,
-			forbidden:   v2.NeedsCrossFile | v2.NeedsModuleIndex | v2.NeedsParsedFiles | v2.NeedsOracle,
-			description: "resolver/typeinfer only",
+			required:    0,
+			forbidden:   v2.NeedsCrossFile | v2.NeedsModuleIndex | v2.NeedsParsedFiles | v2.NeedsResolver | v2.NeedsTypeInfo | v2.NeedsOracle,
+			description: "local AST/import evidence only",
 		},
 	}
 
 	for _, tc := range cases {
 		rule := findRegisteredRule(t, tc.id)
-		if !rule.Needs.Has(tc.required) {
+		if tc.required != 0 && !rule.Needs.Has(tc.required) {
 			t.Fatalf("%s should require %s, got Needs=%b", tc.id, tc.description, rule.Needs)
+		}
+		if tc.required == 0 && rule.Needs != 0 {
+			t.Fatalf("%s should stay %s; got Needs=%b", tc.id, tc.description, rule.Needs)
 		}
 		if rule.Needs&tc.forbidden != 0 {
 			t.Fatalf("%s should stay %s; got forbidden Needs bits %b in Needs=%b", tc.id, tc.description, rule.Needs&tc.forbidden, rule.Needs)

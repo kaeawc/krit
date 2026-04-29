@@ -132,7 +132,6 @@ func TestResolverOnlyRulesDoNotContributeToOracle(t *testing.T) {
 		"SharedPreferencesForSensitiveKey",
 		"SpreadOperator",
 		"SwallowedException",
-		"UnsafeCallOnNullableType",
 		"UnnecessaryNotNullOperator",
 	} {
 		rule := findRegisteredRule(t, id)
@@ -140,6 +139,17 @@ func TestResolverOnlyRulesDoNotContributeToOracle(t *testing.T) {
 			t.Fatalf("%s should be resolver-only, got Needs=%b Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
 				id, rule.Needs, rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
 		}
+	}
+}
+
+func TestUnsafeCallOnNullableTypeStaysLocalASTOnly(t *testing.T) {
+	rule := findRegisteredRule(t, "UnsafeCallOnNullableType")
+	if rule.Needs != 0 {
+		t.Fatalf("UnsafeCallOnNullableType should not require resolver, type info, parsed files, or project indexes; got Needs=%b", rule.Needs)
+	}
+	if rule.Oracle != nil || rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil {
+		t.Fatalf("UnsafeCallOnNullableType should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
 	}
 }
 

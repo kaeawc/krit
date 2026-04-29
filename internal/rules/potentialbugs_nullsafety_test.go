@@ -576,6 +576,37 @@ fun process(pluginContext: IrPluginContext, classId: Any) {
 	}
 }
 
+func TestUnsafeCallOnNullableType_CompilerPluginInvariantPositive(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+
+import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
+import org.jetbrains.kotlin.ir.declarations.IrProperty
+
+fun process(pluginContext: IrPluginContext, property: IrProperty, rawClassId: Any?) {
+    val receiver = property.getter!!.dispatchReceiverParameter!!
+    val field = property.backingField!!
+    val callee = property.reference.callee!!
+    val classId = rawClassId!!
+    val propertyType = graphPropertyData!!.type
+    val parentClass = parentClassOrNull!!
+    val messageLocation = CompilerMessageLocationWithRange.create()!!
+    val annotationScope = property.getAnnotation(pluginContext.classFqName)!!.scopeOrNull()!!
+    val annotationName = property.getAnnotationStringValue()!!
+    val singleType = annotationScope.typeArguments.single()!!
+    val dispatchReceiver = sizeVar!!
+    val target = property.targetConstructor!!
+    val generated = property.generatedGraphExtensionData!!.typeKey
+    consume(receiver, field, callee, classId, propertyType, parentClass, messageLocation, annotationScope, annotationName, singleType, dispatchReceiver, target, generated)
+}
+
+fun consume(vararg values: Any?) {}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected compiler plugin invariant !! to be clean, got %d findings", len(findings))
+	}
+}
+
 func TestUnsafeCallOnNullableType_CompilerSymbolMetadataNegative(t *testing.T) {
 	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
 package test

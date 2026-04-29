@@ -446,6 +446,7 @@ func AllMetaProviders() []registry.MetaProvider {
 		(*RetrofitCreateInHotPathRule)(nil),
 		(*ReturnCountRule)(nil),
 		(*ReturnFromFinallyRule)(nil),
+		(*RoomConflictStrategyReplaceOnFkRule)(nil),
 		(*RoomLoadsAllWhereFirstUsedRule)(nil),
 		(*RtlAwareRule)(nil),
 		(*RtlCompatManifestRule)(nil),

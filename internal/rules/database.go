@@ -1,8 +1,11 @@
 package rules
 
 import (
+	"bytes"
+	"fmt"
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -118,6 +121,104 @@ func isRoomDatabaseBuilderCallFlat(file *scanner.File, idx uint32) bool {
 	}
 
 	return parts[len(parts)-2] == "Room" || strings.HasSuffix(parts[len(parts)-2], "androidx.room.Room")
+}
+
+// RoomConflictStrategyReplaceOnFkRule detects @Insert(onConflict = REPLACE)
+// on Room DAO methods whose target entity declares foreign keys. REPLACE
+// deletes and re-inserts the row, which cascades FK deletes.
+type RoomConflictStrategyReplaceOnFkRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Database/Room rule.
+// Detection matches on annotation names without confirming the parameter
+// resolves to a Room @Entity class.
+func (r *RoomConflictStrategyReplaceOnFkRule) Confidence() float64 { return 0.75 }
+
+func (r *RoomConflictStrategyReplaceOnFkRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
+	if index == nil || len(index.Files) == 0 {
+		return
+	}
+
+	entitiesWithFk := make(map[string]struct{})
+	for _, file := range index.Files {
+		if file == nil || file.FlatTree == nil {
+			continue
+		}
+		if !bytes.Contains(file.Content, []byte("Entity")) || !bytes.Contains(file.Content, []byte("foreignKeys")) {
+			continue
+		}
+		file.FlatWalkNodes(0, "class_declaration", func(idx uint32) {
+			text := findAnnotationTextFlat(file, idx, "Entity")
+			if text == "" || !strings.Contains(text, "foreignKeys") {
+				return
+			}
+			name := extractIdentifierFlat(file, idx)
+			if name == "" {
+				return
+			}
+			entitiesWithFk[name] = struct{}{}
+		})
+	}
+	if len(entitiesWithFk) == 0 {
+		return
+	}
+
+	for _, file := range index.Files {
+		if file == nil || file.FlatTree == nil {
+			continue
+		}
+		if !bytes.Contains(file.Content, []byte("Insert")) || !bytes.Contains(file.Content, []byte("REPLACE")) {
+			continue
+		}
+		file.FlatWalkNodes(0, "function_declaration", func(idx uint32) {
+			insertText := findAnnotationTextFlat(file, idx, "Insert")
+			if insertText == "" || !strings.Contains(insertText, "REPLACE") {
+				return
+			}
+			entityName := roomInsertEntityParameterTypeFlat(file, idx)
+			if entityName == "" {
+				return
+			}
+			if _, ok := entitiesWithFk[entityName]; !ok {
+				return
+			}
+			fnName := flatFunctionName(file, idx)
+			if fnName == "" {
+				fnName = "insert"
+			}
+			ctx.Emit(r.Finding(
+				file,
+				file.FlatRow(idx)+1,
+				1,
+				fmt.Sprintf("@Insert(onConflict = REPLACE) on '%s' targets entity '%s' which declares foreign keys; REPLACE deletes and re-inserts, cascading FK deletes. Use OnConflictStrategy.IGNORE or @Update.", fnName, entityName),
+			))
+		})
+	}
+}
+
+func roomInsertEntityParameterTypeFlat(file *scanner.File, fn uint32) string {
+	params, _ := file.FlatFindChild(fn, "function_value_parameters")
+	if params == 0 {
+		return ""
+	}
+	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "parameter" {
+			continue
+		}
+		userType, _ := file.FlatFindChild(child, "user_type")
+		if userType == 0 {
+			return ""
+		}
+		ident := flatLastChildOfType(file, userType, "type_identifier")
+		if ident == 0 {
+			return ""
+		}
+		return file.FlatNodeText(ident)
+	}
+	return ""
 }
 
 func hasModuleAnnotatedAncestorFlat(file *scanner.File, idx uint32) bool {

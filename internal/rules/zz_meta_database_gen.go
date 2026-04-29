@@ -42,6 +42,18 @@ func (r *DatabaseInstanceRecreatedRule) Meta() registry.RuleDescriptor {
 	}
 }
 
+func (r *RoomConflictStrategyReplaceOnFkRule) Meta() registry.RuleDescriptor {
+	return registry.RuleDescriptor{
+		ID:            "RoomConflictStrategyReplaceOnFk",
+		RuleSet:       "database",
+		Severity:      "warning",
+		Description:   "Detects @Insert(onConflict = REPLACE) on a Room entity that declares foreign keys; REPLACE deletes and re-inserts, cascading FK deletes.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *JdbcPreparedStatementNotClosedRule) Meta() registry.RuleDescriptor {
 	return registry.RuleDescriptor{
 		ID:            "JdbcPreparedStatementNotClosed",

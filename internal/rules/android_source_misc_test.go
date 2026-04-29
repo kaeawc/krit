@@ -38,7 +38,7 @@ fun foo() {
 		}
 	})
 
-	t.Run("TAG variable reference does not trigger", func(t *testing.T) {
+	t.Run("unresolved TAG variable reference does not trigger", func(t *testing.T) {
 		findings := runRuleByName(t, "LongLogTag", `
 package test
 fun foo() {
@@ -47,6 +47,70 @@ fun foo() {
 `)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("TAG const val exceeding 23 chars triggers", func(t *testing.T) {
+		findings := runRuleByName(t, "LongLogTag", `
+package test
+class NetworkRepositoryImpl {
+    companion object {
+        private const val TAG = "NetworkRepositoryImpl_v2"
+    }
+    fun foo() {
+        Log.d(TAG, "msg")
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("TAG const val within limit does not trigger", func(t *testing.T) {
+		findings := runRuleByName(t, "LongLogTag", `
+package test
+class NetworkRepositoryImpl {
+    companion object {
+        private const val TAG = "NetworkRepository"
+    }
+    fun foo() {
+        Log.d(TAG, "msg")
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("interpolated TAG initializer does not trigger", func(t *testing.T) {
+		findings := runRuleByName(t, "LongLogTag", `
+package test
+class Foo {
+    companion object {
+        val TAG = "prefix_${'$'}suffixThatIsActuallyVeryLongIndeed"
+    }
+    fun foo() {
+        Log.d(TAG, "msg")
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("top-level const val tag exceeding 23 chars triggers", func(t *testing.T) {
+		findings := runRuleByName(t, "LongLogTag", `
+package test
+private const val LONG_TAG_NAME = "ThisIsAVeryLongTopLevelTag"
+fun foo() {
+    Log.d(LONG_TAG_NAME, "msg")
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 }

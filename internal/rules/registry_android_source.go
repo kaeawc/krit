@@ -274,13 +274,10 @@ func registerAndroidSourceRules() {
 				args := flatCallKeyArguments(file, idx)
 				firstArg := flatPositionalValueArgument(file, args, 0)
 				expr := flatValueArgumentExpression(file, firstArg)
-				if expr == 0 || file.FlatType(expr) != "string_literal" {
+				tag, ok := resolveLogTagStringValue(file, expr)
+				if !ok {
 					return
 				}
-				if flatContainsStringInterpolation(file, expr) {
-					return
-				}
-				tag := stringLiteralContent(file, expr)
 				if len(tag) > 23 {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,
 						"Log tag \""+tag+"\" exceeds the 23 character limit.")

@@ -1,6 +1,6 @@
 # LayoutInflation
 
-**Cluster:** [android-lint](../README.md) · **Sub-cluster:** source · **Status:** planned ·
+**Cluster:** [android-lint](../README.md) · **Sub-cluster:** source · **Status:** shipped ·
 **Severity:** warning · **Default:** active
 
 ## What it catches

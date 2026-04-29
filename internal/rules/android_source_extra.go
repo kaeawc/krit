@@ -521,7 +521,7 @@ func (r *LayoutInflationRule) NodeTypes() []string { return []string{"call_expre
 func (r *LayoutInflationRule) Confidence() float64 { return 0.85 }
 
 func (r *LayoutInflationRule) check(ctx *v2.Context) {
-	if ctx == nil || ctx.File == nil || ctx.Idx == 0 || ctx.ResourceIndex == nil {
+	if ctx == nil || ctx.File == nil || ctx.Idx == 0 {
 		return
 	}
 	file := ctx.File
@@ -535,11 +535,64 @@ func (r *LayoutInflationRule) check(ctx *v2.Context) {
 	if layoutInflationHasIntentionalNullParentContext(file, ctx.Idx) {
 		return
 	}
-	if !layoutInflationRootHasLayoutParams(ctx.ResourceIndex, layoutName) {
+	if !layoutInflationRootHasLayoutParams(ctx.ResourceIndex, layoutName) &&
+		!layoutInflationCallerHasNonNullViewGroup(file, ctx.Idx) {
 		return
 	}
 	ctx.Emit(r.Finding(file, file.FlatRow(ctx.Idx)+1, file.FlatCol(ctx.Idx)+1,
 		"Avoid passing null as the parent ViewGroup. Inflate with the parent to get correct LayoutParams."))
+}
+
+// layoutInflationCallerHasNonNullViewGroup reports whether the enclosing
+// function (or any outer function for nested declarations) declares a
+// non-nullable ViewGroup parameter, indicating a parent is in scope and
+// should have been passed to inflate().
+func layoutInflationCallerHasNonNullViewGroup(file *scanner.File, call uint32) bool {
+	if file == nil || call == 0 {
+		return false
+	}
+	for fn, ok := flatEnclosingFunction(file, call); ok; fn, ok = flatEnclosingFunction(file, fn) {
+		params, _ := file.FlatFindChild(fn, "function_value_parameters")
+		if params == 0 {
+			continue
+		}
+		for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) != "parameter" {
+				continue
+			}
+			if layoutInflationParameterIsNonNullViewGroup(file, child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func layoutInflationParameterIsNonNullViewGroup(file *scanner.File, param uint32) bool {
+	for child := file.FlatFirstChild(param); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "user_type":
+			ident := flatLastChildOfType(file, child, "type_identifier")
+			if ident == 0 {
+				return false
+			}
+			return layoutInflationTypeNameIsViewGroup(file.FlatNodeText(ident))
+		case "nullable_type":
+			return false
+		}
+	}
+	return false
+}
+
+func layoutInflationTypeNameIsViewGroup(name string) bool {
+	name = strings.TrimSpace(name)
+	if idx := strings.LastIndex(name, "."); idx >= 0 {
+		name = name[idx+1:]
+	}
+	if idx := strings.Index(name, "<"); idx >= 0 {
+		name = name[:idx]
+	}
+	return name == "ViewGroup"
 }
 
 func layoutInflationLayoutName(file *scanner.File, call uint32) (string, bool) {

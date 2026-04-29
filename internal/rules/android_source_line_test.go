@@ -255,6 +255,33 @@ class ReceiptImageRenderer {
 		}
 	})
 
+	t.Run("flags inflate when non-null ViewGroup parameter is in scope", func(t *testing.T) {
+		findings := runLayoutInflationRule(t, `package test
+class ItemAdapter {
+    fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+        val view = LayoutInflater.from(parent.context).inflate(R.layout.unknown_layout, null)
+        return ViewHolder(view)
+    }
+}
+`, layoutInflationTestIndex())
+		if len(findings) == 0 {
+			t.Fatal("expected finding for inflate with null when ViewGroup parent is in scope")
+		}
+	})
+
+	t.Run("does not flag when only nullable ViewGroup parameter is in scope", func(t *testing.T) {
+		findings := runLayoutInflationRule(t, `package test
+class Foo {
+    fun create(inflater: LayoutInflater, container: ViewGroup?): View {
+        return inflater.inflate(R.layout.unknown_layout, null)
+    }
+}
+`, layoutInflationTestIndex())
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings when only nullable ViewGroup is in scope, got %d", len(findings))
+		}
+	})
+
 	t.Run("ignores Compose AndroidView factory", func(t *testing.T) {
 		findings := runLayoutInflationRule(t, `package test
 class Foo {

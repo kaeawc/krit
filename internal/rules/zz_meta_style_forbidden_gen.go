@@ -296,7 +296,7 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "ignoreNumbers",
 				Type:        registry.OptStringList,
-				Default:     []string{"-1", "0", "1", "2", "0f", "0.0f", "0.5f", "1f", "1.0f", "-1f", "90f", "180f", "270f", "360f", "100", "100f", "1000", "1000L", "10000", "10000L", "255", "255f", "60", "60f", "60L", "60000", "60000L", "24", "24L", "1024", "1024L", "16", "16f", "8", "8f", "4", "4f"},
+				Default:     []string{"-1", "0", "1", "2", "0f", "0.0f", "0.5f", "1f", "1.0f", "-1f", "0.5", ".5", "90f", "180f", "270f", "360f", "100", "100f", "1000", "1000L", "10000", "10000L", "255", "255f", "60", "60f", "60L", "60000", "60000L", "24", "24L", "1024", "1024L", "16", "16f", "8", "8f", "4", "4f"},
 				Description: "Numbers to ignore.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*MagicNumberRule).IgnoreNumbers = value.([]string)

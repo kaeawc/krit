@@ -141,6 +141,37 @@ fun testNullableAssertion(maybeX: String?) {
 	}
 }
 
+func TestAssertNullableWithNotNullAssertion_NegativeProductionCheck(t *testing.T) {
+	file := parseInline(t, `
+package prod
+
+fun runPayment(inAppPayment: Payment?) {
+    requireNotNull(inAppPayment)
+    check(inAppPayment!!.type == "gift")
+}
+
+class Payment(val type: String)
+`)
+	file.Path = "/repo/app/src/main/kotlin/prod/PaymentJob.kt"
+	findings := runRuleByNameOnFile(t, "AssertNullableWithNotNullAssertion", file)
+	if len(findings) != 0 {
+		t.Fatalf("expected production check() call to be ignored, got %d", len(findings))
+	}
+}
+
+func TestAssertNullableWithNotNullAssertion_UsesLocalASTOnly(t *testing.T) {
+	rule := buildRuleIndex()["AssertNullableWithNotNullAssertion"]
+	if rule == nil {
+		t.Fatal("AssertNullableWithNotNullAssertion rule is not registered")
+	}
+	if rule.Needs != 0 {
+		t.Fatalf("AssertNullableWithNotNullAssertion should remain AST-only, got needs %v", rule.Needs)
+	}
+	if rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil || rule.Oracle != nil {
+		t.Fatal("AssertNullableWithNotNullAssertion should not declare oracle metadata")
+	}
+}
+
 func TestMockWithoutVerify_Positive(t *testing.T) {
 	findings := runRuleByName(t, "MockWithoutVerify", `
 package test

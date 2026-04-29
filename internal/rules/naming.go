@@ -133,7 +133,7 @@ func (r *EnumNamingRule) Confidence() float64 { return 0.95 }
 
 // isTestFile checks if a file is in a test directory.
 func isTestFile(path string) bool {
-	testDirs := []string{"/test/", "/androidTest/", "/commonTest/", "/jvmTest/",
+	testDirs := []string{"/test/", "/androidTest/", "/commonTest/", "/jvmTest/", "/jvmAndroidTest/",
 		"/commonJvmTest/", "/browserCommonTest/", "/jvmCommonTest/",
 		"/androidUnitTest/", "/androidInstrumentedTest/", "/jsTest/", "/iosTest/",
 		"/nativeTest/", "/nonJvmCommonTest/",
@@ -170,6 +170,17 @@ func isTestFile(path string) bool {
 		}
 	}
 	return false
+}
+
+func isTestSupportFile(path string) bool {
+	if isTestFile(path) {
+		return true
+	}
+	lower := strings.ToLower(path)
+	return strings.Contains(lower, "-testing/") ||
+		strings.Contains(lower, "/testing/") ||
+		strings.Contains(lower, "/test-utils/") ||
+		strings.Contains(lower, "-test-utils/")
 }
 
 // ---------- New naming rules ----------

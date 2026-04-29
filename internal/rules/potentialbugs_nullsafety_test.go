@@ -354,6 +354,25 @@ fun greet(name: String?) {
 	}
 }
 
+func TestUnsafeCallOnNullableType_NegativeTestSupportSource(t *testing.T) {
+	file := parseInline(t, `
+package test
+
+fun waitForFake(fake: Fake?) {
+    fake!!.await()
+}
+
+class Fake {
+    fun await() = Unit
+}
+`)
+	file.Path = "/repo/camera/camera-testing/src/main/kotlin/androidx/camera/testing/Fake.kt"
+	findings := runRuleByNameOnFile(t, "UnsafeCallOnNullableType", file)
+	if len(findings) != 0 {
+		t.Fatalf("expected test-support source to be ignored, got %d", len(findings))
+	}
+}
+
 func TestUnsafeCallOnNullableType_NegativeNonNullIfGuard(t *testing.T) {
 	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
 package test

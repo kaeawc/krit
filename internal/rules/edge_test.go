@@ -212,6 +212,65 @@ fun example() {
 	}
 }
 
+func TestMagicNumber_IgnoresAndroidApiLevelEvidence(t *testing.T) {
+	findings := runRuleByName(t, "MagicNumber", `
+package test
+
+annotation class RequiresApi(val value: Int)
+
+fun minSdkLessThan(value: Int): Boolean = false
+fun checkApi(value: Int, message: String) = Unit
+
+@RequiresApi(34)
+fun load() {
+    if (minSdkLessThan(23)) return
+    checkApi(33, "needs Tiramisu")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected Android API-level literals to be ignored, got %d", len(findings))
+	}
+}
+
+func TestMagicNumber_IgnoresHalfRatioLiteral(t *testing.T) {
+	findings := runRuleByName(t, "MagicNumber", `
+package test
+
+fun choose(newRatio: Float, storedRatio: Float): Boolean {
+    return newRatio >= .5 || newRatio >= storedRatio
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected half-ratio literal to be ignored, got %d", len(findings))
+	}
+}
+
+func TestMagicNumber_IgnoresTestSupportSource(t *testing.T) {
+	file := parseInline(t, `
+package test
+
+fun timeoutMillis(): Int = 3000
+`)
+	file.Path = "/repo/camera/camera-testing/src/main/kotlin/androidx/camera/testing/Fake.kt"
+	findings := runRuleByNameOnFile(t, "MagicNumber", file)
+	if len(findings) != 0 {
+		t.Fatalf("expected test-support source to be ignored, got %d", len(findings))
+	}
+}
+
+func TestMagicNumber_IgnoresJvmAndroidTestSource(t *testing.T) {
+	file := parseInline(t, `
+package test
+
+fun offset(): Float = 1.99999f
+`)
+	file.Path = "/repo/ink/ink-geometry/src/jvmAndroidTest/kotlin/androidx/ink/geometry/BoxTest.kt"
+	findings := runRuleByNameOnFile(t, "MagicNumber", file)
+	if len(findings) != 0 {
+		t.Fatalf("expected jvmAndroidTest source to be ignored, got %d", len(findings))
+	}
+}
+
 func TestMagicNumber_FlagsDurationCallWithLocalTimeUnitLookalike(t *testing.T) {
 	findings := runRuleByName(t, "MagicNumber", `
 package test

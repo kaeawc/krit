@@ -8,3 +8,10 @@ class MyActivity {
         Toast.makeText(context, "Hello", Toast.LENGTH_SHORT).show()
     }
 }
+
+class DeferredToast(context: Context) {
+    private val toast = Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)
+    fun display() {
+        toast.show()
+    }
+}

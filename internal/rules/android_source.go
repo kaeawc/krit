@@ -623,11 +623,26 @@ func toastMakeTextIsShown(file *scanner.File, call uint32) bool {
 	if toastVar == "" {
 		return false
 	}
-	fn, ok := flatEnclosingFunction(file, call)
-	if !ok {
-		return false
+	if fn, ok := flatEnclosingFunction(file, call); ok {
+		return functionHasReceiverCallAfter(file, fn, call, toastVar, showCallName, nil)
 	}
-	return functionHasReceiverCallAfter(file, fn, call, toastVar, showCallName, nil)
+	if cls, ok := flatEnclosingAncestor(file, call, "class_declaration", "object_declaration"); ok {
+		return classHasReceiverShowCall(file, cls, toastVar)
+	}
+	return false
+}
+
+func classHasReceiverShowCall(file *scanner.File, cls uint32, receiverName string) bool {
+	found := false
+	file.FlatWalkNodes(cls, "call_expression", func(call uint32) {
+		if found || flatCallExpressionName(file, call) != "show" {
+			return
+		}
+		if flatReceiverNameFromCall(file, call) == receiverName {
+			found = true
+		}
+	})
+	return found
 }
 
 func ancestorApplyLambdaShowsToast(file *scanner.File, idx uint32) bool {

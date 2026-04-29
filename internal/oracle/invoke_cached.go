@@ -28,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaeawc/krit/internal/fileignore"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/store"
@@ -86,25 +87,22 @@ func excludedByDefault(path string) bool {
 func CollectKtFiles(sourceDirs []string) ([]string, error) {
 	seen := map[string]bool{}
 	var out []string
+	ignoreMatchers := make(map[string]*fileignore.Matcher)
 	for _, root := range sourceDirs {
-		err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		rootInfo, err := os.Stat(root)
+		if err != nil {
+			return nil, err
+		}
+		matcher := fileignore.MatcherForPath(root, rootInfo, ignoreMatchers)
+		walkErr := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
 			if err != nil {
 				return nil
 			}
 			if info.IsDir() {
 				base := filepath.Base(p)
-				// Prune dirs that never contain user-written sources we
-				// want in the oracle. `build` used to be on this list but
-				// was removed after an audit found it excluded 1709 real
-				// checked-in .kt files in kotlin/kotlin (core/builtins/build/
-				// holds generated kotlin-reflect stubs that downstream code
-				// imports). If a project genuinely has a noisy build dir,
-				// the krit-types --exclude glob is the correct knob.
-				if base == ".gradle" || base == ".git" || base == "node_modules" {
+				if base == ".gradle" || base == ".git" || base == "node_modules" || matcher.Ignored(p, true) {
 					return filepath.SkipDir
 				}
-				// Prune excluded dirs (testData, test-resources) at the
-				// walker level so we don't recurse into them at all.
 				if base == "testData" || base == "test-resources" {
 					return filepath.SkipDir
 				}
@@ -119,9 +117,9 @@ func CollectKtFiles(sourceDirs []string) ([]string, error) {
 			if !strings.HasSuffix(name, ".kt") && !strings.HasSuffix(name, ".kts") {
 				return nil
 			}
-			// File-level exclude check as a backstop — the dir-level
-			// prune above should catch everything but a file matching
-			// a non-directory substring would slip through that. Cheap.
+			if matcher.Ignored(p, false) {
+				return nil
+			}
 			if excludedByDefault(p) {
 				return nil
 			}
@@ -132,8 +130,8 @@ func CollectKtFiles(sourceDirs []string) ([]string, error) {
 			out = append(out, p)
 			return nil
 		})
-		if err != nil {
-			return nil, err
+		if walkErr != nil {
+			return nil, walkErr
 		}
 	}
 	return out, nil

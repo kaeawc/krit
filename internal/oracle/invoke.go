@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kaeawc/krit/internal/fileignore"
 )
 
 // invokeTimeout returns the max wall-clock duration allowed for a krit-types
@@ -96,8 +98,14 @@ func FindJar(scanPaths []string) string {
 func FindSourceDirs(scanPaths []string) []string {
 	var dirs []string
 	seen := map[string]bool{}
+	ignoreMatchers := make(map[string]*fileignore.Matcher)
 
 	for _, root := range scanPaths {
+		rootInfo, err := os.Stat(root)
+		if err != nil {
+			continue
+		}
+		matcher := fileignore.MatcherForPath(root, rootInfo, ignoreMatchers)
 		filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return nil
@@ -105,12 +113,10 @@ func FindSourceDirs(scanPaths []string) []string {
 			if !info.IsDir() {
 				return nil
 			}
-			// Skip build/hidden directories
 			base := filepath.Base(path)
-			if base == "build" || base == ".gradle" || base == ".git" || base == ".krit" || base == "node_modules" {
+			if fileignore.DefaultPrunedDir(base) || base == ".krit" || matcher.Ignored(path, true) {
 				return filepath.SkipDir
 			}
-			// Check if this dir contains .kt files
 			if info.Name() == "kotlin" || info.Name() == "java" {
 				// Standard source layout: src/main/kotlin, src/commonMain/kotlin, etc.
 				if !seen[path] {

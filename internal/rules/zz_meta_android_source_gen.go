@@ -70,7 +70,7 @@ func (r *ServiceCastRule) Meta() registry.RuleDescriptor {
 	return registry.RuleDescriptor{
 		ID:            "ServiceCast",
 		RuleSet:       "android-lint",
-		Severity:      "error",
+		Severity:      "warning",
 		Description:   "",
 		DefaultActive: true,
 		FixLevel:      "",

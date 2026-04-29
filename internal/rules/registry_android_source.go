@@ -57,9 +57,9 @@ func registerAndroidSourceRules() {
 	}
 	{
 		r := &ServiceCastRule{AndroidRule: AndroidRule{
-			BaseRule: BaseRule{RuleName: "ServiceCast", RuleSetName: androidRuleSet, Sev: "error"},
+			BaseRule: BaseRule{RuleName: "ServiceCast", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:  "ServiceCast", Brief: "Wrong system service cast",
-			Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6,
+			Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
 		v2.Register(&v2.Rule{

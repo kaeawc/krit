@@ -30,11 +30,11 @@ files live in:
 
 These rules catch vulnerabilities. Fixture gaps here are the highest risk.
 
-- [ ] AddJavascriptInterface
-- [ ] GetInstance
-- [ ] SecureRandom
-- [ ] TrustedServer
-- [ ] GetSignatures
+- [x] AddJavascriptInterface
+- [x] GetInstance
+- [x] SecureRandom
+- [x] TrustedServer
+- [x] GetSignatures
 
 ---
 
@@ -42,14 +42,14 @@ These rules catch vulnerabilities. Fixture gaps here are the highest risk.
 
 Runtime crashes or incorrect behaviour at the call site.
 
-- [ ] ShowToast
-- [ ] FragmentConstructor
-- [ ] ViewConstructor
-- [ ] WrongImport
-- [ ] ServiceCast
-- [ ] LayoutInflation
-- [ ] ViewTag
-- [ ] ViewHolder
+- [x] ShowToast
+- [x] FragmentConstructor
+- [x] ViewConstructor
+- [x] WrongImport
+- [x] ServiceCast
+- [x] LayoutInflation
+- [x] ViewTag
+- [x] ViewHolder
 
 ---
 
@@ -57,9 +57,9 @@ Runtime crashes or incorrect behaviour at the call site.
 
 Rules that catch common Android performance anti-patterns.
 
-- [ ] UseSparseArrays
-- [ ] UseValueOf
-- [ ] ObsoleteLayoutParam
+- [x] UseSparseArrays
+- [x] UseValueOf
+- [x] ObsoleteLayoutParam
 
 ---
 
@@ -67,21 +67,21 @@ Rules that catch common Android performance anti-patterns.
 
 Lint, style, and less-critical correctness rules.
 
-- [ ] LongLogTag
-- [ ] LogTagMismatch
-- [ ] NonInternationalizedSms
-- [ ] PluralsCandidate
-- [ ] PropertyEscape
-- [ ] WrongViewCast
-- [ ] ObjectAnimatorBinding
-- [ ] MissingPermission
-- [ ] WrongConstant
-- [ ] TrulyRandom
-- [ ] RtlAware
-- [ ] RtlFieldAccess
-- [ ] GridLayout
-- [ ] MangledCRLF
-- [ ] ResourceName
+- [x] LongLogTag
+- [x] LogTagMismatch
+- [x] NonInternationalizedSms
+- [x] PluralsCandidate
+- [x] PropertyEscape
+- [ ] WrongViewCast (negative-only — needs ResourceIndex support in fixture harness)
+- [x] ObjectAnimatorBinding
+- [x] MissingPermission
+- [x] WrongConstant
+- [x] TrulyRandom
+- [x] RtlAware
+- [x] RtlFieldAccess
+- [x] GridLayout
+- [x] MangledCRLF
+- [x] ResourceName
 
 ---
 
@@ -91,20 +91,20 @@ These rules require type inference, API-level data, or whole-program
 analysis that krit does not yet support. Fixture files should be added
 only after the underlying infra lands.
 
-- [ ] NewApi
-- [ ] InlinedApi
-- [ ] Deprecated
-- [ ] Override
+- [x] NewApi
+- [x] InlinedApi
+- [x] Deprecated
+- [x] Override
 - [ ] Range
-- [ ] OverrideAbstract
+- [x] OverrideAbstract
 - [ ] SwitchIntDef
-- [ ] UnusedResources
-- [ ] Registered
+- [x] UnusedResources
+- [x] Registered
 - [ ] LocalSuppress
 - [ ] SupportAnnotationUsage
 - [ ] CustomViewStyleable
 - [ ] ResourceType
-- [ ] Instantiatable
+- [x] Instantiatable
 - [ ] IconColors
 - [ ] IconLauncherShape
 
@@ -114,12 +114,12 @@ only after the underlying infra lands.
 
 | Priority | Total | Done | Remaining |
 |---|---:|---:|---:|
-| P0 Security | 5 | 0 | 5 |
-| P1 Correctness | 8 | 0 | 8 |
-| P2 Performance | 3 | 0 | 3 |
-| P3 Other source | 15 | 0 | 15 |
-| P4 Deferred | 16 | 0 | 16 |
-| **Total** | **47** | **0** | **47** |
+| P0 Security | 5 | 5 | 0 |
+| P1 Correctness | 8 | 8 | 0 |
+| P2 Performance | 3 | 3 | 0 |
+| P3 Other source | 15 | 14 | 1 |
+| P4 Deferred | 16 | 8 | 8 |
+| **Total** | **47** | **38** | **9** |
 
 Note: the total here is 47 rather than 43 because the P4 group contains
 4 rules that were not yet counted in the original item-24 audit (they

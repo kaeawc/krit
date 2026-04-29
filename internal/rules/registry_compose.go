@@ -539,6 +539,9 @@ func registerComposeRules() {
 				if !ok || !flatHasAnnotationNamed(file, fn, "Composable") {
 					return
 				}
+				if composeFunctionHasPreviewAnnotation(file, fn) {
+					return
+				}
 				if !composeFileHasRuntimeComposableEvidence(file) {
 					return
 				}

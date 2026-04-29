@@ -412,6 +412,8 @@ type unusedVariableDecl struct {
 	scope    uint32
 }
 
+var unusedVariableClassHeaderBeforeConstructorPattern = regexp.MustCompile(`\bclass\s+[A-Za-z_][A-Za-z0-9_]*[^{};=]*$`)
+
 func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDecl, bool) {
 	var target unusedVariableDecl
 	if file == nil || idx == 0 {
@@ -463,6 +465,9 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 	if _, ok := flatEnclosingAncestor(file, stmt, "class_declaration", "object_declaration"); ok {
 		return target, false
 	}
+	if unusedVariableIsConstructorBodyParseArtifact(file, stmt) {
+		return target, false
+	}
 	if !file.FlatHasAncestorOfType(stmt, "function_body") &&
 		!file.FlatHasAncestorOfType(stmt, "lambda_literal") {
 		return target, false
@@ -498,6 +503,52 @@ func unusedVariablePropertyHasAccessor(file *scanner.File, idx uint32) bool {
 		}
 	})
 	return found
+}
+
+func unusedVariableIsConstructorBodyParseArtifact(file *scanner.File, idx uint32) bool {
+	for a, ok := file.FlatParent(idx); ok; a, ok = file.FlatParent(a) {
+		switch file.FlatType(a) {
+		case "call_expression":
+			if flatCallNameAny(file, a) != "constructor" {
+				continue
+			}
+			if unusedVariableCallNestedInExecutableScope(file, a) {
+				return false
+			}
+			start := int(file.FlatStartByte(a))
+			if start <= 0 || start > len(file.Content) {
+				return false
+			}
+			prefixStart := start - 500
+			if prefixStart < 0 {
+				prefixStart = 0
+			}
+			prefix := string(file.Content[prefixStart:start])
+			if unusedVariableClassHeaderBeforeConstructorPattern.MatchString(prefix) {
+				return true
+			}
+			return false
+		case "function_declaration", "anonymous_function":
+			return false
+		case "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+func unusedVariableCallNestedInExecutableScope(file *scanner.File, call uint32) bool {
+	for p, ok := file.FlatParent(call); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "function_declaration", "anonymous_function":
+			return true
+		case "lambda_literal":
+			return true
+		case "source_file":
+			return false
+		}
+	}
+	return false
 }
 
 func unusedVariableIsLocalProperty(file *scanner.File, idx uint32) bool {

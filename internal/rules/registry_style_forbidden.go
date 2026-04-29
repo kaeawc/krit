@@ -59,6 +59,9 @@ func registerStyleForbiddenRules() {
 				}
 				for _, marker := range markers {
 					if strings.Contains(text, marker) {
+						if forbiddenCommentAllowedByDefault(text, marker) {
+							continue
+						}
 						// If the comment matches the allowed pattern, skip it
 						if r.AllowedPatterns != nil && r.AllowedPatterns.MatchString(text) {
 							continue

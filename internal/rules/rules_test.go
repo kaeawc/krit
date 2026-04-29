@@ -60,6 +60,9 @@ func TestVettedRulesStayLocalASTOnly(t *testing.T) {
 		"InjectDispatcher",
 		"MissingSuperCall",
 		"RunTestWithDelay",
+		"ForbiddenComment",
+		"UnusedVariable",
+		"ComposeSideEffectInComposition",
 	} {
 		rule := buildRuleIndex()[id]
 		if rule == nil {

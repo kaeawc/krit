@@ -540,6 +540,50 @@ fun main() {
 	}
 }
 
+func TestUnusedVariable_AnnotatedConstructorClassBodyPropertiesAreNotLocalVariables(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+
+annotation class RestrictTo(val value: String)
+
+class BluetoothDevice
+@RestrictTo("LIBRARY")
+internal constructor(internal val fwkDevice: FwkBluetoothDevice) {
+    val id: UUID = deviceId(packageName, fwkDevice)
+
+    val name: String?
+        get() = fwkDevice.name
+
+    val bondState: Int
+        get() = fwkDevice.bondState
+
+    companion object {
+        const val PROPERTY_NOTIFY = 16
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected annotated constructor class body properties to be ignored, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUnusedVariable_ConstructorNamedLocalCallbackStillFlagsUnusedLocal(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+
+fun constructor(block: () -> Unit) = block()
+
+fun main() {
+    constructor {
+        val unused = 42
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected constructor-named local callback variable to be checked, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestUnusedVariable_DestructuringEntries(t *testing.T) {
 	findings := runRuleByName(t, "UnusedVariable", `
 package test

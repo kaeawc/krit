@@ -59,7 +59,6 @@ func isInsideWhenDispatchOnCatchVarFlat(file *scanner.File, isNode uint32, caugh
 					if text == caughtVar {
 						return true
 					}
-					return false
 				}
 			}
 			return false

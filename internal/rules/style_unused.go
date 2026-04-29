@@ -465,14 +465,13 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 	if name == "" {
 		return target, false
 	}
-	if _, ok := flatEnclosingAncestor(file, stmt, "class_declaration", "object_declaration"); ok {
-		return target, false
-	}
 	if unusedVariableIsConstructorBodyParseArtifact(file, stmt) {
 		return target, false
 	}
 	if !file.FlatHasAncestorOfType(stmt, "function_body") &&
-		!file.FlatHasAncestorOfType(stmt, "lambda_literal") {
+		!file.FlatHasAncestorOfType(stmt, "lambda_literal") &&
+		!file.FlatHasAncestorOfType(stmt, "anonymous_initializer") &&
+		!file.FlatHasAncestorOfType(stmt, "secondary_constructor") {
 		return target, false
 	}
 	if !unusedVariableIsLocalProperty(file, stmt) {
@@ -576,28 +575,25 @@ func unusedVariableIsLocalProperty(file *scanner.File, idx uint32) bool {
 		parentType == "class_member_declaration" || parentType == "class_member_declarations" {
 		return false
 	}
-	localOwner := false
 	for a, ok := file.FlatParent(idx); ok; a, ok = file.FlatParent(a) {
 		t := file.FlatType(a)
 		if t == "delegation_specifier" || t == "explicit_delegation" {
 			return false
 		}
-		if t == "class_body" || t == "enum_class_body" ||
-			t == "companion_object" || t == "object_declaration" ||
-			t == "class_member_declaration" || t == "class_member_declarations" {
-			return false
-		}
 		if t == "function_body" || t == "function_declaration" ||
 			t == "anonymous_function" || t == "lambda_literal" ||
-			t == "control_structure_body" || t == "statements" {
-			localOwner = true
+			t == "control_structure_body" || t == "anonymous_initializer" ||
+			t == "secondary_constructor" {
+			return true
 		}
-		if t == "function_body" || t == "function_declaration" ||
-			t == "anonymous_function" || t == "source_file" {
-			break
+		if t == "class_body" || t == "enum_class_body" ||
+			t == "companion_object" || t == "object_declaration" ||
+			t == "class_member_declaration" || t == "class_member_declarations" ||
+			t == "class_declaration" || t == "source_file" {
+			return false
 		}
 	}
-	return localOwner
+	return false
 }
 
 func unusedVariableLexicalScope(file *scanner.File, stmt uint32) (uint32, bool) {

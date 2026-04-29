@@ -533,6 +533,72 @@ class Extension(objects: ObjectFactory) {
 	}
 }
 
+func TestUnusedVariable_CompanionConstantsAreNotLocalVariables(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+
+class BluetoothDevice {
+    val address: String = "00:11:22:33:44:55"
+
+    companion object {
+        const val PROPERTY_NOTIFY = 16
+        val SERVICE_UUID: String = "0000180f-0000-1000-8000-00805f9b34fb"
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected companion object constants and class properties to be ignored, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUnusedVariable_ClassMethodLocalStillFlagsUnusedLocal(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+
+class Worker {
+    fun run() {
+        val unused = 42
+        println("ready")
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding for unused local in class method, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUnusedVariable_ClassInitializerLocalStillFlagsUnusedLocal(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+
+class Worker {
+    init {
+        val unused = 42
+        println("ready")
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding for unused local in class initializer, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUnusedVariable_ClassPropertyInitializerLambdaLocalStillFlagsUnusedLocal(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+
+class Holder {
+    val value = run {
+        val unused = 42
+        "ready"
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding for unused local in property initializer lambda, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestUnusedVariable_ObjectExpressionOverrideAccessorIsNotLocalVariable(t *testing.T) {
 	findings := runRuleByName(t, "UnusedVariable", `
 package test

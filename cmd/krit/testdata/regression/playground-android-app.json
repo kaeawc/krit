@@ -363,6 +363,14 @@
       "message": "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs."
     },
     {
+      "rule": "UnusedVariable",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 75,
+      "col": 0,
+      "message": "Local variable 'retryCount' is never used."
+    },
+    {
       "rule": "MagicNumber",
       "ruleSet": "style",
       "file": "src/main/kotlin/com/example/app/services/SyncService.kt",

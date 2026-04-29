@@ -210,8 +210,12 @@ type BooleanPropertyNamingRule struct {
 func (r *BooleanPropertyNamingRule) Confidence() float64 { return 0.95 }
 
 func isBooleanPropertyFlat(file *scanner.File, idx uint32) bool {
-	if extractPropertyTypeFlat(file, idx) == "Boolean" {
+	declaredType := extractPropertyTypeFlat(file, idx)
+	if declaredType == "Boolean" || declaredType == "Boolean?" {
 		return true
+	}
+	if declaredType != "" {
+		return false
 	}
 	text := file.FlatNodeText(idx)
 	if eq := strings.Index(text, "="); eq >= 0 {

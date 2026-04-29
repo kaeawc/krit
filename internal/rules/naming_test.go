@@ -391,6 +391,40 @@ fun main() {
 	}
 }
 
+func TestNaming_BooleanProperty_IgnoresNonBooleanDeclaredType(t *testing.T) {
+	findings := runRuleByName(t, "BooleanPropertyNaming", `
+package test
+class Foo {
+    val flag: Any = true
+    val marker: Any = false
+    val token: Comparable<*> = true
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "BooleanPropertyNaming" {
+			t.Errorf("BooleanPropertyNaming should not flag property with explicit non-Boolean declared type, got: %s", f.Message)
+		}
+	}
+}
+
+func TestNaming_BooleanProperty_FlagsNullableBoolean(t *testing.T) {
+	findings := runRuleByName(t, "BooleanPropertyNaming", `
+package test
+class Foo {
+    val enabled: Boolean? = null
+}
+`)
+	found := false
+	for _, f := range findings {
+		if f.Rule == "BooleanPropertyNaming" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected BooleanPropertyNaming to flag Boolean? property without is/has/are prefix")
+	}
+}
+
 func TestNaming_BooleanProperty_IgnoresNonBooleanInitializerBodies(t *testing.T) {
 	findings := runRuleByName(t, "BooleanPropertyNaming", `
 package test

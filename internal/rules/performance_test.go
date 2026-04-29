@@ -175,6 +175,50 @@ fun bar() {
 	}
 }
 
+func TestSpreadOperator_NegativeNestedSqlBuilder(t *testing.T) {
+	// Spread inside a helper that is itself nested inside a SQL builder
+	// call should still be exempt — the parent walk must continue past
+	// non-builder call_expression ancestors.
+	cases := []string{
+		`select(helper(*ids))`,
+		`where("col = ?", helper(*ids))`,
+		`select(table, listOf(*ids))`,
+		`buildArgs(wrap(inner(*ids)))`,
+	}
+	for _, expr := range cases {
+		findings := runRuleByName(t, "SpreadOperator", `
+package test
+fun select(vararg parts: Any) {}
+fun where(clause: String, vararg parts: Any) {}
+fun buildArgs(vararg parts: Any) {}
+fun helper(vararg parts: Any): Array<Any> = arrayOf(*parts)
+fun wrap(vararg parts: Any): Array<Any> = arrayOf(*parts)
+fun inner(vararg parts: Any): Array<Any> = arrayOf(*parts)
+fun listOf(vararg parts: Any): Array<Any> = arrayOf(*parts)
+val table = "t"
+fun bar(ids: Array<Long>) {
+    `+expr+`
+}`)
+		if len(findings) != 0 {
+			t.Errorf("SpreadOperator should not flag %s (nested SQL builder), got %d findings", expr, len(findings))
+		}
+	}
+}
+
+func TestSpreadOperator_PositiveNonBuilderEnclosingCall(t *testing.T) {
+	// Spread into a non-builder call without any builder ancestor should
+	// still be flagged.
+	findings := runRuleByName(t, "SpreadOperator", `
+package test
+fun helper(vararg parts: Any) {}
+fun bar(ids: Array<Long>) {
+    helper(*ids)
+}`)
+	if len(findings) == 0 {
+		t.Error("SpreadOperator should flag spread into non-builder call")
+	}
+}
+
 // --- UnnecessaryTemporaryInstantiation ---
 
 func TestUnnecessaryTemporaryInstantiation_Positive(t *testing.T) {

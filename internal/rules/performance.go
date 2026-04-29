@@ -658,7 +658,10 @@ func isSpreadIntoSqlBuilderFlat(file *scanner.File, idx uint32) bool {
 				"buildArgs", "selectColumns":
 				return true
 			}
-			return false
+			// Continue walking: a wrapping helper call may itself be
+			// nested inside a SQL builder. Stopping here would cause
+			// nested builder calls to slip through.
+			continue
 		}
 		if file.FlatType(p) == "function_declaration" {
 			return false

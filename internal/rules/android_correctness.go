@@ -501,7 +501,8 @@ var nestedScrollNames = map[string]bool{
 func (r *NestedScrollingRule) Confidence() float64 { return 0.75 }
 
 // ScrollViewCountRule detects ScrollView with multiple children.
-// Primarily XML; stub.
+// Primarily XML (see ScrollViewCountResourceRule); the Kotlin source
+// heuristic flags `ScrollView(...).apply { addView; addView }` patterns.
 type ScrollViewCountRule struct {
 	FlatDispatchBase
 	AndroidRule

@@ -171,6 +171,135 @@ func TestModuleDeadCode_PublishedModuleSkip(t *testing.T) {
 	}
 }
 
+func TestDeadCode_SkipsGeneratedDIBindings(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "app", "src", "main", "kotlin")
+	file := writeAndParse(t, src, "MetroBindings.kt", `
+package test
+
+import dev.zacsweers.metro.ContributesBinding
+import dev.zacsweers.metro.ContributesTo
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.IntoSet
+import dev.zacsweers.metro.Provides
+import dev.zacsweers.metro.Qualifier
+
+interface Service
+
+@ContributesBinding(AppScope::class)
+@Inject
+class MetroService : Service
+
+@Qualifier
+annotation class ApplicationContext
+
+@ContributesTo(AppScope::class)
+interface ApplicationModule {
+    companion object {
+        @Provides
+        @IntoSet
+        fun provideInitializer(): () -> Unit = {}
+    }
+}
+
+fun unusedHelper(): Int = 42
+`)
+	index := scanner.BuildIndex([]*scanner.File{file}, 1)
+	rule := &DeadCodeRule{
+		BaseRule:                BaseRule{RuleName: "DeadCode", RuleSetName: "dead-code", Sev: "warning"},
+		IgnoreCommentReferences: true,
+	}
+	ctx := &v2.Context{
+		CodeIndex: index,
+		Collector: scanner.NewFindingCollector(0),
+	}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
+
+	for _, f := range findings {
+		for _, generated := range []string{"MetroService", "ApplicationContext", "ApplicationModule", "provideInitializer"} {
+			if contains(f.Message, generated) {
+				t.Fatalf("expected generated DI symbol %s to be skipped, got finding: %s", generated, f.Message)
+			}
+		}
+	}
+	foundPlainUnused := false
+	for _, f := range findings {
+		if contains(f.Message, "unusedHelper") {
+			foundPlainUnused = true
+		}
+	}
+	if !foundPlainUnused {
+		t.Fatal("expected ordinary unusedHelper to remain flagged")
+	}
+}
+
+func TestModuleDeadCode_SkipsGeneratedDIBindings(t *testing.T) {
+	root := t.TempDir()
+	appSrc := filepath.Join(root, "app", "src", "main", "kotlin")
+	file := writeAndParse(t, appSrc, "MetroBindings.kt", `
+package test
+
+import dev.zacsweers.metro.ContributesBinding
+import dev.zacsweers.metro.ContributesTo
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.IntoSet
+import dev.zacsweers.metro.Provides
+import dev.zacsweers.metro.Qualifier
+
+interface Service
+
+@ContributesBinding(AppScope::class)
+@Inject
+class MetroService : Service
+
+@Qualifier
+annotation class ApplicationContext
+
+@ContributesTo(AppScope::class)
+interface ApplicationModule {
+    companion object {
+        @Provides
+        @IntoSet
+        fun provideInitializer(): () -> Unit = {}
+    }
+}
+
+fun unusedHelper(): Int = 42
+`)
+	graph := buildGraph(root, map[string]*module.Module{
+		":app": {Path: ":app", Dir: filepath.Join(root, "app")},
+	})
+	pmi := module.BuildPerModuleIndex(graph, []*scanner.File{file}, 1)
+
+	rule := &ModuleDeadCodeRule{
+		BaseRule: BaseRule{RuleName: "ModuleDeadCode", RuleSetName: "dead-code", Sev: "warning"},
+	}
+	ctx := &v2.Context{
+		ModuleIndex: pmi,
+		Collector:   scanner.NewFindingCollector(0),
+	}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
+
+	for _, f := range findings {
+		for _, generated := range []string{"MetroService", "ApplicationContext", "ApplicationModule", "provideInitializer"} {
+			if contains(f.Message, generated) {
+				t.Fatalf("expected generated DI symbol %s to be skipped, got finding: %s", generated, f.Message)
+			}
+		}
+	}
+	foundPlainUnused := false
+	for _, f := range findings {
+		if contains(f.Message, "unusedHelper") {
+			foundPlainUnused = true
+		}
+	}
+	if !foundPlainUnused {
+		t.Fatal("expected ordinary unusedHelper to remain flagged")
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsImpl(s, substr))
 }

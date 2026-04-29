@@ -64,10 +64,8 @@ type ModuleDeadCodeRule struct {
 func (r *ModuleDeadCodeRule) IsFixable() bool { return false }
 
 // Confidence reports a tier-2 (medium) base confidence for the same
-// reason as DeadCode: the module-aware analyzer has no DI annotation
-// awareness, so Dagger/Hilt/Anvil bindings that are wired at compile
-// time by the DI framework look unreferenced to the per-module
-// index. Classified per roadmap/17.
+// reason as DeadCode: the module-aware analyzer relies on index evidence
+// and local generated-use filters rather than a full compiler model.
 func (r *ModuleDeadCodeRule) Confidence() float64 { return 0.75 }
 
 func (r *ModuleDeadCodeRule) ModuleAwareNeeds() ModuleAwareNeeds {
@@ -84,6 +82,7 @@ func (r *ModuleDeadCodeRule) check(ctx *v2.Context) {
 	if pmi == nil || pmi.Graph == nil {
 		return
 	}
+	filesByPath := deadCodeModuleFilesByPath(pmi.ModuleFiles)
 
 	for modPath, idx := range pmi.ModuleIndex {
 		mod := pmi.Graph.Modules[modPath]
@@ -95,7 +94,7 @@ func (r *ModuleDeadCodeRule) check(ctx *v2.Context) {
 		consumers := pmi.Graph.Consumers[modPath]
 
 		for _, sym := range idx.Symbols {
-			if shouldSkipSymbol(sym) {
+			if shouldSkipSymbolWithFile(sym, filesByPath[sym.File]) {
 				continue
 			}
 			if sym.Visibility == "private" {
@@ -119,6 +118,23 @@ func (r *ModuleDeadCodeRule) check(ctx *v2.Context) {
 			})
 		}
 	}
+}
+
+func deadCodeModuleFilesByPath(moduleFiles map[string][]*scanner.File) map[string]*scanner.File {
+	total := 0
+	for _, files := range moduleFiles {
+		total += len(files)
+	}
+	filesByPath := make(map[string]*scanner.File, total)
+	for _, files := range moduleFiles {
+		for _, file := range files {
+			if file == nil {
+				continue
+			}
+			filesByPath[file.Path] = file
+		}
+	}
+	return filesByPath
 }
 
 // classifySymbol determines the dead-code category for a symbol.

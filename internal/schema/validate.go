@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/rules/registry"
 )
 
 // ValidationError describes a single config validation problem.
@@ -143,6 +144,14 @@ func checkType(path string, val interface{}, expected OptionType) *ValidationErr
 	case OptionTypeString:
 		if _, ok := val.(string); !ok {
 			return &ValidationError{Path: path, Message: fmt.Sprintf("expected string, got %T", val), Level: "error"}
+		}
+	case OptionTypeRegex:
+		s, ok := val.(string)
+		if !ok {
+			return &ValidationError{Path: path, Message: fmt.Sprintf("expected string, got %T", val), Level: "error"}
+		}
+		if err := registry.ValidateAnchoredPattern(s); err != nil {
+			return &ValidationError{Path: path, Message: fmt.Sprintf("invalid regex: %v", err), Level: "error"}
 		}
 	case OptionTypeStringSlice:
 		if _, ok := val.([]interface{}); !ok {

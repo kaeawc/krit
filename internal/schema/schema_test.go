@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/config"
-	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	_ "github.com/kaeawc/krit/internal/rules" // ensure rules are registered via init()
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 func TestGenerateSchema_ValidJSON(t *testing.T) {
@@ -151,6 +152,38 @@ func TestValidateConfig_WrongType(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected type error for string where int expected")
+	}
+}
+
+func TestValidateConfig_InvalidNamingRegex(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Set("naming", "ClassNaming", "classPattern", "[unclosed")
+
+	errs := ValidateConfig(cfg)
+	found := false
+	for _, e := range errs {
+		if e.Path == "naming.ClassNaming.classPattern" && e.Level == "error" {
+			found = true
+			if !strings.Contains(e.Message, "invalid regex") {
+				t.Fatalf("regex validation message = %q, want invalid regex", e.Message)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected regex validation error for naming.ClassNaming.classPattern")
+	}
+}
+
+func TestValidateConfig_UnanchoredNamingRegexAccepted(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Set("naming", "ClassNaming", "classPattern", "[A-Z][a-z]+")
+
+	errs := ValidateConfig(cfg)
+	for _, e := range errs {
+		if e.Level == "error" {
+			t.Fatalf("unexpected validation error: %s", e)
+		}
 	}
 }
 

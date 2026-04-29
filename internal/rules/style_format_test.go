@@ -34,6 +34,19 @@ func TestNoTabs_Negative(t *testing.T) {
 	}
 }
 
+func TestNoTabs_FixUsesDefaultFourSpaces(t *testing.T) {
+	findings := runRuleByName(t, "NoTabs", "package test\nfun main() {\n\tprintln(\"hi\")\n}\n")
+	if len(findings) == 0 || findings[0].Fix == nil {
+		t.Fatal("expected a fix")
+	}
+	got := findings[0].Fix.Replacement
+	want := "    println(\"hi\")"
+	if got != want {
+		t.Fatalf("default fix replacement = %q, want %q", got, want)
+	}
+}
+
+
 // --- MaxLineLength ---
 
 func TestMaxLineLength_Positive(t *testing.T) {

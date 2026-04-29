@@ -44,6 +44,10 @@ func (r *TrailingWhitespaceRule) check(ctx *v2.Context) {
 type NoTabsRule struct {
 	LineBase
 	BaseRule
+	// IndentSize is the number of spaces a tab is replaced with by the
+	// fix. Configurable via the `indentSize` option (or .editorconfig's
+	// `indent_size` / `tab_width`). Defaults to 4.
+	IndentSize int
 }
 
 // Confidence bumps this line rule from the 0.75 line-rule default to
@@ -53,12 +57,17 @@ func (r *NoTabsRule) Confidence() float64 { return 0.95 }
 
 func (r *NoTabsRule) check(ctx *v2.Context) {
 	file := ctx.File
+	indent := r.IndentSize
+	if indent <= 0 {
+		indent = 4
+	}
+	spaces := strings.Repeat(" ", indent)
 	for i, line := range file.Lines {
 		if strings.Contains(line, "\t") {
 			f := r.Finding(file, i+1, strings.Index(line, "\t")+1,
 				"Tab character found. Use spaces for indentation.")
 			lineStart := file.LineOffset(i)
-			replaced := strings.ReplaceAll(line, "\t", "    ")
+			replaced := strings.ReplaceAll(line, "\t", spaces)
 			f.Fix = &scanner.Fix{
 				ByteMode:    true,
 				StartByte:   lineStart,

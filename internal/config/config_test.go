@@ -819,6 +819,33 @@ func TestApplyToConfig(t *testing.T) {
 	}
 }
 
+func TestApplyToConfig_NoTabsIndentSize(t *testing.T) {
+	t.Run("indent_size sets NoTabs.indentSize", func(t *testing.T) {
+		cfg := NewConfig()
+		ec := &EditorConfig{IndentSize: 2}
+		ec.ApplyToConfig(cfg)
+		if got := cfg.GetInt("style", "NoTabs", "indentSize", 0); got != 2 {
+			t.Errorf("expected NoTabs.indentSize=2, got %d", got)
+		}
+	})
+	t.Run("tab_width fallback when indent_size unset", func(t *testing.T) {
+		cfg := NewConfig()
+		ec := &EditorConfig{TabWidth: 8}
+		ec.ApplyToConfig(cfg)
+		if got := cfg.GetInt("style", "NoTabs", "indentSize", 0); got != 8 {
+			t.Errorf("expected NoTabs.indentSize=8 from tab_width, got %d", got)
+		}
+	})
+	t.Run("no editorconfig values leaves indentSize unset", func(t *testing.T) {
+		cfg := NewConfig()
+		ec := &EditorConfig{}
+		ec.ApplyToConfig(cfg)
+		if got := cfg.GetInt("style", "NoTabs", "indentSize", -1); got != -1 {
+			t.Errorf("expected NoTabs.indentSize unset (default -1), got %d", got)
+		}
+	})
+}
+
 func TestApplyToConfigMaxLineLengthOff(t *testing.T) {
 	cfg := NewConfig()
 	ec := &EditorConfig{MaxLineLength: -1}

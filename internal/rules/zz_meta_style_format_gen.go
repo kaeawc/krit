@@ -144,6 +144,18 @@ func (r *NoTabsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
+		Options: []registry.ConfigOption{
+			{
+				Name:        "indentSize",
+				Aliases:     []string{"indent_size", "tabWidth", "tab_width"},
+				Type:        registry.OptInt,
+				Default:     4,
+				Description: "Number of spaces to replace each tab with when applying the fix.",
+				Apply: func(target interface{}, value interface{}) {
+					target.(*NoTabsRule).IndentSize = value.(int)
+				},
+			},
+		},
 	}
 }
 

@@ -213,4 +213,13 @@ func (ec *EditorConfig) ApplyToConfig(cfg *Config) {
 	if ec.IndentStyle == "tab" {
 		cfg.Set("style", "NoTabs", "active", false)
 	}
+
+	// indent_size / tab_width → NoTabs fix replacement width
+	indentWidth := ec.IndentSize
+	if indentWidth <= 0 {
+		indentWidth = ec.TabWidth
+	}
+	if indentWidth > 0 {
+		cfg.Set("style", "NoTabs", "indentSize", indentWidth)
+	}
 }

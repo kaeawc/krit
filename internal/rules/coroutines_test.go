@@ -1072,6 +1072,54 @@ class Singleton {
 	}
 }
 
+func TestVolatileMissingOnDcl_NegativeLocalShadowing(t *testing.T) {
+	// Property `instance` is a non-null val; the `instance == null` checks
+	// inside the methods refer to *local* vals, not the class property. The
+	// substring-based heuristic incorrectly flagged this; the AST-aware
+	// counter must not.
+	findings := runRuleByName(t, "VolatileMissingOnDcl", `
+package test
+class Holder {
+    private var instance: String = ""
+    fun first(): String? {
+        val instance: String? = compute()
+        if (instance == null) return null
+        synchronized(this) {
+            val instance: String? = compute()
+            if (instance == null) return null
+            return instance
+        }
+    }
+    private fun compute(): String? = null
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings when null checks reference local shadows, got %d", len(findings))
+	}
+}
+
+func TestVolatileMissingOnDcl_NegativeUnrelatedNullChecks(t *testing.T) {
+	// Two `instance == null` checks referencing local function parameters
+	// in unrelated methods must not trigger DCL detection.
+	findings := runRuleByName(t, "VolatileMissingOnDcl", `
+package test
+class Holder {
+    private var instance: String? = null
+    fun a(instance: String?) {
+        synchronized(this) {
+            if (instance == null) println("a")
+        }
+    }
+    fun b(instance: String?) {
+        if (instance == null) println("b")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings when null checks bind to parameters, got %d", len(findings))
+	}
+}
+
 // --- MutableStateInObject ---
 
 func TestMutableStateInObject_Positive(t *testing.T) {

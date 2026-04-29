@@ -10,6 +10,11 @@ Krit is a Go-first static analyzer for Kotlin, Java, and Android projects. It pa
 - New rules require positive and negative fixtures under `tests/fixtures/`; fixable rules also need fixable fixtures.
 - Auto-fixes must be ktfmt-compatible and declare a safety level: `FixCosmetic`, `FixIdiomatic`, or `FixSemantic`.
 
+## Review Guidance
+- When reviewing PRs, do not report code-quality, security, correctness, style, or idiom issues in `tests/fixtures/negative/**` or `tests/fixtures/fixable/**`. These files intentionally contain suspicious, non-idiomatic, unsafe, invalid, or fixable code so Krit rules and autofixes can be tested.
+- Treat negative and fixable fixture contents as test input, not production code. Focus review findings on the Go rule implementation, registry metadata, tests, and positive fixtures.
+- Only comment on negative or fixable fixtures when the fixture mechanics themselves are wrong, such as an incorrect path/category, malformed `.expected` pair, missing companion fixture, or a change that prevents Krit's test harness from parsing the fixture.
+
 ## Build & Validate
 
 ```bash

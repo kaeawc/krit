@@ -296,7 +296,28 @@ func viewTagArgumentIsFrameworkHeavy(ctx *v2.Context, expr uint32) bool {
 	if !ok {
 		return false
 	}
-	return viewTagTypeMatches(ctx, typ.Type, viewTagFrameworkHeavyTypes)
+	if viewTagTypeMatches(ctx, typ.Type, viewTagFrameworkHeavyTypes) {
+		return true
+	}
+	return viewTagTypeNameSuggestsHolder(typ.Type)
+}
+
+// viewTagTypeNameSuggestsHolder applies the AOSP ViewTagDetector heuristic:
+// a class whose simple name contains "Holder" or "Tag" is presumed to hold
+// view references (e.g. a ViewHolder pattern), making it a leak risk on
+// API < 14 where View.setTag() is backed by a static map.
+func viewTagTypeNameSuggestsHolder(typ *typeinfer.ResolvedType) bool {
+	if typ == nil || typ.Kind == typeinfer.TypeUnknown || typ.Kind == typeinfer.TypePrimitive {
+		return false
+	}
+	name := typ.Name
+	if name == "" {
+		name = androidSimpleName(typ.FQN)
+	}
+	if name == "" {
+		return false
+	}
+	return strings.Contains(name, "Holder") || strings.Contains(name, "Tag")
 }
 
 func viewTagCallTargetIsViewSetTag(target string) bool {

@@ -14,4 +14,11 @@ class LeakyTagActivity {
             drawable
         )
     }
+
+    fun bindHolder(view: View) {
+        val holder = ViewHolder()
+        view.setTag(holder)
+    }
+
+    data class ViewHolder(val title: String = "")
 }

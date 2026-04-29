@@ -59,6 +59,31 @@ class SecCtor(context: String) {
     constructor(context: String, extra: Int) : this(context)
 }
 
+class ConstructorBackedProperty(allocatedNames: Set<String>) {
+    private val allocatedNames =
+        mutableMapOf<String, Unit>().apply {
+            for (allocated in allocatedNames) {
+                put(allocated, Unit)
+            }
+        }
+}
+
+class ContextWrapper(
+    private val options: Options,
+    expectActualTracker: ExpectActualTracker,
+) {
+    val expectActualTracker: ExpectActualTracker =
+        if (options.reportsEnabled) {
+            RecordingExpectActualTracker(this, expectActualTracker)
+        } else {
+            expectActualTracker
+        }
+}
+
+class Options(val reportsEnabled: Boolean)
+open class ExpectActualTracker
+class RecordingExpectActualTracker(owner: Any, delegate: ExpectActualTracker) : ExpectActualTracker()
+
 // Same variable name in sibling if/else branches should NOT be flagged
 fun siblingBranches(value: Int) {
     if (value > 0) {

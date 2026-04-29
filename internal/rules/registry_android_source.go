@@ -10,9 +10,9 @@ func registerAndroidSourceRules() {
 	// --- from android_source.go ---
 	{
 		r := &FragmentConstructorRule{AndroidRule: AndroidRule{
-			BaseRule: BaseRule{RuleName: "FragmentConstructor", RuleSetName: androidRuleSet, Sev: "error"},
+			BaseRule: BaseRule{RuleName: "FragmentConstructor", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:  "ValidFragment", Brief: "Fragment not instantiatable",
-			Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6,
+			Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
 		v2.Register(&v2.Rule{

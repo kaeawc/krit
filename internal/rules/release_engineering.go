@@ -556,31 +556,36 @@ func tryReadSourceModuleGradleInfo(dir string) (sourceModuleGradleInfo, bool) {
 // CommentedOutImportRule flags `// import ...` lines — a commented-out import
 // is either dead or a half-done refactor.
 type CommentedOutImportRule struct {
-	LineBase
+	FlatDispatchBase
 	BaseRule
 }
 
 func (r *CommentedOutImportRule) Confidence() float64 { return 0.90 }
 
-func (r *CommentedOutImportRule) check(ctx *v2.Context) {
+// commentedImportRe matches a commented-out Kotlin import body. Requires a
+// dotted-path that conforms to Kotlin import syntax — bare prose like
+// "import order matters" won't match. Optional trailing `.*` and `as` alias.
+var commentedImportRe = regexp.MustCompile(
+	`^import\s+[\p{L}_][\p{L}\p{N}_]*(?:\.[\p{L}_][\p{L}\p{N}_]*)*(?:\.\*)?(?:\s+as\s+[\p{L}_][\p{L}\p{N}_]*)?\s*;?\s*$`)
+
+func (r *CommentedOutImportRule) checkNode(ctx *v2.Context) {
 	file := ctx.File
 	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") {
 		return
 	}
-
-	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "//") {
-			continue
-		}
-		body := strings.TrimSpace(strings.TrimPrefix(trimmed, "//"))
-		if !strings.HasPrefix(body, "import ") {
-			continue
-		}
-		col := strings.Index(line, "//")
-		ctx.Emit(r.Finding(file, i+1, col+1,
-			"Commented-out import; remove it or restore it as a live import."))
+	text := file.FlatNodeText(ctx.Idx)
+	if !strings.HasPrefix(text, "//") {
+		return
 	}
+	body := strings.TrimSpace(strings.TrimPrefix(text, "//"))
+	if !strings.HasPrefix(body, "import ") {
+		return
+	}
+	if !commentedImportRe.MatchString(body) {
+		return
+	}
+	ctx.EmitAt(file.FlatRow(ctx.Idx)+1, 1,
+		"Commented-out import; remove it or restore it as a live import.")
 }
 
 // DebugToastInProductionRule flags Toast.makeText calls whose message literal

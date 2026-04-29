@@ -72,32 +72,7 @@ func isGuardedNonNullFlat(file *scanner.File, idx uint32, receiver uint32) bool 
 		if !ok || file.FlatType(parent) != "if_expression" {
 			continue
 		}
-		var cond uint32
-		var thenBody uint32
-		var elseBody uint32
-		foundElse := false
-		for i := 0; i < file.FlatChildCount(parent); i++ {
-			c := file.FlatChild(parent, i)
-			if c == 0 {
-				continue
-			}
-			switch file.FlatType(c) {
-			case "parenthesized_expression", "check_expression", "conjunction_expression",
-				"disjunction_expression", "equality_expression", "comparison_expression",
-				"prefix_expression", "call_expression", "navigation_expression":
-				if cond == 0 {
-					cond = c
-				}
-			case "control_structure_body":
-				if !foundElse && thenBody == 0 {
-					thenBody = c
-				} else if foundElse && elseBody == 0 {
-					elseBody = c
-				}
-			case "else":
-				foundElse = true
-			}
-		}
+		cond, thenBody, elseBody := ifConditionThenElseBodiesFlat(file, parent)
 		if cond == 0 {
 			continue
 		}
@@ -144,30 +119,8 @@ func isEarlyReturnGuardedFlat(file *scanner.File, idx uint32, receiver uint32) b
 		if file.FlatType(stmt) != "if_expression" {
 			continue
 		}
-		hasElse := false
-		var cond uint32
-		var thenBody uint32
-		for j := 0; j < file.FlatChildCount(stmt); j++ {
-			c := file.FlatChild(stmt, j)
-			if c == 0 {
-				continue
-			}
-			switch file.FlatType(c) {
-			case "else":
-				hasElse = true
-			case "parenthesized_expression", "check_expression", "conjunction_expression",
-				"disjunction_expression", "equality_expression", "comparison_expression",
-				"prefix_expression", "call_expression", "navigation_expression":
-				if cond == 0 {
-					cond = c
-				}
-			case "control_structure_body":
-				if thenBody == 0 {
-					thenBody = c
-				}
-			}
-		}
-		if hasElse || cond == 0 || thenBody == 0 {
+		cond, thenBody, elseBody := ifConditionThenElseBodiesFlat(file, stmt)
+		if cond == 0 || thenBody == 0 || elseBody != 0 {
 			continue
 		}
 		if !bodyAlwaysExitsFlat(file, thenBody) {

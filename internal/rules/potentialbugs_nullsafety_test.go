@@ -416,6 +416,48 @@ class Greeter(private val name: String?) {
 	}
 }
 
+// Regression: isGuardedNonNullFlat must locate the if-expression's condition by
+// structural position rather than scanning children for the first node whose type
+// is in an allowlist. The else-branch case exercises that structural ordering —
+// condition, then-body, else-body — must be honored to credit the guard.
+func TestUnsafeCallOnNullableType_NegativeElseBranchNullEqualsGuard(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+fun greet(name: String?) {
+    if (name == null) {
+        return
+    } else {
+        val len = name!!.length
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for else-branch guarded receiver, got %d", len(findings))
+	}
+}
+
+// Regression: nested if-expressions inside both branches put multiple
+// condition-shaped children into the outer if's child list. The structural
+// helper must still pick the outermost condition rather than the first node
+// whose type matches an allowlist.
+func TestUnsafeCallOnNullableType_NegativeNestedIfInBranchesGuard(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+fun greet(name: String?, flag: Boolean) {
+    if (name != null) {
+        if (flag) {
+            println(name!!.length)
+        } else {
+            println(name!!.uppercase())
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when outer guard proves non-null across nested branches, got %d", len(findings))
+	}
+}
+
 func TestUnsafeCallOnNullableType_PositivePrefixOnlyGuard(t *testing.T) {
 	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
 package test

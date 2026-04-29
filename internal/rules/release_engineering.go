@@ -597,7 +597,7 @@ type DebugToastInProductionRule struct {
 
 func (r *DebugToastInProductionRule) Confidence() float64 { return 0.85 }
 
-var debugToastPrefixRe = regexp.MustCompile(`(?i)^["'](debug|test|wip)`)
+var debugToastPrefixRe = regexp.MustCompile(`(?i)^["'](debug|test|wip)(?:[^A-Za-z0-9]|$)`)
 
 // MergeConflictMarkerLeftoverRule flags unresolved merge conflict markers.
 type MergeConflictMarkerLeftoverRule struct {

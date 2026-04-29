@@ -530,15 +530,78 @@ override fun onDraw(canvas: Canvas) {
 }
 
 // ---------------------------------------------------------------------------
-// Stub rules - verify they exist and don't crash
+// ScrollViewCount (Kotlin source heuristic — primary signal is the XML rule)
 // ---------------------------------------------------------------------------
 
-func TestScrollViewCount_Stub(t *testing.T) {
-	findings := runRuleByName(t, "ScrollViewCount", `
+func TestScrollViewCount(t *testing.T) {
+	t.Run("positive ScrollView apply with multiple addView", func(t *testing.T) {
+		findings := runRuleByName(t, "ScrollViewCount", `
 package test
-fun example() {}
+fun build(context: android.content.Context) {
+    ScrollView(context).apply {
+        addView(View(context))
+        addView(View(context))
+    }
+}
 `)
-	if len(findings) != 0 {
-		t.Fatalf("expected 0 findings from stub rule, got %d", len(findings))
-	}
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("positive HorizontalScrollView apply with multiple addView", func(t *testing.T) {
+		findings := runRuleByName(t, "ScrollViewCount", `
+package test
+fun build(context: android.content.Context) {
+    HorizontalScrollView(context).apply {
+        addView(View(context))
+        addView(View(context))
+        addView(View(context))
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("negative single addView", func(t *testing.T) {
+		findings := runRuleByName(t, "ScrollViewCount", `
+package test
+fun build(context: android.content.Context) {
+    ScrollView(context).apply {
+        addView(LinearLayout(context).apply {
+            addView(View(context))
+            addView(View(context))
+        })
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative non-scroll receiver", func(t *testing.T) {
+		findings := runRuleByName(t, "ScrollViewCount", `
+package test
+fun build(context: android.content.Context) {
+    LinearLayout(context).apply {
+        addView(View(context))
+        addView(View(context))
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative empty apply", func(t *testing.T) {
+		findings := runRuleByName(t, "ScrollViewCount", `
+package test
+fun build(context: android.content.Context) {
+    ScrollView(context).apply {}
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
 }

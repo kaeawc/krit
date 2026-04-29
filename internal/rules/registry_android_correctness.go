@@ -3,6 +3,7 @@ package rules
 import (
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
+	"strconv"
 	"strings"
 )
 
@@ -384,10 +385,51 @@ func registerAndroidCorrectnessRules() {
 	}
 	{
 		r := &ScrollViewCountRule{AndroidRule: alcRule("ScrollViewCount", "ScrollViews can have only one child", ALSWarning, 7)}
+		scrollViewCtorNames := map[string]bool{"ScrollView": true, "HorizontalScrollView": true}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {},
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if flatCallExpressionName(file, idx) != "apply" {
+					return
+				}
+				navExpr, _ := flatCallExpressionParts(file, idx)
+				if navExpr == 0 {
+					return
+				}
+				receiver := file.FlatNamedChild(navExpr, 0)
+				if receiver == 0 || file.FlatType(receiver) != "call_expression" {
+					return
+				}
+				ctorName := flatCallExpressionName(file, receiver)
+				if !scrollViewCtorNames[ctorName] {
+					return
+				}
+				lambda := flatCallTrailingLambda(file, idx)
+				if lambda == 0 {
+					return
+				}
+				statements, _ := file.FlatFindChild(lambda, "statements")
+				if statements == 0 {
+					return
+				}
+				addViewCalls := 0
+				for stmt := file.FlatFirstChild(statements); stmt != 0; stmt = file.FlatNextSib(stmt) {
+					if file.FlatType(stmt) != "call_expression" {
+						continue
+					}
+					if flatCallExpressionName(file, stmt) == "addView" {
+						addViewCalls++
+					}
+				}
+				if addViewCalls <= 1 {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(receiver)+1, file.FlatCol(receiver)+1,
+					ctorName+" can host only one direct child, but "+
+						"this apply block adds "+strconv.Itoa(addViewCalls)+" views.")
+			},
 		})
 	}
 	{

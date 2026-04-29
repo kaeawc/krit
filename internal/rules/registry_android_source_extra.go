@@ -42,37 +42,24 @@ func registerAndroidSourceExtraRules() {
 					return
 				}
 				hasContextCtor, hasAttrSetCtor := false, false
-				for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-					if file.FlatType(child) == "primary_constructor" {
-						types := constructorParameterTypeFlags(file, child, "Context", "AttributeSet")
-						if types["Context"] {
-							hasContextCtor = true
-						}
-						if types["Context"] && types["AttributeSet"] {
-							hasAttrSetCtor = true
-						}
-						if hasAnnotationNamed(file, child, "JvmOverloads") && types["Context"] && types["AttributeSet"] {
-							hasContextCtor = true
-							hasAttrSetCtor = true
-						}
+				accumulate := func(ctor uint32) {
+					types := constructorParameterTypeFlags(file, ctor, "Context", "AttributeSet")
+					if types["Context"] {
+						hasContextCtor = true
 					}
-					if file.FlatType(child) == "class_body" {
-						file.FlatWalkNodes(child, "secondary_constructor", func(ctor uint32) {
-							types := constructorParameterTypeFlags(file, ctor, "Context", "AttributeSet")
-							if types["Context"] {
-								hasContextCtor = true
-							}
-							if types["Context"] && types["AttributeSet"] {
-								hasAttrSetCtor = true
-							}
-							if hasAnnotationNamed(file, ctor, "JvmOverloads") && types["Context"] && types["AttributeSet"] {
-								hasContextCtor = true
-								hasAttrSetCtor = true
-							}
-						})
+					if types["Context"] && types["AttributeSet"] {
+						hasAttrSetCtor = true
 					}
 				}
-				if !hasContextCtor && !hasAttrSetCtor {
+				for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+					switch file.FlatType(child) {
+					case "primary_constructor":
+						accumulate(child)
+					case "class_body":
+						file.FlatWalkNodes(child, "secondary_constructor", accumulate)
+					}
+				}
+				if !hasContextCtor {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,
 						"Custom View subclass is missing (Context) and (Context, AttributeSet) constructors.")
 					return

@@ -410,15 +410,39 @@ func nonInternationalizedSmsCallFlat(file *scanner.File, call uint32) bool {
 		return false
 	}
 	receiver := file.FlatNamedChild(navExpr, 0)
-	path := contactsIdentifierPathFlat(file, receiver)
-	if len(path) > 0 && path[0] == "SmsManager" {
+	if !smsManagerReceiverFlat(file, receiver, call) {
+		return false
+	}
+	args := flatCallKeyArguments(file, call)
+	if args == 0 {
+		return false
+	}
+	arg := flatPositionalValueArgument(file, args, 0)
+	if arg == 0 {
+		return false
+	}
+	expr := flatUnwrapParenExpr(file, flatValueArgumentExpression(file, arg))
+	if expr == 0 || file.FlatType(expr) != "string_literal" {
+		return false
+	}
+	if flatContainsStringInterpolation(file, expr) {
+		return false
+	}
+	return !strings.HasPrefix(stringLiteralContent(file, expr), "+")
+}
+
+func smsManagerReceiverFlat(file *scanner.File, receiver uint32, call uint32) bool {
+	if path := contactsIdentifierPathFlat(file, receiver); len(path) > 0 && path[0] == "SmsManager" {
 		return true
 	}
-	receiverName := flatReferenceSimpleName(file, receiver)
-	if receiverName == "smsManager" {
+	name := flatReferenceSimpleName(file, receiver)
+	if name == "" {
+		return false
+	}
+	if name == "smsManager" {
 		return true
 	}
-	return receiverName != "" && contactsSameOwnerDeclarationHasTypeFlat(file, call, receiverName, "SmsManager")
+	return contactsSameOwnerDeclarationHasTypeFlat(file, call, name, "SmsManager")
 }
 
 // =====================================================================

@@ -1251,6 +1251,90 @@ func TestPrintStackTraceInProduction(t *testing.T) {
 	})
 }
 
+func TestPrintStackTraceInProduction_LoggingImportCommentForms(t *testing.T) {
+	cases := []struct {
+		name string
+		code string
+		want int
+	}{
+		{
+			name: "import after multi-line block comment",
+			code: `package com.example
+
+/*
+ Copyright header
+ with multiple lines
+ and no leading stars
+*/
+import timber.log.Timber
+
+class Foo {
+    fun bar(e: Exception) {
+        e.printStackTrace()
+    }
+}
+`,
+			want: 1,
+		},
+		{
+			name: "import after KDoc-style block comment",
+			code: `package com.example
+
+/**
+ * File header.
+ */
+import timber.log.Timber
+
+class Foo {
+    fun bar(e: Exception) {
+        e.printStackTrace()
+    }
+}
+`,
+			want: 1,
+		},
+		{
+			name: "import with trailing inline block comment",
+			code: `package com.example
+
+import timber.log.Timber /* logger */
+
+class Foo {
+    fun bar(e: Exception) {
+        e.printStackTrace()
+    }
+}
+`,
+			want: 1,
+		},
+		{
+			name: "block comment hides only logging import",
+			code: `package com.example
+
+/*
+import timber.log.Timber
+*/
+import kotlin.collections.List
+
+class Foo {
+    fun bar(e: Exception) {
+        e.printStackTrace()
+    }
+}
+`,
+			want: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "PrintStackTraceInProduction", tc.code)
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d: %+v", tc.want, len(findings), findings)
+			}
+		})
+	}
+}
+
 func TestHardcodedLocalhostUrl(t *testing.T) {
 	rule := buildRuleIndex()["HardcodedLocalhostUrl"]
 	if rule == nil {

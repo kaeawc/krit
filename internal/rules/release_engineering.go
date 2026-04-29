@@ -671,13 +671,22 @@ var loggingImports = []string{
 }
 
 func hasLoggingImport(file *scanner.File) bool {
+	inBlockComment := false
 	for _, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "import ") {
-			if trimmed != "" && !strings.HasPrefix(trimmed, "package ") && !strings.HasPrefix(trimmed, "//") && !strings.HasPrefix(trimmed, "/*") && !strings.HasPrefix(trimmed, "*") {
-				break
-			}
+		stripped, stillInBlock := stripBlockComments(line, inBlockComment)
+		inBlockComment = stillInBlock
+		if i := strings.Index(stripped, "//"); i >= 0 {
+			stripped = stripped[:i]
+		}
+		trimmed := strings.TrimSpace(stripped)
+		if trimmed == "" {
 			continue
+		}
+		if !strings.HasPrefix(trimmed, "import ") {
+			if strings.HasPrefix(trimmed, "package ") {
+				continue
+			}
+			break
 		}
 		pkg := strings.TrimSpace(strings.TrimPrefix(trimmed, "import "))
 		for _, prefix := range loggingImports {
@@ -687,6 +696,33 @@ func hasLoggingImport(file *scanner.File) bool {
 		}
 	}
 	return false
+}
+
+// stripBlockComments removes /* ... */ regions from line, threading the
+// open-block state across lines. The returned bool reports whether the
+// line ends still inside an unclosed block comment.
+func stripBlockComments(line string, inBlock bool) (string, bool) {
+	var b strings.Builder
+	i := 0
+	for i < len(line) {
+		if inBlock {
+			end := strings.Index(line[i:], "*/")
+			if end < 0 {
+				return b.String(), true
+			}
+			i += end + 2
+			inBlock = false
+			continue
+		}
+		if i+1 < len(line) && line[i] == '/' && line[i+1] == '*' {
+			inBlock = true
+			i += 2
+			continue
+		}
+		b.WriteByte(line[i])
+		i++
+	}
+	return b.String(), inBlock
 }
 
 // HardcodedLocalhostUrlRule flags URL literals containing localhost or 10.0.2.2

@@ -157,6 +157,44 @@ fun test() {
 	}
 }
 
+func TestExc_InstanceOfCheckForException_NegativeNonExceptionTypeWithExceptionPrefix(t *testing.T) {
+	// `is ExceptionHandler` (a non-exception type that happens to start with
+	// "Exception") must not trigger the rule. Regression for the missing
+	// trailing word boundary in isExceptionRe.
+	findings := runRuleByName(t, "InstanceOfCheckForException", `
+fun test() {
+    try {
+        doWork()
+    } catch (e: Throwable) {
+        if (e is ExceptionHandler) {
+            handle(e)
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for is-check on non-exception type, got %d: %+v", len(findings), findings)
+	}
+}
+
+func TestExc_InstanceOfCheckForException_NegativeIdentifierContainingException(t *testing.T) {
+	// `is Foo` where Foo is unrelated must not match — regression guard.
+	findings := runRuleByName(t, "InstanceOfCheckForException", `
+fun test() {
+    try {
+        doWork()
+    } catch (e: Throwable) {
+        if (e is ExceptionalCircumstance) {
+            handle(e)
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for ExceptionalCircumstance, got %d", len(findings))
+	}
+}
+
 // --- NotImplementedDeclaration ---
 
 func TestExc_NotImplementedDeclaration_Positive(t *testing.T) {

@@ -30,6 +30,18 @@ func (r *DaoWithoutAnnotationsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
+func (r *EntityMutableColumnRule) Meta() registry.RuleDescriptor {
+	return registry.RuleDescriptor{
+		ID:            "EntityMutableColumn",
+		RuleSet:       "database",
+		Severity:      "info",
+		Description:   "Detects Room @Entity class primary-constructor parameters declared as var, which prevents straightforward copy-on-write.",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *DatabaseInstanceRecreatedRule) Meta() registry.RuleDescriptor {
 	return registry.RuleDescriptor{
 		ID:            "DatabaseInstanceRecreated",

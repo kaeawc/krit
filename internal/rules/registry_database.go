@@ -179,6 +179,41 @@ func registerDatabaseRules() {
 		})
 	}
 	{
+		r := &EntityMutableColumnRule{BaseRule: BaseRule{RuleName: "EntityMutableColumn", RuleSetName: "database", Sev: "info", Desc: "Detects Room @Entity class primary-constructor parameters declared as var, which prevents straightforward copy-on-write."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !hasAnnotationFlat(file, idx, "Entity") {
+					return
+				}
+				ctor, _ := file.FlatFindChild(idx, "primary_constructor")
+				if ctor == 0 {
+					return
+				}
+				className := extractIdentifierFlat(file, idx)
+				if className == "" {
+					className = "Entity"
+				}
+				for i := 0; i < file.FlatNamedChildCount(ctor); i++ {
+					param := file.FlatNamedChild(ctor, i)
+					if param == 0 || file.FlatType(param) != "class_parameter" {
+						continue
+					}
+					if !classParameterIsVarFlat(file, param) {
+						continue
+					}
+					name := extractIdentifierFlat(file, param)
+					if name == "" {
+						name = "column"
+					}
+					ctx.EmitAt(file.FlatRow(param)+1, file.FlatCol(param)+1, fmt.Sprintf("@Entity '%s' column '%s' should be declared as `val` to support copy-on-write.", className, name))
+				}
+			},
+		})
+	}
+	{
 		r := &JdbcPreparedStatementNotClosedRule{BaseRule: BaseRule{RuleName: "JdbcPreparedStatementNotClosed", RuleSetName: "database", Sev: "warning", Desc: "Detects JDBC prepared statements assigned to local properties without .use {} or .close() in the same scope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

@@ -644,8 +644,15 @@ func isProductionPrintCallFlat(file *scanner.File, idx uint32, name, receiver st
 	}
 	callee, _ := flatCallExpressionParts(file, idx)
 	if callee != 0 && file.FlatType(callee) == "navigation_expression" {
-		text := strings.Join(strings.Fields(file.FlatNodeText(callee)), "")
-		return strings.HasPrefix(text, "System.out.") || strings.HasPrefix(text, "System.err.")
+		segs := flatNavigationChainIdentifiers(file, callee)
+		// Require exactly the System.out.<name> / System.err.<name> shape
+		// where <name> is the println/print already validated above. Walking
+		// the chain structurally avoids false positives from text-joining
+		// (comments, whitespace collapse) and false negatives from
+		// non-bare-identifier receivers (e.g. `getSystem().out.println`).
+		return len(segs) == 3 && segs[0] == "System" &&
+			(segs[1] == "out" || segs[1] == "err") &&
+			segs[2] == name
 	}
 	return receiver == ""
 }

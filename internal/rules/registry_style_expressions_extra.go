@@ -42,7 +42,7 @@ func registerStyleExpressionsExtraRules() {
 		r := &MultilineRawStringIndentationRule{BaseRule: BaseRule{RuleName: "MultilineRawStringIndentation", RuleSetName: "style", Sev: "warning", Desc: "Detects multiline raw strings that are missing trimIndent() or trimMargin() calls."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, OriginalV1: r,
+			NodeTypes: []string{"string_literal", "multi_line_string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
 	}
@@ -50,7 +50,7 @@ func registerStyleExpressionsExtraRules() {
 		r := &TrimMultilineRawStringRule{BaseRule: BaseRule{RuleName: "TrimMultilineRawString", RuleSetName: "style", Sev: "warning", Desc: "Detects multiline raw strings that should use trimIndent() or trimMargin() for proper indentation."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Fix: v2.FixCosmetic, OriginalV1: r,
+			NodeTypes: []string{"string_literal", "multi_line_string_literal"}, Confidence: r.Confidence(), Fix: v2.FixCosmetic, OriginalV1: r,
 			Check: r.check,
 		})
 	}

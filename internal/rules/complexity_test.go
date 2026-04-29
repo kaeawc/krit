@@ -392,6 +392,37 @@ fun check(a: Boolean, b: Boolean, c: Boolean) {
 	}
 }
 
+func TestComplexCondition_LambdaOperatorsDoNotInflateOuter(t *testing.T) {
+	code := `package test
+fun check(a: Boolean, items: List<Int>) {
+    if (a && items.any { it > 0 && it < 10 && it != 5 && it != 7 || it == 42 }) {
+        println("nested lambda operators must not count toward outer condition")
+    }
+}
+`
+	findings := runRuleByName(t, "ComplexCondition", code)
+	if len(findings) != 0 {
+		t.Fatalf("expected no ComplexCondition finding when operators live in nested lambda, got %d", len(findings))
+	}
+}
+
+func TestComplexCondition_NestedFunctionOperatorsDoNotInflateOuter(t *testing.T) {
+	code := `package test
+fun check(a: Boolean, b: Boolean) {
+    if (a || b) {
+        fun nested(x: Int, y: Int, z: Int): Boolean {
+            return x > 0 && y > 0 && z > 0 && x < y && y < z
+        }
+        println(nested(1, 2, 3))
+    }
+}
+`
+	findings := runRuleByName(t, "ComplexCondition", code)
+	if len(findings) != 0 {
+		t.Fatalf("expected no ComplexCondition finding when operators live in nested function, got %d", len(findings))
+	}
+}
+
 // --- ComplexInterface ---
 
 func TestComplexInterface_Positive(t *testing.T) {

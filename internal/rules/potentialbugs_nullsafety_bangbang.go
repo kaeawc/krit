@@ -923,7 +923,7 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	// Same-block assignment guard: `if (x == null) x = create(); x!!.y` and
 	// `x = create(); x!!.y` prove simple mutable fields/locals non-null in
 	// the current statement sequence.
-	if isSameBlockAssignedNonNullBeforeUseFlat(file, idx, receiverIdx, ctx.Resolver) {
+	if isSameBlockAssignedNonNullBeforeUseFlat(file, idx, receiverIdx, nil) {
 		return
 	}
 	// Post-filter smart cast: `.filter { it.x != null }.map { it.x!! }` —
@@ -938,15 +938,6 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	// The `!!` is the idiomatic implementation. Detekt skips these too.
 	if isRequireFunctionBangBodyFlat(file, idx) {
 		return
-	}
-
-	// If resolver is available, check if the receiver is known non-null.
-	// If so, suppress the finding — it's not actually unsafe.
-	if ctx.Resolver != nil && receiverIdx != 0 {
-		isNull := ctx.Resolver.IsNullableFlat(receiverIdx, file)
-		if isNull != nil && !*isNull {
-			return // receiver is known non-null, !! is safe
-		}
 	}
 
 	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -1738,14 +1729,72 @@ func flatPropertyReceiverTypeName(file *scanner.File, prop uint32) string {
 // rule focused on application code while avoiding noisy compiler/IR codegen
 // paths sampled in Metro, Anvil, and Circuit.
 func isCompilerLookupReceiver(receiver string) bool {
-	return strings.Contains(receiver, "referenceClass(") ||
+	if strings.Contains(receiver, "referenceClass(") ||
 		strings.Contains(receiver, "primaryConstructor") ||
 		strings.Contains(receiver, "classFqName") ||
 		strings.Contains(receiver, "getter") ||
 		strings.Contains(receiver, "resolveKSClassDeclaration(") ||
 		receiver == "classId" || strings.HasSuffix(receiver, ".classId") ||
 		receiver == "creatorOrConstructor" || strings.HasSuffix(receiver, ".creatorOrConstructor") ||
-		strings.Contains(receiver, "companionObject()")
+		strings.Contains(receiver, "companionObject()") {
+		return true
+	}
+	return isCompilerPluginInvariantReceiver(receiver)
+}
+
+func isCompilerPluginInvariantReceiver(receiver string) bool {
+	if receiver == "" {
+		return false
+	}
+	for _, part := range []string{
+		"constArgumentOfTypeAt<",
+		"CompilerMessageLocationWithRange.create(",
+		"findInjectableConstructor(",
+		"getAnnotation(",
+		"getAnnotationStringValue()",
+		"scopeOrNull()",
+		"typeArguments.single()",
+		"explicitMapKeyAnnotation()",
+		"findMapValueType()",
+		"classIdOrFail",
+	} {
+		if strings.Contains(receiver, part) {
+			return true
+		}
+	}
+	for _, suffix := range []string{
+		".backingField",
+		".callee",
+		".circuitFactoryTargetData",
+		".dispatchReceiverParameter",
+		".extensionReceiverParameterCompat",
+		".generatedGraphExtensionData",
+		".graphParam",
+		".ir",
+		".irElement",
+		".irProperty",
+		".metroGraph",
+		".packageFqName",
+		".receiverParameterSymbol",
+		".scope",
+		".switchingId",
+		".targetConstructor",
+		".thisReceiver",
+		".typeOrNull",
+	} {
+		if strings.HasSuffix(receiver, suffix) {
+			return true
+		}
+	}
+	switch receiver {
+	case "backingField", "containerParameter", "diagnostic", "dispatchReceiverParameter",
+		"functionReceiver", "graphPropertyData", "innerRawClassId", "injectorClass",
+		"mapKey", "parentClassOrNull", "rawClassId", "rawType", "sizeVar",
+		"targetConstructor", "thisReceiver":
+		return true
+	default:
+		return false
+	}
 }
 
 // ---------------------------------------------------------------------------

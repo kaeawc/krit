@@ -12,8 +12,8 @@ func registerPotentialbugsNullsafetyBangbangRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"postfix_expression"}, Confidence: 0.85,
-			Needs: v2.NeedsResolver, OriginalV1: r,
-			Check: r.check,
+			OriginalV1: r,
+			Check:      r.check,
 		})
 	}
 	{

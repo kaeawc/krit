@@ -56,19 +56,70 @@ func findGradleLine(content string, re *regexp.Regexp) int {
 }
 
 // findGradleLineStr returns the 1-based line number of the first
-// non-comment line containing substr, or 0 if absent. Comment lines
-// (after stripping leading whitespace, starting with `//` or `*`)
-// are skipped so we don't report findings on commented-out code.
+// non-comment line where substr appears as code (i.e. outside string
+// literals and trailing `//` line comments), or 0 if absent. Whole-line
+// comments (after stripping leading whitespace, starting with `//`,
+// `*`, or `/*`) are also skipped so we don't report findings on
+// commented-out code or fragments inside doc-block continuations.
 func findGradleLineStr(content, substr string) int {
 	for i, line := range strings.Split(content, "\n") {
 		if isGradleCommentLine(line) {
 			continue
 		}
-		if strings.Contains(line, substr) {
+		if strings.Contains(gradleStripStringsAndComments(line), substr) {
 			return i + 1
 		}
 	}
 	return 0
+}
+
+// gradleStripStringsAndComments returns line with the contents of
+// string literals replaced by empty quotes ("" or '') and any trailing
+// `//` line comment removed. Backslash escapes inside string literals
+// are honored so an escaped quote does not prematurely close the
+// literal. The output preserves byte positions of code outside string
+// literals so substring searches against code tokens (e.g. `targetSdk`,
+// `mavenLocal()`, dependency coordinates) will not falsely match
+// content embedded in a string like "http://example.com" or a comment
+// like `// see targetSdk note`.
+func gradleStripStringsAndComments(line string) string {
+	var b strings.Builder
+	b.Grow(len(line))
+	inQuote := rune(0)
+	escaped := false
+	for i := 0; i < len(line); {
+		r, size := utf8.DecodeRuneInString(line[i:])
+		if inQuote != 0 {
+			if escaped {
+				escaped = false
+				i += size
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				i += size
+				continue
+			}
+			if r == inQuote {
+				b.WriteRune(r)
+				inQuote = 0
+			}
+			i += size
+			continue
+		}
+		if r == '"' || r == '\'' {
+			inQuote = r
+			b.WriteRune(r)
+			i += size
+			continue
+		}
+		if r == '/' && i+1 < len(line) && line[i+1] == '/' {
+			break
+		}
+		b.WriteRune(r)
+		i += size
+	}
+	return b.String()
 }
 
 // isGradleCommentLine reports true when a Gradle line (Groovy or

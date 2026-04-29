@@ -78,6 +78,36 @@ func foreignKeyHasOnDeleteArg(file *scanner.File, args uint32) bool {
 	return false
 }
 
+// JdbcResultSetLeakedFromFunctionRule detects functions whose declared return
+// type is java.sql.ResultSet. Returning a ResultSet to a caller almost always
+// leaks the underlying cursor because the caller forgets to close it.
+type JdbcResultSetLeakedFromFunctionRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Database/Room rule. Detection matches on annotation names and function
+// calls without confirming the declared type is a Room DAO or entity.
+// Classified per roadmap/17.
+func (r *JdbcResultSetLeakedFromFunctionRule) Confidence() float64 { return 0.75 }
+
+func functionReturnsResultSetFlat(file *scanner.File, idx uint32) bool {
+	typeText := strings.TrimSpace(directExplicitTypeTextFlat(file, idx))
+	if typeText == "" {
+		return false
+	}
+	typeText = strings.TrimSuffix(typeText, "?")
+	if dot := strings.LastIndex(typeText, "."); dot >= 0 {
+		typeText = typeText[dot+1:]
+	}
+	return typeText == "ResultSet"
+}
+
+func functionHasBodyFlat(file *scanner.File, idx uint32) bool {
+	body, _ := file.FlatFindChild(idx, "function_body")
+	return body != 0
+}
+
 // JdbcPreparedStatementNotClosedRule detects JDBC prepared statements assigned
 // to local properties without a later .use {} or .close() in the same scope.
 type JdbcPreparedStatementNotClosedRule struct {

@@ -69,6 +69,69 @@ func TestLongMethod_Suppressed(t *testing.T) {
 	}
 }
 
+// Regression: a `//` line comment containing `"""` must not cause subsequent
+// lines to be classified as raw-string content. Prior to the fix in
+// countSignificantLines, `strings.Count(line, "\"\"\"")` toggled the
+// in-raw-string flag for any line containing the substring `"""`, including
+// inside line comments. That caused all following lines to be skipped, so
+// long functions could fall under the threshold.
+func TestLongMethod_TripleQuoteInLineComment(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package test\nfun process() {\n")
+	b.WriteString("    // see: \"\"\" in docs\n")
+	for i := 1; i <= 70; i++ {
+		b.WriteString("    val x")
+		b.WriteString(itoa(i))
+		b.WriteString(" = ")
+		b.WriteString(itoa(i))
+		b.WriteString("\n")
+	}
+	b.WriteString("}\n")
+	findings := runRuleByName(t, "LongMethod", b.String())
+	if len(findings) == 0 {
+		t.Fatal("expected LongMethod finding despite `\"\"\"` in line comment")
+	}
+}
+
+// Regression: a `/* ... */` block comment containing `"""` must not toggle
+// raw-string state.
+func TestLongMethod_TripleQuoteInBlockComment(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package test\nfun process() {\n")
+	b.WriteString("    /* literal \"\"\" inside block comment */\n")
+	for i := 1; i <= 70; i++ {
+		b.WriteString("    val x")
+		b.WriteString(itoa(i))
+		b.WriteString(" = ")
+		b.WriteString(itoa(i))
+		b.WriteString("\n")
+	}
+	b.WriteString("}\n")
+	findings := runRuleByName(t, "LongMethod", b.String())
+	if len(findings) == 0 {
+		t.Fatal("expected LongMethod finding despite `\"\"\"` in block comment")
+	}
+}
+
+// Sanity: a multi-line raw string literal still suppresses its content lines.
+func TestLongMethod_RawStringContentSkipped(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package test\nfun process() {\n")
+	b.WriteString("    val s = \"\"\"\n")
+	for i := 1; i <= 70; i++ {
+		b.WriteString("        line ")
+		b.WriteString(itoa(i))
+		b.WriteString("\n")
+	}
+	b.WriteString("    \"\"\"\n")
+	b.WriteString("    val y = 1\n")
+	b.WriteString("}\n")
+	findings := runRuleByName(t, "LongMethod", b.String())
+	if len(findings) != 0 {
+		t.Fatalf("expected no LongMethod finding (raw-string body should not count), got %d", len(findings))
+	}
+}
+
 // --- CyclomaticComplexMethod ---
 
 func TestCyclomaticComplexMethod_Positive(t *testing.T) {

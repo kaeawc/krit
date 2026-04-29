@@ -171,7 +171,7 @@ func registerTestingQualityRules() {
 					}
 					callName := flatCallNameAny(file, n)
 					switch callName {
-					case "verify", "coVerify", "every", "coEvery", "confirmVerified":
+					case "verify", "coVerify", "every", "coEvery", "whenever", "confirmVerified":
 					default:
 						return
 					}

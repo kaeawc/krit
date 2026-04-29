@@ -218,6 +218,30 @@ class MockWithoutVerifyNegative {
 	}
 }
 
+func TestMockWithoutVerify_NegativeMockitoWheneverStubbing(t *testing.T) {
+	findings := runRuleByName(t, "MockWithoutVerify", `
+package test
+
+import org.junit.Test
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
+
+class MockWithoutVerifyMockitoWheneverNegative {
+    @Test
+    fun load() {
+        val api = mock<Api>()
+        whenever(api.get()).thenReturn("data")
+        val repo = Repo(api)
+
+        repo.load()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for whenever() stubbing, got %d", len(findings))
+	}
+}
+
 func TestRunTestWithDelay_Positive(t *testing.T) {
 	findings := runRuleByName(t, "RunTestWithDelay", `
 package test

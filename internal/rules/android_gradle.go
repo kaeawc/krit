@@ -209,28 +209,44 @@ func gradleLineHasQuotedIntegerSDKProperty(line string) bool {
 }
 
 func stripGradleLineComment(line string) string {
-	inQuote := rune(0)
+	inQuote := byte(0)
+	triple := false
 	escaped := false
-	for i, r := range line {
+	for i := 0; i < len(line); i++ {
+		c := line[i]
 		if escaped {
 			escaped = false
 			continue
 		}
 		if inQuote != 0 {
-			if r == '\\' {
+			if !triple && c == '\\' {
 				escaped = true
 				continue
 			}
-			if r == inQuote {
+			if c == inQuote {
+				if triple {
+					if i+2 < len(line) && line[i+1] == inQuote && line[i+2] == inQuote {
+						inQuote = 0
+						triple = false
+						i += 2
+					}
+					continue
+				}
 				inQuote = 0
 			}
 			continue
 		}
-		if r == '"' || r == '\'' {
-			inQuote = r
+		if c == '"' || c == '\'' {
+			if i+2 < len(line) && line[i+1] == c && line[i+2] == c {
+				inQuote = c
+				triple = true
+				i += 2
+				continue
+			}
+			inQuote = c
 			continue
 		}
-		if r == '/' && i+1 < len(line) && line[i+1] == '/' {
+		if c == '/' && i+1 < len(line) && line[i+1] == '/' {
 			return line[:i]
 		}
 	}

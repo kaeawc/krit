@@ -68,15 +68,15 @@ func TestMultilineRawStringIndentation_Positive(t *testing.T) {
 	findings := runRuleByName(t, "MultilineRawStringIndentation", `
 package test
 fun main() {
-    val s = """`+"`"+`
+    val s = """
         hello
         world
-    """`+"`"+`
+    """
 }
 `)
-	// The rule looks for triple-quote raw strings without trimIndent/trimMargin
-	// We need actual triple quotes in the Kotlin code
-	_ = findings
+	if len(findings) == 0 {
+		t.Fatal("expected finding for multiline raw string without trimIndent/trimMargin")
+	}
 }
 
 func TestMultilineRawStringIndentation_Negative(t *testing.T) {
@@ -91,7 +91,40 @@ fun main() {
 	}
 }
 
+func TestMultilineRawStringIndentation_IgnoresTripleQuotesOutsideRawStringNodes(t *testing.T) {
+	findings := runRuleByName(t, "MultilineRawStringIndentation", `
+package test
+fun main() {
+    /*
+     * Example raw string delimiter: """
+     */
+    val regular = "foo \"\"\" bar"
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for triple quotes in comments or regular strings, got %d", len(findings))
+	}
+}
+
 // --- TrimMultilineRawString ---
+
+func TestTrimMultilineRawString_Positive(t *testing.T) {
+	findings := runRuleByName(t, "TrimMultilineRawString", `
+package test
+fun main() {
+    val s = """
+        hello
+        world
+    """
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for multiline raw string without trimIndent/trimMargin")
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected trim rule to provide a fix")
+	}
+}
 
 func TestTrimMultilineRawString_Negative(t *testing.T) {
 	findings := runRuleByName(t, "TrimMultilineRawString", `
@@ -102,6 +135,21 @@ fun main() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestTrimMultilineRawString_IgnoresTripleQuotesOutsideRawStringNodes(t *testing.T) {
+	findings := runRuleByName(t, "TrimMultilineRawString", `
+package test
+fun main() {
+    /*
+     * Example raw string delimiter: """
+     */
+    val regular = "foo \"\"\" bar"
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for triple quotes in comments or regular strings, got %d", len(findings))
 	}
 }
 

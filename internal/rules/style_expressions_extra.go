@@ -23,7 +23,7 @@ func (r *MultilineLambdaItParameterRule) Confidence() float64 { return 0.75 }
 
 // MultilineRawStringIndentationRule checks raw string indentation.
 type MultilineRawStringIndentationRule struct {
-	LineBase
+	FlatDispatchBase
 	BaseRule
 	IndentSize      int
 	TrimmingMethods []string
@@ -35,43 +35,16 @@ type MultilineRawStringIndentationRule struct {
 func (r *MultilineRawStringIndentationRule) Confidence() float64 { return 0.75 }
 
 func (r *MultilineRawStringIndentationRule) check(ctx *v2.Context) {
-	file := ctx.File
-	content := string(file.Content)
-	idx := 0
-	for {
-		start := strings.Index(content[idx:], "\"\"\"")
-		if start < 0 {
-			break
-		}
-		start += idx
-		end := strings.Index(content[start+3:], "\"\"\"")
-		if end < 0 {
-			break
-		}
-		end += start + 3
-		raw := content[start : end+3]
-		// Also check for trimIndent()/trimMargin() chained after the closing """
-		afterEnd := end + 3
-		trailing := ""
-		if afterEnd < len(content) {
-			trailEnd := afterEnd + 40
-			if trailEnd > len(content) {
-				trailEnd = len(content)
-			}
-			trailing = content[afterEnd:trailEnd]
-		}
-		if strings.Contains(raw, "\n") && !strings.Contains(raw, "trimIndent()") && !strings.Contains(raw, "trimMargin()") && !strings.Contains(trailing, "trimIndent()") && !strings.Contains(trailing, "trimMargin()") {
-			line := strings.Count(content[:start], "\n") + 1
-			ctx.Emit(r.Finding(file, line, 1,
-				"Multiline raw string should use trimIndent() or trimMargin()."))
-		}
-		idx = end + 3
+	if !isUntrimmedMultilineRawString(ctx, r.TrimmingMethods) {
+		return
 	}
+	ctx.Emit(r.Finding(ctx.File, ctx.File.FlatRow(ctx.Idx)+1, ctx.File.FlatCol(ctx.Idx)+1,
+		"Multiline raw string should use trimIndent() or trimMargin()."))
 }
 
 // TrimMultilineRawStringRule detects raw strings missing trimIndent/trimMargin.
 type TrimMultilineRawStringRule struct {
-	LineBase
+	FlatDispatchBase
 	BaseRule
 	TrimmingMethods []string
 }
@@ -82,42 +55,57 @@ type TrimMultilineRawStringRule struct {
 func (r *TrimMultilineRawStringRule) Confidence() float64 { return 0.75 }
 
 func (r *TrimMultilineRawStringRule) check(ctx *v2.Context) {
-	file := ctx.File
-	content := string(file.Content)
-	idx := 0
-	for {
-		start := strings.Index(content[idx:], "\"\"\"")
-		if start < 0 {
-			break
-		}
-		start += idx
-		end := strings.Index(content[start+3:], "\"\"\"")
-		if end < 0 {
-			break
-		}
-		end += start + 3
-		raw := content[start : end+3]
-		afterEnd := end + 3
-		rest := ""
-		if afterEnd < len(content) {
-			rest = content[afterEnd:]
-		}
-		if strings.Contains(raw, "\n") &&
-			!strings.HasPrefix(strings.TrimSpace(rest), ".trimIndent()") &&
-			!strings.HasPrefix(strings.TrimSpace(rest), ".trimMargin()") {
-			line := strings.Count(content[:start], "\n") + 1
-			f := r.Finding(file, line, 1,
-				"Multiline raw string should use trimIndent() or trimMargin().")
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   end + 3,
-				EndByte:     end + 3,
-				Replacement: ".trimIndent()",
-			}
-			ctx.Emit(f)
-		}
-		idx = end + 3
+	if !isUntrimmedMultilineRawString(ctx, r.TrimmingMethods) {
+		return
 	}
+	end := int(ctx.File.FlatEndByte(ctx.Idx))
+	f := r.Finding(ctx.File, ctx.File.FlatRow(ctx.Idx)+1, ctx.File.FlatCol(ctx.Idx)+1,
+		"Multiline raw string should use trimIndent() or trimMargin().")
+	f.Fix = &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   end,
+		EndByte:     end,
+		Replacement: ".trimIndent()",
+	}
+	ctx.Emit(f)
+}
+
+func isUntrimmedMultilineRawString(ctx *v2.Context, trimmingMethods []string) bool {
+	if ctx == nil || ctx.File == nil || !isRawStringLiteralNode(ctx.File, ctx.Idx) {
+		return false
+	}
+	text := ctx.File.FlatNodeText(ctx.Idx)
+	return strings.Contains(text, "\n") && !rawStringHasTrimCall(ctx.File, ctx.Idx, trimmingMethods)
+}
+
+func isRawStringLiteralNode(file *scanner.File, idx uint32) bool {
+	switch file.FlatType(idx) {
+	case "string_literal", "multi_line_string_literal":
+		return strings.HasPrefix(file.FlatNodeText(idx), `"""`)
+	default:
+		return false
+	}
+}
+
+func rawStringHasTrimCall(file *scanner.File, idx uint32, trimmingMethods []string) bool {
+	end := int(file.FlatEndByte(idx))
+	if end < 0 || end > len(file.Content) {
+		return false
+	}
+	after := strings.TrimSpace(string(file.Content[end:]))
+	for _, method := range rawStringTrimMethods(trimmingMethods) {
+		if strings.HasPrefix(after, "."+method+"()") {
+			return true
+		}
+	}
+	return false
+}
+
+func rawStringTrimMethods(configured []string) []string {
+	if len(configured) > 0 {
+		return configured
+	}
+	return []string{"trimIndent", "trimMargin"}
 }
 
 // StringShouldBeRawStringRule detects strings with many escape characters.
@@ -514,4 +502,3 @@ type DestructuringDeclarationWithTooManyEntriesRule struct {
 // expressions; the suggested rewrite's readability is a style call.
 // Classified per roadmap/17.
 func (r *DestructuringDeclarationWithTooManyEntriesRule) Confidence() float64 { return 0.75 }
-

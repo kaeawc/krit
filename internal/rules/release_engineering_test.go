@@ -1274,6 +1274,102 @@ fun logDebug() {
 	}
 }
 
+func TestPrintlnInProduction_StructuralReceiver(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		code string
+		want int
+	}{
+		{
+			name: "system out with line breaks across navigation",
+			code: `
+package test
+
+fun logIt() {
+    System
+        .out
+        .println("hi")
+}
+`,
+			want: 1,
+		},
+		{
+			name: "system err with line breaks across navigation",
+			code: `
+package test
+
+fun logIt() {
+    System
+        .err
+        .println("hi")
+}
+`,
+			want: 1,
+		},
+		{
+			name: "non-bare receiver chain ending in out.println does not trigger",
+			code: `
+package test
+
+class Holder {
+    val out: Holder = this
+    fun println(message: String) {}
+}
+
+fun report(h: Holder) {
+    h.foo().out.println("done")
+}
+
+fun Holder.foo(): Holder = this
+`,
+			want: 0,
+		},
+		{
+			name: "longer chain past System.out is not the println form",
+			code: `
+package test
+
+object System {
+    object out {
+        object nested {
+            fun println(message: String) {}
+        }
+    }
+}
+
+fun logIt() {
+    System.out.nested.println("nope")
+}
+`,
+			want: 0,
+		},
+		{
+			name: "System.outBoundary.println is not System.out.println",
+			code: `
+package test
+
+object System {
+    object outBoundary {
+        fun println(message: String) {}
+    }
+}
+
+fun logIt() {
+    System.outBoundary.println("nope")
+}
+`,
+			want: 0,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "PrintlnInProduction", tc.code)
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d", tc.want, len(findings))
+			}
+		})
+	}
+}
+
 func TestPrintStackTraceInProduction(t *testing.T) {
 	rule := buildRuleIndex()["PrintStackTraceInProduction"]
 	if rule == nil {

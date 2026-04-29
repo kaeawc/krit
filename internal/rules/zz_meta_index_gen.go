@@ -312,6 +312,7 @@ func AllMetaProviders() []registry.MetaProvider {
 		(*LogTagLengthRule)(nil),
 		(*LogTagMismatchRule)(nil),
 		(*LogWithoutCorrelationIdRule)(nil),
+		(*LoggerInterpolatedMessageRule)(nil),
 		(*LoggerWithoutLoggerFieldRule)(nil),
 		(*LongMethodRule)(nil),
 		(*LongParameterListRule)(nil),

@@ -63,6 +63,30 @@ func registerObservabilityRules() {
 		})
 	}
 	{
+		r := &LoggerInterpolatedMessageRule{BaseRule: BaseRule{RuleName: "LoggerInterpolatedMessage", RuleSetName: "observability", Sev: "warning", Desc: "Detects SLF4J/Logback/log4j logger calls whose message uses Kotlin string interpolation instead of parameterized placeholders."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				method := flatCallExpressionName(file, idx)
+				if !loggerLevelMethods[method] {
+					return
+				}
+				receiver := flatReceiverNameFromCall(file, idx)
+				if !receiverIsKnownLoggerFlat(file, idx, receiver) {
+					return
+				}
+				message := loggerInterpolatedMessageArgFlat(file, idx)
+				if message == 0 {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(message)+1, file.FlatCol(message)+1,
+					"Logger call uses string interpolation. Use parameterized placeholders ('{}') so the call skips argument evaluation when the level is disabled.")
+			},
+		})
+	}
+	{
 		r := &LoggerWithoutLoggerFieldRule{BaseRule: BaseRule{RuleName: "LoggerWithoutLoggerField", RuleSetName: "observability", Sev: "warning", Desc: "Detects LoggerFactory.getLogger() calls inside function bodies instead of a class-level logger field."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

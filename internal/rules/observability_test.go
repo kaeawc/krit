@@ -1049,3 +1049,135 @@ fun run(logger: Logger) {
 		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
 	}
 }
+
+func TestLoggerInterpolatedMessage_PositiveBareLoggerReceiver(t *testing.T) {
+	findings := runRuleByName(t, "LoggerInterpolatedMessage", `
+package test
+
+interface Logger { fun info(message: String) }
+
+fun recordLogin(logger: Logger, id: String) {
+    logger.info("user $id logged in")
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLoggerInterpolatedMessage_PositiveSlf4jImport(t *testing.T) {
+	findings := runRuleByName(t, "LoggerInterpolatedMessage", `
+package test
+import org.slf4j.LoggerFactory
+
+private val LOG = LoggerFactory.getLogger("x")
+
+fun recordLogin(id: String) {
+    LOG.warn("user $id logged in")
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLoggerInterpolatedMessage_PositiveAcrossLevels(t *testing.T) {
+	findings := runRuleByName(t, "LoggerInterpolatedMessage", `
+package test
+
+interface Logger {
+    fun trace(message: String)
+    fun debug(message: String)
+    fun info(message: String)
+    fun warn(message: String)
+    fun error(message: String)
+}
+
+fun all(logger: Logger, id: String) {
+    logger.trace("t $id")
+    logger.debug("d $id")
+    logger.info("i $id")
+    logger.warn("w $id")
+    logger.error("e $id")
+}
+`)
+	if len(findings) != 5 {
+		t.Fatalf("expected 5 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLoggerInterpolatedMessage_NegativeParameterized(t *testing.T) {
+	findings := runRuleByName(t, "LoggerInterpolatedMessage", `
+package test
+
+interface Logger { fun info(message: String, arg: Any) }
+
+fun recordLogin(logger: Logger, id: String) {
+    logger.info("user {} logged in", id)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLoggerInterpolatedMessage_NegativeTimber(t *testing.T) {
+	findings := runRuleByName(t, "LoggerInterpolatedMessage", `
+package test
+
+object Timber {
+    fun i(message: String) {}
+}
+
+fun recordLogin(id: String) {
+    Timber.i("user $id logged in")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLoggerInterpolatedMessage_NegativeLambdaForm(t *testing.T) {
+	findings := runRuleByName(t, "LoggerInterpolatedMessage", `
+package test
+import io.github.oshai.kotlinlogging.KLogger
+
+fun recordLogin(logger: KLogger, id: String) {
+    logger.info { "user $id logged in" }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLoggerInterpolatedMessage_NegativeNonLoggerReceiver(t *testing.T) {
+	findings := runRuleByName(t, "LoggerInterpolatedMessage", `
+package test
+
+class Reporter { fun info(message: String) {} }
+
+fun recordLogin(reporter: Reporter, id: String) {
+    reporter.info("user $id logged in")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings on non-logger receiver, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLoggerInterpolatedMessage_NegativeLiteralOnly(t *testing.T) {
+	findings := runRuleByName(t, "LoggerInterpolatedMessage", `
+package test
+
+interface Logger { fun info(message: String) }
+
+fun ping(logger: Logger) {
+    logger.info("pong")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings on literal-only message, got %d: %v", len(findings), findings)
+	}
+}

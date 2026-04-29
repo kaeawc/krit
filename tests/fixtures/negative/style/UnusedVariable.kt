@@ -7,6 +7,11 @@ fun foo() {
 
 class Bar {
     val classProperty = "not a local variable"
+
+    companion object {
+        const val DEFAULT_TIMEOUT_MS = 5_000
+        val FALLBACK_NAME = "default"
+    }
 }
 
 class Extension(objects: ObjectFactory) {

@@ -1,5 +1,6 @@
 package test
 
+import com.autonomousapps.kit.GradleBuilder.build
 import org.junit.Ignore
 import org.junit.Test
 import org.junit.Assert.assertEquals
@@ -31,6 +32,27 @@ class TestWithoutAssertionNegative {
     @Test
     fun macrobenchmark() {
         benchmarkRule.measureRepeated()
+    }
+}
+
+class CompilerHarnessNegative : MetroCompilerTest() {
+    @Test
+    fun generatedCodeCompiles() {
+        compile(source("class Example"))
+    }
+}
+
+class GradleBuilderBuildNegative {
+    @Test
+    fun projectBuilds() {
+        build(project.rootDir, "compileKotlin")
+    }
+}
+
+class IncrementalBuildNegative : BaseIncrementalCompilationTest() {
+    @Test
+    fun projectFailsAfterChange() {
+        project.compileKotlinAndFail()
     }
 }
 

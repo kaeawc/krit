@@ -706,12 +706,62 @@ func testingQualityBodyHasAssertionOrVerificationWithHelpers(file *scanner.File,
 		switch file.FlatType(n) {
 		case "call_expression":
 			name := flatCallNameAny(file, n)
-			found = testingQualityIsAssertionOrVerify(name) || helpers[name]
+			found = testingQualityIsAssertionOrVerify(name) ||
+				helpers[name] ||
+				testingQualityIsHarnessVerificationCall(file, n, name)
 		case "infix_expression":
 			found = testingQualityIsAssertionOrVerify(testingQualityInfixOperatorName(file, n))
 		}
 	})
 	return found
+}
+
+func testingQualityIsHarnessVerificationCall(file *scanner.File, idx uint32, name string) bool {
+	if file == nil || idx == 0 || name == "" {
+		return false
+	}
+	switch name {
+	case "compile":
+		return testingQualityEnclosingClassHasSupertypeSuffix(file, idx, "CompilerTest")
+	case "compileKotlinAndFail":
+		return testingQualityEnclosingClassHasSupertype(file, idx, "BaseIncrementalCompilationTest")
+	case "build":
+		return fileImportsFQN(file, "com.autonomousapps.kit.GradleBuilder.build")
+	default:
+		return false
+	}
+}
+
+func testingQualityEnclosingClassHasSupertype(file *scanner.File, idx uint32, supertype string) bool {
+	classDecl, ok := flatEnclosingAncestor(file, idx, "class_declaration")
+	return ok && classHasSupertypeNamed(file, classDecl, supertype)
+}
+
+func testingQualityEnclosingClassHasSupertypeSuffix(file *scanner.File, idx uint32, suffix string) bool {
+	classDecl, ok := flatEnclosingAncestor(file, idx, "class_declaration")
+	if !ok || suffix == "" {
+		return false
+	}
+	for child := file.FlatFirstChild(classDecl); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "delegation_specifier" {
+			continue
+		}
+		userType, _ := file.FlatFindChild(child, "user_type")
+		if userType == 0 {
+			if ctor, ok := file.FlatFindChild(child, "constructor_invocation"); ok {
+				userType, _ = file.FlatFindChild(ctor, "user_type")
+			}
+		}
+		if userType == 0 {
+			continue
+		}
+		if ident := flatLastChildOfType(file, userType, "type_identifier"); ident != 0 {
+			if strings.HasSuffix(file.FlatNodeText(ident), suffix) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func testingQualityAssertionHelperNames(file *scanner.File) map[string]bool {

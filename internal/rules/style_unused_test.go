@@ -519,6 +519,20 @@ fun main() {
 	}
 }
 
+func TestUnusedVariable_ClassMembersAreNotLocalVariables(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+
+class Extension(objects: ObjectFactory) {
+    public val enabled: Property<Boolean> = objects.property(Boolean::class.java)
+    val apiVersion: String = "1.0"
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected class member properties to be ignored, got %d", len(findings))
+	}
+}
+
 func TestUnusedVariable_ObjectExpressionOverrideAccessorIsNotLocalVariable(t *testing.T) {
 	findings := runRuleByName(t, "UnusedVariable", `
 package test

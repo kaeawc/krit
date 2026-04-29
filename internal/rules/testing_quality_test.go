@@ -682,6 +682,83 @@ class LocalAssertionHelperNegative {
 	}
 }
 
+func TestTestWithoutAssertion_NegativeCompilerHarnessCompile(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class CompilerHarnessNegative : MetroCompilerTest() {
+    @Test
+    fun generatedCodeCompiles() {
+        compile(source("class Example"))
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected compiler harness compile call to count as verification, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_PositiveLocalCompileLookalike(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class LocalCompileLookalikePositive {
+    @Test
+    fun generatedCodeCompiles() {
+        compile(source("class Example"))
+    }
+
+    private fun compile(source: String) {
+        println(source)
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected local compile lookalike without harness evidence to be reported")
+	}
+}
+
+func TestTestWithoutAssertion_NegativeGradleBuilderBuild(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import com.autonomousapps.kit.GradleBuilder.build
+import org.junit.Test
+
+class GradleBuilderBuildNegative {
+    @Test
+    fun projectBuilds() {
+        build(project.rootDir, "compileKotlin")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected imported GradleBuilder.build call to count as verification, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeIncrementalCompileKotlinAndFail(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class IncrementalBuildNegative : BaseIncrementalCompilationTest() {
+    @Test
+    fun projectFailsAfterChange() {
+        project.compileKotlinAndFail()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected incremental compileKotlinAndFail call to count as verification, got %d", len(findings))
+	}
+}
+
 func TestTestWithoutAssertion_NegativeInfixAssertion(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test

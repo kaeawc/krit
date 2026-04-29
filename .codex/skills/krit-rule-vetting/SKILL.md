@@ -1,6 +1,6 @@
 ---
 name: krit-rule-vetting
-description: Use when auditing Krit static-analysis rules for false positives, missing project context, library lookalikes, config mismatches, Java/Kotlin coverage gaps, or comparing findings against real Android/Kotlin projects such as Signal-Android.
+description: Use when auditing Krit static-analysis rules for false positives, missing project context, library lookalikes, config mismatches, Java/Kotlin coverage gaps, or comparing findings against real Android/Kotlin projects such as Signal-Android. Covers both rule precision and Gradle/version-catalog false positives.
 ---
 
 # Krit Rule Vetting
@@ -27,6 +27,47 @@ jq -r '.perfRuleStats[] | select(.rule=="RuleName")' /tmp/krit_target.json
 ```
 
 Before judging findings, verify project config is applied. If uncertain, pass `--config /path/to/project/krit.yml`.
+
+## Check Project Profile Before Vetting
+
+High-volume rules are often inflated by missing project context. Before vetting rule logic, check what Krit knows about the project:
+
+```bash
+jq '.projectProfile | {hasGradle, dependencyExtractionComplete, hasUnresolvedDependencyRefs, catalogCompleteness}' /tmp/krit_target.json
+```
+
+If `hasGradle` is false or `dependencyExtractionComplete` is false, rules that gate on library presence will use conservative defaults (assume library is present). This is intentional and correct — treat library-absence-based suppressions as unreliable until the profile is complete.
+
+For rules that fire heavily on a project that may not use the relevant library (Room, Compose, Hilt, MockK, etc.):
+
+```bash
+jq '.projectProfile.dependencies[] | select(.group | test("room|compose|hilt|mockk|retrofit"))' /tmp/krit_target.json
+```
+
+## Top-Volume Rules by Category (Real-Project Baseline)
+
+From scanning Signal-Android, nowinandroid, dd-sdk-android, firebase-android-sdk, and kaeawc projects:
+
+**Testing (highest-volume, most actionable):**
+- `TestWithoutAssertion` (1149) — check for custom assertion helpers that don't pattern-match
+- `MockWithoutVerify` (862) — check for verify-equivalent patterns like `coVerify`, `inOrder`, slot capture
+- `RunBlockingInTest` (554) — only a real issue when coroutines-test is present; check `runTest` migration
+- `AssertTrueOnComparison` (322) — straightforward; `assertTrue(a == b)` should be `assertEquals`
+
+**Safety / Nullability:**
+- `UnsafeCallOnNullableType` (262) — high precision; sample for platform types and already-guarded branches
+- `SwallowedException` (189) — check for intentional swallowing with logging (not a false positive)
+- `AssertNullableWithNotNullAssertion` (103) — legitimate but check test-only contexts
+
+**Code style (noisy, often config-controlled):**
+- `MagicNumber`, `MaxLineLength`, `MaxChainedCallsOnSameLine` — check project `krit.yml` thresholds before vetting
+- `ModuleDeadCode` (15578 in kaeawc) — requires full module graph; confirm `NeedsModuleIndex` is satisfied
+
+**Compose-specific:**
+- `ComposeRawTextLiteral`, `ComposeUnstableParameter`, `ComposePainterResourceInLoop` — only meaningful in Compose modules; check library model profile
+
+**Android resources:**
+- `LayoutMinTouchTargetInButtonRow`, `NegativeMarginResource`, `DisableBaselineAlignmentResource` — high signal; few false positives
 
 ## Vet A Rule
 

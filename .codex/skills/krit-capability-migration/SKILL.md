@@ -1,6 +1,6 @@
 ---
 name: krit-capability-migration
-description: Use when deciding whether a Krit rule truly needs Kotlin Analysis API, NeedsTypeInfo, NeedsResolver, parsed files, or cross-file analysis, and when moving rules off KAA by replacing oracle facts with AST, source type inference, imports, or project indexes.
+description: Use when deciding whether a Krit rule truly needs Kotlin Analysis API, NeedsTypeInfo, NeedsResolver, parsed files, cross-file analysis, or library model facts, and when moving rules off KAA by replacing oracle facts with AST, source type inference, imports, project indexes, or Gradle-derived library profile.
 ---
 
 # Krit Capability Migration
@@ -16,8 +16,25 @@ Use this when reducing KAA usage or clarifying a rule's `Needs*` declaration.
 - **NeedsParsedFiles**: rule needs all parsed source files, but not necessarily symbol/reference indexes.
 - **NeedsCrossFile**: rule needs the cross-file symbol/reference index.
 - **NeedsModuleIndex**: rule needs Gradle module boundaries or per-module symbol/reference data.
+- **LibraryFacts (implicit)**: all rules receive `ctx.LibraryFacts` automatically — no `Needs` flag required. Rules should call `librarymodel.EnsureFacts(ctx.LibraryFacts)` when their behavior depends on whether a library (Room, Compose, Hilt, etc.) is present.
 
 If a rule can be 100% confident with AST + imports + source inference, remove oracle metadata and prefer resolver-only or no-needs.
+
+## Library Model as an Alternative to KAA
+
+Before migrating a rule to use KAA for library-presence detection, check whether `LibraryFacts` already answers the question:
+
+| Oracle fact needed | Library model alternative |
+|--------------------|---------------------------|
+| Is Room present? | `librarymodel.EnsureFacts(ctx.LibraryFacts).Database.Room.Enabled` |
+| Is Compose present? | `facts.Profile.MayUseAnyDependency(Coordinate{"androidx.compose.runtime","runtime"})` |
+| Is Hilt/Dagger present? | `facts.Profile.MayUseAnyDependency(Coordinate{"com.google.dagger","hilt-android"}, ...)` |
+| Min SDK version? | `facts.Profile.Android.MinSdkVersion` |
+| Kotlin version? | `facts.Profile.Kotlin.EffectiveCompilerVersion()` |
+
+`LibraryFacts` is derived from `internal/librarymodel/catalog.go` (TOML version catalogs) and `internal/librarymodel/profile.go` (Gradle build files). It is populated before rule dispatch and requires no extra `Needs` declaration.
+
+When `facts.Profile.DependencyExtractionComplete` is false, treat the library as potentially present. Never use absence of a dependency as a hard guard unless completeness is confirmed.
 
 ## Migration Workflow
 

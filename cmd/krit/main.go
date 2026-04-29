@@ -143,6 +143,7 @@ func main() {
 	abiHashVerb := len(os.Args) > 1 && os.Args[1] == "abi-hash"
 	impactVerb := len(os.Args) > 1 && os.Args[1] == "impact"
 	deadCodeVerb := len(os.Args) > 1 && os.Args[1] == "dead-code"
+	usedSymbolsVerb := len(os.Args) > 1 && os.Args[1] == "used-symbols"
 	cacheVerb := len(os.Args) > 1 && os.Args[1] == "cache"
 	if cacheVerb {
 		os.Exit(runCacheSubcommand(os.Args[2:]))
@@ -170,6 +171,9 @@ func main() {
 	}
 	if deadCodeVerb {
 		os.Exit(runDeadCodeSubcommand(os.Args[2:]))
+	}
+	if usedSymbolsVerb {
+		os.Exit(runUsedSymbolsSubcommand(os.Args[2:]))
 	}
 	if baselineAuditVerb {
 		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
@@ -274,6 +278,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  krit baseline-audit [flags] [paths...]\n")
 		fmt.Fprintf(os.Stderr, "  krit abi-hash <:module|path/to/File.kt> [--json]\n")
 		fmt.Fprintf(os.Stderr, "  krit impact <fqn>... | --from-file PATH | --since GITREF [--json]\n")
+		fmt.Fprintf(os.Stderr, "  krit used-symbols <:module|path/to/File.kt> [--json]\n")
 		fmt.Fprintf(os.Stderr, "  krit harvest SOURCE:LINE --rule RuleName --out fixture.kt\n")
 		fmt.Fprintf(os.Stderr, "  krit rename [flags] <from-fqn> <to-fqn> [paths...]\n")
 		fmt.Fprintf(os.Stderr, "  krit dead-code --project [--json] [--root FQN]... [paths...]\n")

@@ -144,9 +144,13 @@ func main() {
 	impactVerb := len(os.Args) > 1 && os.Args[1] == "impact"
 	deadCodeVerb := len(os.Args) > 1 && os.Args[1] == "dead-code"
 	usedSymbolsVerb := len(os.Args) > 1 && os.Args[1] == "used-symbols"
+	serveVerb := len(os.Args) > 1 && os.Args[1] == "serve"
 	cacheVerb := len(os.Args) > 1 && os.Args[1] == "cache"
 	if cacheVerb {
 		os.Exit(runCacheSubcommand(os.Args[2:]))
+	}
+	if serveVerb {
+		os.Exit(runServeSubcommand(os.Args[2:]))
 	}
 	if harvestVerb {
 		os.Exit(runHarvestSubcommand(os.Args[2:]))

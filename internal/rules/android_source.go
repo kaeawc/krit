@@ -310,6 +310,58 @@ type LogTagLengthRule struct {
 // Classified per roadmap/17.
 func (r *LogTagLengthRule) Confidence() float64 { return 0.9 }
 
+// resolveLogTagStringValue resolves the string value of a Log tag
+// argument expression. It handles direct string literals as well as
+// references to a `const val` / `val` declaration whose initializer
+// is a non-interpolated string literal. Returns ("", false) when the
+// value cannot be resolved.
+func resolveLogTagStringValue(file *scanner.File, expr uint32) (string, bool) {
+	if file == nil || expr == 0 {
+		return "", false
+	}
+	expr = flatUnwrapParenExpr(file, expr)
+	if file.FlatType(expr) == "string_literal" {
+		if flatContainsStringInterpolation(file, expr) {
+			return "", false
+		}
+		return stringLiteralContent(file, expr), true
+	}
+	name := flatReferenceSimpleName(file, expr)
+	if name == "" {
+		return "", false
+	}
+	return findConstStringPropertyValue(file, name)
+}
+
+// findConstStringPropertyValue scans every property_declaration in the
+// file for one named `name` whose initializer is a non-interpolated
+// string literal, and returns its content.
+func findConstStringPropertyValue(file *scanner.File, name string) (string, bool) {
+	if file == nil || name == "" {
+		return "", false
+	}
+	value := ""
+	found := false
+	file.FlatWalkNodes(0, "property_declaration", func(node uint32) {
+		if found {
+			return
+		}
+		if propertyDeclarationName(file, node) != name {
+			return
+		}
+		init := propertyInitializerExpression(file, node)
+		if init == 0 || file.FlatType(init) != "string_literal" {
+			return
+		}
+		if flatContainsStringInterpolation(file, init) {
+			return
+		}
+		value = stringLiteralContent(file, init)
+		found = true
+	})
+	return value, found
+}
+
 // =====================================================================
 // 6. LogTagMismatchRule (LogDetector.WRONG_TAG)
 // =====================================================================

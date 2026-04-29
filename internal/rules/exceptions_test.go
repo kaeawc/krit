@@ -193,6 +193,48 @@ fun test() {
 	}
 }
 
+func TestExc_SwallowedException_NegativeCallbackHandler(t *testing.T) {
+	findings := runRuleByName(t, "SwallowedException", `
+import java.io.IOException
+
+class FaultHidingSink(
+    private val onException: (IOException) -> Unit,
+) {
+    fun flush() {
+        try {
+            delegateFlush()
+        } catch (e: IOException) {
+            onException(e)
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected callback handler to count as handling, got %d", len(findings))
+	}
+}
+
+func TestExc_SwallowedException_PositiveUnknownCallbackName(t *testing.T) {
+	findings := runRuleByName(t, "SwallowedException", `
+import java.io.IOException
+
+class FaultHidingSink(
+    private val ignored: (IOException) -> Unit,
+) {
+    fun flush() {
+        try {
+            delegateFlush()
+        } catch (e: IOException) {
+            ignored(e)
+        }
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected unknown callback name to remain suspicious")
+	}
+}
+
 func TestExc_SwallowedException_ASTPositiveCases(t *testing.T) {
 	cases := map[string]string{
 		"empty catch": `

@@ -859,6 +859,13 @@ type StateFlowMutableLeakRule struct {
 
 func (r *StateFlowMutableLeakRule) Confidence() float64 { return 0.75 }
 
+func stateFlowMutableLeakHasKotlinxEvidence(file *scanner.File, propText string) bool {
+	content := string(file.Content)
+	return strings.Contains(propText, "kotlinx.coroutines.flow.MutableStateFlow") ||
+		strings.Contains(content, "import kotlinx.coroutines.flow.MutableStateFlow") ||
+		strings.Contains(content, "import kotlinx.coroutines.flow.*")
+}
+
 // SharedFlowWithoutReplayRule detects MutableSharedFlow() with no buffer config.
 type SharedFlowWithoutReplayRule struct {
 	FlatDispatchBase

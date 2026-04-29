@@ -73,6 +73,13 @@ class Processor {
         }
     }
 
+    fun callbackPropertyHandler() {
+        val sink = FaultHidingSink { error ->
+            Log.e("Processor", "Sink failed", error)
+        }
+        sink.flush()
+    }
+
     private fun transform(i: Int): String = i.toString()
 
     private fun doWork() {
@@ -87,4 +94,20 @@ sealed class Result {
 
 interface Callback {
     fun onLoadFailed(error: Throwable)
+}
+
+class FaultHidingSink(
+    private val onException: (IllegalStateException) -> Unit,
+) {
+    fun flush() {
+        try {
+            doWork()
+        } catch (e: IllegalStateException) {
+            onException(e)
+        }
+    }
+
+    private fun doWork() {
+        throw IllegalStateException("failure")
+    }
 }

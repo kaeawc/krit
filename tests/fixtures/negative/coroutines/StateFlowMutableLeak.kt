@@ -13,3 +13,17 @@ fun testLocalState() {
     val local = MutableStateFlow(false)
     local.value = true
 }
+
+class LocalFlowBox<T>(value: T)
+
+class LocalLookalikeVM {
+    val state = LocalFlowBox(0)
+}
+
+abstract class BaseVM {
+    protected abstract val exposedState: MutableStateFlow<Int>
+}
+
+class RealVM : BaseVM() {
+    protected override val exposedState = MutableStateFlow(0)
+}

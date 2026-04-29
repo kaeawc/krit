@@ -42,6 +42,14 @@ class Processor {
         }
     }
 
+    fun unknownCallbackName(ignored: (Exception) -> Unit) {
+        try {
+            doWork()
+        } catch (e: Exception) {
+            ignored(e)
+        }
+    }
+
     fun nestedLambdaIgnored() {
         try {
             doWork()

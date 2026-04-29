@@ -1190,6 +1190,37 @@ class VM {
 	}
 }
 
+func TestStateFlowMutableLeak_NegativeLocalLookalike(t *testing.T) {
+	findings := runRuleByName(t, "StateFlowMutableLeak", `
+package test
+class MutableStateFlow<T>(value: T)
+class VM {
+    val state = MutableStateFlow(0)
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected local MutableStateFlow lookalike to be ignored, got %d", len(findings))
+	}
+}
+
+func TestStateFlowMutableLeak_NegativeOverrideReportedAtContract(t *testing.T) {
+	findings := runRuleByName(t, "StateFlowMutableLeak", `
+package test
+import kotlinx.coroutines.flow.MutableStateFlow
+
+interface VM {
+    val state: MutableStateFlow<Int>
+}
+
+class RealVM : VM {
+    override val state = MutableStateFlow(0)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the mutable interface contract to be reported, got %d", len(findings))
+	}
+}
+
 // --- SharedFlowWithoutReplay ---
 
 func TestSharedFlowWithoutReplay_Positive(t *testing.T) {

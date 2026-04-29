@@ -124,7 +124,6 @@ func AllMetaProviders() []registry.MetaProvider {
 		(*CustomViewStyleableRule)(nil),
 		(*CutPasteIdResourceRule)(nil),
 		(*CyclomaticComplexMethodRule)(nil),
-		(*DalvikOverrideRule)(nil),
 		(*DaoNotInterfaceRule)(nil),
 		(*DaoWithoutAnnotationsRule)(nil),
 		(*DataClassContainsFunctionsRule)(nil),

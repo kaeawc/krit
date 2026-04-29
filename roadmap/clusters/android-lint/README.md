@@ -41,8 +41,9 @@ See [`fixture-gaps.md`](fixture-gaps.md) for the prioritised list of the
 
 ## Open work (priority order)
 
-1. **Fix 3 no-op stubs** (`ScrollViewCount`, `DalvikOverride`, `OnClick`)
-   — these rules are registered but emit no findings.
+1. **Fix 2 no-op stubs** (`ScrollViewCount`, `OnClick`)
+   — these rules are registered but emit no findings. `DalvikOverride`
+   was removed as obsolete (Dalvik runtime gone since Android 5.0).
 2. **Add `.kt` fixture files for 43 source rules** (see
    [`fixture-gaps.md`](fixture-gaps.md)) — P0 security rules first.
 3. **Implement 13 planned source rules** (from the gap analysis in item

@@ -60,12 +60,11 @@ multiple init blocks). These count separately in total calls but once in unique:
 
 ### `android_correctness_checks.go`
 
-- **Total v1 calls:** 2
-- **Unique rules:** 2
+- **Total v1 calls:** 1
+- **Unique rules:** 1
 
 | Register helper | Rule struct | Family | Mixins | Dup |
 |---|---|---|---|---|
-| `Register` | `DalvikOverrideRule` | Legacy(Check) | ConfidenceProvider |  |
 | `Register` | `OnClickRule` | Legacy(Check) | ConfidenceProvider |  |
 
 ### `android_gradle.go`

@@ -1308,19 +1308,6 @@ type CustomViewStyleableRule struct {
 // Classified per roadmap/17.
 func (r *CustomViewStyleableRule) Confidence() float64 { return 0.9 }
 
-type DalvikOverrideRule struct {
-	FlatDispatchBase
-	AndroidRule
-}
-
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *DalvikOverrideRule) Confidence() float64 { return 0.75 }
-
 type InnerclassSeparatorRule struct {
 	FlatDispatchBase
 	AndroidRule

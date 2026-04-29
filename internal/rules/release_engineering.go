@@ -614,13 +614,27 @@ func (r *MergeConflictMarkerLeftoverRule) check(ctx *v2.Context) {
 		return
 	}
 
+	insideRawString := computeRawStringLines(file.Lines)
+	insideBlockComment := computeBlockCommentLines(file.Lines)
+
 	for i, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "<<<<<<<") || trimmed == "=======" || strings.HasPrefix(trimmed, ">>>>>>>") {
-			col := strings.IndexAny(line, "<=>")
-			ctx.Emit(r.Finding(file, i+1, col+1,
-				"Unresolved merge conflict marker; resolve the conflict before committing."))
+		// Real merge conflict markers always begin at column 0 with no
+		// leading whitespace. Requiring an exact prefix match avoids
+		// flagging markers that appear inside indented strings or
+		// comments.
+		isStart := strings.HasPrefix(line, "<<<<<<<")
+		isEnd := strings.HasPrefix(line, ">>>>>>>")
+		isSep := strings.TrimRight(line, " \t") == "======="
+		if !isStart && !isEnd && !isSep {
+			continue
 		}
+		// Skip lines that are continuations of a multi-line raw string or
+		// block comment — those are textual content, not real markers.
+		if insideRawString[i] || insideBlockComment[i] {
+			continue
+		}
+		ctx.Emit(r.Finding(file, i+1, 1,
+			"Unresolved merge conflict marker; resolve the conflict before committing."))
 	}
 }
 

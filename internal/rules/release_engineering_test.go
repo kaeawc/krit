@@ -1132,6 +1132,60 @@ func TestMergeConflictMarkerLeftover(t *testing.T) {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+
+	// Regression: marker tokens inside string literals, line comments, raw
+	// string bodies, or block comments must not be flagged.
+	cases := []struct {
+		name string
+		code string
+	}{
+		{
+			name: "marker text inside a string literal",
+			code: "package p\nval s = \"<<<<<<< HEAD\"\nval t = \"=======\"\nval u = \">>>>>>> feature\"\n",
+		},
+		{
+			name: "indented marker inside line comment",
+			code: "package p\nfun f() {\n    // <<<<<<< HEAD\n    // =======\n    // >>>>>>> feature\n}\n",
+		},
+		{
+			name: "marker inside raw string body",
+			code: "package p\nval doc = \"\"\"\n<<<<<<< HEAD\n=======\n>>>>>>> feature\n\"\"\"\n",
+		},
+		{
+			name: "marker inside block comment body",
+			code: "package p\n/*\n<<<<<<< HEAD\n=======\n>>>>>>> feature\n*/\nval x = 1\n",
+		},
+		{
+			name: "long line of equals signs is not a separator",
+			code: "package p\nval bar = \"===========\"\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "MergeConflictMarkerLeftover", tc.code)
+			if len(findings) != 0 {
+				t.Fatalf("expected 0 findings, got %d: %+v", len(findings), findings)
+			}
+		})
+	}
+
+	// Regression: real markers at column 0 (any of the three) must trigger.
+	triggers := []struct {
+		name string
+		code string
+	}{
+		{name: "start marker", code: "package p\n<<<<<<< HEAD\nval x = 1\n"},
+		{name: "separator marker", code: "package p\nval x = 1\n=======\nval y = 2\n"},
+		{name: "end marker", code: "package p\nval x = 1\n>>>>>>> branch\n"},
+	}
+	for _, tc := range triggers {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "MergeConflictMarkerLeftover", tc.code)
+			if len(findings) == 0 {
+				t.Fatalf("expected at least 1 finding, got 0")
+			}
+		})
+	}
 }
 
 func TestPrintlnInProduction(t *testing.T) {

@@ -135,6 +135,9 @@ func getSignaturesCallUsesDeprecatedFlag(file *scanner.File, call uint32) bool {
 	if file == nil || call == 0 || flatCallExpressionName(file, call) != "getPackageInfo" {
 		return false
 	}
+	if apiGuardedByVersionCheckFlat(file, call) {
+		return false
+	}
 	args := flatCallKeyArguments(file, call)
 	if args == 0 {
 		return false

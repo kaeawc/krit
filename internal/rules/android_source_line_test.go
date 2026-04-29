@@ -105,6 +105,23 @@ class Foo {
 		}
 	})
 
+	t.Run("ignores GET_SIGNATURES inside Build.VERSION.SDK_INT guarded branch", func(t *testing.T) {
+		findings := runRuleByName(t, "GetSignatures", `package test
+class Foo {
+    fun check(pm: PackageManager, name: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            pm.getPackageInfo(name, PackageManager.GET_SIGNING_CERTIFICATES)
+        } else {
+            pm.getPackageInfo(name, PackageManager.GET_SIGNATURES)
+        }
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings for SDK-guarded GET_SIGNATURES, got %d", len(findings))
+		}
+	})
+
 	t.Run("ignores incidental GET_SIGNATURES constant not used as package info flag", func(t *testing.T) {
 		findings := runRuleByName(t, "GetSignatures", `package test
 class Foo {

@@ -849,7 +849,7 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	// Skip test sources — tests use `!!` freely on setup fixtures;
 	// a NullPointerException there is just a failed test, not a runtime
 	// bug affecting production.
-	if isTestFile(file.Path) {
+	if isTestSupportFile(file.Path) {
 		return
 	}
 	// Skip Gradle / Kotlin script files — script blocks commonly use

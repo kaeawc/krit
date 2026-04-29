@@ -89,6 +89,9 @@ func registerTestingQualityRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if !testingQualityRuleShouldRunInFile(file) {
+					return
+				}
 				name := flatCallExpressionName(file, idx)
 				if !testingQualityIsAssertionCall(name) {
 					return

@@ -607,6 +607,16 @@ func testingQualityIsTestFile(file *scanner.File) bool {
 		strings.Contains(file.Path, "/testing-quality/")
 }
 
+func testingQualityRuleShouldRunInFile(file *scanner.File) bool {
+	if file == nil {
+		return false
+	}
+	lower := strings.ToLower(file.Path)
+	return isTestSupportFile(file.Path) ||
+		strings.HasSuffix(lower, "test.kt") ||
+		(strings.Contains(lower, "/tests/fixtures/") && strings.Contains(lower, "/testing-quality/"))
+}
+
 func testingQualityIsTestFunction(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 || file.FlatType(idx) != "function_declaration" {
 		return false

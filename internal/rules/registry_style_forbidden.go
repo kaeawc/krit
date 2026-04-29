@@ -374,6 +374,7 @@ func registerStyleForbiddenRules() {
 			IgnoreNumbers: []string{
 				"-1", "0", "1", "2",
 				"0f", "0.0f", "0.5f", "1f", "1.0f", "-1f",
+				"0.5", ".5",
 				"90f", "180f", "270f", "360f",
 				"100", "100f", "1000", "1000L", "10000", "10000L",
 				"255", "255f",
@@ -405,7 +406,7 @@ func registerStyleForbiddenRules() {
 				}
 				// Skip test source sets (including benchmark/canary macrobenchmark variants).
 				// Test-data sizing, timeouts, and iteration counts are legitimate literals.
-				if isTestFile(file.Path) {
+				if isTestSupportFile(file.Path) {
 					return
 				}
 				// Skip Android debug/dev source sets. Debug-only scaffolding (dropdown
@@ -433,6 +434,9 @@ func registerStyleForbiddenRules() {
 					return
 				}
 				if magicNumberIsBinaryProtocolLiteral(file, idx) {
+					return
+				}
+				if magicNumberIsAndroidApiLevelLiteral(file, idx) {
 					return
 				}
 				// Strip suffixes for comparison against ignore list

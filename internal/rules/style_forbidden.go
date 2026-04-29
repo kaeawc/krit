@@ -376,6 +376,35 @@ func magicNumberIsBinaryProtocolLiteral(file *scanner.File, idx uint32) bool {
 	return false
 }
 
+func magicNumberIsAndroidApiLevelLiteral(file *scanner.File, idx uint32) bool {
+	row := file.FlatRow(idx)
+	if row >= 0 && row < len(file.Lines) {
+		line := file.Lines[row]
+		if strings.Contains(line, "RequiresApi(") ||
+			strings.Contains(line, "TargetApi(") ||
+			strings.Contains(line, "ChecksSdkIntAtLeast(") {
+			return true
+		}
+	}
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "annotation":
+			text := file.FlatNodeText(cur)
+			return strings.Contains(text, "RequiresApi") ||
+				strings.Contains(text, "TargetApi") ||
+				strings.Contains(text, "ChecksSdkIntAtLeast")
+		case "call_expression":
+			switch flatCallNameAny(file, cur) {
+			case "RequiresApi", "TargetApi", "ChecksSdkIntAtLeast", "minSdkLessThan", "checkApi":
+				return true
+			}
+		case "function_body", "statements", "property_declaration", "function_declaration", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
 // Confidence reports a tier-2 (medium) base confidence. MagicNumber is
 // structurally accurate but highly context-dependent: whether a
 // literal is "magic" depends on call context, domain, and convention,

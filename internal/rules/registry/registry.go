@@ -222,6 +222,22 @@ func DefaultInactiveSet(descs []RuleDescriptor) map[string]bool {
 // Exposed so generated code and migrated rules can share a single
 // implementation without importing internal/rules.
 func CompileAnchoredPattern(ruleName, field, pattern string) *regexp.Regexp {
+	compiled, err := regexp.Compile(anchoredPattern(pattern))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "krit: invalid regex in config %s.%s: %q: %v\n", ruleName, field, pattern, err)
+		return nil
+	}
+	return compiled
+}
+
+// ValidateAnchoredPattern validates a regex pattern with the same implicit
+// full-string anchoring used by CompileAnchoredPattern, but without logging.
+func ValidateAnchoredPattern(pattern string) error {
+	_, err := regexp.Compile(anchoredPattern(pattern))
+	return err
+}
+
+func anchoredPattern(pattern string) string {
 	anchored := pattern
 	if !strings.HasPrefix(anchored, "^") {
 		anchored = "^" + anchored
@@ -229,10 +245,5 @@ func CompileAnchoredPattern(ruleName, field, pattern string) *regexp.Regexp {
 	if !strings.HasSuffix(anchored, "$") {
 		anchored = anchored + "$"
 	}
-	compiled, err := regexp.Compile(anchored)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "krit: invalid regex in config %s.%s: %q: %v\n", ruleName, field, pattern, err)
-		return nil
-	}
-	return compiled
+	return anchored
 }

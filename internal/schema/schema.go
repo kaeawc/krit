@@ -23,7 +23,7 @@ type RuleMeta struct {
 // OptionMeta describes one configurable option of a rule.
 type OptionMeta struct {
 	Name        string
-	Type        string // "int", "bool", "string", "string[]"
+	Type        string // "int", "bool", "string", "string[]", "regex"
 	Default     interface{}
 	Description string
 }
@@ -99,8 +99,10 @@ func optionTypeString(t registry.OptionType) string {
 		return "int"
 	case registry.OptBool:
 		return "bool"
-	case registry.OptString, registry.OptRegex:
+	case registry.OptString:
 		return "string"
+	case registry.OptRegex:
+		return "regex"
 	case registry.OptStringList:
 		return "string[]"
 	default:
@@ -227,6 +229,9 @@ func optionSchema(opt OptionMeta) map[string]interface{} {
 		s["type"] = "boolean"
 	case "string":
 		s["type"] = "string"
+	case "regex":
+		s["type"] = "string"
+		s["format"] = "regex"
 	case "string[]":
 		s["type"] = "array"
 		s["items"] = map[string]interface{}{"type": "string"}
@@ -300,6 +305,7 @@ const (
 	OptionTypeInt
 	OptionTypeString
 	OptionTypeStringSlice
+	OptionTypeRegex
 )
 
 func parseOptionType(s string) OptionType {
@@ -312,6 +318,8 @@ func parseOptionType(s string) OptionType {
 		return OptionTypeString
 	case "string[]":
 		return OptionTypeStringSlice
+	case "regex":
+		return OptionTypeRegex
 	default:
 		return OptionTypeString
 	}

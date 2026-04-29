@@ -597,6 +597,66 @@ func TestCollectKotlinFiles(t *testing.T) {
 	}
 }
 
+func TestCollectKotlinFilesRespectsGitignore(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0755); err != nil {
+		t.Fatalf("failed to create .git dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".claude/worktrees/\ngenerated/\n"), 0644); err != nil {
+		t.Fatalf("failed to write .gitignore: %v", err)
+	}
+	keep := filepath.Join(dir, "src", "main", "kotlin", "Keep.kt")
+	ignoredClaude := filepath.Join(dir, ".claude", "worktrees", "nested", "Ignored.kt")
+	ignoredGenerated := filepath.Join(dir, "generated", "IgnoredGenerated.kt")
+	for _, path := range []string{keep, ignoredClaude, ignoredGenerated} {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("failed to create parent dir for %s: %v", path, err)
+		}
+		if err := os.WriteFile(path, []byte("package test"), 0644); err != nil {
+			t.Fatalf("failed to write %s: %v", path, err)
+		}
+	}
+
+	files, err := CollectKotlinFiles([]string{dir}, nil)
+	if err != nil {
+		t.Fatalf("CollectKotlinFiles returned error: %v", err)
+	}
+	if !hasPath(files, keep) {
+		t.Fatalf("expected kept file %q in collected files: %#v", keep, files)
+	}
+	if hasPath(files, ignoredClaude) {
+		t.Fatalf("expected .gitignored worktree file %q to be skipped: %#v", ignoredClaude, files)
+	}
+	if hasPath(files, ignoredGenerated) {
+		t.Fatalf("expected .gitignored generated file %q to be skipped: %#v", ignoredGenerated, files)
+	}
+}
+
+func TestCollectKotlinFilesRespectsGitignoreForExplicitPath(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0755); err != nil {
+		t.Fatalf("failed to create .git dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("generated/\n"), 0644); err != nil {
+		t.Fatalf("failed to write .gitignore: %v", err)
+	}
+	ignored := filepath.Join(dir, "generated", "Ignored.kt")
+	if err := os.MkdirAll(filepath.Dir(ignored), 0755); err != nil {
+		t.Fatalf("failed to create generated dir: %v", err)
+	}
+	if err := os.WriteFile(ignored, []byte("package test"), 0644); err != nil {
+		t.Fatalf("failed to write ignored file: %v", err)
+	}
+
+	files, err := CollectKotlinFiles([]string{ignored}, nil)
+	if err != nil {
+		t.Fatalf("CollectKotlinFiles returned error: %v", err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected explicit .gitignored file to be skipped, got %#v", files)
+	}
+}
+
 func TestCollectJavaFiles(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "a.kt"), []byte("package test"), 0644)
@@ -609,6 +669,49 @@ func TestCollectJavaFiles(t *testing.T) {
 	if len(files) != 1 {
 		t.Fatalf("expected 1 .java file, got %d", len(files))
 	}
+}
+
+func TestCollectJavaFilesRespectsNestedGitignore(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0755); err != nil {
+		t.Fatalf("failed to create .git dir: %v", err)
+	}
+	module := filepath.Join(dir, "module")
+	if err := os.MkdirAll(filepath.Join(module, "generated"), 0755); err != nil {
+		t.Fatalf("failed to create module dirs: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(module, ".gitignore"), []byte("generated/\n"), 0644); err != nil {
+		t.Fatalf("failed to write nested .gitignore: %v", err)
+	}
+	keep := filepath.Join(module, "Keep.java")
+	ignored := filepath.Join(module, "generated", "Ignored.java")
+	for _, path := range []string{keep, ignored} {
+		if err := os.WriteFile(path, []byte("package test;"), 0644); err != nil {
+			t.Fatalf("failed to write %s: %v", path, err)
+		}
+	}
+
+	files, err := CollectJavaFiles([]string{dir}, nil)
+	if err != nil {
+		t.Fatalf("CollectJavaFiles returned error: %v", err)
+	}
+	if !hasPath(files, keep) {
+		t.Fatalf("expected kept Java file %q in collected files: %#v", keep, files)
+	}
+	if hasPath(files, ignored) {
+		t.Fatalf("expected nested .gitignored Java file %q to be skipped: %#v", ignored, files)
+	}
+}
+
+func hasPath(paths []string, want string) bool {
+	wantAbs, _ := filepath.Abs(want)
+	for _, path := range paths {
+		gotAbs, _ := filepath.Abs(path)
+		if gotAbs == wantAbs {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPartitionIndexedPaths(t *testing.T) {

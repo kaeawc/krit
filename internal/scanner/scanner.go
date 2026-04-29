@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaeawc/krit/internal/fileignore"
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/java"
 	"github.com/smacker/go-tree-sitter/kotlin"
@@ -224,55 +225,7 @@ func NewParsedFile(path string, content []byte, tree *sitter.Tree) *File {
 
 // CollectKotlinFiles finds all .kt and .kts files under the given paths.
 func CollectKotlinFiles(paths []string, excludes []string) ([]string, error) {
-	var files []string
-	seen := make(map[string]bool)
-
-	for _, p := range paths {
-		info, err := os.Stat(p)
-		if err != nil {
-			return nil, err
-		}
-		if !info.IsDir() {
-			if isKotlinFile(p) {
-				files = append(files, p)
-			}
-			continue
-		}
-		err = filepath.Walk(p, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil
-			}
-			if info.IsDir() {
-				base := info.Name()
-				if base == ".git" || base == "build" || base == "node_modules" ||
-					base == ".idea" || base == ".gradle" || base == "out" ||
-					base == ".kotlin" || base == "target" ||
-					// Vendored / third-party / generated sources: not the
-					// user's code, shouldn't be subject to style rules.
-					base == "third-party" || base == "third_party" ||
-					base == "vendor" || base == "external" {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if !isKotlinFile(path) {
-				return nil
-			}
-			if isExcluded(path, excludes) {
-				return nil
-			}
-			abs, _ := filepath.Abs(path)
-			if !seen[abs] {
-				seen[abs] = true
-				files = append(files, path)
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
-	return files, nil
+	return collectSourceFiles(paths, excludes, isKotlinFile)
 }
 
 // ScanFiles parses all files in parallel and returns parsed File objects.
@@ -299,17 +252,31 @@ func isJavaFile(path string) bool {
 
 // CollectJavaFiles finds all .java files under the given paths.
 func CollectJavaFiles(paths []string, excludes []string) ([]string, error) {
+	return collectSourceFiles(paths, excludes, isJavaFile)
+}
+
+func collectSourceFiles(paths []string, excludes []string, isSourceFile func(string) bool) ([]string, error) {
 	var files []string
 	seen := make(map[string]bool)
+	ignoreMatchers := make(map[string]*fileignore.Matcher)
+	addFile := func(path string) {
+		abs, _ := filepath.Abs(path)
+		if seen[abs] {
+			return
+		}
+		seen[abs] = true
+		files = append(files, path)
+	}
 
 	for _, p := range paths {
 		info, err := os.Stat(p)
 		if err != nil {
 			return nil, err
 		}
+		matcher := fileignore.MatcherForPath(p, info, ignoreMatchers)
 		if !info.IsDir() {
-			if isJavaFile(p) {
-				files = append(files, p)
+			if isSourceFile(p) && !matcher.Ignored(p, false) && !isExcluded(p, excludes) {
+				addFile(p)
 			}
 			continue
 		}
@@ -318,29 +285,18 @@ func CollectJavaFiles(paths []string, excludes []string) ([]string, error) {
 				return nil
 			}
 			if info.IsDir() {
-				base := info.Name()
-				if base == ".git" || base == "build" || base == "node_modules" ||
-					base == ".idea" || base == ".gradle" || base == "out" ||
-					base == ".kotlin" || base == "target" ||
-					// Vendored / third-party / generated sources: not the
-					// user's code, shouldn't be subject to style rules.
-					base == "third-party" || base == "third_party" ||
-					base == "vendor" || base == "external" {
+				if fileignore.DefaultPrunedDir(info.Name()) || matcher.Ignored(path, true) {
 					return filepath.SkipDir
 				}
 				return nil
 			}
-			if !isJavaFile(path) {
+			if !isSourceFile(path) {
 				return nil
 			}
-			if isExcluded(path, excludes) {
+			if matcher.Ignored(path, false) || isExcluded(path, excludes) {
 				return nil
 			}
-			abs, _ := filepath.Abs(path)
-			if !seen[abs] {
-				seen[abs] = true
-				files = append(files, path)
-			}
+			addFile(path)
 			return nil
 		})
 		if err != nil {

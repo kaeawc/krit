@@ -104,6 +104,75 @@ func TestFindSourceDirs_SkipsKritCacheDir(t *testing.T) {
 	}
 }
 
+func TestFindSourceDirs_RespectsGitignore(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.Mkdir(filepath.Join(tmp, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, ".gitignore"), []byte(".claude/worktrees/\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ignoredKotlinDir := filepath.Join(tmp, ".claude", "worktrees", "copy", "src", "main", "kotlin")
+	if err := os.MkdirAll(ignoredKotlinDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	keepKotlinDir := filepath.Join(tmp, "src", "main", "kotlin")
+	if err := os.MkdirAll(keepKotlinDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	dirs := FindSourceDirs([]string{tmp})
+	if !containsPath(dirs, keepKotlinDir) {
+		t.Fatalf("expected kept source dir %q in results: %v", keepKotlinDir, dirs)
+	}
+	if containsPath(dirs, ignoredKotlinDir) {
+		t.Fatalf("expected gitignored source dir %q to be skipped: %v", ignoredKotlinDir, dirs)
+	}
+}
+
+func TestCollectKtFiles_RespectsGitignore(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.Mkdir(filepath.Join(tmp, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, ".gitignore"), []byte("generated/\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sourceDir := filepath.Join(tmp, "src", "main", "kotlin")
+	if err := os.MkdirAll(filepath.Join(sourceDir, "generated"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	keep := filepath.Join(sourceDir, "Keep.kt")
+	ignored := filepath.Join(sourceDir, "generated", "Ignored.kt")
+	for _, path := range []string{keep, ignored} {
+		if err := os.WriteFile(path, []byte("package test"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	files, err := CollectKtFiles([]string{sourceDir})
+	if err != nil {
+		t.Fatalf("CollectKtFiles returned error: %v", err)
+	}
+	if !containsPath(files, keep) {
+		t.Fatalf("expected kept file %q in results: %v", keep, files)
+	}
+	if containsPath(files, ignored) {
+		t.Fatalf("expected gitignored file %q to be skipped: %v", ignored, files)
+	}
+}
+
+func containsPath(paths []string, want string) bool {
+	wantAbs, _ := filepath.Abs(want)
+	for _, path := range paths {
+		gotAbs, _ := filepath.Abs(path)
+		if gotAbs == wantAbs {
+			return true
+		}
+	}
+	return false
+}
+
 // ---------------------------------------------------------------------------
 // CachePath tests
 // ---------------------------------------------------------------------------

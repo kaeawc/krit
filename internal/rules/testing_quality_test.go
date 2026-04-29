@@ -659,6 +659,85 @@ class NoCrashTest {
 	}
 }
 
+func TestTestWithoutAssertion_NegativeNoThrowComment(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class NoThrowCommentTest {
+    @Test
+    fun reportFullyDrawnOnOldApi() {
+        // This test makes sure that this method does not throw an exception.
+        reportFullyDrawn()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no-throw comment to count as deliberate smoke test, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeShouldNotFailComment(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class ShouldNotFailCommentTest {
+    @Test
+    fun pluginAppliesToLibraryModule() {
+        gradleRunner.withArguments("generateBaselineProfile").build()
+        // This should not fail.
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected should-not-fail comment to count as deliberate smoke test, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativePollingCheckWaitFor(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import androidx.testutils.PollingCheck
+import org.junit.Test
+
+class PollingCheckWaitForNegative {
+    @Test
+    fun backDismissesActionMode() {
+        PollingCheck.waitFor { destroyed.get() }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected PollingCheck.waitFor to count as assertion-by-timeout, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_PositiveLocalWaitForLookalike(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class LocalWaitForLookalikePositive {
+    @Test
+    fun waitsWithoutVerification() {
+        waitFor { destroyed.get() }
+    }
+
+    private fun waitFor(block: () -> Boolean) {
+        block()
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected local waitFor lookalike without PollingCheck import to be reported")
+	}
+}
+
 func TestTestWithoutAssertion_NegativeLocalAssertionHelper(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test

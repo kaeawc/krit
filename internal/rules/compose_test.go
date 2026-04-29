@@ -1245,6 +1245,33 @@ fun Screen(source: Source) {
 	}
 }
 
+func TestComposeSideEffectInComposition_Negative_RememberLauncherCallback(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun PermissionsScreen(permissions: Array<String>) {
+    var allPermissionsGranted by remember { mutableStateOf(false) }
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        allPermissionsGranted = results.all { it.value }
+    }
+    Content { launcher.launch(permissions) }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for rememberLauncherForActivityResult callback assignment, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestComposeSideEffectInComposition_Negative_MutableTransitionTargetState(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test

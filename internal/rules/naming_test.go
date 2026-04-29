@@ -909,6 +909,70 @@ private class CustomDrawWrapper(
 	}
 }
 
+// Regression: the null-narrowing self-shadow detector previously used
+// substring scanning over the declaration text, which produced both false
+// positives (treating arbitrary code containing "?:" or "?." as the idiom)
+// and false negatives (missing the idiom when comments, parentheses, or
+// safe-call chains separated the identifier from the operator).
+func TestNaming_NoNameShadowing_AcceptsNullNarrowingIdiom(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"basic_elvis", `val name = name ?: return`},
+		{"safe_call", `val name = name?.trim()`},
+		{"safe_call_then_elvis", `val name = name?.trim() ?: ""`},
+		{"safe_call_let_then_elvis", `val name = name?.let { it.trim() } ?: ""`},
+		{"parenthesized_elvis", `val name = (name ?: return)`},
+		{"comment_between_eq_and_rhs", `val name = /* narrow */ name ?: return`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "package test\nfun example(name: String?) {\n    " + tc.body + "\n    println(name)\n}\n"
+			findings := runRuleByName(t, "NoNameShadowing", src)
+			for _, f := range findings {
+				if f.Rule == "NoNameShadowing" {
+					t.Fatalf("NoNameShadowing should treat %q as null-narrowing self-shadow, got: %s", tc.body, f.Message)
+				}
+			}
+		})
+	}
+}
+
+// Regression: ensure the AST-based detector does NOT silently allow shadowing
+// just because the right-hand side happens to contain "?:" or "?." byte
+// sequences that the old substring check could have been confused by.
+func TestNaming_NoNameShadowing_FlagsNonNullNarrowingShadows(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		// "?:" appears only inside a string literal — not a real elvis operator.
+		{"string_literal_elvis_bytes", `val name = "name ?: ignored"`},
+		// "?." appears only in a comment — not a real safe-call operator.
+		{"comment_safe_call_bytes", `val name = compute() /* uses ?. once */`},
+		// Different identifier on the LHS of the elvis — not self-shadowing.
+		{"different_identifier_elvis", `val name = other ?: ""`},
+		// Different identifier with safe-call — not self-shadowing.
+		{"different_identifier_safe_call", `val name = other?.trim()`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "package test\nfun compute(): String? = null\nfun example(name: String?, other: String?) {\n    " + tc.body + "\n    println(name)\n}\n"
+			findings := runRuleByName(t, "NoNameShadowing", src)
+			found := false
+			for _, f := range findings {
+				if f.Rule == "NoNameShadowing" {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("NoNameShadowing should flag %q as a real shadow, got no finding", tc.body)
+			}
+		})
+	}
+}
+
 func BenchmarkNoNameShadowing_LargeFile(b *testing.B) {
 	var src strings.Builder
 	src.WriteString("package test\n")

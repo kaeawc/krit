@@ -550,4 +550,48 @@ fun foo(view: View) {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+
+	t.Run("user-defined ViewHolder argument triggers", func(t *testing.T) {
+		findings := runViewTagRule(t, `
+package test
+import android.view.View
+data class ViewHolder(val title: String = "")
+fun foo(view: View) {
+    val holder = ViewHolder()
+    view.setTag(holder)
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("class name containing Tag triggers", func(t *testing.T) {
+		file := parseInline(t, `
+package test
+fun foo() {
+    view.setTag(meta)
+}
+`)
+		resolver := typeinfer.NewFakeResolver()
+		resolver.NodeTypes["view"] = &typeinfer.ResolvedType{Name: "View", FQN: "android.view.View", Kind: typeinfer.TypeClass}
+		resolver.NodeTypes["meta"] = &typeinfer.ResolvedType{Name: "MetaTag", FQN: "test.MetaTag", Kind: typeinfer.TypeClass}
+		findings := runViewTagRuleWithResolver(t, file, resolver)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("primitive boolean argument does not trigger", func(t *testing.T) {
+		findings := runViewTagRule(t, `
+package test
+import android.view.View
+fun foo(view: View, isSelected: Boolean) {
+    view.setTag(isSelected)
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
 }

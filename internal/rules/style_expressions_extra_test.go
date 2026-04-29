@@ -179,6 +179,49 @@ fun main() {
 	}
 }
 
+// --- CanBeNonNullable ---
+
+func TestCanBeNonNullable_NullableParameterOnlyUsedWithBangBang(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "CanBeNonNullable", `
+package test
+fun process(x: String?) {
+    println(x!!)
+    val length = x!!.length
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for nullable parameter only used with non-null assertions")
+	}
+}
+
+func TestCanBeNonNullable_NullableParameterNameOnlyAppearsAsSubstring(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "CanBeNonNullable", `
+package test
+fun process(i: String?) {
+    print("index")
+    val minimum = minOf(1, 2)
+    this.toString()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when parameter name only appears as a substring, got %d", len(findings))
+	}
+}
+
+func TestCanBeNonNullable_IgnoresShadowedNestedParameter(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "CanBeNonNullable", `
+package test
+fun process(x: String?) {
+    listOf("value").forEach { x ->
+        println(x!!)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when only a shadowed lambda parameter is asserted, got %d", len(findings))
+	}
+}
+
 // --- DoubleNegativeExpression ---
 
 func TestDoubleNegativeExpression_Positive(t *testing.T) {

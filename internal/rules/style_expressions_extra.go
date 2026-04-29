@@ -275,7 +275,6 @@ func (r *CanBeNonNullableRule) checkFunctionParamsFlat(ctx *v2.Context) {
 	if body == 0 {
 		return
 	}
-	bodyText := file.FlatNodeText(body)
 
 	params, _ := file.FlatFindChild(idx, "function_value_parameters")
 	if params == 0 {
@@ -292,14 +291,17 @@ func (r *CanBeNonNullableRule) checkFunctionParamsFlat(ctx *v2.Context) {
 		}
 
 		paramName := extractIdentifierFlat(file, param)
-		if paramName == "" || !strings.Contains(bodyText, paramName) {
+		if paramName == "" {
 			continue
 		}
 
 		allNonNullAsserted := true
 		usageCount := 0
-		file.FlatWalkAllNodes(body, func(child uint32) {
-			if !allNonNullAsserted || file.FlatType(child) != "simple_identifier" || !file.FlatNodeTextEquals(child, paramName) {
+		file.FlatWalkNodes(body, "simple_identifier", func(child uint32) {
+			if !allNonNullAsserted || !file.FlatNodeTextEquals(child, paramName) {
+				return
+			}
+			if unusedParameterReferenceShadowedFlat(file, body, child, paramName) {
 				return
 			}
 			usageCount++
@@ -311,7 +313,7 @@ func (r *CanBeNonNullableRule) checkFunctionParamsFlat(ctx *v2.Context) {
 			switch file.FlatType(parent) {
 			case "non_null_assertion":
 				return
-			case "postfix_unary_expression":
+			case "postfix_expression", "postfix_unary_expression":
 				if strings.HasSuffix(strings.TrimSpace(file.FlatNodeText(parent)), "!!") {
 					return
 				}

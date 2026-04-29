@@ -567,8 +567,11 @@ var assertionCallNames = map[string]bool{
 	"hasSize": true, "isEmpty": true, "isNotEmpty": true,
 	"shouldBe": true, "shouldNotBe": true,
 	"shouldThrow": true, "shouldNotThrow": true,
-	"check":    true,
-	"snapshot": true, "captureRoboImage": true, "captureToImage": true,
+	"buildAndAssertThatOutput":        true,
+	"buildAndFailAndAssertThatOutput": true,
+	"printPluginsAndAssertOutput":     true,
+	"check":                           true,
+	"snapshot":                        true, "captureRoboImage": true, "captureToImage": true,
 	"measureRepeated": true,
 	"waitUntil":       true, "testExecute": true, "testEnqueue": true,
 	"complete": true,
@@ -642,6 +645,15 @@ func testingQualityTestExpectsException(file *scanner.File, idx uint32) bool {
 	return false
 }
 
+func testingQualityTestAllowsNoCrash(file *scanner.File, idx uint32) bool {
+	name := strings.ToLower(strings.Trim(testingQualityFunctionName(file, idx), "`"))
+	name = strings.ReplaceAll(name, "_", " ")
+	name = strings.ReplaceAll(name, "-", " ")
+	return strings.Contains(name, "no crash") ||
+		strings.Contains(name, "does not crash") ||
+		strings.Contains(name, "doesn't crash")
+}
+
 func testingQualityIsIgnoredTest(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
 		return false
@@ -682,6 +694,9 @@ func testingQualityBodyHasAssertionOrVerification(file *scanner.File, body uint3
 func testingQualityBodyHasAssertionOrVerificationWithHelpers(file *scanner.File, body uint32, helpers map[string]bool) bool {
 	if file == nil || body == 0 {
 		return false
+	}
+	if strings.Contains(file.FlatNodeText(body), "AssertionError") {
+		return true
 	}
 	found := false
 	file.FlatWalkAllNodes(body, func(n uint32) {
@@ -749,7 +764,20 @@ func testingQualityIsBenchmarkOrGoldenFile(file *scanner.File) bool {
 	}
 	return fileImportsFQN(file, "androidx.benchmark.macro.junit4.MacrobenchmarkRule") ||
 		fileImportsFQN(file, "androidx.benchmark.macro.junit4.BaselineProfileRule") ||
+		fileImportsFQN(file, "androidx.benchmark.junit4.BenchmarkRule") ||
+		fileImportsFQN(file, "androidx.compose.testutils.benchmark.ComposeBenchmarkRule") ||
 		fileImportsFQN(file, "com.github.takahirom.roborazzi.RoborazziRule")
+}
+
+func testingQualityIsAndroidInstrumentedTestFile(file *scanner.File) bool {
+	if file == nil {
+		return false
+	}
+	path := strings.ToLower(file.Path)
+	return strings.Contains(path, "/src/androidtest/") ||
+		strings.Contains(path, "/src/androidinstrumentedtest/") ||
+		strings.Contains(path, "/src/androidcommontest/") ||
+		strings.Contains(path, "/src/commonjvmandroidtest/")
 }
 
 func testingQualityDispatcherReferenceAllowedInTest(file *scanner.File, idx uint32, dispatcher string) bool {

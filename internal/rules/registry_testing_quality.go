@@ -265,6 +265,9 @@ func registerTestingQualityRules() {
 				if !ok || !testingQualityIsTestFunction(file, fn) {
 					return
 				}
+				if testingQualityIsAndroidInstrumentedTestFile(file) {
+					return
+				}
 				if testingQualityInsideAssertionOrCallbackBoundary(file, idx, fn) {
 					return
 				}
@@ -313,6 +316,9 @@ func registerTestingQualityRules() {
 					return
 				}
 				if testingQualityIsIgnoredTest(file, idx) {
+					return
+				}
+				if testingQualityTestAllowsNoCrash(file, idx) {
 					return
 				}
 				if testingQualityIsBenchmarkOrGoldenFile(file) {

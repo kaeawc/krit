@@ -10,7 +10,7 @@ func (r *FragmentConstructorRule) Meta() registry.RuleDescriptor {
 	return registry.RuleDescriptor{
 		ID:            "FragmentConstructor",
 		RuleSet:       "android-lint",
-		Severity:      "error",
+		Severity:      "warning",
 		Description:   "",
 		DefaultActive: true,
 		FixLevel:      "",

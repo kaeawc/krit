@@ -5,12 +5,25 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
+
+func experimentSnapshot() []string { return experiment.Current().Names() }
+func experimentRestore(names []string) { experiment.SetCurrent(names) }
+func enableExperiment(name string) {
+	cur := experiment.Current().Names()
+	for _, n := range cur {
+		if n == name {
+			return
+		}
+	}
+	experiment.SetCurrent(append(cur, name))
+}
 
 // --- ExceptionRaisedInUnexpectedLocation ---
 
@@ -67,6 +80,80 @@ fun test() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+// --- InstanceOfCheckForException: when-dispatch FP-reduction (regression) ---
+//
+// Regression for isInsideWhenDispatchOnCatchVarFlat: the helper used to
+// `return false` on the first when_expression child whose type matched
+// when_subject / parenthesized_expression / value_arguments but whose text
+// did not equal the caught variable. That early return could miss a later
+// sibling that actually carries the caught-variable subject.
+
+func TestExc_InstanceOfCheckForException_SkipsWhenDispatchOnCaughtVar(t *testing.T) {
+	prev := experimentSnapshot()
+	defer experimentRestore(prev)
+	enableExperiment("instance-of-check-skip-when-dispatch")
+
+	findings := runRuleByName(t, "InstanceOfCheckForException", `
+fun test() {
+    try {
+        doWork()
+    } catch (e: Exception) {
+        when (e) {
+            is IOException -> println("io")
+            is RuntimeException -> println("rt")
+            else -> throw e
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings (when-dispatch on caught var should be skipped), got %d", len(findings))
+	}
+}
+
+func TestExc_InstanceOfCheckForException_FiresWhenDispatchOnOtherVar(t *testing.T) {
+	prev := experimentSnapshot()
+	defer experimentRestore(prev)
+	enableExperiment("instance-of-check-skip-when-dispatch")
+
+	findings := runRuleByName(t, "InstanceOfCheckForException", `
+fun test(other: Any) {
+    try {
+        doWork()
+    } catch (e: Exception) {
+        when (other) {
+            is IOException -> println("io")
+        }
+        if (e is IOException) println("io2")
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding: when-dispatch is on `other`, not the caught var, so the is-check on `e` must still fire")
+	}
+}
+
+func TestExc_InstanceOfCheckForException_FiresOnSubjectlessWhen(t *testing.T) {
+	prev := experimentSnapshot()
+	defer experimentRestore(prev)
+	enableExperiment("instance-of-check-skip-when-dispatch")
+
+	findings := runRuleByName(t, "InstanceOfCheckForException", `
+fun test() {
+    try {
+        doWork()
+    } catch (e: Exception) {
+        when {
+            e is IOException -> println("io")
+        }
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding: subjectless when is not a dispatch, so the is-check on caught var must fire")
 	}
 }
 

@@ -337,6 +337,17 @@ fun bar() {
 	}
 }
 
+func TestForEachOnRange_RangeInRightOperand(t *testing.T) {
+	findings := runRuleByName(t, "ForEachOnRange", `
+package test
+fun bar() {
+    (2 step (0 until 10)).forEach { println(it) }
+}`)
+	if len(findings) == 0 {
+		t.Error("ForEachOnRange should flag range nested in right operand of infix expression")
+	}
+}
+
 func TestForEachOnRange_Negative(t *testing.T) {
 	findings := runRuleByName(t, "ForEachOnRange", `
 package test

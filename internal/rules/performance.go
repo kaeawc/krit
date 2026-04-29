@@ -462,8 +462,14 @@ func containsRangeExpressionFlat(file *scanner.File, idx uint32) bool {
 				return true
 			}
 		}
-		if file.FlatChildCount(idx) > 0 {
-			return containsRangeExpressionFlat(file, file.FlatChild(idx, 0))
+		for i := 0; i < file.FlatChildCount(idx); i++ {
+			child := file.FlatChild(idx, i)
+			if file.FlatType(child) == "simple_identifier" {
+				continue
+			}
+			if containsRangeExpressionFlat(file, child) {
+				return true
+			}
 		}
 	case "call_expression":
 		if rangeInfixOps[flatCallExpressionName(file, idx)] {

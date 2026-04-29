@@ -94,9 +94,9 @@ func (r *OnClickRule) Meta() registry.RuleDescriptor {
 	return registry.RuleDescriptor{
 		ID:            "OnClick",
 		RuleSet:       "android-lint",
-		Severity:      "",
+		Severity:      "warning",
 		Description:   "",
-		DefaultActive: false,
+		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
 	}

@@ -438,11 +438,13 @@ func registerAndroidCorrectnessChecksRules() {
 		})
 	}
 	{
-		r := &OnClickRule{AndroidRule: alcRule("OnClick", "onClick handler issue", ALSError, 6)}
+		r := &OnClickRule{AndroidRule: alcRule("OnClick", "android:onClick handler missing or has wrong signature", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {},
+			Needs:       v2.NeedsResources | v2.NeedsParsedFiles,
+			AndroidDeps: uint32(AndroidDepLayout),
+			Confidence:  r.Confidence(), OriginalV1: r,
+			Check: r.check,
 		})
 	}
 	{

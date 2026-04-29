@@ -2,6 +2,7 @@ package rules
 
 import (
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 	"strings"
 )
 
@@ -237,42 +238,17 @@ func registerAndroidSourceRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes:  []string{"call_expression", "object_creation_expression"},
+			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Confidence: 0.9, Fix: v2.FixIdiomatic, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				// Only fire on calls whose callee is a bare boxed-primitive
-				// identifier — `Integer(42)`, not `Integer.valueOf(42)` (where
-				// flatCallExpressionName returns `valueOf`) nor any qualified
-				// form. This is the one case AOSP Lint flags.
-				typeName := flatCallExpressionName(file, idx)
-				if !boxedPrimitiveConstructors[typeName] {
-					return
+				switch file.FlatType(idx) {
+				case "call_expression":
+					checkUseValueOfKotlinCall(ctx, r, file, idx)
+				case "object_creation_expression":
+					checkUseValueOfJavaNew(ctx, r, file, idx)
 				}
-				// Skip if the callee is actually qualified (e.g. `a.Integer(42)`).
-				// For unqualified calls the first named child is a bare
-				// simple_identifier; for qualified calls it's a navigation_expression.
-				firstNamed := file.FlatFirstChild(idx)
-				for firstNamed != 0 && !file.FlatIsNamed(firstNamed) {
-					firstNamed = file.FlatNextSib(firstNamed)
-				}
-				if firstNamed == 0 || file.FlatType(firstNamed) != "simple_identifier" {
-					return
-				}
-				// Require exactly one positional argument — `Integer()` zero-arg
-				// and `Integer(x, radix)` multi-arg overloads are not the
-				// single-value boxing we want to flag.
-				args := flatCallKeyArguments(file, idx)
-				argCount := 0
-				for a := file.FlatFirstChild(args); a != 0; a = file.FlatNextSib(a) {
-					if file.FlatType(a) == "value_argument" {
-						argCount++
-					}
-				}
-				if argCount != 1 {
-					return
-				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
-					"Use "+typeName+".valueOf() instead of new "+typeName+"() constructor for better performance.")
 			},
 		})
 	}

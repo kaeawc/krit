@@ -38,3 +38,15 @@ class BiometricDeviceAuthentication {
         Log.d(TAG, "authenticating")
     }
 }
+
+// Idiomatic form from the issue: ClassName::class.java.simpleName matching the
+// enclosing class is treated as valid.
+class PaymentFragment {
+    companion object {
+        private val TAG = PaymentFragment::class.java.simpleName
+    }
+
+    fun processPayment() {
+        Log.d(TAG, "Processing payment")
+    }
+}

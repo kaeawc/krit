@@ -360,12 +360,53 @@ func directCompanionTagValueFlat(file *scanner.File, companion uint32) string {
 			return
 		}
 		expr := propertyInitializerExpression(file, prop)
-		if expr == 0 || file.FlatType(expr) != "string_literal" || flatContainsStringInterpolation(file, expr) {
+		if expr == 0 {
 			return
 		}
-		tag = stringLiteralContent(file, expr)
+		switch file.FlatType(expr) {
+		case "string_literal":
+			if flatContainsStringInterpolation(file, expr) {
+				return
+			}
+			tag = stringLiteralContent(file, expr)
+		case "navigation_expression":
+			// `Foo::class.java.simpleName` — treat the referenced class
+			// name as the effective tag value so it can be compared to
+			// the enclosing class.
+			if name := classLiteralSimpleNameRef(file, expr); name != "" {
+				tag = name
+			}
+		}
 	})
 	return tag
+}
+
+// classLiteralSimpleNameRef extracts `Foo` from an expression of the form
+// `Foo::class.java.simpleName` (or the Kotlin-only `Foo::class.simpleName`).
+// Returns "" if the expression is anything else.
+func classLiteralSimpleNameRef(file *scanner.File, expr uint32) string {
+	if file.FlatType(expr) != "navigation_expression" {
+		return ""
+	}
+	if flatNavigationExpressionLastIdentifier(file, expr) != "simpleName" {
+		return ""
+	}
+	var ref uint32
+	file.FlatWalkNodes(expr, "callable_reference", func(n uint32) {
+		if ref == 0 {
+			ref = n
+		}
+	})
+	if ref == 0 {
+		return ""
+	}
+	for c := file.FlatFirstChild(ref); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "type_identifier", "simple_identifier":
+			return file.FlatNodeText(c)
+		}
+	}
+	return ""
 }
 
 func nodeIsDirectlyInsideFlat(file *scanner.File, node uint32, container uint32) bool {

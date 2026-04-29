@@ -103,6 +103,40 @@ class MyActivity {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+
+	t.Run("self class::class.java.simpleName does not trigger", func(t *testing.T) {
+		findings := runRuleByName(t, "LogTagMismatch", `
+package test
+class MyActivity {
+    companion object {
+        private val TAG = MyActivity::class.java.simpleName
+    }
+    fun foo() {
+        Log.d(TAG, "message")
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("other class::class.java.simpleName triggers", func(t *testing.T) {
+		findings := runRuleByName(t, "LogTagMismatch", `
+package test
+class PaymentFragment {
+    companion object {
+        private val TAG = CheckoutActivity::class.java.simpleName
+    }
+    fun foo() {
+        Log.d(TAG, "message")
+    }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected finding for mismatched ::class.java.simpleName")
+		}
+	})
 }
 
 // =====================================================================

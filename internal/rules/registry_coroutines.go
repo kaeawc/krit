@@ -834,8 +834,7 @@ func registerCoroutinesRules() {
 				if !strings.Contains(classText, "synchronized") {
 					return
 				}
-				nullCheckPattern := propName + " == null"
-				nullChecks := strings.Count(classText, nullCheckPattern)
+				nullChecks := countDclNullChecks(file, classDecl, propName)
 				if nullChecks < 2 {
 					return
 				}

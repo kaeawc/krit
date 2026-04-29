@@ -549,11 +549,12 @@ func swallowedNavigationIdentifiers(file *scanner.File, navExpr uint32) []string
 }
 
 func swallowedIsQualifiedLoggingCall(file *scanner.File, callee string, receivers []string) bool {
-	if len(receivers) == 0 {
-		return false
-	}
 	if !swallowedLoggingCallee(callee) {
 		return false
+	}
+	timberImports := timberImportsForFile(file)
+	if len(receivers) == 0 {
+		return swallowedTimberLoggingCallee(callee) && (timberImports.members[callee] || timberImports.wildcard)
 	}
 	path := strings.Join(receivers, ".")
 	for _, receiver := range receivers {
@@ -561,6 +562,9 @@ func swallowedIsQualifiedLoggingCall(file *scanner.File, callee string, receiver
 			return true
 		}
 		if receiver == "Timber" && fileImportsFQN(file, "timber.log.Timber") {
+			return true
+		}
+		if timberImports.receivers[receiver] {
 			return true
 		}
 	}
@@ -582,6 +586,15 @@ func swallowedIsQualifiedLoggingCall(file *scanner.File, callee string, receiver
 		_, aliases := buildLoggerImportsFromAST(file)
 		_, ok := aliases[path]
 		return ok
+	}
+}
+
+func swallowedTimberLoggingCallee(callee string) bool {
+	switch callee {
+	case "v", "d", "i", "w", "e", "wtf", "log":
+		return true
+	default:
+		return false
 	}
 }
 

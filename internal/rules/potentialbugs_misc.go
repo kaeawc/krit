@@ -766,6 +766,180 @@ func ignoredReturnValueTypeName(rt *typeinfer.ResolvedType) string {
 	return "a must-use type"
 }
 
+var ignoredReturnValueCollectionSourceCalls = map[string]bool{
+	"arrayListOf":   true,
+	"asFlow":        true,
+	"asSequence":    true,
+	"emptyList":     true,
+	"emptyMap":      true,
+	"emptySet":      true,
+	"flow":          true,
+	"flowOf":        true,
+	"hashMapOf":     true,
+	"hashSetOf":     true,
+	"linkedMapOf":   true,
+	"linkedSetOf":   true,
+	"listOf":        true,
+	"mapOf":         true,
+	"mutableListOf": true,
+	"mutableMapOf":  true,
+	"mutableSetOf":  true,
+	"sequence":      true,
+	"sequenceOf":    true,
+	"setOf":         true,
+	"stream":        true,
+	"streamOf":      true,
+	"toList":        true,
+	"toMap":         true,
+	"toSet":         true,
+}
+
+var ignoredReturnValueReceiverTypeHints = []string{
+	"Array",
+	"Collection",
+	"Flow",
+	"Iterable",
+	"List",
+	"Map",
+	"Sequence",
+	"Set",
+	"Stream",
+}
+
+func ignoredReturnValueFunctionalFallbackHasReceiverEvidence(file *scanner.File, call uint32) bool {
+	if file == nil || call == 0 || file.FlatType(call) != "call_expression" {
+		return false
+	}
+	navExpr, _ := flatCallExpressionParts(file, call)
+	if navExpr == 0 || file.FlatType(navExpr) != "navigation_expression" || file.FlatNamedChildCount(navExpr) == 0 {
+		return false
+	}
+	return ignoredReturnValueReceiverLooksFunctionalSource(file, flatUnwrapParenExpr(file, file.FlatNamedChild(navExpr, 0)))
+}
+
+func ignoredReturnValueReceiverLooksFunctionalSource(file *scanner.File, receiver uint32) bool {
+	if file == nil || receiver == 0 {
+		return false
+	}
+	receiver = flatUnwrapParenExpr(file, receiver)
+	switch file.FlatType(receiver) {
+	case "simple_identifier":
+		return ignoredReturnValueIdentifierHasFunctionalType(file, file.FlatNodeText(receiver))
+	case "navigation_expression":
+		return ignoredReturnValueNavigationLooksFunctionalSource(file, receiver)
+	case "call_expression":
+		return ignoredReturnValueCallLooksFunctionalSource(file, receiver)
+	default:
+		return false
+	}
+}
+
+func ignoredReturnValueNavigationLooksFunctionalSource(file *scanner.File, nav uint32) bool {
+	if file == nil || nav == 0 || file.FlatType(nav) != "navigation_expression" {
+		return false
+	}
+	if ignoredReturnValueIdentifierHasFunctionalType(file, flatNavigationExpressionLastIdentifier(file, nav)) {
+		return true
+	}
+	if file.FlatNamedChildCount(nav) == 0 {
+		return false
+	}
+	return ignoredReturnValueReceiverLooksFunctionalSource(file, file.FlatNamedChild(nav, 0))
+}
+
+func ignoredReturnValueCallLooksFunctionalSource(file *scanner.File, call uint32) bool {
+	name := flatCallExpressionName(file, call)
+	if name == "" {
+		return false
+	}
+	if ignoredReturnValueCollectionSourceCalls[name] ||
+		ignoredReturnValueFunctionReturnsFunctionalType(file, name) {
+		return true
+	}
+	if !functionalOps[name] {
+		return false
+	}
+	return ignoredReturnValueFunctionalFallbackHasReceiverEvidence(file, call)
+}
+
+func ignoredReturnValueIdentifierHasFunctionalType(file *scanner.File, name string) bool {
+	if file == nil || name == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(idx) {
+		case "function_value_parameter", "parameter", "variable_declaration", "property_declaration":
+			declName, typeText := ignoredReturnValueDeclarationNameAndType(file, idx)
+			found = declName == name && (ignoredReturnValueTypeTextLooksFunctional(typeText) ||
+				ignoredReturnValueDeclarationInitializerLooksFunctional(file, idx))
+		}
+	})
+	return found
+}
+
+func ignoredReturnValueFunctionReturnsFunctionalType(file *scanner.File, name string) bool {
+	if file == nil || name == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if found || file.FlatType(idx) != "function_declaration" || flatFunctionName(file, idx) != name {
+			return
+		}
+		found = ignoredReturnValueTypeTextLooksFunctional(ignoredReturnValueFunctionReturnTypeText(file, idx))
+	})
+	return found
+}
+
+func ignoredReturnValueDeclarationNameAndType(file *scanner.File, idx uint32) (string, string) {
+	if file == nil || idx == 0 {
+		return "", ""
+	}
+	return extractIdentifierFlat(file, idx), explicitTypeTextFlat(file, idx)
+}
+
+func ignoredReturnValueFunctionReturnTypeText(file *scanner.File, fn uint32) string {
+	if file == nil || fn == 0 || file.FlatType(fn) != "function_declaration" {
+		return ""
+	}
+	return explicitTypeTextFlat(file, fn)
+}
+
+func ignoredReturnValueDeclarationInitializerLooksFunctional(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(idx, func(candidate uint32) {
+		if found || candidate == idx || file.FlatType(candidate) != "call_expression" {
+			return
+		}
+		found = ignoredReturnValueCallLooksFunctionalSource(file, candidate)
+	})
+	return found
+}
+
+func ignoredReturnValueTypeTextLooksFunctional(typeText string) bool {
+	typeText = strings.TrimSpace(typeText)
+	if typeText == "" {
+		return false
+	}
+	for _, hint := range ignoredReturnValueReceiverTypeHints {
+		if typeText == hint ||
+			strings.HasPrefix(typeText, hint+"<") ||
+			strings.HasPrefix(typeText, hint+"?") ||
+			strings.HasSuffix(typeText, "."+hint) ||
+			strings.Contains(typeText, "."+hint+"<") {
+			return true
+		}
+	}
+	return false
+}
+
 func stringListContains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

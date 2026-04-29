@@ -4,6 +4,8 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.Test
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
 
 interface Api {
     fun get(): String
@@ -23,5 +25,14 @@ class MockWithoutVerifyNegative {
         repo.load()
 
         verify { api.get() }
+    }
+
+    @Test
+    fun loadWithMockitoWhenever() {
+        val api = mock<Api>()
+        whenever(api.get()).thenReturn("data")
+        val repo = Repo(api)
+
+        repo.load()
     }
 }

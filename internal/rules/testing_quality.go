@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"strings"
 	"sync"
 
@@ -649,9 +650,62 @@ func testingQualityTestAllowsNoCrash(file *scanner.File, idx uint32) bool {
 	name := strings.ToLower(strings.Trim(testingQualityFunctionName(file, idx), "`"))
 	name = strings.ReplaceAll(name, "_", " ")
 	name = strings.ReplaceAll(name, "-", " ")
-	return strings.Contains(name, "no crash") ||
+	if strings.Contains(name, "no crash") ||
 		strings.Contains(name, "does not crash") ||
-		strings.Contains(name, "doesn't crash")
+		strings.Contains(name, "doesn't crash") {
+		return true
+	}
+	body, _ := file.FlatFindChild(idx, "function_body")
+	if body == 0 {
+		return false
+	}
+	return testingQualityBodyDocumentsSmokeTest(file, body)
+}
+
+func testingQualityBodyDocumentsSmokeTest(file *scanner.File, body uint32) bool {
+	start, end := file.FlatStartByte(body), file.FlatEndByte(body)
+	if end <= start || int(end) > len(file.Content) {
+		return false
+	}
+	source := file.Content[start:end]
+	if !bytes.Contains(source, []byte("crash")) &&
+		!bytes.Contains(source, []byte("Crash")) &&
+		!bytes.Contains(source, []byte("throw")) &&
+		!bytes.Contains(source, []byte("Throw")) &&
+		!bytes.Contains(source, []byte("fail")) &&
+		!bytes.Contains(source, []byte("Fail")) &&
+		!bytes.Contains(source, []byte("exception")) &&
+		!bytes.Contains(source, []byte("Exception")) {
+		return false
+	}
+	return testingQualityTextDocumentsSmokeTest(string(source))
+}
+
+func testingQualityTextDocumentsSmokeTest(text string) bool {
+	text = strings.ToLower(text)
+	text = strings.ReplaceAll(text, "’", "'")
+	smokePhrases := []string{
+		"shouldn't crash",
+		"should not crash",
+		"doesn't crash",
+		"does not crash",
+		"shouldn't throw",
+		"should not throw",
+		"doesn't throw",
+		"does not throw",
+		"does not cause an exception",
+		"doesn't cause an exception",
+		"shouldn't fail",
+		"should not fail",
+		"doesn't fail",
+		"does not fail",
+	}
+	for _, phrase := range smokePhrases {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 func testingQualityIsIgnoredTest(file *scanner.File, idx uint32) bool {
@@ -727,9 +781,24 @@ func testingQualityIsHarnessVerificationCall(file *scanner.File, idx uint32, nam
 		return testingQualityEnclosingClassHasSupertype(file, idx, "BaseIncrementalCompilationTest")
 	case "build":
 		return fileImportsFQN(file, "com.autonomousapps.kit.GradleBuilder.build")
+	case "waitFor":
+		return testingQualityIsPollingCheckWaitFor(file, idx)
 	default:
 		return false
 	}
+}
+
+func testingQualityIsPollingCheckWaitFor(file *scanner.File, idx uint32) bool {
+	if !fileImportsFQN(file, "androidx.testutils.PollingCheck") &&
+		!fileImportsFQN(file, "androidx.testutils.PollingCheck.waitFor") {
+		return false
+	}
+	nav, _ := flatCallExpressionParts(file, idx)
+	if nav == 0 {
+		return fileImportsFQN(file, "androidx.testutils.PollingCheck.waitFor")
+	}
+	segments := flatNavigationChainIdentifiers(file, nav)
+	return len(segments) == 2 && segments[0] == "PollingCheck" && segments[1] == "waitFor"
 }
 
 func testingQualityEnclosingClassHasSupertype(file *scanner.File, idx uint32, supertype string) bool {

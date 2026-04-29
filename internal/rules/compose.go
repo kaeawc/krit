@@ -672,9 +672,10 @@ var composeRememberInitializerCalls = map[string]struct{}{
 }
 
 var composeKnownCallbackBuilderCalls = map[string]struct{}{
-	"rememberDraggableState":       {},
-	"rememberDraggable2DState":     {},
-	"DropdownMenuPositionProvider": {},
+	"rememberDraggableState":            {},
+	"rememberDraggable2DState":          {},
+	"rememberLauncherForActivityResult": {},
+	"DropdownMenuPositionProvider":      {},
 }
 
 var composeModifierCallbackCalls = map[string]struct{}{

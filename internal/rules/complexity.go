@@ -558,6 +558,12 @@ func countLogicalOperatorsOutsideBodiesFlat(file *scanner.File, root uint32) int
 	count := 0
 	var walk func(uint32, bool)
 	walk = func(idx uint32, inBody bool) {
+		if idx != root {
+			switch file.FlatType(idx) {
+			case "function_declaration", "lambda_literal", "anonymous_function":
+				return
+			}
+		}
 		switch file.FlatType(idx) {
 		case "control_structure_body", "statements":
 			inBody = true
@@ -588,6 +594,12 @@ func isPureDisjunctionOrConjunctionFlat(file *scanner.File, root uint32) bool {
 	hasDisj := false
 	var walk func(uint32, bool)
 	walk = func(idx uint32, inBody bool) {
+		if idx != root {
+			switch file.FlatType(idx) {
+			case "function_declaration", "lambda_literal", "anonymous_function":
+				return
+			}
+		}
 		switch file.FlatType(idx) {
 		case "control_structure_body", "statements":
 			inBody = true

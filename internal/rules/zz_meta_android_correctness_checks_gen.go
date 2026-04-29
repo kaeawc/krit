@@ -42,18 +42,6 @@ func (r *CustomViewStyleableRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DalvikOverrideRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
-		ID:            "DalvikOverride",
-		RuleSet:       "android-lint",
-		Severity:      "",
-		Description:   "",
-		DefaultActive: false,
-		FixLevel:      "",
-		Confidence:    0.75,
-	}
-}
-
 func (r *DeprecatedRule) Meta() registry.RuleDescriptor {
 	return registry.RuleDescriptor{
 		ID:            "Deprecated",

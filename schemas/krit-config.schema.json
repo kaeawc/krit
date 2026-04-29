@@ -502,25 +502,6 @@
           },
           "type": "object"
         },
-        "DalvikOverride": {
-          "additionalProperties": false,
-          "description": "Configuration for the DalvikOverride rule.",
-          "properties": {
-            "active": {
-              "default": false,
-              "description": "Enable DalvikOverride (default: false).",
-              "type": "boolean"
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            }
-          },
-          "type": "object"
-        },
         "DebuggableManifest": {
           "additionalProperties": false,
           "description": "Configuration for the DebuggableManifest rule.",

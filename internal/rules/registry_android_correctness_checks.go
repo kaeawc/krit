@@ -383,14 +383,6 @@ func registerAndroidCorrectnessChecksRules() {
 		})
 	}
 	{
-		r := &DalvikOverrideRule{AndroidRule: alcRule("DalvikOverride", "Method considered overridden by Dalvik", ALSError, 6)}
-		v2.Register(&v2.Rule{
-			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Confidence: r.Confidence(), OriginalV1: r,
-			Check: func(ctx *v2.Context) {},
-		})
-	}
-	{
 		r := &InnerclassSeparatorRule{AndroidRule: alcRule("InnerclassSeparator", "Inner classes should use '$' not '/'", ALSWarning, 3)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),

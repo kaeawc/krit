@@ -433,6 +433,9 @@ var genericThrownFQNs = map[string]bool{
 
 func (r *TooGenericExceptionThrownRule) check(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
+	if isTestFile(file.Path) {
+		return
+	}
 	// Skip Gradle build scripts — they legitimately throw RuntimeException
 	// for build errors where the user's primary observability is stderr.
 	if strings.HasSuffix(file.Path, ".gradle.kts") {

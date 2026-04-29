@@ -198,8 +198,15 @@ type BooleanPropertyNamingRule struct {
 func (r *BooleanPropertyNamingRule) Confidence() float64 { return 0.95 }
 
 func isBooleanPropertyFlat(file *scanner.File, idx uint32) bool {
+	if extractPropertyTypeFlat(file, idx) == "Boolean" {
+		return true
+	}
 	text := file.FlatNodeText(idx)
-	return strings.Contains(text, ": Boolean") || strings.Contains(text, "= true") || strings.Contains(text, "= false")
+	if eq := strings.Index(text, "="); eq >= 0 {
+		initializer := strings.TrimSpace(text[eq+1:])
+		return initializer == "true" || initializer == "false"
+	}
+	return false
 }
 
 // ConstructorParameterNamingRule checks constructor val/var parameter names.

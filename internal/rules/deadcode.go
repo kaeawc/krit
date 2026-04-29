@@ -335,11 +335,15 @@ func deadCodeTextHasAnnotationName(text, name string) bool {
 }
 
 func deadCodeSymbolInsideDIAnnotatedContainer(sym scanner.Symbol, file *scanner.File) bool {
-	if file == nil || sym.StartByte <= 0 || sym.StartByte > len(file.Content) {
+	return deadCodeByteInsideDIAnnotatedContainer(sym.StartByte, file)
+}
+
+func deadCodeByteInsideDIAnnotatedContainer(startByte int, file *scanner.File) bool {
+	if file == nil || startByte <= 0 || startByte > len(file.Content) {
 		return false
 	}
 	content := string(file.Content)
-	searchEnd := sym.StartByte
+	searchEnd := startByte
 	for pos := strings.Index(content[:searchEnd], "@"); pos >= 0 && pos < searchEnd; {
 		annotationStart := pos
 		brace := strings.IndexByte(content[annotationStart:], '{')
@@ -347,12 +351,12 @@ func deadCodeSymbolInsideDIAnnotatedContainer(sym scanner.Symbol, file *scanner.
 			return false
 		}
 		brace += annotationStart
-		if brace >= sym.StartByte {
+		if brace >= startByte {
 			break
 		}
 		header := content[annotationStart:brace]
 		if deadCodeHeaderLooksLikeDIContainer(file, header) {
-			if closeBrace := deadCodeMatchingBrace(content, brace); closeBrace > sym.StartByte {
+			if closeBrace := deadCodeMatchingBrace(content, brace); closeBrace > startByte {
 				return true
 			}
 		}

@@ -870,6 +870,9 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *v2.Context) {
 	// Derive receiver from the first named child of the postfix_expression.
 	receiverIdx := flatFirstNamedChild(file, idx)
 	receiverText := file.FlatNodeText(receiverIdx)
+	if isNamedKClassSimpleNameLiteralReceiver(receiverText) {
+		return
+	}
 
 	// Skip proto-processor files: any Kotlin file importing Wire /
 	// com.google.protobuf / Signal's generated proto packages is treated
@@ -973,6 +976,46 @@ func fileImportsProto(file *scanner.File) bool {
 		strings.Contains(header, ".api.crypto.protos.") ||
 		strings.Contains(header, ".internal.serialize.protos.") ||
 		strings.Contains(header, "signalservice.internal.push")
+}
+
+func isNamedKClassSimpleNameLiteralReceiver(receiver string) bool {
+	const suffix = "::class.simpleName"
+	if !strings.HasSuffix(receiver, suffix) {
+		return false
+	}
+	qualifier := strings.TrimSuffix(receiver, suffix)
+	if qualifier == "" {
+		return false
+	}
+	parts := strings.Split(qualifier, ".")
+	last := parts[len(parts)-1]
+	if last == "" || last[0] < 'A' || last[0] > 'Z' {
+		return false
+	}
+	for _, part := range parts {
+		if !isKotlinIdentifierPartList(part) {
+			return false
+		}
+	}
+	return true
+}
+
+func isKotlinIdentifierPartList(text string) bool {
+	if text == "" {
+		return false
+	}
+	for i, r := range text {
+		if i == 0 {
+			if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z') {
+				return false
+			}
+			continue
+		}
+		if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
 }
 
 // fileImportsKsp reports whether the file imports KSP symbol-processing APIs.

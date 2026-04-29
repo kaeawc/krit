@@ -238,13 +238,15 @@ func registerPotentialbugsTypesRules() {
 		})
 	}
 	{
-		r := &ImplicitUnitReturnTypeRule{BaseRule: BaseRule{RuleName: "ImplicitUnitReturnType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects functions with expression bodies that implicitly return Unit without an explicit return type."}}
+		r := &ImplicitUnitReturnTypeRule{BaseRule: BaseRule{RuleName: "ImplicitUnitReturnType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects block-body functions that implicitly return Unit without an explicit return type."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
-			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) || file.FlatHasModifier(idx, "override") {
+					return
+				}
 				body, _ := file.FlatFindChild(idx, "function_body")
 				if body == 0 {
 					return
@@ -274,13 +276,6 @@ func registerPotentialbugsTypesRules() {
 				funcName := extractIdentifierFlat(file, idx)
 				if funcName == "" {
 					return
-				}
-				if ctx.Resolver != nil {
-					resolved := ctx.Resolver.ResolveByNameFlat(funcName, idx, file)
-					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown &&
-						(resolved.Kind == typeinfer.TypeUnit || resolved.Name == "Unit" || resolved.FQN == "kotlin.Unit") {
-						return
-					}
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"Function without explicit return type. Consider adding ': Unit' or the appropriate return type.")

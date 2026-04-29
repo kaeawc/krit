@@ -25,6 +25,9 @@ func registerCommentsRules() {
 			NodeTypes: []string{"multiline_comment"}, Confidence: 0.95, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) || isGradleBuildScript(file.Path) {
+					return
+				}
 				if !flatIsKDoc(file, idx) {
 					return
 				}
@@ -99,6 +102,9 @@ func registerCommentsRules() {
 			NodeTypes: []string{"multiline_comment"}, Confidence: 0.95, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) || isGradleBuildScript(file.Path) {
+					return
+				}
 				if !flatIsKDoc(file, idx) {
 					return
 				}
@@ -197,10 +203,7 @@ func registerCommentsRules() {
 				if !isPublicDeclarationFlat(file, idx) {
 					return
 				}
-				if file.FlatHasModifier(idx, "override") {
-					return
-				}
-				if _, ok := flatPrecedingKDoc(file, idx); ok {
+				if shouldSkipPublicDocumentationRule(file, idx) {
 					return
 				}
 				name := extractIdentifierFlat(file, idx)
@@ -222,10 +225,7 @@ func registerCommentsRules() {
 				if !isPublicDeclarationFlat(file, idx) {
 					return
 				}
-				if file.FlatHasModifier(idx, "override") {
-					return
-				}
-				if _, ok := flatPrecedingKDoc(file, idx); ok {
+				if shouldSkipPublicDocumentationRule(file, idx) {
 					return
 				}
 				name := extractIdentifierFlat(file, idx)
@@ -247,10 +247,7 @@ func registerCommentsRules() {
 				if !isPublicDeclarationFlat(file, idx) {
 					return
 				}
-				if file.FlatHasModifier(idx, "override") {
-					return
-				}
-				if _, ok := flatPrecedingKDoc(file, idx); ok {
+				if shouldSkipPublicDocumentationRule(file, idx) {
 					return
 				}
 				name := extractIdentifierFlat(file, idx)
@@ -262,4 +259,34 @@ func registerCommentsRules() {
 			},
 		})
 	}
+}
+
+func shouldSkipPublicDocumentationRule(file *scanner.File, idx uint32) bool {
+	if file == nil {
+		return true
+	}
+	if isTestFile(file.Path) {
+		return true
+	}
+	if isGradleBuildScript(file.Path) {
+		return true
+	}
+	if file.FlatHasModifier(idx, "override") {
+		return true
+	}
+	if _, ok := flatPrecedingKDoc(file, idx); ok {
+		return true
+	}
+	if deadCodeDeclarationHasDIAnnotation(file, idx) {
+		return true
+	}
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		if file.FlatType(parent) == "source_file" {
+			break
+		}
+		if deadCodeDeclarationHasDIAnnotation(file, parent) {
+			return true
+		}
+	}
+	return deadCodeByteInsideDIAnnotatedContainer(int(file.FlatStartByte(idx)), file)
 }

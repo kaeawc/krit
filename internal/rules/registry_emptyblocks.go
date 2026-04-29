@@ -110,6 +110,9 @@ func registerEmptyblocksRules() {
 				if mods, ok := file.FlatFindChild(ctor, "modifiers"); ok && file.FlatHasChildOfType(mods, "annotation") {
 					return
 				}
+				if deadCodeDeclarationHasDIAnnotation(file, idx) {
+					return
+				}
 				f := r.Finding(file, file.FlatRow(ctor)+1, 1,
 					"Empty default constructor detected. It can be removed.")
 				startByte := int(file.FlatStartByte(ctor))

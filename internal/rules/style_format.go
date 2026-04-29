@@ -479,6 +479,9 @@ func (r *MaxChainedCallsOnSameLineRule) Confidence() float64 { return 0.75 }
 
 func (r *MaxChainedCallsOnSameLineRule) check(ctx *v2.Context) {
 	file := ctx.File
+	if isTestFile(file.Path) || isGradleBuildScript(file.Path) {
+		return
+	}
 	for i, line := range file.Lines {
 		if scanner.IsCommentLine(line) {
 			continue
@@ -536,8 +539,6 @@ type UnderscoresInNumericLiteralsRule struct {
 // deterministic byte checks have been promoted to tier-1 separately.
 // Classified per roadmap/17.
 func (r *UnderscoresInNumericLiteralsRule) Confidence() float64 { return 0.75 }
-
-
 
 // formatWithUnderscores inserts underscores every 3 digits from the right for readability.
 func formatWithUnderscores(digits string) string {

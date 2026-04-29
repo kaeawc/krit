@@ -198,6 +198,97 @@ func flatFunctionParameterNames(file *scanner.File, funcDecl uint32) []string {
 	return names
 }
 
+func flatCallForwardsEnclosingFunctionParameters(file *scanner.File, call, args uint32) bool {
+	if file == nil || args == 0 {
+		return false
+	}
+	fn, ok := flatEnclosingAncestor(file, call, "function_declaration")
+	if !ok {
+		return false
+	}
+	params := flatFunctionParameterNames(file, fn)
+	if len(params) == 0 {
+		return false
+	}
+	paramNames := make(map[string]bool, len(params))
+	for _, name := range params {
+		paramNames[name] = true
+	}
+	total := 0
+	forwarded := 0
+	for child := file.FlatFirstChild(args); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "value_argument" {
+			continue
+		}
+		total++
+		text := strings.TrimSpace(file.FlatNodeText(child))
+		if paramNames[text] {
+			forwarded++
+		}
+	}
+	return total > 0 && forwarded >= len(params) && forwarded >= total-1
+}
+
+func stripKotlinComments(text string) string {
+	var b strings.Builder
+	b.Grow(len(text))
+	inLineComment := false
+	inBlockComment := false
+	inString := false
+	escaped := false
+	for i := 0; i < len(text); i++ {
+		ch := text[i]
+		if inLineComment {
+			if ch == '\n' {
+				inLineComment = false
+				b.WriteByte(ch)
+			}
+			continue
+		}
+		if inBlockComment {
+			if ch == '*' && i+1 < len(text) && text[i+1] == '/' {
+				inBlockComment = false
+				i++
+			}
+			continue
+		}
+		if inString {
+			b.WriteByte(ch)
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		if ch == '"' {
+			inString = true
+			b.WriteByte(ch)
+			continue
+		}
+		if ch == '/' && i+1 < len(text) {
+			switch text[i+1] {
+			case '/':
+				inLineComment = true
+				i++
+				continue
+			case '*':
+				inBlockComment = true
+				i++
+				continue
+			}
+		}
+		b.WriteByte(ch)
+	}
+	return b.String()
+}
+
 func flatReceiverNameFromCall(file *scanner.File, idx uint32) string {
 	navExpr, _ := flatCallExpressionParts(file, idx)
 	if navExpr == 0 || file.FlatNamedChildCount(navExpr) == 0 {

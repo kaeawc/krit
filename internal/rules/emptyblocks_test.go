@@ -354,6 +354,39 @@ class Foo(val name: String) {
 	}
 }
 
+func TestEmptyDefaultConstructor_IgnoresDIAnnotatedConstructors(t *testing.T) {
+	findings := runRuleByName(t, "EmptyDefaultConstructor", `
+package test
+
+import dev.zacsweers.metro.ContributesBinding
+import dev.zacsweers.metro.Inject
+
+interface Service
+
+@ContributesBinding(AppScope::class)
+@Inject
+class RealService() : Service
+
+object AppScope
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for DI annotated empty constructor, got %d", len(findings))
+	}
+}
+
+func TestEmptyDefaultConstructor_UsesLocalASTOnly(t *testing.T) {
+	rule := buildRuleIndex()["EmptyDefaultConstructor"]
+	if rule == nil {
+		t.Fatal("EmptyDefaultConstructor rule is not registered")
+	}
+	if rule.Needs != 0 {
+		t.Fatalf("EmptyDefaultConstructor should remain AST-only, got needs %v", rule.Needs)
+	}
+	if rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil || rule.Oracle != nil {
+		t.Fatal("EmptyDefaultConstructor should not declare oracle metadata")
+	}
+}
+
 // --- EmptyKotlinFile ---
 
 func TestEmptyKotlinFile_Positive(t *testing.T) {

@@ -817,6 +817,54 @@ class TestWithoutAssertionExpectedExceptionNegative {
 	}
 }
 
+func TestTestWithoutAssertion_NegativeAssertionErrorThrow(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class AssertionErrorThrowNegative {
+    @Test
+    fun all() {
+        runTests()
+    }
+
+    private fun runTests() {
+        if (failed()) {
+            throw AssertionError("Some tests failed")
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected helper throwing AssertionError to count as assertion, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeNoCrashSmokeTestName(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", ""+
+		`
+package test
+
+import org.junit.Test
+
+class NoCrashSmokeNegative {
+    @Test
+    fun `+"`"+`Given null, when I logFields, then I expect no crash`+"`"+`() {
+        logFields(null)
+    }
+
+    @Test
+    fun `+"`"+`delay completes without real wall-clock wait`+"`"+`() {
+        providerDelay()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no-crash/no-throw smoke tests to be accepted, got %d", len(findings))
+	}
+}
+
 func TestTestWithoutAssertion_UsesLocalASTOnly(t *testing.T) {
 	rule := buildRuleIndex()["TestWithoutAssertion"]
 	if rule == nil {

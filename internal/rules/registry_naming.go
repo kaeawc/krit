@@ -173,6 +173,9 @@ func registerNamingRules() {
 			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) || !isPublicDeclarationFlat(file, idx) {
+					return
+				}
 				if !isBooleanPropertyFlat(file, idx) {
 					return
 				}
@@ -255,6 +258,9 @@ func registerNamingRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) {
+					return
+				}
 				name := extractIdentifierFlat(file, idx)
 				if name != "" && len(name) > r.MaxLength {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Function name '%s' exceeds maximum length of %d (length: %d)", name, r.MaxLength, len(name)))
@@ -270,6 +276,9 @@ func registerNamingRules() {
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := extractIdentifierFlat(file, idx)
+				if isAllowedShortFunctionName(name) {
+					return
+				}
 				if name != "" && len(name) < r.MinLength {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Function name '%s' is below minimum length of %d (length: %d)", name, r.MinLength, len(name)))
 				}
@@ -655,5 +664,14 @@ func registerNamingRules() {
 				}
 			},
 		})
+	}
+}
+
+func isAllowedShortFunctionName(name string) bool {
+	switch name {
+	case "d", "e", "i", "v", "w":
+		return true
+	default:
+		return false
 	}
 }

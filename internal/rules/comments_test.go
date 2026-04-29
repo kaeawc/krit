@@ -71,6 +71,40 @@ val myProp: String = "hello"
 	}
 }
 
+func TestUndocumentedPublicProperty_IgnoresLocalVals(t *testing.T) {
+	findings := runRuleByName(t, "UndocumentedPublicProperty", `
+package test
+
+fun render() {
+    val scrollState = rememberState()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for local vals, got %d", len(findings))
+	}
+}
+
+func TestUndocumentedPublicRules_IgnoreTestSources(t *testing.T) {
+	code := `
+package test
+
+class Fixture {
+    val subject = Any()
+    fun setUp() {}
+}
+`
+	for _, ruleName := range []string{
+		"UndocumentedPublicClass",
+		"UndocumentedPublicFunction",
+		"UndocumentedPublicProperty",
+	} {
+		findings := runRuleByNameOnPath(t, ruleName, "src/test/kotlin/Fixture.kt", code)
+		if len(findings) != 0 {
+			t.Fatalf("%s should ignore test sources, got %d findings", ruleName, len(findings))
+		}
+	}
+}
+
 func TestUndocumentedPublicProperty_Negative(t *testing.T) {
 	findings := runRuleByName(t, "UndocumentedPublicProperty", `
 package test
@@ -80,6 +114,66 @@ val myProp: String = "hello"
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for documented public property, got %d", len(findings))
+	}
+}
+
+func TestUndocumentedPublicRules_IgnoreGradleBuildScripts(t *testing.T) {
+	code := `
+plugins {
+    id("com.android.application")
+}
+
+val customLintConfig = "lint.xml"
+
+fun helperTaskName() = "lint"
+`
+	for _, ruleName := range []string{
+		"UndocumentedPublicFunction",
+		"UndocumentedPublicProperty",
+	} {
+		findings := runRuleByNameOnPath(t, ruleName, "build.gradle.kts", code)
+		if len(findings) != 0 {
+			t.Fatalf("%s should ignore Gradle build scripts, got %d findings", ruleName, len(findings))
+		}
+	}
+}
+
+func TestUndocumentedPublicRules_IgnoreGeneratedDIDeclarations(t *testing.T) {
+	code := `
+package test
+
+import dev.zacsweers.metro.ContributesTo
+import dev.zacsweers.metro.DependencyGraph
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.Provides
+
+@DependencyGraph(AppScope::class)
+interface AppGraph {
+    fun inject(target: App)
+    val application: App
+}
+
+@ContributesTo(AppScope::class)
+interface ApplicationModule {
+    @Provides
+    fun provideClock(): Clock = Clock()
+}
+
+/** Application target. */
+class App
+
+/** Clock dependency. */
+class Clock
+`
+	for _, ruleName := range []string{
+		"UndocumentedPublicClass",
+		"UndocumentedPublicFunction",
+		"UndocumentedPublicProperty",
+	} {
+		findings := runRuleByName(t, ruleName, code)
+		if len(findings) != 0 {
+			t.Fatalf("%s should ignore DI declarations consumed by generated code, got %d findings: %+v", ruleName, len(findings), findings)
+		}
 	}
 }
 
@@ -158,6 +252,21 @@ fun foo() {}
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for properly punctuated KDoc, got %d", len(findings))
+	}
+}
+
+func TestEndOfSentenceFormat_IgnoresGradleAndTestSources(t *testing.T) {
+	code := `
+package test
+
+/** Fixture documentation without punctuation */
+fun foo() {}
+`
+	for _, path := range []string{"build.gradle.kts", "src/test/kotlin/FooTest.kt"} {
+		findings := runRuleByNameOnPath(t, "EndOfSentenceFormat", path, code)
+		if len(findings) != 0 {
+			t.Fatalf("expected no EndOfSentenceFormat findings for %s, got %d", path, len(findings))
+		}
 	}
 }
 

@@ -921,3 +921,33 @@ fun example() {
 		t.Fatalf("expected 0 findings for 3 unnamed args (at threshold), got %d", len(findings))
 	}
 }
+
+func TestNamedArguments_IgnoresGradleAndTestSources(t *testing.T) {
+	code := `
+package test
+fun example() {
+    createUser("Alice", 30, "admin", "active")
+}
+`
+	for _, path := range []string{"build.gradle.kts", "src/test/kotlin/FooTest.kt"} {
+		findings := runRuleByNameOnPath(t, "NamedArguments", path, code)
+		if len(findings) != 0 {
+			t.Fatalf("expected no NamedArguments findings for %s, got %d", path, len(findings))
+		}
+	}
+}
+
+func TestNamedArguments_IgnoresForwardingWrappers(t *testing.T) {
+	findings := runRuleByName(t, "NamedArguments", `
+package test
+enum class Priority { DEBUG }
+interface Logger {
+    fun log(priority: Priority, tag: String, message: String, throwable: Throwable? = null)
+}
+fun Logger.d(tag: String, message: String, throwable: Throwable? = null) =
+    log(Priority.DEBUG, tag, message, throwable)
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for forwarding wrapper call, got %d", len(findings))
+	}
+}

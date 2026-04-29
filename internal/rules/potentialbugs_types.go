@@ -728,7 +728,7 @@ func (r *DontDowncastCollectionTypesRule) check(ctx *v2.Context) {
 }
 
 // ---------------------------------------------------------------------------
-// ImplicitUnitReturnTypeRule detects functions without explicit return type.
+// ImplicitUnitReturnTypeRule detects block-body functions without explicit Unit return type.
 // ---------------------------------------------------------------------------
 type ImplicitUnitReturnTypeRule struct {
 	FlatDispatchBase
@@ -736,12 +736,11 @@ type ImplicitUnitReturnTypeRule struct {
 }
 
 // Confidence reports a tier-2 (medium) base confidence because this
-// rule fires on any function_declaration lacking an explicit return
-// type when the resolver is absent. That includes @Composable
-// functions, which conventionally omit ': Unit' — a convention
-// mismatch rather than a bug, but one that produces noise on Compose
-// codebases. Medium confidence keeps it off default-strict gates
-// without taking it out of the rule set.
+// rule fires on block-body function_declarations lacking an explicit
+// return type. That includes @Composable functions, which conventionally
+// omit ': Unit' — a convention mismatch rather than a bug, but one that
+// produces noise on Compose codebases. Medium confidence keeps it off
+// default-strict gates without taking it out of the rule set.
 func (r *ImplicitUnitReturnTypeRule) Confidence() float64 { return 0.75 }
 
 // ---------------------------------------------------------------------------

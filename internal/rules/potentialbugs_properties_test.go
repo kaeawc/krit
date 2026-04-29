@@ -146,3 +146,31 @@ fun main() {
 		t.Fatalf("expected no findings, got %d", len(findings))
 	}
 }
+
+func TestUnnamedParameterUse_IgnoresGradleAndTestSources(t *testing.T) {
+	code := `
+package test
+fun create(a: Int, b: Int, c: Int, d: Int, e: Int) = a + b + c + d + e
+fun main() {
+    create(1, 2, 3, 4, 5)
+}
+`
+	for _, path := range []string{"build.gradle.kts", "src/test/kotlin/FooTest.kt"} {
+		findings := runRuleByNameOnPath(t, "UnnamedParameterUse", path, code)
+		if len(findings) != 0 {
+			t.Fatalf("expected no UnnamedParameterUse findings for %s, got %d", path, len(findings))
+		}
+	}
+}
+
+func TestUnnamedParameterUse_IgnoresForwardingWrappers(t *testing.T) {
+	findings := runRuleByName(t, "UnnamedParameterUse", `
+package test
+fun target(level: Int, tag: String, message: String, throwable: Throwable? = null, marker: String? = null) = Unit
+fun wrapper(tag: String, message: String, throwable: Throwable? = null, marker: String? = null) =
+    target(1, tag, message, throwable, marker)
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for forwarding wrapper call, got %d", len(findings))
+	}
+}

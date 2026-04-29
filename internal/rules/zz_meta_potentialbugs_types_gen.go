@@ -117,7 +117,7 @@ func (r *ImplicitUnitReturnTypeRule) Meta() registry.RuleDescriptor {
 		ID:            "ImplicitUnitReturnType",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
-		Description:   "Detects functions with expression bodies that implicitly return Unit without an explicit return type.",
+		Description:   "Detects block-body functions that implicitly return Unit without an explicit return type.",
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,

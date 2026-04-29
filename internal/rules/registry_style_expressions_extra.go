@@ -17,8 +17,11 @@ func registerStyleExpressionsExtraRules() {
 			NodeTypes: []string{"lambda_literal"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) || isGradleBuildScript(file.Path) {
+					return
+				}
 				startLine := file.FlatRow(idx)
-				bodyText := file.FlatNodeText(idx)
+				bodyText := stripKotlinComments(file.FlatNodeText(idx))
 				endLine := startLine + strings.Count(bodyText, "\n")
 				if startLine == endLine {
 					return // single-line lambda, ok

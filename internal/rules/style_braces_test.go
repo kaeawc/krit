@@ -25,6 +25,22 @@ func parseBracesInline(t *testing.T, code string) *scanner.File {
 	return f
 }
 
+func parseBracesPath(t *testing.T, name, code string) *scanner.File {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := scanner.ParseFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
 // makeBracesIfV2Rule wraps a BracesOnIfStatementsRule in a native v2.Rule,
 // delegating to the (unexported) checkFlatNode implementation.
 func makeBracesIfV2Rule(rule *BracesOnIfStatementsRule) *v2.Rule {
@@ -219,5 +235,46 @@ fun example(x: Int): String {
 }`)
 	if findings.Len() != 0 {
 		t.Errorf("expected no findings when all when entries have braces, got %d", findings.Len())
+	}
+}
+
+func TestBracesOnWhenStatements_IgnoresTestSources(t *testing.T) {
+	rule := &BracesOnWhenStatementsRule{
+		BaseRule:   BaseRule{RuleName: "BracesOnWhenStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects when branches that are missing braces around their bodies."},
+		SingleLine: "always",
+		MultiLine:  "always",
+	}
+	file := parseBracesPath(t, "src/test/kotlin/FooTest.kt", `
+package test
+fun example(x: Int): String {
+    return when (x) {
+        1 -> "one"
+        else -> "other"
+    }
+}
+`)
+	d := NewDispatcherV2([]*v2.Rule{makeBracesWhenV2Rule(rule)})
+	findings := d.Run(file)
+	if findings.Len() != 0 {
+		t.Fatalf("expected no findings for test sources, got %d", findings.Len())
+	}
+}
+
+func TestBracesOnIfStatements_IgnoresTestSources(t *testing.T) {
+	rule := &BracesOnIfStatementsRule{
+		BaseRule:   BaseRule{RuleName: "BracesOnIfStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects if/else statements that are missing braces around their bodies."},
+		SingleLine: "always",
+		MultiLine:  "always",
+	}
+	file := parseBracesPath(t, "src/test/kotlin/FooTest.kt", `
+package test
+fun example(x: Boolean) {
+    if (x) println("yes")
+}
+`)
+	d := NewDispatcherV2([]*v2.Rule{makeBracesIfV2Rule(rule)})
+	findings := d.Run(file)
+	if findings.Len() != 0 {
+		t.Fatalf("expected no findings for test sources, got %d", findings.Len())
 	}
 }

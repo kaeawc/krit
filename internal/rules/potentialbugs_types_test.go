@@ -226,6 +226,40 @@ fun doSomething(): Unit {
 	}
 }
 
+func TestImplicitUnitReturnType_IgnoresTestFunctions(t *testing.T) {
+	findings := runRuleByNameOnPath(t, "ImplicitUnitReturnType", "src/test/kotlin/FooTest.kt", `
+package test
+
+class FooTest {
+    @Test
+    fun doesSomethingUseful() {
+        println("hello")
+    }
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "ImplicitUnitReturnType" {
+			t.Errorf("ImplicitUnitReturnType should ignore test functions, got: %s", f.Message)
+		}
+	}
+}
+
+func TestImplicitUnitReturnType_IgnoresOverrides(t *testing.T) {
+	findings := runRuleByName(t, "ImplicitUnitReturnType", `
+package test
+class Foo : Runnable {
+    override fun run() {
+        println("hello")
+    }
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "ImplicitUnitReturnType" {
+			t.Errorf("ImplicitUnitReturnType should ignore overrides, got: %s", f.Message)
+		}
+	}
+}
+
 // --- AvoidReferentialEquality ---
 
 func TestAvoidReferentialEquality_Positive(t *testing.T) {

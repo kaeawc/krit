@@ -294,6 +294,9 @@ func registerComplexityRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if isTestFile(file.Path) || isGradleBuildScript(file.Path) {
+					return
+				}
 				args, _ := file.FlatFindChild(idx, "value_arguments")
 				if args == 0 {
 					callSuffix, _ := file.FlatFindChild(idx, "call_suffix")
@@ -325,6 +328,9 @@ func registerComplexityRules() {
 					}
 				}
 				if unnamed > r.AllowedArguments {
+					if flatCallForwardsEnclosingFunctionParameters(file, idx, args) {
+						return
+					}
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,
 						fmt.Sprintf("Function call has %d unnamed arguments (allowed: %d). Use named arguments.", unnamed, r.AllowedArguments))
 				}

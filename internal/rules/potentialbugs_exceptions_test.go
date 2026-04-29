@@ -147,6 +147,18 @@ fun main() {
 	}
 }
 
+func TestTooGenericExceptionThrown_IgnoresTestSources(t *testing.T) {
+	findings := runRuleByNameOnPath(t, "TooGenericExceptionThrown", "src/test/kotlin/FooTest.kt", `
+package test
+fun main() {
+    throw RuntimeException("boom")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for test sources, got %d", len(findings))
+	}
+}
+
 // --- UnreachableCatchBlock ---
 
 func TestUnreachableCatchBlock_Positive(t *testing.T) {

@@ -165,6 +165,57 @@ func TestDoubleMutabilityForCollectionStaysLocalASTOnly(t *testing.T) {
 	}
 }
 
+func TestImplicitUnitReturnTypeStaysLocalASTOnly(t *testing.T) {
+	rule := findRegisteredRule(t, "ImplicitUnitReturnType")
+	if rule.Needs != 0 {
+		t.Fatalf("ImplicitUnitReturnType should not require resolver, type info, parsed files, or project indexes; got Needs=%b", rule.Needs)
+	}
+	if RuleNeedsKotlinOracle(rule) {
+		t.Fatalf("ImplicitUnitReturnType should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+	}
+}
+
+func TestVettedStyleAndNamingRulesStayOffKAA(t *testing.T) {
+	cases := []struct {
+		id        string
+		wantNeeds v2.Capabilities
+	}{
+		{"BooleanPropertyNaming", 0},
+		{"BracesOnIfStatements", 0},
+		{"BracesOnWhenStatements", 0},
+		{"EndOfSentenceFormat", 0},
+		{"ExpressionBodySyntax", 0},
+		{"ForbiddenComment", 0},
+		{"FunctionNameMinLength", 0},
+		{"MaxChainedCallsOnSameLine", v2.NeedsLinePass},
+		{"MultilineLambdaItParameter", 0},
+		{"NamedArguments", 0},
+		{"UnnamedParameterUse", 0},
+	}
+	for _, tc := range cases {
+		rule := findRegisteredRule(t, tc.id)
+		if rule.Needs != tc.wantNeeds {
+			t.Fatalf("%s Needs=%b, want %b", tc.id, rule.Needs, tc.wantNeeds)
+		}
+		if RuleNeedsKotlinOracle(rule) {
+			t.Fatalf("%s should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+				tc.id, rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+		}
+	}
+}
+
+func TestTooGenericExceptionThrownStaysResolverOnly(t *testing.T) {
+	rule := findRegisteredRule(t, "TooGenericExceptionThrown")
+	if rule.Needs != v2.NeedsResolver {
+		t.Fatalf("TooGenericExceptionThrown Needs=%b, want resolver only", rule.Needs)
+	}
+	if RuleNeedsKotlinOracle(rule) {
+		t.Fatalf("TooGenericExceptionThrown should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+	}
+}
+
 func TestTimberTreeNotPlantedUsesLexicalHintsForLoggerCallees(t *testing.T) {
 	rule := findRegisteredRule(t, "TimberTreeNotPlanted")
 	if rule.OracleCallTargets == nil {

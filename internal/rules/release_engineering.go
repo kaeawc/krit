@@ -633,6 +633,18 @@ var printlnNames = map[string]bool{
 	"print":   true,
 }
 
+func isProductionPrintCallFlat(file *scanner.File, idx uint32, name, receiver string) bool {
+	if !printlnNames[name] {
+		return false
+	}
+	callee, _ := flatCallExpressionParts(file, idx)
+	if callee != 0 && file.FlatType(callee) == "navigation_expression" {
+		text := strings.Join(strings.Fields(file.FlatNodeText(callee)), "")
+		return strings.HasPrefix(text, "System.out.") || strings.HasPrefix(text, "System.err.")
+	}
+	return receiver == ""
+}
+
 // PrintStackTraceInProductionRule flags e.printStackTrace() calls in non-test
 // files that import a logging framework.
 type PrintStackTraceInProductionRule struct {

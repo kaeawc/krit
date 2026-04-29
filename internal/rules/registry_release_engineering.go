@@ -142,19 +142,12 @@ func registerReleaseEngineeringRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: 0.85, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if isTestFile(file.Path) {
+				if isTestFile(file.Path) || isGradleBuildScript(file.Path) {
 					return
 				}
 				name := flatCallExpressionName(file, idx)
 				receiver := flatReceiverNameFromCall(file, idx)
-				isPrint := false
-				if printlnNames[name] && receiver == "" {
-					isPrint = true
-				}
-				if (name == "println" || name == "print") && (receiver == "System.out" || receiver == "System.err") {
-					isPrint = true
-				}
-				if !isPrint {
+				if !isProductionPrintCallFlat(file, idx, name, receiver) {
 					return
 				}
 				// Exclude if inside a top-level fun main()

@@ -285,26 +285,34 @@ func countSignificantLines(file *scanner.File, startRow, endRow int) int {
 		endRow = len(file.Lines) - 1
 	}
 	count := 0
-	inBlockComment := false
-	inRawString := false
+	state := lineScanState{}
 	for i := startRow; i <= endRow; i++ {
 		line := file.Lines[i]
 		trimmed := strings.TrimSpace(line)
-		// Track triple-quoted raw string toggles. An odd number of `"""`
-		// tokens on a line flips state.
-		rawToggles := strings.Count(line, `"""`)
-		priorRaw := inRawString
-		if rawToggles%2 == 1 {
-			inRawString = !inRawString
-		}
-		if priorRaw && inRawString {
-			// Entirely inside a raw string — skip.
+		priorBlockComment := state.inBlockComment
+		priorRawString := state.inRawString
+		scanLineState(line, &state)
+		// Entirely inside a raw string from start to end — string content,
+		// not a source line.
+		if priorRawString && state.inRawString {
 			continue
 		}
-		if inBlockComment {
-			if strings.Contains(line, "*/") {
-				inBlockComment = false
+		// Entirely inside a block comment from start to end.
+		if priorBlockComment && state.inBlockComment {
+			continue
+		}
+		if priorBlockComment {
+			// Block comment closed mid-line; if nothing else of substance
+			// remains we still skip. A simple heuristic: if the line ends
+			// with `*/` and has no further code, treat as comment-only.
+			idx := strings.Index(line, "*/")
+			if idx >= 0 {
+				rest := strings.TrimSpace(line[idx+2:])
+				if rest == "" {
+					continue
+				}
 			}
+			count++
 			continue
 		}
 		if trimmed == "" {
@@ -319,13 +327,90 @@ func countSignificantLines(file *scanner.File, startRow, endRow int) int {
 		}
 		if strings.HasPrefix(trimmed, "/*") {
 			if !strings.Contains(trimmed[2:], "*/") {
-				inBlockComment = true
+				// Stays in block comment; already reflected in state.
 			}
 			continue
 		}
 		count++
 	}
 	return count
+}
+
+// lineScanState tracks lexical state across lines for countSignificantLines.
+type lineScanState struct {
+	inBlockComment bool
+	inRawString    bool
+}
+
+// scanLineState advances the line-scan state by walking `line` character by
+// character, properly skipping content inside line comments, block comments,
+// regular `"..."` strings (with `\"` escapes), and raw `"""..."""` strings.
+// Only `"""` delimiters that appear in actual code position toggle the
+// raw-string state — occurrences inside comments or regular strings are
+// ignored.
+func scanLineState(line string, st *lineScanState) {
+	i := 0
+	n := len(line)
+	inLineComment := false
+	inRegString := false
+	for i < n {
+		if inLineComment {
+			return
+		}
+		if st.inBlockComment {
+			if i+1 < n && line[i] == '*' && line[i+1] == '/' {
+				st.inBlockComment = false
+				i += 2
+				continue
+			}
+			i++
+			continue
+		}
+		if st.inRawString {
+			if i+2 < n && line[i] == '"' && line[i+1] == '"' && line[i+2] == '"' {
+				st.inRawString = false
+				i += 3
+				continue
+			}
+			i++
+			continue
+		}
+		if inRegString {
+			if line[i] == '\\' && i+1 < n {
+				i += 2
+				continue
+			}
+			if line[i] == '"' {
+				inRegString = false
+				i++
+				continue
+			}
+			i++
+			continue
+		}
+		// Code position.
+		if i+1 < n && line[i] == '/' && line[i+1] == '/' {
+			inLineComment = true
+			i += 2
+			continue
+		}
+		if i+1 < n && line[i] == '/' && line[i+1] == '*' {
+			st.inBlockComment = true
+			i += 2
+			continue
+		}
+		if i+2 < n && line[i] == '"' && line[i+1] == '"' && line[i+2] == '"' {
+			st.inRawString = true
+			i += 3
+			continue
+		}
+		if line[i] == '"' {
+			inRegString = true
+			i++
+			continue
+		}
+		i++
+	}
 }
 
 func flatEndRow(file *scanner.File, idx uint32) int {

@@ -655,18 +655,87 @@ func (r *NoNameShadowingRule) reportIfShadowedFlat(ctx *shadowScanCtx, name stri
 	}
 }
 
+// isNullNarrowingSelfShadowFlat returns true when `decl` is the canonical
+// Kotlin null-narrowing self-shadow idiom, e.g.:
+//
+//	val foo = foo ?: return
+//	val foo = foo?.bar
+//	val foo = foo?.bar ?: default
+//	val foo = foo?.let { ... } ?: default
+//
+// The detection walks the initializer AST rather than scanning text — this
+// avoids false matches on byte sequences like `?:` that may appear in
+// comments, string literals, or unrelated subexpressions.
 func isNullNarrowingSelfShadowFlat(file *scanner.File, decl uint32, name string) bool {
-	text := file.FlatNodeText(decl)
-	eq := strings.Index(text, "=")
-	if eq < 0 {
+	init := declInitializerFlat(file, decl)
+	if init == 0 {
 		return false
 	}
-	rhs := strings.TrimSpace(text[eq+1:])
-	if !strings.HasPrefix(rhs, name) {
-		return false
+	// Strip parens.
+	for file.FlatType(init) == "parenthesized_expression" && file.FlatNamedChildCount(init) > 0 {
+		init = file.FlatNamedChild(init, 0)
 	}
-	after := strings.TrimSpace(rhs[len(name):])
-	return strings.HasPrefix(after, "?:") || strings.HasPrefix(after, "?.")
+	// The initializer must use `?:` (elvis) or `?.` (safe call) somewhere
+	// in its leftmost spine.
+	requiresNullOp := false
+	cur := init
+	for {
+		switch file.FlatType(cur) {
+		case "parenthesized_expression":
+			if file.FlatNamedChildCount(cur) == 0 {
+				return false
+			}
+			cur = file.FlatNamedChild(cur, 0)
+			continue
+		case "elvis_expression":
+			requiresNullOp = true
+			if file.FlatNamedChildCount(cur) == 0 {
+				return false
+			}
+			cur = file.FlatNamedChild(cur, 0)
+			continue
+		case "navigation_expression":
+			if flatNavigationHasSafeCall(file, cur) {
+				requiresNullOp = true
+			}
+			if file.FlatNamedChildCount(cur) == 0 {
+				return false
+			}
+			cur = file.FlatNamedChild(cur, 0)
+			continue
+		case "call_expression":
+			// Descend into the callee/receiver (first named child).
+			if file.FlatNamedChildCount(cur) == 0 {
+				return false
+			}
+			cur = file.FlatNamedChild(cur, 0)
+			continue
+		case "simple_identifier":
+			return requiresNullOp && file.FlatNodeText(cur) == name
+		default:
+			return false
+		}
+	}
+}
+
+// declInitializerFlat returns the named initializer expression of a property
+// or variable declaration (the node following the `=` token), or 0 if none.
+func declInitializerFlat(file *scanner.File, decl uint32) uint32 {
+	seenEq := false
+	for c := file.FlatFirstChild(decl); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "=" {
+			seenEq = true
+			continue
+		}
+		if seenEq && file.FlatIsNamed(c) {
+			t := file.FlatType(c)
+			if t == "line_comment" || t == "multiline_comment" {
+				continue
+			}
+			return c
+		}
+	}
+	return 0
 }
 
 func noNameShadowHasLocalSuppression(file *scanner.File, decl uint32) bool {

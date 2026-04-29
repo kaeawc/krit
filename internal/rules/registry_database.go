@@ -122,6 +122,14 @@ func registerDatabaseRules() {
 		})
 	}
 	{
+		r := &RoomConflictStrategyReplaceOnFkRule{BaseRule: BaseRule{RuleName: "RoomConflictStrategyReplaceOnFk", RuleSetName: "database", Sev: "warning", Desc: "Detects @Insert(onConflict = REPLACE) on a Room entity that declares foreign keys; REPLACE deletes and re-inserts, cascading FK deletes."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &JdbcPreparedStatementNotClosedRule{BaseRule: BaseRule{RuleName: "JdbcPreparedStatementNotClosed", RuleSetName: "database", Sev: "warning", Desc: "Detects JDBC prepared statements assigned to local properties without .use {} or .close() in the same scope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

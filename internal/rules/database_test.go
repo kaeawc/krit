@@ -1,6 +1,13 @@
 package rules_test
 
-import "testing"
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
+)
 
 func TestDatabaseInstanceRecreated_Positive(t *testing.T) {
 	findings := runRuleByName(t, "DatabaseInstanceRecreated", `
@@ -202,6 +209,77 @@ interface UserDao {
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings when all @Dao functions are annotated, got %v", findings)
 	}
+}
+
+func TestRoomConflictStrategyReplaceOnFk(t *testing.T) {
+	rule := buildRuleIndex()["RoomConflictStrategyReplaceOnFk"]
+	if rule == nil {
+		t.Fatal("RoomConflictStrategyReplaceOnFk rule not registered")
+	}
+	if !rule.Needs.Has(v2rules.NeedsCrossFile) {
+		t.Fatal("RoomConflictStrategyReplaceOnFk does not declare NeedsCrossFile")
+	}
+
+	root := fixtureRoot(t)
+	positivePath := filepath.Join(root, "positive", "database", "RoomConflictStrategyReplaceOnFk.kt")
+	negativePath := filepath.Join(root, "negative", "database", "RoomConflictStrategyReplaceOnFk.kt")
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(positivePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", positivePath, err)
+		}
+		findings := runCrossFileRule(rule, []*scanner.File{file})
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "User") {
+			t.Fatalf("expected finding to reference User entity, got %q", findings[0].Message)
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(negativePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", negativePath, err)
+		}
+		findings := runCrossFileRule(rule, []*scanner.File{file})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("cross-file entity declaration triggers", func(t *testing.T) {
+		files := parseKotlinFiles(t,
+			"Entities.kt", `package db
+
+annotation class Entity(val foreignKeys: Array<ForeignKey> = [])
+annotation class ForeignKey(val parent: kotlin.reflect.KClass<*>)
+
+class Team(val id: Long)
+
+@Entity(foreignKeys = [ForeignKey(parent = Team::class)])
+class User(val id: Long)
+`,
+			"UserDao.kt", `package db
+
+annotation class Insert(val onConflict: Int = 1)
+annotation class Dao
+
+object OnConflictStrategy { const val REPLACE = 1 }
+
+@Dao
+interface UserDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(user: User)
+}
+`,
+		)
+		findings := runCrossFileRule(rule, files)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 cross-file finding, got %d", len(findings))
+		}
+	})
 }
 
 func TestJdbcPreparedStatementNotClosed_Positive(t *testing.T) {

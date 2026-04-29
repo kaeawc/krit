@@ -181,23 +181,43 @@ func registerAndroidSourceRules() {
 				if typeArgs == 0 {
 					return
 				}
-				proj := file.FlatFirstChild(typeArgs)
-				for proj != 0 && file.FlatType(proj) != "type_projection" {
-					proj = file.FlatNextSib(proj)
+				keyProj := file.FlatFirstChild(typeArgs)
+				for keyProj != 0 && file.FlatType(keyProj) != "type_projection" {
+					keyProj = file.FlatNextSib(keyProj)
 				}
-				if proj == 0 {
+				if keyProj == 0 {
 					return
 				}
-				userType, _ := file.FlatFindChild(proj, "user_type")
-				ident := flatLastChildOfType(file, userType, "type_identifier")
-				if ident == 0 {
+				keyUserType, _ := file.FlatFindChild(keyProj, "user_type")
+				keyIdent := flatLastChildOfType(file, keyUserType, "type_identifier")
+				if keyIdent == 0 {
 					return
 				}
-				keyType := file.FlatNodeText(ident)
+				keyType := file.FlatNodeText(keyIdent)
+				valProj := file.FlatNextSib(keyProj)
+				for valProj != 0 && file.FlatType(valProj) != "type_projection" {
+					valProj = file.FlatNextSib(valProj)
+				}
+				var valueType string
+				if valProj != 0 {
+					valUserType, _ := file.FlatFindChild(valProj, "user_type")
+					if valIdent := flatLastChildOfType(file, valUserType, "type_identifier"); valIdent != 0 {
+						valueType = file.FlatNodeText(valIdent)
+					}
+				}
 				var suggestion string
 				switch keyType {
 				case "Int", "Integer":
-					suggestion = "SparseArray"
+					switch valueType {
+					case "Boolean":
+						suggestion = "SparseBooleanArray"
+					case "Int", "Integer":
+						suggestion = "SparseIntArray"
+					case "Long":
+						suggestion = "SparseLongArray"
+					default:
+						suggestion = "SparseArray"
+					}
 				case "Long":
 					suggestion = "LongSparseArray"
 				default:

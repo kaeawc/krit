@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -198,6 +199,48 @@ class Foo {
 }`)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("HashMap<Int, Boolean> suggests SparseBooleanArray", func(t *testing.T) {
+		findings := runRuleByName(t, "UseSparseArrays", `
+package test
+class Foo {
+    val map = HashMap<Int, Boolean>()
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "SparseBooleanArray") {
+			t.Fatalf("expected SparseBooleanArray suggestion, got %q", findings[0].Message)
+		}
+	})
+
+	t.Run("HashMap<Integer, Integer> suggests SparseIntArray", func(t *testing.T) {
+		findings := runRuleByName(t, "UseSparseArrays", `
+package test
+class Foo {
+    val map = HashMap<Integer, Integer>()
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "SparseIntArray") {
+			t.Fatalf("expected SparseIntArray suggestion, got %q", findings[0].Message)
+		}
+	})
+
+	t.Run("HashMap<Int, Long> suggests SparseLongArray", func(t *testing.T) {
+		findings := runRuleByName(t, "UseSparseArrays", `
+package test
+class Foo {
+    val map = HashMap<Int, Long>()
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "SparseLongArray") {
+			t.Fatalf("expected SparseLongArray suggestion, got %q", findings[0].Message)
 		}
 	})
 }

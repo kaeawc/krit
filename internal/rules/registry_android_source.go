@@ -363,7 +363,7 @@ func registerAndroidSourceRules() {
 					return
 				}
 				ctx.EmitAt(ctx.File.FlatRow(ctx.Idx)+1, ctx.File.FlatCol(ctx.Idx)+1,
-					"SMS sending may not handle internationalization of phone numbers properly.")
+					"SMS destination should use international E.164 format starting with '+' to deliver correctly when roaming.")
 			},
 		})
 	}

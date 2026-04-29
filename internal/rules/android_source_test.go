@@ -326,12 +326,12 @@ class MyActivity {
 }
 
 func TestNonInternationalizedSms(t *testing.T) {
-	t.Run("flags SmsManager.sendTextMessage", func(t *testing.T) {
+	t.Run("flags SmsManager.sendTextMessage with domestic literal", func(t *testing.T) {
 		findings := runRuleByName(t, "NonInternationalizedSms", `
 package test
 class Foo {
     fun send() {
-        SmsManager.sendTextMessage("+1234567890", null, "Hello", null, null)
+        SmsManager.sendTextMessage("5551234567", null, "Hello", null, null)
     }
 }`)
 		if len(findings) != 1 {
@@ -339,16 +339,42 @@ class Foo {
 		}
 	})
 
-	t.Run("flags smsManager.sendMultipartTextMessage", func(t *testing.T) {
+	t.Run("flags smsManager.sendMultipartTextMessage with domestic literal", func(t *testing.T) {
 		findings := runRuleByName(t, "NonInternationalizedSms", `
 package test
 class Foo {
     fun send(smsManager: SmsManager) {
-        smsManager.sendMultipartTextMessage("+1234567890", null, parts, null, null)
+        smsManager.sendMultipartTextMessage("5551234567", null, parts, null, null)
     }
 }`)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("does not trigger for E.164 literal", func(t *testing.T) {
+		findings := runRuleByName(t, "NonInternationalizedSms", `
+package test
+class Foo {
+    fun send() {
+        SmsManager.sendTextMessage("+15551234567", null, "Hello", null, null)
+    }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("does not trigger for dynamic destination", func(t *testing.T) {
+		findings := runRuleByName(t, "NonInternationalizedSms", `
+package test
+class Foo {
+    fun send(smsManager: SmsManager, dest: String) {
+        smsManager.sendTextMessage(dest, null, "Hello", null, null)
+    }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 

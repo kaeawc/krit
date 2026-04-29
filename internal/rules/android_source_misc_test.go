@@ -110,11 +110,11 @@ class MyActivity {
 // =====================================================================
 
 func TestNonInternationalizedSmsRule(t *testing.T) {
-	t.Run("smsManager.sendTextMessage triggers", func(t *testing.T) {
+	t.Run("smsManager.sendTextMessage with domestic literal triggers", func(t *testing.T) {
 		findings := runRuleByName(t, "NonInternationalizedSms", `
 package test
 fun foo() {
-    smsManager.sendTextMessage(dest, null, msg, null, null)
+    smsManager.sendTextMessage("5551234567", null, msg, null, null)
 }
 `)
 		if len(findings) != 1 {
@@ -122,15 +122,27 @@ fun foo() {
 		}
 	})
 
-	t.Run("SmsManager.getDefault().sendTextMessage triggers", func(t *testing.T) {
+	t.Run("SmsManager.getDefault().sendTextMessage with domestic literal triggers", func(t *testing.T) {
 		findings := runRuleByName(t, "NonInternationalizedSms", `
 package test
 fun foo() {
-    SmsManager.getDefault().sendTextMessage(dest, null, msg, null, null)
+    SmsManager.getDefault().sendTextMessage("5551234567", null, msg, null, null)
 }
 `)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("dynamic destination does not trigger", func(t *testing.T) {
+		findings := runRuleByName(t, "NonInternationalizedSms", `
+package test
+fun foo(dest: String) {
+    smsManager.sendTextMessage(dest, null, msg, null, null)
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
@@ -138,7 +150,7 @@ fun foo() {
 		findings := runRuleByName(t, "NonInternationalizedSms", `
 package test
 fun foo() {
-    messageService.sendTextMessage(dest, null, msg, null, null)
+    messageService.sendTextMessage("5551234567", null, msg, null, null)
 }
 `)
 		if len(findings) != 0 {

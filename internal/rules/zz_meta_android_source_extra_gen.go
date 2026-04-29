@@ -241,7 +241,7 @@ func (r *WrongImportRule) Meta() registry.RuleDescriptor {
 		Severity:      "warning",
 		Description:   "",
 		DefaultActive: true,
-		FixLevel:      "",
+		FixLevel:      "idiomatic",
 		Confidence:    0.95,
 	}
 }

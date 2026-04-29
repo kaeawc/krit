@@ -9,6 +9,10 @@ class Bar {
     val classProperty = "not a local variable"
 }
 
+class Extension(objects: ObjectFactory) {
+    public val enabled: Property<Boolean> = objects.property(Boolean::class.java)
+}
+
 fun interface Strategy {
     fun apply(): Boolean
 

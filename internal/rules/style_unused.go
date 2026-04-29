@@ -427,6 +427,9 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 		if strings.Contains(file.FlatNodeText(idx), "@JvmField") {
 			return target, false
 		}
+		if unusedVariablePropertyHasVisibilityModifier(file, idx) {
+			return target, false
+		}
 		if !strings.Contains(file.FlatNodeText(idx), "=") {
 			return target, false
 		}
@@ -486,6 +489,16 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 		emitNode: idx,
 		scope:    scope,
 	}, true
+}
+
+func unusedVariablePropertyHasVisibilityModifier(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	return file.FlatHasModifier(idx, "public") ||
+		file.FlatHasModifier(idx, "internal") ||
+		file.FlatHasModifier(idx, "protected") ||
+		file.FlatHasModifier(idx, "private")
 }
 
 func unusedVariablePropertyHasAccessor(file *scanner.File, idx uint32) bool {

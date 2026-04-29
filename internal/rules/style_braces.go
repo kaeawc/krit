@@ -98,15 +98,36 @@ func (r *BracesOnIfStatementsRule) checkConsistentIfFlat(ctx *v2.Context) {
 
 	current := idx
 	for current != 0 && file.FlatType(current) == "if_expression" {
+		var thenBody, elseBody uint32
+		sawElse := false
 		for child := file.FlatFirstChild(current); child != 0; child = file.FlatNextSib(child) {
-			if file.FlatType(child) == "control_structure_body" {
-				branches = append(branches, branchInfo{body: child, hasBrace: controlBodyHasBraces(file, child)})
+			switch file.FlatType(child) {
+			case "else":
+				sawElse = true
+			case "control_structure_body":
+				if sawElse {
+					elseBody = child
+				} else if thenBody == 0 {
+					thenBody = child
+				}
 			}
 		}
-		// (The original code had a dead inner loop here that scanned for
-		// nested ifs but was immediately followed by an unconditional
-		// break; the dead loop has been removed along with the quadratic.)
-		break // Simple: just check immediate branches for now
+		if thenBody != 0 {
+			branches = append(branches, branchInfo{body: thenBody, hasBrace: controlBodyHasBraces(file, thenBody)})
+		}
+		if elseBody == 0 {
+			break
+		}
+		// `else if` is encoded as an else-control_structure_body whose first
+		// child is a nested if_expression. Descend into that to keep walking
+		// the chain instead of recording the wrapper as a branch.
+		inner := file.FlatFirstChild(elseBody)
+		if inner != 0 && file.FlatType(inner) == "if_expression" {
+			current = inner
+			continue
+		}
+		branches = append(branches, branchInfo{body: elseBody, hasBrace: controlBodyHasBraces(file, elseBody)})
+		break
 	}
 
 	if len(branches) < 2 {

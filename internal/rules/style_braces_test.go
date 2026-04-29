@@ -153,6 +153,37 @@ fun example(x: Int) {
 	}
 }
 
+func TestBracesOnIfStatements_Consistent_ElseIfChain_InnerOnlyBraced(t *testing.T) {
+	// Regression: outer then/else are unbraced, but a middle else-if branch
+	// is braced. The chain walk must descend into the else-if to see the
+	// inconsistency. Before the chain fix, the outer walk treated the
+	// else-if wrapper as a single unbraced branch and reported "all
+	// consistent" — a false negative.
+	findings := runBracesIfRule(t, "consistent", "consistent", `
+package test
+fun example(x: Int) {
+    if (x > 0) foo() else if (x < 0) { bar() } else baz()
+}`)
+	if findings.Len() == 0 {
+		t.Error("expected findings: middle else-if branch is braced while outer branches are not")
+	}
+}
+
+func TestBracesOnIfStatements_Consistent_ElseIfChain_AllBraced(t *testing.T) {
+	// Regression: every branch in the else-if chain is braced. Before the
+	// chain fix, the outer walk saw the else-if control_structure_body
+	// wrapper as unbraced (its first child is the nested if_expression, not
+	// a `{`), so it falsely reported a mix.
+	findings := runBracesIfRule(t, "consistent", "consistent", `
+package test
+fun example(x: Int) {
+    if (x > 0) { foo() } else if (x < 0) { bar() } else { baz() }
+}`)
+	if findings.Len() != 0 {
+		t.Errorf("expected no findings when every branch in chain is braced, got %d", findings.Len())
+	}
+}
+
 func TestBracesOnIfStatements_Consistent_MultiLine_MixedFlags(t *testing.T) {
 	// Multi-line: one branch has braces, other doesn't
 	findings := runBracesIfRule(t, "consistent", "consistent", `

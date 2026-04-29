@@ -235,6 +235,39 @@ class Foo {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+
+	t.Run("flags new Integer in Java source", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "UseValueOf", `
+package test;
+class Foo {
+    Integer num = new Integer(42);
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("Java valueOf does not trigger", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "UseValueOf", `
+package test;
+class Foo {
+    Integer num = Integer.valueOf(42);
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("Java anonymous subclass does not trigger", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "UseValueOf", `
+package test;
+class Foo {
+    Object o = new Integer(42) { };
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
 }
 
 func TestLogTag(t *testing.T) {

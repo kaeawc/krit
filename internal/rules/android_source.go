@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -289,6 +290,108 @@ var boxedPrimitiveConstructors = map[string]bool{
 	"Byte":      true,
 	"Boolean":   true,
 	"Character": true,
+}
+
+// checkUseValueOfKotlinCall handles the Kotlin `Integer(42)` form
+// (a `call_expression` whose callee is a bare boxed-primitive identifier).
+func checkUseValueOfKotlinCall(ctx *v2.Context, r *UseValueOfRule, file *scanner.File, idx uint32) {
+	typeName := flatCallExpressionName(file, idx)
+	if !boxedPrimitiveConstructors[typeName] {
+		return
+	}
+	// Skip qualified calls (e.g. `a.Integer(42)` or `Integer.valueOf(42)`).
+	firstNamed := file.FlatFirstChild(idx)
+	for firstNamed != 0 && !file.FlatIsNamed(firstNamed) {
+		firstNamed = file.FlatNextSib(firstNamed)
+	}
+	if firstNamed == 0 || file.FlatType(firstNamed) != "simple_identifier" {
+		return
+	}
+	args := flatCallKeyArguments(file, idx)
+	argCount := 0
+	var firstArg uint32
+	for a := file.FlatFirstChild(args); a != 0; a = file.FlatNextSib(a) {
+		if file.FlatType(a) == "value_argument" {
+			argCount++
+			if firstArg == 0 {
+				firstArg = a
+			}
+		}
+	}
+	if argCount != 1 {
+		return
+	}
+	f := r.Finding(file, file.FlatRow(idx)+1, 1,
+		"Use "+typeName+".valueOf() instead of "+typeName+"() constructor for better performance.")
+	if firstArg != 0 {
+		argText := file.FlatNodeText(firstArg)
+		f.Fix = &scanner.Fix{
+			ByteMode:    true,
+			StartByte:   int(file.FlatStartByte(idx)),
+			EndByte:     int(file.FlatEndByte(idx)),
+			Replacement: typeName + ".valueOf(" + argText + ")",
+		}
+	}
+	ctx.Emit(f)
+}
+
+// checkUseValueOfJavaNew handles the Java `new Integer(42)` form
+// (an `object_creation_expression`).
+func checkUseValueOfJavaNew(ctx *v2.Context, r *UseValueOfRule, file *scanner.File, idx uint32) {
+	// Locate the type identifier and reject anonymous-class forms
+	// (`new Integer(42) { ... }`) by skipping any node with a class_body child.
+	if body, _ := file.FlatFindChild(idx, "class_body"); body != 0 {
+		return
+	}
+	var typeNode uint32
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "type_identifier":
+			typeNode = child
+		case "scoped_type_identifier", "scoped_identifier", "generic_type":
+			// Reject qualified or generic types — `new java.lang.Integer(x)`
+			// resolves to the same constructor but is rare; conservatively skip.
+			return
+		}
+		if typeNode != 0 {
+			break
+		}
+	}
+	if typeNode == 0 {
+		return
+	}
+	typeName := file.FlatNodeText(typeNode)
+	if !boxedPrimitiveConstructors[typeName] {
+		return
+	}
+	args, _ := file.FlatFindChild(idx, "argument_list")
+	if args == 0 {
+		return
+	}
+	argCount := 0
+	var firstArg uint32
+	for a := file.FlatFirstChild(args); a != 0; a = file.FlatNextSib(a) {
+		if !file.FlatIsNamed(a) {
+			continue
+		}
+		argCount++
+		if firstArg == 0 {
+			firstArg = a
+		}
+	}
+	if argCount != 1 {
+		return
+	}
+	f := r.Finding(file, file.FlatRow(idx)+1, 1,
+		"Use "+typeName+".valueOf() instead of new "+typeName+"() constructor; the constructor is deprecated since Java 9.")
+	argText := file.FlatNodeText(firstArg)
+	f.Fix = &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   int(file.FlatStartByte(idx)),
+		EndByte:     int(file.FlatEndByte(idx)),
+		Replacement: typeName + ".valueOf(" + argText + ")",
+	}
+	ctx.Emit(f)
 }
 
 // =====================================================================

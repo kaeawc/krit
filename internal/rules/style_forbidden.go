@@ -48,12 +48,20 @@ type ForbiddenCommentRule struct {
 }
 
 var defaultForbiddenCommentMarkers = []string{"TODO:", "FIXME:", "STOPSHIP:"}
+var trackedBugTodoCommentPattern = regexp.MustCompile(`\bTODO(?:\s*\(\s*b/\d+\s*\)|:\s*b/\d+\b)`)
 
 // Confidence reports a tier-2 (medium) base confidence. Style/forbidden rule. Detection flags configured forbidden
 // imports/methods/annotations via literal string/regex match; false
 // positives arise when project-local names collide with forbidden list
 // entries. Classified per roadmap/17.
 func (r *ForbiddenCommentRule) Confidence() float64 { return 0.75 }
+
+func forbiddenCommentAllowedByDefault(text, marker string) bool {
+	if marker != "TODO:" {
+		return false
+	}
+	return trackedBugTodoCommentPattern.MatchString(text)
+}
 
 // ForbiddenVoidRule detects Void type usage.
 type ForbiddenVoidRule struct {

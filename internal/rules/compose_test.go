@@ -1348,6 +1348,70 @@ import com.slack.circuit.retained.produceRetainedState
 	}
 }
 
+func TestComposeSideEffectInComposition_Negative_PreviewSetup(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.tooling.preview.Preview
+
+@Preview(showBackground = true)
+@Composable
+private fun ConfigurationScreenPreviewChecked() {
+    val vm: TranscodeTestViewModel = viewModel()
+    vm.selectedVideos = listOf(Uri.parse("content://1"), Uri.parse("content://2"))
+    vm.forceSequentialQueueProcessing = true
+    ConfigureEncodingParameters()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for @Preview setup assignments, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_LayoutPlacementCallback(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
+
+@Composable
+fun Viewfinder(modifier: Modifier = Modifier, coordinateTransformer: CoordinateTransformer?) {
+    Box(
+        modifier.layout { measurable, constraints ->
+            val placeable = measurable.measure(constraints)
+            layout(placeable.width, placeable.height) {
+                placeable.placeWithLayer(0, 0) {
+                    coordinateTransformer?.transformMatrix = Matrix()
+                    scaleX = 1f
+                }
+            }
+        }
+    )
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for deferred layout placement assignments, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Positive_PlaceWithLayerLookalike(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen(vm: VM, placeable: FakePlaceable) {
+    placeable.placeWithLayer {
+        vm.tracker.seen = true
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected finding for placeWithLayer lookalike without Compose layout evidence, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestComposeSideEffectInComposition_Positive_NamedContentLambda(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test

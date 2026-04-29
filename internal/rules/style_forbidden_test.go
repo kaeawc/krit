@@ -48,6 +48,36 @@ fun example() {}
 	}
 }
 
+func TestForbiddenComment_IgnoresTrackedBugTODO(t *testing.T) {
+	findings := runRuleByName(t, "ForbiddenComment", `
+package test
+@Suppress("RememberReturnType") // TODO: b/372566999
+fun example() {}
+`)
+	for _, f := range findings {
+		if f.Rule == "ForbiddenComment" {
+			t.Fatalf("expected tracked bug TODO to be allowed, got %+v", f)
+		}
+	}
+}
+
+func TestForbiddenComment_FlagsUntrackedTODO(t *testing.T) {
+	findings := runRuleByName(t, "ForbiddenComment", `
+package test
+// TODO: clean this up
+fun example() {}
+`)
+	found := false
+	for _, f := range findings {
+		if f.Rule == "ForbiddenComment" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Expected ForbiddenComment to flag an untracked TODO")
+	}
+}
+
 func TestForbiddenComment_StyleCleanComment(t *testing.T) {
 	findings := runRuleByName(t, "ForbiddenComment", `
 package test

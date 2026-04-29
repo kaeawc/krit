@@ -687,6 +687,18 @@ var composeModifierCallbackCalls = map[string]struct{}{
 	"semantics":            {},
 }
 
+var composePreviewAnnotationNames = []string{
+	"Preview",
+	"SignalPreview",
+	"ComposePreview",
+	"PreviewLightDark",
+	"DarkPreview",
+	"LightPreview",
+	"NightPreview",
+	"DayPreview",
+	"DayNightPreviews",
+}
+
 func composeLambdaIsNamedEventCallback(file *scanner.File, lambdaIdx uint32, root uint32) bool {
 	for cur, ok := file.FlatParent(lambdaIdx); ok && cur != root; cur, ok = file.FlatParent(cur) {
 		if file.FlatType(cur) != "value_argument" {
@@ -884,6 +896,28 @@ func composeCallIsChained(file *scanner.File, call uint32, name string) bool {
 	return strings.Contains(file.FlatNodeText(call), "."+name)
 }
 
+func composeFunctionHasPreviewAnnotation(file *scanner.File, fn uint32) bool {
+	for _, name := range composePreviewAnnotationNames {
+		if flatHasAnnotationNamed(file, fn, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func composeCallIsDeferredLayoutPlacement(file *scanner.File, call uint32, callName string) bool {
+	switch callName {
+	case "placeWithLayer", "placeRelativeWithLayer":
+	default:
+		return false
+	}
+	if !composeCallIsChained(file, call, callName) {
+		return false
+	}
+	return sourceImportsOrMentions(file, "androidx.compose.ui.layout.layout") ||
+		sourceImportsOrMentions(file, "androidx.compose.ui.layout.Placeable")
+}
+
 func composeCallIsKnownImportedCallbackBuilder(file *scanner.File, callName string) bool {
 	switch callName {
 	case "AndroidView":
@@ -995,6 +1029,9 @@ func composeSideEffectAllowedLambdaBoundary(file *scanner.File, lambdaIdx uint32
 		return true
 	}
 	if _, ok := composeModifierCallbackCalls[callName]; ok && composeCallIsChained(file, call, callName) {
+		return true
+	}
+	if composeCallIsDeferredLayoutPlacement(file, call, callName) {
 		return true
 	}
 	return composeLocalFunctionParamIsNonComposableCallback(file, callName, label, position, trailing) ||

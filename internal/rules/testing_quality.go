@@ -284,6 +284,7 @@ var testingQualityObjectMockCreationCalls = map[string]bool{
 
 var testingQualityMockHelperCache sync.Map
 var testingQualityMockNamesCache sync.Map
+var testingQualityAssertionHelperCache sync.Map
 
 type testingQualityMockNamesCacheKey struct {
 	file *scanner.File
@@ -581,7 +582,10 @@ func testingQualityIsAssertionCall(name string) bool {
 }
 
 func testingQualityIsAssertionOrVerify(name string) bool {
-	return testingQualityIsAssertionCall(name) || testingQualityIsVerifyCall(name)
+	return testingQualityIsAssertionCall(name) ||
+		testingQualityIsVerifyCall(name) ||
+		strings.HasPrefix(name, "verify") ||
+		strings.HasPrefix(name, "validate")
 }
 
 var verifyCallNames = map[string]bool{
@@ -662,6 +666,10 @@ func testingQualityInfixOperatorName(file *scanner.File, idx uint32) string {
 }
 
 func testingQualityBodyHasAssertionOrVerification(file *scanner.File, body uint32) bool {
+	return testingQualityBodyHasAssertionOrVerificationWithHelpers(file, body, testingQualityAssertionHelperNames(file))
+}
+
+func testingQualityBodyHasAssertionOrVerificationWithHelpers(file *scanner.File, body uint32, helpers map[string]bool) bool {
 	if file == nil || body == 0 {
 		return false
 	}
@@ -672,12 +680,57 @@ func testingQualityBodyHasAssertionOrVerification(file *scanner.File, body uint3
 		}
 		switch file.FlatType(n) {
 		case "call_expression":
-			found = testingQualityIsAssertionOrVerify(flatCallNameAny(file, n))
+			name := flatCallNameAny(file, n)
+			found = testingQualityIsAssertionOrVerify(name) || helpers[name]
 		case "infix_expression":
 			found = testingQualityIsAssertionOrVerify(testingQualityInfixOperatorName(file, n))
 		}
 	})
 	return found
+}
+
+func testingQualityAssertionHelperNames(file *scanner.File) map[string]bool {
+	helpers := make(map[string]bool)
+	if file == nil {
+		return helpers
+	}
+	if cached, ok := testingQualityAssertionHelperCache.Load(file); ok {
+		return cached.(map[string]bool)
+	}
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		name := testingQualityFunctionName(file, fn)
+		if name == "" || testingQualityIsTestFunction(file, fn) {
+			return
+		}
+		body, _ := file.FlatFindChild(fn, "function_body")
+		if body == 0 {
+			return
+		}
+		if testingQualityBodyHasAssertionOrVerificationWithHelpers(file, body, nil) {
+			helpers[name] = true
+		}
+	})
+	testingQualityAssertionHelperCache.Store(file, helpers)
+	return helpers
+}
+
+var testingQualityRunBlockingBoundaryCalls = map[string]bool{
+	"runOnIdle":     true,
+	"runOnUiThread": true,
+	"runOnActivity": true,
+}
+
+func testingQualityInsideAssertionOrCallbackBoundary(file *scanner.File, idx uint32, fn uint32) bool {
+	for current, ok := file.FlatParent(idx); ok && current != fn; current, ok = file.FlatParent(current) {
+		if file.FlatType(current) != "call_expression" {
+			continue
+		}
+		name := flatCallNameAny(file, current)
+		if testingQualityIsAssertionOrVerify(name) || testingQualityRunBlockingBoundaryCalls[name] {
+			return true
+		}
+	}
+	return false
 }
 
 func testingQualityIsBenchmarkOrGoldenFile(file *scanner.File) bool {

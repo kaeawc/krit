@@ -365,6 +365,19 @@ fun Header() {
 	}
 }
 
+func TestComposeRawTextLiteral_UsesLocalASTOnly(t *testing.T) {
+	rule := buildRuleIndex()["ComposeRawTextLiteral"]
+	if rule == nil {
+		t.Fatal("ComposeRawTextLiteral rule is not registered")
+	}
+	if rule.Needs != 0 {
+		t.Fatalf("ComposeRawTextLiteral should remain AST-only, got needs %v", rule.Needs)
+	}
+	if rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil || rule.Oracle != nil {
+		t.Fatal("ComposeRawTextLiteral should not declare oracle metadata")
+	}
+}
+
 func TestComposeRawTextLiteral_NegativePreview(t *testing.T) {
 	findings := runRuleByName(t, "ComposeRawTextLiteral", `
 package test
@@ -381,6 +394,61 @@ fun HeaderPreview() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeRawTextLiteral_NegativeEmptyText(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRawTextLiteral", `
+package test
+
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Placeholder() {
+    Text("")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for empty Text placeholder, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeRawTextLiteral_NegativeTestSource(t *testing.T) {
+	file := parseInline(t, `
+package test
+
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun TestContent() {
+    Text("Fixture label")
+}
+`)
+	file.Path = "/repo/module/src/androidUnitTest/kotlin/test/Fixture.kt"
+	findings := runRuleByNameOnFile(t, "ComposeRawTextLiteral", file)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for test source, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeRawTextLiteral_NegativeDemoSource(t *testing.T) {
+	file := parseInline(t, `
+package test
+
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun DemoContent() {
+    Text("Try dragging the box")
+}
+`)
+	file.Path = "/repo/compose/animation/animation/integration-tests/animation-demos/src/main/kotlin/test/Demo.kt"
+	findings := runRuleByNameOnFile(t, "ComposeRawTextLiteral", file)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for demo source, got %d: %v", len(findings), findings)
 	}
 }
 

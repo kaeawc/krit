@@ -262,6 +262,9 @@ func registerTestingQualityRules() {
 				if !ok || !testingQualityIsTestFunction(file, fn) {
 					return
 				}
+				if testingQualityInsideAssertionOrCallbackBoundary(file, idx, fn) {
+					return
+				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Use `runTest` instead of `runBlocking` in test functions.")
 			},
 		})

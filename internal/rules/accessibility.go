@@ -695,6 +695,21 @@ type ComposeRawTextLiteralRule struct {
 
 func (r *ComposeRawTextLiteralRule) Confidence() float64 { return 0.75 }
 
+func composeRawTextLiteralNonProductionFile(path string) bool {
+	if isTestFile(path) {
+		return true
+	}
+	lower := strings.ToLower(path)
+	return strings.Contains(lower, "/samples/") ||
+		strings.Contains(lower, "/sample/") ||
+		strings.Contains(lower, "/demos/") ||
+		strings.Contains(lower, "/demo/") ||
+		strings.Contains(lower, "benchmark") ||
+		strings.Contains(lower, "/ui-tooling/") ||
+		strings.Contains(lower, "/test-utils/") ||
+		strings.Contains(lower, "-test-utils/")
+}
+
 // ---------------------------------------------------------------------------
 // ComposeSemanticsMissingRole
 // ---------------------------------------------------------------------------

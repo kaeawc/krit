@@ -785,9 +785,20 @@ func testingQualityIsHarnessVerificationCall(file *scanner.File, idx uint32, nam
 		return fileImportsFQN(file, "com.autonomousapps.kit.GradleBuilder.build")
 	case "waitFor":
 		return testingQualityIsPollingCheckWaitFor(file, idx)
+	case "expectError":
+		return testingQualityIsComposeTestutilsExpectError(file, idx)
 	default:
 		return false
 	}
+}
+
+func testingQualityIsComposeTestutilsExpectError(file *scanner.File, idx uint32) bool {
+	if !fileImportsFQN(file, "androidx.compose.testutils.expectError") &&
+		!sourceImportsOrMentions(file, "androidx.compose.testutils.expectError") {
+		return false
+	}
+	name := flatCallNameAny(file, idx)
+	return name == "expectError"
 }
 
 func testingQualityIsPollingCheckWaitFor(file *scanner.File, idx uint32) bool {

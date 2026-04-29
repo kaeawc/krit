@@ -716,6 +716,47 @@ class PollingCheckWaitForNegative {
 	}
 }
 
+func TestTestWithoutAssertion_NegativeComposeExpectError(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import androidx.compose.testutils.expectError
+import org.junit.Test
+
+class ComposeExpectErrorNegative {
+    @Test
+    fun moveToWithoutDown() {
+        expectError<IllegalStateException> { gesture.moveTo(position) }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected Compose expectError to count as verification, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_PositiveLocalExpectErrorLookalike(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class LocalExpectErrorLookalikePositive {
+    @Test
+    fun moveToWithoutDown() {
+        expectError<IllegalStateException> { gesture.moveTo(position) }
+    }
+
+    private fun <T : Throwable> expectError(block: () -> Unit) {
+        block()
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected local expectError lookalike without Compose testutils import to be reported")
+	}
+}
+
 func TestTestWithoutAssertion_PositiveLocalWaitForLookalike(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test

@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rxjava3.subscribeAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import com.slack.circuit.retained.produceRetainedState
@@ -136,4 +137,24 @@ fun RetainedStateProducer(repo: Repo) {
         value = repo.load()
     }
     Content(items)
+}
+
+@Composable
+fun LayoutMeasurePolicy(content: @Composable () -> Unit) {
+    Layout(content = content) { measurables, constraints ->
+        val placeables = measurables.map { it.measure(constraints) }
+        var width = 0
+        var height = 0
+        placeables.forEach {
+            width += it.width
+            height = max(height, it.height)
+        }
+        layout(width, height) {
+            var offset = 0
+            placeables.forEach {
+                it.placeRelative(offset, 0)
+                offset += it.width
+            }
+        }
+    }
 }

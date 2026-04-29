@@ -222,6 +222,66 @@ fun process(x: String?) {
 	}
 }
 
+func TestCanBeNonNullable_PositiveVarAssignedElvisWithNonNullFallback(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "CanBeNonNullable", `
+package test
+class Example {
+    var prop: String? = ""
+    fun update(candidate: String?, fallback: String) {
+        prop = candidate ?: fallback
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding when nullable property is only assigned an Elvis expression with a non-null fallback")
+	}
+}
+
+func TestCanBeNonNullable_NegativeVarAssignedNullLiteral(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "CanBeNonNullable", `
+package test
+class Example {
+    var prop: String? = ""
+    fun clear() {
+        prop = null
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when nullable property is assigned null, got %d", len(findings))
+	}
+}
+
+func TestCanBeNonNullable_NegativeVarAssignedNullableSafeCall(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "CanBeNonNullable", `
+package test
+class Example {
+    var prop: String? = ""
+    fun update(candidate: String?) {
+        prop = candidate?.trim()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when nullable property is assigned a safe-call result, got %d", len(findings))
+	}
+}
+
+func TestCanBeNonNullable_NegativeVarAssignedNullableIdentifier(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "CanBeNonNullable", `
+package test
+class Example {
+    var prop: String? = ""
+    fun update(candidate: String?) {
+        prop = candidate
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when nullable property is assigned a nullable identifier, got %d", len(findings))
+	}
+}
+
 // --- DoubleNegativeExpression ---
 
 func TestDoubleNegativeExpression_Positive(t *testing.T) {

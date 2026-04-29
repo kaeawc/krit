@@ -230,7 +230,7 @@ func (r *CanBeNonNullableRule) checkPropertyFlat(ctx *v2.Context) {
 
 	if isVar && propName != "" {
 		scope, ok := file.FlatParent(idx)
-		if ok && r.hasNullAssignmentInScopeFlat(file, scope, idx, propName) {
+		if ok && r.hasNullAssignmentInScopeFlat(file, scope, idx, propName, ctx.Resolver) {
 			return
 		}
 	}
@@ -239,7 +239,7 @@ func (r *CanBeNonNullableRule) checkPropertyFlat(ctx *v2.Context) {
 		"Property type can be non-nullable since it is initialized with a non-null value and never assigned null."))
 }
 
-func (r *CanBeNonNullableRule) hasNullAssignmentInScopeFlat(file *scanner.File, scope, declNode uint32, propName string) bool {
+func (r *CanBeNonNullableRule) hasNullAssignmentInScopeFlat(file *scanner.File, scope, declNode uint32, propName string, resolver typeinfer.TypeResolver) bool {
 	assignedNull := false
 	file.FlatWalkAllNodes(scope, func(child uint32) {
 		if assignedNull || child == declNode {
@@ -255,14 +255,120 @@ func (r *CanBeNonNullableRule) hasNullAssignmentInScopeFlat(file *scanner.File, 
 				return
 			}
 			rhs := file.FlatChild(child, file.FlatChildCount(child)-1)
-			rhsText := strings.TrimSpace(file.FlatNodeText(rhs))
-			if rhsText == "null" || strings.Contains(rhsText, "?") {
+			if canBeNonNullableRHSCanBeNullFlat(file, rhs, resolver) {
 				assignedNull = true
 				return
 			}
 		}
 	})
 	return assignedNull
+}
+
+func canBeNonNullableRHSCanBeNullFlat(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	idx = flatUnwrapParenExpr(file, idx)
+	switch file.FlatType(idx) {
+	case "null", "null_literal":
+		return true
+	case "simple_identifier":
+		if resolver != nil {
+			if typ := resolver.ResolveFlatNode(idx, file); typ != nil && typ.IsNullable() {
+				return true
+			}
+		}
+		return false
+	case "elvis_expression":
+		right := canBeNonNullableElvisRightFlat(file, idx)
+		return canBeNonNullableRHSCanBeNullFlat(file, right, resolver)
+	case "if_expression", "when_expression":
+		return canBeNonNullableBranchCanBeNullFlat(file, idx, resolver)
+	case "navigation_expression":
+		return canBeNonNullableNavigationUsesSafeCallFlat(file, idx) || canBeNonNullableResolvedNullableFlat(file, idx, resolver)
+	case "call_expression":
+		return canBeNonNullableCallCanReturnNullFlat(file, idx, resolver)
+	case "as_expression":
+		return canBeNonNullableAsExpressionCanBeNullFlat(file, idx) || canBeNonNullableResolvedNullableFlat(file, idx, resolver)
+	default:
+		return canBeNonNullableResolvedNullableFlat(file, idx, resolver)
+	}
+}
+
+func canBeNonNullableResolvedNullableFlat(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) bool {
+	if resolver == nil || idx == 0 {
+		return false
+	}
+	typ := resolver.ResolveFlatNode(idx, file)
+	return typ != nil && typ.IsNullable()
+}
+
+func canBeNonNullableElvisRightFlat(file *scanner.File, idx uint32) uint32 {
+	if file == nil || idx == 0 || file.FlatType(idx) != "elvis_expression" {
+		return 0
+	}
+	seenElvis := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "?:" {
+			seenElvis = true
+			continue
+		}
+		if seenElvis && (file.FlatIsNamed(child) || file.FlatType(child) == "null") {
+			return child
+		}
+	}
+	return 0
+}
+
+func canBeNonNullableBranchCanBeNullFlat(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) bool {
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "control_structure_body" {
+			continue
+		}
+		if canBeNonNullableRHSCanBeNullFlat(file, child, resolver) {
+			return true
+		}
+	}
+	return false
+}
+
+func canBeNonNullableNavigationUsesSafeCallFlat(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(idx, func(child uint32) {
+		if found {
+			return
+		}
+		found = file.FlatType(child) == "?."
+	})
+	return found
+}
+
+func canBeNonNullableCallCanReturnNullFlat(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	if resolver != nil {
+		if typ := resolver.ResolveFlatNode(idx, file); typ != nil && typ.IsNullable() {
+			return true
+		}
+	}
+	first := file.FlatFirstChild(idx)
+	return first != 0 && file.FlatType(first) == "navigation_expression" && canBeNonNullableNavigationUsesSafeCallFlat(file, first)
+}
+
+func canBeNonNullableAsExpressionCanBeNullFlat(file *scanner.File, idx uint32) bool {
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "as?":
+			return true
+		case "nullable_type":
+			return true
+		}
+	}
+	return false
 }
 
 func (r *CanBeNonNullableRule) checkFunctionParamsFlat(ctx *v2.Context) {

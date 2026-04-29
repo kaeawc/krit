@@ -105,22 +105,32 @@ func isElseIfChainNodeFlat(file *scanner.File, idx uint32) bool {
 	if file.FlatType(idx) != "if_expression" {
 		return false
 	}
+	target := idx
 	p, ok := file.FlatParent(idx)
 	if ok && file.FlatType(p) == "control_structure_body" {
+		target = p
 		p, ok = file.FlatParent(p)
 	}
 	if !ok || file.FlatType(p) != "if_expression" {
 		return false
 	}
-	elseEnd := -1
-	for i := 0; i < file.FlatChildCount(p); i++ {
-		c := file.FlatChild(p, i)
-		if file.FlatType(c) == "else" {
-			elseEnd = int(file.FlatEndByte(c))
-			break
+	// Walk parent's children: find the `else` keyword, then check whether
+	// `target` is a later sibling. Sibling order is robust against
+	// comments, error nodes, or other extras between `else` and the inner
+	// `if` — byte offsets are not.
+	sawElse := false
+	for c := file.FlatTree.Nodes[p].FirstChild; c != 0; c = file.FlatTree.Nodes[c].NextSib {
+		if !sawElse {
+			if file.FlatType(c) == "else" {
+				sawElse = true
+			}
+			continue
+		}
+		if c == target {
+			return true
 		}
 	}
-	return elseEnd >= 0 && int(file.FlatStartByte(idx)) >= elseEnd
+	return false
 }
 
 func isNestingType(nodeType string) bool {

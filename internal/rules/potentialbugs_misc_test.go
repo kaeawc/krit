@@ -145,6 +145,44 @@ fun main() {
 	}
 }
 
+func TestIgnoredReturnValue_NoResolverSkipsSideEffectFunctionalNames(t *testing.T) {
+	findings := runRuleByName(t, "IgnoredReturnValue", `
+package test
+class EffectSink {
+    fun map(block: (Int) -> Unit): Unit {
+        block(1)
+    }
+
+    fun filter(predicate: (Int) -> Boolean): Unit {
+        predicate(1)
+    }
+}
+
+fun f(sink: EffectSink) {
+    sink.map { println(it) }
+    sink.filter { it > 0 }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for side-effect methods, got %d: %#v", len(findings), findings)
+	}
+}
+
+func TestIgnoredReturnValue_NoResolverKeepsFunctionalPipelineFallback(t *testing.T) {
+	findings := runRuleByName(t, "IgnoredReturnValue", `
+package test
+fun sequence(): Sequence<Int> = sequenceOf(1, 2, 3)
+
+fun f(items: List<Int>) {
+    items.map { it + 1 }
+    sequence().filter { it > 1 }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected two findings for discarded functional pipelines, got %d: %#v", len(findings), findings)
+	}
+}
+
 func TestIgnoredReturnValue_OracleReturnTypes(t *testing.T) {
 	cases := []struct {
 		name     string

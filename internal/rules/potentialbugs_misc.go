@@ -1129,3 +1129,14 @@ type HardcodedDateFormatRule struct {
 }
 
 func (r *HardcodedDateFormatRule) Confidence() float64 { return 0.85 }
+
+// HardcodedNumberFormatRule detects DecimalFormat(pattern) constructors and
+// NumberFormat.getInstance() calls without an explicit Locale. Without one,
+// the formatter falls back to the device default locale, producing output
+// (grouping separators, decimal symbols) that varies by device.
+type HardcodedNumberFormatRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *HardcodedNumberFormatRule) Confidence() float64 { return 0.85 }

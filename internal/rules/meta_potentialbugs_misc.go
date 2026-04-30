@@ -135,3 +135,15 @@ func (r *HardcodedDateFormatRule) Meta() v2.RuleDescriptor {
 		Confidence:    0.85,
 	}
 }
+
+func (r *HardcodedNumberFormatRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "HardcodedNumberFormat",
+		RuleSet:       "potential-bugs",
+		Severity:      "warning",
+		Description:   "Detects DecimalFormat or NumberFormat.getInstance constructed without an explicit Locale.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.85,
+	}
+}

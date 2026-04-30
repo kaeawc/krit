@@ -461,4 +461,53 @@ func registerPotentialbugsMiscRules() {
 			},
 		})
 	}
+	{
+		r := &HardcodedNumberFormatRule{BaseRule: BaseRule{RuleName: "HardcodedNumberFormat", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects DecimalFormat or NumberFormat.getInstance constructed without an explicit Locale."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes:  []string{"call_expression"},
+			Languages:  []scanner.Language{scanner.LangKotlin},
+			Confidence: r.Confidence(), Implementation: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				navExpr, args := flatCallExpressionParts(file, idx)
+				_, argCount := flatValueArgumentStats(file, args)
+
+				if navExpr != 0 {
+					if flatNavigationExpressionLastIdentifier(file, navExpr) != "getInstance" {
+						return
+					}
+					receiver := file.FlatNamedChild(navExpr, 0)
+					if receiver == 0 {
+						return
+					}
+					receiverText := strings.TrimSpace(file.FlatNodeText(receiver))
+					if receiverText != "NumberFormat" && receiverText != "java.text.NumberFormat" {
+						return
+					}
+					if receiverText == "NumberFormat" && !sourceImportsOrMentions(file, "java.text.NumberFormat") {
+						return
+					}
+					if argCount != 0 {
+						return
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						"NumberFormat.getInstance() without explicit Locale. Pass a Locale to produce stable, locale-aware formatting.")
+					return
+				}
+
+				if flatCallExpressionName(file, idx) != "DecimalFormat" {
+					return
+				}
+				if !sourceImportsOrMentions(file, "java.text.DecimalFormat") {
+					return
+				}
+				if argCount >= 2 {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"DecimalFormat without explicit Locale. Pass DecimalFormatSymbols(Locale) to produce stable, locale-aware formatting.")
+			},
+		})
+	}
 }

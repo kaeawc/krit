@@ -819,6 +819,20 @@ var testOnlyImportPrefixes = []string{
 	"org.mockito_kotlin.",
 }
 
+func isAndroidTestSupportArtifactSource(path string) bool {
+	normalized := filepath.ToSlash(strings.ToLower(path))
+	for _, marker := range []string{
+		"/maestro-runner/",
+		"/idling-resources/",
+		"/idlingresources/",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // check runs per import_header. It reads the imported FQN directly from
 // the `identifier` child and flags it when the FQN is under any of the
 // test-framework package prefixes and the file is not itself a test
@@ -831,6 +845,9 @@ func (r *TestOnlyImportInProductionRule) check(ctx *v2.Context) {
 		return
 	}
 	if isTestFile(file.Path) {
+		return
+	}
+	if isAndroidTestSupportArtifactSource(file.Path) {
 		return
 	}
 	idx := ctx.Idx

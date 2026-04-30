@@ -649,7 +649,10 @@ func testingQualityNameLooksAssertionEquivalent(name string) bool {
 	if name == "" || name == "expectError" {
 		return false
 	}
-	for _, token := range []string{"assertion", "assert", "check", "verification", "verify", "expectation", "expect", "snapshot"} {
+	if testingQualityTurbineAssertionCalls[name] {
+		return false
+	}
+	for _, token := range []string{"assertion", "assert", "check", "verification", "verify", "expectation", "expect", "snapshot", "await"} {
 		if testingQualityNameContainsTokenFold(name, token) {
 			return true
 		}

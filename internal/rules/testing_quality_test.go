@@ -733,6 +733,27 @@ class VerificationNamedHelperNegative {
 	}
 }
 
+func TestTestWithoutAssertion_NegativeAwaitNamedHelper(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class AwaitNamedHelperNegative {
+    @Test
+    fun waitsForExpectedState() {
+        awaitAnd(::assertReady, expected = "ready")
+    }
+
+    private fun assertReady(expected: String) {}
+    private fun awaitAnd(assertion: (String) -> Unit, expected: String) {}
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected await-named helper to count as assertion-equivalent, got %d", len(findings))
+	}
+}
+
 func TestTestWithoutAssertion_NegativeSnapshotHelpers(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test

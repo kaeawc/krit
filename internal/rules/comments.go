@@ -189,8 +189,10 @@ func (r *DocumentationOverPrivatePropertyRule) Confidence() float64 { return 0.9
 type EndOfSentenceFormatRule struct {
 	FlatDispatchBase
 	BaseRule
-	Pattern             *regexp.Regexp
-	EndOfSentenceFormat string
+	// Pattern is the regex applied to the first line of a KDoc to verify
+	// it ends with proper punctuation. Configurable via the
+	// `endOfSentenceFormat` YAML option.
+	Pattern *regexp.Regexp
 }
 
 // Confidence holds the 0.95 dispatch default. Documentation/comment rule. Detection checks presence and

@@ -10,7 +10,6 @@ import (
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
-	"github.com/kaeawc/krit/internal/rules/registry"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -1126,7 +1125,7 @@ func TestElseCaseInsteadOfExhaustiveWhen_ActiveByDefault(t *testing.T) {
 		t.Fatal("ElseCaseInsteadOfExhaustiveWhen rule not registered")
 	}
 	impl, ok := rule.Implementation.(interface {
-		Meta() registry.RuleDescriptor
+		Meta() v2rules.RuleDescriptor
 	})
 	if !ok {
 		t.Fatalf("rule does not expose Meta()")

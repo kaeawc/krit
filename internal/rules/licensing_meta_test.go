@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/config"
-	"github.com/kaeawc/krit/internal/rules/registry"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // config descriptor registry: validate that the Meta()
@@ -98,7 +98,7 @@ func TestLicensing_Meta_Descriptors(t *testing.T) {
 		if opt.Name != "requireVerification" {
 			t.Errorf("opt.Name = %q, want %q", opt.Name, "requireVerification")
 		}
-		if opt.Type != registry.OptBool {
+		if opt.Type != v2.OptBool {
 			t.Errorf("opt.Type = %v, want OptBool", opt.Type)
 		}
 		if opt.Default != false {
@@ -118,17 +118,17 @@ func TestLicensing_Meta_Descriptors(t *testing.T) {
 	})
 }
 
-// TestLicensing_Meta_RegistryApply exercises registry.ApplyConfig against a
+// TestLicensing_Meta_RegistryApply exercises v2.ApplyConfig against a
 // FakeConfigSource: after Set("requireVerification", true), the field is
 // updated and the rule reports active when the config explicitly enables
 // it.
 func TestLicensing_Meta_RegistryApply(t *testing.T) {
 	rule := newDependencyLicenseUnknownRule()
-	cfg := registry.NewFakeConfigSource()
+	cfg := v2.NewFakeConfigSource()
 	cfg.SetRuleActive(licensingRuleSet, "DependencyLicenseUnknown", true)
 	cfg.Set(licensingRuleSet, "DependencyLicenseUnknown", "requireVerification", true)
 
-	active := registry.ApplyConfig(rule, rule.Meta(), cfg)
+	active := v2.ApplyConfig(rule, rule.Meta(), cfg)
 	if !active {
 		t.Errorf("active = false, want true (rule-level enable via config)")
 	}
@@ -138,7 +138,7 @@ func TestLicensing_Meta_RegistryApply(t *testing.T) {
 
 	// With no override present, the field should remain unchanged.
 	rule2 := newDependencyLicenseUnknownRule()
-	active2 := registry.ApplyConfig(rule2, rule2.Meta(), registry.NewFakeConfigSource())
+	active2 := v2.ApplyConfig(rule2, rule2.Meta(), v2.NewFakeConfigSource())
 	if active2 {
 		t.Errorf("active2 = true, want false (no override → DefaultActive)")
 	}
@@ -149,7 +149,7 @@ func TestLicensing_Meta_RegistryApply(t *testing.T) {
 
 // licensingParityCase drives the parity test: the same YAML-equivalent
 // configuration is applied via both the config adapter (rules.ApplyConfig
-// with a *config.Config) and the new registry (registry.ApplyConfig with a
+// with a *config.Config) and the new registry (v2.ApplyConfig with a
 // FakeConfigSource). We assert the observable rule state is identical.
 type licensingParityCase struct {
 	name string
@@ -235,7 +235,7 @@ func TestLicensing_Parity_DependencyLicenseUnknown(t *testing.T) {
 			// --- registry path ---------------------------------------
 			registryRule := newDependencyLicenseUnknownRule()
 			registryCfg := buildRegistryConfig(tc)
-			registryActive := registry.ApplyConfig(registryRule, registryRule.Meta(), registryCfg)
+			registryActive := v2.ApplyConfig(registryRule, registryRule.Meta(), registryCfg)
 
 			// --- compare ---------------------------------------------
 			if configActive != registryActive {
@@ -310,10 +310,10 @@ func buildConfigAdapterConfig(tc licensingParityCase) *config.Config {
 	return cfg
 }
 
-// buildRegistryConfig builds a registry.FakeConfigSource matching the
+// buildRegistryConfig builds a v2.FakeConfigSource matching the
 // same test case.
-func buildRegistryConfig(tc licensingParityCase) *registry.FakeConfigSource {
-	cfg := registry.NewFakeConfigSource()
+func buildRegistryConfig(tc licensingParityCase) *v2.FakeConfigSource {
+	cfg := v2.NewFakeConfigSource()
 	if tc.ruleSetActive != nil {
 		cfg.SetRuleSetActive(licensingRuleSet, *tc.ruleSetActive)
 	}
@@ -386,7 +386,7 @@ func TestLicensing_Parity_NoOptionRules(t *testing.T) {
 					configActive := configAdapterNoOptionActive(rr.id, configCfg)
 
 					// Build registry config.
-					regCfg := registry.NewFakeConfigSource()
+					regCfg := v2.NewFakeConfigSource()
 					if tc.ruleSetActive != nil {
 						regCfg.SetRuleSetActive(licensingRuleSet, *tc.ruleSetActive)
 					}
@@ -396,9 +396,9 @@ func TestLicensing_Parity_NoOptionRules(t *testing.T) {
 
 					ruleInstance := rr.ctor()
 					type metaProvider interface {
-						Meta() registry.RuleDescriptor
+						Meta() v2.RuleDescriptor
 					}
-					registryActive := registry.ApplyConfig(ruleInstance, ruleInstance.(metaProvider).Meta(), regCfg)
+					registryActive := v2.ApplyConfig(ruleInstance, ruleInstance.(metaProvider).Meta(), regCfg)
 
 					if configActive != registryActive {
 						t.Errorf("active mismatch for %s case %q: config=%v, registry=%v", rr.id, tc.name, configActive, registryActive)

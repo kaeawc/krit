@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
-	"github.com/kaeawc/krit/internal/rules/registry"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -144,7 +143,7 @@ func TestVariableNaming_HonorsPrivateVariablePattern(t *testing.T) {
 	original := rule.PrivateVariablePattern
 	defer func() { rule.PrivateVariablePattern = original }()
 
-	rule.PrivateVariablePattern = registry.CompileAnchoredPattern(
+	rule.PrivateVariablePattern = v2rules.CompileAnchoredPattern(
 		"VariableNaming", "privateVariablePattern", "_[a-z][A-Za-z0-9]*")
 	if rule.PrivateVariablePattern == nil {
 		t.Fatal("failed to compile test pattern")
@@ -160,7 +159,7 @@ fun example() {
 	}
 
 	// Permissive private pattern — finding goes away.
-	rule.PrivateVariablePattern = registry.CompileAnchoredPattern(
+	rule.PrivateVariablePattern = v2rules.CompileAnchoredPattern(
 		"VariableNaming", "privateVariablePattern", "_?[a-z][A-Za-z0-9]*")
 	if findings := runRuleByName(t, "VariableNaming", `
 package test
@@ -361,7 +360,7 @@ func TestTopLevelPropertyNaming_HonorsPrivatePropertyPattern(t *testing.T) {
 
 	// Pattern: must start with `_`, then identifier (allow only this shape
 	// for private top-level properties).
-	rule.PrivatePropertyPattern = registry.CompileAnchoredPattern(
+	rule.PrivatePropertyPattern = v2rules.CompileAnchoredPattern(
 		"TopLevelPropertyNaming", "privatePropertyPattern", "_[a-z][A-Za-z0-9]*")
 	if rule.PrivatePropertyPattern == nil {
 		t.Fatal("failed to compile test pattern")
@@ -379,7 +378,7 @@ private val plainPrivate = 1
 	}
 
 	// Reset to a permissive pattern that accepts both shapes — no findings.
-	rule.PrivatePropertyPattern = registry.CompileAnchoredPattern(
+	rule.PrivatePropertyPattern = v2rules.CompileAnchoredPattern(
 		"TopLevelPropertyNaming", "privatePropertyPattern", "_?[a-z][A-Za-z0-9]*")
 	if findings := runRuleByName(t, "TopLevelPropertyNaming", `
 package test
@@ -426,7 +425,7 @@ func TestNamingMetaRegexDefaultsMatchRegistry(t *testing.T) {
 				t.Fatalf("rule %q is not registered", tc.ruleID)
 			}
 			impl, ok := rule.Implementation.(interface {
-				Meta() registry.RuleDescriptor
+				Meta() v2rules.RuleDescriptor
 			})
 			if !ok {
 				t.Fatalf("rule %q does not expose Meta()", tc.ruleID)
@@ -446,7 +445,7 @@ func TestNamingMetaRegexDefaultsMatchRegistry(t *testing.T) {
 			if !found {
 				t.Fatalf("option %q not found on rule %q", tc.optionName, tc.ruleID)
 			}
-			compiled := registry.CompileAnchoredPattern(tc.ruleID, tc.optionName, optDefault)
+			compiled := v2rules.CompileAnchoredPattern(tc.ruleID, tc.optionName, optDefault)
 			if compiled == nil {
 				t.Fatalf("zz_meta default %q failed to compile", optDefault)
 			}
@@ -659,7 +658,7 @@ func TestNaming_ConstructorParameter_HonorsPrivateParameterPattern(t *testing.T)
 	defer func() { rule.PrivateParameterPattern = original }()
 
 	// Require private params to start with `_`.
-	rule.PrivateParameterPattern = registry.CompileAnchoredPattern(
+	rule.PrivateParameterPattern = v2rules.CompileAnchoredPattern(
 		"ConstructorParameterNaming", "privateParameterPattern", "_[a-z][A-Za-z0-9]*")
 	if rule.PrivateParameterPattern == nil {
 		t.Fatal("failed to compile test pattern")
@@ -682,7 +681,7 @@ class Foo(val plain: Int)
 	}
 
 	// Permissive private pattern — finding goes away.
-	rule.PrivateParameterPattern = registry.CompileAnchoredPattern(
+	rule.PrivateParameterPattern = v2rules.CompileAnchoredPattern(
 		"ConstructorParameterNaming", "privateParameterPattern", "_?[a-z][A-Za-z0-9]*")
 	if findings := runRuleByName(t, "ConstructorParameterNaming", `
 package test

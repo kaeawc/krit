@@ -545,19 +545,14 @@ func registerComposeRules() {
 				if !composeFileHasRuntimeComposableEvidence(file) {
 					return
 				}
+				if !composeAssignmentIsDirectFunctionBodyStatement(file, idx, fn) {
+					return
+				}
 				if composeAssignmentIsMutableTransitionTargetState(file, idx, fn) {
 					return
 				}
 				if composeAssignmentSynchronizesRememberedObject(file, idx, fn) {
 					return
-				}
-				for cur, ok := file.FlatParent(idx); ok && cur != fn; cur, ok = file.FlatParent(cur) {
-					if file.FlatType(cur) != "lambda_literal" {
-						continue
-					}
-					if composeSideEffectAllowedLambdaBoundary(file, cur, fn) {
-						return
-					}
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"assignment inside a @Composable function body runs on every recomposition; wrap the mutation in LaunchedEffect / SideEffect / DisposableEffect so it only runs when intended.")

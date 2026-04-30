@@ -65,6 +65,35 @@ type DataClassContainsFunctionsRule struct {
 // fallback path is heuristic. Classified per roadmap/17.
 func (r *DataClassContainsFunctionsRule) Confidence() float64 { return 0.75 }
 
+// dataClassHasNonConversionFunctionFlat reports whether the class body
+// contains any function whose name does NOT start with one of the
+// configured conversion-function prefixes. Conversion functions like
+// `toJson()`, `toDto()` are idiomatic on data classes and excluded
+// from the violation. Empty `prefixes` disables the filter (any
+// function fires the rule).
+func dataClassHasNonConversionFunctionFlat(file *scanner.File, body uint32, prefixes []string) bool {
+	if body == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(body, "function_declaration", func(fn uint32) {
+		if found {
+			return
+		}
+		name := extractIdentifierFlat(file, fn)
+		if name == "" {
+			return
+		}
+		for _, prefix := range prefixes {
+			if prefix != "" && strings.HasPrefix(name, prefix) {
+				return
+			}
+		}
+		found = true
+	})
+	return found
+}
+
 // ProtectedMemberInFinalClassRule detects protected members in final classes.
 // With type inference: verifies via ClassHierarchy that no subclass exists,
 // confirming the class is truly final even if it appears in a different module.

@@ -92,6 +92,33 @@ data class Foo(val name: String)`)
 	}
 }
 
+func TestDataClassContainsFunctions_HonorsConversionFunctionPrefix(t *testing.T) {
+	// ConversionFunctionPrefix was previously a dead config. With the
+	// detekt-aligned default of ["to"], a data class containing only
+	// conversion functions like toJson()/toDto() should not fire.
+	if findings := runRuleByName(t, "DataClassContainsFunctions", `
+package test
+data class Foo(val name: String) {
+    fun toJson(): String = "{name=$name}"
+    fun toDto(): Dto = Dto(name)
+}
+class Dto(val name: String)
+`); len(findings) != 0 {
+		t.Fatalf("expected no findings under default ConversionFunctionPrefix=[to], got %d", len(findings))
+	}
+
+	// A non-conversion function still fires alongside conversion ones.
+	if findings := runRuleByName(t, "DataClassContainsFunctions", `
+package test
+data class Foo(val name: String) {
+    fun toJson(): String = "{name=$name}"
+    fun greet(): String = "hi $name"
+}
+`); len(findings) == 0 {
+		t.Fatal("expected finding when data class has non-conversion fun greet() alongside conversion ones")
+	}
+}
+
 // ---------- ProtectedMemberInFinalClass ----------
 
 func TestProtectedMemberInFinalClass_Positive(t *testing.T) {

@@ -899,7 +899,7 @@ func testingQualityIsHarnessVerificationCall(file *scanner.File, idx uint32, nam
 		return testingQualityIsPollingCheckWaitFor(file, idx)
 	case "expectError":
 		return testingQualityIsComposeTestutilsExpectError(file, idx)
-	case "test":
+	case "test", "testWithLifecycle":
 		return testingQualityIsTurbineTestCall(file, idx)
 	default:
 		return false
@@ -917,8 +917,13 @@ var testingQualityTurbineAssertionCalls = map[string]bool{
 }
 
 func testingQualityIsTurbineTestCall(file *scanner.File, idx uint32) bool {
-	if !fileImportsFQN(file, "app.cash.turbine.test") &&
-		!sourceImportsOrMentions(file, "app.cash.turbine.test") {
+	name := flatCallNameAny(file, idx)
+	if name != "test" && name != "testWithLifecycle" {
+		return false
+	}
+	fqn := "app.cash.turbine." + name
+	if !fileImportsFQN(file, fqn) &&
+		!sourceImportsOrMentions(file, fqn) {
 		return false
 	}
 	lambda := flatCallTrailingLambda(file, idx)

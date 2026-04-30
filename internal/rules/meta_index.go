@@ -518,6 +518,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*StringNotSelectableRule)(nil),
 		(*StringRepeatedInContentDescriptionRule)(nil),
 		(*StringShouldBeRawStringRule)(nil),
+		(*StringTrailingWhitespaceResourceRule)(nil),
 		(*StringSpanInContentDescriptionRule)(nil),
 		(*SupervisorScopeInEventHandlerRule)(nil),
 		(*SupportAnnotationUsageRule)(nil),

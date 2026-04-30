@@ -258,6 +258,9 @@ func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
 	for k, v := range idx.StringsNonFormatted {
 		out.StringsNonFormatted[k] = v
 	}
+	for k, v := range idx.StringsTrailingWS {
+		out.StringsTrailingWS[k] = v
+	}
 	for k, v := range idx.StringsLocation {
 		out.StringsLocation[k] = v
 	}

@@ -3762,6 +3762,83 @@ func TestWrongCaseResource(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// StringTrailingWhitespace
+// ---------------------------------------------------------------------------
+
+func TestStringTrailingWhitespace(t *testing.T) {
+	r := findResourceRule(t, "StringTrailingWhitespace")
+
+	t.Run("trailing space triggers", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["label"] = "Label"
+		idx.StringsTrailingWS = map[string]bool{"label": true}
+		idx.StringsLocation["label"] = android.StringLocation{
+			FilePath: "app/src/main/res/values/strings.xml",
+			Line:     5,
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "trailing whitespace") {
+			t.Fatalf("expected message about trailing whitespace, got %q", findings[0].Message)
+		}
+		if findings[0].File != "app/src/main/res/values/strings.xml" || findings[0].Line != 5 {
+			t.Fatalf("unexpected location %s:%d", findings[0].File, findings[0].Line)
+		}
+	})
+
+	t.Run("translatable=false is clean", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["label"] = "Label"
+		idx.StringsTrailingWS = map[string]bool{"label": true}
+		idx.StringsNonTranslate = map[string]bool{"label": true}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("no trailing whitespace is clean", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["label"] = "Label"
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("end-to-end via XML scan flags trailing space and respects translatable=false", func(t *testing.T) {
+		dir := t.TempDir()
+		valuesDir := filepath.Join(dir, "res", "values")
+		if err := os.MkdirAll(valuesDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		content := `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="label">Label </string>
+    <string name="label_with_space" translatable="false">Label </string>
+    <string name="clean">Label</string>
+</resources>
+`
+		if err := os.WriteFile(filepath.Join(valuesDir, "strings.xml"), []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		idx, err := android.ScanResourceDir(filepath.Join(dir, "res"))
+		if err != nil {
+			t.Fatalf("ScanResourceDir: %v", err)
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "`label`") {
+			t.Fatalf("expected finding for `label`, got %q", findings[0].Message)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
 // ExtraTextResource
 // ---------------------------------------------------------------------------
 

@@ -2,7 +2,6 @@ package rules
 
 import (
 	"github.com/kaeawc/krit/internal/config"
-	"github.com/kaeawc/krit/internal/rules/registry"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
@@ -31,7 +30,7 @@ type RegistryApplyResult struct {
 // using checked-in Meta() descriptors. It returns one result per rule in
 // registration order.
 //
-// Semantics mirror registry.ApplyConfig:
+// Semantics mirror v2.ApplyConfig:
 //
 //   - Rules without a Meta() method are reported with Applied=false and
 //     left untouched.
@@ -41,7 +40,7 @@ type RegistryApplyResult struct {
 //     participates in the registry-driven path.
 //   - Otherwise the rule's fields are mutated in-place (via descriptor Apply
 //     closures) and the returned Active reflects the ruleset/rule
-//     override chain declared by registry.ApplyConfig.
+//     override chain declared by v2.ApplyConfig.
 //
 // ApplyConfigViaRegistry does NOT touch DefaultInactive.
 func ApplyConfigViaRegistry(cfg *config.Config) []RegistryApplyResult {
@@ -52,7 +51,7 @@ func ApplyConfigViaRegistry(cfg *config.Config) []RegistryApplyResult {
 		name := r.ID
 		concrete := r.Implementation
 
-		mp, ok := concrete.(registry.MetaProvider)
+		mp, ok := concrete.(v2.MetaProvider)
 		if !ok {
 			results = append(results, RegistryApplyResult{Name: name, Applied: false})
 			continue
@@ -70,7 +69,7 @@ func ApplyConfigViaRegistry(cfg *config.Config) []RegistryApplyResult {
 			continue
 		}
 
-		active := registry.ApplyConfig(concrete, meta, adapter)
+		active := v2.ApplyConfig(concrete, meta, adapter)
 		results = append(results, RegistryApplyResult{
 			Name:    name,
 			MetaID:  meta.ID,

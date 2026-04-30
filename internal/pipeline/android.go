@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
@@ -37,6 +38,9 @@ type AndroidInput struct {
 	// Providers is an optional async scan provider bundle. When nil,
 	// Run constructs one lazily using runtime.NumCPU() workers.
 	Providers *AndroidProjectProviders
+	// LibraryFacts carries Gradle-derived project facts such as minSdkVersion
+	// for Android resource checks that need project SDK context.
+	LibraryFacts *librarymodel.Facts
 	// Tracker, when non-nil, receives manifestAnalysis / resourceAnalysis
 	// / gradleAnalysis child Trackers.
 	Tracker perf.Tracker
@@ -240,7 +244,7 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 			continue
 		}
 		start = time.Now()
-		iconColumns := runActiveIconChecksColumns(iconIdx, activeNames)
+		iconColumns := runActiveIconChecksColumns(iconIdx, activeNames, in.LibraryFacts)
 		collector.AppendColumns(&iconColumns)
 		iconRulesDur += time.Since(start)
 	}
@@ -584,7 +588,7 @@ func ConvertManifestForRules(m *android.ConvertedManifest) *rules.Manifest {
 	return rm
 }
 
-func runActiveIconChecksColumns(idx *android.IconIndex, activeNames map[string]bool) scanner.FindingColumns {
+func runActiveIconChecksColumns(idx *android.IconIndex, activeNames map[string]bool, libraryFacts *librarymodel.Facts) scanner.FindingColumns {
 	collector := scanner.NewFindingCollector(8)
 	if activeNames["IconDensities"] {
 		rules.CheckIconDensities(idx, collector)
@@ -607,11 +611,14 @@ func runActiveIconChecksColumns(idx *android.IconIndex, activeNames map[string]b
 	if activeNames["IconExpectedSize"] {
 		rules.CheckIconExpectedSize(idx, collector)
 	}
+	if activeNames["IconColors"] {
+		rules.CheckIconColorsWithFacts(idx, collector, libraryFacts)
+	}
 	return *collector.Columns()
 }
 
 // RunActiveIconChecksColumns exposes the columns form of the active icon
 // check runner for callers that want to merge findings columnar.
 func RunActiveIconChecksColumns(idx *android.IconIndex, activeNames map[string]bool) scanner.FindingColumns {
-	return runActiveIconChecksColumns(idx, activeNames)
+	return runActiveIconChecksColumns(idx, activeNames, nil)
 }

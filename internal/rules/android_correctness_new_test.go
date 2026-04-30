@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/rules"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -474,6 +475,25 @@ func testWriteColoredPNG(t *testing.T, path string, width, height int, c color.C
 	}
 }
 
+func testWritePNGWithPixel(t *testing.T, path string, width, height int, base, pixel color.Color, px, py int) {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			img.Set(x, y, base)
+		}
+	}
+	img.Set(px, py, pixel)
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("creating PNG %s: %v", path, err)
+	}
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		t.Fatalf("encoding PNG %s: %v", path, err)
+	}
+}
+
 func testWriteTransparentCornersPNG(t *testing.T, path string, size int) {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
@@ -519,7 +539,7 @@ func TestCheckIconColors_FlagsColoredActionBarIcon(t *testing.T) {
 	if len(findings) == 0 {
 		t.Fatal("expected finding for colored action bar icon")
 	}
-	if !strings.Contains(findings[0].Message, "non-standard colors") {
+	if !strings.Contains(findings[0].Message, "single gray color") {
 		t.Errorf("unexpected message: %s", findings[0].Message)
 	}
 }
@@ -573,7 +593,7 @@ func TestCheckIconColors_FlagsTintedNearGrayActionBarIcon(t *testing.T) {
 	dirPath := filepath.Join(resDir, "drawable-mdpi")
 	os.MkdirAll(dirPath, 0o755)
 
-	testWriteColoredPNG(t, filepath.Join(dirPath, "ic_menu_settings.png"), 24, 24, color.RGBA{R: 100, G: 85, B: 100, A: 255})
+	testWriteColoredPNG(t, filepath.Join(dirPath, "ic_menu_settings.png"), 24, 24, color.RGBA{R: 100, G: 99, B: 100, A: 255})
 
 	idx, err := android.ScanIconDirs(resDir)
 	if err != nil {
@@ -585,6 +605,126 @@ func TestCheckIconColors_FlagsTintedNearGrayActionBarIcon(t *testing.T) {
 	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected finding for tinted near-gray action bar icon")
+	}
+}
+
+func TestCheckIconColors_FlagsSingleColoredActionBarPixel(t *testing.T) {
+	root := t.TempDir()
+	resDir := filepath.Join(root, "res")
+	dirPath := filepath.Join(resDir, "drawable-mdpi")
+	os.MkdirAll(dirPath, 0o755)
+
+	testWritePNGWithPixel(t, filepath.Join(dirPath, "ic_action_share.png"), 24, 24,
+		color.RGBA{R: 128, G: 128, B: 128, A: 255},
+		color.RGBA{R: 255, G: 0, B: 0, A: 255},
+		1, 1)
+
+	idx, err := android.ScanIconDirs(resDir)
+	if err != nil {
+		t.Fatalf("ScanIconDirs: %v", err)
+	}
+
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconColors(idx, c)
+	findings := c.Columns().Findings()
+	if len(findings) == 0 {
+		t.Fatal("expected finding for a single colored action bar icon pixel")
+	}
+}
+
+func TestCheckIconColors_FlagsSolidGrayNotificationIcon(t *testing.T) {
+	root := t.TempDir()
+	resDir := filepath.Join(root, "res")
+	dirPath := filepath.Join(resDir, "drawable-mdpi")
+	os.MkdirAll(dirPath, 0o755)
+
+	testWriteColoredPNG(t, filepath.Join(dirPath, "ic_stat_sync.png"), 24, 24, color.RGBA{R: 128, G: 128, B: 128, A: 255})
+
+	idx, err := android.ScanIconDirs(resDir)
+	if err != nil {
+		t.Fatalf("ScanIconDirs: %v", err)
+	}
+
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconColors(idx, c)
+	findings := c.Columns().Findings()
+	if len(findings) == 0 {
+		t.Fatal("expected finding for non-white notification icon")
+	}
+	if !strings.Contains(findings[0].Message, "entirely white") {
+		t.Errorf("unexpected message: %s", findings[0].Message)
+	}
+}
+
+func TestCheckIconColors_AcceptsWhiteNotificationIcon(t *testing.T) {
+	root := t.TempDir()
+	resDir := filepath.Join(root, "res")
+	dirPath := filepath.Join(resDir, "drawable-mdpi")
+	os.MkdirAll(dirPath, 0o755)
+
+	testWriteColoredPNG(t, filepath.Join(dirPath, "ic_stat_sync.png"), 24, 24, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+
+	idx, err := android.ScanIconDirs(resDir)
+	if err != nil {
+		t.Fatalf("ScanIconDirs: %v", err)
+	}
+
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconColors(idx, c)
+	findings := c.Columns().Findings()
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for white notification icon, got %d", len(findings))
+	}
+}
+
+func TestCheckIconColors_AcceptsGrayNotificationIconInV9Folder(t *testing.T) {
+	root := t.TempDir()
+	resDir := filepath.Join(root, "res")
+	dirPath := filepath.Join(resDir, "drawable-mdpi-v9")
+	os.MkdirAll(dirPath, 0o755)
+
+	testWriteColoredPNG(t, filepath.Join(dirPath, "ic_stat_sync.png"), 24, 24, color.RGBA{R: 128, G: 128, B: 128, A: 255})
+
+	idx, err := android.ScanIconDirs(resDir)
+	if err != nil {
+		t.Fatalf("ScanIconDirs: %v", err)
+	}
+
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconColors(idx, c)
+	findings := c.Columns().Findings()
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for v9 grayscale notification icon, got %d", len(findings))
+	}
+}
+
+func TestCheckIconColors_UsesProjectMinSdkForNotificationEra(t *testing.T) {
+	root := t.TempDir()
+	resDir := filepath.Join(root, "res")
+	dirPath := filepath.Join(resDir, "drawable-mdpi")
+	os.MkdirAll(dirPath, 0o755)
+
+	testWriteColoredPNG(t, filepath.Join(dirPath, "ic_stat_sync.png"), 24, 24, color.RGBA{R: 128, G: 128, B: 128, A: 255})
+
+	idx, err := android.ScanIconDirs(resDir)
+	if err != nil {
+		t.Fatalf("ScanIconDirs: %v", err)
+	}
+
+	facts := librarymodel.FactsForProfile(librarymodel.ProjectProfile{MinSdkVersion: 10})
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconColorsWithFacts(idx, c, facts)
+	findings := c.Columns().Findings()
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for minSdk 10 grayscale notification icon, got %d", len(findings))
+	}
+
+	facts = librarymodel.FactsForProfile(librarymodel.ProjectProfile{MinSdkVersion: 11})
+	c = scanner.NewFindingCollector(0)
+	rules.CheckIconColorsWithFacts(idx, c, facts)
+	findings = c.Columns().Findings()
+	if len(findings) == 0 {
+		t.Fatal("expected finding for minSdk 11 non-white notification icon")
 	}
 }
 

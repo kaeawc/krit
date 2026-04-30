@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -130,6 +131,15 @@ func (d *Dispatcher) SetLibraryFacts(facts *librarymodel.Facts) {
 		return
 	}
 	d.v2.SetLibraryFacts(facts)
+}
+
+// SetJavaSemanticFacts wires optional javac-backed Java semantic facts into
+// v2 rule contexts.
+func (d *Dispatcher) SetJavaSemanticFacts(facts *javafacts.Facts) {
+	if d == nil || d.v2 == nil {
+		return
+	}
+	d.v2.SetJavaSemanticFacts(facts)
 }
 
 // Run executes all rules on a file using single-pass dispatch.

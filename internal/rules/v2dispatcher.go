@@ -88,8 +88,9 @@ type V2Dispatcher struct {
 	// table has grown after some files have been parsed.
 	nodeDispatchRules []*v2.Rule
 
-	typeResolver typeinfer.TypeResolver
-	libraryFacts *librarymodel.Facts
+	typeResolver      typeinfer.TypeResolver
+	libraryFacts      *librarymodel.Facts
+	javaSemanticFacts *javafacts.Facts
 
 	flatTypeIndexSize int
 	mu                sync.RWMutex
@@ -185,6 +186,15 @@ func (d *V2Dispatcher) SetLibraryFacts(facts *librarymodel.Facts) {
 		return
 	}
 	d.libraryFacts = facts
+}
+
+// SetJavaSemanticFacts wires optional javac-backed semantic facts into
+// contexts created by this dispatcher.
+func (d *V2Dispatcher) SetJavaSemanticFacts(facts *javafacts.Facts) {
+	if d == nil {
+		return
+	}
+	d.javaSemanticFacts = facts
 }
 
 // buildFlatTypeIndex populates flatTypeRules from the supplied rules.
@@ -349,7 +359,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 						}
 						t := time.Now()
 						runWithRuleProfileLabel(r.ID, "dispatch", func() {
-							safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex)
+							safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex, d.javaSemanticFacts)
 						})
 						elapsed := time.Since(t).Nanoseconds()
 						stats.DispatchRuleNs += elapsed
@@ -368,7 +378,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 				}
 				t := time.Now()
 				runWithRuleProfileLabel(r.ID, "dispatch", func() {
-					safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex)
+					safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex, d.javaSemanticFacts)
 				})
 				elapsed := time.Since(t).Nanoseconds()
 				stats.DispatchRuleNs += elapsed
@@ -395,7 +405,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 					stats.Errors = append(stats.Errors, DispatchError{RuleName: r.ID, FilePath: filePathOrEmpty(file), PanicValue: rec})
 				}
 			}()
-			ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector, LibraryFacts: d.libraryFacts, JavaFacts: javaFileFacts, JavaSourceIndex: javaSourceIndex}
+			ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector, LibraryFacts: d.libraryFacts, JavaFacts: javaFileFacts, JavaSourceIndex: javaSourceIndex, JavaSemanticFacts: d.javaSemanticFacts}
 			if r.Needs.Has(v2.NeedsResolver) {
 				ctx.Resolver = resolver
 			}
@@ -430,7 +440,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 
 // safeCheckV2NodeColumnar invokes a rule with a Collector attached so
 // ctx.Emit routes findings directly into columnar storage.
-func safeCheckV2NodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats, typeResolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaFileFacts *javafacts.JavaFileFacts, javaSourceIndex *javafacts.SourceIndex) {
+func safeCheckV2NodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats, typeResolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaFileFacts *javafacts.JavaFileFacts, javaSourceIndex *javafacts.SourceIndex, javaSemanticFacts *javafacts.Facts) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			line := 0
@@ -457,6 +467,7 @@ func safeCheckV2NodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, fil
 		LibraryFacts:      libraryFacts,
 		JavaFacts:         javaFileFacts,
 		JavaSourceIndex:   javaSourceIndex,
+		JavaSemanticFacts: javaSemanticFacts,
 	}
 	if r.Needs.Has(v2.NeedsResolver) {
 		ctx.Resolver = typeResolver
@@ -791,7 +802,7 @@ func (d *V2Dispatcher) RunResourceSource(file *scanner.File, idx *android.Resour
 				}
 				t := time.Now()
 				runWithRuleProfileLabel(r.ID, "resource-source", func() {
-					safeCheckV2ResourceNodeColumnar(r, flatIdx, &flatNode, file, idx, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex)
+					safeCheckV2ResourceNodeColumnar(r, flatIdx, &flatNode, file, idx, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex, d.javaSemanticFacts)
 				})
 				stats.recordRule(r.ID, "resource-source", time.Since(t).Nanoseconds())
 			}
@@ -843,7 +854,7 @@ func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate f
 	}()
 	collector := scanner.NewFindingCollector(0)
 	javaFileFacts, javaSourceIndex := javaContextFactsForFile(file)
-	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector, LibraryFacts: d.libraryFacts, JavaFacts: javaFileFacts, JavaSourceIndex: javaSourceIndex}
+	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector, LibraryFacts: d.libraryFacts, JavaFacts: javaFileFacts, JavaSourceIndex: javaSourceIndex, JavaSemanticFacts: d.javaSemanticFacts}
 	if r.Needs.Has(v2.NeedsResolver) {
 		if resolver, ok := d.resolveForRule(r); ok {
 			ctx.Resolver = resolver
@@ -856,7 +867,7 @@ func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate f
 	return *collector.Columns()
 }
 
-func safeCheckV2ResourceNodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, resourceIndex *android.ResourceIndex, collector *scanner.FindingCollector, stats *RunStats, typeResolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaFileFacts *javafacts.JavaFileFacts, javaSourceIndex *javafacts.SourceIndex) {
+func safeCheckV2ResourceNodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, resourceIndex *android.ResourceIndex, collector *scanner.FindingCollector, stats *RunStats, typeResolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaFileFacts *javafacts.JavaFileFacts, javaSourceIndex *javafacts.SourceIndex, javaSemanticFacts *javafacts.Facts) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			line := 0
@@ -884,6 +895,7 @@ func safeCheckV2ResourceNodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatN
 		LibraryFacts:      libraryFacts,
 		JavaFacts:         javaFileFacts,
 		JavaSourceIndex:   javaSourceIndex,
+		JavaSemanticFacts: javaSemanticFacts,
 	}
 	if r.Needs.Has(v2.NeedsResolver) {
 		ctx.Resolver = typeResolver

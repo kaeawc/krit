@@ -23,6 +23,7 @@ import (
 	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
@@ -95,6 +96,109 @@ func resolvedStore(storeDirFlag *string) *store.FileStore {
 		dir = ".krit/store"
 	}
 	return store.New(dir)
+}
+
+func runJavaSemanticFacts(ctx context.Context, scanPaths []string, javaFiles []*scanner.File, facts *librarymodel.Facts, tracker perf.Tracker) (*javafacts.Facts, string, error) {
+	if len(javaFiles) == 0 {
+		return nil, "", nil
+	}
+	helperClasspath, cleanup, warning, err := compileJavaFactsHelper(scanPaths)
+	if cleanup != nil {
+		defer cleanup()
+	}
+	if warning != "" || err != nil {
+		return nil, warning, err
+	}
+	opts := javafacts.DefaultOptions()
+	opts.Classpath = javaSemanticClasspath(facts, javaFiles)
+	return javafacts.Invoke(ctx, helperClasspath, javaFilePaths(javaFiles), opts, tracker)
+}
+
+func compileJavaFactsHelper(scanPaths []string) (classpath string, cleanup func(), warning string, err error) {
+	javac, lookupErr := exec.LookPath("javac")
+	if lookupErr != nil {
+		return "", nil, javafacts.UnavailableWarning(fmt.Errorf("javac not found")), nil
+	}
+	repoDir := oracle.FindRepoDir(scanPaths)
+	if repoDir == "" {
+		repoDir = "."
+	}
+	helper := javaFactsHelperSourcePath(repoDir)
+	if helper == "" {
+		if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+			helper = javaFactsHelperSourcePath(cwd)
+		}
+	}
+	if helper == "" {
+		helper = filepath.Join(repoDir, "tools", "krit-java-facts", "src", "main", "java", "dev", "krit", "javafacts", "Main.java")
+	}
+	if _, statErr := os.Stat(helper); statErr != nil {
+		return "", nil, javafacts.UnavailableWarning(fmt.Errorf("helper source not found at %s", helper)), nil
+	}
+	tmp, mkErr := os.MkdirTemp("", "krit-java-facts-helper-*")
+	if mkErr != nil {
+		return "", nil, "", mkErr
+	}
+	cleanup = func() { _ = os.RemoveAll(tmp) }
+	if output, compileErr := exec.Command(javac, "-d", tmp, helper).CombinedOutput(); compileErr != nil {
+		cleanup()
+		return "", nil, javafacts.UnavailableWarning(fmt.Errorf("compile helper: %w: %s", compileErr, string(output))), nil
+	}
+	return tmp, cleanup, "", nil
+}
+
+func javaFactsHelperSourcePath(root string) string {
+	if root == "" {
+		return ""
+	}
+	helper := filepath.Join(root, "tools", "krit-java-facts", "src", "main", "java", "dev", "krit", "javafacts", "Main.java")
+	if _, err := os.Stat(helper); err == nil {
+		return helper
+	}
+	return ""
+}
+
+func javaSemanticClasspath(facts *librarymodel.Facts, files []*scanner.File) string {
+	seen := map[string]bool{}
+	var entries []string
+	add := func(path string) {
+		if path == "" {
+			return
+		}
+		clean := filepath.Clean(path)
+		if seen[clean] {
+			return
+		}
+		if _, err := os.Stat(clean); err != nil {
+			return
+		}
+		seen[clean] = true
+		entries = append(entries, clean)
+	}
+	if facts != nil {
+		for _, path := range facts.Profile.Java.SourceRootsForScan(true, true, true) {
+			add(path)
+		}
+		for _, path := range facts.Profile.Java.JavacClasspathCandidates() {
+			add(path)
+		}
+	}
+	for _, file := range files {
+		if file != nil {
+			add(filepath.Dir(file.Path))
+		}
+	}
+	return strings.Join(entries, string(os.PathListSeparator))
+}
+
+func javaFilePaths(files []*scanner.File) []string {
+	out := make([]string, 0, len(files))
+	for _, file := range files {
+		if file != nil {
+			out = append(out, file.Path)
+		}
+	}
+	return out
 }
 
 // resolveParseCacheCap returns the parse cache size cap in bytes.
@@ -1029,6 +1133,22 @@ potential-bugs:
 	_ = parseResult.ParseErrors
 	parseResult.ActiveRules = activeRules
 
+	var javaSemanticFacts *javafacts.Facts
+	if v2rules.NeedsJavaFacts(activeRules) && len(parseResult.JavaFiles) > 0 {
+		var warning string
+		javaSemanticFacts, warning, err = runJavaSemanticFacts(context.Background(), paths, parseResult.JavaFiles, libraryFacts, tracker)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			exit(2)
+		}
+		if warning != "" {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+		} else if *verboseFlag && javaSemanticFacts != nil {
+			fmt.Fprintf(os.Stderr, "verbose: Java semantic facts loaded (%d calls, %d classes)\n",
+				len(javaSemanticFacts.Calls), len(javaSemanticFacts.Classes))
+		}
+	}
+
 	hasTypeAwareRule := false
 	for _, r := range activeRules {
 		if r != nil && r.Needs.Has(v2rules.NeedsResolver) {
@@ -1071,22 +1191,23 @@ potential-bugs:
 	ruleStart := time.Now()
 	ruleWorkers := phaseWorkerCount("ruleExecution", *jobsFlag, len(sourceFiles))
 	dispatchIdx := pipeline.IndexResult{
-		ParseResult:      parseResult,
-		Resolver:         resolver,
-		Oracle:           typeOracle,
-		LibraryFacts:     libraryFacts,
-		CacheResult:      cacheResult,
-		Cache:            analysisCache,
-		RuleHash:         ruleHash,
-		CacheFilePath:    cacheFilePath,
-		CacheStats:       cacheStats,
-		Logger:           verboseLogger,
-		Tracker:          tracker,
-		Jobs:             *jobsFlag,
-		ProfileDispatch:  *profileDispatchFlag,
-		Version:          version,
-		CacheScanPaths:   paths,
-		EmitPerFileStats: true,
+		ParseResult:       parseResult,
+		Resolver:          resolver,
+		Oracle:            typeOracle,
+		LibraryFacts:      libraryFacts,
+		JavaSemanticFacts: javaSemanticFacts,
+		CacheResult:       cacheResult,
+		Cache:             analysisCache,
+		RuleHash:          ruleHash,
+		CacheFilePath:     cacheFilePath,
+		CacheStats:        cacheStats,
+		Logger:            verboseLogger,
+		Tracker:           tracker,
+		Jobs:              *jobsFlag,
+		ProfileDispatch:   *profileDispatchFlag,
+		Version:           version,
+		CacheScanPaths:    paths,
+		EmitPerFileStats:  true,
 	}
 	dispatchResult, err := (pipeline.DispatchPhase{Workers: ruleWorkers}).Run(context.Background(), dispatchIdx)
 	if err != nil {
@@ -1223,6 +1344,7 @@ potential-bugs:
 	androidTracker := tracker.Serial("androidProjectAnalysis")
 	androidDispatcher := rules.NewDispatcherV2(activeRules, resolver)
 	androidDispatcher.SetLibraryFacts(libraryFacts)
+	androidDispatcher.SetJavaSemanticFacts(javaSemanticFacts)
 	androidRes, err := (pipeline.AndroidPhase{}).Run(context.Background(), pipeline.AndroidInput{
 		Project:     androidProject,
 		ActiveRules: activeRules,

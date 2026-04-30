@@ -8,6 +8,7 @@ import (
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
@@ -204,6 +205,9 @@ type IndexResult struct {
 	// LibraryFacts is the project-wide library semantic model derived from
 	// Gradle where available.
 	LibraryFacts *librarymodel.Facts
+	// JavaSemanticFacts are optional javac-backed facts requested by Java
+	// rules that need compiler-grade receiver/return/supertype evidence.
+	JavaSemanticFacts *javafacts.Facts
 	// Cache is the incremental analysis cache. Nil when --no-cache or
 	// the cache file cannot be opened.
 	Cache *cache.Cache

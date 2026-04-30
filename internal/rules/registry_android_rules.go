@@ -225,6 +225,7 @@ func registerAndroidRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "method_invocation", "assignment"}, Needs: v2.NeedsTypeInfo,
 			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.9, Implementation: r,
+			JavaFacts:              &v2.JavaFactProfile{ReceiverTypesForCallees: []string{"setJavaScriptEnabled"}},
 			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"setJavaScriptEnabled"}},
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {

@@ -57,7 +57,7 @@ class MyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {}`)
 	}
 	var sawWebSettings, sawHandler, sawAdapter bool
 	for _, call := range facts.Calls {
-		if call.Callee == "setJavaScriptEnabled" && call.ReceiverType == "android.webkit.WebSettings" {
+		if call.Callee == "setJavaScriptEnabled" && call.ReceiverType == "android.webkit.WebSettings" && call.MethodOwner == "android.webkit.WebSettings" {
 			sawWebSettings = true
 		}
 	}

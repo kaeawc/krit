@@ -567,6 +567,27 @@ func TestCheckIconColors_AcceptsGrayActionBarIcon(t *testing.T) {
 	}
 }
 
+func TestCheckIconColors_FlagsTintedNearGrayActionBarIcon(t *testing.T) {
+	root := t.TempDir()
+	resDir := filepath.Join(root, "res")
+	dirPath := filepath.Join(resDir, "drawable-mdpi")
+	os.MkdirAll(dirPath, 0o755)
+
+	testWriteColoredPNG(t, filepath.Join(dirPath, "ic_menu_settings.png"), 24, 24, color.RGBA{R: 100, G: 85, B: 100, A: 255})
+
+	idx, err := android.ScanIconDirs(resDir)
+	if err != nil {
+		t.Fatalf("ScanIconDirs: %v", err)
+	}
+
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconColors(idx, c)
+	findings := c.Columns().Findings()
+	if len(findings) == 0 {
+		t.Fatal("expected finding for tinted near-gray action bar icon")
+	}
+}
+
 func TestCheckIconColors_IgnoresNonActionBarIcon(t *testing.T) {
 	root := t.TempDir()
 	resDir := filepath.Join(root, "res")

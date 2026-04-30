@@ -283,6 +283,58 @@ func registerDatabaseRules() {
 		})
 	}
 	{
+		r := &RoomMultipleWritesMissingTransactionRule{BaseRule: BaseRule{RuleName: "RoomMultipleWritesMissingTransaction", RuleSetName: "database", Sev: "warning", Desc: "Detects Room DAO functions that perform 2+ @Insert/@Update/@Delete calls without being annotated @Transaction."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), Implementation: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if hasAnnotationFlat(file, idx, "Transaction") {
+					return
+				}
+				body, _ := file.FlatFindChild(idx, "function_body")
+				if body == 0 {
+					return
+				}
+				cls, ok := flatEnclosingAncestor(file, idx, "class_declaration", "object_declaration")
+				if !ok {
+					return
+				}
+				if !hasAnnotationFlat(file, cls, "Dao") {
+					return
+				}
+				writers := daoWriteAnnotatedSiblings(file, cls)
+				if len(writers) == 0 {
+					return
+				}
+				count := 0
+				wrapped := false
+				file.FlatWalkNodes(body, "call_expression", func(callIdx uint32) {
+					name := flatCallExpressionName(file, callIdx)
+					if name == "" {
+						return
+					}
+					if name == "withTransaction" || name == "runInTransaction" {
+						wrapped = true
+						return
+					}
+					if _, ok := writers[name]; ok {
+						count++
+					}
+				})
+				if wrapped || count < 2 {
+					return
+				}
+				fnName := extractIdentifierFlat(file, idx)
+				if fnName == "" {
+					fnName = "function"
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("DAO function '%s' performs multiple @Insert/@Update/@Delete calls but is not @Transaction; wrap it with @Transaction to make the writes atomic.", fnName))
+			},
+		})
+	}
+	{
 		r := &JdbcPreparedStatementNotClosedRule{BaseRule: BaseRule{RuleName: "JdbcPreparedStatementNotClosed", RuleSetName: "database", Sev: "warning", Desc: "Detects JDBC prepared statements assigned to local properties without .use {} or .close() in the same scope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

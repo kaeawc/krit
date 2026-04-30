@@ -338,6 +338,46 @@ func roomInsertEntityParameterTypeFlat(file *scanner.File, fn uint32) string {
 	return ""
 }
 
+// RoomMultipleWritesMissingTransactionRule detects DAO functions whose body
+// contains 2+ calls to sibling DAO methods annotated @Insert/@Update/@Delete
+// while the enclosing function itself is not @Transaction.
+type RoomMultipleWritesMissingTransactionRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Database/Room rule.
+// Detection is name-based against sibling DAO methods and does not resolve
+// types across files.
+func (r *RoomMultipleWritesMissingTransactionRule) Confidence() float64 { return 0.75 }
+
+// daoWriteAnnotatedSiblings returns a set of sibling function names in the
+// enclosing DAO class body that are annotated @Insert/@Update/@Delete.
+func daoWriteAnnotatedSiblings(file *scanner.File, classIdx uint32) map[string]struct{} {
+	body, _ := file.FlatFindChild(classIdx, "class_body")
+	if body == 0 {
+		return nil
+	}
+	out := make(map[string]struct{})
+	for i := 0; i < file.FlatChildCount(body); i++ {
+		child := file.FlatChild(body, i)
+		if file.FlatType(child) != "function_declaration" {
+			continue
+		}
+		if !(hasAnnotationFlat(file, child, "Insert") ||
+			hasAnnotationFlat(file, child, "Update") ||
+			hasAnnotationFlat(file, child, "Delete")) {
+			continue
+		}
+		name := extractIdentifierFlat(file, child)
+		if name == "" {
+			continue
+		}
+		out[name] = struct{}{}
+	}
+	return out
+}
+
 // EntityPrimaryKeyNotStableRule detects Room @Entity primary keys declared as
 // `var` without `autoGenerate = true`. A mutable primary key breaks
 // equals/hashCode contracts when the row is inserted and assigned a real id.

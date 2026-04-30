@@ -162,6 +162,18 @@ func (r *RoomDatabaseVersionNotBumpedRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *RoomMultipleWritesMissingTransactionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "RoomMultipleWritesMissingTransaction",
+		RuleSet:       "database",
+		Severity:      "warning",
+		Description:   "Detects Room DAO functions that perform 2+ @Insert/@Update/@Delete calls without being annotated @Transaction.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *JdbcPreparedStatementNotClosedRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "JdbcPreparedStatementNotClosed",

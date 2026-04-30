@@ -139,14 +139,8 @@ func registerStyleClassesRules() {
 				if hasAnnotationFlat(file, idx, "Module") {
 					return
 				}
-				for i := 0; i < file.FlatChildCount(idx); i++ {
-					child := file.FlatChild(idx, i)
-					if file.FlatType(child) != "delegation_specifier" {
-						continue
-					}
-					if file.FlatHasChildOfType(child, "constructor_invocation") {
-						return
-					}
+				if abstractClassCanBeInterfaceSupertypeCarriesState(file, idx) {
+					return
 				}
 				if ctor, ok := file.FlatFindChild(idx, "primary_constructor"); ok {
 					paramsText := file.FlatNodeText(ctor)

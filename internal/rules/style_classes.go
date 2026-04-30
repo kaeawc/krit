@@ -15,7 +15,6 @@ type AbstractClassCanBeConcreteClassRule struct {
 	BaseRule
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence — classifying
 // abstractness requires knowing all concrete method bodies;
 // resolver-assisted but falls back to structural heuristic. Classified per
@@ -33,6 +32,69 @@ type AbstractClassCanBeInterfaceRule struct {
 // fallback path is heuristic. Classified per roadmap/17.
 func (r *AbstractClassCanBeInterfaceRule) Confidence() float64 { return 0.75 }
 
+func abstractClassCanBeInterfaceClassDeclaresState(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "class_declaration" {
+		return false
+	}
+	if ctor, ok := file.FlatFindChild(idx, "primary_constructor"); ok {
+		paramsText := file.FlatNodeText(ctor)
+		if strings.Contains(paramsText, "val ") || strings.Contains(paramsText, "var ") {
+			return true
+		}
+	}
+	body, _ := file.FlatFindChild(idx, "class_body")
+	if body == 0 {
+		return false
+	}
+	hasState := false
+	file.FlatWalkNodes(body, "property_declaration", func(propNode uint32) {
+		if strings.Contains(file.FlatNodeText(propNode), "=") {
+			hasState = true
+		}
+	})
+	return hasState
+}
+
+var abstractClassCanBeInterfaceKnownStatefulSupertypes = map[string]bool{
+	"ViewModel":        true,
+	"AndroidViewModel": true,
+}
+
+func abstractClassCanBeInterfaceSupertypeCarriesState(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "class_declaration" {
+		return false
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "delegation_specifier" {
+			continue
+		}
+		if file.FlatHasChildOfType(child, "constructor_invocation") {
+			return true
+		}
+		supertypeName := extractSupertypeNameFlat(file, child)
+		if supertypeName == "" {
+			continue
+		}
+		if abstractClassCanBeInterfaceKnownStatefulSupertypes[supertypeName] {
+			return true
+		}
+		var supertypeHasState bool
+		file.FlatWalkNodes(0, "class_declaration", func(classNode uint32) {
+			if supertypeHasState || classNode == idx {
+				return
+			}
+			if extractIdentifierFlat(file, classNode) == supertypeName &&
+				abstractClassCanBeInterfaceClassDeclaresState(file, classNode) {
+				supertypeHasState = true
+			}
+		})
+		if supertypeHasState {
+			return true
+		}
+	}
+	return false
+}
+
 // DataClassShouldBeImmutableRule detects var properties in data classes.
 // With type inference: also flags val properties whose types are mutable collections
 // (MutableList, MutableMap, MutableSet) since they undermine data class immutability.
@@ -40,7 +102,6 @@ type DataClassShouldBeImmutableRule struct {
 	FlatDispatchBase
 	BaseRule
 }
-
 
 // Confidence reports a tier-2 (medium) base confidence — detecting
 // mutable properties in data classes needs type-aware var detection;
@@ -102,7 +163,6 @@ type ProtectedMemberInFinalClassRule struct {
 	BaseRule
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence — flags protected
 // members on non-open classes; class-openness detection depends on declared
 // modifiers plus resolver for inherited finality. Classified per
@@ -155,7 +215,6 @@ type UtilityClassWithPublicConstructorRule struct {
 // fallback path is heuristic. Classified per roadmap/17.
 func (r *UtilityClassWithPublicConstructorRule) Confidence() float64 { return 0.75 }
 
-
 // OptionalAbstractKeywordRule detects abstract keyword on interface members.
 type OptionalAbstractKeywordRule struct {
 	FlatDispatchBase
@@ -185,7 +244,6 @@ type ObjectLiteralToLambdaRule struct {
 	FlatDispatchBase
 	BaseRule
 }
-
 
 // Confidence reports a tier-2 (medium) base confidence. SAM
 // conversion eligibility depends on whether the supertype is a
@@ -330,7 +388,6 @@ type SerialVersionUIDInSerializableClassRule struct {
 	BaseRule
 }
 
-
 // Confidence reports a tier-2 (medium) base confidence — Serializable
 // detection uses supertype names; without resolver, falls back to matching
 // `Serializable` in the delegation list. Classified per roadmap/17.
@@ -377,5 +434,3 @@ func checksSerializableRec(resolver typeinfer.TypeResolver, info *typeinfer.Clas
 	}
 	return false
 }
-
-

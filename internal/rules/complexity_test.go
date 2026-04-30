@@ -281,6 +281,25 @@ func TestTooManyFunctions_Negative(t *testing.T) {
 	}
 }
 
+func TestTooManyFunctions_DetektParityOverriddenFunctionsCount(t *testing.T) {
+	// detekt parity: ignoreOverridden default is false, so override
+	// methods count toward the function total. Build a file with 12
+	// top-level functions where every function uses `override` — under
+	// the previous default (true) the rule skipped them all and emitted
+	// no finding; under the new default it should fire.
+	var b strings.Builder
+	b.WriteString("package test\n")
+	for i := 1; i <= 12; i++ {
+		b.WriteString("override fun fn")
+		b.WriteString(itoa(i))
+		b.WriteString("() {}\n")
+	}
+	findings := runRuleByName(t, "TooManyFunctions", b.String())
+	if len(findings) == 0 {
+		t.Fatal("expected TooManyFunctions finding for 12 override functions")
+	}
+}
+
 func TestTooManyFunctions_IgnoresNestedClassFunctionsForOuterClass(t *testing.T) {
 	code := `package test
 class Outer {

@@ -154,7 +154,7 @@ func registerTestingQualityRules() {
 							continue
 						}
 						callName := flatCallNameAny(file, rhs)
-						if callName == "mockk" || callName == "mock" || callName == "spyk" || callName == "spy" {
+						if testingQualityMockCreationCalls[callName] {
 							mockNames = append(mockNames, file.FlatNodeText(ident))
 							mockRows = append(mockRows, file.FlatRow(n)+1)
 							mockCols = append(mockCols, file.FlatCol(n)+1)
@@ -170,13 +170,15 @@ func registerTestingQualityRules() {
 						return
 					}
 					callName := flatCallNameAny(file, n)
-					switch callName {
-					case "verify", "coVerify", "every", "coEvery", "whenever", "confirmVerified":
-					default:
+					if testingQualityMockCreationCalls[callName] {
 						return
 					}
 					for _, name := range mockNames {
-						if subtreeHasReferenceName(file, n, name) {
+						if testingQualityMockUsageCalls[callName] && subtreeHasReferenceName(file, n, name) {
+							used[name] = true
+							continue
+						}
+						if testingQualityCallPassesReferenceAsValueArgument(file, n, name) {
 							used[name] = true
 						}
 					}

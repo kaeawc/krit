@@ -35,4 +35,12 @@ class MockWithoutVerifyNegative {
 
         repo.load()
     }
+
+    @Test
+    fun loadWithConstructorInjection() {
+        val api = mock<Api>()
+        val repo = Repo(api)
+
+        repo.load()
+    }
 }

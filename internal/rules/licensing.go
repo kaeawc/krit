@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/scanner"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
@@ -144,6 +145,177 @@ func leadingHeaderComment(lines []string) ([]string, int) {
 		}
 	}
 	return nil, 0
+}
+
+// wellKnownOptInMarkers lists OptIn marker classes shipped with widely used
+// Kotlin and AndroidX libraries. The rule treats any marker outside this set
+// as a likely stale or typo'd reference. Custom project markers can be added
+// via the `additionalMarkers` config option.
+var wellKnownOptInMarkers = map[string]bool{
+	// kotlin stdlib
+	"ExperimentalStdlibApi":    true,
+	"ExperimentalUnsignedTypes": true,
+	"ExperimentalMultiplatform": true,
+	"ExperimentalTypeInference": true,
+	"ExperimentalContracts":     true,
+	"ExperimentalTime":          true,
+	"ExperimentalSubclassOptIn": true,
+	"RequiresOptIn":             true,
+
+	// kotlinx.coroutines
+	"ExperimentalCoroutinesApi": true,
+	"DelicateCoroutinesApi":     true,
+	"InternalCoroutinesApi":     true,
+	"FlowPreview":               true,
+	"ObsoleteCoroutinesApi":     true,
+
+	// kotlinx.serialization
+	"ExperimentalSerializationApi": true,
+	"InternalSerializationApi":     true,
+
+	// Compose / AndroidX
+	"ExperimentalComposeApi":         true,
+	"ExperimentalComposeUiApi":       true,
+	"ExperimentalAnimationApi":       true,
+	"ExperimentalAnimationGraphicsApi": true,
+	"ExperimentalFoundationApi":      true,
+	"ExperimentalLayoutApi":          true,
+	"ExperimentalMaterialApi":        true,
+	"ExperimentalMaterial3Api":       true,
+	"ExperimentalMaterial3ExpressiveApi": true,
+	"ExperimentalTextApi":            true,
+	"ExperimentalPagingApi":          true,
+	"ExperimentalPagerApi":           true,
+	"ExperimentalCoilApi":            true,
+	"ExperimentalGlideComposeApi":    true,
+	"ExperimentalComposableApi":      true,
+	"InternalComposeApi":             true,
+	"ExperimentalComposeRuntimeApi":  true,
+	"ExperimentalGraphicsApi":        true,
+
+	// kotlinx.atomicfu / kotlinx.io / others
+	"ExperimentalAtomicfuApi":  true,
+	"ExperimentalIoApi":        true,
+	"InternalAtomicfuApi":      true,
+
+	// AndroidX miscellaneous
+	"ExperimentalCarApi":           true,
+	"ExperimentalHorologistApi":    true,
+	"ExperimentalLifecycleComposeApi": true,
+	"ExperimentalMediaCompatApi":   true,
+	"ExperimentalNavigationApi":    true,
+	"ExperimentalWindowApi":        true,
+	"ExperimentalWindowCoreApi":    true,
+}
+
+// optInMarkerName extracts the marker class simple name from the expression
+// inside `@OptIn(...)`. tree-sitter parses `Foo::class` as either a
+// class_literal or a callable_reference, and `pkg.Foo::class` as a
+// navigation_expression — all three shapes appear in real Kotlin sources.
+func optInMarkerName(file *scanner.File, expr uint32) string {
+	if expr == 0 {
+		return ""
+	}
+	switch file.FlatType(expr) {
+	case "class_literal":
+		name := ""
+		for c := file.FlatFirstChild(expr); c != 0; c = file.FlatNextSib(c) {
+			switch file.FlatType(c) {
+			case "simple_identifier":
+				name = file.FlatNodeText(c)
+			case "navigation_expression":
+				if n := flatNavigationExpressionLastIdentifier(file, c); n != "" {
+					name = n
+				}
+			}
+		}
+		return name
+	case "callable_reference":
+		name := ""
+		for c := file.FlatFirstChild(expr); c != 0; c = file.FlatNextSib(c) {
+			switch file.FlatType(c) {
+			case "simple_identifier", "type_identifier":
+				name = file.FlatNodeText(c)
+			case "user_type":
+				if ident := flatLastChildOfType(file, c, "type_identifier"); ident != 0 {
+					name = file.FlatNodeText(ident)
+				}
+			case "navigation_expression":
+				if n := flatNavigationExpressionLastIdentifier(file, c); n != "" {
+					name = n
+				}
+			}
+		}
+		return name
+	case "navigation_expression":
+		if n := flatNavigationExpressionLastIdentifier(file, expr); n != "" {
+			return n
+		}
+	}
+	return ""
+}
+
+// OptInMarkerNotRecognisedRule flags `@OptIn(Foo::class)` annotations whose
+// marker does not appear in the embedded well-known markers list. A stale
+// reference often indicates an experimental API that has graduated or been
+// removed.
+type OptInMarkerNotRecognisedRule struct {
+	FlatDispatchBase
+	BaseRule
+	AdditionalMarkers []string
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Licensing rule. The
+// embedded marker list cannot enumerate every project-local OptIn marker, so
+// callers can extend it via configuration. Classified per roadmap/17.
+func (r *OptInMarkerNotRecognisedRule) Confidence() float64 { return 0.7 }
+
+func (r *OptInMarkerNotRecognisedRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
+	if annotationFinalName(file, idx) != "OptIn" {
+		return
+	}
+	ctor, ok := file.FlatFindChild(idx, "constructor_invocation")
+	if !ok {
+		return
+	}
+	args, _ := file.FlatFindChild(ctor, "value_arguments")
+	if args == 0 {
+		return
+	}
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		expr := flatValueArgumentExpression(file, arg)
+		if expr == 0 {
+			continue
+		}
+		name := optInMarkerName(file, expr)
+		if name == "" {
+			continue
+		}
+		if wellKnownOptInMarkers[name] {
+			continue
+		}
+		if r.markerInAdditional(name) {
+			continue
+		}
+		ctx.Emit(r.Finding(file, file.FlatRow(arg)+1, file.FlatCol(arg)+1,
+			fmt.Sprintf("@OptIn marker %q is not in the embedded well-known markers list; verify the marker still exists or add it to additionalMarkers.", name)))
+	}
+}
+
+func (r *OptInMarkerNotRecognisedRule) markerInAdditional(name string) bool {
+	for _, m := range r.AdditionalMarkers {
+		if i := strings.LastIndex(m, "."); i >= 0 {
+			m = m[i+1:]
+		}
+		if m == name {
+			return true
+		}
+	}
+	return false
 }
 
 // DependencyLicenseUnknownRule flags external dependencies that are not present

@@ -50,6 +50,16 @@ func registerLicensingRules() {
 		})
 	}
 	{
+		r := &OptInMarkerNotRecognisedRule{
+			BaseRule: BaseRule{RuleName: "OptInMarkerNotRecognised", RuleSetName: licensingRuleSet, Sev: "info", Desc: "Detects @OptIn marker classes not in the embedded well-known markers list."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"annotation"}, Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &DependencyLicenseUnknownRule{
 			BaseRule: BaseRule{RuleName: "DependencyLicenseUnknown", RuleSetName: licensingRuleSet, Sev: "info", Desc: "Detects external dependencies not present in the embedded license registry."},
 		}

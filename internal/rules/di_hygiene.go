@@ -312,6 +312,238 @@ func findAnnotationTextInFlatParent(file *scanner.File, parent uint32, annotatio
 	return ""
 }
 
+// DeadBindingsRule detects @Provides/@Binds functions whose return type is not
+// requested by any @Inject site or component exposure anywhere in the project.
+type DeadBindingsRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-3 (lower) base confidence. Reachability is approximated
+// from source-visible @Inject sites and component method exposures; project-specific
+// DI machinery (assisted factories, multibindings, generated code) is not modeled.
+func (r *DeadBindingsRule) Confidence() float64 { return 0.5 }
+
+var deadBindingComponentAnnotations = []string{
+	"Component", "Subcomponent", "MergeComponent", "MergeSubcomponent",
+	"DefineComponent", "EntryPoint", "EarlyEntryPoint", "GraphExtension",
+	"DependencyGraph", "ContributesSubcomponent", "ComponentExtension",
+}
+
+func (r *DeadBindingsRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
+	if index == nil {
+		return
+	}
+	files := index.Files
+	if len(files) == 0 {
+		return
+	}
+
+	type bindingCandidate struct {
+		file    *scanner.File
+		idx     uint32
+		name    string
+		retType string
+	}
+	var bindings []bindingCandidate
+	demand := make(map[string]struct{})
+
+	addDemandTypes := func(types []string) {
+		for _, t := range types {
+			if t == "" {
+				continue
+			}
+			demand[t] = struct{}{}
+		}
+	}
+
+	for _, file := range files {
+		if file == nil || file.FlatTree == nil {
+			continue
+		}
+		file.FlatWalkAllNodes(0, func(idx uint32) {
+			switch file.FlatType(idx) {
+			case "function_declaration":
+				isProvides := hasAnnotationFlat(file, idx, "Provides")
+				isBinds := hasAnnotationFlat(file, idx, "Binds")
+				inComponent := isInsideComponentInterfaceFlat(file, idx)
+				if isProvides || isBinds {
+					ret := lastTypeSegment(extractFunctionReturnTypeNameFlat(file, idx))
+					if ret != "" {
+						bindings = append(bindings, bindingCandidate{
+							file:    file,
+							idx:     idx,
+							name:    extractIdentifierFlat(file, idx),
+							retType: ret,
+						})
+					}
+					addDemandTypes(extractFunctionParameterTypeNamesFlat(file, idx))
+				}
+				if inComponent {
+					if ret := lastTypeSegment(extractFunctionReturnTypeNameFlat(file, idx)); ret != "" {
+						demand[ret] = struct{}{}
+					}
+					addDemandTypes(extractFunctionParameterTypeNamesFlat(file, idx))
+				}
+			case "primary_constructor":
+				if hasAnnotationFlat(file, idx, "Inject") {
+					addDemandTypes(extractClassParameterTypeNamesFlat(file, idx))
+				}
+			case "secondary_constructor":
+				if hasAnnotationFlat(file, idx, "Inject") {
+					addDemandTypes(extractFunctionParameterTypeNamesFlat(file, idx))
+				}
+			case "property_declaration":
+				if hasAnnotationFlat(file, idx, "Inject") {
+					if name := lastTypeSegment(extractPropertyTypeNameFlat(file, idx)); name != "" {
+						demand[name] = struct{}{}
+					}
+				}
+			}
+		})
+	}
+
+	for _, b := range bindings {
+		if _, ok := demand[b.retType]; ok {
+			continue
+		}
+		name := b.name
+		if name == "" {
+			name = "binding"
+		}
+		ctx.Emit(r.Finding(
+			b.file,
+			b.file.FlatRow(b.idx)+1,
+			1,
+			fmt.Sprintf("@Provides/@Binds function '%s' returning '%s' is not requested by any @Inject site or component exposure in the project.", name, b.retType),
+		))
+	}
+}
+
+func extractFunctionReturnTypeNameFlat(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 {
+		return ""
+	}
+	seenColon := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		t := file.FlatType(child)
+		if t == ":" {
+			seenColon = true
+			continue
+		}
+		if !seenColon {
+			continue
+		}
+		switch t {
+		case "user_type", "nullable_type", "function_type", "parenthesized_type":
+			return strings.TrimSpace(file.FlatNodeText(child))
+		case "function_body", "=":
+			return ""
+		}
+	}
+	return ""
+}
+
+func extractPropertyTypeNameFlat(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 {
+		return ""
+	}
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "variable_declaration":
+			if name := extractParameterTypeNameFlat(file, child); name != "" {
+				return name
+			}
+		case "user_type", "nullable_type", "function_type", "parenthesized_type":
+			return strings.TrimSpace(file.FlatNodeText(child))
+		}
+	}
+	return ""
+}
+
+func extractParameterTypeNameFlat(file *scanner.File, param uint32) string {
+	if file == nil || param == 0 {
+		return ""
+	}
+	for child := file.FlatFirstChild(param); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "user_type", "nullable_type", "function_type", "parenthesized_type":
+			return strings.TrimSpace(file.FlatNodeText(child))
+		}
+	}
+	return ""
+}
+
+func extractFunctionParameterTypeNamesFlat(file *scanner.File, fn uint32) []string {
+	params, ok := file.FlatFindChild(fn, "function_value_parameters")
+	if !ok {
+		return nil
+	}
+	var names []string
+	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "parameter" {
+			continue
+		}
+		if name := lastTypeSegment(extractParameterTypeNameFlat(file, child)); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func extractClassParameterTypeNamesFlat(file *scanner.File, ctor uint32) []string {
+	if file == nil || ctor == 0 {
+		return nil
+	}
+	var names []string
+	for child := file.FlatFirstChild(ctor); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "class_parameter" {
+			continue
+		}
+		if name := lastTypeSegment(extractParameterTypeNameFlat(file, child)); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func lastTypeSegment(typeText string) string {
+	s := strings.TrimSpace(typeText)
+	if s == "" {
+		return ""
+	}
+	if idx := strings.Index(s, "<"); idx >= 0 {
+		s = s[:idx]
+	}
+	s = strings.TrimSuffix(s, "?")
+	s = strings.TrimSpace(s)
+	if idx := strings.LastIndex(s, "."); idx >= 0 {
+		s = s[idx+1:]
+	}
+	return strings.TrimSpace(s)
+}
+
+func isInsideComponentInterfaceFlat(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		if file.FlatType(parent) != "class_declaration" {
+			continue
+		}
+		if !file.FlatHasChildOfType(parent, "interface") {
+			continue
+		}
+		for _, ann := range deadBindingComponentAnnotations {
+			if hasAnnotationFlat(file, parent, ann) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func anvilImplementedTypesFlat(file *scanner.File, idx uint32) []string {
 	var names []string
 	if file == nil || idx == 0 {

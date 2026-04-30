@@ -70,6 +70,32 @@ func registerLicensingRules() {
 		})
 	}
 	{
+		r := &OptInMarkerExposedPubliclyRule{
+			BaseRule: BaseRule{RuleName: "OptInMarkerExposedPublicly", RuleSetName: licensingRuleSet, Sev: "warning", Desc: "Detects @OptIn annotations on public API declarations that propagate the opt-in requirement to callers."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"annotation"}, Confidence: r.Confidence(), Implementation: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if annotationFinalName(file, idx) != "OptIn" {
+					return
+				}
+				decl, ok := optInAnnotationTarget(file, idx)
+				if !ok {
+					return
+				}
+				if file.FlatHasModifier(decl, "private") ||
+					file.FlatHasModifier(decl, "internal") ||
+					file.FlatHasModifier(decl, "protected") {
+					return
+				}
+				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"@OptIn on a public declaration propagates the opt-in requirement to callers. Restrict the declaration's visibility or annotate callers explicitly."))
+			},
+		})
+	}
+	{
 		r := &DependencyLicenseUnknownRule{
 			BaseRule: BaseRule{RuleName: "DependencyLicenseUnknown", RuleSetName: licensingRuleSet, Sev: "info", Desc: "Detects external dependencies not present in the embedded license registry."},
 		}

@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
-	"github.com/kaeawc/krit/internal/scanner"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 const ossLicensesPluginID = "com.google.android.gms.oss-licenses-plugin"
@@ -413,6 +413,43 @@ func (r *OptInMarkerNotRecognisedRule) markerInAdditional(name string) bool {
 		}
 	}
 	return false
+}
+
+// OptInMarkerExposedPubliclyRule flags `@OptIn` annotations on public API
+// declarations. Opt-in markers propagate to callers, so applying `@OptIn`
+// to a public declaration silently forces every caller to opt in too.
+type OptInMarkerExposedPubliclyRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-1 (high) base confidence. The detection is fully
+// AST-driven: we match `@OptIn` annotations whose target declaration has no
+// non-public visibility modifier.
+func (r *OptInMarkerExposedPubliclyRule) Confidence() float64 { return 0.9 }
+
+// optInAnnotationTarget walks up from an `@OptIn` annotation node to the
+// declaration it is attached to. Returns the declaration index and true when
+// the annotation is anchored to a class, object, function, property, or type
+// alias whose visibility we can inspect.
+func optInAnnotationTarget(file *scanner.File, annotation uint32) (uint32, bool) {
+	for cur, ok := file.FlatParent(annotation); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "class_declaration",
+			"object_declaration",
+			"function_declaration",
+			"property_declaration",
+			"type_alias",
+			"secondary_constructor",
+			"anonymous_initializer":
+			return cur, true
+		case "modifiers":
+			continue
+		default:
+			return 0, false
+		}
+	}
+	return 0, false
 }
 
 // DependencyLicenseUnknownRule flags external dependencies that are not present

@@ -101,6 +101,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"NewLineAtEndOfFile":                  v2.LanguageSupport{Status: v2.LanguageSupportSupported, Fixtures: []string{"cmd/krit/main_test.go"}},
 		"NoTabs":                              v2.LanguageSupport{Status: v2.LanguageSupportSupported, Fixtures: []string{"tests/fixtures/fixable/per-rule/NoTabs.java"}},
 		"OkHttpClientCreatedPerCall":          v2.LanguageSupport{Status: v2.LanguageSupportSupported, Fixtures: []string{"internal/rules/resource_cost_test.go"}},
+		"OptInMarkerExposedPublicly":          v2.LanguageSupport{Status: v2.LanguageSupportNotApplicable, Reason: "@OptIn is a Kotlin-only construct; Java has no equivalent annotation."},
 		"RecyclerAdapterStableIdsDefault":     v2.LanguageSupport{Status: v2.LanguageSupportSupported, Fixtures: []string{"internal/rules/resource_cost_test.go"}},
 		"RecyclerAdapterWithoutDiffUtil":      v2.LanguageSupport{Status: v2.LanguageSupportSupported, Fixtures: []string{"internal/rules/resource_cost_test.go"}},
 		"RethrowCaughtException":              v2.LanguageSupport{Status: v2.LanguageSupportSupported, Fixtures: []string{"internal/rules/exceptions_test.go"}},

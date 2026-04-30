@@ -821,10 +821,21 @@ var testOnlyImportPrefixes = []string{
 
 func isAndroidTestSupportArtifactSource(path string) bool {
 	normalized := filepath.ToSlash(strings.ToLower(path))
+	if isTestSupportFile(normalized) {
+		return true
+	}
 	for _, marker := range []string{
+		"/test-fixtures/",
+		"/testfixtures/",
+		"/fakes/",
+		"/fake/",
+		"/mocks/",
+		"/mock/",
 		"/maestro-runner/",
 		"/idling-resources/",
 		"/idlingresources/",
+		"/instrumentation-tests/",
+		"/instrumentationtests/",
 	} {
 		if strings.Contains(normalized, marker) {
 			return true

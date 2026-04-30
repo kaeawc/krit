@@ -1594,6 +1594,33 @@ import androidx.test.espresso.IdlingResource
 
 class AppIdlingResource`,
 			},
+			{
+				name: "testing support module",
+				path: "/repo/libraries/testing/support/src/main/kotlin/com/example/TestSupport.kt",
+				code: `package com.example
+
+import androidx.test.core.app.ApplicationProvider
+
+class TestSupport`,
+			},
+			{
+				name: "test fixtures module",
+				path: "/repo/libraries/test-fixtures/src/main/kotlin/com/example/Fixture.kt",
+				code: `package com.example
+
+import org.junit.rules.TestRule
+
+class Fixture`,
+			},
+			{
+				name: "instrumentation runner module",
+				path: "/repo/libraries/instrumentation-tests/runner/src/main/kotlin/com/example/Runner.kt",
+				code: `package com.example
+
+import androidx.test.runner.AndroidJUnitRunner
+
+class Runner`,
+			},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				file := parseInline(t, tc.code)
@@ -1603,6 +1630,19 @@ class AppIdlingResource`,
 					t.Fatalf("expected 0 findings, got %d", len(findings))
 				}
 			})
+		}
+	})
+
+	t.Run("github runner workspace does not suppress production source", func(t *testing.T) {
+		file := parseInline(t, `package com.example
+
+import org.junit.Test
+
+class Prod`)
+		file.Path = "/home/runner/work/app/app/src/main/kotlin/com/example/Prod.kt"
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 }

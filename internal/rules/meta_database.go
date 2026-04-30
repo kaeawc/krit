@@ -138,6 +138,18 @@ func (r *RoomRelationWithoutIndexRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *SqliteCursorWithoutCloseRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "SqliteCursorWithoutClose",
+		RuleSet:       "database",
+		Severity:      "warning",
+		Description:   "Detects SQLiteDatabase rawQuery/query cursors assigned to local properties without .use {} or .close() in the same scope.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *JdbcPreparedStatementNotClosedRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "JdbcPreparedStatementNotClosed",

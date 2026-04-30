@@ -638,6 +638,82 @@ data class DraftUser(
 	}
 }
 
+func TestSqliteCursorWithoutClose_Positive(t *testing.T) {
+	findings := runRuleByName(t, "SqliteCursorWithoutClose", `
+package test
+
+interface Cursor {
+    fun moveToNext(): Boolean
+    fun close()
+}
+
+interface SQLiteDatabase {
+    fun rawQuery(sql: String, args: Array<String>?): Cursor
+}
+
+fun loadUsers(db: SQLiteDatabase) {
+    val cursor = db.rawQuery("SELECT * FROM users", null)
+    while (cursor.moveToNext()) {
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for cursor without use or close")
+	}
+}
+
+func TestSqliteCursorWithoutClose_NegativeUse(t *testing.T) {
+	findings := runRuleByName(t, "SqliteCursorWithoutClose", `
+package test
+
+interface Cursor {
+    fun moveToNext(): Boolean
+    fun close()
+}
+
+interface SQLiteDatabase {
+    fun rawQuery(sql: String, args: Array<String>?): Cursor
+}
+
+inline fun <T : Cursor, R> T.use(block: (T) -> R): R = block(this)
+
+fun loadUsers(db: SQLiteDatabase) {
+    db.rawQuery("SELECT * FROM users", null).use { cursor ->
+        while (cursor.moveToNext()) {
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when cursor is wrapped in use, got %v", findings)
+	}
+}
+
+func TestSqliteCursorWithoutClose_NegativeExplicitClose(t *testing.T) {
+	findings := runRuleByName(t, "SqliteCursorWithoutClose", `
+package test
+
+interface Cursor {
+    fun moveToNext(): Boolean
+    fun close()
+}
+
+interface SQLiteDatabase {
+    fun rawQuery(sql: String, args: Array<String>?): Cursor
+}
+
+fun loadUsers(db: SQLiteDatabase) {
+    val cursor = db.rawQuery("SELECT * FROM users", null)
+    while (cursor.moveToNext()) {
+    }
+    cursor.close()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when cursor.close() is present, got %v", findings)
+	}
+}
+
 func TestJdbcPreparedStatementNotClosed_Positive(t *testing.T) {
 	findings := runRuleByName(t, "JdbcPreparedStatementNotClosed", `
 package test

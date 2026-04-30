@@ -610,7 +610,7 @@ func testingQualityNameLooksAssertionEquivalent(name string) bool {
 	if name == "" || name == "expectError" {
 		return false
 	}
-	for _, token := range []string{"assertion", "assert", "check", "verification", "verify", "expectation", "expect"} {
+	for _, token := range []string{"assertion", "assert", "check", "verification", "verify", "expectation", "expect", "snapshot"} {
 		if testingQualityNameContainsTokenFold(name, token) {
 			return true
 		}
@@ -857,9 +857,40 @@ func testingQualityIsHarnessVerificationCall(file *scanner.File, idx uint32, nam
 		return testingQualityIsPollingCheckWaitFor(file, idx)
 	case "expectError":
 		return testingQualityIsComposeTestutilsExpectError(file, idx)
+	case "test":
+		return testingQualityIsTurbineTestCall(file, idx)
 	default:
 		return false
 	}
+}
+
+var testingQualityTurbineAssertionCalls = map[string]bool{
+	"awaitItem":                       true,
+	"awaitComplete":                   true,
+	"awaitError":                      true,
+	"expectMostRecentItem":            true,
+	"expectNoEvents":                  true,
+	"cancelAndConsumeRemainingEvents": true,
+	"cancelAndIgnoreRemainingEvents":  true,
+}
+
+func testingQualityIsTurbineTestCall(file *scanner.File, idx uint32) bool {
+	if !fileImportsFQN(file, "app.cash.turbine.test") &&
+		!sourceImportsOrMentions(file, "app.cash.turbine.test") {
+		return false
+	}
+	lambda := flatCallTrailingLambda(file, idx)
+	if lambda == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(lambda, func(n uint32) {
+		if found || file.FlatType(n) != "call_expression" {
+			return
+		}
+		found = testingQualityTurbineAssertionCalls[flatCallNameAny(file, n)]
+	})
+	return found
 }
 
 func testingQualityIsComposeTestutilsExpectError(file *scanner.File, idx uint32) bool {

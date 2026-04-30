@@ -320,6 +320,94 @@ fun <R> query(stmt: Statement, sql: String, block: (ResultSet) -> R): R =
 	}
 }
 
+func TestEntityPrimaryKeyNotStable_Positive(t *testing.T) {
+	findings := runRuleByName(t, "EntityPrimaryKeyNotStable", `
+package test
+
+annotation class Entity
+annotation class PrimaryKey(val autoGenerate: Boolean = false)
+
+@Entity
+data class User(
+    @PrimaryKey var id: Long = 0,
+    val name: String,
+)
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for @Entity @PrimaryKey var without autoGenerate = true")
+	}
+}
+
+func TestEntityPrimaryKeyNotStable_NegativeAutoGenerate(t *testing.T) {
+	findings := runRuleByName(t, "EntityPrimaryKeyNotStable", `
+package test
+
+annotation class Entity
+annotation class PrimaryKey(val autoGenerate: Boolean = false)
+
+@Entity
+data class User(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+)
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for autoGenerate = true val, got %v", findings)
+	}
+}
+
+func TestEntityPrimaryKeyNotStable_NegativeVal(t *testing.T) {
+	findings := runRuleByName(t, "EntityPrimaryKeyNotStable", `
+package test
+
+annotation class Entity
+annotation class PrimaryKey(val autoGenerate: Boolean = false)
+
+@Entity
+data class User(
+    @PrimaryKey val id: Long,
+    val name: String,
+)
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for val primary key, got %v", findings)
+	}
+}
+
+func TestEntityPrimaryKeyNotStable_NegativeNotEntity(t *testing.T) {
+	findings := runRuleByName(t, "EntityPrimaryKeyNotStable", `
+package test
+
+annotation class PrimaryKey(val autoGenerate: Boolean = false)
+
+data class User(
+    @PrimaryKey var id: Long = 0,
+    val name: String,
+)
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings outside @Entity, got %v", findings)
+	}
+}
+
+func TestEntityPrimaryKeyNotStable_PositiveAutoGenerateFalse(t *testing.T) {
+	findings := runRuleByName(t, "EntityPrimaryKeyNotStable", `
+package test
+
+annotation class Entity
+annotation class PrimaryKey(val autoGenerate: Boolean = false)
+
+@Entity
+data class User(
+    @PrimaryKey(autoGenerate = false) var id: Long = 0,
+    val name: String,
+)
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for explicit autoGenerate = false var")
+	}
+}
+
 func TestJdbcPreparedStatementNotClosed_Positive(t *testing.T) {
 	findings := runRuleByName(t, "JdbcPreparedStatementNotClosed", `
 package test

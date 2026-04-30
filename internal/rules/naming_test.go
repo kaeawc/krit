@@ -531,6 +531,51 @@ class Foo {
 	}
 }
 
+func TestNaming_BooleanProperty_HonorsAllowedPattern(t *testing.T) {
+	// AllowedPattern was previously a dead config — exposed in v2
+	// metadata but never consulted. Configure a regex that admits
+	// names like `enabled` / `valid` and verify they no longer fire.
+	var rule *rules.BooleanPropertyNamingRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "BooleanPropertyNaming" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.BooleanPropertyNamingRule)
+			if !ok {
+				t.Fatalf("expected BooleanPropertyNamingRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("BooleanPropertyNaming rule not registered")
+	}
+	original := rule.AllowedPattern
+	defer func() { rule.AllowedPattern = original }()
+
+	rule.AllowedPattern = v2rules.CompileAnchoredPattern(
+		"BooleanPropertyNaming", "allowedPattern", "enabled|valid")
+
+	if findings := runRuleByName(t, "BooleanPropertyNaming", `
+package test
+class Foo {
+    val enabled: Boolean = true
+    val valid: Boolean = false
+}
+`); len(findings) != 0 {
+		t.Fatalf("expected no findings when name matches AllowedPattern, got %d", len(findings))
+	}
+
+	// A name not in the allowlist still fires.
+	if findings := runRuleByName(t, "BooleanPropertyNaming", `
+package test
+class Foo {
+    val ready: Boolean = true
+}
+`); len(findings) == 0 {
+		t.Fatal("expected finding for 'ready' which doesn't match AllowedPattern or prefix list")
+	}
+}
+
 func TestNaming_BooleanProperty_IgnoresTestAndLocalProperties(t *testing.T) {
 	testCode := `
 package test

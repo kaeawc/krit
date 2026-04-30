@@ -192,6 +192,9 @@ func registerNamingRules() {
 				if name == "" {
 					return
 				}
+				if r.AllowedPattern != nil && r.AllowedPattern.MatchString(name) {
+					return
+				}
 				if !strings.HasPrefix(name, "is") && !strings.HasPrefix(name, "has") && !strings.HasPrefix(name, "are") {
 					f := r.Finding(file, file.FlatRow(idx)+1, 1,
 						fmt.Sprintf("Boolean property '%s' should start with 'is', 'has', or 'are'", name))

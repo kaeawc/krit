@@ -1491,6 +1491,50 @@ fun render(logger: Logger) {
 	}
 }
 
+func TestUnnecessarySafeCall_NegativeNullableRunApplyReceiverThis(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnnecessarySafeCall", `
+package test
+
+class Logger(val lastTracked: Tracked?)
+class Tracked(val event: Event?)
+class Event(var id: String)
+
+fun render(logger: Logger) {
+    logger.lastTracked?.event.run {
+        val id = this?.id
+    }
+    logger.lastTracked?.event.apply {
+        this?.id = "updated"
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for this safe calls inside nullable run/apply receivers, got %d", len(findings))
+	}
+}
+
+func TestUnnecessarySafeCall_NegativeNullableLetAlsoImplicitIt(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnnecessarySafeCall", `
+package test
+
+class Logger(val lastTracked: Tracked?)
+class Tracked(val event: Event?)
+class Event(val id: String)
+
+fun render(logger: Logger) {
+    logger.lastTracked?.event.let {
+        val id = it?.id
+    }
+    logger.lastTracked?.event.also {
+        val id = it?.id
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for it safe calls inside nullable let/also receivers, got %d", len(findings))
+	}
+}
+
 func TestUnnecessarySafeCall_PositiveNonNullCanvasParameter(t *testing.T) {
 	findings := runRuleByNameWithResolver(t, "UnnecessarySafeCall", `
 package test

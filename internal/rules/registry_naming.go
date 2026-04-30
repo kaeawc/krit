@@ -336,6 +336,9 @@ func registerNamingRules() {
 			NodeTypes: []string{"package_header"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if invalidPackageDeclarationIgnoredPath(file.Path) {
+					return
+				}
 				var pkg string
 				idNode, _ := file.FlatFindChild(idx, "identifier")
 				if idNode != 0 {

@@ -301,6 +301,11 @@ type InvalidPackageDeclarationRule struct {
 // Classified per roadmap/17.
 func (r *InvalidPackageDeclarationRule) Confidence() float64 { return 0.95 }
 
+func invalidPackageDeclarationIgnoredPath(path string) bool {
+	normalized := filepath.ToSlash(path)
+	return strings.Contains(normalized, "/.claude/skills/")
+}
+
 // LambdaParameterNamingRule checks lambda parameter names.
 type LambdaParameterNamingRule struct {
 	FlatDispatchBase

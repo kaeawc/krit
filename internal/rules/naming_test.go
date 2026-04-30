@@ -902,6 +902,21 @@ class Foo
 	}
 }
 
+func TestNaming_InvalidPackageDeclaration_IgnoresClaudeSkills(t *testing.T) {
+	file := parseInline(t, `
+package standalone.skill
+class FixtureInput
+`)
+	file.Path = "/repo/.claude/skills/example/FixtureInput.kt"
+
+	findings := runRuleByNameOnFile(t, "InvalidPackageDeclaration", file)
+	for _, f := range findings {
+		if f.Rule == "InvalidPackageDeclaration" {
+			t.Fatalf("expected .claude/skills Kotlin inputs to be ignored, got: %s", f.Message)
+		}
+	}
+}
+
 func TestNaming_InvalidPackageDeclaration_HonorsRequireRootInDeclaration(t *testing.T) {
 	// RequireRootInDeclaration was previously a dead config — exposed
 	// in metadata but never consulted. Configure it via the rule pointer

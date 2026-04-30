@@ -117,23 +117,78 @@ func TestConfigParity_AliasRegistrations(t *testing.T) {
 			expectedAliases, foundAliases)
 	}
 
-	// Now run ApplyConfigViaRegistry and verify each alias is flagged
+	// Now run the local v2 registry helper and verify each alias is flagged
 	// Applied=false.
-	results := ApplyConfigViaRegistry(config.NewConfig())
-	byName := make(map[string]RegistryApplyResult, len(results))
+	results := applyConfigViaV2Registry(config.NewConfig())
+	byName := make(map[string]v2RegistryApplyResult, len(results))
 	for _, r := range results {
 		byName[r.Name] = r
 	}
 	for aliasName := range expectedAliases {
 		res, ok := byName[aliasName]
 		if !ok {
-			t.Errorf("alias %s not present in ApplyConfigViaRegistry results", aliasName)
+			t.Errorf("alias %s not present in v2 registry apply results", aliasName)
 			continue
 		}
 		if res.Applied {
 			t.Errorf("alias %s was Applied=true, want false (alias must fall back to config adapter)", aliasName)
 		}
 	}
+}
+
+// v2RegistryApplyResult is the local parity-test result for applying config
+// through checked-in Meta() descriptors.
+type v2RegistryApplyResult struct {
+	// Name is the registered rule name.
+	Name string
+
+	// MetaID is the ID from the rule's Meta() descriptor, if it implements
+	// MetaProvider. Empty when Applied is false.
+	MetaID string
+
+	// Applied reports whether the rule exposed a Meta() method AND the
+	// descriptor ID matched the registered rule ID.
+	Applied bool
+
+	// Active is the effective active state after ruleset + rule overrides.
+	// Only meaningful when Applied is true.
+	Active bool
+}
+
+func applyConfigViaV2Registry(cfg *config.Config) []v2RegistryApplyResult {
+	adapter := NewConfigAdapter(cfg)
+	results := make([]v2RegistryApplyResult, 0, len(v2.Registry))
+
+	for _, r := range v2.Registry {
+		name := r.ID
+		concrete := r.Implementation
+
+		mp, ok := concrete.(v2.MetaProvider)
+		if !ok {
+			results = append(results, v2RegistryApplyResult{Name: name, Applied: false})
+			continue
+		}
+
+		meta := mp.Meta()
+		if meta.ID != name {
+			results = append(results, v2RegistryApplyResult{
+				Name:    name,
+				MetaID:  meta.ID,
+				Applied: false,
+			})
+			continue
+		}
+
+		active := v2.ApplyConfig(concrete, meta, adapter)
+		results = append(results, v2RegistryApplyResult{
+			Name:    name,
+			MetaID:  meta.ID,
+			Applied: true,
+			Active:  active,
+		})
+	}
+
+	return results
 }
 
 // --- described rule collection ------------------------------------------

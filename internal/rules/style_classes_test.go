@@ -50,6 +50,22 @@ abstract class Foo(val x: Int) {
 	}
 }
 
+func TestAbstractClassCanBeInterface_NegativeInheritedStateSuperclass(t *testing.T) {
+	findings := runRuleByName(t, "AbstractClassCanBeInterface", `
+package test
+
+abstract class BasePresenter {
+    val scope = Any()
+}
+
+abstract class Presenter : BasePresenter {
+    abstract fun render()
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for abstract class inheriting superclass state, got: %v", findings)
+	}
+}
+
 // ---------- DataClassShouldBeImmutable ----------
 
 func TestDataClassShouldBeImmutable_Positive(t *testing.T) {

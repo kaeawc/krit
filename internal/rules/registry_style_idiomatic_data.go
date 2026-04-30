@@ -148,7 +148,7 @@ func registerStyleIdiomaticDataRules() {
 		})
 	}
 	{
-		r := &UseDataClassRule{BaseRule: BaseRule{RuleName: "UseDataClass", RuleSetName: "style", Sev: "warning", Desc: "Detects classes with only properties in the constructor that could be data classes."}}
+		r := &UseDataClassRule{BaseRule: BaseRule{RuleName: "UseDataClass", RuleSetName: "style", Sev: "warning", Desc: "Detects classes with only properties in the constructor that could be data classes."}, AllowVars: false}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
@@ -162,13 +162,25 @@ func registerStyleIdiomaticDataRules() {
 					return
 				}
 				paramCount := 0
+				sawVar := false
 				file.FlatWalkNodes(ctor, "class_parameter", func(p uint32) {
 					trimmed := strings.TrimSpace(file.FlatNodeText(p))
-					if strings.HasPrefix(trimmed, "val ") || strings.HasPrefix(trimmed, "var ") {
+					if strings.HasPrefix(trimmed, "val ") {
 						paramCount++
+					} else if strings.HasPrefix(trimmed, "var ") {
+						paramCount++
+						sawVar = true
 					}
 				})
 				if paramCount == 0 {
+					return
+				}
+				// AllowVars: when false (detekt default), classes whose
+				// primary constructor includes any `var` property are
+				// excluded from the data-class suggestion. Mutable
+				// constructor properties don't fit the immutable-value
+				// pattern that data classes capture idiomatically.
+				if !r.AllowVars && sawVar {
 					return
 				}
 				body, _ := file.FlatFindChild(idx, "class_body")

@@ -1,6 +1,11 @@
 package rules_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+)
 
 // --- style_idiomatic.go rules ---
 
@@ -385,6 +390,53 @@ data class Person(val name: String, val age: Int)
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseDataClass_HonorsAllowVars(t *testing.T) {
+	// AllowVars was previously a dead config — exposed in zz_meta but
+	// never consulted. The check fired on classes whose primary
+	// constructor used `var` parameters. Default behavior (false,
+	// matching detekt) now skips those classes.
+	var rule *rules.UseDataClassRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "UseDataClass" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.UseDataClassRule)
+			if !ok {
+				t.Fatalf("expected UseDataClassRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("UseDataClass rule not registered")
+	}
+	original := rule.AllowVars
+	defer func() { rule.AllowVars = original }()
+
+	codeWithVar := `package test
+class Person(var name: String, var age: Int)
+`
+	// Default (false): class with var properties is NOT a data-class
+	// candidate.
+	if findings := runRuleByName(t, "UseDataClass", codeWithVar); len(findings) != 0 {
+		t.Fatalf("expected no findings under default AllowVars=false, got %d", len(findings))
+	}
+
+	// Flipping to true brings the class back into scope.
+	rule.AllowVars = true
+	if findings := runRuleByName(t, "UseDataClass", codeWithVar); len(findings) == 0 {
+		t.Fatal("expected finding under AllowVars=true for class with var properties")
+	}
+
+	// All-val classes still fire under either setting (existing behavior).
+	codeAllVal := `package test
+class Person(val name: String, val age: Int)
+`
+	rule.AllowVars = false
+	if findings := runRuleByName(t, "UseDataClass", codeAllVal); len(findings) == 0 {
+		t.Fatal("expected finding for all-val candidate class regardless of AllowVars")
 	}
 }
 

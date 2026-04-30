@@ -424,6 +424,15 @@ type RoomExportSchemaDisabledRule struct {
 	BaseRule
 }
 
+// RoomFallbackToDestructiveMigrationRule detects calls to
+// `fallbackToDestructiveMigration` on a Room database builder outside debug
+// source sets. Falling back to destructive migration silently drops user data
+// on a schema version bump.
+type RoomFallbackToDestructiveMigrationRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
 // Confidence reports a tier-2 (medium) base confidence. Database/Room rule.
 // Detection matches on annotation names without confirming the annotated
 // class is androidx.room.Database.
@@ -1122,6 +1131,21 @@ func enclosingMigrationOwnerFlat(file *scanner.File, idx uint32) bool {
 					}
 				}
 			}
+		}
+	}
+	return false
+}
+
+func (r *RoomFallbackToDestructiveMigrationRule) Confidence() float64 { return 0.85 }
+
+func enclosedInBuildConfigDebugGuard(file *scanner.File, idx uint32) bool {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		if file.FlatType(cur) != "if_expression" {
+			continue
+		}
+		cond := privacyIfConditionText(file, cur)
+		if strings.Contains(cond, "BuildConfig.DEBUG") {
+			return true
 		}
 	}
 	return false

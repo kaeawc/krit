@@ -828,11 +828,12 @@ potential-bugs:
 		cpuProfileFile = f
 	}
 
-	// Collect files
+	// Collect files (single walk for Kotlin + Java).
 	var files []string
+	var allJavaPaths []string
 	var err error
 	tracker.Track("collectFiles", func() error {
-		files, err = scanner.CollectKotlinFiles(paths, nil)
+		files, allJavaPaths, err = scanner.CollectKotlinAndJavaFiles(paths, nil)
 		return err
 	})
 	if err != nil {
@@ -858,11 +859,7 @@ potential-bugs:
 	activeRules := rules.ActiveRulesV2(disabledSet, enabledSet, *allRulesFlag)
 	var javaPathsForDispatch []string
 	if pipeline.NeedsJavaBeforeDispatch(activeRules) {
-		var javaErr error
-		javaPathsForDispatch, javaErr = scanner.CollectJavaFiles(paths, nil)
-		if javaErr != nil && *verboseFlag {
-			fmt.Fprintf(os.Stderr, "verbose: Java file collection: %v\n", javaErr)
-		}
+		javaPathsForDispatch = allJavaPaths
 		if !*includeGeneratedFlag {
 			javaPathsForDispatch = filterGeneratedPathStrings(javaPathsForDispatch)
 		}

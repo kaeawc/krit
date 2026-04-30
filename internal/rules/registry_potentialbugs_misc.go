@@ -213,6 +213,9 @@ func registerPotentialbugsMiscRules() {
 				if stringListContains(r.IgnoreFunctionCall, funcName) {
 					return
 				}
+				if ignoredReturnValueIsEmitterSignalCall(file, idx, funcName) {
+					return
+				}
 				if ignoredReturnValueInsideVerificationContext(file, idx) {
 					return
 				}

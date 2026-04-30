@@ -292,6 +292,35 @@ fun f(dao: Dao) {
 	}
 }
 
+func TestIgnoredReturnValue_OracleSkipsRxEmitterSignals(t *testing.T) {
+	cases := []struct {
+		name     string
+		callText string
+	}{
+		{"onNext", "emitter.onNext(value)"},
+		{"onError", "emitter.onError(error)"},
+		{"onComplete", "emitter.onComplete()"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runIgnoredReturnValueWithOracle(t, fmt.Sprintf(`package test
+class Emitter<T> {
+    fun onNext(value: T): Unit = Unit
+    fun onError(error: Throwable): Unit = Unit
+    fun onComplete(): Unit = Unit
+}
+
+fun f(emitter: Emitter<String>, value: String, error: Throwable) {
+    %s
+}
+`, tc.callText), tc.callText, &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}, nil)
+			if len(findings) != 0 {
+				t.Fatalf("expected Rx emitter signal %s to be ignored, got %d: %#v", tc.callText, len(findings), findings)
+			}
+		})
+	}
+}
+
 func TestIgnoredReturnValue_OracleSkipsStateFlowValueAssignmentReceiver(t *testing.T) {
 	findings := runIgnoredReturnValueWithOracle(t, `package test
 import kotlinx.coroutines.flow.MutableStateFlow

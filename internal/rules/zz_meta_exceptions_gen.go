@@ -35,7 +35,7 @@ func (r *ExceptionRaisedInUnexpectedLocationRule) Meta() registry.RuleDescriptor
 			{
 				Name:        "methodNames",
 				Type:        registry.OptStringList,
-				Default:     []string(nil),
+				Default:     []string{"equals", "hashCode", "toString", "finalize"},
 				Description: "Method names where exceptions are unexpected.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*ExceptionRaisedInUnexpectedLocationRule).MethodNames = value.([]string)

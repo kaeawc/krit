@@ -15,14 +15,33 @@ import (
 type ExceptionRaisedInUnexpectedLocationRule struct {
 	FlatDispatchBase
 	BaseRule
+	// MethodNames is the list of function names where throwing is treated
+	// as a finding. Configurable via the `methodNames` YAML option.
+	// Default matches detekt: equals, hashCode, toString, finalize.
 	MethodNames []string
 }
 
-var unexpectedThrowFunctions = map[string]bool{
-	"equals":   true,
-	"hashCode": true,
-	"toString": true,
-	"finalize": true,
+// defaultExceptionRaisedInUnexpectedLocationMethods enumerates detekt's
+// default `methodNames` set. Used as the fallback when the configured
+// list is empty (i.e. zero-value or explicitly cleared).
+var defaultExceptionRaisedInUnexpectedLocationMethods = []string{
+	"equals", "hashCode", "toString", "finalize",
+}
+
+// includesMethod reports whether name is one of the rule's configured
+// method names, falling back to the detekt-equivalent default when the
+// configured list is empty.
+func (r *ExceptionRaisedInUnexpectedLocationRule) includesMethod(name string) bool {
+	names := r.MethodNames
+	if len(names) == 0 {
+		names = defaultExceptionRaisedInUnexpectedLocationMethods
+	}
+	for _, candidate := range names {
+		if candidate == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw

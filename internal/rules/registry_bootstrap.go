@@ -66,6 +66,7 @@ func init() {
 	registerEmptyblocksRules()
 	registerExceptionsRules()
 	registerHotspotRules()
+	registerI18nMarkupRules()
 	registerI18nPluralsRules()
 	registerI18nStringConcatRules()
 	registerI18nStringTemplateRules()

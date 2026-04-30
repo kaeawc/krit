@@ -917,6 +917,30 @@ class FixtureInput
 	}
 }
 
+func TestNaming_InvalidPackageDeclaration_IgnoresToolDirectories(t *testing.T) {
+	for _, path := range []string{
+		"/repo/.github/actions/example/FixtureInput.kt",
+		"/repo/.gitlab/snippets/FixtureInput.kt",
+		"/repo/.circleci/scripts/FixtureInput.kt",
+		"/repo/.buildkite/steps/FixtureInput.kt",
+	} {
+		t.Run(path, func(t *testing.T) {
+			file := parseInline(t, `
+package standalone.tooling
+class FixtureInput
+`)
+			file.Path = path
+
+			findings := runRuleByNameOnFile(t, "InvalidPackageDeclaration", file)
+			for _, f := range findings {
+				if f.Rule == "InvalidPackageDeclaration" {
+					t.Fatalf("expected tool-directory Kotlin inputs to be ignored, got: %s", f.Message)
+				}
+			}
+		})
+	}
+}
+
 func TestNaming_InvalidPackageDeclaration_HonorsRequireRootInDeclaration(t *testing.T) {
 	// RequireRootInDeclaration was previously a dead config — exposed
 	// in metadata but never consulted. Configure it via the rule pointer

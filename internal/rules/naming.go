@@ -303,7 +303,18 @@ func (r *InvalidPackageDeclarationRule) Confidence() float64 { return 0.95 }
 
 func invalidPackageDeclarationIgnoredPath(path string) bool {
 	normalized := filepath.ToSlash(path)
-	return strings.Contains(normalized, "/.claude/skills/")
+	for _, marker := range []string{
+		"/.claude/skills/",
+		"/.github/",
+		"/.gitlab/",
+		"/.circleci/",
+		"/.buildkite/",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // LambdaParameterNamingRule checks lambda parameter names.

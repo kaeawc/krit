@@ -1,6 +1,11 @@
 package rules_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+)
 
 // --- PropertyUsedBeforeDeclaration ---
 
@@ -172,5 +177,54 @@ fun wrapper(tag: String, message: String, throwable: Throwable? = null, marker: 
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for forwarding wrapper call, got %d", len(findings))
+	}
+}
+
+func TestUnnamedParameterUse_HonorsAllowSingleParamUse(t *testing.T) {
+	// AllowSingleParamUse was previously a dead config — exposed in
+	// metadata but never consulted. Default true matches detekt and
+	// preserves current behavior (single-param calls don't fire).
+	// Setting it to false reports single unnamed-parameter calls.
+	var rule *rules.UnnamedParameterUseRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "UnnamedParameterUse" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.UnnamedParameterUseRule)
+			if !ok {
+				t.Fatalf("expected UnnamedParameterUseRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("UnnamedParameterUse rule not registered")
+	}
+	original := rule.AllowSingleParamUse
+	defer func() { rule.AllowSingleParamUse = original }()
+
+	singleParamCode := `package test
+fun greet(name: String) = "hi $name"
+fun call() {
+    greet("alice")
+}
+`
+	// Default (true): single-param call passes — no finding.
+	if findings := runRuleByName(t, "UnnamedParameterUse", singleParamCode); len(findings) != 0 {
+		t.Fatalf("expected no findings under default AllowSingleParamUse=true, got %d", len(findings))
+	}
+
+	rule.AllowSingleParamUse = false
+	// Flag off: single-param call fires.
+	if findings := runRuleByName(t, "UnnamedParameterUse", singleParamCode); len(findings) == 0 {
+		t.Fatal("expected finding for single-param call under AllowSingleParamUse=false")
+	}
+
+	// Forwarding-wrapper exclusion still applies.
+	forwarder := `package test
+fun target(name: String) = Unit
+fun wrapper(name: String) = target(name)
+`
+	if findings := runRuleByName(t, "UnnamedParameterUse", forwarder); len(findings) != 0 {
+		t.Fatalf("expected no findings for single-param forwarder, got %d", len(findings))
 	}
 }

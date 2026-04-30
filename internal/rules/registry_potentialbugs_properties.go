@@ -141,7 +141,7 @@ func registerPotentialbugsPropertiesRules() {
 		})
 	}
 	{
-		r := &UnnamedParameterUseRule{BaseRule: BaseRule{RuleName: "UnnamedParameterUse", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects function calls with many unnamed parameters where named parameters would improve readability."}}
+		r := &UnnamedParameterUseRule{BaseRule: BaseRule{RuleName: "UnnamedParameterUse", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects function calls with many unnamed parameters where named parameters would improve readability."}, AllowSingleParamUse: true}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
@@ -163,7 +163,21 @@ func registerPotentialbugsPropertiesRules() {
 						hasNamed = hasNamed || flatHasValueArgumentLabel(file, child)
 					}
 				}
-				if count < 5 || hasNamed {
+				if hasNamed {
+					return
+				}
+				// Single unnamed argument: only fire when the user has
+				// explicitly disabled the single-param allowance. Matches
+				// detekt's allowSingleParamUse semantics.
+				if count == 1 && !r.AllowSingleParamUse {
+					if flatCallForwardsEnclosingFunctionParameters(file, idx, args) {
+						return
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						"Function call with a single unnamed parameter. Consider using a named parameter for clarity.")
+					return
+				}
+				if count < 5 {
 					return
 				}
 				if flatCallForwardsEnclosingFunctionParameters(file, idx, args) {

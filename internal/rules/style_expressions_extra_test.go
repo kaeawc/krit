@@ -340,7 +340,7 @@ fun main() {
 }
 
 func TestDoubleNegativeLambda_HonorsNegativeFunctions(t *testing.T) {
-	// NegativeFunctions was previously a dead config — exposed in zz_meta
+	// NegativeFunctions was previously a dead config — exposed in metadata
 	// but never consulted. Configure it via the rule pointer and verify
 	// custom callee names are flagged when the lambda body is a single
 	// `!` prefix expression.

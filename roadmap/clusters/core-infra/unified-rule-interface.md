@@ -42,9 +42,5 @@ Android, Gradle, type-resolution, oracle, and aggregate phases.
 The rule execution migration is complete. Remaining core-infra work should be
 tracked as separate projects, not as migration cleanup:
 
-- Continue reducing generated metadata files when a replacement source format is
-  ready.
 - Keep rule author ergonomics focused on the local rule file, v2 registration,
   metadata descriptor, and fixtures.
-- Consider moving the inventory parser from Python into `krit-gen` if generator
-  maintenance becomes a bottleneck.

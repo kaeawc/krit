@@ -431,7 +431,7 @@ fun main() {
 }
 
 func TestCascadingCallWrapping_HonorsIncludeElvis(t *testing.T) {
-	// IncludeElvis was previously a dead config — exposed in zz_meta but
+	// IncludeElvis was previously a dead config — exposed in metadata but
 	// never consulted. Configure it via the rule pointer and verify
 	// elvis-chain continuations are checked under the same indentation
 	// rule as dotted continuations.

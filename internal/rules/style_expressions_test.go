@@ -37,7 +37,7 @@ fun double(x: Int): Int = x * 2
 
 func TestExpressionBodySyntax_HonorsIncludeLineWrapping(t *testing.T) {
 	// IncludeLineWrapping was previously a dead config — exposed in
-	// zz_meta but never consulted. Configure it via the rule pointer
+	// metadata but never consulted. Configure it via the rule pointer
 	// and verify multi-line single-return bodies are flagged only when
 	// the option is on.
 	var rule *rules.ExpressionBodySyntaxRule
@@ -317,7 +317,7 @@ class SendButton {
 
 func TestVarCouldBeVal_HonorsIgnoreLateinitVar(t *testing.T) {
 	// IgnoreLateinitVar was previously a dead config — exposed in
-	// zz_meta but never consulted. The check unconditionally skipped
+	// metadata but never consulted. The check unconditionally skipped
 	// `lateinit var` declarations. Wire the field so the user can
 	// opt OUT of the skip.
 	var rule *rules.VarCouldBeValRule
@@ -516,7 +516,7 @@ fun compute(x: Int): Int {
 
 func TestFunctionOnlyReturningConstant_HonorsIgnoreOverridableFunction(t *testing.T) {
 	// IgnoreOverridableFunction was previously a dead config — exposed
-	// in zz_meta but never consulted. Default true matches detekt and
+	// in metadata but never consulted. Default true matches detekt and
 	// preserves krit's prior behavior of skipping override/open/abstract.
 	// Setting it to false makes those functions checkable.
 	var rule *rules.FunctionOnlyReturningConstantRule

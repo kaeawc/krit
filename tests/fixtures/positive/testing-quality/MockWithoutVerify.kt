@@ -15,8 +15,5 @@ class MockWithoutVerifyPositive {
     @Test
     fun load() {
         val api = mockk<Api>()
-        val repo = Repo(api)
-
-        repo.load()
     }
 }

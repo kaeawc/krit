@@ -183,8 +183,6 @@ class MockWithoutVerifyPositive {
     @Test
     fun load() {
         val api = mockk<Api>()
-        val repo = Repo(api)
-        repo.load()
     }
 }
 `)
@@ -239,6 +237,51 @@ class MockWithoutVerifyMockitoWheneverNegative {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for whenever() stubbing, got %d", len(findings))
+	}
+}
+
+func TestMockWithoutVerify_NegativeConstructorInjection(t *testing.T) {
+	findings := runRuleByName(t, "MockWithoutVerify", `
+package test
+
+import org.junit.Test
+import org.mockito.kotlin.mock
+
+class MockWithoutVerifyConstructorInjectionNegative {
+    @Test
+    fun load() {
+        val api = mock<Api>()
+        val repo = Repo(api)
+
+        repo.load()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for mock passed to object under test, got %d", len(findings))
+	}
+}
+
+func TestMockWithoutVerify_NegativeMockitoWhenStubbing(t *testing.T) {
+	findings := runRuleByName(t, "MockWithoutVerify", `
+package test
+
+import org.junit.Test
+import org.mockito.Mockito
+import org.mockito.kotlin.mock
+
+class MockWithoutVerifyMockitoWhenNegative {
+    @Test
+    fun load() {
+        val api = mock<Api>()
+        Mockito.`+"`when`"+`(api.get()).thenReturn("data")
+
+        Repo(api).load()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for Mockito.when() stubbing, got %d", len(findings))
 	}
 }
 

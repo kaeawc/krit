@@ -277,6 +277,17 @@ var testingQualityMockCreationCalls = map[string]bool{
 	"spy":          true,
 }
 
+var testingQualityMockUsageCalls = map[string]bool{
+	"verify":          true,
+	"coVerify":        true,
+	"every":           true,
+	"coEvery":         true,
+	"whenever":        true,
+	"when":            true,
+	"given":           true,
+	"confirmVerified": true,
+}
+
 var testingQualityObjectMockCreationCalls = map[string]bool{
 	"mockkObject":      true,
 	"mockkStatic":      true,
@@ -290,6 +301,34 @@ var testingQualityAssertionHelperCache sync.Map
 type testingQualityMockNamesCacheKey struct {
 	file *scanner.File
 	fn   uint32
+}
+
+func testingQualityCallPassesReferenceAsValueArgument(file *scanner.File, call uint32, name string) bool {
+	if file == nil || call == 0 || name == "" {
+		return false
+	}
+	_, args := flatCallExpressionParts(file, call)
+	if args == 0 {
+		return false
+	}
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		found := false
+		file.FlatWalkAllNodes(arg, func(n uint32) {
+			if found {
+				return
+			}
+			if file.FlatType(n) == "simple_identifier" && file.FlatNodeTextEquals(n, name) {
+				found = true
+			}
+		})
+		if found {
+			return true
+		}
+	}
+	return false
 }
 
 func testingQualityIsMockKVerifyCall(file *scanner.File, idx uint32, name string) bool {

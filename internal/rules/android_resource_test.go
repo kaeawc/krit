@@ -2244,6 +2244,55 @@ func TestStringFormatTrivialResource(t *testing.T) {
 		}
 	})
 
+	t.Run("relative res dir resolves parsed source location to absolute path", func(t *testing.T) {
+		root := t.TempDir()
+		runnerDir := filepath.Join(root, "runner")
+		resDir := filepath.Join(root, "project", "src", "main", "res")
+		valuesDir := filepath.Join(resDir, "values")
+		if err := os.MkdirAll(runnerDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s): %v", runnerDir, err)
+		}
+		if err := os.MkdirAll(valuesDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s): %v", valuesDir, err)
+		}
+		stringsPath := filepath.Join(valuesDir, "strings.xml")
+		if err := os.WriteFile(stringsPath, []byte("<resources>\n    <string name=\"greeting\">Hello, %s!</string>\n</resources>\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s): %v", stringsPath, err)
+		}
+		relResDir, err := filepath.Rel(runnerDir, resDir)
+		if err != nil {
+			t.Fatalf("Rel(%s, %s): %v", runnerDir, resDir, err)
+		}
+		oldWD, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Getwd: %v", err)
+		}
+		if err := os.Chdir(runnerDir); err != nil {
+			t.Fatalf("Chdir(%s): %v", runnerDir, err)
+		}
+		t.Cleanup(func() {
+			if err := os.Chdir(oldWD); err != nil {
+				t.Fatalf("restore cwd: %v", err)
+			}
+		})
+		expectedStringsPath, err := filepath.Abs(filepath.Join(relResDir, "values", "strings.xml"))
+		if err != nil {
+			t.Fatalf("Abs(%s): %v", stringsPath, err)
+		}
+
+		idx, err := android.ScanResourceDir(relResDir)
+		if err != nil {
+			t.Fatalf("ScanResourceDir(%s): %v", relResDir, err)
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].File != expectedStringsPath {
+			t.Fatalf("expected absolute finding file %q, got %q", expectedStringsPath, findings[0].File)
+		}
+	})
+
 	t.Run("multiple specifiers is clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["greeting"] = "Hello, %s! You have %d messages."

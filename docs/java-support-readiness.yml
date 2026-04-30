@@ -1,0 +1,291 @@
+version: 1
+
+closureCriteria:
+  - Java-only and mixed Java/Kotlin projects parse, dispatch, suppress, cache, report, and apply text fixes without requiring Kotlin files.
+  - Source-visible Java declarations and references participate in cross-file and module indexes.
+  - High-precision Java rules use source facts, the Java type profile, or javac facts instead of broad lexical lookalikes.
+  - Supported Java source rules have positive and local-lookalike coverage.
+  - Pending Java-applicable Kotlin rules remain linked to an open tracking issue instead of being counted as full support.
+
+infrastructure:
+  pipeline:
+    status: supported
+    evidence:
+      - cmd/krit/java_support_fixture_test.go
+      - internal/pipeline/parse_test.go
+      - internal/pipeline/dispatch_test.go
+  sourceIndex:
+    status: supported
+    evidence:
+      - internal/scanner/index_test.go
+      - internal/rules/deadcode_module_test.go
+  semanticFacts:
+    status: supported
+    evidence:
+      - internal/javafacts/facts_test.go
+      - internal/javafacts/helper_test.go
+      - internal/rules/android_correctness_test.go
+  autofix:
+    status: partial
+    issue: 705
+    evidence:
+      - internal/rules/fix_test.go
+      - cmd/krit/main_test.go
+
+ruleSetDefaults:
+  a11y:
+    status: pending
+    issue: 700
+    reason: Compose and source accessibility rules need Java/non-Java applicability classification.
+  accessibility:
+    status: pending
+    issue: 700
+    reason: Java applicability has not been classified for every source rule in this ruleset.
+  android-correctness:
+    status: pending
+    issue: 700
+    reason: Several Android correctness source rules are supported, but remaining Kotlin-only or Java-applicable rules still need per-rule classification.
+  android-gradle:
+    status: supported
+    evidence:
+      - Gradle rules are source-language independent.
+  android-icons:
+    status: supported
+    evidence:
+      - Icon/resource rules are source-language independent.
+  android-manifest:
+    status: supported
+    evidence:
+      - Manifest rules are source-language independent.
+  android-lint:
+    status: partial
+    issue: 700
+    reason: Many Android lint compatibility checks are XML/manifest/resource-only, but source-backed checks still need Java parity classification.
+  android-resource:
+    status: supported
+    evidence:
+      - XML/resource rules are source-language independent.
+  architecture:
+    status: supported
+    evidence:
+      - Architecture graph checks are source-language independent or use the mixed source index.
+  comments:
+    status: pending
+    issue: 700
+    reason: Source comment and documentation rules need Java-specific syntax review.
+  complexity:
+    status: pending
+    issue: 700
+    reason: Complexity rules need Java AST parity classification before being counted as supported.
+  coroutines:
+    status: not-applicable
+    reason: Coroutine rules target Kotlin coroutine syntax and APIs.
+  compose:
+    status: not-applicable
+    reason: Compose rules target Kotlin Compose source patterns and are not Java source rules.
+  database:
+    status: partial
+    issue: 700
+    reason: High-value Java database rules are supported, but this ruleset still needs per-rule parity review.
+  dead-code:
+    status: partial
+    issue: 700
+    reason: Mixed Java/Kotlin indexes participate in dead-code analysis, but full Java rule parity is still tracked separately.
+  di-hygiene:
+    status: pending
+    issue: 700
+    reason: DI source rules need Java annotation and class-shape coverage before being counted as supported.
+  empty-blocks:
+    status: pending
+    issue: 700
+    reason: Empty-block rules need Java AST node mapping before Java support is counted.
+  exceptions:
+    status: partial
+    issue: 700
+    reason: Method-level Java throw checks are supported; catch/finally rules still need Java-specific implementations.
+  i18n:
+    status: supported
+    evidence:
+      - Resource and locale project checks are source-language independent unless overridden by per-rule entries.
+  library:
+    status: supported
+    evidence:
+      - Dependency and project model checks are source-language independent.
+  naming:
+    status: pending
+    issue: 700
+    reason: Naming rules need Java-specific syntax and convention review.
+  observability:
+    status: pending
+    issue: 700
+    reason: Logging source rules need Java receiver/import coverage before being counted as supported.
+  performance:
+    status: pending
+    issue: 700
+    reason: Some Java performance/resource rules are supported, but remaining rules need per-rule classification.
+  potential-bugs:
+    status: pending
+    issue: 700
+    reason: Many potential-bugs rules encode Kotlin syntax or type semantics and need per-rule Java classification.
+  privacy:
+    status: pending
+    issue: 700
+    reason: Privacy source rules need Java receiver/import coverage before being counted as supported.
+  release-engineering:
+    status: partial
+    issue: 700
+    reason: Literal URL checks and project-shape checks have Java support; remaining source rules need Java parity review.
+  resource-cost:
+    status: partial
+    issue: 700
+    reason: High-value Java resource-cost rules are supported, but remaining rules need per-rule parity review.
+  security:
+    status: partial
+    issue: 700
+    reason: High-value Android security and literal credential Java rules are supported; remaining source rules need Java parity review.
+  style:
+    status: pending
+    issue: 700
+    reason: Most style rules encode Kotlin syntax; Java support requires explicit per-rule review.
+  testing:
+    status: pending
+    issue: 700
+    reason: Test-source rules need Java test-framework and syntax coverage before being counted as supported.
+  testing-quality:
+    status: pending
+    issue: 700
+    reason: Test-source rules need Java test-framework and syntax coverage before being counted as supported.
+  supply-chain:
+    status: supported
+    evidence:
+      - Supply-chain checks are project and dependency based rather than Kotlin-source specific.
+
+rules:
+  AddJavascriptInterface:
+    status: supported
+    fixtures:
+      - cmd/krit/java_support_fixture_test.go
+  BufferedReadWithoutBuffer:
+    status: supported
+    fixtures:
+      - internal/rules/resource_cost_test.go
+  CheckResult:
+    status: supported
+    fixtures:
+      - internal/rules/android_correctness_test.go
+  CommitPrefEdits:
+    status: supported
+    fixtures:
+      - internal/rules/android_correctness_test.go
+  CommitTransaction:
+    status: supported
+    fixtures:
+      - internal/rules/android_correctness_test.go
+  CursorLoopWithColumnIndexInLoop:
+    status: supported
+    fixtures:
+      - internal/rules/resource_cost_test.go
+  DatabaseInstanceRecreated:
+    status: supported
+    fixtures:
+      - internal/rules/resource_cost_test.go
+  DatabaseQueryOnMainThread:
+    status: supported
+    fixtures:
+      - internal/rules/database_test.go
+  DefaultLocale:
+    status: supported
+    fixtures:
+      - internal/rules/android_correctness_test.go
+  ExceptionRaisedInUnexpectedLocation:
+    status: supported
+    fixtures:
+      - internal/rules/exceptions_test.go
+  GrantAllUris:
+    status: supported
+    fixtures:
+      - internal/rules/android_source_test.go
+  HandlerLeak:
+    status: supported
+    fixtures:
+      - internal/rules/android_source_test.go
+  HardcodedBearerToken:
+    status: supported
+    fixtures:
+      - internal/rules/hardcoded_bearer_token_test.go
+  HardcodedGcpServiceAccount:
+    status: supported
+    fixtures:
+      - internal/rules/hardcoded_gcp_service_account_test.go
+  HardcodedLocalhostUrl:
+    status: supported
+    fixtures:
+      - internal/rules/release_engineering_test.go
+  HttpClientNotReused:
+    status: supported
+    fixtures:
+      - internal/rules/resource_cost_test.go
+  NewLineAtEndOfFile:
+    status: supported
+    fixtures:
+      - cmd/krit/main_test.go
+  NoTabs:
+    status: supported
+    fixtures:
+      - tests/fixtures/fixable/per-rule/NoTabs.java
+  OkHttpClientCreatedPerCall:
+    status: supported
+    fixtures:
+      - internal/rules/resource_cost_test.go
+  RecyclerAdapterStableIdsDefault:
+    status: supported
+    fixtures:
+      - internal/rules/resource_cost_test.go
+  RecyclerAdapterWithoutDiffUtil:
+    status: supported
+    fixtures:
+      - internal/rules/resource_cost_test.go
+  RetrofitCreateInHotPath:
+    status: supported
+    fixtures:
+      - internal/rules/resource_cost_test.go
+  SecureRandom:
+    status: supported
+    fixtures:
+      - internal/rules/android_source_test.go
+  SetJavaScriptEnabled:
+    status: supported
+    fixtures:
+      - internal/rules/android_base_test.go
+  SimpleDateFormat:
+    status: supported
+    fixtures:
+      - internal/rules/android_correctness_test.go
+  SpacingAfterPackageAndImports:
+    status: supported
+    fixtures:
+      - tests/fixtures/fixable/per-rule/SpacingAfterPackageAndImports.java
+  ThrowingExceptionInMain:
+    status: supported
+    fixtures:
+      - internal/rules/exceptions_test.go
+  TrailingWhitespace:
+    status: supported
+    fixtures:
+      - tests/fixtures/fixable/per-rule/TrailingWhitespace.java
+  UseValueOf:
+    status: supported
+    fixtures:
+      - internal/rules/android_source_test.go
+  WorldReadableFiles:
+    status: supported
+    fixtures:
+      - internal/rules/android_source_test.go
+  WorldWriteableFiles:
+    status: supported
+    fixtures:
+      - internal/rules/android_source_test.go
+  WrongViewCast:
+    status: supported
+    fixtures:
+      - internal/rules/android_correctness_checks_test.go

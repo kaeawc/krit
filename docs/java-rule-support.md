@@ -2,6 +2,8 @@
 
 This inventory tracks rule families for Java-only and mixed Java/Kotlin Android projects. Rules without an explicit `Languages` list still default to Kotlin, so Java support is counted only when the registry declares `scanner.LangJava` or the rule runs through a non-source pipeline such as XML, Gradle, manifests, or resources.
 
+The machine-checked readiness gate lives in [`java-support-readiness.yml`](java-support-readiness.yml). It distinguishes infrastructure support, rule parity, Java autofix coverage, and accepted pending work so the Java Source Support milestone is not closed on an ambiguous definition of "full support."
+
 ## Supported Java Source Rules
 
 | Category | Rules | Notes |
@@ -48,7 +50,7 @@ Java-only source runs participate in text autofix when active rules declare Java
 | Release engineering | Partial | Literal URL support is done. Follow with Java-safe logging/import/build-config rules where AST support is adequate. |
 | Security | Partial | Literal credential support is done. Follow with Java-safe source rules that can use imports/source facts or explicit future javac fact requirements. |
 | Style and naming | Pending | Classify carefully; many style rules encode Kotlin syntax and should remain Kotlin-only unless a Java-specific implementation is designed. |
-| Autofix | Pending | Java autofixes need separate safety review and Java fixtures; Kotlin ktfmt assumptions do not transfer. |
+| Autofix | Partial | Low-risk cosmetic line fixes now support Java with `.java` fixable fixtures and CLI coverage. Semantic Java fixes still need separate safety review and Java fixtures. |
 
 ## Kotlin-Only or Needs Design
 

@@ -473,6 +473,53 @@ fun example(): Unit {
 	}
 }
 
+func TestForbiddenVoid_HonorsIgnoreUsageInGenerics(t *testing.T) {
+	// IgnoreUsageInGenerics was previously a dead config — exposed in
+	// zz_meta but never consulted. Configure it via the rule pointer
+	// and verify Void inside *any* type-argument list is skipped, not
+	// just the hardcoded javaInteropGenericTypes allowlist.
+	var rule *rulespkg.ForbiddenVoidRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "ForbiddenVoid" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rulespkg.ForbiddenVoidRule)
+			if !ok {
+				t.Fatalf("expected ForbiddenVoidRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("ForbiddenVoid rule not registered")
+	}
+	original := rule.IgnoreUsageInGenerics
+	defer func() { rule.IgnoreUsageInGenerics = original }()
+
+	// User-defined generic with Void argument — not on the interop allowlist.
+	customGenericCode := `package test
+class Box<T>
+val b: Box<Void> = Box()
+`
+	// Default behavior (false): the user_type "Void" inside Box<Void> IS flagged.
+	if findings := runRuleByName(t, "ForbiddenVoid", customGenericCode); len(findings) == 0 {
+		t.Fatal("expected finding for Void in Box<Void> under default IgnoreUsageInGenerics=false")
+	}
+
+	rule.IgnoreUsageInGenerics = true
+
+	if findings := runRuleByName(t, "ForbiddenVoid", customGenericCode); len(findings) != 0 {
+		t.Fatalf("expected no findings for Void in Box<Void> under IgnoreUsageInGenerics=true, got %d", len(findings))
+	}
+
+	// Bare `Void` (not in generics) should still fire under either setting.
+	bareVoid := `package test
+fun example(): Void = TODO()
+`
+	if findings := runRuleByName(t, "ForbiddenVoid", bareVoid); len(findings) == 0 {
+		t.Fatal("expected finding for bare Void return even with IgnoreUsageInGenerics=true")
+	}
+}
+
 // --- MandatoryBracesLoops ---
 
 func TestMandatoryBracesLoops_ForNegative_WithBraces(t *testing.T) {

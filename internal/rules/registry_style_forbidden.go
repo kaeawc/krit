@@ -83,6 +83,13 @@ func registerStyleForbiddenRules() {
 				inFunctionParam := false
 				for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 					if file.FlatType(p) == "type_arguments" {
+						// IgnoreUsageInGenerics: skip Void anywhere inside a
+						// type-argument list, regardless of the outer generic.
+						// Matches detekt's option semantics — broader than the
+						// hardcoded javaInteropGenericTypes allowlist below.
+						if r.IgnoreUsageInGenerics {
+							return
+						}
 						if outer, ok := file.FlatParent(p); ok {
 							outerText := file.FlatNodeText(outer)
 							// Extract the outer type name (up to the first '<')

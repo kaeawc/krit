@@ -122,6 +122,17 @@ type TypeInfoHint struct {
 	Required bool
 }
 
+// JavaFactProfile declares optional javac-backed facts a Java-aware rule can
+// consume. The pipeline may use this profile to run the Java helper for a
+// narrow set of sites; rules must still keep conservative source-only
+// fallbacks when facts are unavailable.
+type JavaFactProfile struct {
+	ReceiverTypesForCallees []string
+	ClassSupertypes         []string
+	Annotations             []string
+	DeclarationNames        []string
+}
+
 // Has reports whether c includes all bits in flag.
 func (c Capabilities) Has(flag Capabilities) bool {
 	return c&flag == flag
@@ -293,6 +304,11 @@ type Rule struct {
 	// as it did before the hint existed. See TypeInfoHint.
 	TypeInfo TypeInfoHint
 
+	// JavaFacts optionally requests javac-backed facts for Java files.
+	// This does not make javac mandatory; unavailable facts are a warning
+	// and rules must fall back to source AST/index evidence.
+	JavaFacts *JavaFactProfile
+
 	// Check is the rule's analysis function. It receives a Context
 	// populated according to the rule's Needs bitfield. Rules report
 	// findings by calling ctx.Emit or ctx.EmitAt.
@@ -461,6 +477,15 @@ func RuleLanguages(r *Rule) []scanner.Language {
 func RuleAppliesToLanguage(r *Rule, lang scanner.Language) bool {
 	for _, l := range RuleLanguages(r) {
 		if l == lang {
+			return true
+		}
+	}
+	return false
+}
+
+func NeedsJavaFacts(rules []*Rule) bool {
+	for _, r := range rules {
+		if r != nil && r.JavaFacts != nil && RuleAppliesToLanguage(r, scanner.LangJava) {
 			return true
 		}
 	}

@@ -48,7 +48,7 @@ func registerStyleExpressionsRules() {
 		})
 	}
 	{
-		r := &ReturnCountRule{BaseRule: BaseRule{RuleName: "ReturnCount", RuleSetName: "style", Sev: "warning", Desc: "Detects functions with more return statements than the configured maximum."}, Max: 3, ExcludeGuardClauses: true, ExcludeReturnFromLambda: true}
+		r := &ReturnCountRule{BaseRule: BaseRule{RuleName: "ReturnCount", RuleSetName: "style", Sev: "warning", Desc: "Detects functions with more return statements than the configured maximum."}, Max: 2, ExcludeReturnFromLambda: true}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,

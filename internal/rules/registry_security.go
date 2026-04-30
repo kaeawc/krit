@@ -2,6 +2,7 @@ package rules
 
 import (
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 	"strings"
 )
 
@@ -83,7 +84,7 @@ func registerSecurityRules() {
 		r := &HardcodedGcpServiceAccountRule{BaseRule: BaseRule{RuleName: "HardcodedGcpServiceAccount", RuleSetName: "security", Sev: "warning", Desc: "Detects embedded GCP service-account JSON or private keys committed into source files."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				lowerPath := strings.ToLower(file.Path)
@@ -103,7 +104,7 @@ func registerSecurityRules() {
 		r := &HardcodedBearerTokenRule{BaseRule: BaseRule{RuleName: "HardcodedBearerToken", RuleSetName: "security", Sev: "warning", Desc: "Detects bearer authorization strings with hardcoded tokens embedded directly in source code."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)

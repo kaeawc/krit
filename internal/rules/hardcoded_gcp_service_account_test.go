@@ -99,3 +99,38 @@ val secret = """
 		})
 	}
 }
+
+func TestHardcodedGcpServiceAccount_JavaFixtures(t *testing.T) {
+	root := fixtureRoot(t)
+
+	t.Run("positive service account JSON", func(t *testing.T) {
+		file := parseJavaFixture(t, filepath.Join(root, "positive", "security", "HardcodedGcpServiceAccount.java"))
+		findings := runRuleByNameOnFile(t, "HardcodedGcpServiceAccount", file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 Java finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative file read", func(t *testing.T) {
+		file := parseJavaFixture(t, filepath.Join(root, "negative", "security", "HardcodedGcpServiceAccount.java"))
+		findings := runRuleByNameOnFile(t, "HardcodedGcpServiceAccount", file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 Java findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("ignores Java JSON and PEM paths", func(t *testing.T) {
+		code := `package test;
+
+class Credentials {
+  static final String SECRET = "{\"type\": \"service_account\", \"project_id\": \"my-proj\"}";
+}
+`
+		for _, filename := range []string{"service-account.json", "private-key.pem"} {
+			findings := runRuleByNameOnJavaPath(t, "HardcodedGcpServiceAccount", filename, code)
+			if len(findings) != 0 {
+				t.Fatalf("expected 0 findings for %s, got %d", filename, len(findings))
+			}
+		}
+	})
+}

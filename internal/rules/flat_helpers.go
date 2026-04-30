@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
@@ -897,8 +898,17 @@ func stringLiteralContent(file *scanner.File, idx uint32) string {
 	}
 	var b strings.Builder
 	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatType(child) == "string_content" {
+		if file.FlatType(child) == "string_content" || file.FlatType(child) == "string_fragment" {
 			b.WriteString(file.FlatNodeText(child))
+		}
+	}
+	if b.Len() == 0 {
+		text := strings.TrimSpace(file.FlatNodeText(idx))
+		if unquoted, err := strconv.Unquote(text); err == nil {
+			return unquoted
+		}
+		if len(text) >= 6 && strings.HasPrefix(text, `"""`) && strings.HasSuffix(text, `"""`) {
+			return text[3 : len(text)-3]
 		}
 	}
 	return b.String()

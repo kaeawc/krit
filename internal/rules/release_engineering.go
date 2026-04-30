@@ -770,7 +770,7 @@ var localhostUrlRe = regexp.MustCompile(`^https?://(localhost|127\.0\.0\.1|10\.0
 // AST node directly.
 func (r *HardcodedLocalhostUrlRule) check(ctx *v2.Context) {
 	file := ctx.File
-	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") {
+	if file.Language != scanner.LangKotlin && file.Language != scanner.LangJava {
 		return
 	}
 	if isTestFile(file.Path) || isDebugSourceFile(file.Path) {

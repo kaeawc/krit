@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 	"strconv"
 	"strings"
 	"unicode"
@@ -293,7 +294,7 @@ func registerReleaseEngineeringRules() {
 		r := &HardcodedLocalhostUrlRule{BaseRule: BaseRule{RuleName: "HardcodedLocalhostUrl", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects hardcoded localhost or 10.0.2.2 URLs in non-test production source files."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: r.Confidence(), OriginalV1: r,
 			Check: r.check,
 		})
 	}

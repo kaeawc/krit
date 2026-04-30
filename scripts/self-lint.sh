@@ -18,6 +18,10 @@ fixture_prefixes = (
     "tests/fixtures/java-android-support/",
 )
 
+def is_java_fixture(uri):
+    normalized = uri.replace("\\", "/")
+    return normalized.startswith("tests/fixtures/") and normalized.endswith(".java")
+
 def result_uri(result):
     try:
         return result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
@@ -26,10 +30,13 @@ def result_uri(result):
 
 for run in report.get("runs", []):
     results = run.get("results", [])
-    run["results"] = [
-        result for result in results
-        if not result_uri(result).replace("\\", "/").startswith(fixture_prefixes)
-    ]
+    filtered = []
+    for result in results:
+        uri = result_uri(result).replace("\\", "/")
+        if uri.startswith(fixture_prefixes) or is_java_fixture(uri):
+            continue
+        filtered.append(result)
+    run["results"] = filtered
 
 with open(path, "w", encoding="utf-8") as fh:
     json.dump(report, fh, indent=2)

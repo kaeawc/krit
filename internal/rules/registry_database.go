@@ -397,6 +397,37 @@ func registerDatabaseRules() {
 		})
 	}
 	{
+		r := &RoomQueryMissingWhereForUpdateRule{BaseRule: BaseRule{RuleName: "RoomQueryMissingWhereForUpdate", RuleSetName: "database", Sev: "warning", Desc: "Detects Room @Query(\"UPDATE ...\")/@Query(\"DELETE ...\") whose SQL text omits a WHERE clause."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: r.Confidence(), Implementation: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				text := findAnnotationTextFlat(file, idx, "Query")
+				if text == "" {
+					return
+				}
+				sql := roomQueryAnnotationSQL(text)
+				if sql == "" {
+					return
+				}
+				keyword, missing := roomQueryMissingWhereSQL(sql)
+				if !missing {
+					return
+				}
+				fnName := extractIdentifierFlat(file, idx)
+				if roomQueryFunctionNameAllowsFullTable(fnName) {
+					return
+				}
+				if fnName == "" {
+					fnName = "function"
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("@Query on '%s' issues a %s without a WHERE clause; add a WHERE clause or rename the function to deleteAll/clearAll if a full-table operation is intended.", fnName, keyword))
+			},
+		})
+	}
+	{
 		r := &JdbcPreparedStatementNotClosedRule{BaseRule: BaseRule{RuleName: "JdbcPreparedStatementNotClosed", RuleSetName: "database", Sev: "warning", Desc: "Detects JDBC prepared statements assigned to local properties without .use {} or .close() in the same scope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

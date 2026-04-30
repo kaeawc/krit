@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
@@ -1137,6 +1138,70 @@ func enclosingMigrationOwnerFlat(file *scanner.File, idx uint32) bool {
 }
 
 func (r *RoomFallbackToDestructiveMigrationRule) Confidence() float64 { return 0.85 }
+
+// RoomQueryMissingWhereForUpdateRule detects @Query("UPDATE ...") or
+// @Query("DELETE ...") whose SQL text omits a WHERE clause, unless the DAO
+// function name signals a deliberate full-table operation (deleteAll/clearAll).
+type RoomQueryMissingWhereForUpdateRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. The check matches on
+// annotation name and SQL keywords without confirming the annotated function
+// is a Room DAO member.
+func (r *RoomQueryMissingWhereForUpdateRule) Confidence() float64 { return 0.85 }
+
+var (
+	roomQueryMissingWhereSQLPattern = regexp.MustCompile(`(?is)^\s*(UPDATE|DELETE)\b`)
+	roomQueryWhereClausePattern     = regexp.MustCompile(`(?i)\bWHERE\b`)
+)
+
+func roomQueryMissingWhereSQL(sql string) (string, bool) {
+	trimmed := strings.TrimSpace(sql)
+	m := roomQueryMissingWhereSQLPattern.FindStringSubmatch(trimmed)
+	if m == nil {
+		return "", false
+	}
+	if roomQueryWhereClausePattern.MatchString(trimmed) {
+		return "", false
+	}
+	return strings.ToUpper(m[1]), true
+}
+
+func roomQueryAnnotationSQL(text string) string {
+	openIdx := strings.Index(text, "(")
+	closeIdx := strings.LastIndex(text, ")")
+	if openIdx < 0 || closeIdx <= openIdx {
+		return ""
+	}
+	inner := strings.TrimSpace(text[openIdx+1 : closeIdx])
+	if eqIdx := strings.Index(inner, "="); eqIdx >= 0 {
+		head := strings.TrimSpace(inner[:eqIdx])
+		if head == "value" {
+			inner = strings.TrimSpace(inner[eqIdx+1:])
+		}
+	}
+	if len(inner) >= 6 && strings.HasPrefix(inner, `"""`) && strings.HasSuffix(inner, `"""`) {
+		return inner[3 : len(inner)-3]
+	}
+	if len(inner) >= 2 && strings.HasPrefix(inner, `"`) && strings.HasSuffix(inner, `"`) {
+		unquoted, err := strconv.Unquote(inner)
+		if err == nil {
+			return unquoted
+		}
+		return inner[1 : len(inner)-1]
+	}
+	return ""
+}
+
+func roomQueryFunctionNameAllowsFullTable(name string) bool {
+	if name == "" {
+		return false
+	}
+	lower := strings.ToLower(name)
+	return strings.HasPrefix(lower, "deleteall") || strings.HasPrefix(lower, "clearall")
+}
 
 func enclosedInBuildConfigDebugGuard(file *scanner.File, idx uint32) bool {
 	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {

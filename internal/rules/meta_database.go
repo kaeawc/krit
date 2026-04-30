@@ -198,6 +198,18 @@ func (r *RoomFallbackToDestructiveMigrationRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *RoomQueryMissingWhereForUpdateRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "RoomQueryMissingWhereForUpdate",
+		RuleSet:       "database",
+		Severity:      "warning",
+		Description:   "Detects Room @Query(\"UPDATE ...\")/@Query(\"DELETE ...\") whose SQL text omits a WHERE clause.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.85,
+	}
+}
+
 func (r *JdbcPreparedStatementNotClosedRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "JdbcPreparedStatementNotClosed",

@@ -873,6 +873,109 @@ fun open(context: Context): AppDb =
 	}
 }
 
+func TestRoomQueryMissingWhereForUpdate_PositiveDelete(t *testing.T) {
+	findings := runRuleByName(t, "RoomQueryMissingWhereForUpdate", `
+package test
+
+annotation class Dao
+annotation class Query(val value: String)
+
+@Dao
+interface UserDao {
+    @Query("DELETE FROM users")
+    suspend fun delete(): Int
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRoomQueryMissingWhereForUpdate_PositiveUpdate(t *testing.T) {
+	findings := runRuleByName(t, "RoomQueryMissingWhereForUpdate", `
+package test
+
+annotation class Dao
+annotation class Query(val value: String)
+
+@Dao
+interface UserDao {
+    @Query("UPDATE users SET name = :name")
+    suspend fun renameAll(name: String): Int
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRoomQueryMissingWhereForUpdate_NegativeWhereClause(t *testing.T) {
+	findings := runRuleByName(t, "RoomQueryMissingWhereForUpdate", `
+package test
+
+annotation class Dao
+annotation class Query(val value: String)
+
+@Dao
+interface UserDao {
+    @Query("DELETE FROM users WHERE id = :id")
+    suspend fun delete(id: Long): Int
+
+    @Query("UPDATE users SET name = :name WHERE id = :id")
+    suspend fun rename(id: Long, name: String): Int
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRoomQueryMissingWhereForUpdate_NegativeDeleteAllCarveout(t *testing.T) {
+	findings := runRuleByName(t, "RoomQueryMissingWhereForUpdate", `
+package test
+
+annotation class Dao
+annotation class Query(val value: String)
+
+@Dao
+interface UserDao {
+    @Query("DELETE FROM users")
+    suspend fun deleteAll(): Int
+
+    @Query("DELETE FROM users")
+    suspend fun clearAllUsers(): Int
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings (deleteAll/clearAll carveout), got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRoomQueryMissingWhereForUpdate_NegativeSelect(t *testing.T) {
+	findings := runRuleByName(t, "RoomQueryMissingWhereForUpdate", `
+package test
+
+annotation class Dao
+annotation class Query(val value: String)
+
+@Dao
+interface UserDao {
+    @Query("SELECT * FROM users")
+    fun all(): List<Int>
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for SELECT, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRoomQueryMissingWhereForUpdate_PositiveRawString(t *testing.T) {
+	findings := runRuleByName(t, "RoomQueryMissingWhereForUpdate", "package test\n\nannotation class Dao\nannotation class Query(val value: String)\n\n@Dao\ninterface UserDao {\n    @Query(\"\"\"\n        DELETE FROM users\n    \"\"\")\n    suspend fun delete(): Int\n}\n")
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for raw-string DELETE, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestJdbcPreparedStatementNotClosed_Positive(t *testing.T) {
 	findings := runRuleByName(t, "JdbcPreparedStatementNotClosed", `
 package test

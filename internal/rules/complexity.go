@@ -740,6 +740,26 @@ type LabeledExpressionRule struct {
 // roadmap/17.
 func (r *LabeledExpressionRule) Confidence() float64 { return 0.75 }
 
+// labeledExpressionLabelIgnored reports whether the label-node text matches
+// any name in the ignored list. Tree-sitter Kotlin emits a `label` node for
+// the trailing-`@` form (`process@`) used at the definition site; the
+// comparison strips the `@` so users configure plain identifiers like
+// `forEach` or `process` (matching detekt's `ignoredLabels` semantics).
+func labeledExpressionLabelIgnored(labelText string, ignored []string) bool {
+	if len(ignored) == 0 {
+		return false
+	}
+	name := strings.TrimSuffix(strings.TrimPrefix(labelText, "@"), "@")
+	if name == "" {
+		return false
+	}
+	for _, candidate := range ignored {
+		if candidate == name {
+			return true
+		}
+	}
+	return false
+}
 
 // LongParameterListRule detects functions/constructors with too many parameters.
 type LongParameterListRule struct {

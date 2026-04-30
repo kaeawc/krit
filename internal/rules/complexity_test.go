@@ -727,6 +727,56 @@ fun process(items: List<Int>) {
 	}
 }
 
+func TestLabeledExpression_HonorsIgnoredLabels(t *testing.T) {
+	// IgnoredLabels was previously a dead config — exposed in zz_meta but
+	// never consulted by the check. Configure it via the rule pointer and
+	// verify that labels matching the ignore list produce no findings.
+	var rule *rules.LabeledExpressionRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "LabeledExpression" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.LabeledExpressionRule)
+			if !ok {
+				t.Fatalf("expected LabeledExpressionRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("LabeledExpression rule not registered")
+	}
+	original := rule.IgnoredLabels
+	defer func() { rule.IgnoredLabels = original }()
+
+	rule.IgnoredLabels = []string{"forEach"}
+
+	code := `package test
+fun process(items: List<Int>) {
+    items.forEach forEach@{ item ->
+        if (item == 0) return@forEach
+    }
+}
+`
+	findings := runRuleByName(t, "LabeledExpression", code)
+	if len(findings) != 0 {
+		t.Fatalf("expected no LabeledExpression findings when 'forEach' is ignored, got %d", len(findings))
+	}
+
+	// A non-ignored label still fires even when other labels are ignored.
+	codeOther := `package test
+fun process(items: List<List<Int>>) {
+    process@ for (list in items) {
+        for (item in list) {
+            if (item == 0) break@process
+        }
+    }
+}
+`
+	if got := runRuleByName(t, "LabeledExpression", codeOther); len(got) == 0 {
+		t.Fatal("expected LabeledExpression to still fire on non-ignored 'process' label")
+	}
+}
+
 // --- MethodOverloading ---
 
 func TestMethodOverloading_Positive(t *testing.T) {

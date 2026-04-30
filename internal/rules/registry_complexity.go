@@ -187,8 +187,12 @@ func registerComplexityRules() {
 			NodeTypes: []string{"label"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				labelText := strings.TrimSpace(file.FlatNodeText(idx))
+				if labeledExpressionLabelIgnored(labelText, r.IgnoredLabels) {
+					return
+				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					fmt.Sprintf("Labeled expression '%s' detected. Consider refactoring to avoid labels.", strings.TrimSpace(file.FlatNodeText(idx))))
+					fmt.Sprintf("Labeled expression '%s' detected. Consider refactoring to avoid labels.", labelText))
 			},
 		})
 	}

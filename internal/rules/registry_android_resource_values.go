@@ -243,6 +243,22 @@ func registerAndroidResourceValuesRules() {
 		})
 	}
 	{
+		r := &StringTrailingWhitespaceResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "StringTrailingWhitespace", RuleSetName: androidRuleSet, Sev: "info"},
+			IssueID:    "StringTrailingWhitespace",
+			Brief:      "String resource has trailing whitespace",
+			Category:   ALCI18N,
+			ALSeverity: ALSInformational,
+			Priority:   3,
+			Origin:     "Krit roadmap",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &InconsistentArraysResourceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "InconsistentArraysResource", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "InconsistentArrays",

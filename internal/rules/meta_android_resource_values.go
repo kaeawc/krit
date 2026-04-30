@@ -138,6 +138,18 @@ func (r *StringFormatTrivialResourceRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *StringTrailingWhitespaceResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "StringTrailingWhitespace",
+		RuleSet:       "android-lint",
+		Severity:      "info",
+		Description:   "",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.85,
+	}
+}
+
 func (r *StringNotLocalizableResourceRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "StringNotLocalizableResource",

@@ -45,7 +45,11 @@ type ResourceIndex struct {
 	// typically for gettext/phrase-style translation interpolation, and
 	// format-specifier-validation rules should skip them.
 	StringsNonFormatted map[string]bool
-	StringsLocation     map[string]StringLocation    // string name -> file path and line
+	// StringsTrailingWS marks strings whose raw XML text content ended with
+	// whitespace before TrimSpace. Significant in some locales and in
+	// concatenated strings.
+	StringsTrailingWS map[string]bool
+	StringsLocation   map[string]StringLocation      // string name -> file path and line
 	Colors              map[string]string            // color name -> value
 	Dimensions          map[string]string            // dimen name -> value
 	Styles              map[string]*Style            // style name -> style definition
@@ -233,6 +237,7 @@ func newResourceIndex() *ResourceIndex {
 		Strings:             make(map[string]string),
 		StringsNonTranslate: make(map[string]bool),
 		StringsNonFormatted: make(map[string]bool),
+		StringsTrailingWS:   make(map[string]bool),
 		StringsLocation:     make(map[string]StringLocation),
 		Colors:              make(map[string]string),
 		Dimensions:          make(map[string]string),
@@ -273,6 +278,9 @@ func (idx *ResourceIndex) mergeFrom(other *ResourceIndex) {
 	}
 	if idx.StringsNonFormatted == nil {
 		idx.StringsNonFormatted = make(map[string]bool)
+	}
+	if idx.StringsTrailingWS == nil {
+		idx.StringsTrailingWS = make(map[string]bool)
 	}
 	if idx.StringsLocation == nil {
 		idx.StringsLocation = make(map[string]StringLocation)
@@ -325,6 +333,12 @@ func (idx *ResourceIndex) mergeFrom(other *ResourceIndex) {
 			idx.StringsNonFormatted = make(map[string]bool)
 		}
 		idx.StringsNonFormatted[name] = true
+	}
+	for name := range other.StringsTrailingWS {
+		if idx.StringsTrailingWS == nil {
+			idx.StringsTrailingWS = make(map[string]bool)
+		}
+		idx.StringsTrailingWS[name] = true
 	}
 	for name, loc := range other.StringsLocation {
 		idx.StringsLocation[name] = loc
@@ -920,7 +934,7 @@ func (idx *ResourceIndex) parseResourceElementKinds(dec *xml.Decoder, start xml.
 		name := xmlAttr(start.Attr, "name")
 		translatable := xmlAttr(start.Attr, "translatable")
 		formatted := xmlAttr(start.Attr, "formatted")
-		text, err := decodeSimpleElementText(dec, start)
+		raw, text, err := decodeSimpleElementTextWithRaw(dec, start)
 		if err != nil {
 			return err
 		}
@@ -934,6 +948,12 @@ func (idx *ResourceIndex) parseResourceElementKinds(dec *xml.Decoder, start xml.
 					idx.StringsNonFormatted = make(map[string]bool)
 				}
 				idx.StringsNonFormatted[name] = true
+			}
+			if hasTrailingWhitespace(raw) {
+				if idx.StringsTrailingWS == nil {
+					idx.StringsTrailingWS = make(map[string]bool)
+				}
+				idx.StringsTrailingWS[name] = true
 			}
 			idx.StringsLocation[name] = StringLocation{FilePath: path, Line: line}
 		}
@@ -1115,25 +1135,36 @@ func (idx *ResourceIndex) parsePluralsElement(dec *xml.Decoder, start xml.StartE
 }
 
 func decodeSimpleElementText(dec *xml.Decoder, start xml.StartElement) (string, error) {
+	_, text, err := decodeSimpleElementTextWithRaw(dec, start)
+	return text, err
+}
+
+func decodeSimpleElementTextWithRaw(dec *xml.Decoder, start xml.StartElement) (string, string, error) {
 	var builder strings.Builder
 	for {
 		tok, err := dec.Token()
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		switch t := tok.(type) {
 		case xml.CharData:
 			builder.Write([]byte(t))
 		case xml.StartElement:
 			if err := skipElement(dec, t); err != nil {
-				return "", err
+				return "", "", err
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
-				return strings.TrimSpace(builder.String()), nil
+				raw := builder.String()
+				return raw, strings.TrimSpace(raw), nil
 			}
 		}
 	}
+}
+
+func hasTrailingWhitespace(s string) bool {
+	trimmed := strings.TrimRight(s, " \t\n\r")
+	return trimmed != "" && trimmed != s
 }
 
 func skipElement(dec *xml.Decoder, start xml.StartElement) error {

@@ -1158,6 +1158,43 @@ func (r *InconsistentArraysResourceRule) check(ctx *v2.Context) {
 }
 
 // ---------------------------------------------------------------------------
+// StringTrailingWhitespace
+// ---------------------------------------------------------------------------
+
+// StringTrailingWhitespaceResourceRule detects translatable <string> resource
+// values whose raw text ends with whitespace. Trailing whitespace is
+// significant in some locales and in concatenated strings, so it is almost
+// always a mistake unless the resource is marked translatable="false".
+type StringTrailingWhitespaceResourceRule struct {
+	ValuesStringsResourceBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence.
+func (r *StringTrailingWhitespaceResourceRule) Confidence() float64 { return 0.85 }
+
+func (r *StringTrailingWhitespaceResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
+	for name := range idx.StringsTrailingWS {
+		if idx.StringsNonTranslate[name] {
+			continue
+		}
+		filePath := "res/values/strings.xml"
+		line := 0
+		if loc, ok := idx.StringsLocation[name]; ok {
+			if loc.FilePath != "" {
+				filePath = loc.FilePath
+			}
+			if loc.Line > 0 {
+				line = loc.Line
+			}
+		}
+		ctx.Emit(resourceFinding(filePath, line, r.BaseRule,
+			fmt.Sprintf("String `%s` has trailing whitespace. Trailing whitespace is significant in concatenated strings and some locales; trim it or mark the resource `translatable=\"false\"`.", name)))
+	}
+}
+
+// ---------------------------------------------------------------------------
 // ExtraTextResource
 // ---------------------------------------------------------------------------
 

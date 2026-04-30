@@ -114,6 +114,18 @@ func (r *RoomExportSchemaDisabledRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *RoomEntityChangedMigrationMissingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "RoomEntityChangedMigrationMissing",
+		RuleSet:       "database",
+		Severity:      "warning",
+		Description:   "Detects @Entity columns whose names do not appear in any Room Migration(M, N) declaration in the project.",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.6,
+	}
+}
+
 func (r *JdbcPreparedStatementNotClosedRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "JdbcPreparedStatementNotClosed",

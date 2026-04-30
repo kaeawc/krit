@@ -460,6 +460,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*ReturnCountRule)(nil),
 		(*ReturnFromFinallyRule)(nil),
 		(*RoomConflictStrategyReplaceOnFkRule)(nil),
+		(*RoomEntityChangedMigrationMissingRule)(nil),
 		(*RoomLoadsAllWhereFirstUsedRule)(nil),
 		(*RtlAwareRule)(nil),
 		(*RtlCompatManifestRule)(nil),

@@ -10,6 +10,7 @@ package v2
 
 import (
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -399,6 +400,13 @@ type Context struct {
 	GradlePath    string
 	GradleContent string
 	GradleConfig  *android.BuildConfig
+
+	// Populated for Java source files with cheap source-level facts
+	// derived from the parsed Java file. JavaSourceIndex is populated
+	// when the dispatcher has a project/source file set; single-file
+	// dispatch receives a one-file index.
+	JavaFacts       *javafacts.JavaFileFacts
+	JavaSourceIndex *javafacts.SourceIndex
 
 	// Project-wide library and platform facts derived from Gradle where
 	// available. Rules should use this instead of baking library-version

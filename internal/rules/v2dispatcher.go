@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -328,6 +329,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 	}
 
 	collector := scanner.NewFindingCollector(0)
+	javaFileFacts, javaSourceIndex := javaContextFactsForFile(file)
 
 	// Single-pass AST walk.
 	start = time.Now()
@@ -347,7 +349,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 						}
 						t := time.Now()
 						runWithRuleProfileLabel(r.ID, "dispatch", func() {
-							safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts)
+							safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex)
 						})
 						elapsed := time.Since(t).Nanoseconds()
 						stats.DispatchRuleNs += elapsed
@@ -366,7 +368,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 				}
 				t := time.Now()
 				runWithRuleProfileLabel(r.ID, "dispatch", func() {
-					safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts)
+					safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex)
 				})
 				elapsed := time.Since(t).Nanoseconds()
 				stats.DispatchRuleNs += elapsed
@@ -393,7 +395,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 					stats.Errors = append(stats.Errors, DispatchError{RuleName: r.ID, FilePath: filePathOrEmpty(file), PanicValue: rec})
 				}
 			}()
-			ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector, LibraryFacts: d.libraryFacts}
+			ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector, LibraryFacts: d.libraryFacts, JavaFacts: javaFileFacts, JavaSourceIndex: javaSourceIndex}
 			if r.Needs.Has(v2.NeedsResolver) {
 				ctx.Resolver = resolver
 			}
@@ -428,7 +430,7 @@ func (d *V2Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingC
 
 // safeCheckV2NodeColumnar invokes a rule with a Collector attached so
 // ctx.Emit routes findings directly into columnar storage.
-func safeCheckV2NodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats, typeResolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts) {
+func safeCheckV2NodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats, typeResolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaFileFacts *javafacts.JavaFileFacts, javaSourceIndex *javafacts.SourceIndex) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			line := 0
@@ -453,6 +455,8 @@ func safeCheckV2NodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, fil
 		DefaultConfidence: 0.95,
 		Collector:         collector,
 		LibraryFacts:      libraryFacts,
+		JavaFacts:         javaFileFacts,
+		JavaSourceIndex:   javaSourceIndex,
 	}
 	if r.Needs.Has(v2.NeedsResolver) {
 		ctx.Resolver = typeResolver
@@ -521,6 +525,14 @@ func filePathOrEmpty(file *scanner.File) string {
 		return ""
 	}
 	return file.Path
+}
+
+func javaContextFactsForFile(file *scanner.File) (*javafacts.JavaFileFacts, *javafacts.SourceIndex) {
+	facts := javafacts.SourceFactsForFile(file)
+	if facts == nil {
+		return nil, nil
+	}
+	return facts, javafacts.SourceIndexForFiles([]*scanner.File{file})
 }
 
 // allRuleExcludes returns a snapshot of every rule's exclude globs. Used
@@ -767,6 +779,7 @@ func (d *V2Dispatcher) RunResourceSource(file *scanner.File, idx *android.Resour
 
 	stats := RunStats{RuleStatsByRule: make(map[string]RuleExecutionStat)}
 	collector := scanner.NewFindingCollector(0)
+	javaFileFacts, javaSourceIndex := javaContextFactsForFile(file)
 	if file.FlatTree != nil && len(file.FlatTree.Nodes) > 0 {
 		for i := range file.FlatTree.Nodes {
 			flatIdx := uint32(i)
@@ -778,7 +791,7 @@ func (d *V2Dispatcher) RunResourceSource(file *scanner.File, idx *android.Resour
 				}
 				t := time.Now()
 				runWithRuleProfileLabel(r.ID, "resource-source", func() {
-					safeCheckV2ResourceNodeColumnar(r, flatIdx, &flatNode, file, idx, collector, &stats, resolver, d.libraryFacts)
+					safeCheckV2ResourceNodeColumnar(r, flatIdx, &flatNode, file, idx, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex)
 				})
 				stats.recordRule(r.ID, "resource-source", time.Since(t).Nanoseconds())
 			}
@@ -829,7 +842,8 @@ func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate f
 		}
 	}()
 	collector := scanner.NewFindingCollector(0)
-	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector, LibraryFacts: d.libraryFacts}
+	javaFileFacts, javaSourceIndex := javaContextFactsForFile(file)
+	ctx := &v2.Context{File: file, Rule: r, DefaultConfidence: 0.75, Collector: collector, LibraryFacts: d.libraryFacts, JavaFacts: javaFileFacts, JavaSourceIndex: javaSourceIndex}
 	if r.Needs.Has(v2.NeedsResolver) {
 		if resolver, ok := d.resolveForRule(r); ok {
 			ctx.Resolver = resolver
@@ -842,7 +856,7 @@ func (d *V2Dispatcher) runProjectRule(r *v2.Rule, file *scanner.File, populate f
 	return *collector.Columns()
 }
 
-func safeCheckV2ResourceNodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, resourceIndex *android.ResourceIndex, collector *scanner.FindingCollector, stats *RunStats, typeResolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts) {
+func safeCheckV2ResourceNodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, resourceIndex *android.ResourceIndex, collector *scanner.FindingCollector, stats *RunStats, typeResolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaFileFacts *javafacts.JavaFileFacts, javaSourceIndex *javafacts.SourceIndex) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			line := 0
@@ -868,6 +882,8 @@ func safeCheckV2ResourceNodeColumnar(r *v2.Rule, idx uint32, node *scanner.FlatN
 		ResourceIndex:     resourceIndex,
 		Collector:         collector,
 		LibraryFacts:      libraryFacts,
+		JavaFacts:         javaFileFacts,
+		JavaSourceIndex:   javaSourceIndex,
 	}
 	if r.Needs.Has(v2.NeedsResolver) {
 		ctx.Resolver = typeResolver

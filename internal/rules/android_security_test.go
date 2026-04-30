@@ -426,6 +426,52 @@ class MyActivity {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+	t.Run("triggers on Java Context receiver", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "GrantAllUris", `
+package test;
+import android.content.Context;
+
+class Sharing {
+  void share(Context context, android.net.Uri uri) {
+    context.grantUriPermission("pkg", uri, 3);
+  }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected Java GrantAllUris finding")
+		}
+	})
+	t.Run("triggers on Java Activity receiver", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "GrantAllUris", `
+package test;
+
+class Sharing extends android.app.Activity {
+  void share(android.net.Uri uri) {
+    this.grantUriPermission("pkg", uri, 3);
+  }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected Java Activity GrantAllUris finding")
+		}
+	})
+	t.Run("Java local lookalike receiver is ignored", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "GrantAllUris", `
+package test;
+
+class Sharing {
+  static class Helper {
+    void grantUriPermission(String pkg, Object uri, int flags) {}
+  }
+  void share(Helper helper, Object uri) {
+    helper.grantUriPermission("pkg", uri, 3);
+  }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for Java local lookalike, got %d", len(findings))
+		}
+	})
 }
 
 func TestSecureRandom(t *testing.T) {
@@ -621,6 +667,33 @@ class Prefs {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+	t.Run("triggers on Java MODE_WORLD_READABLE", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "WorldReadableFiles", `
+package test;
+class Prefs {
+  void open(android.content.Context context) {
+    context.getSharedPreferences("prefs", android.content.Context.MODE_WORLD_READABLE);
+  }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected Java MODE_WORLD_READABLE finding")
+		}
+	})
+	t.Run("Java local lookalike declaration is ignored", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "WorldReadableFiles", `
+package test;
+class Prefs {
+  static final int MODE_WORLD_READABLE = 0;
+  void open() {
+    int mode = MODE_PRIVATE;
+  }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for Java declaration lookalike, got %d", len(findings))
+		}
+	})
 }
 
 func TestWorldWriteableFiles(t *testing.T) {
@@ -648,6 +721,46 @@ class FileHelper {
 `)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("triggers on Java MODE_WORLD_WRITEABLE", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "WorldWriteableFiles", `
+package test;
+class FileHelper {
+  void create(android.content.Context context) throws java.io.IOException {
+    context.openFileOutput("data", android.content.Context.MODE_WORLD_WRITEABLE);
+  }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected Java MODE_WORLD_WRITEABLE finding")
+		}
+	})
+	t.Run("triggers on Java MODE_WORLD_WRITABLE alias", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "WorldWriteableFiles", `
+package test;
+class FileHelper {
+  void create(android.content.Context context) throws java.io.IOException {
+    context.openFileOutput("data", android.content.Context.MODE_WORLD_WRITABLE);
+  }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected Java MODE_WORLD_WRITABLE finding")
+		}
+	})
+	t.Run("Java local lookalike declaration is ignored", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "WorldWriteableFiles", `
+package test;
+class FileHelper {
+  static final int MODE_WORLD_WRITEABLE = 0;
+  void create() {
+    int mode = MODE_PRIVATE;
+  }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for Java declaration lookalike, got %d", len(findings))
 		}
 	})
 }

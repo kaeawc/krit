@@ -84,7 +84,9 @@ func registerAndroidSecurityRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Needs: v2.NeedsTypeInfo,
+			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Confidence: r.Confidence(), OriginalV1: r,
 			// Traverses the class hierarchy to confirm the receiver is a Context subtype;
 			// only ClassShell+Supertypes needed, no member inspection.
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
@@ -122,7 +124,12 @@ func registerAndroidSecurityRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"simple_identifier"}, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes:  []string{"simple_identifier", "identifier"},
+			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Confidence: r.Confidence(), OriginalV1: r, Check: r.check,
+		})
 	}
 	{
 		r := &WorldWriteableFilesRule{AndroidRule: AndroidRule{
@@ -131,7 +138,12 @@ func registerAndroidSecurityRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"simple_identifier"}, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			NodeTypes:  []string{"simple_identifier", "identifier"},
+			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Confidence: r.Confidence(), OriginalV1: r, Check: r.check,
+		})
 	}
 	{
 		r := &DrawAllocationRule{AndroidRule: AndroidRule{

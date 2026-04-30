@@ -542,10 +542,7 @@ func (r *GrantAllUrisRule) Confidence() float64 { return 0.75 }
 
 func (r *GrantAllUrisRule) check(ctx *v2.Context) {
 	file, idx := ctx.File, ctx.Idx
-	if file.FlatType(idx) != "call_expression" {
-		return
-	}
-	name := flatCallExpressionName(file, idx)
+	name := grantUriPermissionCallName(file, idx)
 	if name != "grantUriPermission" && name != "grantUriPermissions" {
 		return
 	}
@@ -559,8 +556,22 @@ func (r *GrantAllUrisRule) check(ctx *v2.Context) {
 	ctx.Emit(f)
 }
 
+func grantUriPermissionCallName(file *scanner.File, idx uint32) string {
+	switch file.FlatType(idx) {
+	case "call_expression":
+		return flatCallExpressionName(file, idx)
+	case "method_invocation":
+		return wrongViewCastCallName(file, idx)
+	default:
+		return ""
+	}
+}
+
 func grantUriPermissionConfidence(ctx *v2.Context, idx uint32) float64 {
 	file := ctx.File
+	if file.FlatType(idx) == "method_invocation" {
+		return grantUriPermissionJavaConfidence(file, idx)
+	}
 	navExpr, args := flatCallExpressionParts(file, idx)
 	if navExpr != 0 && ctx.Resolver != nil {
 		receiver := file.FlatNamedChild(navExpr, 0)
@@ -595,6 +606,29 @@ func grantUriPermissionConfidence(ctx *v2.Context, idx uint32) float64 {
 		return 0.85
 	}
 	return 0.7
+}
+
+func grantUriPermissionJavaConfidence(file *scanner.File, idx uint32) float64 {
+	receiver := wrongViewCastCallReceiverName(file, idx)
+	switch receiver {
+	case "context", "ctx", "this":
+		if sourceImportsOrMentions(file, "android.content.Context") ||
+			sourceImportsOrMentions(file, "android.app.Activity") ||
+			sourceImportsOrMentions(file, "android.app.Service") {
+			return 0.85
+		}
+	case "":
+		if sourceImportsOrMentions(file, "android.content.Context") ||
+			sourceImportsOrMentions(file, "android.app.Activity") ||
+			sourceImportsOrMentions(file, "android.app.Service") {
+			return 0.85
+		}
+	default:
+		if strings.HasSuffix(receiver, ".Context") || strings.HasSuffix(receiver, ".Activity") || strings.HasSuffix(receiver, ".Service") {
+			return 0.85
+		}
+	}
+	return 0
 }
 
 func grantUriTypeIsContext(resolver typeinfer.TypeResolver, typ *typeinfer.ResolvedType) bool {
@@ -1186,7 +1220,9 @@ func worldReadableIdentifierMatch(ctx *v2.Context, want string) bool {
 		return false
 	}
 	file := ctx.File
-	if file.FlatType(ctx.Idx) != "simple_identifier" {
+	switch file.FlatType(ctx.Idx) {
+	case "simple_identifier", "identifier":
+	default:
 		return false
 	}
 	if file.FlatNodeText(ctx.Idx) != want {
@@ -1194,7 +1230,8 @@ func worldReadableIdentifierMatch(ctx *v2.Context, want string) bool {
 	}
 	// Skip declaration sites (unlikely but harmless): `val MODE_WORLD_READABLE = ...`.
 	if parent, ok := file.FlatParent(ctx.Idx); ok {
-		if file.FlatType(parent) == "variable_declaration" {
+		switch file.FlatType(parent) {
+		case "variable_declaration", "variable_declarator":
 			return false
 		}
 	}

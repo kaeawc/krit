@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *CompileSdkMismatchAcrossModulesRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CompileSdkMismatchAcrossModulesRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CompileSdkMismatchAcrossModules",
 		RuleSet:       "supply-chain",
 		Severity:      "warning",

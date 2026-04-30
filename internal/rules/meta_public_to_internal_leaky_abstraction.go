@@ -10,12 +10,12 @@ package rules
 //   That conditional + transform cannot be expressed by a plain ConfigOption
 //   without hand-authoring the Apply closure.
 
-import "github.com/kaeawc/krit/internal/rules/registry"
+import "github.com/kaeawc/krit/internal/rules/v2"
 
 // Meta returns the descriptor for PublicToInternalLeakyAbstractionRule.
 // Mirrors config.go:625-629.
-func (r *PublicToInternalLeakyAbstractionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *PublicToInternalLeakyAbstractionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "PublicToInternalLeakyAbstraction",
 		RuleSet:       "architecture",
 		Severity:      "info",
@@ -23,10 +23,10 @@ func (r *PublicToInternalLeakyAbstractionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.7,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "thresholdPercent",
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     0,
 				Description: "",
 				// YAML stores an int percent; the rule struct holds a

@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AlwaysShowActionResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AlwaysShowActionResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AlwaysShowActionResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *AlwaysShowActionResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DisableBaselineAlignmentResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DisableBaselineAlignmentResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DisableBaselineAlignmentResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *DisableBaselineAlignmentResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *InOrMmUsageResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InOrMmUsageResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "InOrMmUsageResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *InOrMmUsageResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *InefficientWeightResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InefficientWeightResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "InefficientWeightResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *InefficientWeightResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MergeRootFrameResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MergeRootFrameResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MergeRootFrameResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *MergeRootFrameResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NegativeMarginResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NegativeMarginResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NegativeMarginResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -75,10 +75,10 @@ func (r *NegativeMarginResourceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowedNegativeMargins",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Project-approved negative margin patterns. Accepts attr, attr=value, value, ViewType:attr, ViewType:attr=value, or ViewType:*=value.",
 				Apply: func(target interface{}, value interface{}) {
@@ -89,8 +89,8 @@ func (r *NegativeMarginResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NestedWeightsResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NestedWeightsResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NestedWeightsResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -101,8 +101,8 @@ func (r *NestedWeightsResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ObsoleteLayoutParamsResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ObsoleteLayoutParamsResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ObsoleteLayoutParamsResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -113,8 +113,8 @@ func (r *ObsoleteLayoutParamsResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *OverdrawResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *OverdrawResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "OverdrawResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -125,8 +125,8 @@ func (r *OverdrawResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *PxUsageResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *PxUsageResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "PxUsageResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -137,8 +137,8 @@ func (r *PxUsageResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SmallSpResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SmallSpResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SmallSpResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -149,8 +149,8 @@ func (r *SmallSpResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SpUsageResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SpUsageResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SpUsageResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -161,8 +161,8 @@ func (r *SpUsageResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *StateListReachableResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *StateListReachableResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "StateListReachableResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -173,8 +173,8 @@ func (r *StateListReachableResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *Suspicious0dpResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *Suspicious0dpResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "Suspicious0dpResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",

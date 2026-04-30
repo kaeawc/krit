@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AdapterViewChildrenResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AdapterViewChildrenResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AdapterViewChildrenResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *AdapterViewChildrenResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IncludeLayoutParamResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IncludeLayoutParamResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IncludeLayoutParamResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *IncludeLayoutParamResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *InconsistentLayoutResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InconsistentLayoutResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "InconsistentLayout",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *InconsistentLayoutResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NestedScrollingResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NestedScrollingResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NestedScrollingResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *NestedScrollingResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *OrientationResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *OrientationResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "OrientationResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *OrientationResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RequiredSizeResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RequiredSizeResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RequiredSizeResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -78,8 +78,8 @@ func (r *RequiredSizeResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ScrollViewCountResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ScrollViewCountResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ScrollViewCountResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -90,8 +90,8 @@ func (r *ScrollViewCountResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ScrollViewSizeResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ScrollViewSizeResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ScrollViewSizeResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *ScrollViewSizeResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TooDeepLayoutResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TooDeepLayoutResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TooDeepLayoutResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -114,8 +114,8 @@ func (r *TooDeepLayoutResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TooManyViewsResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TooManyViewsResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TooManyViewsResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -126,8 +126,8 @@ func (r *TooManyViewsResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseCompoundDrawablesResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseCompoundDrawablesResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseCompoundDrawablesResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -138,8 +138,8 @@ func (r *UseCompoundDrawablesResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UselessLeafResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UselessLeafResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UselessLeafResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -150,8 +150,8 @@ func (r *UselessLeafResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UselessParentResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UselessParentResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UselessParentResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",

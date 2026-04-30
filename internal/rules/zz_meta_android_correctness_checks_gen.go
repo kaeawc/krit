@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AccidentalOctalRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AccidentalOctalRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AccidentalOctal",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -18,8 +18,8 @@ func (r *AccidentalOctalRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *AppCompatMethodRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AppCompatMethodRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AppCompatMethod",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -30,8 +30,8 @@ func (r *AppCompatMethodRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CustomViewStyleableRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CustomViewStyleableRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CustomViewStyleable",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -42,8 +42,8 @@ func (r *CustomViewStyleableRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DeprecatedRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DeprecatedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "Deprecated",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -54,8 +54,8 @@ func (r *DeprecatedRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *InnerclassSeparatorRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InnerclassSeparatorRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "InnerclassSeparator",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -66,8 +66,8 @@ func (r *InnerclassSeparatorRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LocalSuppressRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LocalSuppressRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LocalSuppress",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -78,8 +78,8 @@ func (r *LocalSuppressRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ObjectAnimatorBindingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ObjectAnimatorBindingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ObjectAnimatorBinding",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -90,8 +90,8 @@ func (r *ObjectAnimatorBindingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *OnClickRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *OnClickRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "OnClick",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *OnClickRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *OverrideAbstractRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *OverrideAbstractRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "OverrideAbstract",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -114,8 +114,8 @@ func (r *OverrideAbstractRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ParcelCreatorRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ParcelCreatorRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ParcelCreator",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -126,8 +126,8 @@ func (r *ParcelCreatorRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *PluralsCandidateRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *PluralsCandidateRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "PluralsCandidate",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -138,8 +138,8 @@ func (r *PluralsCandidateRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *PropertyEscapeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *PropertyEscapeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "PropertyEscape",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -150,8 +150,8 @@ func (r *PropertyEscapeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RangeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RangeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "Range",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -162,8 +162,8 @@ func (r *RangeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ResourceAsColorRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ResourceAsColorRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ResourceAsColor",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -174,8 +174,8 @@ func (r *ResourceAsColorRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ResourceTypeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ResourceTypeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ResourceType",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -186,8 +186,8 @@ func (r *ResourceTypeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ShortAlarmRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ShortAlarmRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ShortAlarm",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -198,8 +198,8 @@ func (r *ShortAlarmRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SupportAnnotationUsageRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SupportAnnotationUsageRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SupportAnnotationUsage",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -210,8 +210,8 @@ func (r *SupportAnnotationUsageRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SwitchIntDefRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SwitchIntDefRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SwitchIntDef",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -222,8 +222,8 @@ func (r *SwitchIntDefRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TextViewEditsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TextViewEditsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TextViewEdits",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -234,8 +234,8 @@ func (r *TextViewEditsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WrongViewCastRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WrongViewCastRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WrongViewCast",
 		RuleSet:       "android-lint",
 		Severity:      "",

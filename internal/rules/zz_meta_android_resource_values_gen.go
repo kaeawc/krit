@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *ExtraTextResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ExtraTextResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ExtraTextResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -18,8 +18,8 @@ func (r *ExtraTextResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GoogleApiKeyInResourcesRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GoogleApiKeyInResourcesRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GoogleApiKeyInResources",
 		RuleSet:       "security",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *GoogleApiKeyInResourcesRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ImpliedQuantityResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ImpliedQuantityResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ImpliedQuantityResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *ImpliedQuantityResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *InconsistentArraysResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InconsistentArraysResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "InconsistentArraysResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *InconsistentArraysResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LocaleConfigStaleResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LocaleConfigStaleResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LocaleConfigStale",
 		RuleSet:       "android-lint",
 		Severity:      "info",
@@ -66,8 +66,8 @@ func (r *LocaleConfigStaleResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingQuantityResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingQuantityResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingQuantityResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -78,8 +78,8 @@ func (r *MissingQuantityResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *OnClickResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *OnClickResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "OnClickResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *OnClickResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *StringFormatCountResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *StringFormatCountResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "StringFormatCountResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *StringFormatCountResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *StringFormatInvalidResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *StringFormatInvalidResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "StringFormatInvalidResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -114,8 +114,8 @@ func (r *StringFormatInvalidResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *StringFormatMatchesResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *StringFormatMatchesResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "StringFormatMatchesResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -126,8 +126,8 @@ func (r *StringFormatMatchesResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *StringFormatTrivialResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *StringFormatTrivialResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "StringFormatTrivialResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -138,8 +138,8 @@ func (r *StringFormatTrivialResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *StringNotLocalizableResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *StringNotLocalizableResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "StringNotLocalizableResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -150,8 +150,8 @@ func (r *StringNotLocalizableResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TextFieldsResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TextFieldsResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TextFieldsResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -162,8 +162,8 @@ func (r *TextFieldsResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnusedAttributeResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnusedAttributeResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnusedAttributeResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -174,8 +174,8 @@ func (r *UnusedAttributeResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnusedQuantityResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnusedQuantityResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnusedQuantityResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -186,8 +186,8 @@ func (r *UnusedQuantityResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WebViewInScrollViewResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WebViewInScrollViewResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WebViewInScrollViewResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -198,8 +198,8 @@ func (r *WebViewInScrollViewResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WrongRegionResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WrongRegionResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WrongRegionResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",

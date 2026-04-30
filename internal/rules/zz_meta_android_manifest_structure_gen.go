@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *DuplicateActivityManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DuplicateActivityManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DuplicateActivityManifest",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -18,8 +18,8 @@ func (r *DuplicateActivityManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DuplicateUsesFeatureManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DuplicateUsesFeatureManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DuplicateUsesFeatureManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *DuplicateUsesFeatureManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GradleOverridesManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GradleOverridesManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GradleOverridesManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *GradleOverridesManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IntentFilterExportRequiredRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IntentFilterExportRequiredRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IntentFilterExportRequired",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -54,8 +54,8 @@ func (r *IntentFilterExportRequiredRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *InvalidUsesTagAttributeManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InvalidUsesTagAttributeManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "InvalidUsesTagAttributeManifest",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -66,8 +66,8 @@ func (r *InvalidUsesTagAttributeManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ManifestOrderManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ManifestOrderManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ManifestOrderManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *ManifestOrderManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ManifestTypoRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ManifestTypoRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ManifestTypoManifest",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -90,8 +90,8 @@ func (r *ManifestTypoRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MipmapLauncherRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MipmapLauncherRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MipmapLauncher",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *MipmapLauncherRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingApplicationIconRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingApplicationIconRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingApplicationIconManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -114,8 +114,8 @@ func (r *MissingApplicationIconRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingVersionManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingVersionManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingVersionManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -126,8 +126,8 @@ func (r *MissingVersionManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MockLocationManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MockLocationManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MockLocationManifest",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -138,8 +138,8 @@ func (r *MockLocationManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MultipleUsesSdkManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MultipleUsesSdkManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MultipleUsesSdkManifest",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -150,8 +150,8 @@ func (r *MultipleUsesSdkManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SystemPermissionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SystemPermissionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SystemPermission",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -162,8 +162,8 @@ func (r *SystemPermissionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TargetNewerRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TargetNewerRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TargetNewer",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -174,8 +174,8 @@ func (r *TargetNewerRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UniquePermissionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UniquePermissionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UniquePermission",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -186,8 +186,8 @@ func (r *UniquePermissionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnpackedNativeCodeManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnpackedNativeCodeManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnpackedNativeCodeManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -198,8 +198,8 @@ func (r *UnpackedNativeCodeManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UsesSdkManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UsesSdkManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UsesSdkManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -210,8 +210,8 @@ func (r *UsesSdkManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WrongManifestParentManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WrongManifestParentManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WrongManifestParentManifest",
 		RuleSet:       "android-lint",
 		Severity:      "error",

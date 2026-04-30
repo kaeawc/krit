@@ -12,11 +12,11 @@ package rules
 //   transform. Keeping the transform next to the struct makes the descriptor
 //   behavior explicit.
 
-import "github.com/kaeawc/krit/internal/rules/registry"
+import "github.com/kaeawc/krit/internal/rules/v2"
 
 // Meta returns the descriptor for NewerVersionAvailableRule.
-func (r *NewerVersionAvailableRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NewerVersionAvailableRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NewerVersionAvailable",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -24,10 +24,10 @@ func (r *NewerVersionAvailableRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "recommendedVersions",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "",
 				// RecommendedVersions is []libMinVersion on the rule struct;

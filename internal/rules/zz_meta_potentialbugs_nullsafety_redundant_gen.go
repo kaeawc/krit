@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *NullCheckOnMutablePropertyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NullCheckOnMutablePropertyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NullCheckOnMutableProperty",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *NullCheckOnMutablePropertyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NullableToStringCallRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NullableToStringCallRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NullableToStringCall",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *NullableToStringCallRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryNotNullCheckRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryNotNullCheckRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryNotNullCheck",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *UnnecessaryNotNullCheckRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryNotNullOperatorRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryNotNullOperatorRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryNotNullOperator",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *UnnecessaryNotNullOperatorRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessarySafeCallRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessarySafeCallRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessarySafeCall",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",

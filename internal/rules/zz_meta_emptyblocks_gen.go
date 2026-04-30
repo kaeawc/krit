@@ -5,13 +5,13 @@ package rules
 import (
 	"regexp"
 
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
 var _ = regexp.MustCompile
 
-func (r *EmptyCatchBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptyCatchBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptyCatchBlock",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",
@@ -19,10 +19,10 @@ func (r *EmptyCatchBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowedExceptionNameRegex",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "^(_|ignore|expected)$",
 				Description: "Regex for exception names that allow empty catch.",
 				Apply: func(target interface{}, value interface{}) {
@@ -33,8 +33,8 @@ func (r *EmptyCatchBlockRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EmptyClassBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptyClassBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptyClassBlock",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",
@@ -45,8 +45,8 @@ func (r *EmptyClassBlockRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EmptyDefaultConstructorRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptyDefaultConstructorRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptyDefaultConstructor",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",
@@ -57,8 +57,8 @@ func (r *EmptyDefaultConstructorRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EmptyDoWhileBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptyDoWhileBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptyDoWhileBlock",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",
@@ -69,8 +69,8 @@ func (r *EmptyDoWhileBlockRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EmptyElseBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptyElseBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptyElseBlock",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",
@@ -81,8 +81,8 @@ func (r *EmptyElseBlockRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EmptyFinallyBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptyFinallyBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptyFinallyBlock",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",
@@ -93,8 +93,8 @@ func (r *EmptyFinallyBlockRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EmptyForBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptyForBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptyForBlock",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",
@@ -105,8 +105,8 @@ func (r *EmptyForBlockRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EmptyFunctionBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptyFunctionBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptyFunctionBlock",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",
@@ -114,10 +114,10 @@ func (r *EmptyFunctionBlockRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "ignoreOverridden",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Ignore overridden functions with empty body.",
 				Apply: func(target interface{}, value interface{}) {
@@ -128,8 +128,8 @@ func (r *EmptyFunctionBlockRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EmptyIfBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptyIfBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptyIfBlock",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",
@@ -140,8 +140,8 @@ func (r *EmptyIfBlockRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EmptyInitBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptyInitBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptyInitBlock",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",
@@ -152,8 +152,8 @@ func (r *EmptyInitBlockRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EmptyKotlinFileRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptyKotlinFileRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptyKotlinFile",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",
@@ -164,8 +164,8 @@ func (r *EmptyKotlinFileRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EmptySecondaryConstructorRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptySecondaryConstructorRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptySecondaryConstructor",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",
@@ -176,8 +176,8 @@ func (r *EmptySecondaryConstructorRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EmptyTryBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptyTryBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptyTryBlock",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",
@@ -188,8 +188,8 @@ func (r *EmptyTryBlockRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EmptyWhenBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptyWhenBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptyWhenBlock",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",
@@ -200,8 +200,8 @@ func (r *EmptyWhenBlockRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EmptyWhileBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EmptyWhileBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EmptyWhileBlock",
 		RuleSet:       "empty-blocks",
 		Severity:      "warning",

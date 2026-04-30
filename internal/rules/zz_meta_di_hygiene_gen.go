@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AnvilContributesBindingWithoutScopeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AnvilContributesBindingWithoutScopeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AnvilContributesBindingWithoutScope",
 		RuleSet:       "di-hygiene",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *AnvilContributesBindingWithoutScopeRule) Meta() registry.RuleDescriptor
 	}
 }
 
-func (r *AnvilMergeComponentEmptyScopeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AnvilMergeComponentEmptyScopeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AnvilMergeComponentEmptyScope",
 		RuleSet:       "di-hygiene",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *AnvilMergeComponentEmptyScopeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *BindsMismatchedArityRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *BindsMismatchedArityRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "BindsMismatchedArity",
 		RuleSet:       "di-hygiene",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *BindsMismatchedArityRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *HiltEntryPointOnNonInterfaceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *HiltEntryPointOnNonInterfaceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "HiltEntryPointOnNonInterface",
 		RuleSet:       "di-hygiene",
 		Severity:      "warning",

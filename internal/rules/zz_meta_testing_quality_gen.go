@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AssertEqualsArgumentOrderRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AssertEqualsArgumentOrderRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AssertEqualsArgumentOrder",
 		RuleSet:       "testing-quality",
 		Severity:      "info",
@@ -18,8 +18,8 @@ func (r *AssertEqualsArgumentOrderRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *AssertNullableWithNotNullAssertionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AssertNullableWithNotNullAssertionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AssertNullableWithNotNullAssertion",
 		RuleSet:       "testing-quality",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *AssertNullableWithNotNullAssertionRule) Meta() registry.RuleDescriptor 
 	}
 }
 
-func (r *AssertTrueOnComparisonRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AssertTrueOnComparisonRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AssertTrueOnComparison",
 		RuleSet:       "testing-quality",
 		Severity:      "info",
@@ -42,8 +42,8 @@ func (r *AssertTrueOnComparisonRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MixedAssertionLibrariesRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MixedAssertionLibrariesRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MixedAssertionLibraries",
 		RuleSet:       "testing-quality",
 		Severity:      "info",
@@ -54,8 +54,8 @@ func (r *MixedAssertionLibrariesRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MockWithoutVerifyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MockWithoutVerifyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MockWithoutVerify",
 		RuleSet:       "testing-quality",
 		Severity:      "info",
@@ -66,8 +66,8 @@ func (r *MockWithoutVerifyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RelaxedMockUsedForValueClassRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RelaxedMockUsedForValueClassRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RelaxedMockUsedForValueClass",
 		RuleSet:       "testing-quality",
 		Severity:      "info",
@@ -78,8 +78,8 @@ func (r *RelaxedMockUsedForValueClassRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RunBlockingInTestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RunBlockingInTestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RunBlockingInTest",
 		RuleSet:       "testing-quality",
 		Severity:      "info",
@@ -90,8 +90,8 @@ func (r *RunBlockingInTestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RunTestWithDelayRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RunTestWithDelayRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RunTestWithDelay",
 		RuleSet:       "testing-quality",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *RunTestWithDelayRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RunTestWithThreadSleepRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RunTestWithThreadSleepRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RunTestWithThreadSleep",
 		RuleSet:       "testing-quality",
 		Severity:      "warning",
@@ -114,8 +114,8 @@ func (r *RunTestWithThreadSleepRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SharedMutableStateInObjectRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SharedMutableStateInObjectRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SharedMutableStateInObject",
 		RuleSet:       "testing-quality",
 		Severity:      "warning",
@@ -126,8 +126,8 @@ func (r *SharedMutableStateInObjectRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SpyOnDataClassRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SpyOnDataClassRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SpyOnDataClass",
 		RuleSet:       "testing-quality",
 		Severity:      "info",
@@ -138,8 +138,8 @@ func (r *SpyOnDataClassRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TestDispatcherNotInjectedRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TestDispatcherNotInjectedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TestDispatcherNotInjected",
 		RuleSet:       "testing-quality",
 		Severity:      "info",
@@ -150,8 +150,8 @@ func (r *TestDispatcherNotInjectedRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TestFunctionReturnValueRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TestFunctionReturnValueRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TestFunctionReturnValue",
 		RuleSet:       "testing-quality",
 		Severity:      "warning",
@@ -162,8 +162,8 @@ func (r *TestFunctionReturnValueRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TestInheritanceDepthRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TestInheritanceDepthRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TestInheritanceDepth",
 		RuleSet:       "testing-quality",
 		Severity:      "info",
@@ -174,8 +174,8 @@ func (r *TestInheritanceDepthRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TestNameContainsUnderscoreRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TestNameContainsUnderscoreRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TestNameContainsUnderscore",
 		RuleSet:       "testing-quality",
 		Severity:      "info",
@@ -186,8 +186,8 @@ func (r *TestNameContainsUnderscoreRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TestWithOnlyTodoRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TestWithOnlyTodoRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TestWithOnlyTodo",
 		RuleSet:       "testing-quality",
 		Severity:      "warning",
@@ -198,8 +198,8 @@ func (r *TestWithOnlyTodoRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TestWithoutAssertionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TestWithoutAssertionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TestWithoutAssertion",
 		RuleSet:       "testing-quality",
 		Severity:      "warning",
@@ -210,8 +210,8 @@ func (r *TestWithoutAssertionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *VerifyWithoutMockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *VerifyWithoutMockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "VerifyWithoutMock",
 		RuleSet:       "testing-quality",
 		Severity:      "warning",

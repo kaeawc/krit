@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AddJavascriptInterfaceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AddJavascriptInterfaceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AddJavascriptInterface",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *AddJavascriptInterfaceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ByteOrderMarkRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ByteOrderMarkRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ByteOrderMark",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *ByteOrderMarkRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DrawAllocationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DrawAllocationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DrawAllocation",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *DrawAllocationRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EasterEggRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EasterEggRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EasterEgg",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *EasterEggRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ExportedContentProviderRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ExportedContentProviderRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ExportedContentProvider",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *ExportedContentProviderRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ExportedReceiverRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ExportedReceiverRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ExportedReceiver",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *ExportedReceiverRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *FieldGetterRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *FieldGetterRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "FieldGetter",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *FieldGetterRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *FloatMathRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *FloatMathRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "FloatMath",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *FloatMathRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GetInstanceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GetInstanceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GetInstance",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -114,8 +114,8 @@ func (r *GetInstanceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GrantAllUrisRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GrantAllUrisRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GrantAllUris",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -126,8 +126,8 @@ func (r *GrantAllUrisRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *HandlerLeakRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *HandlerLeakRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "HandlerLeak",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -138,8 +138,8 @@ func (r *HandlerLeakRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RecycleRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RecycleRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "Recycle",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -150,8 +150,8 @@ func (r *RecycleRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SecureRandomRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SecureRandomRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SecureRandom",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -162,8 +162,8 @@ func (r *SecureRandomRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TrustedServerRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TrustedServerRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TrustedServer",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -174,8 +174,8 @@ func (r *TrustedServerRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WorldReadableFilesRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WorldReadableFilesRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WorldReadableFiles",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -186,8 +186,8 @@ func (r *WorldReadableFilesRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WorldWriteableFilesRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WorldWriteableFilesRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WorldWriteableFiles",
 		RuleSet:       "android-lint",
 		Severity:      "warning",

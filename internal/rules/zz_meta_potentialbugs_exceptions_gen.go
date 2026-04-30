@@ -5,13 +5,13 @@ package rules
 import (
 	"regexp"
 
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
 var _ = regexp.MustCompile
 
-func (r *PrintStackTraceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *PrintStackTraceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "PrintStackTrace",
 		RuleSet:       "exceptions",
 		Severity:      "warning",
@@ -22,8 +22,8 @@ func (r *PrintStackTraceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TooGenericExceptionCaughtRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TooGenericExceptionCaughtRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TooGenericExceptionCaught",
 		RuleSet:       "exceptions",
 		Severity:      "warning",
@@ -31,10 +31,10 @@ func (r *TooGenericExceptionCaughtRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowedExceptionNameRegex",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex for exception variable names to allow.",
 				Apply: func(target interface{}, value interface{}) {
@@ -43,7 +43,7 @@ func (r *TooGenericExceptionCaughtRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "exceptionNames",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Generic exception types to flag.",
 				Apply: func(target interface{}, value interface{}) {
@@ -54,8 +54,8 @@ func (r *TooGenericExceptionCaughtRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TooGenericExceptionThrownRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TooGenericExceptionThrownRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TooGenericExceptionThrown",
 		RuleSet:       "exceptions",
 		Severity:      "warning",
@@ -63,10 +63,10 @@ func (r *TooGenericExceptionThrownRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "exceptionNames",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Generic exception types to flag.",
 				Apply: func(target interface{}, value interface{}) {
@@ -77,8 +77,8 @@ func (r *TooGenericExceptionThrownRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnreachableCatchBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnreachableCatchBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnreachableCatchBlock",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -89,8 +89,8 @@ func (r *UnreachableCatchBlockRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnreachableCodeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnreachableCodeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnreachableCode",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",

@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *FragmentConstructorRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *FragmentConstructorRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "FragmentConstructor",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *FragmentConstructorRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GetSignaturesRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GetSignaturesRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GetSignatures",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *GetSignaturesRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LogTagLengthRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LogTagLengthRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LongLogTag",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -42,8 +42,8 @@ func (r *LogTagLengthRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LogTagMismatchRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LogTagMismatchRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LogTagMismatch",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *LogTagMismatchRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NonInternationalizedSmsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NonInternationalizedSmsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NonInternationalizedSms",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *NonInternationalizedSmsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ServiceCastRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ServiceCastRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ServiceCast",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *ServiceCastRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SparseArrayRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SparseArrayRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseSparseArrays",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *SparseArrayRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ToastRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ToastRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ShowToast",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *ToastRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseValueOfRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseValueOfRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseValueOf",
 		RuleSet:       "android-lint",
 		Severity:      "warning",

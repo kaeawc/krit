@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *CollapsibleIfStatementsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CollapsibleIfStatementsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CollapsibleIfStatements",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *CollapsibleIfStatementsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ExplicitItLambdaMultipleParametersRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ExplicitItLambdaMultipleParametersRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ExplicitItLambdaMultipleParameters",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *ExplicitItLambdaMultipleParametersRule) Meta() registry.RuleDescriptor 
 	}
 }
 
-func (r *ExplicitItLambdaParameterRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ExplicitItLambdaParameterRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ExplicitItLambdaParameter",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *ExplicitItLambdaParameterRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ExpressionBodySyntaxRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ExpressionBodySyntaxRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ExpressionBodySyntax",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -51,10 +51,10 @@ func (r *ExpressionBodySyntaxRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "includeLineWrapping",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Suggest expression body for multi-line returns.",
 				Apply: func(target interface{}, value interface{}) {
@@ -65,8 +65,8 @@ func (r *ExpressionBodySyntaxRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *FunctionOnlyReturningConstantRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *FunctionOnlyReturningConstantRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "FunctionOnlyReturningConstant",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -74,10 +74,10 @@ func (r *FunctionOnlyReturningConstantRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "excludedFunctions",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Functions excluded from this rule.",
 				Apply: func(target interface{}, value interface{}) {
@@ -86,7 +86,7 @@ func (r *FunctionOnlyReturningConstantRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreActualFunction",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Ignore actual functions.",
 				Apply: func(target interface{}, value interface{}) {
@@ -95,7 +95,7 @@ func (r *FunctionOnlyReturningConstantRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreOverridableFunction",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Ignore open/override functions.",
 				Apply: func(target interface{}, value interface{}) {
@@ -106,8 +106,8 @@ func (r *FunctionOnlyReturningConstantRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LoopWithTooManyJumpStatementsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LoopWithTooManyJumpStatementsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LoopWithTooManyJumpStatements",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -115,11 +115,11 @@ func (r *LoopWithTooManyJumpStatementsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "maxJumpCount",
 				Aliases:     []string{"threshold"},
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     1,
 				Description: "Maximum jump statements allowed in a loop.",
 				Apply: func(target interface{}, value interface{}) {
@@ -130,8 +130,8 @@ func (r *LoopWithTooManyJumpStatementsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MayBeConstantRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MayBeConstantRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MayBeConstant",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -142,8 +142,8 @@ func (r *MayBeConstantRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ModifierOrderRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ModifierOrderRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ModifierOrder",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -154,8 +154,8 @@ func (r *ModifierOrderRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ReturnCountRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ReturnCountRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ReturnCount",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -163,10 +163,10 @@ func (r *ReturnCountRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "excludeGuardClauses",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Exclude guard clause returns from the count.",
 				Apply: func(target interface{}, value interface{}) {
@@ -175,14 +175,14 @@ func (r *ReturnCountRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "excludeLabeled",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Exclude labeled returns from the count.",
 				Apply:       func(target interface{}, value interface{}) { target.(*ReturnCountRule).ExcludeLabeled = value.(bool) },
 			},
 			{
 				Name:        "excludeReturnFromLambda",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Exclude return@lambda from the count.",
 				Apply: func(target interface{}, value interface{}) {
@@ -191,7 +191,7 @@ func (r *ReturnCountRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "excludedFunctions",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Functions excluded from this rule.",
 				Apply: func(target interface{}, value interface{}) {
@@ -201,7 +201,7 @@ func (r *ReturnCountRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "max",
 				Aliases:     []string{"threshold"},
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     2,
 				Description: "Maximum allowed return statements.",
 				Apply:       func(target interface{}, value interface{}) { target.(*ReturnCountRule).Max = value.(int) },
@@ -210,8 +210,8 @@ func (r *ReturnCountRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SafeCastRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SafeCastRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SafeCast",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -222,8 +222,8 @@ func (r *SafeCastRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ThrowsCountRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ThrowsCountRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ThrowsCount",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -231,10 +231,10 @@ func (r *ThrowsCountRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "excludeGuardClauses",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Exclude guard clause throws from the count.",
 				Apply: func(target interface{}, value interface{}) {
@@ -244,7 +244,7 @@ func (r *ThrowsCountRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "max",
 				Aliases:     []string{"threshold"},
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     2,
 				Description: "Maximum allowed throw statements.",
 				Apply:       func(target interface{}, value interface{}) { target.(*ThrowsCountRule).Max = value.(int) },
@@ -253,8 +253,8 @@ func (r *ThrowsCountRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *VarCouldBeValRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *VarCouldBeValRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "VarCouldBeVal",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -262,10 +262,10 @@ func (r *VarCouldBeValRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "ignoreLateinitVar",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Ignore lateinit var declarations.",
 				Apply: func(target interface{}, value interface{}) {

@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *GridLayoutRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GridLayoutRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GridLayout",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -18,8 +18,8 @@ func (r *GridLayoutRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *InstantiatableRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InstantiatableRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "Instantiatable",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -30,8 +30,8 @@ func (r *InstantiatableRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LayoutInflationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LayoutInflationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LayoutInflation",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *LayoutInflationRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LibraryCustomViewRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LibraryCustomViewRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LibraryCustomView",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *LibraryCustomViewRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LocaleFolderRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LocaleFolderRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LocaleFolder",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -66,8 +66,8 @@ func (r *LocaleFolderRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MangledCRLFRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MangledCRLFRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MangledCRLF",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *MangledCRLFRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingPermissionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingPermissionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingPermission",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -90,8 +90,8 @@ func (r *MissingPermissionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NfcTechWhitespaceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NfcTechWhitespaceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NfcTechWhitespace",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -102,8 +102,8 @@ func (r *NfcTechWhitespaceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ProguardRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ProguardRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "Proguard",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -114,8 +114,8 @@ func (r *ProguardRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ProguardSplitRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ProguardSplitRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ProguardSplit",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -126,8 +126,8 @@ func (r *ProguardSplitRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ResourceNameRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ResourceNameRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ResourceName",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -138,8 +138,8 @@ func (r *ResourceNameRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RtlAwareRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RtlAwareRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RtlAware",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -150,8 +150,8 @@ func (r *RtlAwareRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RtlFieldAccessRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RtlFieldAccessRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RtlFieldAccess",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -162,8 +162,8 @@ func (r *RtlFieldAccessRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TrulyRandomRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TrulyRandomRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TrulyRandom",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -174,8 +174,8 @@ func (r *TrulyRandomRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnknownIdInLayoutRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnknownIdInLayoutRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnknownIdInLayout",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -186,8 +186,8 @@ func (r *UnknownIdInLayoutRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseAlpha2Rule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseAlpha2Rule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseAlpha2",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -198,8 +198,8 @@ func (r *UseAlpha2Rule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ViewConstructorRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ViewConstructorRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ViewConstructor",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -210,8 +210,8 @@ func (r *ViewConstructorRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ViewTagRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ViewTagRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ViewTag",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -222,8 +222,8 @@ func (r *ViewTagRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WrongConstantRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WrongConstantRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WrongConstant",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -234,8 +234,8 @@ func (r *WrongConstantRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WrongImportRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WrongImportRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WrongImport",
 		RuleSet:       "android-lint",
 		Severity:      "warning",

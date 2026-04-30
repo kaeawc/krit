@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *ChannelReceiveWithoutCloseRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ChannelReceiveWithoutCloseRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ChannelReceiveWithoutClose",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *ChannelReceiveWithoutCloseRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CollectInOnCreateWithoutLifecycleRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CollectInOnCreateWithoutLifecycleRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CollectInOnCreateWithoutLifecycle",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *CollectInOnCreateWithoutLifecycleRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CollectionsSynchronizedListIterationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CollectionsSynchronizedListIterationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CollectionsSynchronizedListIteration",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *CollectionsSynchronizedListIterationRule) Meta() registry.RuleDescripto
 	}
 }
 
-func (r *ConcurrentModificationIterationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ConcurrentModificationIterationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ConcurrentModificationIteration",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *ConcurrentModificationIterationRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CoroutineLaunchedInTestWithoutRunTestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CoroutineLaunchedInTestWithoutRunTestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CoroutineLaunchedInTestWithoutRunTest",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *CoroutineLaunchedInTestWithoutRunTestRule) Meta() registry.RuleDescript
 	}
 }
 
-func (r *CoroutineScopeCreatedButNeverCancelledRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CoroutineScopeCreatedButNeverCancelledRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CoroutineScopeCreatedButNeverCancelled",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *CoroutineScopeCreatedButNeverCancelledRule) Meta() registry.RuleDescrip
 	}
 }
 
-func (r *DeferredAwaitInFinallyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DeferredAwaitInFinallyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DeferredAwaitInFinally",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *DeferredAwaitInFinallyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *FlowWithoutFlowOnRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *FlowWithoutFlowOnRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "FlowWithoutFlowOn",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *FlowWithoutFlowOnRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GlobalCoroutineUsageRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GlobalCoroutineUsageRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GlobalCoroutineUsage",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -114,8 +114,8 @@ func (r *GlobalCoroutineUsageRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GlobalScopeLaunchInViewModelRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GlobalScopeLaunchInViewModelRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GlobalScopeLaunchInViewModel",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -126,8 +126,8 @@ func (r *GlobalScopeLaunchInViewModelRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *InjectDispatcherRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InjectDispatcherRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "InjectDispatcher",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -135,10 +135,10 @@ func (r *InjectDispatcherRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "dispatcherNames",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string{"IO", "Default", "Unconfined", "Main"},
 				Description: "Dispatcher names to flag.",
 				Apply: func(target interface{}, value interface{}) {
@@ -149,8 +149,8 @@ func (r *InjectDispatcherRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LaunchWithoutCoroutineExceptionHandlerRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LaunchWithoutCoroutineExceptionHandlerRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LaunchWithoutCoroutineExceptionHandler",
 		RuleSet:       "coroutines",
 		Severity:      "info",
@@ -161,8 +161,8 @@ func (r *LaunchWithoutCoroutineExceptionHandlerRule) Meta() registry.RuleDescrip
 	}
 }
 
-func (r *MainDispatcherInLibraryCodeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MainDispatcherInLibraryCodeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MainDispatcherInLibraryCode",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -173,8 +173,8 @@ func (r *MainDispatcherInLibraryCodeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MutableStateInObjectRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MutableStateInObjectRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MutableStateInObject",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -185,8 +185,8 @@ func (r *MutableStateInObjectRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RedundantSuspendModifierRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RedundantSuspendModifierRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RedundantSuspendModifier",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -197,8 +197,8 @@ func (r *RedundantSuspendModifierRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SharedFlowWithoutReplayRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SharedFlowWithoutReplayRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SharedFlowWithoutReplay",
 		RuleSet:       "coroutines",
 		Severity:      "info",
@@ -209,8 +209,8 @@ func (r *SharedFlowWithoutReplayRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SleepInsteadOfDelayRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SleepInsteadOfDelayRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SleepInsteadOfDelay",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -221,8 +221,8 @@ func (r *SleepInsteadOfDelayRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *StateFlowCompareByReferenceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *StateFlowCompareByReferenceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "StateFlowCompareByReference",
 		RuleSet:       "coroutines",
 		Severity:      "info",
@@ -233,8 +233,8 @@ func (r *StateFlowCompareByReferenceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *StateFlowMutableLeakRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *StateFlowMutableLeakRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "StateFlowMutableLeak",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -245,8 +245,8 @@ func (r *StateFlowMutableLeakRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SupervisorScopeInEventHandlerRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SupervisorScopeInEventHandlerRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SupervisorScopeInEventHandler",
 		RuleSet:       "coroutines",
 		Severity:      "info",
@@ -257,8 +257,8 @@ func (r *SupervisorScopeInEventHandlerRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SuspendFunInFinallySectionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SuspendFunInFinallySectionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SuspendFunInFinallySection",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -269,8 +269,8 @@ func (r *SuspendFunInFinallySectionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SuspendFunSwallowedCancellationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SuspendFunSwallowedCancellationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SuspendFunSwallowedCancellation",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -281,8 +281,8 @@ func (r *SuspendFunSwallowedCancellationRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SuspendFunWithCoroutineScopeReceiverRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SuspendFunWithCoroutineScopeReceiverRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SuspendFunWithCoroutineScopeReceiver",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -293,8 +293,8 @@ func (r *SuspendFunWithCoroutineScopeReceiverRule) Meta() registry.RuleDescripto
 	}
 }
 
-func (r *SuspendFunWithFlowReturnTypeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SuspendFunWithFlowReturnTypeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SuspendFunWithFlowReturnType",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -305,8 +305,8 @@ func (r *SuspendFunWithFlowReturnTypeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SynchronizedOnBoxedPrimitiveRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SynchronizedOnBoxedPrimitiveRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SynchronizedOnBoxedPrimitive",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -317,8 +317,8 @@ func (r *SynchronizedOnBoxedPrimitiveRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SynchronizedOnNonFinalRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SynchronizedOnNonFinalRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SynchronizedOnNonFinal",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -329,8 +329,8 @@ func (r *SynchronizedOnNonFinalRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SynchronizedOnStringRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SynchronizedOnStringRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SynchronizedOnString",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -341,8 +341,8 @@ func (r *SynchronizedOnStringRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *VolatileMissingOnDclRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *VolatileMissingOnDclRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "VolatileMissingOnDcl",
 		RuleSet:       "coroutines",
 		Severity:      "warning",
@@ -353,8 +353,8 @@ func (r *VolatileMissingOnDclRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WithContextInSuspendFunctionNoopRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WithContextInSuspendFunctionNoopRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WithContextInSuspendFunctionNoop",
 		RuleSet:       "coroutines",
 		Severity:      "info",

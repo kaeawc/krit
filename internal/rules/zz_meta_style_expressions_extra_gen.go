@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *CanBeNonNullableRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CanBeNonNullableRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CanBeNonNullable",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *CanBeNonNullableRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DestructuringDeclarationWithTooManyEntriesRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DestructuringDeclarationWithTooManyEntriesRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DestructuringDeclarationWithTooManyEntries",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -27,11 +27,11 @@ func (r *DestructuringDeclarationWithTooManyEntriesRule) Meta() registry.RuleDes
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "maxDestructuringEntries",
 				Aliases:     []string{"threshold"},
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     3,
 				Description: "Maximum destructuring entries allowed.",
 				Apply: func(target interface{}, value interface{}) {
@@ -42,8 +42,8 @@ func (r *DestructuringDeclarationWithTooManyEntriesRule) Meta() registry.RuleDes
 	}
 }
 
-func (r *DoubleNegativeExpressionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DoubleNegativeExpressionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DoubleNegativeExpression",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *DoubleNegativeExpressionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DoubleNegativeLambdaRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DoubleNegativeLambdaRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DoubleNegativeLambda",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -63,10 +63,10 @@ func (r *DoubleNegativeLambdaRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.9,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "negativeFunctions",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Functions treated as negative.",
 				Apply: func(target interface{}, value interface{}) {
@@ -77,8 +77,8 @@ func (r *DoubleNegativeLambdaRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MultilineLambdaItParameterRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MultilineLambdaItParameterRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MultilineLambdaItParameter",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -89,8 +89,8 @@ func (r *MultilineLambdaItParameterRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MultilineRawStringIndentationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MultilineRawStringIndentationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MultilineRawStringIndentation",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -98,10 +98,10 @@ func (r *MultilineRawStringIndentationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "indentSize",
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     4,
 				Description: "Expected indent size.",
 				Apply: func(target interface{}, value interface{}) {
@@ -110,7 +110,7 @@ func (r *MultilineRawStringIndentationRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "trimmingMethods",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Methods used for trimming.",
 				Apply: func(target interface{}, value interface{}) {
@@ -121,8 +121,8 @@ func (r *MultilineRawStringIndentationRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NullableBooleanCheckRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NullableBooleanCheckRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NullableBooleanCheck",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -133,8 +133,8 @@ func (r *NullableBooleanCheckRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RangeUntilInsteadOfRangeToRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RangeUntilInsteadOfRangeToRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RangeUntilInsteadOfRangeTo",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -145,8 +145,8 @@ func (r *RangeUntilInsteadOfRangeToRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *StringShouldBeRawStringRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *StringShouldBeRawStringRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "StringShouldBeRawString",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -154,11 +154,11 @@ func (r *StringShouldBeRawStringRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "maxEscapedCharacterCount",
 				Aliases:     []string{"maxEscapes"},
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     2,
 				Description: "Maximum escaped characters before suggesting raw string.",
 				Apply: func(target interface{}, value interface{}) {
@@ -169,8 +169,8 @@ func (r *StringShouldBeRawStringRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TrimMultilineRawStringRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TrimMultilineRawStringRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TrimMultilineRawString",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -178,10 +178,10 @@ func (r *TrimMultilineRawStringRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "trimmingMethods",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Methods used for trimming.",
 				Apply: func(target interface{}, value interface{}) {

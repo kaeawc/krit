@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *BracesOnIfStatementsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *BracesOnIfStatementsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "BracesOnIfStatements",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -15,10 +15,10 @@ func (r *BracesOnIfStatementsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "multiLine",
-				Type:        registry.OptString,
+				Type:        v2.OptString,
 				Default:     "",
 				Description: "Brace policy for multi-line if: never/always/necessary/consistent.",
 				Apply: func(target interface{}, value interface{}) {
@@ -27,7 +27,7 @@ func (r *BracesOnIfStatementsRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "singleLine",
-				Type:        registry.OptString,
+				Type:        v2.OptString,
 				Default:     "",
 				Description: "Brace policy for single-line if: never/always/necessary/consistent.",
 				Apply: func(target interface{}, value interface{}) {
@@ -38,8 +38,8 @@ func (r *BracesOnIfStatementsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *BracesOnWhenStatementsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *BracesOnWhenStatementsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "BracesOnWhenStatements",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -47,10 +47,10 @@ func (r *BracesOnWhenStatementsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "multiLine",
-				Type:        registry.OptString,
+				Type:        v2.OptString,
 				Default:     "",
 				Description: "Brace policy for multi-line when branches.",
 				Apply: func(target interface{}, value interface{}) {
@@ -59,7 +59,7 @@ func (r *BracesOnWhenStatementsRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "singleLine",
-				Type:        registry.OptString,
+				Type:        v2.OptString,
 				Default:     "",
 				Description: "Brace policy for single-line when branches.",
 				Apply: func(target interface{}, value interface{}) {
@@ -70,8 +70,8 @@ func (r *BracesOnWhenStatementsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MandatoryBracesLoopsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MandatoryBracesLoopsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MandatoryBracesLoops",
 		RuleSet:       "style",
 		Severity:      "warning",

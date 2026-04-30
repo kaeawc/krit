@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *UseAnyOrNoneInsteadOfFindRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseAnyOrNoneInsteadOfFindRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseAnyOrNoneInsteadOfFind",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *UseAnyOrNoneInsteadOfFindRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseCheckNotNullRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseCheckNotNullRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseCheckNotNull",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *UseCheckNotNullRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseCheckOrErrorRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseCheckOrErrorRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseCheckOrError",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *UseCheckOrErrorRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseEmptyCounterpartRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseEmptyCounterpartRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseEmptyCounterpart",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *UseEmptyCounterpartRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseIsNullOrEmptyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseIsNullOrEmptyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseIsNullOrEmpty",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *UseIsNullOrEmptyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseOrEmptyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseOrEmptyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseOrEmpty",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *UseOrEmptyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseRequireNotNullRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseRequireNotNullRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseRequireNotNull",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *UseRequireNotNullRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseRequireRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseRequireRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseRequire",
 		RuleSet:       "style",
 		Severity:      "warning",

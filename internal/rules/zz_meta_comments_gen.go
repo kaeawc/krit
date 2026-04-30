@@ -5,13 +5,13 @@ package rules
 import (
 	"regexp"
 
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
 var _ = regexp.MustCompile
 
-func (r *AbsentOrWrongFileLicenseRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AbsentOrWrongFileLicenseRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AbsentOrWrongFileLicense",
 		RuleSet:       "comments",
 		Severity:      "warning",
@@ -19,10 +19,10 @@ func (r *AbsentOrWrongFileLicenseRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "licenseTemplate",
-				Type:        registry.OptString,
+				Type:        v2.OptString,
 				Default:     "Copyright",
 				Description: "License header text (or regex) that every file must contain.",
 				Apply: func(target interface{}, value interface{}) {
@@ -31,7 +31,7 @@ func (r *AbsentOrWrongFileLicenseRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "licenseTemplateIsRegex",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Whether licenseTemplate is a regex.",
 				Apply: func(target interface{}, value interface{}) {
@@ -42,8 +42,8 @@ func (r *AbsentOrWrongFileLicenseRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DeprecatedBlockTagRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DeprecatedBlockTagRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DeprecatedBlockTag",
 		RuleSet:       "comments",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *DeprecatedBlockTagRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DocumentationOverPrivateFunctionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DocumentationOverPrivateFunctionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DocumentationOverPrivateFunction",
 		RuleSet:       "comments",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *DocumentationOverPrivateFunctionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DocumentationOverPrivatePropertyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DocumentationOverPrivatePropertyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DocumentationOverPrivateProperty",
 		RuleSet:       "comments",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *DocumentationOverPrivatePropertyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EndOfSentenceFormatRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EndOfSentenceFormatRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EndOfSentenceFormat",
 		RuleSet:       "comments",
 		Severity:      "warning",
@@ -87,10 +87,10 @@ func (r *EndOfSentenceFormatRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "endOfSentenceFormat",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     `([.?!][ \t\n\r])|([.?!]$)`,
 				Description: "Regex pattern matched against the first KDoc sentence's terminator.",
 				Apply: func(target interface{}, value interface{}) {
@@ -101,8 +101,8 @@ func (r *EndOfSentenceFormatRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *KDocReferencesNonPublicPropertyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *KDocReferencesNonPublicPropertyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "KDocReferencesNonPublicProperty",
 		RuleSet:       "comments",
 		Severity:      "warning",
@@ -113,8 +113,8 @@ func (r *KDocReferencesNonPublicPropertyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *OutdatedDocumentationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *OutdatedDocumentationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "OutdatedDocumentation",
 		RuleSet:       "comments",
 		Severity:      "warning",
@@ -122,10 +122,10 @@ func (r *OutdatedDocumentationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "matchDeclarationsOrder",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Check that @param order matches declaration order.",
 				Apply: func(target interface{}, value interface{}) {
@@ -134,7 +134,7 @@ func (r *OutdatedDocumentationRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "matchTypeParameters",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Also check @param for type parameters.",
 				Apply: func(target interface{}, value interface{}) {
@@ -145,8 +145,8 @@ func (r *OutdatedDocumentationRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UndocumentedPublicClassRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UndocumentedPublicClassRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UndocumentedPublicClass",
 		RuleSet:       "comments",
 		Severity:      "warning",
@@ -154,10 +154,10 @@ func (r *UndocumentedPublicClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "searchInInnerClass",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Also check inner classes.",
 				Apply: func(target interface{}, value interface{}) {
@@ -166,7 +166,7 @@ func (r *UndocumentedPublicClassRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "searchInInnerInterface",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Also check inner interfaces.",
 				Apply: func(target interface{}, value interface{}) {
@@ -175,7 +175,7 @@ func (r *UndocumentedPublicClassRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "searchInInnerObject",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Also check inner objects.",
 				Apply: func(target interface{}, value interface{}) {
@@ -184,7 +184,7 @@ func (r *UndocumentedPublicClassRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "searchInNestedClass",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Also check nested classes.",
 				Apply: func(target interface{}, value interface{}) {
@@ -195,8 +195,8 @@ func (r *UndocumentedPublicClassRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UndocumentedPublicFunctionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UndocumentedPublicFunctionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UndocumentedPublicFunction",
 		RuleSet:       "comments",
 		Severity:      "warning",
@@ -207,8 +207,8 @@ func (r *UndocumentedPublicFunctionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UndocumentedPublicPropertyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UndocumentedPublicPropertyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UndocumentedPublicProperty",
 		RuleSet:       "comments",
 		Severity:      "warning",

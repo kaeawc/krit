@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AvoidReferentialEqualityRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AvoidReferentialEqualityRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AvoidReferentialEquality",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -15,10 +15,10 @@ func (r *AvoidReferentialEqualityRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "forbiddenTypePatterns",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Type patterns where === is forbidden.",
 				Apply: func(target interface{}, value interface{}) {
@@ -29,8 +29,8 @@ func (r *AvoidReferentialEqualityRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CharArrayToStringCallRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CharArrayToStringCallRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CharArrayToStringCall",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -41,8 +41,8 @@ func (r *CharArrayToStringCallRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DontDowncastCollectionTypesRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DontDowncastCollectionTypesRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DontDowncastCollectionTypes",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -53,8 +53,8 @@ func (r *DontDowncastCollectionTypesRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DoubleMutabilityForCollectionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DoubleMutabilityForCollectionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DoubleMutabilityForCollection",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -62,10 +62,10 @@ func (r *DoubleMutabilityForCollectionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "mutableTypes",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Additional mutable types to check.",
 				Apply: func(target interface{}, value interface{}) {
@@ -76,8 +76,8 @@ func (r *DoubleMutabilityForCollectionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ElseCaseInsteadOfExhaustiveWhenRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ElseCaseInsteadOfExhaustiveWhenRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ElseCaseInsteadOfExhaustiveWhen",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -88,8 +88,8 @@ func (r *ElseCaseInsteadOfExhaustiveWhenRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EqualsAlwaysReturnsTrueOrFalseRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EqualsAlwaysReturnsTrueOrFalseRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EqualsAlwaysReturnsTrueOrFalse",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -100,8 +100,8 @@ func (r *EqualsAlwaysReturnsTrueOrFalseRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EqualsWithHashCodeExistRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EqualsWithHashCodeExistRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EqualsWithHashCodeExist",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -112,8 +112,8 @@ func (r *EqualsWithHashCodeExistRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ImplicitUnitReturnTypeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ImplicitUnitReturnTypeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ImplicitUnitReturnType",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -124,8 +124,8 @@ func (r *ImplicitUnitReturnTypeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WrongEqualsTypeParameterRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WrongEqualsTypeParameterRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WrongEqualsTypeParameter",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",

@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *DeprecationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DeprecationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "Deprecation",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -15,10 +15,10 @@ func (r *DeprecationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "excludeImportStatements",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Exclude references inside import statements from deprecation checks.",
 				Apply: func(target interface{}, value interface{}) {
@@ -29,8 +29,8 @@ func (r *DeprecationRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *HasPlatformTypeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *HasPlatformTypeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "HasPlatformType",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -41,8 +41,8 @@ func (r *HasPlatformTypeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IgnoredReturnValueRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IgnoredReturnValueRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IgnoredReturnValue",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -50,10 +50,10 @@ func (r *IgnoredReturnValueRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "ignoreFunctionCall",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Function calls to ignore.",
 				Apply: func(target interface{}, value interface{}) {
@@ -62,7 +62,7 @@ func (r *IgnoredReturnValueRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreReturnValueAnnotations",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Annotations that override return value checking.",
 				Apply: func(target interface{}, value interface{}) {
@@ -71,7 +71,7 @@ func (r *IgnoredReturnValueRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "restrictToConfig",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Only check configured return types/annotations.",
 				Apply: func(target interface{}, value interface{}) {
@@ -80,7 +80,7 @@ func (r *IgnoredReturnValueRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "returnValueAnnotations",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Annotations indicating return value must be used.",
 				Apply: func(target interface{}, value interface{}) {
@@ -89,7 +89,7 @@ func (r *IgnoredReturnValueRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "returnValueTypes",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Types whose return values must be used.",
 				Apply: func(target interface{}, value interface{}) {
@@ -100,8 +100,8 @@ func (r *IgnoredReturnValueRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ImplicitDefaultLocaleRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ImplicitDefaultLocaleRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ImplicitDefaultLocale",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -112,8 +112,8 @@ func (r *ImplicitDefaultLocaleRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LocaleDefaultForCurrencyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LocaleDefaultForCurrencyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LocaleDefaultForCurrency",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",

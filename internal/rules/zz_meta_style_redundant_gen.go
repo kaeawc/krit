@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *OptionalUnitRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *OptionalUnitRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "OptionalUnit",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *OptionalUnitRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RedundantConstructorKeywordRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RedundantConstructorKeywordRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RedundantConstructorKeyword",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *RedundantConstructorKeywordRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RedundantExplicitTypeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RedundantExplicitTypeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RedundantExplicitType",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *RedundantExplicitTypeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RedundantVisibilityModifierRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RedundantVisibilityModifierRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RedundantVisibilityModifier",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *RedundantVisibilityModifierRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryBackticksRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryBackticksRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryBackticks",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *UnnecessaryBackticksRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryInheritanceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryInheritanceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryInheritance",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *UnnecessaryInheritanceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryInnerClassRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryInnerClassRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryInnerClass",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *UnnecessaryInnerClassRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryParenthesesRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryParenthesesRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryParentheses",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -99,10 +99,10 @@ func (r *UnnecessaryParenthesesRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowForUnclearPrecedence",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Allow parentheses for unclear operator precedence.",
 				Apply: func(target interface{}, value interface{}) {
@@ -113,8 +113,8 @@ func (r *UnnecessaryParenthesesRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UselessCallOnNotNullRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UselessCallOnNotNullRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UselessCallOnNotNull",
 		RuleSet:       "style",
 		Severity:      "warning",

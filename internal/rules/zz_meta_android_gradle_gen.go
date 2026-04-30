@@ -4,11 +4,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AndroidGradlePluginVersionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AndroidGradlePluginVersionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AndroidGradlePluginVersion",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -19,8 +19,8 @@ func (r *AndroidGradlePluginVersionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DeprecatedDependencyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DeprecatedDependencyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DeprecatedDependency",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -32,8 +32,8 @@ func (r *DeprecatedDependencyRule) Meta() registry.RuleDescriptor {
 }
 
 // DynamicVersionRule is also registered as rule ID "GradleDynamicVersion"; Meta() only represents the primary ID.
-func (r *DynamicVersionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DynamicVersionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DynamicVersion",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -44,8 +44,8 @@ func (r *DynamicVersionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GradleDeprecatedRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GradleDeprecatedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GradleDeprecated",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -56,8 +56,8 @@ func (r *GradleDeprecatedRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GradleGetterRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GradleGetterRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GradleGetter",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -68,8 +68,8 @@ func (r *GradleGetterRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GradleIdeErrorRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GradleIdeErrorRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GradleIdeError",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -80,8 +80,8 @@ func (r *GradleIdeErrorRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GradleOldTargetApiRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GradleOldTargetApiRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "OldTargetApi",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -89,10 +89,10 @@ func (r *GradleOldTargetApiRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "threshold",
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     33,
 				Description: "",
 				Apply:       func(target interface{}, value interface{}) { target.(*GradleOldTargetApiRule).Threshold = value.(int) },
@@ -101,8 +101,8 @@ func (r *GradleOldTargetApiRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GradleOverridesRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GradleOverridesRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GradleOverrides",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -113,8 +113,8 @@ func (r *GradleOverridesRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GradlePathRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GradlePathRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GradlePath",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -126,8 +126,8 @@ func (r *GradlePathRule) Meta() registry.RuleDescriptor {
 }
 
 // GradlePluginCompatibilityRule is also registered as rule ID "GradleCompatible"; Meta() only represents the primary ID.
-func (r *GradlePluginCompatibilityRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GradlePluginCompatibilityRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GradlePluginCompatibility",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -138,8 +138,8 @@ func (r *GradlePluginCompatibilityRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MavenLocalRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MavenLocalRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MavenLocal",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -150,8 +150,8 @@ func (r *MavenLocalRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MinSdkTooLowRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MinSdkTooLowRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MinSdkTooLow",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -159,10 +159,10 @@ func (r *MinSdkTooLowRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "threshold",
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     21,
 				Description: "",
 				Apply:       func(target interface{}, value interface{}) { target.(*MinSdkTooLowRule).Threshold = value.(int) },
@@ -171,8 +171,8 @@ func (r *MinSdkTooLowRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RemoteVersionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RemoteVersionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RemoteVersion",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -184,8 +184,8 @@ func (r *RemoteVersionRule) Meta() registry.RuleDescriptor {
 }
 
 // StringIntegerRule is also registered as rule ID "StringShouldBeInt"; Meta() only represents the primary ID.
-func (r *StringIntegerRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *StringIntegerRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "StringInteger",
 		RuleSet:       "android-lint",
 		Severity:      "error",

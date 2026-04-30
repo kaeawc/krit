@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *ComposeColumnRowInScrollableRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeColumnRowInScrollableRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeColumnRowInScrollable",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *ComposeColumnRowInScrollableRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeDerivedStateMisuseRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeDerivedStateMisuseRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeDerivedStateMisuse",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *ComposeDerivedStateMisuseRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeDisposableEffectMissingDisposeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeDisposableEffectMissingDisposeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeDisposableEffectMissingDispose",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *ComposeDisposableEffectMissingDisposeRule) Meta() registry.RuleDescript
 	}
 }
 
-func (r *ComposeLambdaCapturesUnstableStateRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeLambdaCapturesUnstableStateRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeLambdaCapturesUnstableState",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *ComposeLambdaCapturesUnstableStateRule) Meta() registry.RuleDescriptor 
 	}
 }
 
-func (r *ComposeLaunchedEffectWithoutKeysRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeLaunchedEffectWithoutKeysRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeLaunchedEffectWithoutKeys",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *ComposeLaunchedEffectWithoutKeysRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeModifierBackgroundAfterClipRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeModifierBackgroundAfterClipRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeModifierBackgroundAfterClip",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *ComposeModifierBackgroundAfterClipRule) Meta() registry.RuleDescriptor 
 	}
 }
 
-func (r *ComposeModifierClickableBeforePaddingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeModifierClickableBeforePaddingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeModifierClickableBeforePadding",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *ComposeModifierClickableBeforePaddingRule) Meta() registry.RuleDescript
 	}
 }
 
-func (r *ComposeModifierFillAfterSizeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeModifierFillAfterSizeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeModifierFillAfterSize",
 		RuleSet:       "compose",
 		Severity:      "info",
@@ -102,8 +102,8 @@ func (r *ComposeModifierFillAfterSizeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeModifierPassedThenChainedRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeModifierPassedThenChainedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeModifierPassedThenChained",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -114,8 +114,8 @@ func (r *ComposeModifierPassedThenChainedRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeMutableDefaultArgumentRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeMutableDefaultArgumentRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeMutableDefaultArgument",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -126,8 +126,8 @@ func (r *ComposeMutableDefaultArgumentRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeMutableStateInCompositionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeMutableStateInCompositionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeMutableStateInComposition",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -138,8 +138,8 @@ func (r *ComposeMutableStateInCompositionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposePreviewAnnotationMissingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposePreviewAnnotationMissingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposePreviewAnnotationMissing",
 		RuleSet:       "compose",
 		Severity:      "info",
@@ -150,8 +150,8 @@ func (r *ComposePreviewAnnotationMissingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposePreviewWithBackingStateRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposePreviewWithBackingStateRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposePreviewWithBackingState",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -162,8 +162,8 @@ func (r *ComposePreviewWithBackingStateRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeRememberSaveableNonParcelableRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeRememberSaveableNonParcelableRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeRememberSaveableNonParcelable",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -174,8 +174,8 @@ func (r *ComposeRememberSaveableNonParcelableRule) Meta() registry.RuleDescripto
 	}
 }
 
-func (r *ComposeRememberWithoutKeyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeRememberWithoutKeyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeRememberWithoutKey",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -186,8 +186,8 @@ func (r *ComposeRememberWithoutKeyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeSideEffectInCompositionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeSideEffectInCompositionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeSideEffectInComposition",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -198,8 +198,8 @@ func (r *ComposeSideEffectInCompositionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeStatefulDefaultParameterRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeStatefulDefaultParameterRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeStatefulDefaultParameter",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -210,8 +210,8 @@ func (r *ComposeStatefulDefaultParameterRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeStringResourceInsideLambdaRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeStringResourceInsideLambdaRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeStringResourceInsideLambda",
 		RuleSet:       "compose",
 		Severity:      "warning",
@@ -222,8 +222,8 @@ func (r *ComposeStringResourceInsideLambdaRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeUnstableParameterRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeUnstableParameterRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeUnstableParameter",
 		RuleSet:       "compose",
 		Severity:      "warning",

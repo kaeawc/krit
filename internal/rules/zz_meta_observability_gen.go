@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *LogLevelGuardMissingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LogLevelGuardMissingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LogLevelGuardMissing",
 		RuleSet:       "observability",
 		Severity:      "info",
@@ -18,8 +18,8 @@ func (r *LogLevelGuardMissingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LogWithoutCorrelationIdRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LogWithoutCorrelationIdRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LogWithoutCorrelationId",
 		RuleSet:       "observability",
 		Severity:      "info",
@@ -30,8 +30,8 @@ func (r *LogWithoutCorrelationIdRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LoggerInterpolatedMessageRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LoggerInterpolatedMessageRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LoggerInterpolatedMessage",
 		RuleSet:       "observability",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *LoggerInterpolatedMessageRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LoggerWithoutLoggerFieldRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LoggerWithoutLoggerFieldRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LoggerWithoutLoggerField",
 		RuleSet:       "observability",
 		Severity:      "warning",

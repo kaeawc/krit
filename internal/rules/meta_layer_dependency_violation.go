@@ -12,14 +12,14 @@ package rules
 
 import (
 	"github.com/kaeawc/krit/internal/arch"
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // Meta returns the descriptor for LayerDependencyViolationRule. No
 // per-option config — the rule pulls its layer matrix out of the whole
 // config tree inside CustomApply.
-func (r *LayerDependencyViolationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LayerDependencyViolationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LayerDependencyViolation",
 		RuleSet:       "architecture",
 		Severity:      "warning",
@@ -28,7 +28,7 @@ func (r *LayerDependencyViolationRule) Meta() registry.RuleDescriptor {
 		FixLevel:      "",
 		Confidence:    0.95,
 		Options:       nil,
-		CustomApply: func(target interface{}, cfg registry.ConfigSource) {
+		CustomApply: func(target interface{}, cfg v2.ConfigSource) {
 			// Only a real *ConfigAdapter can expose the underlying
 			// *config.Config that arch.ParseLayerConfig needs. Fake
 			// config sources (used by unit tests and the parity

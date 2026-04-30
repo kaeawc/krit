@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *ForbiddenPublicDataClassRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ForbiddenPublicDataClassRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ForbiddenPublicDataClass",
 		RuleSet:       "libraries",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *ForbiddenPublicDataClassRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LibraryCodeMustSpecifyReturnTypeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LibraryCodeMustSpecifyReturnTypeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LibraryCodeMustSpecifyReturnType",
 		RuleSet:       "libraries",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *LibraryCodeMustSpecifyReturnTypeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LibraryEntitiesShouldNotBePublicRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LibraryEntitiesShouldNotBePublicRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LibraryEntitiesShouldNotBePublic",
 		RuleSet:       "libraries",
 		Severity:      "warning",

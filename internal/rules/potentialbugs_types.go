@@ -20,23 +20,34 @@ func looksLikeEnumConstantRef(text string) bool {
 	}
 	dotIdx := strings.LastIndex(text, ".")
 	last := text[dotIdx+1:]
-	if last == "" {
+	return looksLikeUppercaseConstantName(last)
+}
+
+func looksLikeUppercaseConstantName(text string) bool {
+	if text == "" {
 		return false
 	}
 	// Must be all uppercase letters, digits, or underscores
-	for _, c := range last {
+	for _, c := range text {
 		if (c >= 'A' && c <= 'Z') || c == '_' || (c >= '0' && c <= '9') {
 			continue
 		}
 		return false
 	}
 	// Must contain at least one letter
-	for _, c := range last {
+	for _, c := range text {
 		if c >= 'A' && c <= 'Z' {
 			return true
 		}
 	}
 	return false
+}
+
+func looksLikeSentinelObjectRef(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	return file.FlatType(idx) == "simple_identifier" && looksLikeUppercaseConstantName(file.FlatNodeText(idx))
 }
 
 func isInsideEqualsMethodFlatType(file *scanner.File, idx uint32) bool {

@@ -47,6 +47,10 @@ func registerPotentialbugsTypesRules() {
 				if looksLikeEnumConstantRef(file.FlatNodeText(left)) || looksLikeEnumConstantRef(file.FlatNodeText(right)) {
 					return
 				}
+				// Sentinel singleton objects are intentionally compared by identity.
+				if looksLikeSentinelObjectRef(file, left) || looksLikeSentinelObjectRef(file, right) {
+					return
+				}
 				if ctx.Resolver != nil {
 					leftType := ctx.Resolver.ResolveFlatNode(left, file)
 					rightType := ctx.Resolver.ResolveFlatNode(right, file)

@@ -137,6 +137,40 @@ class RealBrowser {
 	}
 }
 
+func TestSourceFactsResolveType_KnowsJavaLangSystemRuntimeAndLocalShadows(t *testing.T) {
+	file := parseJavaSource(t, "Lifecycle.java", `
+package test;
+
+class Lifecycle {
+  void shutdown() {
+    System.exit(1);
+    Runtime.getRuntime().gc();
+  }
+}
+`)
+	facts := SourceFactsForFile(file)
+	if got := facts.ResolveType("System", nil); got != "java.lang.System" {
+		t.Fatalf("ResolveType(System) = %q, want java.lang.System", got)
+	}
+	if got := facts.ResolveType("Runtime", nil); got != "java.lang.Runtime" {
+		t.Fatalf("ResolveType(Runtime) = %q, want java.lang.Runtime", got)
+	}
+
+	shadowed := parseJavaSource(t, "Shadowed.java", `
+package test;
+
+class System {}
+class Runtime {}
+`)
+	shadowFacts := SourceFactsForFile(shadowed)
+	if got := shadowFacts.ResolveType("System", nil); got != "test.System" {
+		t.Fatalf("ResolveType(System) with local shadow = %q, want test.System", got)
+	}
+	if got := shadowFacts.ResolveType("Runtime", nil); got != "test.Runtime" {
+		t.Fatalf("ResolveType(Runtime) with local shadow = %q, want test.Runtime", got)
+	}
+}
+
 func parseJavaSource(t *testing.T, name, src string) *scanner.File {
 	t.Helper()
 	dir := t.TempDir()

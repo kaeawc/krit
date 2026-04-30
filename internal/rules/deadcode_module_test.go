@@ -251,6 +251,62 @@ fun callApi(api: JavaApi) {
 	}
 }
 
+func TestModuleDeadCode_KotlinPropertyUsedByJavaGetterConsumer(t *testing.T) {
+	root := t.TempDir()
+	libSrc := filepath.Join(root, "lib", "src", "main", "kotlin")
+	appSrc := filepath.Join(root, "app", "src", "main", "java", "com", "example", "app")
+
+	libFile := writeAndParse(t, libSrc, "KotlinProfile.kt", `package com.example
+
+class KotlinProfile {
+    val displayName: String = "Ada"
+    val unusedName: String = "Lovelace"
+}
+`)
+	appFile := writeAndParseJava(t, appSrc, "UseProfile.java", `package com.example.app;
+
+import com.example.KotlinProfile;
+
+public class UseProfile {
+  public String render(KotlinProfile profile) {
+    return profile.getDisplayName();
+  }
+}
+`)
+
+	graph := buildGraph(root, map[string]*module.Module{
+		":lib": {Path: ":lib", Dir: filepath.Join(root, "lib")},
+		":app": {Path: ":app", Dir: filepath.Join(root, "app")},
+	})
+	graph.Consumers[":lib"] = []string{":app"}
+
+	pmi := module.BuildPerModuleIndex(graph, []*scanner.File{libFile, appFile}, 1)
+	rule := &ModuleDeadCodeRule{
+		BaseRule: BaseRule{RuleName: "ModuleDeadCode", RuleSetName: "dead-code", Sev: "warning"},
+	}
+	ctx := &v2.Context{
+		ModuleIndex: pmi,
+		Collector:   scanner.NewFindingCollector(0),
+	}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
+
+	for _, f := range findings {
+		if contains(f.Message, "displayName") {
+			t.Fatalf("displayName should be protected by Java getter reference, got: %s", f.Message)
+		}
+	}
+	foundUnused := false
+	for _, f := range findings {
+		if contains(f.Message, "unusedName") {
+			foundUnused = true
+		}
+	}
+	if !foundUnused {
+		t.Fatalf("expected unusedName Kotlin property to be reported, got %+v", findings)
+	}
+}
+
 func TestDeadCode_JavaXmlAndLifecycleEntriesAreConservative(t *testing.T) {
 	root := t.TempDir()
 	ktSrc := filepath.Join(root, "app", "src", "main", "kotlin")

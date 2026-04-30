@@ -695,6 +695,107 @@ interface Api {
 	}
 }
 
+func TestComplexInterface_HonorsIncludePrivateDeclarations(t *testing.T) {
+	// IncludePrivateDeclarations was previously a dead config — exposed
+	// in zz_meta but never consulted by the check. By default (false,
+	// matching detekt) private interface members shouldn't count toward
+	// the limit. Configure the flag both ways and verify behavior.
+	var rule *rules.ComplexInterfaceRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "ComplexInterface" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.ComplexInterfaceRule)
+			if !ok {
+				t.Fatalf("expected ComplexInterfaceRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("ComplexInterface rule not registered")
+	}
+	original := rule.IncludePrivateDeclarations
+	defer func() { rule.IncludePrivateDeclarations = original }()
+
+	// Interface with 5 public + 6 private direct members. Default-active
+	// threshold is 10. Under IncludePrivate=false: count is 5 → no finding.
+	code := `package test
+interface Api {
+    fun a()
+    fun b()
+    fun c()
+    fun d()
+    fun e()
+    private fun helper1() {}
+    private fun helper2() {}
+    private fun helper3() {}
+    private fun helper4() {}
+    private fun helper5() {}
+    private fun helper6() {}
+}
+`
+	if findings := runRuleByName(t, "ComplexInterface", code); len(findings) != 0 {
+		t.Fatalf("expected no findings under IncludePrivateDeclarations=false, got %d", len(findings))
+	}
+
+	// Flip to true: count is 11 → finding.
+	rule.IncludePrivateDeclarations = true
+	if findings := runRuleByName(t, "ComplexInterface", code); len(findings) == 0 {
+		t.Fatal("expected finding under IncludePrivateDeclarations=true (11 members > 10 limit)")
+	}
+}
+
+func TestComplexInterface_HonorsIncludeStaticDeclarations(t *testing.T) {
+	// IncludeStaticDeclarations was previously a dead config — when
+	// false (default), companion-object members aren't counted; when
+	// true, they are.
+	var rule *rules.ComplexInterfaceRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "ComplexInterface" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.ComplexInterfaceRule)
+			if !ok {
+				t.Fatalf("expected ComplexInterfaceRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("ComplexInterface rule not registered")
+	}
+	original := rule.IncludeStaticDeclarations
+	defer func() { rule.IncludeStaticDeclarations = original }()
+
+	// Interface with 5 direct + 6 companion members.
+	code := `package test
+interface Api {
+    fun a()
+    fun b()
+    fun c()
+    fun d()
+    fun e()
+    companion object {
+        fun s1() {}
+        fun s2() {}
+        fun s3() {}
+        fun s4() {}
+        fun s5() {}
+        fun s6() {}
+    }
+}
+`
+	// Default (false): 5 direct members, no finding.
+	if findings := runRuleByName(t, "ComplexInterface", code); len(findings) != 0 {
+		t.Fatalf("expected no findings under IncludeStaticDeclarations=false, got %d", len(findings))
+	}
+
+	// Flip to true: 5 + 6 = 11 → finding.
+	rule.IncludeStaticDeclarations = true
+	if findings := runRuleByName(t, "ComplexInterface", code); len(findings) == 0 {
+		t.Fatal("expected finding under IncludeStaticDeclarations=true (5 direct + 6 companion = 11 members > 10)")
+	}
+}
+
 // --- LabeledExpression ---
 
 func TestLabeledExpression_Positive(t *testing.T) {

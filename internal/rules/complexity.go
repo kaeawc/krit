@@ -1164,3 +1164,56 @@ func countDirectClassMembersFlat(file *scanner.File, body uint32) int {
 	})
 	return members
 }
+
+// countComplexInterfaceMembersFlat tallies direct class-body declarations,
+// honoring ComplexInterfaceRule's includePrivateDeclarations and
+// includeStaticDeclarations options:
+//
+//   - includePrivate=false (detekt default): direct private fun/val/var
+//     declarations are skipped.
+//   - includeStatic=true (detekt non-default): companion-object members are
+//     also counted as if declared directly on the interface.
+//
+// Kotlin interfaces don't have a true "static" concept; companion-object
+// members are the closest analogue and are what detekt's static-declarations
+// flag toggles for this rule.
+func countComplexInterfaceMembersFlat(file *scanner.File, body uint32, includePrivate, includeStatic bool) int {
+	if body == 0 {
+		return 0
+	}
+	members := 0
+	countMember := func(member uint32) {
+		t := file.FlatType(member)
+		if t != "function_declaration" && t != "property_declaration" {
+			return
+		}
+		if !includePrivate && file.FlatHasModifier(member, "private") {
+			return
+		}
+		members++
+	}
+	visitChild := func(child uint32) {
+		t := file.FlatType(child)
+		if t == "function_declaration" || t == "property_declaration" {
+			countMember(child)
+			return
+		}
+		if includeStatic && t == "companion_object" {
+			if companionBody, ok := file.FlatFindChild(child, "class_body"); ok {
+				for j := 0; j < file.FlatChildCount(companionBody); j++ {
+					countMember(file.FlatChild(companionBody, j))
+				}
+			}
+		}
+	}
+	for i := 0; i < file.FlatChildCount(body); i++ {
+		child := file.FlatChild(body, i)
+		visitChild(child)
+		if file.FlatType(child) == "class_member_declarations" {
+			for j := 0; j < file.FlatChildCount(child); j++ {
+				visitChild(file.FlatChild(child, j))
+			}
+		}
+	}
+	return members
+}

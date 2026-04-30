@@ -160,7 +160,7 @@ func registerComplexityRules() {
 		})
 	}
 	{
-		r := &ComplexInterfaceRule{BaseRule: BaseRule{RuleName: "ComplexInterface", RuleSetName: "complexity", Sev: "warning", Desc: "Detects interfaces with too many member declarations."}, AllowedDefinitions: 10}
+		r := &ComplexInterfaceRule{BaseRule: BaseRule{RuleName: "ComplexInterface", RuleSetName: "complexity", Sev: "warning", Desc: "Detects interfaces with too many member declarations."}, AllowedDefinitions: 10, IncludePrivateDeclarations: false, IncludeStaticDeclarations: false}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
@@ -173,7 +173,7 @@ func registerComplexityRules() {
 				if body == 0 {
 					return
 				}
-				members := countDirectClassMembersFlat(file, body)
+				members := countComplexInterfaceMembersFlat(file, body, r.IncludePrivateDeclarations, r.IncludeStaticDeclarations)
 				if members > r.AllowedDefinitions {
 					name := extractIdentifierFlat(file, idx)
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,

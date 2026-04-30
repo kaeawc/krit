@@ -76,6 +76,29 @@ func (r *LgplStaticLinkingInApkRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *OptInMarkerNotRecognisedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "OptInMarkerNotRecognised",
+		RuleSet:       "licensing",
+		Severity:      "info",
+		Description:   "Detects @OptIn marker classes not in the embedded well-known markers list.",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.7,
+		Options: []v2.ConfigOption{
+			{
+				Name:        "additionalMarkers",
+				Type:        v2.OptStringList,
+				Default:     []string{},
+				Description: "Additional OptIn marker class names (simple or fully-qualified) to treat as recognised.",
+				Apply: func(target interface{}, value interface{}) {
+					target.(*OptInMarkerNotRecognisedRule).AdditionalMarkers = value.([]string)
+				},
+			},
+		},
+	}
+}
+
 func (r *MissingSpdxIdentifierRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "MissingSpdxIdentifier",

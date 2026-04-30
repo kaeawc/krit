@@ -132,7 +132,6 @@ fun classify(items: List<Int>): Int {
         return value
     }
     if (items.isEmpty()) return 0
-    if (items.size == 1) return 1
     return callback(items.first())
 }
 `)

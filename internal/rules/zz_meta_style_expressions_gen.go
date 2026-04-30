@@ -167,7 +167,7 @@ func (r *ReturnCountRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "excludeGuardClauses",
 				Type:        registry.OptBool,
-				Default:     true,
+				Default:     false,
 				Description: "Exclude guard clause returns from the count.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*ReturnCountRule).ExcludeGuardClauses = value.(bool)
@@ -202,7 +202,7 @@ func (r *ReturnCountRule) Meta() registry.RuleDescriptor {
 				Name:        "max",
 				Aliases:     []string{"threshold"},
 				Type:        registry.OptInt,
-				Default:     3,
+				Default:     2,
 				Description: "Maximum allowed return statements.",
 				Apply:       func(target interface{}, value interface{}) { target.(*ReturnCountRule).Max = value.(int) },
 			},

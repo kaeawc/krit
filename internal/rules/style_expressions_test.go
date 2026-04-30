@@ -95,6 +95,20 @@ fun isPositive(x: Int): Boolean {
 	}
 }
 
+func TestReturnCount_DefaultCountsGuardClauseReturns(t *testing.T) {
+	findings := runRuleByName(t, "ReturnCount", `
+package test
+fun classify(x: Int): String {
+    if (x < 0) return "negative"
+    if (x == 0) return "zero"
+    return "positive"
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for 3 returns including guard clauses")
+	}
+}
+
 // --- ThrowsCount ---
 
 func TestThrowsCount_Positive(t *testing.T) {

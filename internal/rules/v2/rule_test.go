@@ -96,6 +96,15 @@ func TestCapabilities_NeedsTypeInfo(t *testing.T) {
 	}
 }
 
+func TestNeedsJavaFacts(t *testing.T) {
+	if NeedsJavaFacts([]*Rule{{Languages: []scanner.Language{scanner.LangKotlin}, JavaFacts: &JavaFactProfile{ReceiverTypesForCallees: []string{"setJavaScriptEnabled"}}}}) {
+		t.Fatal("Kotlin-only rule should not request Java facts")
+	}
+	if !NeedsJavaFacts([]*Rule{{Languages: []scanner.Language{scanner.LangJava}, JavaFacts: &JavaFactProfile{ReceiverTypesForCallees: []string{"setJavaScriptEnabled"}}}}) {
+		t.Fatal("Java-aware rule should request Java facts")
+	}
+}
+
 func TestCapabilities_NeedsConcurrent(t *testing.T) {
 	// NeedsConcurrent is orthogonal to the routing bits: a concurrent
 	// cross-file rule still satisfies NeedsCrossFile, and a concurrent

@@ -259,13 +259,17 @@ func registerEmptyblocksRules() {
 		})
 	}
 	{
-		r := &EmptyFunctionBlockRule{BaseRule: BaseRule{RuleName: "EmptyFunctionBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects function declarations with an empty body."}}
+		r := &EmptyFunctionBlockRule{BaseRule: BaseRule{RuleName: "EmptyFunctionBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects function declarations with an empty body."}, IgnoreOverridden: false}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if file.FlatHasModifier(idx, "override") || file.FlatHasModifier(idx, "open") {
+				if file.FlatHasModifier(idx, "open") {
+					return
+				}
+				isOverride := file.FlatHasModifier(idx, "override")
+				if isOverride && r.IgnoreOverridden {
 					return
 				}
 				if HasIgnoredAnnotation(file.FlatNodeText(idx),

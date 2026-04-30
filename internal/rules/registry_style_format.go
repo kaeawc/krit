@@ -14,7 +14,7 @@ func registerStyleFormatRules() {
 		r := &TrailingWhitespaceRule{BaseRule: BaseRule{RuleName: "TrailingWhitespace", RuleSetName: "style", Sev: "warning", Desc: "Detects lines that end with trailing whitespace characters."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Fix: v2.FixCosmetic, Implementation: r,
+			Needs: v2.NeedsLinePass, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Fix: v2.FixCosmetic, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -22,7 +22,7 @@ func registerStyleFormatRules() {
 		r := &NoTabsRule{BaseRule: BaseRule{RuleName: "NoTabs", RuleSetName: "style", Sev: "warning", Desc: "Detects tab characters used for indentation instead of spaces."}, IndentSize: 4}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Fix: v2.FixCosmetic, Implementation: r,
+			Needs: v2.NeedsLinePass, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Fix: v2.FixCosmetic, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -44,7 +44,7 @@ func registerStyleFormatRules() {
 		r := &NewLineAtEndOfFileRule{BaseRule: BaseRule{RuleName: "NewLineAtEndOfFile", RuleSetName: "style", Sev: "warning", Desc: "Detects files that do not end with a newline character."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Fix: v2.FixCosmetic, Implementation: r,
+			Needs: v2.NeedsLinePass, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Fix: v2.FixCosmetic, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -52,7 +52,7 @@ func registerStyleFormatRules() {
 		r := &SpacingAfterPackageAndImportsRule{BaseRule: BaseRule{RuleName: "SpacingAfterPackageAndImports", RuleSetName: "style", Sev: "warning", Desc: "Detects missing blank lines after package and import declarations."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Fix: v2.FixCosmetic, Implementation: r,
+			Needs: v2.NeedsLinePass, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Fix: v2.FixCosmetic, Implementation: r,
 			Check: r.check,
 		})
 	}

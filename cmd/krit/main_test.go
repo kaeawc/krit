@@ -300,6 +300,40 @@ func TestFixApplied(t *testing.T) {
 	}
 }
 
+func TestJavaCosmeticFixesApplied(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "JavaFix.java")
+	before := "package test;\nimport java.util.List;\nclass JavaFix {   \n\tvoid example() {\n\t\tList<String> values = List.of(\"x\");\n\t}\n}\n"
+	if err := os.WriteFile(filePath, []byte(before), 0644); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "krit.yml")
+	configContent := `style:
+  TrailingWhitespace:
+    active: true
+  NoTabs:
+    active: true
+  SpacingAfterPackageAndImports:
+    active: true
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, code := runKrit(t, "--no-cache", "--no-type-inference", "--no-type-oracle", "-q", "--fix", "--fix-level", "cosmetic", "--config", configPath, dir)
+	if code == 2 {
+		t.Fatalf("unexpected error exit code 2")
+	}
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := "package test;\nimport java.util.List;\n\nclass JavaFix {\n    void example() {\n        List<String> values = List.of(\"x\");\n    }\n}\n"
+	if string(content) != expected {
+		t.Fatalf("fixed Java output mismatch.\n--- got ---\n%s\n--- expected ---\n%s", string(content), expected)
+	}
+}
+
 func TestDryRun(t *testing.T) {
 	// File missing trailing newline triggers NewLineAtEndOfFile (fixable, cosmetic).
 	dir := writeTempKt(t, "DryRun.kt", "package test\n\nfun example() {\n    println(\"hi\")\n}")

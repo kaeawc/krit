@@ -839,14 +839,8 @@ potential-bugs:
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
 	}
-	if len(files) == 0 && androidProject.IsEmpty() {
-		if !*quietFlag {
-			fmt.Fprintln(os.Stderr, "info: No Kotlin or Android project files found.")
-		}
-		os.Exit(0)
-	}
 
-	// Build disable/enable sets from CLI flags
+	// Build disable/enable sets from CLI flags.
 	disabledSet := make(map[string]bool)
 	enabledSet := make(map[string]bool)
 	if *disableRulesFlag != "" {
@@ -872,6 +866,12 @@ potential-bugs:
 		if !*includeGeneratedFlag {
 			javaPathsForDispatch = filterGeneratedPathStrings(javaPathsForDispatch)
 		}
+	}
+	if len(files) == 0 && len(javaPathsForDispatch) == 0 && androidProject.IsEmpty() {
+		if !*quietFlag {
+			fmt.Fprintln(os.Stderr, "info: No Kotlin, Java, or Android project files found.")
+		}
+		os.Exit(0)
 	}
 	cacheFilePaths := append([]string{}, files...)
 	cacheFilePaths = append(cacheFilePaths, javaPathsForDispatch...)

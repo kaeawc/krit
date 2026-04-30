@@ -332,6 +332,46 @@ fun check(view: View, binding: Binding): Boolean {
 	}
 }
 
+func TestAvoidReferentialEquality_NegativeSourceOnlyBindingViewIdentity(t *testing.T) {
+	findings := runRuleByName(t, "AvoidReferentialEquality", `
+package test
+
+class Binding(val blockMultiSelectList: Any)
+
+fun check(view: Any, binding: Binding): Boolean {
+    return view !== binding.blockMultiSelectList
+}`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for source-only binding view identity check, got %d", len(findings))
+	}
+}
+
+func TestAvoidReferentialEquality_NegativeSourceOnlyHolderViewIdentity(t *testing.T) {
+	findings := runRuleByName(t, "AvoidReferentialEquality", `
+package test
+
+class Holder(val itemView: Any)
+
+fun check(candidate: Any, holder: Holder): Boolean {
+    return candidate !== holder.itemView
+}`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for source-only holder view identity check, got %d", len(findings))
+	}
+}
+
+func TestAvoidReferentialEquality_PositivePreviewNameLookalike(t *testing.T) {
+	findings := runRuleByName(t, "AvoidReferentialEquality", `
+package test
+
+fun check(preview: String, other: String): Boolean {
+    return preview === other
+}`)
+	if len(findings) == 0 {
+		t.Fatal("expected lowercase preview lookalike to still be reported")
+	}
+}
+
 func TestAvoidReferentialEquality_NegativeCompareToIdentityFastPath(t *testing.T) {
 	findings := runRuleByName(t, "AvoidReferentialEquality", `
 package test

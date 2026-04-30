@@ -56,6 +56,11 @@ func registerPotentialbugsTypesRules() {
 				if looksLikeSentinelObjectRef(file, left) || looksLikeSentinelObjectRef(file, right) {
 					return
 				}
+				// Android view identity checks are intentional even when type
+				// information is unavailable.
+				if looksLikeViewIdentityCheck(file, left, right) {
+					return
+				}
 				if ctx.Resolver != nil {
 					leftType := ctx.Resolver.ResolveFlatNode(left, file)
 					rightType := ctx.Resolver.ResolveFlatNode(right, file)
@@ -379,4 +384,28 @@ func registerPotentialbugsTypesRules() {
 			},
 		})
 	}
+}
+
+func looksLikeViewIdentityCheck(file *scanner.File, left uint32, right uint32) bool {
+	return looksLikeViewIdentityOperand(file.FlatNodeText(left)) ||
+		looksLikeViewIdentityOperand(file.FlatNodeText(right))
+}
+
+func looksLikeViewIdentityOperand(text string) bool {
+	text = strings.TrimSpace(text)
+	for strings.HasPrefix(text, "(") && strings.HasSuffix(text, ")") && len(text) > 1 {
+		text = strings.TrimSpace(strings.TrimPrefix(strings.TrimSuffix(text, ")"), "("))
+	}
+	switch text {
+	case "view", "itemView":
+		return true
+	}
+	if strings.HasPrefix(text, "binding.") || strings.Contains(text, ".binding.") {
+		return true
+	}
+	if strings.HasPrefix(text, "holder.") &&
+		(strings.Contains(text, "View") || strings.Contains(text, ".view") || strings.Contains(text, ".binding.")) {
+		return true
+	}
+	return strings.HasSuffix(text, "View")
 }

@@ -326,6 +326,14 @@ var ignoredReturnValueOracleIdentifiersList = []string{
 	"Function", "Sequence", "Flow", "Stream",
 }
 
+var ignoredReturnValueInPlaceMutationCalls = map[string]bool{
+	"clear":   true,
+	"fill":    true,
+	"reverse": true,
+	"shuffle": true,
+	"sort":    true,
+}
+
 func ignoredReturnValueFunctionalCallees() []string {
 	return append([]string(nil), ignoredReturnValueFunctionalOpNames...)
 }

@@ -210,6 +210,33 @@ fun f() {
 	}
 }
 
+func TestIgnoredReturnValue_OracleSkipsInPlaceMutators(t *testing.T) {
+	cases := []struct {
+		name     string
+		callText string
+	}{
+		{"sort", "items.sort()"},
+		{"shuffle", "items.shuffle()"},
+		{"reverse", "items.reverse()"},
+		{"fill", "items.fill(0)"},
+		{"clear", "items.clear()"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code := fmt.Sprintf(`package test
+fun f(items: MutableList<Int>) {
+    %s
+}
+`, tc.callText)
+			findings := runIgnoredReturnValueWithOracle(t, code, tc.callText,
+				&typeinfer.ResolvedType{Name: "Sequence", FQN: "kotlin.sequences.Sequence", Kind: typeinfer.TypeClass}, nil)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings for in-place mutator %s, got %d: %#v", tc.callText, len(findings), findings)
+			}
+		})
+	}
+}
+
 func TestIgnoredReturnValue_OracleSkipsUnitNothingAndUsedExpressions(t *testing.T) {
 	cases := []struct {
 		name     string

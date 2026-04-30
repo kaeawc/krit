@@ -207,6 +207,9 @@ func registerPotentialbugsMiscRules() {
 				line := file.FlatRow(idx) + 1
 				col := file.FlatCol(idx) + 1
 				isKnownFunctionalOp := functionalOps[funcName]
+				if ignoredReturnValueInPlaceMutationCalls[funcName] {
+					return
+				}
 				if stringListContains(r.IgnoreFunctionCall, funcName) {
 					return
 				}

@@ -588,6 +588,10 @@ func registerNamingRules() {
 						if !r.ConstPattern.MatchString(name) {
 							ctx.EmitAt(file.FlatRow(propNode)+1, 1, fmt.Sprintf("Object const property '%s' does not match pattern: %s", name, r.ConstPattern.String()))
 						}
+					} else if file.FlatHasModifier(propNode, "private") && r.PrivatePropertyPattern != nil {
+						if !r.PrivatePropertyPattern.MatchString(name) {
+							ctx.EmitAt(file.FlatRow(propNode)+1, 1, fmt.Sprintf("Object private property '%s' does not match pattern: %s", name, r.PrivatePropertyPattern.String()))
+						}
 					} else {
 						if !r.PropertyPattern.MatchString(name) {
 							ctx.EmitAt(file.FlatRow(propNode)+1, 1, fmt.Sprintf("Object property '%s' does not match pattern: %s", name, r.PropertyPattern.String()))
@@ -619,6 +623,10 @@ func registerNamingRules() {
 				if file.FlatHasModifier(idx, "const") {
 					if !r.ConstPattern.MatchString(name) {
 						ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Top-level const property '%s' does not match pattern: %s", name, r.ConstPattern.String()))
+					}
+				} else if file.FlatHasModifier(idx, "private") && r.PrivatePropertyPattern != nil {
+					if !r.PrivatePropertyPattern.MatchString(name) {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Top-level private property '%s' does not match pattern: %s", name, r.PrivatePropertyPattern.String()))
 					}
 				} else {
 					if !r.PropertyPattern.MatchString(name) {

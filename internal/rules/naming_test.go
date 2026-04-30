@@ -284,6 +284,58 @@ val MyProperty = "hello"
 	}
 }
 
+func TestTopLevelPropertyNaming_HonorsPrivatePropertyPattern(t *testing.T) {
+	// PrivatePropertyPattern was previously a dead config field — exposed
+	// in zz_meta but never consulted by the check. Configure it via the
+	// rule pointer and verify private properties are validated against
+	// the configured pattern instead of the public PropertyPattern.
+	var rule *rules.TopLevelPropertyNamingRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "TopLevelPropertyNaming" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.TopLevelPropertyNamingRule)
+			if !ok {
+				t.Fatalf("expected TopLevelPropertyNamingRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("TopLevelPropertyNaming rule not registered")
+	}
+	original := rule.PrivatePropertyPattern
+	defer func() { rule.PrivatePropertyPattern = original }()
+
+	// Pattern: must start with `_`, then identifier (allow only this shape
+	// for private top-level properties).
+	rule.PrivatePropertyPattern = registry.CompileAnchoredPattern(
+		"TopLevelPropertyNaming", "privatePropertyPattern", "_[a-z][A-Za-z0-9]*")
+	if rule.PrivatePropertyPattern == nil {
+		t.Fatal("failed to compile test pattern")
+	}
+
+	// Private property starting with `_` is the only shape that matches —
+	// but the `_`+private special-case bails before we get to the pattern,
+	// so this passes regardless. Construct a private property without `_`
+	// prefix to exercise the pattern check.
+	if findings := runRuleByName(t, "TopLevelPropertyNaming", `
+package test
+private val plainPrivate = 1
+`); len(findings) == 0 {
+		t.Fatal("expected finding when private property doesn't match configured PrivatePropertyPattern")
+	}
+
+	// Reset to a permissive pattern that accepts both shapes — no findings.
+	rule.PrivatePropertyPattern = registry.CompileAnchoredPattern(
+		"TopLevelPropertyNaming", "privatePropertyPattern", "_?[a-z][A-Za-z0-9]*")
+	if findings := runRuleByName(t, "TopLevelPropertyNaming", `
+package test
+private val plainPrivate = 1
+`); len(findings) != 0 {
+		t.Fatalf("expected no findings under permissive PrivatePropertyPattern, got %d", len(findings))
+	}
+}
+
 func TestTopLevelPropertyNaming_UsesLocalASTOnly(t *testing.T) {
 	rule := buildRuleIndex()["TopLevelPropertyNaming"]
 	if rule == nil {

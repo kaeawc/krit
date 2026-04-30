@@ -95,9 +95,14 @@ func registerAndroidCorrectnessRules() {
 		r := &CommitPrefEditsRule{AndroidRule: alcRule("CommitPrefEdits", "Missing commit() on SharedPreferences editor", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.8, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation"},
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if file.FlatType(idx) == "method_invocation" {
+					checkCommitPrefEditsJava(ctx, idx)
+					return
+				}
 				if flatCallExpressionName(file, idx) != "edit" {
 					return
 				}
@@ -123,9 +128,14 @@ func registerAndroidCorrectnessRules() {
 		r := &CommitTransactionRule{AndroidRule: alcRule("CommitTransaction", "Missing commit() on FragmentTransaction", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.8, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation"},
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if file.FlatType(idx) == "method_invocation" {
+					checkCommitTransactionJava(ctx, idx)
+					return
+				}
 				if flatCallExpressionName(file, idx) != "beginTransaction" {
 					return
 				}
@@ -158,10 +168,15 @@ func registerAndroidCorrectnessRules() {
 		r := &CheckResultRule{AndroidRule: alcRule("CheckResult", "Ignoring results", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.8, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation"},
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if strings.HasSuffix(file.Path, ".gradle.kts") {
+					return
+				}
+				if file.FlatType(idx) == "method_invocation" {
+					checkResultJava(ctx, idx)
 					return
 				}
 				if flatIsUsedAsExpression(file, idx) {
@@ -626,4 +641,234 @@ func javaExprMentionsLocale(file *scanner.File, idx uint32) bool {
 	text := strings.TrimSpace(file.FlatNodeText(idx))
 	return text == "Locale" || strings.HasPrefix(text, "Locale.") ||
 		text == "java.util.Locale" || strings.HasPrefix(text, "java.util.Locale.")
+}
+
+func checkCommitPrefEditsJava(ctx *v2.Context, idx uint32) {
+	file := ctx.File
+	if javaMethodInvocationName(file, idx) != "edit" {
+		return
+	}
+	if len(javaArgumentExpressions(file, idx)) != 0 {
+		return
+	}
+	if !sourceImportsOrMentions(file, "android.content.SharedPreferences") {
+		return
+	}
+	if javaAncestorCallNameMatches(file, idx, commitOrApplyNames) {
+		return
+	}
+	fn, ok := flatEnclosingAncestor(file, idx, "method_declaration", "function_declaration")
+	if !ok {
+		return
+	}
+	if editorVar := javaLocalInitializerAssignedName(file, idx); editorVar != "" &&
+		javaFunctionHasReceiverCallAfter(file, fn, idx, editorVar, commitOrApplyNames) {
+		return
+	}
+	ctx.EmitAt(file.FlatRow(idx)+1, 1, "SharedPreferences.edit() without commit() or apply().")
+}
+
+func checkCommitTransactionJava(ctx *v2.Context, idx uint32) {
+	file := ctx.File
+	if javaMethodInvocationName(file, idx) != "beginTransaction" {
+		return
+	}
+	if !sourceImportsOrMentions(file, "android.app.FragmentTransaction") &&
+		!sourceImportsOrMentions(file, "androidx.fragment.app.FragmentTransaction") &&
+		!sourceImportsOrMentions(file, "android.app.FragmentManager") &&
+		!sourceImportsOrMentions(file, "androidx.fragment.app.FragmentManager") {
+		return
+	}
+	if javaAncestorCallNameMatches(file, idx, commitTransactionNames) {
+		return
+	}
+	fn, ok := flatEnclosingAncestor(file, idx, "method_declaration", "function_declaration")
+	if !ok {
+		return
+	}
+	if txVar := javaLocalInitializerAssignedName(file, idx); txVar != "" &&
+		javaFunctionHasReceiverCallAfter(file, fn, idx, txVar, commitTransactionNames) {
+		return
+	}
+	if javaEnclosingFunctionHasCallNamed(file, fn, idx, commitTransactionNames) {
+		return
+	}
+	ctx.EmitAt(file.FlatRow(idx)+1, 1, "FragmentTransaction without commit(). Call commit() or commitAllowingStateLoss().")
+}
+
+func checkResultJava(ctx *v2.Context, idx uint32) {
+	file := ctx.File
+	if !javaMethodInvocationResultIsIgnored(file, idx) {
+		return
+	}
+	name := javaMethodInvocationName(file, idx)
+	if !checkResultCalleeNames[name] {
+		return
+	}
+	if name == "format" {
+		receiver := wrongViewCastCallReceiverName(file, idx)
+		if receiver != "String" && receiver != "java.lang.String" {
+			return
+		}
+	}
+	ctx.EmitAt(file.FlatRow(idx)+1, 1,
+		"The result of this call is not used. Check if the return value should be consumed.")
+}
+
+func javaMethodInvocationResultIsIgnored(file *scanner.File, idx uint32) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "expression_statement":
+			stmt := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(file.FlatNodeText(parent)), ";"))
+			call := strings.TrimSpace(file.FlatNodeText(idx))
+			return stmt == call
+		case "parenthesized_expression":
+			continue
+		case "method_invocation", "argument_list", "field_access":
+			return false
+		case "local_variable_declaration", "assignment_expression", "return_statement":
+			return false
+		default:
+			if strings.HasSuffix(file.FlatType(parent), "expression") {
+				continue
+			}
+			return false
+		}
+	}
+	return false
+}
+
+func isJavaBooleanTrue(file *scanner.File, idx uint32) bool {
+	idx = flatUnwrapParenExpr(file, idx)
+	text := strings.TrimSpace(file.FlatNodeText(idx))
+	return text == "true"
+}
+
+func javaMethodReceiverText(file *scanner.File, call uint32) string {
+	if file == nil || file.FlatType(call) != "method_invocation" {
+		return ""
+	}
+	var parts []string
+	for child := file.FlatFirstChild(call); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "argument_list" {
+			break
+		}
+		if !file.FlatIsNamed(child) || file.FlatType(child) == "identifier" {
+			continue
+		}
+		parts = append(parts, strings.TrimSpace(file.FlatNodeText(child)))
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, ".")
+	}
+	text := strings.TrimSpace(file.FlatNodeText(call))
+	open := strings.LastIndex(text, "(")
+	if open < 0 {
+		return ""
+	}
+	beforeCall := strings.TrimSpace(text[:open])
+	dot := strings.LastIndex(beforeCall, ".")
+	if dot < 0 {
+		return ""
+	}
+	return strings.TrimSpace(beforeCall[:dot])
+}
+
+func javaAncestorCallNameMatches(file *scanner.File, idx uint32, names map[string]bool) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "call_expression", "method_invocation":
+			if names[javaAwareCallName(file, parent)] {
+				return true
+			}
+		case "method_declaration", "function_declaration", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+func javaAwareCallName(file *scanner.File, idx uint32) string {
+	switch file.FlatType(idx) {
+	case "call_expression":
+		return flatCallExpressionName(file, idx)
+	case "method_invocation":
+		return javaMethodInvocationName(file, idx)
+	default:
+		return ""
+	}
+}
+
+func javaMethodInvocationName(file *scanner.File, call uint32) string {
+	if file == nil || file.FlatType(call) != "method_invocation" {
+		return ""
+	}
+	if name := wrongViewCastCallName(file, call); name != "" {
+		return name
+	}
+	text := strings.TrimSpace(file.FlatNodeText(call))
+	open := strings.LastIndex(text, "(")
+	if open >= 0 {
+		beforeCall := strings.TrimSpace(text[:open])
+		if dot := strings.LastIndex(beforeCall, "."); dot >= 0 {
+			return strings.TrimSpace(beforeCall[dot+1:])
+		}
+		fields := strings.Fields(beforeCall)
+		if len(fields) > 0 {
+			return fields[len(fields)-1]
+		}
+	}
+	return ""
+}
+
+func javaLocalInitializerAssignedName(file *scanner.File, idx uint32) string {
+	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "variable_declarator":
+			name, ok := file.FlatFindChild(current, "identifier")
+			if !ok {
+				return ""
+			}
+			return file.FlatNodeText(name)
+		case "local_variable_declaration", "method_declaration", "class_declaration", "source_file":
+			return ""
+		}
+	}
+	return ""
+}
+
+func javaFunctionHasReceiverCallAfter(file *scanner.File, fn, target uint32, receiverName string, names map[string]bool) bool {
+	if file == nil || fn == 0 || target == 0 || receiverName == "" {
+		return false
+	}
+	targetStart := file.FlatStartByte(target)
+	found := false
+	file.FlatWalkNodes(fn, "method_invocation", func(call uint32) {
+		if found || call == target || file.FlatStartByte(call) < targetStart {
+			return
+		}
+		if !names[javaMethodInvocationName(file, call)] {
+			return
+		}
+		if wrongViewCastCallReceiverName(file, call) == receiverName {
+			found = true
+		}
+	})
+	return found
+}
+
+func javaEnclosingFunctionHasCallNamed(file *scanner.File, fn, except uint32, names map[string]bool) bool {
+	if file == nil || fn == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(fn, "method_invocation", func(call uint32) {
+		if found || call == except {
+			return
+		}
+		if names[javaMethodInvocationName(file, call)] {
+			found = true
+		}
+	})
+	return found
 }

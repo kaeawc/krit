@@ -200,6 +200,50 @@ fun setup(webView: WebView) {
 	}
 }
 
+func TestSetJavaScriptEnabled_Java(t *testing.T) {
+	t.Run("positive WebView settings call", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "SetJavaScriptEnabled", `
+package test;
+import android.webkit.WebView;
+class Browser {
+  void setup(WebView webView) {
+    webView.getSettings().setJavaScriptEnabled(true);
+  }
+}`)
+		if len(findings) == 0 {
+			t.Fatal("expected Java SetJavaScriptEnabled finding")
+		}
+	})
+	t.Run("negative false argument", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "SetJavaScriptEnabled", `
+package test;
+import android.webkit.WebView;
+class Browser {
+  void setup(WebView webView) {
+    webView.getSettings().setJavaScriptEnabled(false);
+  }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative local lookalike", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "SetJavaScriptEnabled", `
+package test;
+class Settings {
+  void setJavaScriptEnabled(boolean enabled) {}
+}
+class Browser {
+  void setup(Settings settings) {
+    settings.setJavaScriptEnabled(true);
+  }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for local lookalike, got %d", len(findings))
+		}
+	})
+}
+
 // --- PrivateKeyRule (PackagedPrivateKey) ---
 
 func TestPackagedPrivateKey_Positive(t *testing.T) {

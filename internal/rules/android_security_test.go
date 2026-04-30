@@ -170,6 +170,34 @@ class MyWebView {
 			t.Fatalf("expected minSdk message, got %q", findings[0].Message)
 		}
 	})
+	t.Run("Java WebView receiver reports reflection hazard", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "AddJavascriptInterface", `
+package test;
+import android.webkit.WebView;
+class Browser {
+  void setup(WebView webView, Object bridge) {
+    webView.addJavascriptInterface(bridge, "Android");
+  }
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 Java finding, got %d", len(findings))
+		}
+	})
+	t.Run("Java local lookalike does not fire", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "AddJavascriptInterface", `
+package test;
+class Wrapper {
+  void addJavascriptInterface(Object bridge, String name) {}
+}
+class Browser {
+  void setup(Wrapper wrapper, Object bridge) {
+    wrapper.addJavascriptInterface(bridge, "Android");
+  }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for Java local lookalike, got %d", len(findings))
+		}
+	})
 }
 
 func runAddJavascriptInterfaceProjectRule(t *testing.T, minSdk, targetSdk int, code string) []scanner.Finding {

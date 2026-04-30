@@ -190,6 +190,52 @@ fun save() {
 			t.Fatal("expected findings")
 		}
 	})
+	t.Run("Java positive edit without commit or apply", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "CommitPrefEdits", `
+package test;
+import android.content.SharedPreferences;
+class Store {
+  void save(SharedPreferences prefs) {
+    SharedPreferences.Editor editor = prefs.edit();
+    editor.putString("key", "value");
+  }
+}`)
+		if len(findings) == 0 {
+			t.Fatal("expected Java CommitPrefEdits finding")
+		}
+	})
+	t.Run("Java negative chained apply", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "CommitPrefEdits", `
+package test;
+import android.content.SharedPreferences;
+class Store {
+  void save(SharedPreferences prefs) {
+    prefs.edit().putString("key", "value").apply();
+  }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("Java negative local lookalike", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "CommitPrefEdits", `
+package test;
+class Prefs {
+  Editor edit() { return new Editor(); }
+}
+class Editor {
+  void putString(String key, String value) {}
+}
+class Store {
+  void save(Prefs prefs) {
+    Editor editor = prefs.edit();
+    editor.putString("key", "value");
+  }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for local lookalike, got %d", len(findings))
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +261,32 @@ fun showFragment() {
     supportFragmentManager.beginTransaction()
         .replace(R.id.container, fragment)
         .commit()
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("Java positive beginTransaction without commit", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "CommitTransaction", `
+package test;
+import androidx.fragment.app.FragmentManager;
+class Screen {
+  void show(FragmentManager manager) {
+    manager.beginTransaction().replace(1, new Object());
+  }
+}`)
+		if len(findings) == 0 {
+			t.Fatal("expected Java CommitTransaction finding")
+		}
+	})
+	t.Run("Java negative beginTransaction with commit", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "CommitTransaction", `
+package test;
+import androidx.fragment.app.FragmentManager;
+class Screen {
+  void show(FragmentManager manager) {
+    manager.beginTransaction().replace(1, new Object()).commit();
+  }
 }`)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
@@ -300,6 +372,43 @@ fun example() {
 package test
 fun example() {
     println("hello")
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("Java positive discarded replace result", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "CheckResult", `
+package test;
+class Strings {
+  void example(String value) {
+    value.replace("a", "b");
+  }
+}`)
+		if len(findings) == 0 {
+			t.Fatal("expected Java CheckResult finding")
+		}
+	})
+	t.Run("Java negative consumed replace result", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "CheckResult", `
+package test;
+class Strings {
+  String example(String value) {
+    return value.replace("a", "b");
+  }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("Java negative nested argument result", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "CheckResult", `
+package test;
+class Strings {
+  void consume(String value) {}
+  void example(String value) {
+    consume(value.trim());
+  }
 }`)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))

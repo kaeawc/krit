@@ -30,7 +30,8 @@ func registerAndroidSecurityRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Needs: v2.NeedsTypeInfo,
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, OriginalV1: r,
 			Oracle:            &v2.OracleFilter{Identifiers: []string{"addJavascriptInterface"}},
 			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"addJavascriptInterface"}},
 			// Traverses the class hierarchy to confirm the receiver is a WebView subtype;

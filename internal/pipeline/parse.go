@@ -77,20 +77,12 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 	in.logf("verbose: Parsed %d files in %v (%d errors, %d workers)\n",
 		len(kotlinFiles), time.Since(parseStart).Round(time.Millisecond), len(parseErrs), workers)
 
-	// Filter generated files unless explicitly requested. Mirrors the
-	// main.go behaviour at lines 921-935 — generated dirs contain codegen
-	// output that dwarfs hand-written sources and strands workers.
+	// Filter generated Kotlin files unless explicitly requested. Generated
+	// dirs contain codegen output that dwarfs hand-written sources and
+	// strands workers.
 	if !in.IncludeGenerated {
-		filtered := kotlinFiles[:0]
 		var droppedGenerated int
-		for _, f := range kotlinFiles {
-			if strings.Contains(f.Path, "/generated/") {
-				droppedGenerated++
-				continue
-			}
-			filtered = append(filtered, f)
-		}
-		kotlinFiles = filtered
+		kotlinFiles, droppedGenerated = filterGeneratedSourceFiles(kotlinFiles)
 		if droppedGenerated > 0 {
 			in.logf("verbose: Skipped %d files in */generated/* dirs (pass --include-generated to re-enable)\n", droppedGenerated)
 		}
@@ -111,11 +103,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 	// fields here and fall through to the dispatcher's lazy build.
 	ruleExcludes := rules.GetAllRuleExcludes()
 	for _, f := range kotlinFiles {
-		if f.FlatTree == nil {
-			continue
-		}
-		f.Suppression = scanner.BuildSuppressionFilter(f, nil, ruleExcludes, "")
-		f.SuppressionIdx = f.Suppression.Annotations()
+		installSourceSuppression(f, ruleExcludes)
 	}
 
 	caps := unionNeeds(in.ActiveRules)
@@ -126,7 +114,11 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 	// inside a later phase tracker scope) pass SkipJavaCollection=true.
 	var javaFiles []*scanner.File
 	if !in.SkipJavaCollection && (caps.Has(v2.NeedsCrossFile) || caps.Has(v2.NeedsParsedFiles) || NeedsJavaSourceDispatch(in.ActiveRules)) {
-		javaPaths, javaErr := scanner.CollectJavaFiles(in.Paths, nil)
+		javaPaths := in.JavaPaths
+		var javaErr error
+		if javaPaths == nil {
+			javaPaths, javaErr = scanner.CollectJavaFiles(in.Paths, in.Excludes)
+		}
 		if javaErr != nil {
 			// Java indexing is best-effort — surface the error via
 			// ParseErrors rather than aborting the whole phase.
@@ -135,6 +127,12 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 			var javaParseErrs []error
 			javaFiles, javaParseErrs = scanner.ScanJavaFilesCached(javaPaths, workers, in.ParseCache)
 			parseErrs = append(parseErrs, javaParseErrs...)
+			if !in.IncludeGenerated {
+				javaFiles, _ = filterGeneratedSourceFiles(javaFiles)
+			}
+			for _, f := range javaFiles {
+				installSourceSuppression(f, ruleExcludes)
+			}
 		}
 	}
 
@@ -147,6 +145,27 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 		Paths:       in.Paths,
 		ParseErrors: parseErrs,
 	}, nil
+}
+
+func filterGeneratedSourceFiles(files []*scanner.File) ([]*scanner.File, int) {
+	filtered := files[:0]
+	var droppedGenerated int
+	for _, f := range files {
+		if f != nil && strings.Contains(f.Path, "/generated/") {
+			droppedGenerated++
+			continue
+		}
+		filtered = append(filtered, f)
+	}
+	return filtered, droppedGenerated
+}
+
+func installSourceSuppression(f *scanner.File, ruleExcludes map[string][]string) {
+	if f == nil || f.FlatTree == nil {
+		return
+	}
+	f.Suppression = scanner.BuildSuppressionFilter(f, nil, ruleExcludes, "")
+	f.SuppressionIdx = f.Suppression.Annotations()
 }
 
 // unionNeeds returns the bitwise union of every active rule's Needs.

@@ -51,6 +51,11 @@ type ParseInput struct {
 	// early (for cache lookups and empty-project detection) and passes
 	// them in so the phase doesn't walk the tree twice.
 	KotlinPaths []string
+	// JavaPaths, when non-nil, short-circuits CollectJavaFiles for runs
+	// that need Java before dispatch. Main can pass the same list it used
+	// for incremental cache lookup so Java source collection stays
+	// consistent across parse and cache phases.
+	JavaPaths []string
 	// Workers overrides ParsePhase.Workers. Zero falls through to
 	// ParsePhase.Workers which itself defaults to runtime.NumCPU().
 	// Main plugs its phaseWorkerCount("parse", ...) result here.
@@ -121,6 +126,51 @@ type ParseResult struct {
 	// Timings carries the cumulative phase timings so Output can emit
 	// a --perf summary at the end.
 	Timings PhaseTimings
+}
+
+// SourceSet groups parsed source files by language while providing a unified
+// view for pipeline steps whose behavior should be language-agnostic.
+type SourceSet struct {
+	Kotlin []*scanner.File
+	Java   []*scanner.File
+}
+
+// All returns Kotlin and Java files in stable pipeline order.
+func (s SourceSet) All() []*scanner.File {
+	out := make([]*scanner.File, 0, len(s.Kotlin)+len(s.Java))
+	out = append(out, s.Kotlin...)
+	out = append(out, s.Java...)
+	return out
+}
+
+// Paths returns file paths for every parsed source file.
+func (s SourceSet) Paths() []string {
+	all := s.All()
+	if len(all) == 0 {
+		return nil
+	}
+	paths := make([]string, 0, len(all))
+	for _, f := range all {
+		if f != nil {
+			paths = append(paths, f.Path)
+		}
+	}
+	return paths
+}
+
+// SourceSet returns the parsed Kotlin and Java source files.
+func (r ParseResult) SourceSet() SourceSet {
+	return SourceSet{Kotlin: r.KotlinFiles, Java: r.JavaFiles}
+}
+
+// SourceFiles returns all parsed source files.
+func (r ParseResult) SourceFiles() []*scanner.File {
+	return r.SourceSet().All()
+}
+
+// SourceFilePaths returns all parsed source file paths.
+func (r ParseResult) SourceFilePaths() []string {
+	return r.SourceSet().Paths()
 }
 
 // IndexResult is the output of Index and the input of Dispatch. It

@@ -113,6 +113,48 @@ func TestDispatchPhase_Run_DispatchesJavaFilesToJavaRules(t *testing.T) {
 	}
 }
 
+func TestDispatchPhase_Run_CacheWriteBackIncludesJavaFiles(t *testing.T) {
+	dir := t.TempDir()
+	file := writeJava(t, dir, "Sample.java", "package test; class X {}\n")
+
+	rule := v2.FakeRule("DispatchPhaseTestJavaCacheWrite",
+		v2.WithNodeTypes("class_declaration"),
+		v2.WithSeverity(v2.SeverityWarning),
+		v2.WithCheck(func(ctx *v2.Context) {
+			ctx.EmitAt(int(ctx.Node.StartRow)+1, 1, "java class declared")
+		}),
+	)
+	rule.Languages = []scanner.Language{scanner.LangJava}
+
+	analysisCache := &cache.Cache{Files: make(map[string]cache.FileEntry)}
+	in := IndexResult{
+		ParseResult: ParseResult{
+			ActiveRules: []*v2.Rule{rule},
+			JavaFiles:   []*scanner.File{file},
+		},
+		Cache:         analysisCache,
+		CacheFilePath: filepath.Join(dir, ".krit-cache"),
+		Version:       "test",
+		RuleHash:      "hash",
+	}
+
+	out, err := (DispatchPhase{}).Run(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := out.Findings.Len(); got != 1 {
+		t.Fatalf("Findings.Len() = %d, want 1", got)
+	}
+	abs, _ := filepath.Abs(file.Path)
+	entry, ok := analysisCache.Files[abs]
+	if !ok {
+		t.Fatalf("cache missing Java entry for %s", abs)
+	}
+	if got := entry.Columns.Len(); got != 1 {
+		t.Fatalf("cached Java findings = %d, want 1", got)
+	}
+}
+
 func TestDispatchPhase_Run_NoRules_NoFindings(t *testing.T) {
 	file := writeKotlin(t, t.TempDir(), "Sample.kt", classDeclKotlin)
 

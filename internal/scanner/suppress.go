@@ -316,10 +316,10 @@ var kotlinCompilerWarningAliases = map[string][]string{
 
 	// IntelliJ Kotlin inspection IDs used in `@Suppress(...)` for naming
 	// conventions. These pair up with krit's naming rules.
-	"EnumEntryName":     {"EnumNaming"},
-	"ClassName":         {"ClassNaming"},
-	"FunctionName":      {"FunctionNaming"},
-	"PropertyName":      {"TopLevelPropertyNaming", "ObjectPropertyNaming"},
+	"EnumEntryName":       {"EnumNaming"},
+	"ClassName":           {"ClassNaming"},
+	"FunctionName":        {"FunctionNaming"},
+	"PropertyName":        {"TopLevelPropertyNaming", "ObjectPropertyNaming"},
 	"PrivatePropertyName": {"TopLevelPropertyNaming", "ObjectPropertyNaming"},
 	"ObjectPropertyName":  {"ObjectPropertyNaming"},
 	"LocalVariableName":   {"VariableNaming"},
@@ -370,8 +370,10 @@ func flatWalkForSuppressions(tree *FlatTree, idx uint32, content []byte, out *Su
 	case "file_annotation":
 		flatProcessFileAnnotation(tree, idx, content, out)
 		return
-	case "source_file", "class_body", "statements", "function_body", "modifiers",
+	case "source_file", "program", "class_body", "statements", "function_body", "modifiers",
 		"class_declaration", "function_declaration", "property_declaration",
+		"method_declaration", "constructor_declaration", "field_declaration",
+		"local_variable_declaration",
 		"object_declaration", "companion_object", "secondary_constructor",
 		"primary_constructor", "anonymous_initializer", "enum_entry", "lambda_literal",
 		"class_member_declarations", "block",
@@ -388,8 +390,10 @@ func flatWalkForSuppressions(tree *FlatTree, idx uint32, content []byte, out *Su
 			flatProcessSuppressionNode(tree, child, content, out)
 		case "file_annotation":
 			flatProcessFileAnnotation(tree, child, content, out)
-		case "modifiers", "source_file", "class_body", "statements", "function_body",
+		case "modifiers", "source_file", "program", "class_body", "statements", "function_body",
 			"class_declaration", "function_declaration", "property_declaration",
+			"method_declaration", "constructor_declaration", "field_declaration",
+			"local_variable_declaration",
 			"object_declaration", "companion_object", "secondary_constructor",
 			"primary_constructor", "anonymous_initializer", "enum_entry",
 			"class_member_declarations", "block",

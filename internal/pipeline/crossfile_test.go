@@ -35,6 +35,22 @@ func parsedKotlinFile(t *testing.T, content string) *scanner.File {
 	return f
 }
 
+func parsedJavaFile(t *testing.T, content string) *scanner.File {
+	t.Helper()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "file.java")
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := scanner.ParseJavaFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Suppression = scanner.BuildSuppressionFilter(f, nil, nil, "")
+	f.SuppressionIdx = f.Suppression.Annotations()
+	return f
+}
+
 func TestCrossFilePhase_NoRules_PassesThrough(t *testing.T) {
 	file := parsedKotlinFile(t, "class X\n")
 	in := DispatchResult{
@@ -108,6 +124,26 @@ class UnusedClass
 		t.Errorf("kept rule = %q, want OtherRule (DeadSymbol should be suppressed)", kept[0].Rule)
 	}
 
+}
+
+func TestCrossFilePhase_SuppressionAppliedToJavaCrossFileFinding(t *testing.T) {
+	file := parsedJavaFile(t, `@SuppressWarnings("DeadSymbol")
+class UnusedClass {}
+`)
+
+	kept := ApplySuppression(
+		[]scanner.Finding{
+			{File: file.Path, Line: 2, Rule: "DeadSymbol", RuleSet: "test", Message: "unused"},
+			{File: file.Path, Line: 2, Rule: "OtherRule", RuleSet: "test", Message: "keep"},
+		},
+		[]*scanner.File{file},
+	)
+	if len(kept) != 1 {
+		t.Fatalf("ApplySuppression kept %d Java findings, want 1; got %+v", len(kept), kept)
+	}
+	if kept[0].Rule != "OtherRule" {
+		t.Errorf("kept rule = %q, want OtherRule", kept[0].Rule)
+	}
 }
 
 func TestCrossFilePhase_SuppressionPassesThrough_WhenNoIndex(t *testing.T) {
@@ -222,4 +258,3 @@ func TestCrossFilePhase_ExcludeGlobSuppressesCrossFileFinding(t *testing.T) {
 		t.Errorf("kept rule = %q, want OtherRule (DeadSymbol file-excluded)", kept[0].Rule)
 	}
 }
-

@@ -197,7 +197,7 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 	// Unified suppression: every cross-file finding flows through the same
 	// SuppressionIndex that per-file dispatch already honours.
 	crossCols := *crossCollector.Columns()
-	suppressed := applySuppressionColumns(&crossCols, in.KotlinFiles)
+	suppressed := applySuppressionColumns(&crossCols, in.SourceFiles())
 
 	// Merge pre-file findings with suppressed cross-file findings in columnar form.
 	merged := scanner.NewFindingCollector(in.Findings.Len() + suppressed.Len())

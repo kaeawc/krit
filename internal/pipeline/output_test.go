@@ -84,6 +84,25 @@ func TestOutputPhase_Run_JSON(t *testing.T) {
 	}
 }
 
+func TestOutputPhase_Run_JSONFileCountIncludesJava(t *testing.T) {
+	in, buf := twoFindingsInput(t, "json")
+	in.FixupResult.KotlinFiles = []*scanner.File{{Path: "/tmp/foo.kt"}}
+	in.FixupResult.JavaFiles = []*scanner.File{{Path: "/tmp/bar.java"}}
+
+	if _, err := (OutputPhase{}).Run(context.Background(), in); err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	var payload struct {
+		Files int `json:"files"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal output: %v\n%s", err, buf.String())
+	}
+	if payload.Files != 2 {
+		t.Fatalf("files = %d, want 2", payload.Files)
+	}
+}
+
 func TestOutputPhase_Run_Plain(t *testing.T) {
 	in, buf := twoFindingsInput(t, "plain")
 	if _, err := (OutputPhase{}).Run(context.Background(), in); err != nil {

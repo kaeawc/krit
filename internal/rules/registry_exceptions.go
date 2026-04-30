@@ -16,7 +16,7 @@ func registerExceptionsRules() {
 		r := &ExceptionRaisedInUnexpectedLocationRule{BaseRule: BaseRule{RuleName: "ExceptionRaisedInUnexpectedLocation", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects throw statements inside equals, hashCode, toString, or finalize methods."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"function_declaration", "method_declaration"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := extractIdentifierFlat(file, idx)
@@ -301,7 +301,7 @@ func registerExceptionsRules() {
 		r := &ThrowingExceptionInMainRule{BaseRule: BaseRule{RuleName: "ThrowingExceptionInMain", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects throw statements inside the main() function instead of graceful error handling."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"function_declaration", "method_declaration"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := extractIdentifierFlat(file, idx)

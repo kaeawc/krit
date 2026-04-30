@@ -1149,4 +1149,5 @@ func walkThrowExpressionsFlat(file *scanner.File, idx uint32, fn func(throwNode 
 			fn(n)
 		}
 	})
+	file.FlatWalkNodes(idx, "throw_statement", fn)
 }

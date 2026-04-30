@@ -21,7 +21,7 @@ func TestFileShardRoundTrip(t *testing.T) {
 		Path:        "a.kt",
 		ContentHash: "deadbeef",
 		Symbols: []Symbol{
-			{Name: "foo", Kind: "function", Visibility: "public", File: "a.kt", Line: 1},
+			{Name: "foo", Kind: "function", Visibility: "public", File: "a.kt", Line: 1, Language: LangJava, Package: "demo", FQN: "demo.Foo.foo", Owner: "demo.Foo", Signature: "demo.Foo#foo/1", Arity: 1, IsStatic: true, IsFinal: true},
 		},
 		References: []Reference{
 			{Name: "foo", File: "a.kt", Line: 1},
@@ -43,6 +43,11 @@ func TestFileShardRoundTrip(t *testing.T) {
 	}
 	if len(got.Symbols) != 1 || got.Symbols[0].Name != "foo" {
 		t.Fatalf("symbols round-trip mismatch: %+v", got.Symbols)
+	}
+	if got.Symbols[0].Language != LangJava || got.Symbols[0].FQN != "demo.Foo.foo" ||
+		got.Symbols[0].Owner != "demo.Foo" || got.Symbols[0].Arity != 1 ||
+		!got.Symbols[0].IsStatic || !got.Symbols[0].IsFinal {
+		t.Fatalf("symbol metadata round-trip mismatch: %+v", got.Symbols[0])
 	}
 	if len(got.References) != 2 {
 		t.Fatalf("refs round-trip mismatch: %+v", got.References)

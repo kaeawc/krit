@@ -14,8 +14,8 @@ func TestCrossFileCacheRoundTrip(t *testing.T) {
 	cacheDir := CrossFileCacheDir(dir)
 
 	symbols := []Symbol{
-		{Name: "helperFunc", Kind: "function", Visibility: "public", File: "a.kt", Line: 10, StartByte: 3, EndByte: 18},
-		{Name: "HelperClass", Kind: "class", Visibility: "internal", File: "b.kt", Line: 2, StartByte: 0, EndByte: 12},
+		{Name: "helperFunc", Kind: "function", Visibility: "public", File: "a.kt", Line: 10, StartByte: 3, EndByte: 18, Language: LangKotlin, Package: "demo", FQN: "demo.helperFunc", Signature: "<package>#helperFunc/0"},
+		{Name: "HelperClass", Kind: "class", Visibility: "internal", File: "b.kt", Line: 2, StartByte: 0, EndByte: 12, Language: LangJava, Package: "demo", FQN: "demo.HelperClass", Signature: "demo.HelperClass", IsFinal: true},
 	}
 	refs := []Reference{
 		{Name: "helperFunc", File: "a.kt", Line: 10, InComment: false},
@@ -35,6 +35,9 @@ func TestCrossFileCacheRoundTrip(t *testing.T) {
 	}
 	if len(gotSyms) != len(symbols) {
 		t.Fatalf("got %d symbols, want %d", len(gotSyms), len(symbols))
+	}
+	if gotSyms[1].Language != LangJava || gotSyms[1].FQN != "demo.HelperClass" || !gotSyms[1].IsFinal {
+		t.Fatalf("Java symbol metadata did not round-trip: %+v", gotSyms[1])
 	}
 	if len(gotRefs) != len(refs) {
 		t.Fatalf("got %d refs, want %d", len(gotRefs), len(refs))

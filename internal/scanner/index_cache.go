@@ -81,7 +81,9 @@ func recordCrossFileDisk(paths crossFileCachePaths, entries int) {
 // v6: zstd-wrap the monolithic gob payload. The shards were already
 // compressed; this keeps the fallback/full-index cache from dominating
 // .krit size on small-to-medium projects.
-const CrossFileCacheVersion = 6
+// v7: Symbol carries language/package/FQN/owner/signature/arity and
+// Java modifiers so Java declarations can participate in the source index.
+const CrossFileCacheVersion = 7
 
 // bloomLibraryVersion is the pinned bits-and-blooms/bloom/v3 version.
 // It is mixed into the cross-file fingerprint so a library upgrade
@@ -202,7 +204,13 @@ type packedSymbols struct {
 	Line       []int32
 	StartByte  []int32
 	EndByte    []int32
-	// Flags bits: 1=IsOverride 2=IsTest 4=IsMain
+	Language   []uint8
+	Package    []uint32
+	FQN        []uint32
+	Owner      []uint32
+	Signature  []uint32
+	Arity      []int32
+	// Flags bits: 1=IsOverride 2=IsTest 4=IsMain 8=IsStatic 16=IsFinal
 	Flags []uint8
 }
 
@@ -405,6 +413,12 @@ func packPayload(symbols []Symbol, refs []Reference) cachePayload {
 		Line:       make([]int32, len(symbols)),
 		StartByte:  make([]int32, len(symbols)),
 		EndByte:    make([]int32, len(symbols)),
+		Language:   make([]uint8, len(symbols)),
+		Package:    make([]uint32, len(symbols)),
+		FQN:        make([]uint32, len(symbols)),
+		Owner:      make([]uint32, len(symbols)),
+		Signature:  make([]uint32, len(symbols)),
+		Arity:      make([]int32, len(symbols)),
 		Flags:      make([]uint8, len(symbols)),
 	}
 	for i, s := range symbols {
@@ -415,6 +429,12 @@ func packPayload(symbols []Symbol, refs []Reference) cachePayload {
 		ps.Line[i] = int32(s.Line)
 		ps.StartByte[i] = int32(s.StartByte)
 		ps.EndByte[i] = int32(s.EndByte)
+		ps.Language[i] = uint8(s.Language)
+		ps.Package[i] = intr.intern(s.Package)
+		ps.FQN[i] = intr.intern(s.FQN)
+		ps.Owner[i] = intr.intern(s.Owner)
+		ps.Signature[i] = intr.intern(s.Signature)
+		ps.Arity[i] = int32(s.Arity)
 		var f uint8
 		if s.IsOverride {
 			f |= 1
@@ -424,6 +444,12 @@ func packPayload(symbols []Symbol, refs []Reference) cachePayload {
 		}
 		if s.IsMain {
 			f |= 4
+		}
+		if s.IsStatic {
+			f |= 8
+		}
+		if s.IsFinal {
+			f |= 16
 		}
 		ps.Flags[i] = f
 	}
@@ -455,6 +481,8 @@ func (p cachePayload) unpack() ([]Symbol, []Reference, bool) {
 	n := len(p.Syms.Name)
 	if len(p.Syms.Kind) != n || len(p.Syms.Visibility) != n || len(p.Syms.File) != n ||
 		len(p.Syms.Line) != n || len(p.Syms.StartByte) != n || len(p.Syms.EndByte) != n ||
+		len(p.Syms.Language) != n || len(p.Syms.Package) != n || len(p.Syms.FQN) != n ||
+		len(p.Syms.Owner) != n || len(p.Syms.Signature) != n || len(p.Syms.Arity) != n ||
 		len(p.Syms.Flags) != n {
 		return nil, nil, false
 	}
@@ -464,7 +492,11 @@ func (p cachePayload) unpack() ([]Symbol, []Reference, bool) {
 		kind, ok2 := getStr(p.Syms.Kind[i])
 		vis, ok3 := getStr(p.Syms.Visibility[i])
 		file, ok4 := getStr(p.Syms.File[i])
-		if !(ok1 && ok2 && ok3 && ok4) {
+		pkg, ok5 := getStr(p.Syms.Package[i])
+		fqn, ok6 := getStr(p.Syms.FQN[i])
+		owner, ok7 := getStr(p.Syms.Owner[i])
+		signature, ok8 := getStr(p.Syms.Signature[i])
+		if !(ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8) {
 			return nil, nil, false
 		}
 		f := p.Syms.Flags[i]
@@ -476,9 +508,17 @@ func (p cachePayload) unpack() ([]Symbol, []Reference, bool) {
 			Line:       int(p.Syms.Line[i]),
 			StartByte:  int(p.Syms.StartByte[i]),
 			EndByte:    int(p.Syms.EndByte[i]),
+			Language:   Language(p.Syms.Language[i]),
+			Package:    pkg,
+			FQN:        fqn,
+			Owner:      owner,
+			Signature:  signature,
+			Arity:      int(p.Syms.Arity[i]),
 			IsOverride: f&1 != 0,
 			IsTest:     f&2 != 0,
 			IsMain:     f&4 != 0,
+			IsStatic:   f&8 != 0,
+			IsFinal:    f&16 != 0,
 		}
 	}
 
@@ -527,6 +567,7 @@ func (p cachePayload) unpackFull() (*CodeIndex, bool) {
 		Symbols:                      symbols,
 		References:                   refs,
 		symbolsByName:                make(map[string][]Symbol, len(p.Lookup.SymByNameKeys)),
+		symbolsByFQN:                 make(map[string]Symbol),
 		refCountByName:               make(map[string]int, len(p.Lookup.RefCountKeys)),
 		refFilesByName:               make(map[string]map[string]bool, len(p.Lookup.RefFilesKeys)),
 		nonCommentRefFilesByName:     make(map[string]map[string]bool, len(p.Lookup.NCRefFilesKeys)),
@@ -551,6 +592,11 @@ func (p cachePayload) unpackFull() (*CodeIndex, bool) {
 			syms = append(syms, symbols[r])
 		}
 		idx.symbolsByName[name] = syms
+	}
+	for _, sym := range symbols {
+		if sym.FQN != "" {
+			idx.symbolsByFQN[sym.FQN] = sym
+		}
 	}
 
 	// refCountByName

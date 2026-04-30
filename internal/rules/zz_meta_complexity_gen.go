@@ -430,8 +430,8 @@ func (r *StringLiteralDuplicationRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "allowedWithLengthLessThan",
 				Type:        registry.OptInt,
-				Default:     0,
-				Description: "Strings shorter than this are ignored.",
+				Default:     5,
+				Description: "Strings whose unquoted content is shorter than this are ignored. Set to 0 to disable.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*StringLiteralDuplicationRule).AllowedWithLengthLessThan = value.(int)
 				},

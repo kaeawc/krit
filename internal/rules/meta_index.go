@@ -520,6 +520,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*StringRepeatedInContentDescriptionRule)(nil),
 		(*StringResourceMissingPositionalRule)(nil),
 		(*StringShouldBeRawStringRule)(nil),
+		(*StringTemplateForTranslationRule)(nil),
 		(*StringTrailingWhitespaceResourceRule)(nil),
 		(*StringSpanInContentDescriptionRule)(nil),
 		(*SupervisorScopeInEventHandlerRule)(nil),

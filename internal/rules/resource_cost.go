@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -111,6 +112,11 @@ func sourceImportsOrMentions(file *scanner.File, fqn string) bool {
 	key := sourceImportMentionKey{file: file, fqn: fqn}
 	if cached, ok := sourceImportMentionCache.Load(key); ok {
 		return cached.(bool)
+	}
+	if file.Language == scanner.LangJava {
+		result := javafacts.SourceFactsForFile(file).ImportsOrMentions(fqn)
+		sourceImportMentionCache.Store(key, result)
+		return result
 	}
 	text := string(file.Content)
 	result := strings.Contains(text, "import "+fqn) || strings.Contains(text, fqn)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
+	"github.com/kaeawc/krit/internal/rules/registry"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -422,14 +423,12 @@ fun process(items: List<Int>) {
     for (item in items) {
         if (item < 0) continue
         if (item > 100) break
-        if (item == 50) continue
-        if (item == 25) break
         println(item)
     }
 }
 `)
 	if len(findings) == 0 {
-		t.Fatal("expected finding for loop with 4 jump statements (max 3)")
+		t.Fatal("expected finding for loop with 2 jump statements (max 1)")
 	}
 }
 
@@ -446,6 +445,42 @@ fun process(items: List<Int>) {
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for loop with 1 jump (within limit), got %d", len(findings))
 	}
+}
+
+func TestLoopWithTooManyJumpStatementsDefaultsMatchDetekt(t *testing.T) {
+	var rule *rules.LoopWithTooManyJumpStatementsRule
+	var meta registry.RuleDescriptor
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID != "LoopWithTooManyJumpStatements" {
+			continue
+		}
+		var ok bool
+		rule, ok = candidate.OriginalV1.(*rules.LoopWithTooManyJumpStatementsRule)
+		if !ok {
+			t.Fatalf("expected LoopWithTooManyJumpStatementsRule, got %T", candidate.OriginalV1)
+		}
+		metaProvider, ok := candidate.OriginalV1.(registry.MetaProvider)
+		if !ok {
+			t.Fatal("expected LoopWithTooManyJumpStatementsRule to provide metadata")
+		}
+		meta = metaProvider.Meta()
+		break
+	}
+	if rule == nil {
+		t.Fatal("LoopWithTooManyJumpStatements rule not registered")
+	}
+	if rule.MaxJumps != 1 {
+		t.Fatalf("expected MaxJumps default 1, got %d", rule.MaxJumps)
+	}
+	for _, opt := range meta.Options {
+		if opt.Name == "maxJumpCount" {
+			if opt.Default != 1 {
+				t.Fatalf("expected maxJumpCount metadata default 1, got %v", opt.Default)
+			}
+			return
+		}
+	}
+	t.Fatal("maxJumpCount option not found")
 }
 
 // --- ExplicitItLambdaParameter ---

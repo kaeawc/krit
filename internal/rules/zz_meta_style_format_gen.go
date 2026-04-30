@@ -87,7 +87,7 @@ func (r *MaxLineLengthRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "excludeImportStatements",
 				Type:        registry.OptBool,
-				Default:     false,
+				Default:     true,
 				Description: "Exclude import statements from check.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*MaxLineLengthRule).ExcludeImportStatements = value.(bool)
@@ -96,7 +96,7 @@ func (r *MaxLineLengthRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "excludePackageStatements",
 				Type:        registry.OptBool,
-				Default:     false,
+				Default:     true,
 				Description: "Exclude package statements from check.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*MaxLineLengthRule).ExcludePackageStatements = value.(bool)
@@ -105,7 +105,7 @@ func (r *MaxLineLengthRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "excludeRawStrings",
 				Type:        registry.OptBool,
-				Default:     false,
+				Default:     true,
 				Description: "Exclude raw string lines from check.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*MaxLineLengthRule).ExcludeRawStrings = value.(bool)

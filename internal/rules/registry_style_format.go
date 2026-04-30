@@ -27,7 +27,13 @@ func registerStyleFormatRules() {
 		})
 	}
 	{
-		r := &MaxLineLengthRule{BaseRule: BaseRule{RuleName: "MaxLineLength", RuleSetName: "style", Sev: "warning", Desc: "Detects lines that exceed the configured maximum character length."}, Max: 120}
+		r := &MaxLineLengthRule{
+			BaseRule:                 BaseRule{RuleName: "MaxLineLength", RuleSetName: "style", Sev: "warning", Desc: "Detects lines that exceed the configured maximum character length."},
+			Max:                      120,
+			ExcludePackageStatements: true,
+			ExcludeImportStatements:  true,
+			ExcludeRawStrings:        true,
+		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			Needs: v2.NeedsLinePass, OriginalV1: r,

@@ -224,3 +224,22 @@ fun main() {
 		t.Fatalf("expected no findings, got %d", len(findings))
 	}
 }
+
+func TestUnreachableCode_NegativeMultilineReturnCast(t *testing.T) {
+	findings := runRuleByName(t, "UnreachableCode", `
+package test
+
+open class View
+class CircuitScreenComposeView : View()
+
+fun showInflatedView(): View = CircuitScreenComposeView()
+
+fun create(): CircuitScreenComposeView {
+    return showInflatedView()
+        as CircuitScreenComposeView
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for multiline return expression cast, got %d", len(findings))
+	}
+}

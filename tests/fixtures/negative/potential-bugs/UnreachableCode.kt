@@ -112,6 +112,12 @@ class UnreachableCode {
         return listOf("a", "b", "c").filter { it.length > 1 }.map { it.uppercase() }
     }
 
+    // return with multiline cast continuation
+    fun returnWithMultilineCast(): CircuitScreenComposeView {
+        return showInflatedView()
+            as CircuitScreenComposeView
+    }
+
     // Multiple returns in branches
     fun multipleReturns(x: Int): Int {
         when {
@@ -121,3 +127,8 @@ class UnreachableCode {
         return 0
     }
 }
+
+open class View
+class CircuitScreenComposeView : View()
+
+fun showInflatedView(): View = CircuitScreenComposeView()

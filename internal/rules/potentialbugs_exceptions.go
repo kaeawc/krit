@@ -767,22 +767,22 @@ func (r *UnreachableCodeRule) checkNode(ctx *v2.Context) {
 			if strings.HasPrefix(text, "return") || strings.HasPrefix(text, "throw") || strings.HasPrefix(text, "break") || strings.HasPrefix(text, "continue") {
 				foundJump = true
 				jumpLine = file.FlatRow(child) + 1
-				// Tree-sitter may split "return expr" or "throw expr" into two sibling nodes:
-				// the jump_expression contains only the keyword, and the value is a separate sibling.
-				// Detect this by checking if the text is just the bare keyword (possibly with a label).
+				// Tree-sitter may split "return expr" or "throw expr" into two sibling nodes.
+				// Same-line expressions appear after a bare keyword; multiline cast/operator
+				// continuations can appear after a jump_expression that already has a value.
 				trimmed := strings.TrimSpace(text)
 				isBareReturn := trimmed == "return" || strings.HasPrefix(trimmed, "return@")
 				isBareThrow := trimmed == "throw"
-				if isBareReturn || isBareThrow {
-					// Check if the next non-comment sibling is on the same line (i.e., it's the value).
-					jumpRow := file.FlatRow(child)
+				isReturnOrThrow := strings.HasPrefix(trimmed, "return") || strings.HasPrefix(trimmed, "throw")
+				if isReturnOrThrow {
 					for peek := i + 1; peek < childCount; peek++ {
 						sibling := file.FlatChild(idx, peek)
 						if isFlatCommentNode(file, sibling) {
 							continue
 						}
-						if file.FlatRow(sibling) == jumpRow {
-							// Same line — this is the return/throw value, skip it.
+						if (isBareReturn || isBareThrow) && file.FlatRow(sibling) == file.FlatRow(child) {
+							skipNext = true
+						} else if isReturnOrThrow && unreachableCodeLooksLikeJumpExpressionContinuation(file, sibling) {
 							skipNext = true
 						}
 						break
@@ -811,6 +811,22 @@ func (r *UnreachableCodeRule) checkNode(ctx *v2.Context) {
 			jumpLine = file.FlatRow(child) + 1
 		}
 	}
+}
+
+func unreachableCodeLooksLikeJumpExpressionContinuation(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	trimmed := strings.TrimSpace(file.FlatNodeText(idx))
+	if trimmed == "" {
+		return false
+	}
+	for _, prefix := range []string{"as ", "as? ", "is ", "!is ", ".", "?.", "?:", "!!"} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // checkWithDiagnosticsFlat uses compiler diagnostics from the oracle to find unreachable code

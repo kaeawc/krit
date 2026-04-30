@@ -27,6 +27,22 @@ func writeAndParse(t *testing.T, dir, name, content string) *scanner.File {
 	return f
 }
 
+func writeAndParseJava(t *testing.T, dir, name, content string) *scanner.File {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := scanner.ParseJavaFile(path)
+	if err != nil {
+		t.Fatalf("ParseJavaFile(%s): %v", path, err)
+	}
+	return f
+}
+
 func buildGraph(root string, modules map[string]*module.Module) *module.ModuleGraph {
 	g := module.NewModuleGraph(root)
 	for k, v := range modules {
@@ -178,6 +194,110 @@ func TestModuleDeadCode_UsedByConsumer(t *testing.T) {
 		if contains(f.Message, "greet") {
 			t.Errorf("greet should NOT be flagged (used by :app consumer), but got: %s", f.Message)
 		}
+	}
+}
+
+func TestModuleDeadCode_JavaMethodUsedByKotlinConsumer(t *testing.T) {
+	root := t.TempDir()
+	libSrc := filepath.Join(root, "lib", "src", "main", "java", "com", "example")
+	appSrc := filepath.Join(root, "app", "src", "main", "kotlin")
+
+	libFile := writeAndParseJava(t, libSrc, "JavaApi.java", `package com.example;
+
+public class JavaApi {
+  public void usedFromKotlin() {}
+  public void trulyUnused() {}
+}
+`)
+	appFile := writeAndParse(t, appSrc, "Main.kt", `package app
+
+import com.example.JavaApi
+
+fun callApi(api: JavaApi) {
+    api.usedFromKotlin()
+}
+`)
+
+	graph := buildGraph(root, map[string]*module.Module{
+		":lib": {Path: ":lib", Dir: filepath.Join(root, "lib")},
+		":app": {Path: ":app", Dir: filepath.Join(root, "app")},
+	})
+	graph.Consumers[":lib"] = []string{":app"}
+
+	pmi := module.BuildPerModuleIndex(graph, []*scanner.File{libFile, appFile}, 1)
+	rule := &ModuleDeadCodeRule{
+		BaseRule: BaseRule{RuleName: "ModuleDeadCode", RuleSetName: "dead-code", Sev: "warning"},
+	}
+	ctx := &v2.Context{
+		ModuleIndex: pmi,
+		Collector:   scanner.NewFindingCollector(0),
+	}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
+
+	for _, f := range findings {
+		if contains(f.Message, "usedFromKotlin") {
+			t.Fatalf("usedFromKotlin should be protected by Kotlin consumer reference, got: %s", f.Message)
+		}
+	}
+	foundUnused := false
+	for _, f := range findings {
+		if contains(f.Message, "trulyUnused") {
+			foundUnused = true
+		}
+	}
+	if !foundUnused {
+		t.Fatalf("expected trulyUnused Java method to be reported, got %+v", findings)
+	}
+}
+
+func TestDeadCode_JavaXmlAndLifecycleEntriesAreConservative(t *testing.T) {
+	root := t.TempDir()
+	ktSrc := filepath.Join(root, "app", "src", "main", "kotlin")
+	javaSrc := filepath.Join(root, "app", "src", "main", "java", "com", "example")
+	layoutDir := filepath.Join(root, "app", "src", "main", "res", "layout")
+
+	anchor := writeAndParse(t, ktSrc, "Anchor.kt", `package com.example
+fun anchor() = Unit
+`)
+	viewFile := writeAndParseJava(t, javaSrc, "CustomWidget.java", `package com.example;
+public class CustomWidget {
+  public void onCreate(android.os.Bundle state) {}
+  public void helper() {}
+}
+`)
+	if err := os.MkdirAll(layoutDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(layoutDir, "widget.xml"), []byte(`<com.example.CustomWidget />`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	index := scanner.BuildIndex([]*scanner.File{anchor}, 1, viewFile)
+	rule := &DeadCodeRule{
+		BaseRule:                BaseRule{RuleName: "DeadCode", RuleSetName: "dead-code", Sev: "warning"},
+		IgnoreCommentReferences: true,
+	}
+	ctx := &v2.Context{
+		CodeIndex: index,
+		Collector: scanner.NewFindingCollector(0),
+	}
+	rule.check(ctx)
+	findings := v2.ContextFindings(ctx)
+
+	for _, f := range findings {
+		if contains(f.Message, "CustomWidget") || contains(f.Message, "onCreate") {
+			t.Fatalf("expected XML/lifecycle Java entries to be skipped, got: %s", f.Message)
+		}
+	}
+	foundHelper := false
+	for _, f := range findings {
+		if contains(f.Message, "helper") {
+			foundHelper = true
+		}
+	}
+	if !foundHelper {
+		t.Fatalf("expected ordinary Java helper method to remain reportable, got %+v", findings)
 	}
 }
 

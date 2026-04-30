@@ -31,6 +31,14 @@ func TestBuildPerModuleIndex_AssignsFilesToModules(t *testing.T) {
 	if err := os.WriteFile(libFile, []byte("fun greet(): String = \"hello\""), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	libJavaSrc := filepath.Join(root, "lib", "src", "main", "java")
+	if err := os.MkdirAll(libJavaSrc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	libJavaFile := filepath.Join(libJavaSrc, "JavaApi.java")
+	if err := os.WriteFile(libJavaFile, []byte("package lib; public class JavaApi { public void ping() {} }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// A file at the root (not in any module)
 	rootFile := filepath.Join(root, "build.kt")
@@ -59,6 +67,11 @@ func TestBuildPerModuleIndex_AssignsFilesToModules(t *testing.T) {
 		}
 		allFiles = append(allFiles, f)
 	}
+	javaParsed, err := scanner.ParseJavaFile(libJavaFile)
+	if err != nil {
+		t.Fatalf("ParseJavaFile(%s): %v", libJavaFile, err)
+	}
+	allFiles = append(allFiles, javaParsed)
 
 	// Build per-module index
 	pmi := BuildPerModuleIndex(graph, allFiles, 2)
@@ -67,8 +80,8 @@ func TestBuildPerModuleIndex_AssignsFilesToModules(t *testing.T) {
 	if len(pmi.ModuleFiles[":app"]) != 1 {
 		t.Errorf("expected 1 file in :app, got %d", len(pmi.ModuleFiles[":app"]))
 	}
-	if len(pmi.ModuleFiles[":lib"]) != 1 {
-		t.Errorf("expected 1 file in :lib, got %d", len(pmi.ModuleFiles[":lib"]))
+	if len(pmi.ModuleFiles[":lib"]) != 2 {
+		t.Errorf("expected 2 files in :lib, got %d", len(pmi.ModuleFiles[":lib"]))
 	}
 	if len(pmi.ModuleFiles["root"]) != 1 {
 		t.Errorf("expected 1 file in root bucket, got %d", len(pmi.ModuleFiles["root"]))
@@ -91,8 +104,17 @@ func TestBuildPerModuleIndex_AssignsFilesToModules(t *testing.T) {
 			t.Error(":lib index should not contain 'main' from :app")
 		}
 	}
+	foundJavaApi := false
+	for _, sym := range libIdx.Symbols {
+		if sym.Name == "JavaApi" && sym.Language == scanner.LangJava {
+			foundJavaApi = true
+		}
+	}
 	if !foundGreet {
 		t.Error(":lib index should contain 'greet'")
+	}
+	if !foundJavaApi {
+		t.Error(":lib index should contain JavaApi from Java source")
 	}
 
 	appIdx := pmi.ModuleIndex[":app"]
@@ -117,7 +139,7 @@ func TestBuildPerModuleIndex_AssignsFilesToModules(t *testing.T) {
 	for _, sym := range pmi.GlobalIndex.Symbols {
 		globalSymNames[sym.Name] = true
 	}
-	if !globalSymNames["greet"] || !globalSymNames["main"] {
-		t.Error("global index should contain both 'greet' and 'main'")
+	if !globalSymNames["greet"] || !globalSymNames["main"] || !globalSymNames["JavaApi"] {
+		t.Error("global index should contain 'greet', 'main', and 'JavaApi'")
 	}
 }

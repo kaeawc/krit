@@ -53,8 +53,8 @@ func (r *DeadCodeRule) check(ctx *v2.Context) {
 		// Check if it's referenced in comments only
 		hasCommentRef := false
 		if r.IgnoreCommentReferences {
-			hasCommentRef = index.IsReferencedOutsideFile(sym.Name, sym.File) &&
-				!index.IsReferencedOutsideFileExcludingComments(sym.Name, sym.File)
+			hasCommentRef = index.IsSymbolReferencedOutsideFile(sym, false) &&
+				!index.IsSymbolReferencedOutsideFile(sym, true)
 		}
 
 		var msg string
@@ -89,6 +89,10 @@ func (r *DeadCodeRule) check(ctx *v2.Context) {
 }
 
 func shouldSkipSymbol(sym scanner.Symbol) bool {
+	if sym.Language == scanner.LangJava && !isConservativeJavaDeadCodeSymbol(sym) {
+		return true
+	}
+
 	// Skip overrides (called by framework/parent)
 	if sym.IsOverride {
 		return true
@@ -141,6 +145,20 @@ func shouldSkipSymbol(sym scanner.Symbol) bool {
 	return false
 }
 
+func isConservativeJavaDeadCodeSymbol(sym scanner.Symbol) bool {
+	if sym.Visibility != "public" {
+		return false
+	}
+	switch sym.Kind {
+	case "class", "interface", "enum", "record", "annotation":
+		return sym.FQN != ""
+	case "method":
+		return sym.Owner != "" && sym.FQN != "" && sym.Signature != ""
+	default:
+		return false
+	}
+}
+
 func shouldSkipSymbolWithFile(sym scanner.Symbol, file *scanner.File) bool {
 	if shouldSkipSymbol(sym) {
 		return true
@@ -186,8 +204,19 @@ func deadCodeSymbolNode(sym scanner.Symbol, file *scanner.File) uint32 {
 	switch sym.Kind {
 	case "function":
 		wanted["function_declaration"] = true
-	case "class", "interface":
+	case "class":
 		wanted["class_declaration"] = true
+	case "interface":
+		wanted["class_declaration"] = true
+		wanted["interface_declaration"] = true
+	case "enum":
+		wanted["enum_declaration"] = true
+	case "record":
+		wanted["record_declaration"] = true
+	case "annotation":
+		wanted["annotation_type_declaration"] = true
+	case "method":
+		wanted["method_declaration"] = true
 	case "object":
 		wanted["object_declaration"] = true
 	case "property":

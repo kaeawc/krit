@@ -68,6 +68,105 @@ fun currentFeature() = 42
 	}
 }
 
+func TestOssLicensesNotIncludedInAndroid(t *testing.T) {
+	r := findGradleRule(t, "OssLicensesNotIncludedInAndroid")
+
+	root := fixtureRoot(t)
+	positivePath := filepath.Join(root, "positive", "licensing", "oss-licenses-not-included-in-android", "app", "build.gradle.kts")
+	negativePath := filepath.Join(root, "negative", "licensing", "oss-licenses-not-included-in-android", "app", "build.gradle.kts")
+
+	read := func(p string) (string, *android.BuildConfig) {
+		t.Helper()
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("ReadFile(%s): %v", p, err)
+		}
+		cfg, err := android.ParseBuildGradleContent(string(data))
+		if err != nil {
+			t.Fatalf("ParseBuildGradleContent(%s): %v", p, err)
+		}
+		return string(data), cfg
+	}
+
+	t.Run("positive: app module without plugin or LICENSE triggers", func(t *testing.T) {
+		content, cfg := read(positivePath)
+		findings := runGradleRule(r, positivePath, content, cfg)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Rule != "OssLicensesNotIncludedInAndroid" {
+			t.Fatalf("unexpected rule: %s", findings[0].Rule)
+		}
+	})
+
+	t.Run("negative: oss-licenses-plugin applied is clean", func(t *testing.T) {
+		content, cfg := read(negativePath)
+		findings := runGradleRule(r, negativePath, content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative: LICENSE file present is clean", func(t *testing.T) {
+		dir := t.TempDir()
+		buildPath := filepath.Join(dir, "build.gradle.kts")
+		content := `plugins {
+    id("com.android.application")
+}
+dependencies {
+    implementation("androidx.core:core-ktx:1.12.0")
+}
+`
+		if err := os.WriteFile(buildPath, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "LICENSE"), []byte("Apache-2.0"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := android.ParseBuildGradleContent(content)
+		if err != nil {
+			t.Fatal(err)
+		}
+		findings := runGradleRule(r, buildPath, content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative: library module is clean", func(t *testing.T) {
+		content := `plugins {
+    id("com.android.library")
+}
+dependencies {
+    implementation("androidx.core:core-ktx:1.12.0")
+}
+`
+		cfg, err := android.ParseBuildGradleContent(content)
+		if err != nil {
+			t.Fatal(err)
+		}
+		findings := runGradleRule(r, "lib/build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative: no implementation deps is clean", func(t *testing.T) {
+		content := `plugins {
+    id("com.android.application")
+}
+`
+		cfg, err := android.ParseBuildGradleContent(content)
+		if err != nil {
+			t.Fatal(err)
+		}
+		findings := runGradleRule(r, "app/build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
 func TestDependencyLicenseUnknown(t *testing.T) {
 	r := findGradleRule(t, "DependencyLicenseUnknown")
 	rule, ok := r.Implementation.(*rules.DependencyLicenseUnknownRule)

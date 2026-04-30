@@ -413,6 +413,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*OptionalAbstractKeywordRule)(nil),
 		(*OptionalUnitRule)(nil),
 		(*OrientationResourceRule)(nil),
+		(*OssLicensesNotIncludedInAndroidRule)(nil),
 		(*OutdatedDocumentationRule)(nil),
 		(*OverdrawResourceRule)(nil),
 		(*OverrideAbstractRule)(nil),

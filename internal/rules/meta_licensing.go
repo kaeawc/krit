@@ -76,6 +76,18 @@ func (r *LgplStaticLinkingInApkRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *OssLicensesNotIncludedInAndroidRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "OssLicensesNotIncludedInAndroid",
+		RuleSet:       "licensing",
+		Severity:      "info",
+		Description:   "Detects Android app modules with implementation dependencies but no attribution surface (oss-licenses-plugin or LICENSE file).",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *OptInMarkerNotRecognisedRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "OptInMarkerNotRecognised",

@@ -1,6 +1,6 @@
 # OssLicensesNotIncludedInAndroid
 
-**Cluster:** [licensing](README.md) · **Status:** planned · **Severity:** info · **Default:** inactive
+**Cluster:** [licensing](README.md) · **Status:** implemented · **Severity:** info · **Default:** inactive
 
 ## Catches
 

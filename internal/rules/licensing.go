@@ -2,13 +2,110 @@ package rules
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/scanner"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
+
+const ossLicensesPluginID = "com.google.android.gms.oss-licenses-plugin"
+
+var ossLicensesAttributionFiles = []string{
+	"LICENSE",
+	"LICENSE.md",
+	"LICENSE.txt",
+	"LICENCE",
+	"LICENCE.md",
+	"LICENCE.txt",
+	"NOTICE",
+	"NOTICE.md",
+	"NOTICE.txt",
+	"THIRD_PARTY_LICENSES",
+	"THIRD_PARTY_LICENSES.md",
+	"THIRD_PARTY_LICENSES.txt",
+	"THIRD_PARTY_NOTICES",
+	"THIRD_PARTY_NOTICES.md",
+	"THIRD_PARTY_NOTICES.txt",
+}
+
+// OssLicensesNotIncludedInAndroidRule flags Android application modules that
+// declare implementation dependencies but neither apply the Play Services OSS
+// Licenses plugin nor ship a LICENSE file alongside the build script. Without
+// either, a release APK has no attribution surface for its third-party deps.
+type OssLicensesNotIncludedInAndroidRule struct {
+	GradleBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Licensing rule.
+// Detection combines Gradle plugin-list parsing with attribution-file
+// presence; vendored licenses under non-standard names produce false
+// positives. Classified per roadmap/17.
+func (r *OssLicensesNotIncludedInAndroidRule) Confidence() float64 { return 0.75 }
+
+func (r *OssLicensesNotIncludedInAndroidRule) check(ctx *v2.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
+	if cfg == nil || !isAndroidApplicationModule(cfg.Plugins) {
+		return
+	}
+	if !hasImplementationDependency(cfg.Dependencies) {
+		return
+	}
+	for _, p := range cfg.Plugins {
+		if p == ossLicensesPluginID {
+			return
+		}
+	}
+	if moduleHasLicenseFile(path) {
+		return
+	}
+
+	line := findGradleLineStr(content, "plugins")
+	if line == 0 {
+		line = 1
+	}
+	ctx.Emit(gradleFinding(path, line, r.BaseRule,
+		"Android application module declares implementation dependencies but neither applies `com.google.android.gms.oss-licenses-plugin` nor ships a LICENSE file. Add an attribution surface for third-party libraries."))
+}
+
+func isAndroidApplicationModule(plugins []string) bool {
+	for _, p := range plugins {
+		if p == "com.android.application" || strings.HasPrefix(p, "com.android.application.") {
+			return true
+		}
+	}
+	return false
+}
+
+func hasImplementationDependency(deps []android.Dependency) bool {
+	for _, d := range deps {
+		if d.Configuration == "implementation" && d.Group != "" && d.Name != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func moduleHasLicenseFile(buildPath string) bool {
+	if buildPath == "" {
+		return false
+	}
+	dir := filepath.Dir(buildPath)
+	if dir == "" || dir == "." {
+		return false
+	}
+	for _, name := range ossLicensesAttributionFiles {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			return true
+		}
+	}
+	return false
+}
 
 const (
 	licensingRuleSet          = "licensing"

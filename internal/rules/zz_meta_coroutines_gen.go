@@ -139,7 +139,7 @@ func (r *InjectDispatcherRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "dispatcherNames",
 				Type:        registry.OptStringList,
-				Default:     []string(nil),
+				Default:     []string{"IO", "Default", "Unconfined", "Main"},
 				Description: "Dispatcher names to flag.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*InjectDispatcherRule).DispatcherNames = value.([]string)

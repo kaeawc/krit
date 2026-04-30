@@ -60,7 +60,7 @@ combined. Warm is unaffected (shard cache served).
    output slice on the caller's goroutine with one pass — known final
    size from `sum(len(per-worker))`, so one allocation.
 4. Apply the same pattern to `collectIndexDataInternal` (the
-   non-sharded legacy path at `index.go:328-407`). Same mutex, same
+   non-sharded path at `index.go:328-407`). Same mutex, same
    fix.
 5. The bloom-union path (`mergeBloom`, lines 203-213) already uses its
    own `bloomMu` — leave that alone; the bloom merge happens once per

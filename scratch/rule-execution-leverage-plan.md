@@ -26,7 +26,7 @@ Execution path:
 3. build suppression index
 4. run dispatch walk
 5. run line rules
-6. run legacy rules
+6. run project-scope rule phases
 7. suppression filter
 
 Observed behavior:

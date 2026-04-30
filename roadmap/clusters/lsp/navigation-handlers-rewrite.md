@@ -61,14 +61,13 @@ func (s *Server) handleDefinition(req *Request) {
     }
 
     // Oracle unavailable or no match — fall back to existing textual walker
-    s.handleDefinitionLegacy(req, params)
+    s.handleDefinitionTextualFallback(req, params)
 }
 ```
 
-Each handler gets a `handle<Op>Legacy` suffix variant that wraps the
-current implementation unchanged. The fallback path preserves behavior
-when the oracle daemon is down or still warming up, so users are no
-worse off than today.
+Each handler gets a `handle<Op>TextualFallback` suffix variant that wraps the
+current implementation unchanged. The fallback path preserves behavior when the
+oracle daemon is down or still warming up, so users are no worse off than today.
 
 ### `handleDefinition`
 
@@ -126,7 +125,7 @@ or
 ## Files to touch
 
 - `internal/lsp/definition.go` — all four handlers get oracle path,
-  legacy path renamed `*Legacy`
+  textual fallback path gets a temporary explicit name
 - `internal/lsp/server.go` — `handleHover` gets the same treatment
 - `internal/lsp/oracle_index.go` — new, thin server-side accessor
   that holds the `*oracle.Index` and refresh state

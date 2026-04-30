@@ -22,7 +22,8 @@ All notable changes to Krit will be documented in this file.
 - 43 compiled tree-sitter queries for performance
 - Symbol-indexed dispatch (array lookup, no string hashing)
 - Parser pooling via sync.Pool with incremental reparse in LSP
-- Confidence field on findings (0.95 dispatch, 0.75 line, 0.50 legacy)
+- Confidence field on findings, with rule-specific confidence carried through
+  the v2 registry
 - GitHub Action with SARIF upload, checksum verification, and `diff` input
 - Gradle plugin (check/format/baseline, reports DSL, per-source-set tasks)
 - VS Code extension with binary auto-download

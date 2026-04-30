@@ -12,8 +12,9 @@ because both paths must be supported simultaneously.
 
 Note: `FindingColumns` itself is already shipped
 ([`performance-infra/columnar-finding-storage.md`](../performance-infra/columnar-finding-storage.md)).
-This item is about deleting the old path — the incremental item added
-columnar alongside `[]Finding`; this item removes the legacy half.
+This item is about deleting the old path. The incremental item added
+columnar storage alongside `[]Finding`; this item removes the remaining
+parallel representation.
 
 ## Current cost
 

@@ -130,7 +130,7 @@ Eight commits on `main` landed the migration:
 | `99811bc` | 2C | `krit-gen` emits per-file `Meta()` methods from inventory |
 | `59ab119` | 2D | 628 rules gain `Meta()` methods via generated `zz_meta_*_gen.go` |
 | `0902ea1` | 3A | `ConfigAdapter` + `ApplyConfigViaRegistry` + 561/561 parity harness gating rollout |
-| `88202d5` | 3C | `ApplyConfig` cut over to the registry; legacy switch + hand-maintained `DefaultInactive` map deleted |
+| `88202d5` | 3C | `ApplyConfig` cut over to the registry; older switch + hand-maintained `DefaultInactive` map deleted |
 | `43d4c3b` | 3E | `go:generate` directives + CI freshness test `TestGeneratedFilesUpToDate`; inventory script refresh |
 | `122e9b6` | 3F-inv / 3G | `
 
@@ -149,8 +149,8 @@ Artifacts in-tree today:
   to 94 lines total; `defaults.go` from a hand-maintained literal map
   to 85 lines of lazy-init plumbing.
 - **628 rules total**, 97 with config options, 323 opt-in by default.
-- **561/561 parity passes** between the legacy and registry code paths
-  before Phase 3C deleted the legacy path.
+- **561/561 parity passes** between the older config path and the registry
+  code path before Phase 3C deleted the older path.
 
 ## Authoring a new rule (today's workflow)
 
@@ -183,7 +183,7 @@ Artifacts in-tree today:
 | `DefaultInactive` global map replaced | ✅ (with deviation) | Now **lazy-runtime-initialized** from the generated `AllMetaProviders()` index via `ensureDefaultInactive()` + `sync.Once`, not a compile-time `const` set. Functionally equivalent — see Deviations. |
 | Adding a new rule requires only the rule's file | ✅ (with nuance) | No shared infrastructure edit, but authors must invoke `python3 tools/rule_inventory.py && go generate` to refresh generated inputs. The CI freshness test forces this. |
 | CI fails if generated files are out of date | ✅ | `TestGeneratedFilesUpToDate` (re-runs `krit-gen -verify`) and `TestRegistryFileUpToDate` (re-runs `
-| All existing config-driven tests pass | ✅ | Full suite green; 561/561 parity between legacy and registry paths before legacy-path deletion. |
+| All existing config-driven tests pass | ✅ | Full suite green; 561/561 parity between the older config path and the registry path before deleting the older path. |
 
 ## Deviations from original proposal
 

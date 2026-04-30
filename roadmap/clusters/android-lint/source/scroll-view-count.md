@@ -1,13 +1,14 @@
 # ScrollViewCount
 
-**Cluster:** [android-lint](../README.md) · **Sub-cluster:** source · **Status:** in-progress ·
+**Cluster:** [android-lint](../README.md) · **Sub-cluster:** source · **Status:** shipped ·
 **Severity:** warning · **Default:** active
 
 ## What it catches
 
 `ScrollView` or `HorizontalScrollView` containers that have more than one direct child. The Android `ScrollView` contract requires exactly one direct child (typically a `LinearLayout` wrapping multiple items); multiple direct children cause a crash at runtime with `ScrollView can host only one direct child`. The equivalent Compose pattern is a `ScrollView`-like container wrapping a `Column` or `Row` with siblings added outside it.
 
-This rule is currently registered but `Check()` returns nil (stub). The primary signal is in XML layouts, but a Compose heuristic is also possible for the `verticalScroll` / `horizontalScroll` modifier pattern.
+Krit implements this through a source heuristic for scrollable Compose trees
+and a resource rule for XML layouts.
 
 ## Example — triggers
 
@@ -45,9 +46,11 @@ fun GoodScrollContent() {
 
 ## Implementation notes
 
-- Dispatch: `call_expression` (Compose) or XML element (layout scanner)
-- Infra reuse: `internal/rules/android_correctness.go` (stub lives here — note in source: "Primarily XML; stub.")
-- Effort: Medium — the XML path requires the Android layout XML scanner (`internal/android/`); the Compose path requires recognising `verticalScroll`/`horizontalScroll` modifiers and is lower value since Compose `Column` already scrolls correctly
+- Dispatch: `call_expression` (Compose) and XML element/resource data for the
+  layout scanner
+- Infra reuse: `internal/rules/android_correctness.go`,
+  `internal/rules/android_resource_layout.go`, and `internal/android/`
+- Coverage: source unit tests plus resource tests cover the concrete callbacks
 - Related: `ScrollViewChildCountDetector` (AOSP), layout XML scanner
 
 ## Links

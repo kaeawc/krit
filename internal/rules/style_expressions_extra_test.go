@@ -1,6 +1,11 @@
 package rules_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+)
 
 // --- MultilineLambdaItParameter ---
 
@@ -331,6 +336,51 @@ fun main() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestDoubleNegativeLambda_HonorsNegativeFunctions(t *testing.T) {
+	// NegativeFunctions was previously a dead config — exposed in zz_meta
+	// but never consulted. Configure it via the rule pointer and verify
+	// custom callee names are flagged when the lambda body is a single
+	// `!` prefix expression.
+	var rule *rules.DoubleNegativeLambdaRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "DoubleNegativeLambda" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.DoubleNegativeLambdaRule)
+			if !ok {
+				t.Fatalf("expected DoubleNegativeLambdaRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("DoubleNegativeLambda rule not registered")
+	}
+	original := rule.NegativeFunctions
+	defer func() { rule.NegativeFunctions = original }()
+
+	rule.NegativeFunctions = []string{"rejectAll"}
+
+	// Custom callee with `!`-only body — fires under the new config.
+	if findings := runRuleByName(t, "DoubleNegativeLambda", `
+package test
+fun main(list: List<String>) {
+    list.rejectAll { !it.isEmpty() }
+}
+`); len(findings) == 0 {
+		t.Fatal("expected finding for configured negative-function callee 'rejectAll'")
+	}
+
+	// A non-configured custom callee still doesn't fire.
+	if findings := runRuleByName(t, "DoubleNegativeLambda", `
+package test
+fun main(list: List<String>) {
+    list.allowAll { !it.isEmpty() }
+}
+`); len(findings) != 0 {
+		t.Fatalf("expected no findings for un-configured callee, got %d", len(findings))
 	}
 }
 

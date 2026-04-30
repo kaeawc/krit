@@ -334,6 +334,12 @@ var ignoredReturnValueInPlaceMutationCalls = map[string]bool{
 	"sort":    true,
 }
 
+var ignoredReturnValueEmitterSignalCalls = map[string]bool{
+	"onComplete": true,
+	"onError":    true,
+	"onNext":     true,
+}
+
 var ignoredReturnValueVerificationContextCalls = map[string]bool{
 	"verify":         true,
 	"coVerify":       true,
@@ -361,6 +367,17 @@ func ignoredReturnValueInsideVerificationContext(file *scanner.File, idx uint32)
 		found = ignoredReturnValueVerificationContextCalls[flatCallNameAny(file, n)]
 	})
 	return found
+}
+
+func ignoredReturnValueIsEmitterSignalCall(file *scanner.File, idx uint32, funcName string) bool {
+	if !ignoredReturnValueEmitterSignalCalls[funcName] {
+		return false
+	}
+	receiver := flatReceiverNameFromCall(file, idx)
+	if receiver == "" {
+		return false
+	}
+	return strings.EqualFold(receiver, "emitter") || strings.HasSuffix(strings.ToLower(receiver), "emitter")
 }
 
 func ignoredReturnValueStatementRoot(file *scanner.File, idx uint32) uint32 {

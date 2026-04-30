@@ -259,6 +259,27 @@ fun test() {
 	}
 }
 
+func TestExc_InstanceOfCheckForException_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "InstanceOfCheckForException", `
+package test;
+class Example {
+  void run() {
+    try {
+      work();
+    } catch (Exception e) {
+      if (e instanceof java.io.IOException) {
+        work();
+      }
+    }
+  }
+  void work() {}
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java instanceof finding, got %d", len(findings))
+	}
+}
+
 // --- NotImplementedDeclaration ---
 
 func TestExc_NotImplementedDeclaration_Positive(t *testing.T) {
@@ -316,6 +337,25 @@ fun test() {
 	}
 }
 
+func TestExc_RethrowCaughtException_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "RethrowCaughtException", `
+package test;
+class Example {
+  void run() throws Exception {
+    try {
+      work();
+    } catch (Exception e) {
+      throw e;
+    }
+  }
+  void work() throws Exception {}
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java rethrow finding, got %d", len(findings))
+	}
+}
+
 // --- ReturnFromFinally ---
 
 func TestExc_ReturnFromFinally_Positive(t *testing.T) {
@@ -345,6 +385,24 @@ fun test(): Int {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestExc_ReturnFromFinally_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ReturnFromFinally", `
+package test;
+class Example {
+  int run() {
+    try {
+      return 1;
+    } finally {
+      return 2;
+    }
+  }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java return-from-finally finding, got %d", len(findings))
 	}
 }
 
@@ -844,6 +902,25 @@ fun test() {
 	}
 }
 
+func TestExc_ThrowingExceptionFromFinally_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ThrowingExceptionFromFinally", `
+package test;
+class Example {
+  void run() {
+    try {
+      work();
+    } finally {
+      throw new RuntimeException("masked");
+    }
+  }
+  void work() {}
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java throw-from-finally finding, got %d", len(findings))
+	}
+}
+
 // --- ThrowingExceptionsWithoutMessageOrCause ---
 
 func TestExc_ThrowingExceptionsWithoutMessageOrCause_Positive(t *testing.T) {
@@ -897,6 +974,26 @@ fun test() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestExc_ThrowingNewInstanceOfSameException_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ThrowingNewInstanceOfSameException", `
+package test;
+import java.io.IOException;
+class Example {
+  void run() throws IOException {
+    try {
+      work();
+    } catch (IOException e) {
+      throw new IOException();
+    }
+  }
+  void work() throws IOException {}
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java same-exception finding, got %d", len(findings))
 	}
 }
 

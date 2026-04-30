@@ -14,7 +14,7 @@ The machine-checked readiness gate lives in [`java-support-readiness.yml`](java-
 | Database/resource cost | `DatabaseInstanceRecreated`, `BufferedReadWithoutBuffer`, `CursorLoopWithColumnIndexInLoop`, `RecyclerAdapterWithoutDiffUtil`, `RecyclerAdapterStableIdsDefault`, `OkHttpClientCreatedPerCall`, `RetrofitCreateInHotPath`, `HttpClientNotReused`, `DatabaseQueryOnMainThread` | Java support uses Java AST node types plus source-level imports and type facts where available. |
 | Security literal checks | `HardcodedBearerToken`, `HardcodedGcpServiceAccount` | Java support added in #700. These inspect `string_literal` nodes and avoid comments or arbitrary line scans. |
 | Release engineering literal checks | `HardcodedLocalhostUrl` | Java support added in #700. Test/debug source paths remain excluded. |
-| Exceptions | `ExceptionRaisedInUnexpectedLocation`, `ThrowingExceptionInMain` | Java support added in #700 for method-level throw checks that only need Java `method_declaration` and `throw_statement` nodes. |
+| Exceptions | `ExceptionRaisedInUnexpectedLocation`, `InstanceOfCheckForException`, `RethrowCaughtException`, `ReturnFromFinally`, `ThrowingExceptionFromFinally`, `ThrowingExceptionInMain`, `ThrowingNewInstanceOfSameException` | Java support added in #700 for method-level throw checks plus catch/finally rules that use Java `catch_clause`, `finally_clause`, `instanceof_expression`, `return_statement`, and `throw_statement` nodes. |
 | Empty blocks | `EmptyCatchBlock`, `EmptyClassBlock`, `EmptyDoWhileBlock`, `EmptyElseBlock`, `EmptyFinallyBlock`, `EmptyForBlock`, `EmptyFunctionBlock`, `EmptyIfBlock`, `EmptyTryBlock`, `EmptyWhileBlock` | Java support added in #700 for common braced Java block shapes. Kotlin-only file/constructor/when rules remain Kotlin-only or need design. |
 
 ## Supported Non-Source Android Rules
@@ -46,7 +46,7 @@ Java-only source runs participate in text autofix when active rules declare Java
 | Batch | Status | Plan |
 | --- | --- | --- |
 | Potential bugs | Pending | Port rules whose Java AST shapes are clear first. Mark rules needing receiver/return types for source facts or javac-backed facts instead of adding broad lexical heuristics. |
-| Exceptions | Partial | Method-level throw rules are done. Continue with catch/finally rules using Java `try_statement`, `catch_clause`, `finally_clause`, and method invocation nodes. |
+| Exceptions | Partial | Method-level throw checks and common catch/finally rules are done. Continue with remaining exception rules that need Java-specific call/constructor argument analysis or broader false-positive review. |
 | Privacy | Pending | Port storage/logging/analytics rules that depend on shared Android APIs. Add local-lookalike negatives for API names such as `SharedPreferences`, `Log`, and analytics clients. |
 | Release engineering | Partial | Literal URL support is done. Follow with Java-safe logging/import/build-config rules where AST support is adequate. |
 | Security | Partial | Literal credential support is done. Follow with Java-safe source rules that can use imports/source facts or explicit future javac fact requirements. |

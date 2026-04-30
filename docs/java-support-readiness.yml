@@ -102,7 +102,7 @@ ruleSetDefaults:
   exceptions:
     status: partial
     issue: 700
-    reason: Method-level Java throw checks are supported; catch/finally rules still need Java-specific implementations.
+    reason: Method-level Java throw checks and common catch/finally rules are supported; remaining exception rules still need Java-specific call/constructor argument analysis or broader false-positive review.
   i18n:
     status: supported
     evidence:
@@ -265,6 +265,10 @@ rules:
     status: supported
     fixtures:
       - internal/rules/resource_cost_test.go
+  InstanceOfCheckForException:
+    status: supported
+    fixtures:
+      - internal/rules/exceptions_test.go
   NewLineAtEndOfFile:
     status: supported
     fixtures:
@@ -289,6 +293,14 @@ rules:
     status: supported
     fixtures:
       - internal/rules/resource_cost_test.go
+  ReturnFromFinally:
+    status: supported
+    fixtures:
+      - internal/rules/exceptions_test.go
+  RethrowCaughtException:
+    status: supported
+    fixtures:
+      - internal/rules/exceptions_test.go
   SecureRandom:
     status: supported
     fixtures:
@@ -306,6 +318,14 @@ rules:
     fixtures:
       - tests/fixtures/fixable/per-rule/SpacingAfterPackageAndImports.java
   ThrowingExceptionInMain:
+    status: supported
+    fixtures:
+      - internal/rules/exceptions_test.go
+  ThrowingExceptionFromFinally:
+    status: supported
+    fixtures:
+      - internal/rules/exceptions_test.go
+  ThrowingNewInstanceOfSameException:
     status: supported
     fixtures:
       - internal/rules/exceptions_test.go

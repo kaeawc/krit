@@ -262,6 +262,11 @@ type IndexResult struct {
 	// parent tracker used by IndexPhase (for pmi build) and
 	// CrossFilePhase (moduleRuleExecution).
 	ModuleParentTracker perf.Tracker
+	// CrossFindingsCacheDir, when non-empty, enables the cross-rule
+	// findings cache in CrossFilePhase. Cache miss runs cross-rules
+	// normally and writes the result back; hit appends cached findings
+	// to the run's collector and skips rule execution.
+	CrossFindingsCacheDir string
 }
 
 // FileTiming captures per-file dispatch timing recorded when

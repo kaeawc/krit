@@ -14,7 +14,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyCatchBlockRule{BaseRule: BaseRule{RuleName: "EmptyCatchBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects catch blocks with an empty body that silently swallow exceptions."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"catch_block"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
+			NodeTypes: []string{"catch_block", "catch_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isBlockEmptyFlat(file, idx) {
@@ -48,7 +48,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyClassBlockRule{BaseRule: BaseRule{RuleName: "EmptyClassBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects class declarations with an empty body that can have their braces removed."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_body"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
+			NodeTypes: []string{"class_body"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -133,7 +133,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyDoWhileBlockRule{BaseRule: BaseRule{RuleName: "EmptyDoWhileBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects do-while loops with an empty body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"do_while_statement"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
+			NodeTypes: []string{"do_while_statement", "do_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isBlockEmptyFlat(file, idx) {
@@ -156,9 +156,40 @@ func registerEmptyblocksRules() {
 		r := &EmptyElseBlockRule{BaseRule: BaseRule{RuleName: "EmptyElseBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects else blocks with an empty body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"if_expression"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
+			NodeTypes: []string{"if_expression", "if_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if file.Language == scanner.LangJava {
+					text := file.FlatNodeText(idx)
+					elseIdx := strings.LastIndex(text, "else")
+					if elseIdx < 0 {
+						return
+					}
+					afterElse := text[elseIdx+len("else"):]
+					braceStart := strings.Index(afterElse, "{")
+					braceEnd := strings.LastIndex(afterElse, "}")
+					if braceStart < 0 || braceEnd <= braceStart {
+						return
+					}
+					body := stripComments(afterElse[braceStart+1 : braceEnd])
+					if strings.TrimSpace(body) != "" {
+						return
+					}
+					f := r.Finding(file, file.FlatRow(idx)+1, 1,
+						"Empty else block detected.")
+					startByte := int(file.FlatStartByte(idx)) + elseIdx
+					for startByte > 0 && (file.Content[startByte-1] == ' ' || file.Content[startByte-1] == '\t' || file.Content[startByte-1] == '\n' || file.Content[startByte-1] == '\r') {
+						startByte--
+					}
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   startByte,
+						EndByte:     int(file.FlatStartByte(idx)) + elseIdx + len("else") + braceEnd + 1,
+						Replacement: "",
+					}
+					ctx.Emit(f)
+					return
+				}
 				// Find the `else` token and its companion control_structure_body.
 				var elseTok, elseBody uint32
 				sawElse := false
@@ -205,7 +236,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyFinallyBlockRule{BaseRule: BaseRule{RuleName: "EmptyFinallyBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects finally blocks with an empty body that serve no purpose."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"finally_block"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
+			NodeTypes: []string{"finally_block", "finally_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isBlockEmptyFlat(file, idx) {
@@ -231,9 +262,25 @@ func registerEmptyblocksRules() {
 		r := &EmptyForBlockRule{BaseRule: BaseRule{RuleName: "EmptyForBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects for loops with an empty body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"for_statement"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
+			NodeTypes: []string{"for_statement", "enhanced_for_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if file.Language == scanner.LangJava {
+					if !isBlockEmptyFlat(file, idx) {
+						return
+					}
+					f := r.Finding(file, file.FlatRow(idx)+1, 1,
+						"Empty for block detected.")
+					forS, forE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   forS,
+						EndByte:     forE,
+						Replacement: "",
+					}
+					ctx.Emit(f)
+					return
+				}
 				body, _ := file.FlatFindChild(idx, "control_structure_body")
 				if body == 0 {
 					return
@@ -262,9 +309,30 @@ func registerEmptyblocksRules() {
 		r := &EmptyFunctionBlockRule{BaseRule: BaseRule{RuleName: "EmptyFunctionBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects function declarations with an empty body."}, IgnoreOverridden: false}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
+			NodeTypes: []string{"function_declaration", "method_declaration"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if file.Language == scanner.LangJava {
+					nodeText := file.FlatNodeText(idx)
+					if !strings.Contains(nodeText, "{") || !isBlockEmptyFlat(file, idx) {
+						return
+					}
+					f := r.Finding(file, file.FlatRow(idx)+1, 1,
+						"Empty function body detected.")
+					braceStart := strings.Index(nodeText, "{")
+					braceEnd := strings.LastIndex(nodeText, "}")
+					if braceStart >= 0 && braceEnd > braceStart {
+						indent := detectIndent(file.Content, int(file.FlatStartByte(idx)))
+						f.Fix = &scanner.Fix{
+							ByteMode:    true,
+							StartByte:   int(file.FlatStartByte(idx)) + braceStart,
+							EndByte:     int(file.FlatStartByte(idx)) + braceEnd + 1,
+							Replacement: "{\n" + indent + "    // TODO: implement\n" + indent + "}",
+						}
+					}
+					ctx.Emit(f)
+					return
+				}
 				if file.FlatHasModifier(idx, "open") {
 					return
 				}
@@ -342,7 +410,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyIfBlockRule{BaseRule: BaseRule{RuleName: "EmptyIfBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects if blocks with an empty body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"if_expression"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
+			NodeTypes: []string{"if_expression", "if_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -449,7 +517,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyTryBlockRule{BaseRule: BaseRule{RuleName: "EmptyTryBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects try blocks with an empty body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"try_expression"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
+			NodeTypes: []string{"try_expression", "try_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -531,7 +599,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyWhileBlockRule{BaseRule: BaseRule{RuleName: "EmptyWhileBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects while loops with an empty body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"while_statement"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
+			NodeTypes: []string{"while_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isBlockEmptyFlat(file, idx) {

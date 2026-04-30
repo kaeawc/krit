@@ -12,6 +12,21 @@ Go binary for Kotlin static analysis. Parses Kotlin (and Java) with tree-sitter,
 - Auto-fixes must produce ktfmt-compatible output
 - Fixes must declare a safety level: `FixCosmetic`, `FixIdiomatic`, or `FixSemantic`
 
+## Rule Implementation Guardrails
+
+Recent rule fixes repeatedly came from the same evidence bugs. Before adding, porting, or broadening a rule:
+
+- Prefer tree-sitter flat AST, identifiers, navigation chains, imports, and source index facts over `strings.Contains`, raw prefixes, or broad regexes.
+- If a line/text scanner is unavoidable, make it lexical-state aware: skip `//`, `/* ... */`, KDoc, trailing comments, regular strings with escapes, raw triple-quoted strings, and Gradle string literals.
+- Require receiver/owner proof for common method names and local lookalikes: `System.out/err`, Android `Context`/`Activity`/`Service`, lifecycle methods, database APIs, logging APIs, and ignored-return fallbacks.
+- Stop body walks at real scope boundaries such as nested functions, lambdas, anonymous functions, classes/objects, and local declarations that can shadow names.
+- Walk all relevant operands, siblings, and ancestors; do not inspect only the first child or stop at the first unrelated call expression unless that is a real semantic boundary.
+- Verify actual parser shape for important constructs (`x!!`, Elvis, safe calls, infix expressions, raw strings) with focused parser/helper tests instead of assuming node names.
+- For Java-capable rules, add Java positives and Java local-lookalike negatives. Confirm Java parse, dispatch, suppression, source-index, module/dead-code, and output paths all participate.
+- Keep config schema validation and runtime matching in sync, especially for regex options and implicit anchoring.
+
+Bug fixes should include the regression test that would have failed before the fix: lexical negatives, nested-scope negatives, local-lookalike negatives, Java parity cases, or helper unit tests as appropriate.
+
 ## Project Structure
 
 - `cmd/krit/` - CLI entry point

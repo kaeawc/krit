@@ -20,6 +20,17 @@ Use this when reducing KAA usage or clarifying a rule's `Needs*` declaration.
 
 If a rule can be 100% confident with AST + imports + source inference, remove oracle metadata and prefer resolver-only or no-needs.
 
+## Do Not Replace KAA With Text Guessing
+
+Recent rule fixes repeatedly replaced text shortcuts with structural evidence: AST dispatch for raw strings and commented-out imports, navigation-chain checks for `System.out/err`, flat-AST nullability checks for Elvis assignments, token-aware parameter references, and scoped walks that stop at nested functions/lambdas. When migrating away from KAA or resolver facts, the replacement proof must be at least as token-aware as the oracle fact:
+
+- Use AST node kinds, identifiers, navigation chains, imports, and source index facts before line text.
+- If text is unavoidable, build or reuse lexical helpers that skip comments, block comments, regular strings, raw strings, and trailing comments.
+- Add local-lookalike, nested-scope, and Java-parity negatives for every new non-oracle proof path.
+- Confirm registry `NodeTypes`, `Languages`, and `Needs*` metadata narrow dispatch to the constructs the proof actually understands.
+
+Removing a capability is not a precision win if it broadens to substring, prefix, or unscoped body matching.
+
 ## Library Model as an Alternative to KAA
 
 Before migrating a rule to use KAA for library-presence detection, check whether `LibraryFacts` already answers the question:

@@ -332,6 +332,39 @@ fun check(view: View, binding: Binding): Boolean {
 	}
 }
 
+func TestAvoidReferentialEquality_NegativeCompareToIdentityFastPath(t *testing.T) {
+	findings := runRuleByName(t, "AvoidReferentialEquality", `
+package test
+
+class Row : Comparable<Row> {
+    override fun compareTo(other: Row): Int {
+        if (this === other) return 0
+        return 1
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for compareTo identity fast path, got %d", len(findings))
+	}
+}
+
+func TestAvoidReferentialEquality_PositiveNonLeadingCompareToIdentityCheck(t *testing.T) {
+	findings := runRuleByName(t, "AvoidReferentialEquality", `
+package test
+
+class Row : Comparable<Row> {
+    override fun compareTo(other: Row): Int {
+        println("comparing")
+        if (this === other) return 0
+        return 1
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding when referential equality is not the leading compareTo fast path")
+	}
+}
+
 // Verifies the fix is pinned to the operator child, not a strings.Replace
 // on the whole node text. With the old implementation, an equality
 // expression whose operand contained "!==" inside a string literal would

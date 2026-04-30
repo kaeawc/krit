@@ -130,6 +130,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*DataClassShouldBeImmutableRule)(nil),
 		(*DatabaseInstanceRecreatedRule)(nil),
 		(*DatabaseQueryOnMainThreadRule)(nil),
+		(*DeadBindingsRule)(nil),
 		(*DeadCodeRule)(nil),
 		(*DebugToastInProductionRule)(nil),
 		(*DebuggableManifestRule)(nil),

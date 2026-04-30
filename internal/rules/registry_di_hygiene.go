@@ -74,6 +74,14 @@ func registerDiHygieneRules() {
 		})
 	}
 	{
+		r := &DeadBindingsRule{BaseRule: BaseRule{RuleName: "DeadBindings", RuleSetName: diHygieneRuleSet, Sev: "info", Desc: "Detects @Provides/@Binds functions whose return type is not requested by any @Inject site or component exposure in the project."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &HiltEntryPointOnNonInterfaceRule{BaseRule: BaseRule{RuleName: "HiltEntryPointOnNonInterface", RuleSetName: diHygieneRuleSet, Sev: "warning", Desc: "Detects Hilt @EntryPoint annotations on classes or objects instead of interfaces."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

@@ -198,6 +198,77 @@ class AppApiImpl : AppApi
 	})
 }
 
+func TestDeadBindings(t *testing.T) {
+	rule := buildRuleIndex()["DeadBindings"]
+	if rule == nil {
+		t.Fatal("DeadBindings rule not registered")
+	}
+
+	if !rule.Needs.Has(v2rules.NeedsCrossFile) {
+		t.Fatal("DeadBindings does not declare NeedsCrossFile")
+	}
+
+	root := fixtureRoot(t)
+	positivePath := filepath.Join(root, "positive", "di-hygiene", "DeadBindings.kt")
+	negativePath := filepath.Join(root, "negative", "di-hygiene", "DeadBindings.kt")
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(positivePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", positivePath, err)
+		}
+		findings := runCrossFileRule(rule, []*scanner.File{file})
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "DeadApi") {
+			t.Fatalf("expected dead binding's return type in message, got %q", findings[0].Message)
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(negativePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", negativePath, err)
+		}
+		findings := runCrossFileRule(rule, []*scanner.File{file})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("cross-file inject demand satisfies binding", func(t *testing.T) {
+		files := parseKotlinFiles(t,
+			"Module.kt", `package dihygiene
+
+annotation class Module
+annotation class Provides
+annotation class Inject
+
+interface Foo
+class FooImpl : Foo
+
+@Module
+object FooModule {
+    @Provides
+    fun provideFoo(): Foo = FooImpl()
+}
+`,
+				"Consumer.kt", `package dihygiene
+
+class Consumer @Inject constructor(
+    private val foo: Foo,
+)
+`,
+		)
+
+		findings := runCrossFileRule(rule, files)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
 func TestHiltEntryPointOnNonInterface(t *testing.T) {
 	rule := buildRuleIndex()["HiltEntryPointOnNonInterface"]
 	if rule == nil {

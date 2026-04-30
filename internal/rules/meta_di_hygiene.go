@@ -42,6 +42,18 @@ func (r *BindsMismatchedArityRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *DeadBindingsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "DeadBindings",
+		RuleSet:       "di-hygiene",
+		Severity:      "info",
+		Description:   "Detects @Provides/@Binds functions whose return type is not requested by any @Inject site or component exposure in the project.",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.5,
+	}
+}
+
 func (r *HiltEntryPointOnNonInterfaceRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "HiltEntryPointOnNonInterface",

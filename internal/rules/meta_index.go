@@ -546,6 +546,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*TestOnlyImportInProductionRule)(nil),
 		(*TestWithOnlyTodoRule)(nil),
 		(*TestWithoutAssertionRule)(nil),
+		(*TextDirectionLiteralInStringRule)(nil),
 		(*TextFieldsResourceRule)(nil),
 		(*TextViewEditsRule)(nil),
 		(*ThrowingExceptionFromFinallyRule)(nil),

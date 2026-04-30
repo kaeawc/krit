@@ -150,6 +150,18 @@ func (r *StringTrailingWhitespaceResourceRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *StringResourceMissingPositionalRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "StringResourceMissingPositional",
+		RuleSet:       "android-lint",
+		Severity:      "warning",
+		Description:   "",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.85,
+	}
+}
+
 func (r *StringNotLocalizableResourceRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "StringNotLocalizableResource",

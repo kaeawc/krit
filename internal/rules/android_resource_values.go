@@ -1195,6 +1195,108 @@ func (r *StringTrailingWhitespaceResourceRule) check(ctx *v2.Context) {
 }
 
 // ---------------------------------------------------------------------------
+// StringResourceMissingPositional
+// ---------------------------------------------------------------------------
+
+// StringResourceMissingPositionalRule detects translatable <string> resources
+// containing two or more non-positional format specifiers (`%s`, `%d`, ...)
+// without any positional indices. Languages that reorder arguments need
+// `%1$s %2$s` form; bare `%s %s` cannot be reordered by translators.
+type StringResourceMissingPositionalRule struct {
+	ValuesStringsResourceBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence.
+func (r *StringResourceMissingPositionalRule) Confidence() float64 { return 0.85 }
+
+func (r *StringResourceMissingPositionalRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
+	for name, val := range idx.Strings {
+		if idx.StringsNonTranslate[name] {
+			continue
+		}
+		if idx.StringsNonFormatted != nil && idx.StringsNonFormatted[name] {
+			continue
+		}
+		nonPos, pos := classifyFormatSpecifiers(val)
+		if nonPos < 2 || pos > 0 {
+			continue
+		}
+		filePath := "res/values/strings.xml"
+		line := 0
+		if loc, ok := idx.StringsLocation[name]; ok {
+			if loc.FilePath != "" {
+				filePath = loc.FilePath
+			}
+			if loc.Line > 0 {
+				line = loc.Line
+			}
+		}
+		ctx.Emit(resourceFinding(filePath, line, r.BaseRule,
+			fmt.Sprintf("String `%s` has multiple non-positional format specifiers. "+
+				"Use positional syntax like `%%1$s %%2$s` so translators can reorder arguments.", name)))
+	}
+}
+
+// classifyFormatSpecifiers counts non-positional and positional format
+// specifiers in s. `%%` is ignored. Positional specifiers use the `%N$X`
+// form; non-positional specifiers are bare `%s`, `%d`, etc.
+func classifyFormatSpecifiers(s string) (nonPositional, positional int) {
+	for i := 0; i < len(s); i++ {
+		if s[i] != '%' {
+			continue
+		}
+		if i+1 >= len(s) {
+			continue
+		}
+		if s[i+1] == '%' {
+			i++
+			continue
+		}
+		j := i + 1
+		isPositional := false
+		// Optional argument index: digits followed by $
+		k := j
+		for k < len(s) && s[k] >= '0' && s[k] <= '9' {
+			k++
+		}
+		if k > j && k < len(s) && s[k] == '$' {
+			isPositional = true
+			j = k + 1
+		}
+		// Skip flags
+		for j < len(s) && (s[j] == '-' || s[j] == '+' || s[j] == ' ' || s[j] == '0' || s[j] == '#') {
+			j++
+		}
+		// Skip width
+		for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+			j++
+		}
+		// Skip precision
+		if j < len(s) && s[j] == '.' {
+			j++
+			for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+				j++
+			}
+		}
+		if j >= len(s) {
+			continue
+		}
+		if !validConversions[s[j]] {
+			continue
+		}
+		if isPositional {
+			positional++
+		} else {
+			nonPositional++
+		}
+		i = j
+	}
+	return nonPositional, positional
+}
+
+// ---------------------------------------------------------------------------
 // ExtraTextResource
 // ---------------------------------------------------------------------------
 

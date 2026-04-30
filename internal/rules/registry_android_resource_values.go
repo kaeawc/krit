@@ -243,6 +243,22 @@ func registerAndroidResourceValuesRules() {
 		})
 	}
 	{
+		r := &StringResourceMissingPositionalRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "StringResourceMissingPositional", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "StringResourceMissingPositional",
+			Brief:      "String resource has multiple non-positional format specifiers",
+			Category:   ALCI18N,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "Krit roadmap",
+		}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &StringTrailingWhitespaceResourceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "StringTrailingWhitespace", RuleSetName: androidRuleSet, Sev: "info"},
 			IssueID:    "StringTrailingWhitespace",

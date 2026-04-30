@@ -19,4 +19,12 @@ class IgnoredReturnValue {
     fun ignoredUnitIsOk() {
         log()
     }
+
+    fun inPlaceMutatorsAreOk(items: MutableList<Int>) {
+        items.sort()
+        items.shuffle()
+        items.reverse()
+        items.fill(0)
+        items.clear()
+    }
 }

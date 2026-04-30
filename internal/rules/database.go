@@ -342,6 +342,27 @@ func declarationIsVarFlat(file *scanner.File, idx uint32) bool {
 	return false
 }
 
+// RoomExportSchemaDisabledRule detects Room @Database(exportSchema = false)
+// declarations. Disabling schema export loses migration history.
+type RoomExportSchemaDisabledRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Database/Room rule.
+// Detection matches on annotation names without confirming the annotated
+// class is androidx.room.Database.
+func (r *RoomExportSchemaDisabledRule) Confidence() float64 { return 0.75 }
+
+func roomDatabaseExportSchemaDisabledFlat(file *scanner.File, idx uint32) bool {
+	text := findAnnotationTextFlat(file, idx, "Database")
+	if text == "" {
+		return false
+	}
+	compact := strings.Join(strings.Fields(text), "")
+	return strings.Contains(compact, "exportSchema=false")
+}
+
 func hasModuleAnnotatedAncestorFlat(file *scanner.File, idx uint32) bool {
 	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
 		switch file.FlatType(cur) {

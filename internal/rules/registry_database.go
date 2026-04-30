@@ -214,6 +214,27 @@ func registerDatabaseRules() {
 		})
 	}
 	{
+		r := &RoomExportSchemaDisabledRule{BaseRule: BaseRule{RuleName: "RoomExportSchemaDisabled", RuleSetName: "database", Sev: "warning", Desc: "Detects Room @Database(exportSchema = false); disabling schema export loses migration history."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"class_declaration"}, Confidence: r.Confidence(), Implementation: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !hasAnnotationFlat(file, idx, "Database") {
+					return
+				}
+				if !roomDatabaseExportSchemaDisabledFlat(file, idx) {
+					return
+				}
+				name := extractIdentifierFlat(file, idx)
+				if name == "" {
+					name = "database"
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("@Database '%s' sets exportSchema = false; schema history is lost. Set exportSchema = true and configure room.schemaLocation.", name))
+			},
+		})
+	}
+	{
 		r := &JdbcPreparedStatementNotClosedRule{BaseRule: BaseRule{RuleName: "JdbcPreparedStatementNotClosed", RuleSetName: "database", Sev: "warning", Desc: "Detects JDBC prepared statements assigned to local properties without .use {} or .close() in the same scope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

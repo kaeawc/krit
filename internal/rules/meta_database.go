@@ -102,6 +102,18 @@ func (r *EntityPrimaryKeyNotStableRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *RoomExportSchemaDisabledRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "RoomExportSchemaDisabled",
+		RuleSet:       "database",
+		Severity:      "warning",
+		Description:   "Detects Room @Database(exportSchema = false); disabling schema export loses migration history.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *JdbcPreparedStatementNotClosedRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "JdbcPreparedStatementNotClosed",

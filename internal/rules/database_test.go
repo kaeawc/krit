@@ -502,3 +502,86 @@ fun querySafely(connection: Connection) {
 		t.Fatalf("expected no findings when PreparedStatement is closed or wrapped in use, got %v", findings)
 	}
 }
+
+func TestRoomExportSchemaDisabled_Positive(t *testing.T) {
+	findings := runRuleByName(t, "RoomExportSchemaDisabled", `
+package test
+
+annotation class Database(
+    val entities: Array<Any> = [],
+    val version: Int = 1,
+    val exportSchema: Boolean = true,
+)
+
+class RoomDatabase
+
+class User
+
+@Database(entities = [User::class], version = 3, exportSchema = false)
+abstract class AppDb : RoomDatabase()
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for @Database(exportSchema = false)")
+	}
+}
+
+func TestRoomExportSchemaDisabled_NegativeDefault(t *testing.T) {
+	findings := runRuleByName(t, "RoomExportSchemaDisabled", `
+package test
+
+annotation class Database(
+    val entities: Array<Any> = [],
+    val version: Int = 1,
+    val exportSchema: Boolean = true,
+)
+
+class RoomDatabase
+
+class User
+
+@Database(entities = [User::class], version = 3)
+abstract class AppDb : RoomDatabase()
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when exportSchema is omitted, got %v", findings)
+	}
+}
+
+func TestRoomExportSchemaDisabled_NegativeTrue(t *testing.T) {
+	findings := runRuleByName(t, "RoomExportSchemaDisabled", `
+package test
+
+annotation class Database(
+    val entities: Array<Any> = [],
+    val version: Int = 1,
+    val exportSchema: Boolean = true,
+)
+
+class RoomDatabase
+
+class User
+
+@Database(entities = [User::class], version = 3, exportSchema = true)
+abstract class AppDb : RoomDatabase()
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when exportSchema = true, got %v", findings)
+	}
+}
+
+func TestRoomExportSchemaDisabled_NegativeNotDatabase(t *testing.T) {
+	findings := runRuleByName(t, "RoomExportSchemaDisabled", `
+package test
+
+annotation class SomethingElse(val exportSchema: Boolean = true)
+
+class Base
+
+@SomethingElse(exportSchema = false)
+class NotARoomDb : Base()
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for non-@Database annotation, got %v", findings)
+	}
+}
+

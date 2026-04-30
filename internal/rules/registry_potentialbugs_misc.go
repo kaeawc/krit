@@ -213,6 +213,12 @@ func registerPotentialbugsMiscRules() {
 				if stringListContains(r.IgnoreFunctionCall, funcName) {
 					return
 				}
+				if ignoredReturnValueInsideVerificationContext(file, idx) {
+					return
+				}
+				if ignoredReturnValueCallIsValueAssignmentReceiver(file, idx) {
+					return
+				}
 
 				// Check if this call's result is discarded (not used as expression)
 				if flatIsUsedAsExpression(file, idx) {

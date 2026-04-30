@@ -334,12 +334,83 @@ var ignoredReturnValueInPlaceMutationCalls = map[string]bool{
 	"sort":    true,
 }
 
+var ignoredReturnValueVerificationContextCalls = map[string]bool{
+	"verify":         true,
+	"coVerify":       true,
+	"verifyBlocking": true,
+}
+
 func ignoredReturnValueFunctionalCallees() []string {
 	return append([]string(nil), ignoredReturnValueFunctionalOpNames...)
 }
 
 func ignoredReturnValueOracleIdentifiers() []string {
 	return append([]string(nil), ignoredReturnValueOracleIdentifiersList...)
+}
+
+func ignoredReturnValueInsideVerificationContext(file *scanner.File, idx uint32) bool {
+	root := ignoredReturnValueStatementRoot(file, idx)
+	if root == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(root, func(n uint32) {
+		if found || file.FlatType(n) != "call_expression" {
+			return
+		}
+		found = ignoredReturnValueVerificationContextCalls[flatCallNameAny(file, n)]
+	})
+	return found
+}
+
+func ignoredReturnValueStatementRoot(file *scanner.File, idx uint32) uint32 {
+	root := idx
+	for {
+		parent, ok := file.FlatParent(root)
+		if !ok {
+			return root
+		}
+		switch file.FlatType(parent) {
+		case "statements", "function_body", "source_file":
+			return root
+		default:
+			root = parent
+		}
+	}
+}
+
+func ignoredReturnValueCallIsValueAssignmentReceiver(file *scanner.File, idx uint32) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "navigation_expression":
+			if !strings.HasSuffix(strings.TrimSpace(file.FlatNodeText(parent)), ".value") {
+				continue
+			}
+			if gp, ok := file.FlatParent(parent); ok && file.FlatType(gp) == "statements" {
+				stmt := strings.TrimSpace(file.FlatNodeText(gp))
+				nav := strings.TrimSpace(file.FlatNodeText(parent))
+				if strings.HasPrefix(stmt, nav) && strings.HasPrefix(strings.TrimSpace(strings.TrimPrefix(stmt, nav)), "=") {
+					return true
+				}
+			}
+		case "assignment":
+			text := file.FlatNodeText(parent)
+			eq := strings.Index(text, "=")
+			if eq < 0 {
+				return false
+			}
+			callStart := int(file.FlatStartByte(idx))
+			assignStart := int(file.FlatStartByte(parent))
+			if callStart >= assignStart+eq {
+				return false
+			}
+			lhs := strings.TrimSpace(text[:eq])
+			return strings.HasSuffix(lhs, ".value")
+		case "statements", "function_body", "source_file":
+			return false
+		}
+	}
+	return false
 }
 
 func flatIsUsedAsExpression(file *scanner.File, idx uint32) bool {

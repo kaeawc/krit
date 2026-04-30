@@ -571,6 +571,278 @@ func migrationCorpusMentions(corpus, column string) bool {
 	}
 }
 
+// RoomRelationWithoutIndexRule detects @Relation properties whose referenced
+// entityColumn is not declared in the target @Entity's indices list.
+type RoomRelationWithoutIndexRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Detection matches on
+// annotation names without confirming the resolved type is a Room entity.
+func (r *RoomRelationWithoutIndexRule) Confidence() float64 { return 0.75 }
+
+type roomEntityFacts struct {
+	indexed map[string]struct{}
+}
+
+func (r *RoomRelationWithoutIndexRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
+	if index == nil || len(index.Files) == 0 {
+		return
+	}
+
+	entities := make(map[string]roomEntityFacts)
+	for _, file := range index.Files {
+		if file == nil || file.FlatTree == nil {
+			continue
+		}
+		if !bytes.Contains(file.Content, []byte("Entity")) {
+			continue
+		}
+		file.FlatWalkNodes(0, "class_declaration", func(idx uint32) {
+			entityText := findAnnotationTextFlat(file, idx, "Entity")
+			if entityText == "" {
+				return
+			}
+			name := extractIdentifierFlat(file, idx)
+			if name == "" {
+				return
+			}
+			facts := roomEntityFacts{indexed: make(map[string]struct{})}
+			for _, c := range collectStringsInArg(entityText, "indices") {
+				facts.indexed[c] = struct{}{}
+			}
+			for _, c := range collectStringsInArg(entityText, "primaryKeys") {
+				facts.indexed[c] = struct{}{}
+			}
+			if ctor, _ := file.FlatFindChild(idx, "primary_constructor"); ctor != 0 {
+				for i := 0; i < file.FlatNamedChildCount(ctor); i++ {
+					p := file.FlatNamedChild(ctor, i)
+					if p == 0 || file.FlatType(p) != "class_parameter" {
+						continue
+					}
+					if hasAnnotationFlat(file, p, "PrimaryKey") {
+						if pname := extractIdentifierFlat(file, p); pname != "" {
+							facts.indexed[pname] = struct{}{}
+						}
+					}
+				}
+			}
+			entities[name] = facts
+		})
+	}
+	if len(entities) == 0 {
+		return
+	}
+
+	for _, file := range index.Files {
+		if file == nil || file.FlatTree == nil {
+			continue
+		}
+		if !bytes.Contains(file.Content, []byte("Relation")) {
+			continue
+		}
+		check := func(node uint32) {
+			relText := findAnnotationTextFlat(file, node, "Relation")
+			if relText == "" {
+				return
+			}
+			entityCol := extractAnnotationStringNamedArg(relText, "entityColumn")
+			if entityCol == "" {
+				return
+			}
+			entityName := extractAnnotationClassNamedArg(relText, "entity")
+			if entityName == "" {
+				entityName = innerEntityTypeName(explicitTypeTextFlat(file, node))
+			}
+			if entityName == "" {
+				return
+			}
+			facts, ok := entities[entityName]
+			if !ok {
+				return
+			}
+			if _, ok := facts.indexed[entityCol]; ok {
+				return
+			}
+			ctx.Emit(r.Finding(
+				file,
+				file.FlatRow(node)+1,
+				file.FlatCol(node)+1,
+				fmt.Sprintf("@Relation(entityColumn = %q) targets entity '%s' which has no Index for that column; add Index(%q) to the @Entity indices.", entityCol, entityName, entityCol),
+			))
+		}
+		file.FlatWalkNodes(0, "class_parameter", check)
+		file.FlatWalkNodes(0, "property_declaration", check)
+	}
+}
+
+// namedArgValueStart returns the substring of annotationText starting at the
+// value of `argName = ...`, with leading whitespace trimmed. Returns "" if the
+// named argument is not present as a standalone identifier followed by `=`.
+func namedArgValueStart(annotationText, argName string) string {
+	rest := annotationText
+	for {
+		i := strings.Index(rest, argName)
+		if i < 0 {
+			return ""
+		}
+		if i > 0 {
+			prev := rest[i-1]
+			if prev == '_' || prev == '.' || (prev >= 'a' && prev <= 'z') || (prev >= 'A' && prev <= 'Z') || (prev >= '0' && prev <= '9') {
+				rest = rest[i+len(argName):]
+				continue
+			}
+		}
+		rest = rest[i+len(argName):]
+		break
+	}
+	rest = strings.TrimLeft(rest, " \t\n\r")
+	if !strings.HasPrefix(rest, "=") {
+		return ""
+	}
+	return strings.TrimLeft(rest[1:], " \t\n\r")
+}
+
+// collectStringsInArg returns all double-quoted string literals inside the
+// bracketed value of a named annotation argument, e.g. extracting "userId"
+// from `indices = [Index("userId")]`. Returns an empty slice if the named
+// argument is absent or its value is not bracket/paren-delimited.
+func collectStringsInArg(annotationText, argName string) []string {
+	rest := namedArgValueStart(annotationText, argName)
+	if rest == "" {
+		return nil
+	}
+	if strings.HasPrefix(rest, "arrayOf") {
+		p := strings.Index(rest, "(")
+		if p < 0 {
+			return nil
+		}
+		rest = rest[p:]
+	}
+	if len(rest) == 0 {
+		return nil
+	}
+	var open, closeCh byte
+	switch rest[0] {
+	case '[':
+		open, closeCh = '[', ']'
+	case '(':
+		open, closeCh = '(', ')'
+	default:
+		return nil
+	}
+	depth := 0
+	end := -1
+	for j := 0; j < len(rest); j++ {
+		c := rest[j]
+		if c == open {
+			depth++
+		} else if c == closeCh {
+			depth--
+			if depth == 0 {
+				end = j
+				break
+			}
+		}
+	}
+	if end < 0 {
+		return nil
+	}
+	section := rest[1:end]
+	var out []string
+	for j := 0; j < len(section); j++ {
+		if section[j] != '"' {
+			continue
+		}
+		k := j + 1
+		var b strings.Builder
+		for k < len(section) {
+			c := section[k]
+			if c == '\\' && k+1 < len(section) {
+				b.WriteByte(section[k+1])
+				k += 2
+				continue
+			}
+			if c == '"' {
+				break
+			}
+			b.WriteByte(c)
+			k++
+		}
+		out = append(out, b.String())
+		j = k
+	}
+	return out
+}
+
+// extractAnnotationStringNamedArg returns the string-literal value of a named
+// annotation argument like `entityColumn = "userId"`.
+func extractAnnotationStringNamedArg(annotationText, argName string) string {
+	rest := namedArgValueStart(annotationText, argName)
+	if !strings.HasPrefix(rest, "\"") {
+		return ""
+	}
+	rest = rest[1:]
+	var b strings.Builder
+	for k := 0; k < len(rest); k++ {
+		c := rest[k]
+		if c == '\\' && k+1 < len(rest) {
+			b.WriteByte(rest[k+1])
+			k++
+			continue
+		}
+		if c == '"' {
+			return b.String()
+		}
+		b.WriteByte(c)
+	}
+	return ""
+}
+
+// extractAnnotationClassNamedArg returns the class name from a `name = X::class`
+// argument, with any qualifier prefix stripped.
+func extractAnnotationClassNamedArg(annotationText, argName string) string {
+	rest := namedArgValueStart(annotationText, argName)
+	if rest == "" {
+		return ""
+	}
+	end := strings.Index(rest, "::class")
+	if end < 0 {
+		return ""
+	}
+	expr := strings.TrimSpace(rest[:end])
+	if dot := strings.LastIndex(expr, "."); dot >= 0 {
+		expr = expr[dot+1:]
+	}
+	return expr
+}
+
+// innerEntityTypeName extracts the element type name from a property type text
+// like `List<Post>` or `Post?`, returning the bare entity identifier.
+func innerEntityTypeName(typeText string) string {
+	t := strings.TrimSpace(typeText)
+	t = strings.TrimSuffix(t, "?")
+	for strings.Contains(t, "<") {
+		i := strings.Index(t, "<")
+		j := strings.LastIndex(t, ">")
+		if j <= i {
+			break
+		}
+		inner := t[i+1 : j]
+		if c := strings.LastIndex(inner, ","); c >= 0 {
+			inner = inner[c+1:]
+		}
+		t = strings.TrimSpace(inner)
+		t = strings.TrimSuffix(t, "?")
+	}
+	if dot := strings.LastIndex(t, "."); dot >= 0 {
+		t = t[dot+1:]
+	}
+	return t
+}
+
 func hasModuleAnnotatedAncestorFlat(file *scanner.File, idx uint32) bool {
 	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
 		switch file.FlatType(cur) {

@@ -126,6 +126,18 @@ func (r *RoomEntityChangedMigrationMissingRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *RoomRelationWithoutIndexRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "RoomRelationWithoutIndex",
+		RuleSet:       "database",
+		Severity:      "warning",
+		Description:   "Detects @Relation(entityColumn = ...) referencing a column that is not declared in the target @Entity's indices.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *JdbcPreparedStatementNotClosedRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "JdbcPreparedStatementNotClosed",

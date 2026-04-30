@@ -463,6 +463,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*RoomDatabaseVersionNotBumpedRule)(nil),
 		(*RoomEntityChangedMigrationMissingRule)(nil),
 		(*RoomLoadsAllWhereFirstUsedRule)(nil),
+		(*RoomMultipleWritesMissingTransactionRule)(nil),
 		(*RtlAwareRule)(nil),
 		(*RtlCompatManifestRule)(nil),
 		(*RtlEnabledManifestRule)(nil),

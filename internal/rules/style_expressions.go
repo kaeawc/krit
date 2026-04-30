@@ -58,6 +58,10 @@ var (
 	throwPrefix  = []byte("throw")
 )
 
+func isNestedCallableBodyFlat(t string) bool {
+	return t == "function_declaration" || t == "lambda_literal" || t == "anonymous_function"
+}
+
 func getJumpMetricsFlat(idx uint32, file *scanner.File) jumpMetrics {
 	if idx == 0 || file == nil {
 		return jumpMetrics{}
@@ -77,8 +81,7 @@ func getJumpMetricsFlat(idx uint32, file *scanner.File) jumpMetrics {
 			return
 		}
 		if current != idx {
-			t := file.FlatType(current)
-			if t == "function_declaration" || t == "lambda_literal" {
+			if isNestedCallableBodyFlat(file.FlatType(current)) {
 				return
 			}
 		}
@@ -501,7 +504,7 @@ func collectJumpStartsFlat(n uint32, out map[int]bool, file *scanner.File) {
 	if n == 0 {
 		return
 	}
-	if t := file.FlatType(n); t == "function_declaration" || t == "lambda_literal" {
+	if isNestedCallableBodyFlat(file.FlatType(n)) {
 		return
 	}
 	if file.FlatType(n) == "jump_expression" {
@@ -535,8 +538,10 @@ func countJumpExpressionsFlat(root uint32, file *scanner.File, prefix string, li
 		if node == 0 {
 			return false
 		}
-		if node != root && file.FlatType(node) == "function_declaration" {
-			return false
+		if node != root {
+			if isNestedCallableBodyFlat(file.FlatType(node)) {
+				return false
+			}
 		}
 		if file.FlatType(node) == "jump_expression" {
 			textBytes := file.FlatNodeBytes(node)

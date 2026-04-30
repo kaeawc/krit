@@ -226,7 +226,16 @@ func registerNamingRules() {
 					if strings.HasPrefix(name, "`") {
 						continue
 					}
-					if name != "" && !r.Pattern.MatchString(name) {
+					if name == "" {
+						continue
+					}
+					if file.FlatHasModifier(paramNode, "private") && r.PrivateParameterPattern != nil {
+						if !r.PrivateParameterPattern.MatchString(name) {
+							ctx.EmitAt(file.FlatRow(paramNode)+1, 1, fmt.Sprintf("Private constructor parameter name '%s' does not match pattern: %s", name, r.PrivateParameterPattern.String()))
+						}
+						continue
+					}
+					if !r.Pattern.MatchString(name) {
 						ctx.EmitAt(file.FlatRow(paramNode)+1, 1, fmt.Sprintf("Constructor parameter name '%s' does not match pattern: %s", name, r.Pattern.String()))
 					}
 				}

@@ -583,6 +583,62 @@ class Foo(val myParam: Int)
 	}
 }
 
+func TestNaming_ConstructorParameter_HonorsPrivateParameterPattern(t *testing.T) {
+	// PrivateParameterPattern was previously a dead config — exposed in
+	// zz_meta but never consulted by the check. Configure a strict
+	// pattern via the rule pointer and verify private constructor
+	// parameters are validated against it instead of the public Pattern.
+	var rule *rules.ConstructorParameterNamingRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "ConstructorParameterNaming" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.ConstructorParameterNamingRule)
+			if !ok {
+				t.Fatalf("expected ConstructorParameterNamingRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("ConstructorParameterNaming rule not registered")
+	}
+	original := rule.PrivateParameterPattern
+	defer func() { rule.PrivateParameterPattern = original }()
+
+	// Require private params to start with `_`.
+	rule.PrivateParameterPattern = registry.CompileAnchoredPattern(
+		"ConstructorParameterNaming", "privateParameterPattern", "_[a-z][A-Za-z0-9]*")
+	if rule.PrivateParameterPattern == nil {
+		t.Fatal("failed to compile test pattern")
+	}
+
+	// Private without `_` prefix → flagged under PrivateParameterPattern.
+	if findings := runRuleByName(t, "ConstructorParameterNaming", `
+package test
+class Foo(private val plain: Int)
+`); len(findings) == 0 {
+		t.Fatal("expected finding when private param doesn't match PrivateParameterPattern")
+	}
+
+	// Public param with the same shape passes the public Pattern, so no finding.
+	if findings := runRuleByName(t, "ConstructorParameterNaming", `
+package test
+class Foo(val plain: Int)
+`); len(findings) != 0 {
+		t.Fatalf("expected no findings for public-passing 'plain', got %d", len(findings))
+	}
+
+	// Permissive private pattern — finding goes away.
+	rule.PrivateParameterPattern = registry.CompileAnchoredPattern(
+		"ConstructorParameterNaming", "privateParameterPattern", "_?[a-z][A-Za-z0-9]*")
+	if findings := runRuleByName(t, "ConstructorParameterNaming", `
+package test
+class Foo(private val plain: Int)
+`); len(findings) != 0 {
+		t.Fatalf("expected no findings under permissive PrivateParameterPattern, got %d", len(findings))
+	}
+}
+
 // --- FunctionNameMaxLength ---
 
 func TestNaming_FunctionNameMaxLength_FlagsTooLong(t *testing.T) {

@@ -609,6 +609,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*UnusedResourcesRule)(nil),
 		(*UnusedUnaryOperatorRule)(nil),
 		(*UnusedVariableRule)(nil),
+		(*UpperLowerInvariantMisuseRule)(nil),
 		(*UseAlpha2Rule)(nil),
 		(*UseAnyOrNoneInsteadOfFindRule)(nil),
 		(*UseArrayLiteralsInAnnotationsRule)(nil),

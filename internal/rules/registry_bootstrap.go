@@ -68,6 +68,7 @@ func init() {
 	registerHotspotRules()
 	registerI18nPluralsRules()
 	registerI18nStringConcatRules()
+	registerI18nUpperLowerRules()
 	registerLayerDependencyViolationRules()
 	registerLibraryRules()
 	registerLicensingRules()

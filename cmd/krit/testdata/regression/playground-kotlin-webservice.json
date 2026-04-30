@@ -1,6 +1,6 @@
 {
   "project": "../../playground/kotlin-webservice/",
-  "findings_count": 62,
+  "findings_count": 63,
   "findings": [
     {
       "rule": "WildcardImport",
@@ -489,6 +489,14 @@
       "line": 10,
       "col": 0,
       "message": "Private property 'TRUNCATE_SUFFIX_LENGTH' is never used."
+    },
+    {
+      "rule": "UpperLowerInvariantMisuse",
+      "ruleSet": "i18n",
+      "file": "src/main/kotlin/com/example/utils/StringUtils.kt",
+      "line": 28,
+      "col": 0,
+      "message": "'lowercase()' called without explicit Locale. Pass 'Locale.ROOT' for case-insensitive comparison or use a display-locale variant for user-facing text."
     },
     {
       "rule": "UnusedParameter",

@@ -5867,3 +5867,129 @@ func TestStringSpanInContentDescription(t *testing.T) {
 		}
 	})
 }
+
+// ---------------------------------------------------------------------------
+// PluralsMissingZero
+// ---------------------------------------------------------------------------
+
+func TestPluralsMissingZero(t *testing.T) {
+	r := findResourceRule(t, "PluralsMissingZero")
+
+	write := func(t *testing.T, path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s): %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s): %v", path, err)
+		}
+	}
+
+	scan := func(t *testing.T, root string) *android.ResourceIndex {
+		t.Helper()
+		idx, err := android.ScanResourceDir(root)
+		if err != nil {
+			t.Fatalf("ScanResourceDir(%s): %v", root, err)
+		}
+		return idx
+	}
+
+	t.Run("ar plurals without zero triggers", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources><string name=\"app_name\">App</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-ar", "plurals.xml"), `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="item_count">
+        <item quantity="one">عنصر واحد</item>
+        <item quantity="other">%d عناصر</item>
+    </plurals>
+</resources>
+`)
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "item_count") || !strings.Contains(findings[0].Message, "values-ar/") {
+			t.Fatalf("unexpected message: %q", findings[0].Message)
+		}
+	})
+
+	t.Run("ar plurals with zero is clean", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources><string name=\"app_name\">App</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-ar", "plurals.xml"), `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="item_count">
+        <item quantity="zero">لا يوجد عناصر</item>
+        <item quantity="one">عنصر واحد</item>
+        <item quantity="two">عنصران</item>
+        <item quantity="few">%d عناصر</item>
+        <item quantity="many">%d عنصرًا</item>
+        <item quantity="other">%d عنصر</item>
+    </plurals>
+</resources>
+`)
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d:\n  %v", len(findings), findings)
+		}
+	})
+
+	t.Run("default values plurals is clean", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources><string name=\"app_name\">App</string></resources>\n")
+		write(t, filepath.Join(resDir, "values", "plurals.xml"), `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="item_count">
+        <item quantity="one">%d item</item>
+        <item quantity="other">%d items</item>
+    </plurals>
+</resources>
+`)
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("non-zero-form locale is clean", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources><string name=\"app_name\">App</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-fr", "plurals.xml"), `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="item_count">
+        <item quantity="one">%d élément</item>
+        <item quantity="other">%d éléments</item>
+    </plurals>
+</resources>
+`)
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("ru plurals without zero triggers", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources><string name=\"app_name\">App</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-ru", "plurals.xml"), `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="item_count">
+        <item quantity="one">%d элемент</item>
+        <item quantity="few">%d элемента</item>
+        <item quantity="many">%d элементов</item>
+        <item quantity="other">%d элемента</item>
+    </plurals>
+</resources>
+`)
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+}

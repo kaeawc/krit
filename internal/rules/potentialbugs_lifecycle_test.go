@@ -84,6 +84,20 @@ fun main() {
 	}
 }
 
+func TestInvalidRange_DownToCommentDoesNotSuppressBackwardsRange(t *testing.T) {
+	findings := runRuleByName(t, "InvalidRange", `
+package test
+fun main() {
+    for (i in 5..1) { // use downTo here
+        println(i)
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for backwards range even when downTo appears in a comment")
+	}
+}
+
 // --- IteratorHasNextCallsNextMethod ---
 
 func TestIteratorHasNextCallsNextMethod_Positive(t *testing.T) {

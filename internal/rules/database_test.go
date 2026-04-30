@@ -375,6 +375,105 @@ object Migration1to2 : Migration(1, 2) {
 	})
 }
 
+func TestRoomRelationWithoutIndex(t *testing.T) {
+	rule := buildRuleIndex()["RoomRelationWithoutIndex"]
+	if rule == nil {
+		t.Fatal("RoomRelationWithoutIndex rule not registered")
+	}
+	if !rule.Needs.Has(v2rules.NeedsCrossFile) {
+		t.Fatal("RoomRelationWithoutIndex does not declare NeedsCrossFile")
+	}
+
+	root := fixtureRoot(t)
+	positivePath := filepath.Join(root, "positive", "database", "RoomRelationWithoutIndex.kt")
+	negativePath := filepath.Join(root, "negative", "database", "RoomRelationWithoutIndex.kt")
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(positivePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", positivePath, err)
+		}
+		findings := runCrossFileRule(rule, []*scanner.File{file})
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+		}
+		if !strings.Contains(findings[0].Message, "userId") || !strings.Contains(findings[0].Message, "Post") {
+			t.Fatalf("expected finding to reference userId and Post, got %q", findings[0].Message)
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(negativePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", negativePath, err)
+		}
+		findings := runCrossFileRule(rule, []*scanner.File{file})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("cross-file entity declaration triggers", func(t *testing.T) {
+		files := parseKotlinFiles(t,
+			"Entities.kt", `package db
+
+annotation class Entity(val indices: Array<Index> = [])
+annotation class Index(vararg val value: String)
+annotation class PrimaryKey
+
+@Entity
+class User(@PrimaryKey val id: Long)
+
+@Entity
+class Post(@PrimaryKey val id: Long, val userId: Long)
+`,
+			"Joins.kt", `package db
+
+annotation class Embedded
+annotation class Relation(val parentColumn: String, val entityColumn: String)
+
+class UserWithPosts(
+    @Embedded val user: User,
+    @Relation(parentColumn = "id", entityColumn = "userId")
+    val posts: List<Post>,
+)
+`,
+		)
+		findings := runCrossFileRule(rule, files)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 cross-file finding, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("explicit entity argument resolves target", func(t *testing.T) {
+		files := parseKotlinFiles(t,
+			"Entities.kt", `package db
+
+annotation class Entity(val indices: Array<Index> = [])
+annotation class Index(vararg val value: String)
+annotation class PrimaryKey
+
+@Entity(indices = [Index("userId")])
+class Post(@PrimaryKey val id: Long, val userId: Long)
+`,
+			"Joins.kt", `package db
+
+annotation class Embedded
+annotation class Relation(val parentColumn: String, val entityColumn: String, val entity: kotlin.reflect.KClass<*> = Any::class)
+
+class UserWithPosts(
+    @Relation(parentColumn = "id", entityColumn = "userId", entity = Post::class)
+    val postIds: List<Long>,
+)
+`,
+		)
+		findings := runCrossFileRule(rule, files)
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings when entity is indexed, got %d: %v", len(findings), findings)
+		}
+	})
+}
+
 func TestJdbcResultSetLeakedFromFunction_Positive(t *testing.T) {
 	findings := runRuleByName(t, "JdbcResultSetLeakedFromFunction", `
 package test

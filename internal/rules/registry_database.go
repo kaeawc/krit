@@ -243,6 +243,14 @@ func registerDatabaseRules() {
 		})
 	}
 	{
+		r := &RoomRelationWithoutIndexRule{BaseRule: BaseRule{RuleName: "RoomRelationWithoutIndex", RuleSetName: "database", Sev: "warning", Desc: "Detects @Relation(entityColumn = ...) referencing a column that is not declared in the target @Entity's indices."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &JdbcPreparedStatementNotClosedRule{BaseRule: BaseRule{RuleName: "JdbcPreparedStatementNotClosed", RuleSetName: "database", Sev: "warning", Desc: "Detects JDBC prepared statements assigned to local properties without .use {} or .close() in the same scope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

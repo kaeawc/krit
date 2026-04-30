@@ -256,6 +256,26 @@ class Store {
 			t.Fatalf("expected 0 findings for javac-confirmed local lookalike, got %d", len(findings))
 		}
 	})
+	t.Run("Java semantic facts suppress same simple-name lookalike", func(t *testing.T) {
+		findings := runRuleByNameOnJavaWithSemanticCalls(t, "CommitPrefEdits", `
+package test;
+import android.content.SharedPreferences;
+class SharedPreferences {
+  Editor edit() { return new Editor(); }
+}
+class Editor {
+  void putString(String key, String value) {}
+}
+class Store {
+  void save(SharedPreferences prefs) {
+    Editor editor = prefs.edit();
+    editor.putString("key", "value");
+  }
+}`, javaSemanticCallSpec{Callee: "edit", ReceiverType: "test.SharedPreferences", ReturnType: "test.Editor"})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for same simple-name javac-confirmed lookalike, got %d", len(findings))
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------

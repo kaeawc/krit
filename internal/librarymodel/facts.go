@@ -6,6 +6,7 @@ import "strings"
 type Facts struct {
 	Profile  ProjectProfile
 	Database DatabaseFacts
+	Java     JavaTypeProfile
 }
 
 type DatabaseFacts struct {
@@ -38,6 +39,7 @@ type SQLDelightFacts struct {
 // and unit tests while allowing repository scans to narrow facts from Gradle.
 func DefaultFacts() *Facts {
 	return &Facts{
+		Java: DefaultJavaTypeProfile(),
 		Database: DatabaseFacts{
 			SQLite: SQLiteFacts{
 				BlockingMethods: []string{"rawQuery", "query", "execSQL"},
@@ -65,6 +67,7 @@ func FactsForProfile(profile ProjectProfile) *Facts {
 	facts.Profile = profile
 	facts.Database.Room.Enabled = roomApplies(profile)
 	facts.Database.SQLDelight.Enabled = sqlDelightApplies(profile)
+	facts.Java = javaTypeProfile(facts.Database.Room.Enabled)
 	return facts
 }
 

@@ -258,6 +258,22 @@ class Browser {
 			t.Fatalf("expected 0 findings for javac-confirmed local lookalike, got %d", len(findings))
 		}
 	})
+	t.Run("semantic facts suppress same simple-name lookalike", func(t *testing.T) {
+		findings := runRuleByNameOnJavaWithSemanticCalls(t, "SetJavaScriptEnabled", `
+package test;
+import android.webkit.WebSettings;
+class WebSettings {
+  void setJavaScriptEnabled(boolean enabled) {}
+}
+class Browser {
+  void setup(WebSettings webSettings) {
+    webSettings.setJavaScriptEnabled(true);
+  }
+}`, javaSemanticCallSpec{Callee: "setJavaScriptEnabled", ReceiverType: "test.WebSettings", ReturnType: "void"})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for same simple-name javac-confirmed lookalike, got %d", len(findings))
+		}
+	})
 }
 
 // --- PrivateKeyRule (PackagedPrivateKey) ---

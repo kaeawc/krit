@@ -679,6 +679,7 @@ var composeKnownCallbackBuilderCalls = map[string]struct{}{
 }
 
 var composeModifierCallbackCalls = map[string]struct{}{
+	"clearAndSetSemantics": {},
 	"graphicsLayer":        {},
 	"drawWithCache":        {},
 	"drawBehind":           {},
@@ -724,6 +725,26 @@ func composeCallbackLabelLooksDeferred(label string) bool {
 	}
 	if len(label) > 2 && strings.HasPrefix(label, "on") && label[2] >= 'A' && label[2] <= 'Z' {
 		return true
+	}
+	lower := strings.ToLower(label)
+	return strings.Contains(lower, "callback") ||
+		strings.Contains(lower, "eventsink") ||
+		strings.Contains(lower, "handler") ||
+		strings.Contains(lower, "listener")
+}
+
+func composeLambdaIsAssignedNonComposableFunctionValue(file *scanner.File, lambdaIdx uint32, root uint32) bool {
+	for cur, ok := file.FlatParent(lambdaIdx); ok && cur != root; cur, ok = file.FlatParent(cur) {
+		if file.FlatType(cur) != "property_declaration" {
+			continue
+		}
+		text := file.FlatNodeText(cur)
+		eq := strings.Index(text, "=")
+		if eq < 0 {
+			return false
+		}
+		declaration := text[:eq]
+		return strings.Contains(declaration, "->") && !strings.Contains(declaration, "@Composable")
 	}
 	return false
 }
@@ -1012,6 +1033,9 @@ func composeAssignmentSynchronizesRememberedObject(file *scanner.File, assignmen
 
 func composeSideEffectAllowedLambdaBoundary(file *scanner.File, lambdaIdx uint32, root uint32) bool {
 	if composeLambdaIsNamedEventCallback(file, lambdaIdx, root) {
+		return true
+	}
+	if composeLambdaIsAssignedNonComposableFunctionValue(file, lambdaIdx, root) {
 		return true
 	}
 	call, label, position, trailing := composeLambdaCallContext(file, lambdaIdx)

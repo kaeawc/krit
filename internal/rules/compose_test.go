@@ -1150,6 +1150,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 
 @Composable
@@ -1161,6 +1162,7 @@ fun Screen(modifier: Modifier = Modifier) {
                 compositingStrategy = CompositingStrategy.Offscreen
             }
             .onFocusChanged { state -> focused = state.hasFocus }
+            .clearAndSetSemantics { contentDescription = "content" }
             .semantics { contentDescription = "content" }
     )
 }
@@ -1307,6 +1309,55 @@ fun Screen(vm: VM) {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for event callback assignment, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_EventSinkArgument(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+sealed interface Event
+data class Search(val query: String) : Event
+
+@Composable
+fun Screen() {
+    var searchQuery = ""
+    Content(
+        eventSink = { event ->
+            when (event) {
+                is Search -> searchQuery = event.query
+            }
+        }
+    )
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for eventSink callback assignment, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_LocalTypedEventSink(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+sealed interface Event
+data class Search(val query: String) : Event
+
+@Composable
+fun Screen() {
+    var searchQuery = ""
+    val eventSink: (Event) -> Unit = { event ->
+        when (event) {
+            is Search -> searchQuery = event.query
+        }
+    }
+    Content(eventSink = eventSink)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for typed eventSink callback assignment, got %d: %v", len(findings), findings)
 	}
 }
 

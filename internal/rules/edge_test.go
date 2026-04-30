@@ -1114,7 +1114,7 @@ fun example() {
 // --- ElseCaseInsteadOfExhaustiveWhen without resolver tests ---
 
 // TestElseCaseInsteadOfExhaustiveWhen_ActiveByDefault guards the
-// active-by-default state at both the metadata layer (zz_meta) and the
+// active-by-default state at both the metadata layer (metadata) and the
 // shipped YAML configs. Detekt's @ActiveByDefault(since "1.21.0") makes
 // the rule active in default config; krit had previously left it at
 // `active: false` in both default-krit.yml and balanced.yml, so users

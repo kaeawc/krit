@@ -475,7 +475,7 @@ fun example(): Unit {
 
 func TestForbiddenVoid_HonorsIgnoreUsageInGenerics(t *testing.T) {
 	// IgnoreUsageInGenerics was previously a dead config — exposed in
-	// zz_meta but never consulted. Configure it via the rule pointer
+	// metadata but never consulted. Configure it via the rule pointer
 	// and verify Void inside *any* type-argument list is skipped, not
 	// just the hardcoded javaInteropGenericTypes allowlist.
 	var rule *rulespkg.ForbiddenVoidRule

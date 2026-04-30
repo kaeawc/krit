@@ -196,7 +196,7 @@ func TestCyclomaticComplexMethod_DetektParitySimpleWhenEntriesCount(t *testing.T
 
 func TestCyclomaticComplexMethod_HonorsIgnoreSingleWhenExpression(t *testing.T) {
 	// IgnoreSingleWhenExpression was previously a dead config — exposed
-	// in zz_meta but never consulted. With it set to true, a function
+	// in metadata but never consulted. With it set to true, a function
 	// whose entire body is a single when-expression is treated as
 	// dispatch and skipped, even if it has many branches that would
 	// otherwise pop the threshold.
@@ -275,7 +275,7 @@ fun classify(x: Int): String {
 
 func TestCyclomaticComplexMethod_HonorsIgnoreLocalFunctions(t *testing.T) {
 	// IgnoreLocalFunctions was previously a dead config — exposed in
-	// zz_meta but never consulted. With it set to true, complexity
+	// metadata but never consulted. With it set to true, complexity
 	// findings on nested local functions are suppressed; the outer
 	// function is still analyzed independently.
 	var rule *rules.CyclomaticComplexMethodRule
@@ -825,7 +825,7 @@ interface Api {
 
 func TestComplexInterface_HonorsIncludePrivateDeclarations(t *testing.T) {
 	// IncludePrivateDeclarations was previously a dead config — exposed
-	// in zz_meta but never consulted by the check. By default (false,
+	// in metadata but never consulted by the check. By default (false,
 	// matching detekt) private interface members shouldn't count toward
 	// the limit. Configure the flag both ways and verify behavior.
 	var rule *rules.ComplexInterfaceRule
@@ -957,7 +957,7 @@ fun process(items: List<Int>) {
 }
 
 func TestLabeledExpression_HonorsIgnoredLabels(t *testing.T) {
-	// IgnoredLabels was previously a dead config — exposed in zz_meta but
+	// IgnoredLabels was previously a dead config — exposed in metadata but
 	// never consulted by the check. Configure it via the rule pointer and
 	// verify that labels matching the ignore list produce no findings.
 	var rule *rules.LabeledExpressionRule
@@ -1265,7 +1265,7 @@ fun example() {
 }
 
 func TestStringLiteralDuplication_HonorsIgnoreAnnotation(t *testing.T) {
-	// IgnoreAnnotation was previously a dead config — exposed in zz_meta but
+	// IgnoreAnnotation was previously a dead config — exposed in metadata but
 	// never consulted by the check. With the wiring, repeat string literals
 	// living inside annotation arguments (like @Suppress("UNCHECKED_CAST"))
 	// are excluded from the duplication count.

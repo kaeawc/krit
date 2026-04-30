@@ -261,8 +261,8 @@ prefer the oracle.
 - Rule authors guess wrong and force the expensive backend. Mitigate
   with a comment template that names the backend's cost and what
   kind of lookup it's good at.
-- `zz_meta_*_gen.go` churn. Keep the field optional so existing
-  generated files stay valid.
+- Metadata descriptor churn. Keep the field optional so existing
+  descriptor files stay valid.
 
 **Dependencies.**
 

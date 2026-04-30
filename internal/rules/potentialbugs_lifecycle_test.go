@@ -337,7 +337,7 @@ class Service
 
 func TestLateinitUsage_HonorsIgnoreOnClassesPattern(t *testing.T) {
 	// IgnoreOnClassesPattern was previously a dead config — exposed in
-	// zz_meta but never consulted. Configure it via the rule pointer
+	// metadata but never consulted. Configure it via the rule pointer
 	// and verify lateinit declarations inside matching classes are
 	// skipped while non-matching ones still fire.
 	var rule *rules.LateinitUsageRule

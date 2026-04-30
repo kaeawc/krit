@@ -287,7 +287,7 @@ func TestEndOfSentenceFormat_MetaSingleEndOfSentenceFormatOption(t *testing.T) {
 		}
 	}
 	if count != 1 {
-		t.Fatalf("expected exactly one `endOfSentenceFormat` option in zz_meta, got %d", count)
+		t.Fatalf("expected exactly one `endOfSentenceFormat` option in metadata, got %d", count)
 	}
 }
 

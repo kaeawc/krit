@@ -120,7 +120,7 @@ fun example() {
 
 func TestVariableNaming_HonorsPrivateVariablePattern(t *testing.T) {
 	// PrivateVariablePattern was previously a dead config — exposed in
-	// zz_meta but never consulted by the check. The Kotlin compiler
+	// metadata but never consulted by the check. The Kotlin compiler
 	// rejects visibility modifiers on local vars, but tree-sitter parses
 	// them leniently — so a half-finished `private val Foo = ...` inside
 	// a function still has a "private" modifier on the property_declaration
@@ -338,7 +338,7 @@ val MyProperty = "hello"
 
 func TestTopLevelPropertyNaming_HonorsPrivatePropertyPattern(t *testing.T) {
 	// PrivatePropertyPattern was previously a dead config field — exposed
-	// in zz_meta but never consulted by the check. Configure it via the
+	// in metadata but never consulted by the check. Configure it via the
 	// rule pointer and verify private properties are validated against
 	// the configured pattern instead of the public PropertyPattern.
 	var rule *rules.TopLevelPropertyNamingRule
@@ -403,7 +403,7 @@ func TestTopLevelPropertyNaming_UsesLocalASTOnly(t *testing.T) {
 
 // TestNamingMetaRegexDefaultsMatchRegistry guards against documentation
 // drift: when the registry initializes a naming rule with a regex, the
-// rule's zz_meta_naming_gen.go Default string for that option must compile
+// rule's meta_naming.go Default string for that option must compile
 // (under the registry's anchoring) to an equivalent regex. Otherwise users
 // see one default in the docs / config emitter and another at runtime —
 // the precise class of bug this test was written to prevent.
@@ -447,10 +447,10 @@ func TestNamingMetaRegexDefaultsMatchRegistry(t *testing.T) {
 			}
 			compiled := v2rules.CompileAnchoredPattern(tc.ruleID, tc.optionName, optDefault)
 			if compiled == nil {
-				t.Fatalf("zz_meta default %q failed to compile", optDefault)
+				t.Fatalf("metadata default %q failed to compile", optDefault)
 			}
 			if compiled.String() != tc.runtime {
-				t.Fatalf("zz_meta default %q for %s.%s anchors to %q, registry uses %q (drift)",
+				t.Fatalf("metadata default %q for %s.%s anchors to %q, registry uses %q (drift)",
 					optDefault, tc.ruleID, tc.optionName, compiled.String(), tc.runtime)
 			}
 		})
@@ -637,7 +637,7 @@ class Foo(val myParam: Int)
 
 func TestNaming_ConstructorParameter_HonorsPrivateParameterPattern(t *testing.T) {
 	// PrivateParameterPattern was previously a dead config — exposed in
-	// zz_meta but never consulted by the check. Configure a strict
+	// metadata but never consulted by the check. Configure a strict
 	// pattern via the rule pointer and verify private constructor
 	// parameters are validated against it instead of the public Pattern.
 	var rule *rules.ConstructorParameterNamingRule
@@ -859,7 +859,7 @@ class Foo
 
 func TestNaming_InvalidPackageDeclaration_HonorsRequireRootInDeclaration(t *testing.T) {
 	// RequireRootInDeclaration was previously a dead config — exposed
-	// in zz_meta but never consulted. Configure it via the rule pointer
+	// in metadata but never consulted. Configure it via the rule pointer
 	// and verify a package that doesn't start with the configured
 	// rootPackage is flagged with the "must start with" message.
 	var rule *rules.InvalidPackageDeclarationRule

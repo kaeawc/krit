@@ -14,10 +14,9 @@ The shipped architecture is:
 - `internal/rules/v2/metadata.go` owns descriptor runtime types:
   `RuleDescriptor`, `ConfigOption`, `OptionType`, `MetaProvider`,
   `ConfigSource`, and the `ApplyConfig` helpers.
-- Rule structs expose `Meta() v2.RuleDescriptor`. Generated descriptors live in
-  `internal/rules/zz_meta_*_gen.go`; hand-written descriptors live in
-  `internal/rules/meta_*.go`.
-- `internal/rules/zz_meta_index_gen.go` provides `AllMetaProviders()` and the
+- Rule structs expose `Meta() v2.RuleDescriptor`. Descriptor source files live
+  in `internal/rules/meta_*.go`.
+- `internal/rules/meta_index.go` provides `AllMetaProviders()` and the
   descriptor index used by defaults, config, schema, and invariant tests.
 - `internal/rules/registry_*.go` files register executable v2 rules with
   `v2.Register`.
@@ -45,14 +44,12 @@ keeps schema and config application tied to the same checked-in metadata.
 
 1. Implement the rule in Go and register it through the relevant
    `internal/rules/registry_*.go` file with `v2.Register`.
-2. Add or update its `Meta() v2.RuleDescriptor`:
-   - Generated descriptors come from `tools/rule_inventory.py` plus
-     `go generate ./internal/rules/...`.
-   - Exotic config shapes use a local `meta_*.go` file with `CustomApply`.
+2. Add or update its `Meta() v2.RuleDescriptor` in the matching
+   `internal/rules/meta_*.go` file. Exotic config shapes can use
+   `CustomApply`.
 3. Add positive and negative fixtures, and fixable fixtures when the rule
    provides autofix.
-4. Run `python3 tools/rule_inventory.py && go generate ./internal/rules/...`.
-5. Validate with `go build -o krit ./cmd/krit/ && go vet ./...` and
+4. Validate with `go build -o krit ./cmd/krit/ && go vet ./...` and
    `go test ./... -count=1`.
 
 ## Acceptance Criteria
@@ -65,7 +62,7 @@ keeps schema and config application tied to the same checked-in metadata.
 | Schema generation uses descriptors | ✅ | `internal/schema` reads `v2.RuleDescriptor` values. |
 | Metadata compatibility package removed | ✅ | No compatibility package or imports remain. |
 | Test-only migration harness removed from production | ✅ | Config parity helpers live only in `config_parity_test.go`. |
-| Generated files have freshness coverage | ✅ | CI verifies generated metadata and registry files. |
+| Descriptor metadata is checked in | ✅ | Metadata is maintained as normal Go source in `meta_*.go` files. |
 
 ## Deviations
 
@@ -74,15 +71,11 @@ keeps schema and config application tied to the same checked-in metadata.
    config cannot be expressed as simple scalar or list options.
 2. **Descriptors live beside rules.** This is required by Go receiver method
    rules. The types and runtime helpers are still owned by `internal/rules/v2`.
-3. **Inventory generation remains two-stage.** `tools/rule_inventory.py`
-   produces `build/rule_inventory.json`, and `krit-gen` consumes it. Moving the
-   inventory parser into Go remains possible, but it is separate cleanup rather
-   than part of the completed v2 migration.
+3. **Metadata files are maintained source.** The previous generation pipeline is
+   gone, so descriptor edits should be reviewed like any other Go rule code.
 
 ## Links
 
 - Depends on: [`unified-rule-interface.md`](unified-rule-interface.md) ✅
 - Related: `internal/rules/v2/metadata.go`, `internal/rules/config.go`,
-  `internal/rules/defaults.go`, `internal/rules/zz_meta_index_gen.go`,
-  `internal/codegen/cmd/krit-gen/`, `tools/rule_inventory.py`,
-  `build/rule_inventory.json`
+  `internal/rules/defaults.go`, `internal/rules/meta_index.go`

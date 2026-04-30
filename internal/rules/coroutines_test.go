@@ -315,7 +315,7 @@ fun getItems(): Flow<Int> {
 
 // TestInjectDispatcher_RegistryDefaultMatchesMeta guards the
 // registry-instantiated DispatcherNames against silently drifting from
-// the zz_meta Default that the docs/schema/config emitter advertise.
+// the metadata Default that the docs/schema/config emitter advertise.
 // Both must list the runtime defaults — IO, Default, Unconfined, Main —
 // so a user copying the documented default into YAML gets the same
 // behavior as omitting the option.
@@ -339,21 +339,21 @@ func TestInjectDispatcher_RegistryDefaultMatchesMeta(t *testing.T) {
 		t.Fatalf("registry DispatcherNames drift: got %v, want %v", rule.DispatcherNames, want)
 	}
 
-	// Cross-check zz_meta Default.
+	// Cross-check metadata Default.
 	desc := rule.Meta()
 	for _, opt := range desc.Options {
 		if opt.Name == "dispatcherNames" {
 			gotMeta, ok := opt.Default.([]string)
 			if !ok {
-				t.Fatalf("zz_meta dispatcherNames Default has unexpected type %T", opt.Default)
+				t.Fatalf("metadata dispatcherNames Default has unexpected type %T", opt.Default)
 			}
 			if !equalStringSlices(gotMeta, want) {
-				t.Fatalf("zz_meta dispatcherNames Default drift: got %v, want %v", gotMeta, want)
+				t.Fatalf("metadata dispatcherNames Default drift: got %v, want %v", gotMeta, want)
 			}
 			return
 		}
 	}
-	t.Fatal("dispatcherNames option missing from zz_meta")
+	t.Fatal("dispatcherNames option missing from metadata")
 }
 
 func equalStringSlices(a, b []string) bool {

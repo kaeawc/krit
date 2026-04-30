@@ -389,7 +389,7 @@ fun test(): Int {
 }
 
 func TestExc_ReturnFromFinally_HonorsIgnoreLabeled(t *testing.T) {
-	// IgnoreLabeled was previously a dead config — exposed in zz_meta but
+	// IgnoreLabeled was previously a dead config — exposed in metadata but
 	// never consulted by the check. Configure it via the rule pointer and
 	// verify labeled returns (return@something) are excluded while plain
 	// `return` inside finally is still flagged.

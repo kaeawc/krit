@@ -43,7 +43,7 @@ to that declaration falls back to `ct == ""` / `TypeUnknown`.
 
 ### Why the observed direction (-1) is consistent with `RedundantSuspendModifier`
 
-Look at `zz_registry_gen.go:5984-6108`:
+Look at the current `RedundantSuspendModifier` implementation:
 
 - `hasSuspendCall=true` is the suppress signal.
 - `hasUnresolvedCall=true` (a callee name not in `commonNonSuspendCallees`

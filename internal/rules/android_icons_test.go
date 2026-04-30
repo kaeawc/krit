@@ -487,48 +487,6 @@ func TestCheckIconExpectedSize_NonLauncherIgnored(t *testing.T) {
 	}
 }
 
-func TestRunAllIconChecks(t *testing.T) {
-	root := t.TempDir()
-	resDir := filepath.Join(root, "res")
-
-	// Only mdpi — triggers missing density folder + missing density variants
-	dirPath := filepath.Join(resDir, "drawable-mdpi")
-	os.MkdirAll(dirPath, 0o755)
-	testWritePNG(t, filepath.Join(dirPath, "ic_launcher.png"), 48, 48)
-
-	idx, err := android.ScanIconDirs(resDir)
-	if err != nil {
-		t.Fatalf("ScanIconDirs: %v", err)
-	}
-
-	c := scanner.NewFindingCollector(0)
-	RunAllIconChecks(idx, c)
-	findings := c.Columns().Findings()
-	if len(findings) == 0 {
-		t.Fatal("expected some findings from RunAllIconChecks")
-	}
-
-	// Should have at least missing density folder findings
-	hasFolder := false
-	for _, f := range findings {
-		if f.Rule == "IconMissingDensityFolder" {
-			hasFolder = true
-		}
-	}
-	if !hasFolder {
-		t.Error("expected IconMissingDensityFolder finding")
-	}
-}
-
-func TestRunAllIconChecks_NilIndex(t *testing.T) {
-	c := scanner.NewFindingCollector(0)
-	RunAllIconChecks(nil, c)
-	findings := c.Columns().Findings()
-	if len(findings) != 0 {
-		t.Errorf("expected no findings for nil index, got %d", len(findings))
-	}
-}
-
 // --- IconExtensionRule tests ---
 
 func TestCheckIconExtension_Mismatch(t *testing.T) {

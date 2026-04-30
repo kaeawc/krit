@@ -18,9 +18,8 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// IconResourceBase provides the no-op Check and AndroidDepIcons declaration
-// shared by every icon rule. Icon rules operate on the IconIndex via a
-// package-level CheckIcon* function rather than implementing it themselves.
+// IconResourceBase provides the AndroidDepIcons declaration shared by every
+// icon rule. The v2 dispatcher supplies an IconIndex to these rules.
 type IconResourceBase struct{}
 
 func (IconResourceBase) AndroidDependencies() AndroidDataDependency {
@@ -99,7 +98,55 @@ type IconExpectedSizeRule struct {
 
 func (r *IconExpectedSizeRule) Confidence() float64 { return 0.75 }
 
-// --- Resource-based check functions (called with an IconIndex, not during AST dispatch) ---
+// IconExtensionRule detects icon files whose extension does not match the contents.
+type IconExtensionRule struct {
+	IconResourceBase
+	AndroidRule
+}
+
+func (r *IconExtensionRule) Confidence() float64 { return 0.75 }
+
+// IconLocationRule detects bitmap icons placed in density-independent drawable folders.
+type IconLocationRule struct {
+	IconResourceBase
+	AndroidRule
+}
+
+func (r *IconLocationRule) Confidence() float64 { return 0.75 }
+
+// IconMixedNinePatchRule detects PNG and 9-patch files with the same resource name.
+type IconMixedNinePatchRule struct {
+	IconResourceBase
+	AndroidRule
+}
+
+func (r *IconMixedNinePatchRule) Confidence() float64 { return 0.75 }
+
+// IconXmlAndPngRule detects drawable XML and bitmap files with the same resource name.
+type IconXmlAndPngRule struct {
+	IconResourceBase
+	AndroidRule
+}
+
+func (r *IconXmlAndPngRule) Confidence() float64 { return 0.75 }
+
+// IconColorsRule checks notification and action bar icon color constraints.
+type IconColorsRule struct {
+	IconResourceBase
+	AndroidRule
+}
+
+func (r *IconColorsRule) Confidence() float64 { return 0.75 }
+
+// IconLauncherShapeRule checks launcher icon shape transparency.
+type IconLauncherShapeRule struct {
+	IconResourceBase
+	AndroidRule
+}
+
+func (r *IconLauncherShapeRule) Confidence() float64 { return 0.75 }
+
+// --- IconIndex-backed check functions ---
 
 // webpThresholdBytes is the minimum PNG size to suggest WebP conversion (10 KB).
 const webpThresholdBytes = 10 * 1024
@@ -909,23 +956,4 @@ func CheckIconLauncherShape(idx *android.IconIndex, c *scanner.FindingCollector)
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].File < findings[j].File })
 	c.AppendAll(findings)
-}
-
-// RunAllIconChecks runs all icon lint checks against the given IconIndex and appends findings into c.
-func RunAllIconChecks(idx *android.IconIndex, c *scanner.FindingCollector) {
-	CheckIconDensities(idx, c)
-	CheckIconDipSize(idx, c)
-	CheckIconDuplicates(idx, c)
-	CheckGifUsage(idx, c)
-	CheckConvertToWebp(idx, c)
-	CheckIconMissingDensityFolder(idx, c)
-	CheckIconExpectedSize(idx, c)
-	CheckIconExtension(idx, c)
-	CheckIconLocation(idx, c)
-	CheckIconMixedNinePatch(idx, c)
-	CheckIconXmlAndPng(idx, c)
-	CheckIconNoDpi(idx, c)
-	CheckIconDuplicatesConfig(idx, c)
-	CheckIconColors(idx, c)
-	CheckIconLauncherShape(idx, c)
 }

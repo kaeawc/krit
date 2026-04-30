@@ -90,9 +90,81 @@ func (r *IconExpectedSizeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
+func (r *IconExtensionRule) Meta() registry.RuleDescriptor {
+	return registry.RuleDescriptor{
+		ID:            "IconExtension",
+		RuleSet:       "android-lint",
+		Severity:      "warning",
+		Description:   "",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
+func (r *IconLocationRule) Meta() registry.RuleDescriptor {
+	return registry.RuleDescriptor{
+		ID:            "IconLocation",
+		RuleSet:       "android-lint",
+		Severity:      "warning",
+		Description:   "",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
+func (r *IconMixedNinePatchRule) Meta() registry.RuleDescriptor {
+	return registry.RuleDescriptor{
+		ID:            "IconMixedNinePatch",
+		RuleSet:       "android-lint",
+		Severity:      "warning",
+		Description:   "",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *IconMissingDensityFolderRule) Meta() registry.RuleDescriptor {
 	return registry.RuleDescriptor{
 		ID:            "IconMissingDensityFolder",
+		RuleSet:       "android-lint",
+		Severity:      "warning",
+		Description:   "",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
+func (r *IconColorsRule) Meta() registry.RuleDescriptor {
+	return registry.RuleDescriptor{
+		ID:            "IconColors",
+		RuleSet:       "android-lint",
+		Severity:      "warning",
+		Description:   "",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
+func (r *IconLauncherShapeRule) Meta() registry.RuleDescriptor {
+	return registry.RuleDescriptor{
+		ID:            "IconLauncherShape",
+		RuleSet:       "android-lint",
+		Severity:      "warning",
+		Description:   "",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
+func (r *IconXmlAndPngRule) Meta() registry.RuleDescriptor {
+	return registry.RuleDescriptor{
+		ID:            "IconXmlAndPng",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
 		Description:   "",

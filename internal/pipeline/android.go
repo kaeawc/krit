@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/android"
-	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
@@ -38,9 +37,6 @@ type AndroidInput struct {
 	// Providers is an optional async scan provider bundle. When nil,
 	// Run constructs one lazily using runtime.NumCPU() workers.
 	Providers *AndroidProjectProviders
-	// LibraryFacts carries Gradle-derived project facts such as minSdkVersion
-	// for Android resource checks that need project SDK context.
-	LibraryFacts *librarymodel.Facts
 	// Tracker, when non-nil, receives manifestAnalysis / resourceAnalysis
 	// / gradleAnalysis child Trackers.
 	Tracker perf.Tracker
@@ -68,14 +64,8 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 		return AndroidResult{}, nil
 	}
 
-	activeNames := make(map[string]bool, len(in.ActiveRules))
 	collector := scanner.NewFindingCollector(len(in.Project.ManifestPaths)*4 + len(in.Project.ResDirs)*8 + len(in.Project.GradlePaths)*4)
 
-	for _, rule := range in.ActiveRules {
-		if rule != nil {
-			activeNames[rule.ID] = true
-		}
-	}
 	var resourceDeps rules.AndroidDataDependency
 	for _, rule := range in.ActiveRules {
 		if rule == nil {
@@ -244,8 +234,15 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 			continue
 		}
 		start = time.Now()
-		iconColumns := runActiveIconChecksColumns(iconIdx, activeNames, in.LibraryFacts)
-		collector.AppendColumns(&iconColumns)
+		if in.Dispatcher != nil {
+			file := &scanner.File{
+				Path:     resDir,
+				Language: scanner.LangXML,
+				Metadata: iconIdx,
+			}
+			iconColumns := in.Dispatcher.RunIcons(file, iconIdx)
+			collector.AppendColumns(&iconColumns)
+		}
 		iconRulesDur += time.Since(start)
 	}
 	perf.AddEntry(resourceTracker, "resourceDirScan", resourceWaitDur)
@@ -586,39 +583,4 @@ func ConvertManifestForRules(m *android.ConvertedManifest) *rules.Manifest {
 	}
 
 	return rm
-}
-
-func runActiveIconChecksColumns(idx *android.IconIndex, activeNames map[string]bool, libraryFacts *librarymodel.Facts) scanner.FindingColumns {
-	collector := scanner.NewFindingCollector(8)
-	if activeNames["IconDensities"] {
-		rules.CheckIconDensities(idx, collector)
-	}
-	if activeNames["IconDipSize"] {
-		rules.CheckIconDipSize(idx, collector)
-	}
-	if activeNames["IconDuplicates"] {
-		rules.CheckIconDuplicates(idx, collector)
-	}
-	if activeNames["GifUsage"] {
-		rules.CheckGifUsage(idx, collector)
-	}
-	if activeNames["ConvertToWebp"] {
-		rules.CheckConvertToWebp(idx, collector)
-	}
-	if activeNames["IconMissingDensityFolder"] {
-		rules.CheckIconMissingDensityFolder(idx, collector)
-	}
-	if activeNames["IconExpectedSize"] {
-		rules.CheckIconExpectedSize(idx, collector)
-	}
-	if activeNames["IconColors"] {
-		rules.CheckIconColorsWithFacts(idx, collector, libraryFacts)
-	}
-	return *collector.Columns()
-}
-
-// RunActiveIconChecksColumns exposes the columns form of the active icon
-// check runner for callers that want to merge findings columnar.
-func RunActiveIconChecksColumns(idx *android.IconIndex, activeNames map[string]bool) scanner.FindingColumns {
-	return runActiveIconChecksColumns(idx, activeNames, nil)
 }

@@ -397,6 +397,9 @@ type Context struct {
 	// Populated only when the rule declares NeedsResources:
 	ResourceIndex *android.ResourceIndex
 
+	// Populated only when the rule declares AndroidDepIcons:
+	IconIndex *android.IconIndex
+
 	// Populated only when the rule declares NeedsGradle:
 	GradlePath    string
 	GradleContent string

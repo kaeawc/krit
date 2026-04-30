@@ -181,8 +181,19 @@ func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex)
 	return d.v2.RunResource(file, idx)
 }
 
+// RunIcons runs all registered icon rules against an IconIndex for a res/
+// directory.
+func (d *Dispatcher) RunIcons(file *scanner.File, idx *android.IconIndex) scanner.FindingColumns {
+	return d.v2.RunIcons(file, idx)
+}
+
 // RunResourceSource runs source AST rules that require the Android resource
 // index. See V2Dispatcher.RunResourceSource.
 func (d *Dispatcher) RunResourceSource(file *scanner.File, idx *android.ResourceIndex) scanner.FindingColumns {
 	return d.v2.RunResourceSource(file, idx)
+}
+
+// IconRules returns the icon rules classified by the underlying v2 dispatcher.
+func (d *Dispatcher) IconRules() []*v2.Rule {
+	return d.v2.IconRules()
 }

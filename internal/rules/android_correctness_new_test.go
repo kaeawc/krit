@@ -839,10 +839,10 @@ func TestCheckIconLauncherShape_NilIndex(t *testing.T) {
 }
 
 // =====================================================================
-// RunAllIconChecks includes new checks
+// Icon v2 dispatcher integration
 // =====================================================================
 
-func TestRunAllIconChecks_IncludesNewChecks(t *testing.T) {
+func TestRunIcons_IncludesNewChecks(t *testing.T) {
 	root := t.TempDir()
 	resDir := filepath.Join(root, "res")
 
@@ -859,9 +859,19 @@ func TestRunAllIconChecks_IncludesNewChecks(t *testing.T) {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 
-	c := scanner.NewFindingCollector(0)
-	rules.RunAllIconChecks(idx, c)
-	findings := c.Columns().Findings()
+	var selected []*v2rules.Rule
+	for _, rule := range v2rules.Registry {
+		if rule.ID == "IconColors" || rule.ID == "IconLauncherShape" {
+			selected = append(selected, rule)
+		}
+	}
+	if len(selected) != 2 {
+		t.Fatalf("expected IconColors and IconLauncherShape to be registered, got %d", len(selected))
+	}
+
+	dispatcher := rules.NewDispatcherV2(selected)
+	cols := dispatcher.RunIcons(&scanner.File{Path: resDir, Language: scanner.LangXML}, idx)
+	findings := cols.Findings()
 	hasIconColors := false
 	hasLauncherShape := false
 	for _, f := range findings {
@@ -873,9 +883,9 @@ func TestRunAllIconChecks_IncludesNewChecks(t *testing.T) {
 		}
 	}
 	if !hasIconColors {
-		t.Error("RunAllIconChecks should include IconColors findings")
+		t.Error("RunIcons should include IconColors findings")
 	}
 	if !hasLauncherShape {
-		t.Error("RunAllIconChecks should include IconLauncherShape findings")
+		t.Error("RunIcons should include IconLauncherShape findings")
 	}
 }

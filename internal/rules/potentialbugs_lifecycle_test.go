@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
-	"github.com/kaeawc/krit/internal/rules/registry"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 )
 
@@ -358,7 +357,7 @@ func TestLateinitUsage_HonorsIgnoreOnClassesPattern(t *testing.T) {
 	original := rule.IgnoreOnClassesPattern
 	defer func() { rule.IgnoreOnClassesPattern = original }()
 
-	rule.IgnoreOnClassesPattern = registry.CompileAnchoredPattern(
+	rule.IgnoreOnClassesPattern = v2rules.CompileAnchoredPattern(
 		"LateinitUsage", "ignoreOnClassesPattern", ".*Spec")
 
 	if findings := runRuleByName(t, "LateinitUsage", `

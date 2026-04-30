@@ -467,6 +467,87 @@ fun compute(x: Int): Int {
 	}
 }
 
+func TestFunctionOnlyReturningConstant_HonorsIgnoreOverridableFunction(t *testing.T) {
+	// IgnoreOverridableFunction was previously a dead config — exposed
+	// in zz_meta but never consulted. Default true matches detekt and
+	// preserves krit's prior behavior of skipping override/open/abstract.
+	// Setting it to false makes those functions checkable.
+	var rule *rules.FunctionOnlyReturningConstantRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "FunctionOnlyReturningConstant" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.FunctionOnlyReturningConstantRule)
+			if !ok {
+				t.Fatalf("expected FunctionOnlyReturningConstantRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("FunctionOnlyReturningConstant rule not registered")
+	}
+	original := rule.IgnoreOverridableFunction
+	defer func() { rule.IgnoreOverridableFunction = original }()
+
+	overrideCode := `package test
+open class Base {
+    open fun getAnswer(): Int = 41
+}
+class Sub : Base() {
+    override fun getAnswer(): Int = 42
+}
+`
+	// Default (true): override is skipped → no finding on Sub.getAnswer.
+	if findings := runRuleByName(t, "FunctionOnlyReturningConstant", overrideCode); len(findings) > 0 {
+		// Findings on Base's `open fun` are also expected to be suppressed
+		// under the default — assert it's actually 0.
+		t.Fatalf("expected no findings under IgnoreOverridableFunction=true, got %d", len(findings))
+	}
+
+	rule.IgnoreOverridableFunction = false
+
+	// Flip to false: override/open are now checkable. Both Base and Sub fire.
+	if findings := runRuleByName(t, "FunctionOnlyReturningConstant", overrideCode); len(findings) == 0 {
+		t.Fatal("expected findings for override/open functions when IgnoreOverridableFunction=false")
+	}
+}
+
+func TestFunctionOnlyReturningConstant_HonorsIgnoreActualFunction(t *testing.T) {
+	// IgnoreActualFunction default true matches detekt and skips
+	// `actual fun` declarations. Setting it to false makes them checkable.
+	var rule *rules.FunctionOnlyReturningConstantRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "FunctionOnlyReturningConstant" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.FunctionOnlyReturningConstantRule)
+			if !ok {
+				t.Fatalf("expected FunctionOnlyReturningConstantRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("FunctionOnlyReturningConstant rule not registered")
+	}
+	original := rule.IgnoreActualFunction
+	defer func() { rule.IgnoreActualFunction = original }()
+
+	actualCode := `package test
+actual fun getAnswer(): Int = 42
+`
+	// Default (true): actual is skipped.
+	if findings := runRuleByName(t, "FunctionOnlyReturningConstant", actualCode); len(findings) != 0 {
+		t.Fatalf("expected no findings under IgnoreActualFunction=true, got %d", len(findings))
+	}
+
+	rule.IgnoreActualFunction = false
+
+	// Flip to false: actual fun is now checkable.
+	if findings := runRuleByName(t, "FunctionOnlyReturningConstant", actualCode); len(findings) == 0 {
+		t.Fatal("expected finding for actual fun when IgnoreActualFunction=false")
+	}
+}
+
 // --- LoopWithTooManyJumpStatements ---
 
 func TestLoopWithTooManyJumpStatements_Positive(t *testing.T) {

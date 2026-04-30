@@ -573,18 +573,19 @@ func registerStyleExpressionsRules() {
 		})
 	}
 	{
-		r := &FunctionOnlyReturningConstantRule{BaseRule: BaseRule{RuleName: "FunctionOnlyReturningConstant", RuleSetName: "style", Sev: "warning", Desc: "Detects functions whose body only returns a constant value that could be a const val."}}
+		r := &FunctionOnlyReturningConstantRule{BaseRule: BaseRule{RuleName: "FunctionOnlyReturningConstant", RuleSetName: "style", Sev: "warning", Desc: "Detects functions whose body only returns a constant value that could be a const val."}, IgnoreOverridableFunction: true, IgnoreActualFunction: true}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if file.FlatHasModifier(idx, "override") ||
-					file.FlatHasModifier(idx, "open") ||
-					file.FlatHasModifier(idx, "abstract") {
+				if r.IgnoreOverridableFunction &&
+					(file.FlatHasModifier(idx, "override") ||
+						file.FlatHasModifier(idx, "open") ||
+						file.FlatHasModifier(idx, "abstract")) {
 					return
 				}
-				if file.FlatHasModifier(idx, "actual") {
+				if r.IgnoreActualFunction && file.FlatHasModifier(idx, "actual") {
 					return
 				}
 				if HasIgnoredAnnotation(file.FlatNodeText(idx),

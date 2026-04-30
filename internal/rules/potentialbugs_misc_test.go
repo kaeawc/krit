@@ -275,6 +275,36 @@ fun f(): Sequence<Int> = run { sequence() }`, "sequence()", &typeinfer.ResolvedT
 	}
 }
 
+func TestIgnoredReturnValue_OracleSkipsMockitoVerifyContext(t *testing.T) {
+	findings := runIgnoredReturnValueWithOracle(t, `package test
+import org.mockito.kotlin.verify
+
+class Dao {
+    fun selectConversationById(id: Long): Flow<String> = TODO()
+}
+
+fun f(dao: Dao) {
+    verify(dao).selectConversationById(1)
+}
+`, "selectConversationById(1)", &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}, nil)
+	if len(findings) != 0 {
+		t.Fatalf("expected Mockito verify context to be ignored, got %d: %#v", len(findings), findings)
+	}
+}
+
+func TestIgnoredReturnValue_OracleSkipsStateFlowValueAssignmentReceiver(t *testing.T) {
+	findings := runIgnoredReturnValueWithOracle(t, `package test
+import kotlinx.coroutines.flow.MutableStateFlow
+
+fun f() {
+    MutableStateFlow(false).value = true
+}
+`, "MutableStateFlow(false)", &typeinfer.ResolvedType{Name: "MutableStateFlow", FQN: "kotlinx.coroutines.flow.MutableStateFlow", Kind: typeinfer.TypeClass}, nil)
+	if len(findings) != 0 {
+		t.Fatalf("expected MutableStateFlow value assignment receiver to be ignored, got %d: %#v", len(findings), findings)
+	}
+}
+
 func TestIgnoredReturnValue_OracleAnnotations(t *testing.T) {
 	checkReturn := []string{"com.google.errorprone.annotations.CheckReturnValue"}
 	checkResult := []string{"androidx.annotation.CheckResult"}

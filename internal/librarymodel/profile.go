@@ -29,6 +29,7 @@ type ProjectProfile struct {
 	KSP     KSPProfile
 	Android AndroidProfile
 	JVM     JVMProfile
+	Java    JavaSourceProfile
 
 	Dependencies []Dependency
 
@@ -119,7 +120,12 @@ func ProfileFromGradleContentWithCatalog(path, content string, catalog VersionCa
 	profile.KSP = mergeKSPProfile(profile.KSP, kspProfile)
 	profile.Android = mergeAndroidProfile(profile.Android, androidProfile)
 	profile.JVM = mergeJVMProfile(profile.JVM, jvmProfile)
+	profile.Java = mergeJavaSourceProfile(profile.Java, JavaSourceProfileFromGradleContent(path, content, cfg))
 	applyCatalogProfileFacts(&profile, catalogContent, cfg.Plugins, catalog, path)
+	mergeJavaDependencyClasspath(&profile.Java, profile.Dependencies)
+	if profile.HasUnresolvedDependencyRefs {
+		profile.Java.ClasspathComplete = false
+	}
 	profile.DependencyExtractionComplete = profile.HasGradle && !profile.HasUnresolvedDependencyRefs
 	return profile
 }
@@ -189,6 +195,7 @@ func (p *ProjectProfile) Merge(other ProjectProfile) {
 	p.KSP = mergeKSPProfile(p.KSP, other.KSP)
 	p.Android = mergeAndroidProfile(p.Android, other.Android)
 	p.JVM = mergeJVMProfile(p.JVM, other.JVM)
+	p.Java = mergeJavaSourceProfile(p.Java, other.Java)
 	p.HasGradle = p.HasGradle || other.HasGradle
 	p.HasUnresolvedDependencyRefs = p.HasUnresolvedDependencyRefs || other.HasUnresolvedDependencyRefs
 	p.DependencyExtractionComplete = p.HasGradle && !p.HasUnresolvedDependencyRefs &&

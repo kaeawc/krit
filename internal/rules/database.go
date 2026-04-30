@@ -1085,6 +1085,48 @@ func (r *RoomDatabaseVersionNotBumpedRule) check(ctx *v2.Context) {
 	}
 }
 
+// RoomMigrationUsesExecSqlWithInterpolationRule detects `db.execSQL(...)`
+// calls inside a class or object that extends Room's `Migration`, where the
+// SQL string uses Kotlin string interpolation. Interpolated DDL inside a
+// migration is brittle and a SQL-injection foot-gun.
+type RoomMigrationUsesExecSqlWithInterpolationRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Detection matches
+// on the call name and an enclosing supertype named `Migration`, without
+// confirming androidx.room.migration.Migration resolves the type.
+func (r *RoomMigrationUsesExecSqlWithInterpolationRule) Confidence() float64 { return 0.85 }
+
+func enclosingMigrationOwnerFlat(file *scanner.File, idx uint32) bool {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "class_declaration", "object_declaration":
+			for child := file.FlatFirstChild(cur); child != 0; child = file.FlatNextSib(child) {
+				if file.FlatType(child) != "delegation_specifier" {
+					continue
+				}
+				userType, _ := file.FlatFindChild(child, "user_type")
+				if userType == 0 {
+					if ctor, okc := file.FlatFindChild(child, "constructor_invocation"); okc {
+						userType, _ = file.FlatFindChild(ctor, "user_type")
+					}
+				}
+				if userType == 0 {
+					continue
+				}
+				if ident := flatLastChildOfType(file, userType, "type_identifier"); ident != 0 {
+					if file.FlatNodeTextEquals(ident, "Migration") {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
 func hasModuleAnnotatedAncestorFlat(file *scanner.File, idx uint32) bool {
 	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
 		switch file.FlatType(cur) {

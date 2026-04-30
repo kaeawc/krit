@@ -174,6 +174,18 @@ func (r *RoomMultipleWritesMissingTransactionRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *RoomMigrationUsesExecSqlWithInterpolationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "RoomMigrationUsesExecSqlWithInterpolation",
+		RuleSet:       "database",
+		Severity:      "warning",
+		Description:   "Detects db.execSQL(...) calls inside a Room Migration that use Kotlin string interpolation in the SQL string.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.85,
+	}
+}
+
 func (r *JdbcPreparedStatementNotClosedRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "JdbcPreparedStatementNotClosed",

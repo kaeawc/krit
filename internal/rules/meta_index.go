@@ -519,6 +519,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*StringNotSelectableRule)(nil),
 		(*StringRepeatedInContentDescriptionRule)(nil),
 		(*StringResourceMissingPositionalRule)(nil),
+		(*StringResourcePlaceholderOrderRule)(nil),
 		(*StringShouldBeRawStringRule)(nil),
 		(*StringTemplateForTranslationRule)(nil),
 		(*StringTrailingWhitespaceResourceRule)(nil),

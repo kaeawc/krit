@@ -1,6 +1,12 @@
 package rules_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kaeawc/krit/internal/rules"
+	"github.com/kaeawc/krit/internal/rules/registry"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+)
 
 // --- ExitOutsideMain ---
 
@@ -327,6 +333,51 @@ class Service
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for injected lateinit properties, got %d", len(findings))
+	}
+}
+
+func TestLateinitUsage_HonorsIgnoreOnClassesPattern(t *testing.T) {
+	// IgnoreOnClassesPattern was previously a dead config — exposed in
+	// zz_meta but never consulted. Configure it via the rule pointer
+	// and verify lateinit declarations inside matching classes are
+	// skipped while non-matching ones still fire.
+	var rule *rules.LateinitUsageRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "LateinitUsage" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.LateinitUsageRule)
+			if !ok {
+				t.Fatalf("expected LateinitUsageRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("LateinitUsage rule not registered")
+	}
+	original := rule.IgnoreOnClassesPattern
+	defer func() { rule.IgnoreOnClassesPattern = original }()
+
+	rule.IgnoreOnClassesPattern = registry.CompileAnchoredPattern(
+		"LateinitUsage", "ignoreOnClassesPattern", ".*Spec")
+
+	if findings := runRuleByName(t, "LateinitUsage", `
+package test
+class FooSpec {
+    lateinit var subject: String
+}
+`); len(findings) != 0 {
+		t.Fatalf("expected no findings inside FooSpec when IgnoreOnClassesPattern matches, got %d", len(findings))
+	}
+
+	// A non-matching class still fires.
+	if findings := runRuleByName(t, "LateinitUsage", `
+package test
+class FooImpl {
+    lateinit var subject: String
+}
+`); len(findings) == 0 {
+		t.Fatal("expected finding inside FooImpl (does not match Spec pattern)")
 	}
 }
 

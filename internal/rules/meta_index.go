@@ -418,6 +418,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*PeriodicWorkRequestLessThan15MinRule)(nil),
 		(*PermissionImpliesUnsupportedHardwareManifestRule)(nil),
 		(*PlainFileWriteOfSensitiveRule)(nil),
+		(*PluralsBuiltWithIfElseRule)(nil),
 		(*PluralsCandidateRule)(nil),
 		(*PrintStackTraceInProductionRule)(nil),
 		(*PrintStackTraceRule)(nil),

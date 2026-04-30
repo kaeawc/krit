@@ -20,14 +20,17 @@ package scanner
 // marked signed via zig-zag):
 //
 //   magic u32   = 0x4B534843 "KSHC"
-//   version u16 = 1
+//   version u16 = 2
 //   bloom: u32 length + bytes
 //   nameTableCount: uvarint
 //     { nameLen: uvarint; name: UTF-8 bytes } * nameTableCount
 //   symbolCount: uvarint
 //     { nameID, kindID, visID: uvarint
+//       language: u8
+//       packageID, fqnID, ownerID, signatureID: uvarint
+//       arity: svarint
 //       line, startByte, endByte: svarint
-//       flags: u8 (bit0=IsOverride, bit1=IsTest, bit2=IsMain) } * symbolCount
+//       flags: u8 (bit0=IsOverride, bit1=IsTest, bit2=IsMain, bit3=IsStatic, bit4=IsFinal) } * symbolCount
 //   refCount: uvarint
 //     { nameID: uvarint; line: svarint; flags: u8 (bit0=InComment) } * refCount
 
@@ -39,7 +42,7 @@ import (
 
 const (
 	shardPayloadMagic   uint32 = 0x4B534843 // "KSHC"
-	shardPayloadVersion uint16 = 1
+	shardPayloadVersion uint16 = 2
 )
 
 type codecWriter struct {
@@ -156,10 +159,18 @@ func encodeShardPayload(s *fileShard) []byte {
 	sNameID := make([]uint32, len(s.Symbols))
 	sKindID := make([]uint32, len(s.Symbols))
 	sVisID := make([]uint32, len(s.Symbols))
+	sPackageID := make([]uint32, len(s.Symbols))
+	sFQNID := make([]uint32, len(s.Symbols))
+	sOwnerID := make([]uint32, len(s.Symbols))
+	sSignatureID := make([]uint32, len(s.Symbols))
 	for i, sym := range s.Symbols {
 		sNameID[i] = intern(sym.Name)
 		sKindID[i] = intern(sym.Kind)
 		sVisID[i] = intern(sym.Visibility)
+		sPackageID[i] = intern(sym.Package)
+		sFQNID[i] = intern(sym.FQN)
+		sOwnerID[i] = intern(sym.Owner)
+		sSignatureID[i] = intern(sym.Signature)
 	}
 	rNameID := make([]uint32, len(s.References))
 	for i, ref := range s.References {
@@ -179,6 +190,12 @@ func encodeShardPayload(s *fileShard) []byte {
 		w.putUvarint(uint64(sNameID[i]))
 		w.putUvarint(uint64(sKindID[i]))
 		w.putUvarint(uint64(sVisID[i]))
+		w.putU8(uint8(sym.Language))
+		w.putUvarint(uint64(sPackageID[i]))
+		w.putUvarint(uint64(sFQNID[i]))
+		w.putUvarint(uint64(sOwnerID[i]))
+		w.putUvarint(uint64(sSignatureID[i]))
+		w.putVarint(int64(sym.Arity))
 		w.putVarint(int64(sym.Line))
 		w.putVarint(int64(sym.StartByte))
 		w.putVarint(int64(sym.EndByte))
@@ -191,6 +208,12 @@ func encodeShardPayload(s *fileShard) []byte {
 		}
 		if sym.IsMain {
 			f |= 4
+		}
+		if sym.IsStatic {
+			f |= 8
+		}
+		if sym.IsFinal {
+			f |= 16
 		}
 		w.putU8(f)
 	}
@@ -284,6 +307,46 @@ func decodeShardPayload(data []byte, path string) (*fileShard, error) {
 		if err != nil {
 			return nil, err
 		}
+		lang, err := r.getU8()
+		if err != nil {
+			return nil, err
+		}
+		pid, err := r.getUvarint()
+		if err != nil {
+			return nil, err
+		}
+		fid, err := r.getUvarint()
+		if err != nil {
+			return nil, err
+		}
+		oid, err := r.getUvarint()
+		if err != nil {
+			return nil, err
+		}
+		sid, err := r.getUvarint()
+		if err != nil {
+			return nil, err
+		}
+		pkg, err := lookup(pid)
+		if err != nil {
+			return nil, err
+		}
+		fqn, err := lookup(fid)
+		if err != nil {
+			return nil, err
+		}
+		owner, err := lookup(oid)
+		if err != nil {
+			return nil, err
+		}
+		signature, err := lookup(sid)
+		if err != nil {
+			return nil, err
+		}
+		arity, err := r.getVarint()
+		if err != nil {
+			return nil, err
+		}
 		line, err := r.getVarint()
 		if err != nil {
 			return nil, err
@@ -308,9 +371,17 @@ func decodeShardPayload(data []byte, path string) (*fileShard, error) {
 			Line:       int(line),
 			StartByte:  int(sb),
 			EndByte:    int(eb),
+			Language:   Language(lang),
+			Package:    pkg,
+			FQN:        fqn,
+			Owner:      owner,
+			Signature:  signature,
+			Arity:      int(arity),
 			IsOverride: f&1 != 0,
 			IsTest:     f&2 != 0,
 			IsMain:     f&4 != 0,
+			IsStatic:   f&8 != 0,
+			IsFinal:    f&16 != 0,
 		}
 	}
 
@@ -344,10 +415,10 @@ func decodeShardPayload(data []byte, path string) (*fileShard, error) {
 		}
 	}
 	return &fileShard{
-		Path:        path,
-		Version:     crossFileShardVersion,
-		Symbols:     syms,
-		References:  refs,
-		Bloom:       bloom,
+		Path:       path,
+		Version:    crossFileShardVersion,
+		Symbols:    syms,
+		References: refs,
+		Bloom:      bloom,
 	}, nil
 }

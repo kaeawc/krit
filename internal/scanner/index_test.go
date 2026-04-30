@@ -113,6 +113,7 @@ func buildCodeIndexWithBloomLazyForTest(symbols []Symbol, refs []Reference, preb
 		Symbols:                      symbols,
 		References:                   refs,
 		symbolsByName:                make(map[string][]Symbol),
+		symbolsByFQN:                 make(map[string]Symbol),
 		refCountByName:               make(map[string]int),
 		refFilesByName:               make(map[string]map[string]bool),
 		nonCommentRefFilesByName:     make(map[string]map[string]bool),
@@ -131,6 +132,12 @@ func buildCodeIndexWithBloomLazyForTest(symbols []Symbol, refs []Reference, preb
 
 	for _, sym := range idx.Symbols {
 		idx.symbolsByName[sym.Name] = append(idx.symbolsByName[sym.Name], sym)
+		if sym.FQN != "" {
+			idx.symbolsByFQN[sym.FQN] = sym
+			if sym.FQN != sym.Name {
+				idx.symbolsByName[sym.FQN] = append(idx.symbolsByName[sym.FQN], sym)
+			}
+		}
 	}
 	for _, ref := range idx.References {
 		idx.refCountByName[ref.Name]++
@@ -324,6 +331,173 @@ class Holder { val z = 2 }
 			t.Errorf("missing symbol %q in %+v", want, symbolNames(symbols))
 		}
 	}
+}
+
+func TestCollectJavaDeclarationsFlat_IndexesClassMembersAndMetadata(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Widget.java")
+	if err := os.WriteFile(path, []byte(`package com.example.widgets;
+
+public final class Widget {
+  public static final String NAME = "Widget";
+  private int count;
+
+  public Widget(String name) {}
+  protected void render(int width, String label) {}
+
+  static class Holder {}
+}
+`), 0o644); err != nil {
+		t.Fatalf("write java: %v", err)
+	}
+	file, err := ParseJavaFile(path)
+	if err != nil {
+		t.Fatalf("ParseJavaFile: %v", err)
+	}
+
+	var symbols []Symbol
+	collectJavaDeclarationsFlat(file, &symbols)
+
+	byName := map[string][]Symbol{}
+	for _, sym := range symbols {
+		byName[sym.Name] = append(byName[sym.Name], sym)
+	}
+
+	widget := requireSymbol(t, byName["Widget"], "class")
+	if widget.Language != LangJava {
+		t.Fatalf("Widget language = %v, want Java", widget.Language)
+	}
+	if widget.Package != "com.example.widgets" || widget.FQN != "com.example.widgets.Widget" {
+		t.Fatalf("Widget package/FQN = %q/%q", widget.Package, widget.FQN)
+	}
+	if !widget.IsFinal {
+		t.Fatal("Widget should record final modifier")
+	}
+
+	nameField := requireSymbol(t, byName["NAME"], "field")
+	if nameField.Owner != "com.example.widgets.Widget" || nameField.FQN != "com.example.widgets.Widget.NAME" {
+		t.Fatalf("NAME owner/FQN = %q/%q", nameField.Owner, nameField.FQN)
+	}
+	if !nameField.IsStatic || !nameField.IsFinal {
+		t.Fatalf("NAME static/final = %v/%v, want true/true", nameField.IsStatic, nameField.IsFinal)
+	}
+
+	render := requireSymbol(t, byName["render"], "method")
+	if render.Visibility != "protected" || render.Arity != 2 {
+		t.Fatalf("render visibility/arity = %q/%d, want protected/2", render.Visibility, render.Arity)
+	}
+	if render.Signature != "com.example.widgets.Widget#render/2" {
+		t.Fatalf("render signature = %q", render.Signature)
+	}
+
+	holder := requireSymbol(t, byName["Holder"], "class")
+	if holder.Owner != "com.example.widgets.Widget" || holder.FQN != "com.example.widgets.Widget.Holder" {
+		t.Fatalf("Holder owner/FQN = %q/%q", holder.Owner, holder.FQN)
+	}
+	if !holder.IsStatic {
+		t.Fatal("Holder should record static modifier")
+	}
+}
+
+func TestBuildIndex_IncludesJavaDeclarationsInMixedProject(t *testing.T) {
+	dir := t.TempDir()
+	javaPath := filepath.Join(dir, "JavaHelper.java")
+	if err := os.WriteFile(javaPath, []byte(`package com.example;
+
+public class JavaHelper {
+  public String label() { return "ok"; }
+}
+`), 0o644); err != nil {
+		t.Fatalf("write java: %v", err)
+	}
+	kotlinPath := writeTempKt(t, dir, "UseJava.kt", `package com.example
+
+fun use(helper: JavaHelper) = helper.label()
+`)
+
+	kt, err := ParseFile(kotlinPath)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	javaFile, err := ParseJavaFile(javaPath)
+	if err != nil {
+		t.Fatalf("ParseJavaFile: %v", err)
+	}
+
+	idx := BuildIndex([]*File{kt}, 1, javaFile)
+	helper, ok := idx.SymbolByFQN("com.example.JavaHelper")
+	if !ok {
+		t.Fatalf("missing JavaHelper FQN symbol in %+v", idx.Symbols)
+	}
+	if helper.Name != "JavaHelper" || helper.Language != LangJava {
+		t.Fatalf("JavaHelper symbol = %+v", helper)
+	}
+	if got := idx.SymbolsNamed("com.example.JavaHelper"); len(got) != 1 {
+		t.Fatalf("SymbolsNamed(FQN) = %d, want 1", len(got))
+	}
+	if !idx.IsReferencedOutsideFile("JavaHelper", javaPath) {
+		t.Fatal("Kotlin JavaHelper reference did not match Java declaration by simple name")
+	}
+}
+
+func TestCollectJavaReferencesFlat_AddsScopedNames(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "UseJava.java")
+	if err := os.WriteFile(path, []byte(`package com.other;
+
+import com.example.JavaHelper;
+
+class UseJava {
+  Object helper = new com.example.JavaHelper();
+}
+`), 0o644); err != nil {
+		t.Fatalf("write java: %v", err)
+	}
+	file, err := ParseJavaFile(path)
+	if err != nil {
+		t.Fatalf("ParseJavaFile: %v", err)
+	}
+
+	var refs []Reference
+	collectJavaReferencesFlat(file, &refs)
+	if !hasReferenceNamed(refs, "com.example.JavaHelper") {
+		t.Fatalf("missing scoped Java reference in %+v", refs)
+	}
+	if !hasReferenceNamed(refs, "JavaHelper") {
+		t.Fatalf("missing simple Java reference in %+v", refs)
+	}
+}
+
+func TestAppendXMLReferences_KeepsFQNAndSimpleName(t *testing.T) {
+	var refs []Reference
+	appendXMLReferences(&refs, "res/layout/view.xml", []byte(`<com.example.widgets.CustomView />`))
+
+	if !hasReferenceNamed(refs, "com.example.widgets.CustomView") {
+		t.Fatalf("missing XML FQN reference in %+v", refs)
+	}
+	if !hasReferenceNamed(refs, "CustomView") {
+		t.Fatalf("missing XML simple reference in %+v", refs)
+	}
+}
+
+func requireSymbol(t *testing.T, symbols []Symbol, kind string) Symbol {
+	t.Helper()
+	for _, sym := range symbols {
+		if sym.Kind == kind {
+			return sym
+		}
+	}
+	t.Fatalf("missing %s symbol in %+v", kind, symbols)
+	return Symbol{}
+}
+
+func hasReferenceNamed(refs []Reference, name string) bool {
+	for _, ref := range refs {
+		if ref.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCollectReferencesFlat_KDocReferenceInComment(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -33,9 +34,17 @@ type Symbol struct {
 	Line       int
 	StartByte  int
 	EndByte    int
+	Language   Language
+	Package    string
+	FQN        string
+	Owner      string
+	Signature  string
+	Arity      int
 	IsOverride bool
 	IsTest     bool
 	IsMain     bool
+	IsStatic   bool
+	IsFinal    bool
 }
 
 // Reference represents a usage of a name in the codebase.
@@ -54,6 +63,7 @@ type CodeIndex struct {
 
 	// Lookup maps
 	symbolsByName                map[string][]Symbol
+	symbolsByFQN                 map[string]Symbol
 	refCountByName               map[string]int
 	refFilesByName               map[string]map[string]bool // name -> set of files referencing it
 	nonCommentRefFilesByName     map[string]map[string]bool // name -> set of files with non-comment references
@@ -404,13 +414,15 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 			Path:        file.Path,
 			ContentHash: contentHashForFile(file.Path, file.Content),
 			Fresh: func() ([]Symbol, []Reference) {
+				var syms []Symbol
 				var r []Reference
+				collectJavaDeclarationsFlat(file, &syms)
 				collectJavaReferencesFlat(file, &r)
-				return nil, r
+				return syms, r
 			},
 		})
 	}
-	runPhase("javaReferenceCollection", javaJobs, 0, localBufferRefPerJob)
+	runPhase("javaReferenceCollection", javaJobs, localBufferKotlinSymbolPerJob, localBufferRefPerJob)
 
 	xmlJobs := make([]shardJob, 0, len(xmlFiles))
 	for _, f := range xmlFiles {
@@ -491,12 +503,12 @@ func collectIndexDataInternal(files []*File, workers int, tracker perf.Tracker, 
 		return buffers
 	}
 
-	collectJavaRefsByWorker := func(files []*File) []indexDataBuffer {
+	collectJavaByWorker := func(files []*File) []indexDataBuffer {
 		workerCount := workerCountForJobs(workers, len(files))
 		if workerCount == 0 {
 			return nil
 		}
-		buffers := newIndexDataBuffers(workerCount, len(files), 0, localBufferRefPerJob)
+		buffers := newIndexDataBuffers(workerCount, len(files), localBufferKotlinSymbolPerJob, localBufferRefPerJob)
 		fileCh := make(chan *File)
 
 		var wg sync.WaitGroup
@@ -509,8 +521,11 @@ func collectIndexDataInternal(files []*File, workers int, tracker perf.Tracker, 
 					if file == nil {
 						continue
 					}
+					var javaSymbols []Symbol
 					var javaRefs []Reference
+					collectJavaDeclarationsFlat(file, &javaSymbols)
 					collectJavaReferencesFlat(file, &javaRefs)
+					buf.symbols = append(buf.symbols, javaSymbols...)
 					buf.refs = append(buf.refs, javaRefs...)
 				}
 			}(workerID)
@@ -536,9 +551,9 @@ func collectIndexDataInternal(files []*File, workers int, tracker perf.Tracker, 
 		runKotlin()
 	}
 
-	// Index Java files for references only (no symbol declarations)
+	// Index Java files for declarations and references.
 	runJava := func() {
-		buffers := collectJavaRefsByWorker(javaFiles)
+		buffers := collectJavaByWorker(javaFiles)
 		symbols, refs = appendIndexDataBuffers(symbols, refs, buffers)
 	}
 	if tracker != nil && tracker.IsEnabled() {
@@ -585,6 +600,7 @@ func buildCodeIndexWithBloom(symbols []Symbol, refs []Reference, prebuilt *bloom
 		Symbols:       symbols,
 		References:    refs,
 		symbolsByName: make(map[string][]Symbol),
+		symbolsByFQN:  make(map[string]Symbol),
 	}
 
 	if prebuilt != nil {
@@ -600,10 +616,34 @@ func buildCodeIndexWithBloom(symbols []Symbol, refs []Reference, prebuilt *bloom
 
 	for _, sym := range idx.Symbols {
 		idx.symbolsByName[sym.Name] = append(idx.symbolsByName[sym.Name], sym)
+		if sym.FQN != "" {
+			idx.symbolsByFQN[sym.FQN] = sym
+			if sym.FQN != sym.Name {
+				idx.symbolsByName[sym.FQN] = append(idx.symbolsByName[sym.FQN], sym)
+			}
+		}
 	}
 	idx.buildReferenceLookups(prebuilt == nil)
 
 	return idx
+}
+
+// SymbolsNamed returns declarations indexed under a simple or fully-qualified
+// name. A nil result means no matching declaration is known.
+func (idx *CodeIndex) SymbolsNamed(name string) []Symbol {
+	if idx == nil || name == "" {
+		return nil
+	}
+	return idx.symbolsByName[name]
+}
+
+// SymbolByFQN returns the declaration with the exact fully-qualified name.
+func (idx *CodeIndex) SymbolByFQN(fqn string) (Symbol, bool) {
+	if idx == nil || fqn == "" {
+		return Symbol{}, false
+	}
+	sym, ok := idx.symbolsByFQN[fqn]
+	return sym, ok
 }
 
 func (idx *CodeIndex) buildReferenceLookups(addToBloom bool) {
@@ -817,6 +857,7 @@ func indexFile(file *File) ([]Symbol, []Reference) {
 }
 
 func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
+	pkg := packageNameForFile(file)
 	file.FlatWalkAllNodes(0, func(idx uint32) {
 		nodeType := file.FlatType(idx)
 		switch nodeType {
@@ -826,6 +867,8 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 				return
 			}
 			name = internString(name)
+			owner := symbolOwner(file, idx, pkg)
+			fqn := symbolFQN(pkg, owner, name)
 			sym := Symbol{
 				Name:       name,
 				Kind:       "function",
@@ -834,6 +877,12 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 				Line:       file.FlatRow(idx) + 1,
 				StartByte:  int(file.FlatStartByte(idx)),
 				EndByte:    int(file.FlatEndByte(idx)),
+				Language:   file.Language,
+				Package:    pkg,
+				FQN:        fqn,
+				Owner:      owner,
+				Signature:  symbolSignature(owner, name, kotlinFunctionArity(file, idx)),
+				Arity:      kotlinFunctionArity(file, idx),
 				IsOverride: file.FlatHasModifier(idx, "override"),
 				IsMain:     name == "main",
 			}
@@ -848,11 +897,13 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 				return
 			}
 			name = internString(name)
+			owner := symbolOwner(file, idx, pkg)
 			kind := "class"
 			text := file.FlatNodeText(idx)
 			if strings.Contains(text, "interface ") {
 				kind = "interface"
 			}
+			fqn := symbolFQN(pkg, owner, name)
 			*symbols = append(*symbols, Symbol{
 				Name:       name,
 				Kind:       kind,
@@ -861,6 +912,11 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 				Line:       file.FlatRow(idx) + 1,
 				StartByte:  int(file.FlatStartByte(idx)),
 				EndByte:    int(file.FlatEndByte(idx)),
+				Language:   file.Language,
+				Package:    pkg,
+				FQN:        fqn,
+				Owner:      owner,
+				Signature:  fqn,
 			})
 		case "object_declaration":
 			name := file.FlatChildTextOrEmpty(idx, "type_identifier")
@@ -871,6 +927,8 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 				return
 			}
 			name = internString(name)
+			owner := symbolOwner(file, idx, pkg)
+			fqn := symbolFQN(pkg, owner, name)
 			*symbols = append(*symbols, Symbol{
 				Name:       name,
 				Kind:       "object",
@@ -879,6 +937,11 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 				Line:       file.FlatRow(idx) + 1,
 				StartByte:  int(file.FlatStartByte(idx)),
 				EndByte:    int(file.FlatEndByte(idx)),
+				Language:   file.Language,
+				Package:    pkg,
+				FQN:        fqn,
+				Owner:      owner,
+				Signature:  fqn,
 			})
 		case "property_declaration":
 			parent, ok := file.FlatParent(idx)
@@ -900,6 +963,8 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 				return
 			}
 			name = internString(name)
+			owner := symbolOwner(file, idx, pkg)
+			fqn := symbolFQN(pkg, owner, name)
 			*symbols = append(*symbols, Symbol{
 				Name:       name,
 				Kind:       "property",
@@ -908,8 +973,99 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 				Line:       file.FlatRow(idx) + 1,
 				StartByte:  int(file.FlatStartByte(idx)),
 				EndByte:    int(file.FlatEndByte(idx)),
+				Language:   file.Language,
+				Package:    pkg,
+				FQN:        fqn,
+				Owner:      owner,
+				Signature:  symbolSignature(owner, name, 0),
+				Arity:      0,
 				IsOverride: file.FlatHasModifier(idx, "override"),
 			})
+		}
+	})
+}
+
+func collectJavaDeclarationsFlat(file *File, symbols *[]Symbol) {
+	if file == nil || file.FlatTree == nil {
+		return
+	}
+	pkg := javaPackageName(file)
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		switch file.FlatType(idx) {
+		case "class_declaration", "interface_declaration", "enum_declaration", "record_declaration", "annotation_type_declaration":
+			name := file.FlatChildTextOrEmpty(idx, "identifier")
+			if name == "" {
+				return
+			}
+			name = internString(name)
+			owner := symbolOwner(file, idx, pkg)
+			fqn := symbolFQN(pkg, owner, name)
+			*symbols = append(*symbols, Symbol{
+				Name:       name,
+				Kind:       javaClassKind(file.FlatType(idx)),
+				Visibility: javaVisibility(file, idx),
+				File:       file.Path,
+				Line:       file.FlatRow(idx) + 1,
+				StartByte:  int(file.FlatStartByte(idx)),
+				EndByte:    int(file.FlatEndByte(idx)),
+				Language:   LangJava,
+				Package:    pkg,
+				FQN:        fqn,
+				Owner:      owner,
+				Signature:  fqn,
+				IsStatic:   file.FlatHasModifier(idx, "static"),
+				IsFinal:    file.FlatHasModifier(idx, "final"),
+			})
+		case "method_declaration":
+			name := file.FlatChildTextOrEmpty(idx, "identifier")
+			if name == "" {
+				return
+			}
+			name = internString(name)
+			owner := symbolOwner(file, idx, pkg)
+			arity := javaFormalParameterArity(file, idx)
+			*symbols = append(*symbols, Symbol{
+				Name:       name,
+				Kind:       "method",
+				Visibility: javaVisibility(file, idx),
+				File:       file.Path,
+				Line:       file.FlatRow(idx) + 1,
+				StartByte:  int(file.FlatStartByte(idx)),
+				EndByte:    int(file.FlatEndByte(idx)),
+				Language:   LangJava,
+				Package:    pkg,
+				FQN:        symbolFQN(pkg, owner, name),
+				Owner:      owner,
+				Signature:  symbolSignature(owner, name, arity),
+				Arity:      arity,
+				IsStatic:   file.FlatHasModifier(idx, "static"),
+				IsFinal:    file.FlatHasModifier(idx, "final"),
+			})
+		case "constructor_declaration", "compact_constructor_declaration":
+			name := file.FlatChildTextOrEmpty(idx, "identifier")
+			if name == "" {
+				return
+			}
+			name = internString(name)
+			owner := symbolOwner(file, idx, pkg)
+			arity := javaFormalParameterArity(file, idx)
+			*symbols = append(*symbols, Symbol{
+				Name:       name,
+				Kind:       "constructor",
+				Visibility: javaVisibility(file, idx),
+				File:       file.Path,
+				Line:       file.FlatRow(idx) + 1,
+				StartByte:  int(file.FlatStartByte(idx)),
+				EndByte:    int(file.FlatEndByte(idx)),
+				Language:   LangJava,
+				Package:    pkg,
+				FQN:        symbolFQN(pkg, owner, name),
+				Owner:      owner,
+				Signature:  symbolSignature(owner, name, arity),
+				Arity:      arity,
+			})
+		case "field_declaration":
+			collectJavaFieldDeclarations(file, idx, pkg, symbols)
 		}
 	})
 }
@@ -959,6 +1115,194 @@ func flatVisibility(file *File, idx uint32) string {
 	}
 }
 
+func javaVisibility(file *File, idx uint32) string {
+	switch {
+	case file.FlatHasModifier(idx, "private"):
+		return "private"
+	case file.FlatHasModifier(idx, "protected"):
+		return "protected"
+	case file.FlatHasModifier(idx, "public"):
+		return "public"
+	default:
+		return "package"
+	}
+}
+
+func javaClassKind(nodeType string) string {
+	switch nodeType {
+	case "interface_declaration":
+		return "interface"
+	case "enum_declaration":
+		return "enum"
+	case "record_declaration":
+		return "record"
+	case "annotation_type_declaration":
+		return "annotation"
+	default:
+		return "class"
+	}
+}
+
+func packageNameForFile(file *File) string {
+	if file == nil {
+		return ""
+	}
+	if file.Language == LangJava {
+		return javaPackageName(file)
+	}
+	return kotlinPackageName(file)
+}
+
+func kotlinPackageName(file *File) string {
+	if file == nil || file.FlatTree == nil {
+		return ""
+	}
+	var pkg string
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if pkg != "" || file.FlatType(idx) != "package_header" {
+			return
+		}
+		text := strings.TrimSpace(file.FlatNodeText(idx))
+		text = strings.TrimPrefix(text, "package")
+		text = strings.TrimSpace(text)
+		pkg = strings.TrimSuffix(text, ";")
+	})
+	return internString(strings.TrimSpace(pkg))
+}
+
+func javaPackageName(file *File) string {
+	if file == nil || file.FlatTree == nil {
+		return ""
+	}
+	var pkg string
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if pkg != "" || file.FlatType(idx) != "package_declaration" {
+			return
+		}
+		text := strings.TrimSpace(file.FlatNodeText(idx))
+		text = strings.TrimPrefix(text, "package")
+		text = strings.TrimSuffix(text, ";")
+		pkg = strings.TrimSpace(text)
+	})
+	return internString(pkg)
+}
+
+func symbolOwner(file *File, idx uint32, pkg string) string {
+	var names []string
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "class_declaration", "interface_declaration", "enum_declaration", "record_declaration", "annotation_type_declaration":
+			if name := file.FlatChildTextOrEmpty(parent, "identifier"); name != "" {
+				names = append(names, name)
+			} else if name := file.FlatChildTextOrEmpty(parent, "type_identifier"); name != "" {
+				names = append(names, name)
+			} else if name := file.FlatChildTextOrEmpty(parent, "simple_identifier"); name != "" {
+				names = append(names, name)
+			}
+		case "object_declaration":
+			if name := file.FlatChildTextOrEmpty(parent, "type_identifier"); name != "" {
+				names = append(names, name)
+			} else if name := file.FlatChildTextOrEmpty(parent, "simple_identifier"); name != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	for i, j := 0, len(names)-1; i < j; i, j = i+1, j-1 {
+		names[i], names[j] = names[j], names[i]
+	}
+	owner := strings.Join(names, ".")
+	if pkg != "" {
+		owner = pkg + "." + owner
+	}
+	return internString(owner)
+}
+
+func symbolFQN(pkg, owner, name string) string {
+	if name == "" {
+		return ""
+	}
+	if owner != "" {
+		return internString(owner + "." + name)
+	}
+	if pkg != "" {
+		return internString(pkg + "." + name)
+	}
+	return name
+}
+
+func symbolSignature(owner, name string, arity int) string {
+	prefix := owner
+	if prefix == "" {
+		prefix = "<package>"
+	}
+	return internString(prefix + "#" + name + "/" + strconv.Itoa(arity))
+}
+
+func kotlinFunctionArity(file *File, idx uint32) int {
+	params, ok := file.FlatFindChild(idx, "function_value_parameters")
+	if !ok {
+		return 0
+	}
+	return countNamedChildrenOfType(file, params, "parameter")
+}
+
+func javaFormalParameterArity(file *File, idx uint32) int {
+	params, ok := file.FlatFindChild(idx, "formal_parameters")
+	if !ok {
+		return 0
+	}
+	return countNamedChildrenOfType(file, params, "formal_parameter", "spread_parameter")
+}
+
+func countNamedChildrenOfType(file *File, parent uint32, nodeTypes ...string) int {
+	want := make(map[string]bool, len(nodeTypes))
+	for _, typ := range nodeTypes {
+		want[typ] = true
+	}
+	count := 0
+	for i := 0; i < file.FlatNamedChildCount(parent); i++ {
+		child := file.FlatNamedChild(parent, i)
+		if want[file.FlatType(child)] {
+			count++
+		}
+	}
+	return count
+}
+
+func collectJavaFieldDeclarations(file *File, idx uint32, pkg string, symbols *[]Symbol) {
+	owner := symbolOwner(file, idx, pkg)
+	file.FlatWalkAllNodes(idx, func(child uint32) {
+		if file.FlatType(child) != "variable_declarator" {
+			return
+		}
+		name := file.FlatChildTextOrEmpty(child, "identifier")
+		if name == "" {
+			return
+		}
+		name = internString(name)
+		*symbols = append(*symbols, Symbol{
+			Name:       name,
+			Kind:       "field",
+			Visibility: javaVisibility(file, idx),
+			File:       file.Path,
+			Line:       file.FlatRow(child) + 1,
+			StartByte:  int(file.FlatStartByte(child)),
+			EndByte:    int(file.FlatEndByte(child)),
+			Language:   LangJava,
+			Package:    pkg,
+			FQN:        symbolFQN(pkg, owner, name),
+			Owner:      owner,
+			Signature:  symbolSignature(owner, name, 0),
+			Arity:      0,
+			IsStatic:   file.FlatHasModifier(idx, "static"),
+			IsFinal:    file.FlatHasModifier(idx, "final"),
+		})
+	})
+}
+
 func hasFlatAncestorType(file *File, idx uint32, want string) bool {
 	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
 		if file.FlatType(current) == want {
@@ -985,18 +1329,24 @@ func collectJavaReferencesFlatUncached(file *File, refs *[]Reference) {
 	}
 	identifierID, hasIdentifier := lookupNodeType("identifier")
 	typeIdentifierID, hasTypeIdentifier := lookupNodeType("type_identifier")
-	if !hasIdentifier && !hasTypeIdentifier {
+	scopedIDs := lookupExistingNodeTypes("scoped_identifier", "scoped_type_identifier")
+	if !hasIdentifier && !hasTypeIdentifier && len(scopedIDs) == 0 {
 		return
 	}
 	nodes := file.FlatTree.Nodes
 	for i := range nodes {
 		node := nodes[i]
-		if (!hasIdentifier || node.Type != identifierID) && (!hasTypeIdentifier || node.Type != typeIdentifierID) {
+		isSimple := (hasIdentifier && node.Type == identifierID) || (hasTypeIdentifier && node.Type == typeIdentifierID)
+		isScoped := hasNodeType(scopedIDs, node.Type)
+		if !isSimple && !isScoped {
 			continue
 		}
 		idx := uint32(i)
 		name := FlatNodeText(file.FlatTree, idx, file.Content)
 		if name == "" {
+			continue
+		}
+		if isScoped && !strings.Contains(name, ".") {
 			continue
 		}
 		*refs = append(*refs, Reference{
@@ -1005,6 +1355,25 @@ func collectJavaReferencesFlatUncached(file *File, refs *[]Reference) {
 			Line: int(node.StartRow) + 1,
 		})
 	}
+}
+
+func lookupExistingNodeTypes(types ...string) []uint16 {
+	out := make([]uint16, 0, len(types))
+	for _, typ := range types {
+		if id, ok := lookupNodeType(typ); ok {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func hasNodeType(types []uint16, typ uint16) bool {
+	for _, candidate := range types {
+		if candidate == typ {
+			return true
+		}
+	}
+	return false
 }
 
 // xmlCacheFile is a pre-loaded XML source whose content and hash are
@@ -1147,17 +1516,26 @@ func appendXMLReferences(refs *[]Reference, path string, content []byte) {
 					continue
 				}
 				className := m[1]
-				if idx := strings.LastIndex(className, "."); idx >= 0 {
-					className = className[idx+1:]
-				}
-				className = strings.TrimPrefix(className, ".")
-				if className != "" {
+				fullName := strings.TrimPrefix(className, ".")
+				if fullName != "" && strings.Contains(fullName, ".") {
 					*refs = append(*refs, Reference{
-						Name: className,
+						Name: fullName,
 						File: path,
 						Line: lineNo,
 					})
 				}
+				if idx := strings.LastIndex(className, "."); idx >= 0 {
+					className = className[idx+1:]
+				}
+				className = strings.TrimPrefix(className, ".")
+				if className == "" {
+					continue
+				}
+				*refs = append(*refs, Reference{
+					Name: className,
+					File: path,
+					Line: lineNo,
+				})
 			}
 		}
 	}

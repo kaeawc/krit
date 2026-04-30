@@ -90,7 +90,9 @@ func (crossFileShardsRegistered) Stats() cacheutil.CacheStats {
 // LoadShard args and already gated by the pack key). Bumps the outer
 // shard version because pre-v6 zstd blobs decode to gob, not to the
 // new framed payload.
-const crossFileShardVersion = 6
+// v7: Symbol payload includes language/package/FQN/owner/signature/arity
+// plus static/final flags for Java declarations.
+const crossFileShardVersion = 7
 
 // Per-shard bloom sizing. Every shard's bloom uses these exact
 // (m, k) parameters so they can be unioned with BloomFilter.Merge,
@@ -112,7 +114,8 @@ const (
 // edit invalidates only that shard; other files' shards are reused
 // from disk.
 //
-// Symbols is empty for Java / XML shards (reference-only).
+// Symbols is empty for XML shards. Kotlin and Java shards carry
+// declarations plus references.
 //
 // Bloom is the gzip-compressed MarshalBinary of a bloom filter sized
 // with (shardBloomCapacity, shardBloomFPR). Empty when References is

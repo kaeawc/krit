@@ -194,10 +194,10 @@ func registerPotentialbugsLifecycleRules() {
 		})
 	}
 	{
-		r := &MissingPackageDeclarationRule{BaseRule: BaseRule{RuleName: "MissingPackageDeclaration", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Kotlin files that are missing a package declaration."}}
+		r := &MissingPackageDeclarationRule{BaseRule: BaseRule{RuleName: "MissingPackageDeclaration", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Kotlin or Java source files that are missing a package declaration."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Fix: v2.FixCosmetic, Implementation: r,
+			Needs: v2.NeedsLinePass, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Fix: v2.FixCosmetic, Implementation: r,
 			Check: r.check,
 		})
 	}

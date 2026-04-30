@@ -355,6 +355,30 @@ fun main() {
 	}
 }
 
+func TestMissingPackageDeclaration_Java(t *testing.T) {
+	findings := runRuleByNameOnJavaPath(t, "MissingPackageDeclaration", "src/main/java/com/example/App.java", `
+class App {
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java missing-package finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil || findings[0].Fix.Replacement != "package com.example\n\n" {
+		t.Fatalf("expected Java package fix for com.example, got %#v", findings[0].Fix)
+	}
+}
+
+func TestMissingPackageDeclaration_JavaNegative(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "MissingPackageDeclaration", `
+package test;
+class App {
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no Java missing-package findings, got %d", len(findings))
+	}
+}
+
 // --- MissingSuperCall ---
 
 func TestMissingSuperCall_Positive(t *testing.T) {

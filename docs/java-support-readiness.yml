@@ -126,7 +126,7 @@ ruleSetDefaults:
   potential-bugs:
     status: partial
     issue: 700
-    reason: Basic java.lang.System/Runtime lifecycle checks are supported; many remaining potential-bugs rules encode Kotlin syntax or type semantics and need per-rule Java classification.
+    reason: Basic java.lang.System/Runtime lifecycle checks and Java package declaration checks are supported; many remaining potential-bugs rules encode Kotlin syntax or type semantics and need per-rule Java classification.
   privacy:
     status: pending
     issue: 700
@@ -291,6 +291,10 @@ rules:
     status: supported
     fixtures:
       - cmd/krit/main_test.go
+  MissingPackageDeclaration:
+    status: supported
+    fixtures:
+      - internal/rules/potentialbugs_lifecycle_test.go
   NoTabs:
     status: supported
     fixtures:

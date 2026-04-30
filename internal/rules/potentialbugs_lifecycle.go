@@ -257,7 +257,7 @@ type LateinitUsageRule struct {
 func (r *LateinitUsageRule) Confidence() float64 { return 0.75 }
 
 // ---------------------------------------------------------------------------
-// MissingPackageDeclarationRule detects .kt file without package statement.
+// MissingPackageDeclarationRule detects Kotlin/Java source files without package statements.
 // ---------------------------------------------------------------------------
 type MissingPackageDeclarationRule struct {
 	LineBase
@@ -272,7 +272,7 @@ func (r *MissingPackageDeclarationRule) Confidence() float64 { return 0.95 }
 
 func (r *MissingPackageDeclarationRule) check(ctx *v2.Context) {
 	file := ctx.File
-	if !strings.HasSuffix(file.Path, ".kt") {
+	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".java") {
 		return
 	}
 	for _, line := range file.Lines {
@@ -285,13 +285,13 @@ func (r *MissingPackageDeclarationRule) check(ctx *v2.Context) {
 		}
 		// First non-comment, non-blank line is not a package declaration
 		f := r.Finding(file, 1, 1,
-			"Missing package declaration in Kotlin file.")
+			"Missing package declaration in source file.")
 		f.Fix = derivePackageFix(file)
 		ctx.Emit(f)
 		return
 	}
 	f := r.Finding(file, 1, 1,
-		"Missing package declaration in Kotlin file.")
+		"Missing package declaration in source file.")
 	f.Fix = derivePackageFix(file)
 	ctx.Emit(f)
 }

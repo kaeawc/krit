@@ -249,6 +249,58 @@ fun send(a: Int = 0, b: Int = 0, c: Int = 0, d: Int = 0, e: Int = 0, f: Int = 0)
 	}
 }
 
+func TestLongParameterList_HonorsIgnoreAnnotatedParameter(t *testing.T) {
+	// When ignoreAnnotatedParameter is configured, parameters carrying any
+	// of the listed annotations are not counted toward the limit.
+	var rule *rules.LongParameterListRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "LongParameterList" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.LongParameterListRule)
+			if !ok {
+				t.Fatalf("expected LongParameterListRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("LongParameterList rule not registered")
+	}
+	original := rule.IgnoreAnnotatedParameter
+	defer func() { rule.IgnoreAnnotatedParameter = original }()
+
+	rules.ApplyConfig(loadTempConfig(t, `
+complexity:
+  LongParameterList:
+    ignoreAnnotatedParameter:
+      - Composable
+`))
+
+	if len(rule.IgnoreAnnotatedParameter) == 0 {
+		t.Fatalf("expected ApplyConfig to set IgnoreAnnotatedParameter, got %#v", rule.IgnoreAnnotatedParameter)
+	}
+
+	// Six params, but five carry @Composable — the count under the
+	// configured ignore list is 1, well below the limit.
+	allowed := `package test
+annotation class Composable
+fun screen(@Composable a: Int, @Composable b: Int, @Composable c: Int, @Composable d: Int, @Composable e: Int, f: Int) {
+}
+`
+	if findings := runRuleByName(t, "LongParameterList", allowed); len(findings) != 0 {
+		t.Fatalf("expected no findings when 5 of 6 params are annotation-ignored, got %d", len(findings))
+	}
+
+	// Same shape without the annotation should still flag.
+	flagged := `package test
+fun screen(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int) {
+}
+`
+	if findings := runRuleByName(t, "LongParameterList", flagged); len(findings) == 0 {
+		t.Fatal("expected LongParameterList finding for 6 unannotated params")
+	}
+}
+
 // --- TooManyFunctions ---
 
 func TestTooManyFunctions_Positive(t *testing.T) {

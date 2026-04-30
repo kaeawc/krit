@@ -761,6 +761,63 @@ type LongParameterListRule struct {
 // roadmap/17.
 func (r *LongParameterListRule) Confidence() float64 { return 0.75 }
 
+// paramHasIgnoredAnnotationFlat reports whether the parameter at idx
+// carries any annotation whose simple name matches one of the names in
+// `annotations`. Used to honor LongParameterListRule.IgnoreAnnotatedParameter
+// so that, e.g., `@Composable`-annotated parameters can be excluded from
+// the parameter count.
+//
+// Tree-sitter Kotlin attaches annotations on function parameters to a
+// `parameter_modifiers` sibling that precedes the `parameter` node, while
+// class-constructor parameters carry their annotations as children of the
+// `class_parameter` node. The helper consults both shapes so callers can
+// pass either node kind opaquely.
+func paramHasIgnoredAnnotationFlat(file *scanner.File, idx uint32, annotations []string) bool {
+	if len(annotations) == 0 || file == nil || idx == 0 {
+		return false
+	}
+	// 1) Annotations attached as children (class_parameter case, and any
+	//    parameter shape that nests a `modifiers` child).
+	for _, name := range annotations {
+		if name == "" {
+			continue
+		}
+		if flatHasAnnotationNamed(file, idx, name) {
+			return true
+		}
+	}
+	// 2) Function-parameter case: annotations live on the preceding
+	//    `parameter_modifiers` sibling within `function_value_parameters`.
+	parent, ok := file.FlatParent(idx)
+	if !ok {
+		return false
+	}
+	var prevModifiers uint32
+	for child := file.FlatFirstChild(parent); child != 0; child = file.FlatNextSib(child) {
+		if child == idx {
+			break
+		}
+		if file.FlatType(child) == "parameter_modifiers" {
+			prevModifiers = child
+		} else if file.FlatType(child) == "parameter" || file.FlatType(child) == "class_parameter" {
+			// Only the parameter_modifiers immediately preceding `idx`
+			// belongs to it; reset on every other parameter node.
+			prevModifiers = 0
+		}
+	}
+	if prevModifiers == 0 {
+		return false
+	}
+	for _, name := range annotations {
+		if name == "" {
+			continue
+		}
+		if flatAnnotationListContains("", file.FlatNodeText(prevModifiers), name) {
+			return true
+		}
+	}
+	return false
+}
 
 // MethodOverloadingRule detects too many overloads of the same method name.
 type MethodOverloadingRule struct {

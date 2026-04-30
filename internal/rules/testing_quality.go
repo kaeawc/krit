@@ -918,9 +918,23 @@ func testingQualityIsHarnessVerificationCall(file *scanner.File, idx uint32, nam
 		return testingQualityIsComposeTestutilsExpectError(file, idx)
 	case "test", "testWithLifecycle":
 		return testingQualityIsTurbineTestCall(file, idx)
+	case "runTest":
+		return testingQualityIsPresenterRunTest(file, idx)
 	default:
 		return false
 	}
+}
+
+func testingQualityIsPresenterRunTest(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	nav, _ := flatCallExpressionParts(file, idx)
+	if nav == 0 {
+		return false
+	}
+	navText := file.FlatNodeText(nav)
+	return strings.Contains(navText, "presenter") || strings.Contains(navText, "Presenter")
 }
 
 var testingQualityTurbineAssertionCalls = map[string]bool{

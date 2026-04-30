@@ -868,6 +868,46 @@ class AwaitNamedHelperNegative {
 	}
 }
 
+func TestTestWithoutAssertion_NegativePresenterRunTestDsl(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class PresenterRunTestDslNegative {
+    @Test
+    fun rendersInitialState() {
+        presenter(SCREEN).runTest {
+            state
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected presenter runTest DSL to count as assertion-bearing, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_PositiveLocalRunTestLookalike(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class LocalRunTestLookalikePositive {
+    @Test
+    fun doesSetupOnly() {
+        helper.runTest {
+            state
+        }
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected non-presenter runTest lookalike without assertion evidence to be reported")
+	}
+}
+
 func TestTestWithoutAssertion_NegativeSnapshotHelpers(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test

@@ -472,6 +472,65 @@ fun foo(x: Int) {
 	}
 }
 
+func TestUseIfInsteadOfWhen_HonorsIgnoreWhenContainingVariableDeclaration(t *testing.T) {
+	// IgnoreWhenContainingVariableDeclaration was previously a dead
+	// config — exposed in v2 metadata but never consulted. With it
+	// set to true, when-expressions whose branches contain a property
+	// declaration are skipped, since they don't translate cleanly to
+	// `if` (each branch's local would need a different scope).
+	var rule *rules.UseIfInsteadOfWhenRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "UseIfInsteadOfWhen" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.UseIfInsteadOfWhenRule)
+			if !ok {
+				t.Fatalf("expected UseIfInsteadOfWhenRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("UseIfInsteadOfWhen rule not registered")
+	}
+	original := rule.IgnoreWhenContainingVariableDeclaration
+	defer func() { rule.IgnoreWhenContainingVariableDeclaration = original }()
+
+	codeWithDecl := `package test
+fun foo(x: Boolean) {
+    when {
+        x -> {
+            val msg = "yes"
+            println(msg)
+        }
+        else -> println("no")
+    }
+}
+`
+	// Default (false): even with a declaration inside, the when fires.
+	if findings := runRuleByName(t, "UseIfInsteadOfWhen", codeWithDecl); len(findings) == 0 {
+		t.Fatal("expected finding under default IgnoreWhenContainingVariableDeclaration=false")
+	}
+
+	rule.IgnoreWhenContainingVariableDeclaration = true
+
+	if findings := runRuleByName(t, "UseIfInsteadOfWhen", codeWithDecl); len(findings) != 0 {
+		t.Fatalf("expected no findings under IgnoreWhenContainingVariableDeclaration=true with branch-local val, got %d", len(findings))
+	}
+
+	// A simple when with no declarations still fires under the flag.
+	codeNoDecl := `package test
+fun foo(x: Boolean) {
+    when {
+        x -> println("yes")
+        else -> println("no")
+    }
+}
+`
+	if findings := runRuleByName(t, "UseIfInsteadOfWhen", codeNoDecl); len(findings) == 0 {
+		t.Fatal("expected finding for when without declarations even with flag=true")
+	}
+}
+
 func TestUseIfEmptyOrIfBlank_Positive(t *testing.T) {
 	findings := runRuleByName(t, "UseIfEmptyOrIfBlank", `
 package test

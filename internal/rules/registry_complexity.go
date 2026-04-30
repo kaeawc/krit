@@ -193,7 +193,7 @@ func registerComplexityRules() {
 		})
 	}
 	{
-		r := &LongParameterListRule{BaseRule: BaseRule{RuleName: "LongParameterList", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions or constructors with too many parameters."}, AllowedFunctionParameters: 8, AllowedConstructorParameters: 10, IgnoreDefaultParameters: true, IgnoreDataClasses: true}
+		r := &LongParameterListRule{BaseRule: BaseRule{RuleName: "LongParameterList", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions or constructors with too many parameters."}, AllowedFunctionParameters: 5, AllowedConstructorParameters: 6, IgnoreDefaultParameters: false, IgnoreDataClasses: true}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration", "class_declaration"}, Confidence: 0.75, OriginalV1: r,

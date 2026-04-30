@@ -245,7 +245,7 @@ func (r *LongParameterListRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "allowedConstructorParameters",
 				Type:        registry.OptInt,
-				Default:     10,
+				Default:     6,
 				Description: "Maximum allowed constructor parameters.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*LongParameterListRule).AllowedConstructorParameters = value.(int)
@@ -255,7 +255,7 @@ func (r *LongParameterListRule) Meta() registry.RuleDescriptor {
 				Name:        "allowedFunctionParameters",
 				Aliases:     []string{"threshold"},
 				Type:        registry.OptInt,
-				Default:     8,
+				Default:     5,
 				Description: "Maximum allowed function parameters.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*LongParameterListRule).AllowedFunctionParameters = value.(int)
@@ -282,7 +282,7 @@ func (r *LongParameterListRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "ignoreDefaultParameters",
 				Type:        registry.OptBool,
-				Default:     true,
+				Default:     false,
 				Description: "Ignore parameters with default values.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*LongParameterListRule).IgnoreDefaultParameters = value.(bool)

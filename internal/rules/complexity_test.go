@@ -175,23 +175,54 @@ func TestCyclomaticComplexMethod_Negative(t *testing.T) {
 
 func TestLongParameterList_Positive(t *testing.T) {
 	code := `package test
-fun send(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int, g: Int, h: Int, i: Int) {
+fun send(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int) {
 }
 `
 	findings := runRuleByName(t, "LongParameterList", code)
 	if len(findings) == 0 {
-		t.Fatal("expected LongParameterList finding for 9 params (allowed 8)")
+		t.Fatal("expected LongParameterList finding for 6 params (allowed 5)")
 	}
 }
 
 func TestLongParameterList_Negative(t *testing.T) {
 	code := `package test
-fun send(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int, g: Int, h: Int) {
+fun send(a: Int, b: Int, c: Int, d: Int, e: Int) {
 }
 `
 	findings := runRuleByName(t, "LongParameterList", code)
 	if len(findings) != 0 {
-		t.Fatalf("expected no LongParameterList finding for 8 params, got %d", len(findings))
+		t.Fatalf("expected no LongParameterList finding for 5 params, got %d", len(findings))
+	}
+}
+
+func TestLongParameterList_DetektParityConstructorBoundary(t *testing.T) {
+	// Constructors are allowed 1 more parameter than functions (6 vs 5 by default).
+	// Use plain (non-property) ctor params so the all-property short-circuit
+	// (which fires when IgnoreDataClasses=true) does not apply.
+	allowed := `package test
+class Allowed(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int)
+`
+	if findings := runRuleByName(t, "LongParameterList", allowed); len(findings) != 0 {
+		t.Fatalf("expected no LongParameterList finding for 6 ctor params, got %d", len(findings))
+	}
+	flagged := `package test
+class Flagged(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int, g: Int)
+`
+	if findings := runRuleByName(t, "LongParameterList", flagged); len(findings) == 0 {
+		t.Fatal("expected LongParameterList finding for 7 ctor params (allowed 6)")
+	}
+}
+
+func TestLongParameterList_DetektParityDefaultParametersCount(t *testing.T) {
+	// Detekt parity: ignoreDefaultParameters=false by default, so parameters
+	// with default values still count toward the limit.
+	code := `package test
+fun send(a: Int = 0, b: Int = 0, c: Int = 0, d: Int = 0, e: Int = 0, f: Int = 0) {
+}
+`
+	findings := runRuleByName(t, "LongParameterList", code)
+	if len(findings) == 0 {
+		t.Fatal("expected LongParameterList finding for 6 default-valued params (allowed 5)")
 	}
 }
 

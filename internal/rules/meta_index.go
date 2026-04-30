@@ -575,6 +575,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*UndocumentedPublicClassRule)(nil),
 		(*UndocumentedPublicFunctionRule)(nil),
 		(*UndocumentedPublicPropertyRule)(nil),
+		(*UnicodeNormalizationMissingRule)(nil),
 		(*UniqueConstantsRule)(nil),
 		(*UniquePermissionRule)(nil),
 		(*UnknownIdInLayoutRule)(nil),

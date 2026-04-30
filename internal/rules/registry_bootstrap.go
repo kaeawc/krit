@@ -71,6 +71,7 @@ func init() {
 	registerI18nStringConcatRules()
 	registerI18nStringTemplateRules()
 	registerI18nTextDirectionRules()
+	registerI18nUnicodeNormalizationRules()
 	registerLayerDependencyViolationRules()
 	registerLibraryRules()
 	registerLicensingRules()

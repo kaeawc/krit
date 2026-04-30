@@ -66,6 +66,22 @@ abstract class Presenter : BasePresenter {
 	}
 }
 
+func TestAbstractClassCanBeInterface_NegativeViewModelConstructorSuperclass(t *testing.T) {
+	findings := runRuleByName(t, "AbstractClassCanBeInterface", `
+package test
+
+open class ViewModel
+interface BasePresenter<T>
+class View
+
+abstract class Presenter : ViewModel(), BasePresenter<View> {
+    abstract fun onCloseButtonClicked()
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for abstract class extending concrete ViewModel superclass, got: %v", findings)
+	}
+}
+
 // ---------- DataClassShouldBeImmutable ----------
 
 func TestDataClassShouldBeImmutable_Positive(t *testing.T) {

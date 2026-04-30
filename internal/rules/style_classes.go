@@ -71,6 +71,9 @@ func abstractClassCanBeInterfaceSupertypeCarriesState(file *scanner.File, idx ui
 		if file.FlatHasChildOfType(child, "constructor_invocation") {
 			return true
 		}
+		if strings.Contains(file.FlatNodeText(child), "(") {
+			return true
+		}
 		supertypeName := extractSupertypeNameFlat(file, child)
 		if supertypeName == "" {
 			continue

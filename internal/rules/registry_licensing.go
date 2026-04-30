@@ -40,6 +40,16 @@ func registerLicensingRules() {
 		})
 	}
 	{
+		r := &DependencyLicenseIncompatibleRule{
+			BaseRule: BaseRule{RuleName: "DependencyLicenseIncompatible", RuleSetName: licensingRuleSet, Sev: "warning", Desc: "Detects external dependencies whose license is incompatible with the project's declared license."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &DependencyLicenseUnknownRule{
 			BaseRule: BaseRule{RuleName: "DependencyLicenseUnknown", RuleSetName: licensingRuleSet, Sev: "info", Desc: "Detects external dependencies not present in the embedded license registry."},
 		}

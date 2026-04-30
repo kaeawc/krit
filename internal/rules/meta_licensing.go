@@ -18,6 +18,29 @@ func (r *CopyrightYearOutdatedRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *DependencyLicenseIncompatibleRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "DependencyLicenseIncompatible",
+		RuleSet:       "licensing",
+		Severity:      "warning",
+		Description:   "Detects external dependencies whose license is incompatible with the project's declared license.",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.75,
+		Options: []v2.ConfigOption{
+			{
+				Name:        "projectLicense",
+				Type:        v2.OptString,
+				Default:     "",
+				Description: "SPDX license identifier for the project; dependencies with licenses incompatible with this are flagged.",
+				Apply: func(target interface{}, value interface{}) {
+					target.(*DependencyLicenseIncompatibleRule).ProjectLicense = value.(string)
+				},
+			},
+		},
+	}
+}
+
 func (r *DependencyLicenseUnknownRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "DependencyLicenseUnknown",

@@ -156,6 +156,7 @@ type DependencyLicenseUnknownRule struct {
 
 var embeddedDependencyLicenseRegistry = map[string]string{
 	"fixture.registry:apache-friendly-lib": "Apache-2.0",
+	"fixture.registry:gpl3-only-lib":       "GPL-3.0",
 	"org.jetbrains.kotlin:kotlin-stdlib":   "Apache-2.0",
 }
 
@@ -163,23 +164,59 @@ var embeddedDependencyLicenseRegistry = map[string]string{
 // known LGPL-licensed artifacts. The fixture entries mirror the artifacts used
 // by `tests/fixtures/(positive|negative)/licensing/lgpl-static-linking-in-apk`.
 var embeddedLgplDependencyRegistry = map[string]string{
-	"fixture.registry:lgpl21-only-lib":   "LGPL-2.1-only",
-	"fixture.registry:lgpl21-or-later":   "LGPL-2.1-or-later",
-	"fixture.registry:lgpl3-only-lib":    "LGPL-3.0-only",
-	"fixture.registry:lgpl3-or-later":    "LGPL-3.0-or-later",
+	"fixture.registry:lgpl21-only-lib": "LGPL-2.1-only",
+	"fixture.registry:lgpl21-or-later": "LGPL-2.1-or-later",
+	"fixture.registry:lgpl3-only-lib":  "LGPL-3.0-only",
+	"fixture.registry:lgpl3-or-later":  "LGPL-3.0-or-later",
 }
 
 // staticLinkingConfigurations are the Gradle dependency configurations that
 // bundle a library into the APK as part of the application's shipped binary.
 var staticLinkingConfigurations = map[string]bool{
-	"implementation":           true,
-	"api":                      true,
-	"compile":                  true,
-	"releaseImplementation":    true,
-	"debugImplementation":      true,
-	"runtimeOnly":              true,
-	"releaseRuntimeOnly":       true,
-	"debugRuntimeOnly":         true,
+	"implementation":        true,
+	"api":                   true,
+	"compile":               true,
+	"releaseImplementation": true,
+	"debugImplementation":   true,
+	"runtimeOnly":           true,
+	"releaseRuntimeOnly":    true,
+	"debugRuntimeOnly":      true,
+}
+
+var incompatibleLicensesByProject = map[string]map[string]struct{}{
+	"Apache-2.0": {
+		"GPL-2.0":      {},
+		"GPL-2.0+":     {},
+		"GPL-3.0":      {},
+		"GPL-3.0+":     {},
+		"AGPL-3.0":     {},
+		"AGPL-3.0+":    {},
+		"LGPL-2.1":     {},
+		"LGPL-3.0":     {},
+		"CC-BY-NC-4.0": {},
+	},
+	"MIT": {
+		"GPL-2.0":  {},
+		"GPL-3.0":  {},
+		"AGPL-3.0": {},
+	},
+	"BSD-3-Clause": {
+		"GPL-2.0":  {},
+		"GPL-3.0":  {},
+		"AGPL-3.0": {},
+	},
+}
+
+func licenseIsIncompatible(projectLicense, depLicense string) bool {
+	if projectLicense == "" || depLicense == "" {
+		return false
+	}
+	set, ok := incompatibleLicensesByProject[projectLicense]
+	if !ok {
+		return false
+	}
+	_, bad := set[depLicense]
+	return bad
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Licensing rule. Detection scans file headers and manifests for license
@@ -273,4 +310,55 @@ func hasAndroidApplicationPlugin(plugins []string) bool {
 		}
 	}
 	return false
+}
+
+// DependencyLicenseIncompatibleRule flags external dependencies whose license
+// is known to be incompatible with the project's declared license.
+type DependencyLicenseIncompatibleRule struct {
+	GradleBase
+	BaseRule
+	ProjectLicense string
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Licensing rule.
+// Detection relies on the embedded license registry and the configured
+// project license; missing or stale registry entries can produce false
+// negatives. Classified per roadmap/17.
+func (r *DependencyLicenseIncompatibleRule) Confidence() float64 { return 0.75 }
+
+func (r *DependencyLicenseIncompatibleRule) check(ctx *v2.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
+	if cfg == nil || r.ProjectLicense == "" {
+		return
+	}
+
+	for _, dep := range cfg.Dependencies {
+		if dep.Group == "" || dep.Name == "" {
+			continue
+		}
+		key := dep.Group + ":" + dep.Name
+		depLicense, ok := embeddedDependencyLicenseRegistry[key]
+		if !ok {
+			continue
+		}
+		if !licenseIsIncompatible(r.ProjectLicense, depLicense) {
+			continue
+		}
+
+		coord := key
+		if dep.Version != "" {
+			coord += ":" + dep.Version
+		}
+		line := findGradleLineStr(content, coord)
+		if line == 0 && dep.Version != "" {
+			line = findGradleLineStr(content, key)
+		}
+		if line == 0 {
+			line = 1
+		}
+
+		ctx.Emit(gradleFinding(path, line, r.BaseRule,
+			fmt.Sprintf("Dependency %s is %s, which is incompatible with the project's %s license.",
+				coord, depLicense, r.ProjectLicense)))
+	}
 }

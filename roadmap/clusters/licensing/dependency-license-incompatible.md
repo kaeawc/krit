@@ -1,6 +1,6 @@
 # DependencyLicenseIncompatible
 
-**Cluster:** [licensing](README.md) · **Status:** in_progress · **Severity:** warning · **Default:** inactive
+**Cluster:** [licensing](README.md) · **Status:** shipped · **Severity:** warning · **Default:** inactive
 
 ## Catches
 

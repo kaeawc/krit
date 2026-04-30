@@ -215,11 +215,11 @@ Note: `coroutines.go` has 29 registered rules total; 9 predate the cluster conce
 
 **Planned:** `HardcodedDateFormat`, `PluralsMissingZero`, `StringConcatForTranslation`, `StringContainsHtmlWithoutCDATA`, `StringResourceMissingPositional`, `StringResourcePlaceholderOrder`, `StringTemplateForTranslation`, `StringTrailingWhitespace`, `TextDirectionLiteralInString`, `TranslatableMarkupMismatch`, `UnicodeNormalizationMissing`, `UpperLowerInvariantMisuse`
 
-### `licensing/`  (15 concepts: 3✅ 3🟡 9⏳ 0⏸️)
+### `licensing/`  (15 concepts: 4✅ 2🟡 9⏳ 0⏸️)
 
-**Shipped:** `CopyrightYearOutdated`, `DependencyLicenseUnknown`, `MissingSpdxIdentifier`
+**Shipped:** `CopyrightYearOutdated`, `DependencyLicenseIncompatible`, `DependencyLicenseUnknown`, `MissingSpdxIdentifier`
 
-**In progress:** `DependencyLicenseIncompatible`, `LgplStaticLinkingInApk`, `OptInMarkerExposedPublicly`
+**In progress:** `LgplStaticLinkingInApk`, `OptInMarkerExposedPublicly`
 
 **Planned:** `NoticeFileOutOfDate`, `OptInMarkerNotRecognised`, `OptInWithoutJustification`, `OssLicensesNotIncludedInAndroid`, `RequiresOptInWithoutLevel`, `RequiresOptInWithoutMessage`, `SpdxIdentifierInvalid`, `SpdxIdentifierMismatchWithProject`, `SuppressedWarningWithoutJustification`
 

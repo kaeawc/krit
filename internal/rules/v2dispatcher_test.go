@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/javafacts"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -23,6 +24,20 @@ func writeKotlinFile(t *testing.T, code string, name string) *scanner.File {
 		t.Fatalf("write: %v", err)
 	}
 	file, err := scanner.ParseFile(path)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	return file
+}
+
+func writeJavaFile(t *testing.T, code string, name string) *scanner.File {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	file, err := scanner.ParseJavaFile(path)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -119,6 +134,70 @@ func TestV2Dispatcher_RoutesFamiliesIndependently(t *testing.T) {
 	}
 	if !sawNode || !sawLine || sawIgnored {
 		t.Errorf("unexpected findings: node=%v line=%v ignored=%v", sawNode, sawLine, sawIgnored)
+	}
+}
+
+func TestV2Dispatcher_AttachesSharedJavaSourceFacts(t *testing.T) {
+	file := writeJavaFile(t, `package test;
+
+import android.webkit.WebView;
+
+class Browser {
+  void setup(WebView webView) {}
+}
+`, "Browser.java")
+
+	var nodeFacts *javafacts.JavaFileFacts
+	var nodeIndex *javafacts.SourceIndex
+	nodeCalls := 0
+	nodeRule := v2.FakeRule("JavaNodeFacts",
+		v2.WithNodeTypes("class_declaration"),
+		v2.WithCheck(func(ctx *v2.Context) {
+			nodeCalls++
+			if ctx.JavaFacts == nil {
+				t.Fatal("node rule did not receive JavaFacts")
+			}
+			if ctx.JavaSourceIndex == nil {
+				t.Fatal("node rule did not receive JavaSourceIndex")
+			}
+			if got := ctx.JavaFacts.ResolveType("WebView", ctx.JavaSourceIndex); got != "android.webkit.WebView" {
+				t.Fatalf("ResolveType(WebView) = %q", got)
+			}
+			nodeFacts = ctx.JavaFacts
+			nodeIndex = ctx.JavaSourceIndex
+		}),
+	)
+	nodeRule.Languages = []scanner.Language{scanner.LangJava}
+
+	lineCalls := 0
+	lineRule := v2.FakeRule("JavaLineFacts",
+		v2.WithNeeds(v2.NeedsLinePass),
+		v2.WithCheck(func(ctx *v2.Context) {
+			lineCalls++
+			if ctx.JavaFacts == nil || ctx.JavaSourceIndex == nil {
+				t.Fatal("line rule did not receive Java facts")
+			}
+			if nodeFacts == nil || nodeIndex == nil {
+				t.Fatal("node rule should run before line rule")
+			}
+			if ctx.JavaFacts != nodeFacts {
+				t.Fatal("line and node rules received different JavaFacts instances")
+			}
+			if ctx.JavaSourceIndex != nodeIndex {
+				t.Fatal("line and node rules received different JavaSourceIndex instances")
+			}
+		}),
+	)
+	lineRule.Languages = []scanner.Language{scanner.LangJava}
+
+	dispatcher := NewV2Dispatcher([]*v2.Rule{nodeRule, lineRule})
+	dispatcher.Run(file)
+
+	if nodeCalls == 0 {
+		t.Fatal("node rule was never invoked")
+	}
+	if lineCalls != 1 {
+		t.Fatalf("line rule invoked %d times, want 1", lineCalls)
 	}
 }
 

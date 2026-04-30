@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/librarymodel"
+	"github.com/kaeawc/krit/internal/rules"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 func runDatabaseQueryOnMainThread(t *testing.T, snippets ...string) []scanner.Finding {
@@ -36,6 +38,22 @@ func parseJavaInline(t *testing.T, code string) *scanner.File {
 func runDatabaseQueryOnMainThreadFiles(t *testing.T, files ...*scanner.File) []scanner.Finding {
 	t.Helper()
 	return runDatabaseQueryOnMainThreadFilesWithFacts(t, nil, files...)
+}
+
+func runRuleByNameOnJavaWithResolver(t *testing.T, ruleName string, code string) []scanner.Finding {
+	t.Helper()
+	file := parseJavaInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	for _, r := range v2rules.Registry {
+		if r.ID == ruleName {
+			dispatcher := rules.NewDispatcherV2([]*v2rules.Rule{r}, resolver)
+			cols := dispatcher.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", ruleName)
+	return nil
 }
 
 func runDatabaseQueryOnMainThreadFilesWithFacts(t *testing.T, facts *librarymodel.Facts, files ...*scanner.File) []scanner.Finding {
@@ -133,6 +151,147 @@ func TestRoomLoadsAllWhereFirstUsed_Fixtures(t *testing.T) {
 		findings := runParsedFilesRule(t, "RoomLoadsAllWhereFirstUsed", file)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings for negative fixture, got %d", len(findings))
+		}
+	})
+}
+
+func TestBufferedReadWithoutBuffer_Java(t *testing.T) {
+	t.Run("positive FileInputStream read", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "BufferedReadWithoutBuffer", `
+package test;
+import java.io.FileInputStream;
+import java.io.IOException;
+class Reader {
+  int read(String path, byte[] bytes) throws IOException {
+    FileInputStream input = new FileInputStream(path);
+    return input.read(bytes);
+  }
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected Java FileInputStream read finding, got %d", len(findings))
+		}
+	})
+	t.Run("negative BufferedInputStream wrapper", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "BufferedReadWithoutBuffer", `
+package test;
+import java.io.BufferedInputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
+class Reader {
+  int read(String path, byte[] bytes) throws IOException {
+    BufferedInputStream input = new BufferedInputStream(new FileInputStream(path));
+    return input.read(bytes);
+  }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for BufferedInputStream wrapper, got %d", len(findings))
+		}
+	})
+	t.Run("negative local lookalike", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "BufferedReadWithoutBuffer", `
+package test;
+class FileInputStream {
+  int read(byte[] bytes) { return 0; }
+}
+class Reader {
+  int read(byte[] bytes) {
+    FileInputStream input = new FileInputStream();
+    return input.read(bytes);
+  }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for local lookalike, got %d", len(findings))
+		}
+	})
+}
+
+func TestCursorLoopWithColumnIndexInLoop_Java(t *testing.T) {
+	t.Run("positive getColumnIndex inside moveToNext loop", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "CursorLoopWithColumnIndexInLoop", `
+package test;
+import android.database.Cursor;
+class Reader {
+  void read(Cursor cursor) {
+    while (cursor.moveToNext()) {
+      int index = cursor.getColumnIndex("name");
+    }
+  }
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected Java cursor-loop finding, got %d", len(findings))
+		}
+	})
+	t.Run("negative hoisted getColumnIndex", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "CursorLoopWithColumnIndexInLoop", `
+package test;
+import android.database.Cursor;
+class Reader {
+  void read(Cursor cursor) {
+    int index = cursor.getColumnIndex("name");
+    while (cursor.moveToNext()) {
+      cursor.getString(index);
+    }
+  }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for hoisted column lookup, got %d", len(findings))
+		}
+	})
+}
+
+func TestRecyclerAdapterResourceRules_Java(t *testing.T) {
+	t.Run("without DiffUtil positive", func(t *testing.T) {
+		findings := runRuleByNameOnJavaWithResolver(t, "RecyclerAdapterWithoutDiffUtil", `
+package test;
+import androidx.recyclerview.widget.RecyclerView;
+class MyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+  void refresh() {
+    notifyDataSetChanged();
+  }
+}
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected Java RecyclerAdapterWithoutDiffUtil finding, got %d", len(findings))
+		}
+	})
+	t.Run("without DiffUtil negative ListAdapter", func(t *testing.T) {
+		findings := runRuleByNameOnJavaWithResolver(t, "RecyclerAdapterWithoutDiffUtil", `
+package test;
+import androidx.recyclerview.widget.ListAdapter;
+import androidx.recyclerview.widget.RecyclerView;
+class MyAdapter extends ListAdapter<String, RecyclerView.ViewHolder> {
+  void refresh() {
+    notifyDataSetChanged();
+  }
+}
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for ListAdapter, got %d", len(findings))
+		}
+	})
+	t.Run("stable IDs positive", func(t *testing.T) {
+		findings := runRuleByNameOnJavaWithResolver(t, "RecyclerAdapterStableIdsDefault", `
+package test;
+import androidx.recyclerview.widget.RecyclerView;
+class MyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+}
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected Java RecyclerAdapterStableIdsDefault finding, got %d", len(findings))
+		}
+	})
+	t.Run("stable IDs negative enabled", func(t *testing.T) {
+		findings := runRuleByNameOnJavaWithResolver(t, "RecyclerAdapterStableIdsDefault", `
+package test;
+import androidx.recyclerview.widget.RecyclerView;
+class MyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+  MyAdapter() {
+    setHasStableIds(true);
+  }
+}
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings when stable IDs are enabled, got %d", len(findings))
 		}
 	})
 }

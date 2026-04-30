@@ -15,14 +15,18 @@ func registerResourceCostRules() {
 		r := &BufferedReadWithoutBufferRule{BaseRule: BaseRule{RuleName: "BufferedReadWithoutBuffer", RuleSetName: "resource-cost", Sev: "info", Desc: "Detects FileInputStream.read() without BufferedInputStream wrapping for efficient reads."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				name := flatCallExpressionName(file, idx)
+				name := databaseCallName(file, idx)
 				if name != "read" {
 					return
 				}
-				if !callReceiverConstructedOrTyped(ctx, idx, "FileInputStream", "java.io.FileInputStream", "FileInputStream") {
+				if file.FlatType(idx) == "method_invocation" {
+					if !bufferedReadJavaFileInputStreamEvidence(file, idx) {
+						return
+					}
+				} else if !callReceiverConstructedOrTyped(ctx, idx, "FileInputStream", "java.io.FileInputStream", "FileInputStream") {
 					return
 				}
 				if receiverContainsCallName(file, idx, "buffered", "BufferedInputStream") {
@@ -36,7 +40,7 @@ func registerResourceCostRules() {
 		r := &CursorLoopWithColumnIndexInLoopRule{BaseRule: BaseRule{RuleName: "CursorLoopWithColumnIndexInLoop", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects getColumnIndex() calls inside cursor while-loops that should be hoisted before the loop."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"while_statement"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"while_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !whileConditionHasCallName(file, idx, "moveToNext") {
@@ -45,7 +49,7 @@ func registerResourceCostRules() {
 				body, _ := file.FlatFindChild(idx, "statements")
 				if body == 0 {
 					for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-						if file.FlatType(child) == "control_structure_body" {
+						if file.FlatType(child) == "control_structure_body" || file.FlatType(child) == "block" {
 							body = child
 							break
 						}
@@ -60,6 +64,14 @@ func registerResourceCostRules() {
 						return
 					}
 					if flatCallExpressionName(file, callIdx) == "getColumnIndex" || flatCallExpressionName(file, callIdx) == "getColumnIndexOrThrow" {
+						found = true
+					}
+				})
+				file.FlatWalkNodes(body, "method_invocation", func(callIdx uint32) {
+					if found {
+						return
+					}
+					if name := databaseCallName(file, callIdx); name == "getColumnIndex" || name == "getColumnIndexOrThrow" {
 						found = true
 					}
 				})
@@ -243,6 +255,7 @@ func registerResourceCostRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes:              []string{"class_declaration"},
 			Needs:                  v2.NeedsTypeInfo,
+			Languages:              []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
 			Confidence:             0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {
@@ -273,6 +286,7 @@ func registerResourceCostRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes:              []string{"class_declaration"},
 			Needs:                  v2.NeedsTypeInfo,
+			Languages:              []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
 			Confidence:             0.75, OriginalV1: r,
 			Check: func(ctx *v2.Context) {

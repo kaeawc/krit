@@ -15,7 +15,7 @@ func registerStyleForbiddenRules() {
 		r := &WildcardImportRule{BaseRule: BaseRule{RuleName: "WildcardImport", RuleSetName: "style", Sev: "warning", Desc: "Detects wildcard import statements that should be replaced with explicit imports."}, ExcludeImports: []string{"java.util.*", "platform.**", "kotlinx.cinterop.*"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"import_header"}, Confidence: 0.95, Implementation: r,
+			NodeTypes: []string{"import_header", "import_declaration"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Skip test files and test-fixture Kotlin sources. Fixtures routinely
@@ -24,17 +24,10 @@ func registerStyleForbiddenRules() {
 				if isTestFile(file.Path) {
 					return
 				}
-				// Wildcard imports carry a `wildcard_import` child node in
-				// tree-sitter-kotlin — an unambiguous structural signal.
-				if !file.FlatHasChildOfType(idx, "wildcard_import") {
+				imp := importStatementPath(file, idx)
+				if !strings.HasSuffix(imp, ".*") {
 					return
 				}
-				ident, _ := file.FlatFindChild(idx, "identifier")
-				if ident == 0 {
-					return
-				}
-				fqn := file.FlatNodeText(ident)
-				imp := fqn + ".*"
 				for _, excl := range r.ExcludeImports {
 					if wildcardImportExcluded(imp, excl) {
 						return
@@ -49,7 +42,7 @@ func registerStyleForbiddenRules() {
 		r := &ForbiddenCommentRule{BaseRule: BaseRule{RuleName: "ForbiddenComment", RuleSetName: "style", Sev: "warning", Desc: "Detects comments containing forbidden markers like TODO, FIXME, or STOPSHIP."}, Comments: defaultForbiddenCommentMarkers}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"line_comment", "multiline_comment"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"line_comment", "multiline_comment", "block_comment"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -136,11 +129,10 @@ func registerStyleForbiddenRules() {
 		r := &ForbiddenImportRule{BaseRule: BaseRule{RuleName: "ForbiddenImport", RuleSetName: "style", Sev: "warning", Desc: "Detects import statements matching configured forbidden patterns."}, Patterns: defaultForbiddenImports}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"import_header"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"import_header", "import_declaration"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				imp := strings.TrimPrefix(strings.TrimSpace(text), "import ")
+				imp := importStatementPath(file, idx)
 				// Merge Patterns and ForbiddenImports
 				patterns := r.Patterns
 				if len(r.ForbiddenImports) > 0 {

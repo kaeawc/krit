@@ -144,9 +144,9 @@ ruleSetDefaults:
     issue: 700
     reason: High-value Android security and literal credential Java rules are supported; remaining source rules need Java parity review.
   style:
-    status: pending
+    status: partial
     issue: 700
-    reason: Most style rules encode Kotlin syntax; Java support requires explicit per-rule review.
+    reason: Java comment/import style rules are supported; most remaining style rules encode Kotlin syntax and require explicit per-rule review.
   testing:
     status: pending
     issue: 700
@@ -251,6 +251,14 @@ rules:
     fixtures:
       - internal/rules/potentialbugs_lifecycle_test.go
       - internal/javafacts/source_test.go
+  ForbiddenComment:
+    status: supported
+    fixtures:
+      - internal/rules/style_forbidden_test.go
+  ForbiddenImport:
+    status: supported
+    fixtures:
+      - internal/rules/style_forbidden_test.go
   GrantAllUris:
     status: supported
     fixtures:
@@ -347,6 +355,10 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_source_test.go
+  WildcardImport:
+    status: supported
+    fixtures:
+      - internal/rules/style_forbidden_test.go
   WorldReadableFiles:
     status: supported
     fixtures:

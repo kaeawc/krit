@@ -91,6 +91,59 @@ fun example() {}
 	}
 }
 
+func TestForbiddenComment_JavaLineAndBlockComments(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ForbiddenComment", `
+package test;
+class Example {
+  // FIXME: clean this up
+  void run() {
+    /* STOPSHIP: debug path */
+  }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 Java forbidden-comment findings, got %d", len(findings))
+	}
+}
+
+func TestForbiddenComment_JavaIgnoresStringLiteral(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ForbiddenComment", `
+package test;
+class Example {
+  String run() {
+    return "TODO: this is data";
+  }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no Java forbidden-comment findings for string literal, got %d", len(findings))
+	}
+}
+
+// --- WildcardImport ---
+
+func TestWildcardImport_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "WildcardImport", `
+package test;
+import com.example.api.*;
+class Example {}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java wildcard-import finding, got %d", len(findings))
+	}
+}
+
+func TestWildcardImport_JavaSkipsJavaUtilDefaultExclude(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "WildcardImport", `
+package test;
+import java.util.*;
+class Example {}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no Java wildcard-import finding for java.util default exclude, got %d", len(findings))
+	}
+}
+
 // --- ForbiddenImport ---
 
 func TestForbiddenImport_SunPackage(t *testing.T) {
@@ -137,6 +190,28 @@ fun example() {}
 		if f.Rule == "ForbiddenImport" {
 			t.Errorf("Should NOT flag allowed import, got: %s", f.Message)
 		}
+	}
+}
+
+func TestForbiddenImport_JavaSunPackage(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ForbiddenImport", `
+package test;
+import sun.misc.Unsafe;
+class Example {}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java forbidden-import finding, got %d", len(findings))
+	}
+}
+
+func TestForbiddenImport_JavaAllowedImport(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ForbiddenImport", `
+package test;
+import java.util.List;
+class Example {}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no Java forbidden-import finding for allowed import, got %d", len(findings))
 	}
 }
 

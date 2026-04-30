@@ -222,6 +222,9 @@ func registerPotentialbugsMiscRules() {
 				if ignoredReturnValueCallIsValueAssignmentReceiver(file, idx) {
 					return
 				}
+				if ignoredReturnValueIsBuilderCallbackCall(file, idx, funcName) {
+					return
+				}
 
 				// Check if this call's result is discarded (not used as expression)
 				if flatIsUsedAsExpression(file, idx) {

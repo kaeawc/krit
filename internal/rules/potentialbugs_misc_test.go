@@ -341,6 +341,62 @@ fun f(result: Result<String>, logger: Logger) {
 	}
 }
 
+func TestIgnoredReturnValue_OracleSkipsBuilderCallbackLambdaResult(t *testing.T) {
+	findings := runIgnoredReturnValueWithOracle(t, `package test
+class Flow<T>
+class Result {
+    fun events(): Flow<String> = Flow()
+}
+class ImageRequestBuilder {
+    fun onSuccess(block: (Result) -> Unit): ImageRequestBuilder = this
+}
+
+fun f(builder: ImageRequestBuilder) {
+    builder.onSuccess { result ->
+        result.events()
+    }
+}
+`, "result.events()", &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}, nil)
+	if len(findings) != 0 {
+		t.Fatalf("expected builder callback lambda result to be ignored, got %d: %#v", len(findings), findings)
+	}
+}
+
+func TestIgnoredReturnValue_OracleSkipsBuilderConstructorCallbackResult(t *testing.T) {
+	findings := runIgnoredReturnValueWithOracle(t, `package test
+class ImageResult
+class ImageRequestBuilder {
+    fun listener(onSuccess: (ImageResult) -> Unit): ImageRequestBuilder = this
+}
+
+fun f() {
+    ImageRequestBuilder().listener(onSuccess = { result ->
+        println(result)
+    })
+}
+`, "ImageRequestBuilder().listener", &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}, nil)
+	if len(findings) != 0 {
+		t.Fatalf("expected builder constructor callback result to be ignored, got %d: %#v", len(findings), findings)
+	}
+}
+
+func TestIgnoredReturnValue_OracleFlagsNonBuilderCallbackLookalike(t *testing.T) {
+	findings := runIgnoredReturnValueWithOracle(t, `package test
+class Result {
+    fun onSuccess(block: () -> Unit): Result = this
+}
+
+fun f(result: Result) {
+    result.onSuccess {
+        println("done")
+    }
+}
+`, "result.onSuccess", &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}, nil)
+	if len(findings) == 0 {
+		t.Fatal("expected non-builder onSuccess lookalike to remain flagged")
+	}
+}
+
 func TestIgnoredReturnValue_OracleFlagsPureResultFold(t *testing.T) {
 	callText := "result.fold(\n        onSuccess = { value -> value },\n        onFailure = { error -> error.message.orEmpty() },\n    )"
 	findings := runIgnoredReturnValueWithOracle(t, `package test

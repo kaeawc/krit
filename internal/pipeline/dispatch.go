@@ -87,9 +87,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	}
 
 	sem := make(chan struct{}, workers)
-	sourceFiles := make([]*scanner.File, 0, len(in.KotlinFiles)+len(in.JavaFiles))
-	sourceFiles = append(sourceFiles, in.KotlinFiles...)
-	sourceFiles = append(sourceFiles, in.JavaFiles...)
+	sourceFiles := in.SourceFiles()
 	sort.SliceStable(sourceFiles, func(i, j int) bool {
 		return len(sourceFiles[i].Content) > len(sourceFiles[j].Content)
 	})
@@ -234,7 +232,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	// Cache write-back: update per-file entries, set header metadata,
 	// prune, and save under a "cacheSave" tracker entry.
 	if useCache && in.Version != "" {
-		for _, pf := range in.KotlinFiles {
+		for _, pf := range in.SourceFiles() {
 			if in.CacheResult == nil || !in.CacheResult.CachedPaths[pf.Path] {
 				fileColumns := findingsByFile[pf.Path]
 				in.Cache.UpdateEntryColumns(pf.Path, &fileColumns)

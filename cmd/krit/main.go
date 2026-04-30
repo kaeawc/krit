@@ -749,6 +749,19 @@ potential-bugs:
 
 	// Filter rules by active status + CLI overrides (native v2 path).
 	activeRules := rules.ActiveRulesV2(disabledSet, enabledSet, *allRulesFlag)
+	var javaPathsForDispatch []string
+	if pipeline.NeedsJavaBeforeDispatch(activeRules) {
+		var javaErr error
+		javaPathsForDispatch, javaErr = scanner.CollectJavaFiles(paths, nil)
+		if javaErr != nil && *verboseFlag {
+			fmt.Fprintf(os.Stderr, "verbose: Java file collection: %v\n", javaErr)
+		}
+		if !*includeGeneratedFlag {
+			javaPathsForDispatch = filterGeneratedPathStrings(javaPathsForDispatch)
+		}
+	}
+	cacheFilePaths := append([]string{}, files...)
+	cacheFilePaths = append(cacheFilePaths, javaPathsForDispatch...)
 
 	// Handle --oracle-filter-fingerprint: compute and print the oracle
 	// filter input-set fingerprint, then exit. Runs independently of
@@ -840,7 +853,7 @@ potential-bugs:
 			CacheFilePath:            cacheFilePath,
 			CacheDirExplicit:         *cacheDirFlag != "",
 			CacheScanPaths:           paths,
-			CacheFilePaths:           files,
+			CacheFilePaths:           cacheFilePaths,
 			CacheConfig:              cfg,
 			CacheEditorConfigEnabled: *editorConfigFlag,
 		}
@@ -875,7 +888,11 @@ potential-bugs:
 	dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, _ := rules.NewDispatcherV2(activeRules, resolver).Stats()
 
 	if *verboseFlag {
-		fmt.Fprintf(os.Stderr, "verbose: Found %d Kotlin files\n", len(files))
+		if len(javaPathsForDispatch) > 0 {
+			fmt.Fprintf(os.Stderr, "verbose: Found %d Kotlin files and %d Java files\n", len(files), len(javaPathsForDispatch))
+		} else {
+			fmt.Fprintf(os.Stderr, "verbose: Found %d Kotlin files\n", len(files))
+		}
 		if resolver != nil {
 			fmt.Fprintf(os.Stderr, "verbose: Type resolver active\n")
 		} else {
@@ -986,6 +1003,7 @@ potential-bugs:
 		Paths:              paths,
 		ActiveRules:        activeRules,
 		KotlinPaths:        files,
+		JavaPaths:          javaPathsForDispatch,
 		Workers:            parseWorkers,
 		IncludeGenerated:   *includeGeneratedFlag,
 		SkipJavaCollection: !pipeline.NeedsJavaBeforeDispatch(activeRules),
@@ -998,6 +1016,7 @@ potential-bugs:
 		exit(2)
 	}
 	parsedFiles := parseResult.KotlinFiles
+	sourceFiles := parseResult.SourceFiles()
 	_ = parseResult.ParseErrors
 	parseResult.ActiveRules = activeRules
 
@@ -1041,7 +1060,7 @@ potential-bugs:
 	// (as a "cacheSave" sibling entry). main.go still owns the
 	// -profile-dispatch reporting because it pulls in CLI-only output.
 	ruleStart := time.Now()
-	ruleWorkers := phaseWorkerCount("ruleExecution", *jobsFlag, len(parsedFiles))
+	ruleWorkers := phaseWorkerCount("ruleExecution", *jobsFlag, len(sourceFiles))
 	dispatchIdx := pipeline.IndexResult{
 		ParseResult:      parseResult,
 		Resolver:         resolver,
@@ -1149,6 +1168,10 @@ potential-bugs:
 	}
 	codeIndex = indexResult2.CodeIndex
 	parsedJavaFiles := indexResult2.JavaFiles
+	outputJavaFiles := parseResult.JavaFiles
+	if len(parsedJavaFiles) > 0 {
+		outputJavaFiles = parsedJavaFiles
+	}
 	moduleGraph := indexResult2.ModuleGraph
 	pmi := indexResult2.ModuleIndex
 
@@ -1195,7 +1218,7 @@ potential-bugs:
 		Project:     androidProject,
 		ActiveRules: activeRules,
 		Dispatcher:  androidDispatcher,
-		SourceFiles: parsedFiles,
+		SourceFiles: sourceFiles,
 		Providers:   androidProviders,
 		Tracker:     androidTracker,
 	})
@@ -1560,6 +1583,7 @@ potential-bugs:
 					IndexResult: pipeline.IndexResult{
 						ParseResult: pipeline.ParseResult{
 							KotlinFiles: parsedFiles,
+							JavaFiles:   outputJavaFiles,
 							Paths:       paths,
 							ActiveRules: activeRules,
 						},
@@ -1826,6 +1850,17 @@ func countActiveV2(registry []*v2rules.Rule) int {
 		}
 	}
 	return count
+}
+
+func filterGeneratedPathStrings(paths []string) []string {
+	filtered := paths[:0]
+	for _, p := range paths {
+		if strings.Contains(filepath.ToSlash(p), "/generated/") {
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+	return filtered
 }
 
 // getChangedLines runs git diff and returns a map of absolute file path → set of changed line numbers.

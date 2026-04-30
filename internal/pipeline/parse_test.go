@@ -27,6 +27,16 @@ func writeKt(t *testing.T, path, content string) {
 	}
 }
 
+func writeJavaSource(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile %s: %v", path, err)
+	}
+}
+
 func TestParsePhase_Name(t *testing.T) {
 	if got := (ParsePhase{}).Name(); got != "parse" {
 		t.Errorf("Name() = %q, want %q", got, "parse")
@@ -59,9 +69,7 @@ func TestParsePhase_Run_SingleFile(t *testing.T) {
 func TestParsePhase_Run_CollectsJavaForJavaSourceRule(t *testing.T) {
 	dir := t.TempDir()
 	writeKt(t, filepath.Join(dir, "Foo.kt"), "class Foo {}\n")
-	if err := os.WriteFile(filepath.Join(dir, "Bar.java"), []byte("class Bar {}\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile Bar.java: %v", err)
-	}
+	writeJavaSource(t, filepath.Join(dir, "Bar.java"), "class Bar {}\n")
 
 	rule := v2.FakeRule("ParsePhaseJavaSourceRule", v2.WithNodeTypes("class_declaration"))
 	rule.Languages = []scanner.Language{scanner.LangJava}
@@ -75,6 +83,30 @@ func TestParsePhase_Run_CollectsJavaForJavaSourceRule(t *testing.T) {
 	}
 	if len(out.JavaFiles) != 1 {
 		t.Fatalf("JavaFiles = %d, want 1", len(out.JavaFiles))
+	}
+}
+
+func TestParsePhase_Run_JavaFilesHonorExcludes(t *testing.T) {
+	dir := t.TempDir()
+	writeJavaSource(t, filepath.Join(dir, "src", "main", "java", "Keep.java"), "class Keep {}\n")
+	writeJavaSource(t, filepath.Join(dir, "src", "excluded", "java", "Skip.java"), "class Skip {}\n")
+
+	rule := v2.FakeRule("ParsePhaseJavaExcludeRule", v2.WithNodeTypes("class_declaration"))
+	rule.Languages = []scanner.Language{scanner.LangJava}
+
+	out, err := (ParsePhase{}).Run(context.Background(), ParseInput{
+		Paths:       []string{dir},
+		Excludes:    []string{"**/excluded/**"},
+		ActiveRules: []*v2.Rule{rule},
+	})
+	if err != nil {
+		t.Fatalf("Run: unexpected error: %v", err)
+	}
+	if len(out.JavaFiles) != 1 {
+		t.Fatalf("JavaFiles = %d, want 1", len(out.JavaFiles))
+	}
+	if !strings.HasSuffix(out.JavaFiles[0].Path, "Keep.java") {
+		t.Fatalf("JavaFiles[0] = %q, want Keep.java", out.JavaFiles[0].Path)
 	}
 }
 
@@ -118,6 +150,30 @@ func TestParsePhase_Run_GeneratedFilesKept_WhenFlagSet(t *testing.T) {
 	}
 	if len(out.KotlinFiles) != 2 {
 		t.Fatalf("KotlinFiles = %d, want 2 (generated must be kept with flag set)", len(out.KotlinFiles))
+	}
+}
+
+func TestParsePhase_Run_GeneratedJavaFilesSkipped(t *testing.T) {
+	dir := t.TempDir()
+	writeJavaSource(t, filepath.Join(dir, "generated", "Gen.java"), "class Gen {}\n")
+	writeJavaSource(t, filepath.Join(dir, "Real.java"), "class Real {}\n")
+
+	rule := v2.FakeRule("ParsePhaseGeneratedJavaRule", v2.WithNodeTypes("class_declaration"))
+	rule.Languages = []scanner.Language{scanner.LangJava}
+
+	out, err := (ParsePhase{}).Run(context.Background(), ParseInput{
+		Paths:            []string{dir},
+		ActiveRules:      []*v2.Rule{rule},
+		IncludeGenerated: false,
+	})
+	if err != nil {
+		t.Fatalf("Run: unexpected error: %v", err)
+	}
+	if len(out.JavaFiles) != 1 {
+		t.Fatalf("JavaFiles = %d, want 1", len(out.JavaFiles))
+	}
+	if !strings.HasSuffix(out.JavaFiles[0].Path, "Real.java") {
+		t.Fatalf("kept Java file = %q, want Real.java", out.JavaFiles[0].Path)
 	}
 }
 
@@ -187,6 +243,33 @@ func TestParsePhase_Run_BuildsSuppressionIndex(t *testing.T) {
 	}
 	if !f.SuppressionIdx.IsSuppressed(valOffset, "FooRule", "") {
 		t.Errorf("IsSuppressed(%d, FooRule) = false, want true", valOffset)
+	}
+}
+
+func TestParsePhase_Run_BuildsJavaSuppressionIndex(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Foo.java")
+	writeJavaSource(t, path, "@SuppressWarnings(\"JavaRule\")\nclass Foo {}\n")
+
+	rule := v2.FakeRule("ParsePhaseJavaSuppressionRule", v2.WithNodeTypes("class_declaration"))
+	rule.Languages = []scanner.Language{scanner.LangJava}
+
+	out, err := (ParsePhase{}).Run(context.Background(), ParseInput{
+		Paths:       []string{dir},
+		ActiveRules: []*v2.Rule{rule},
+	})
+	if err != nil {
+		t.Fatalf("Run: unexpected error: %v", err)
+	}
+	if len(out.JavaFiles) != 1 {
+		t.Fatalf("JavaFiles = %d, want 1", len(out.JavaFiles))
+	}
+	f := out.JavaFiles[0]
+	if f.Suppression == nil || f.SuppressionIdx == nil {
+		t.Fatal("Java suppression filters must be populated by Parse")
+	}
+	if !f.Suppression.IsSuppressed("JavaRule", "", 2) {
+		t.Fatal("Java @SuppressWarnings did not suppress JavaRule on the class body")
 	}
 }
 

@@ -72,7 +72,7 @@ func (OutputPhase) Run(ctx context.Context, in OutputInput) (OutputResult, error
 		columns = &filtered
 	}
 
-	fileCount := len(in.FixupResult.KotlinFiles)
+	fileCount := len(in.FixupResult.SourceFiles())
 	ruleCount := len(in.FixupResult.ActiveRules)
 
 	switch in.Format {

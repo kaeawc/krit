@@ -386,7 +386,10 @@ func (p IndexPhase) runCacheLoad(in IndexInput, result *IndexResult) {
 	}
 	filePaths := in.CacheFilePaths
 	if filePaths == nil {
-		filePaths = in.KotlinFilePaths
+		filePaths = in.SourceFilePaths()
+		if len(filePaths) == 0 {
+			filePaths = in.KotlinFilePaths
+		}
 	}
 	cacheResult := analysisCache.CheckFiles(filePaths, ruleHash, scanPaths...)
 

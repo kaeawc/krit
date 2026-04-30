@@ -418,7 +418,7 @@ func registerComplexityRules() {
 		})
 	}
 	{
-		r := &TooManyFunctionsRule{BaseRule: BaseRule{RuleName: "TooManyFunctions", RuleSetName: "complexity", Sev: "warning", Desc: "Detects files or classes that declare too many functions."}, AllowedFunctionsPerFile: 11, IgnoreOverridden: true}
+		r := &TooManyFunctionsRule{BaseRule: BaseRule{RuleName: "TooManyFunctions", RuleSetName: "complexity", Sev: "warning", Desc: "Detects files or classes that declare too many functions."}, AllowedFunctionsPerFile: 11, IgnoreOverridden: false}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"source_file"}, Confidence: 0.75, OriginalV1: r,

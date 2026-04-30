@@ -535,7 +535,7 @@ func (r *TooManyFunctionsRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "ignoreOverridden",
 				Type:        registry.OptBool,
-				Default:     true,
+				Default:     false,
 				Description: "Ignore overridden functions when counting.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*TooManyFunctionsRule).IgnoreOverridden = value.(bool)

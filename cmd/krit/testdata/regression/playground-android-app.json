@@ -27,14 +27,6 @@
       "message": "Magic number '34'. Consider extracting it to a named constant."
     },
     {
-      "rule": "StringFormatTrivialResource",
-      "ruleSet": "android-lint",
-      "file": "res/values/strings.xml",
-      "line": 0,
-      "col": 0,
-      "message": "String `welcome_message` uses a single `%s` format specifier. Consider using string concatenation instead of `String.format`."
-    },
-    {
       "rule": "GoogleAppIndexingWarningManifest",
       "ruleSet": "android-lint",
       "file": "src/main/AndroidManifest.xml",
@@ -513,6 +505,14 @@
       "line": 83,
       "col": 0,
       "message": "Parameter 'message' is unused."
+    },
+    {
+      "rule": "StringFormatTrivialResource",
+      "ruleSet": "android-lint",
+      "file": "src/main/res/values/strings.xml",
+      "line": 4,
+      "col": 0,
+      "message": "String `welcome_message` uses a single `%s` format specifier. Consider using string concatenation instead of `String.format`."
     },
     {
       "rule": "StringNotLocalizableResource",

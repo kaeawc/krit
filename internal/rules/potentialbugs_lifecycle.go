@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -37,6 +38,14 @@ type ExplicitGarbageCollectionCallRule struct {
 // hook shapes by name and annotation; project-specific wrappers can escape
 // detection. Classified per roadmap/17.
 func (r *ExplicitGarbageCollectionCallRule) Confidence() float64 { return 0.75 }
+
+func javaSourceResolvesSimpleType(file *scanner.File, simpleName, fqn string) bool {
+	facts := javafacts.SourceFactsForFile(file)
+	if facts == nil {
+		return false
+	}
+	return facts.ResolveType(simpleName, nil) == fqn
+}
 
 // ---------------------------------------------------------------------------
 // InvalidRangeRule detects backwards ranges like 10..1.

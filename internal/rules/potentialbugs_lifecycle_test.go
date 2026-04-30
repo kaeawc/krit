@@ -28,6 +28,66 @@ fun main() {
 	}
 }
 
+func TestExitOutsideMain_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ExitOutsideMain", `
+package test;
+class Example {
+  void shutdown() {
+    System.exit(1);
+  }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java System.exit finding, got %d", len(findings))
+	}
+}
+
+func TestExitOutsideMain_JavaIgnoresMain(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ExitOutsideMain", `
+package test;
+class Example {
+  public static void main(String[] args) {
+    System.exit(0);
+  }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no Java System.exit findings in main, got %d", len(findings))
+	}
+}
+
+func TestExitOutsideMain_JavaIgnoresLocalSystemLookalike(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ExitOutsideMain", `
+package test;
+class System {
+  static void exit(int code) {}
+}
+class Example {
+  void shutdown() {
+    System.exit(1);
+  }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no Java System.exit findings for local System lookalike, got %d", len(findings))
+	}
+}
+
+func TestExitOutsideMain_JavaIgnoresImportedSystemLookalike(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ExitOutsideMain", `
+package test;
+import com.example.System;
+class Example {
+  void shutdown() {
+    System.exit(1);
+  }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no Java System.exit findings for imported System lookalike, got %d", len(findings))
+	}
+}
+
 // --- ExplicitGarbageCollectionCall ---
 
 func TestExplicitGarbageCollectionCall_Positive(t *testing.T) {
@@ -51,6 +111,60 @@ fun cleanup() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestExplicitGarbageCollectionCall_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ExplicitGarbageCollectionCall", `
+package test;
+class Example {
+  void cleanup() {
+    System.gc();
+    Runtime.getRuntime().gc();
+  }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 Java explicit-GC findings, got %d", len(findings))
+	}
+}
+
+func TestExplicitGarbageCollectionCall_JavaIgnoresLocalLookalikes(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ExplicitGarbageCollectionCall", `
+package test;
+class System {
+  static void gc() {}
+}
+class Runtime {
+  static Runtime getRuntime() { return new Runtime(); }
+  void gc() {}
+}
+class Example {
+  void cleanup() {
+    System.gc();
+    Runtime.getRuntime().gc();
+  }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no Java explicit-GC findings for local lookalikes, got %d", len(findings))
+	}
+}
+
+func TestExplicitGarbageCollectionCall_JavaIgnoresImportedLookalikes(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ExplicitGarbageCollectionCall", `
+package test;
+import com.example.System;
+import com.example.Runtime;
+class Example {
+  void cleanup() {
+    System.gc();
+    Runtime.getRuntime().gc();
+  }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no Java explicit-GC findings for imported lookalikes, got %d", len(findings))
 	}
 }
 

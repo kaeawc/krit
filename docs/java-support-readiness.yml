@@ -124,9 +124,9 @@ ruleSetDefaults:
     issue: 700
     reason: Some Java performance/resource rules are supported, but remaining rules need per-rule classification.
   potential-bugs:
-    status: pending
+    status: partial
     issue: 700
-    reason: Many potential-bugs rules encode Kotlin syntax or type semantics and need per-rule Java classification.
+    reason: Basic java.lang.System/Runtime lifecycle checks are supported; many remaining potential-bugs rules encode Kotlin syntax or type semantics and need per-rule Java classification.
   privacy:
     status: pending
     issue: 700
@@ -241,6 +241,16 @@ rules:
     status: supported
     fixtures:
       - internal/rules/exceptions_test.go
+  ExitOutsideMain:
+    status: supported
+    fixtures:
+      - internal/rules/potentialbugs_lifecycle_test.go
+      - internal/javafacts/source_test.go
+  ExplicitGarbageCollectionCall:
+    status: supported
+    fixtures:
+      - internal/rules/potentialbugs_lifecycle_test.go
+      - internal/javafacts/source_test.go
   GrantAllUris:
     status: supported
     fixtures:

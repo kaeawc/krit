@@ -14,15 +14,18 @@ func registerPotentialbugsLifecycleRules() {
 		r := &ExitOutsideMainRule{BaseRule: BaseRule{RuleName: "ExitOutsideMain", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects exitProcess() or System.exit() calls outside of the main function."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
+				if file.Language == scanner.LangJava && strings.HasPrefix(text, "System.exit(") && !javaSourceResolvesSimpleType(file, "System", "java.lang.System") {
+					return
+				}
 				if !strings.HasPrefix(text, "exitProcess(") && !strings.HasPrefix(text, "System.exit(") {
 					return
 				}
 				for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
-					if file.FlatType(parent) == "function_declaration" {
+					if file.FlatType(parent) == "function_declaration" || file.FlatType(parent) == "method_declaration" {
 						name := extractIdentifierFlat(file, parent)
 						if name == "main" {
 							return
@@ -38,12 +41,24 @@ func registerPotentialbugsLifecycleRules() {
 		r := &ExplicitGarbageCollectionCallRule{BaseRule: BaseRule{RuleName: "ExplicitGarbageCollectionCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects explicit calls to System.gc() or Runtime.getRuntime().gc() which rarely improve performance."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
 				if text != "System.gc()" && text != "Runtime.getRuntime().gc()" {
 					return
+				}
+				if file.Language == scanner.LangJava {
+					switch text {
+					case "System.gc()":
+						if !javaSourceResolvesSimpleType(file, "System", "java.lang.System") {
+							return
+						}
+					case "Runtime.getRuntime().gc()":
+						if !javaSourceResolvesSimpleType(file, "Runtime", "java.lang.Runtime") {
+							return
+						}
+					}
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"Do not call garbage collector explicitly. It is rarely necessary and can degrade performance.")

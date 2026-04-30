@@ -460,7 +460,7 @@ func stringContent(f *JavaFileFacts) string {
 
 func knownJavaSimpleType(name string) string {
 	switch name {
-	case "String", "Object", "Runnable", "Thread", "Exception", "RuntimeException", "Integer", "Long", "Boolean", "Void":
+	case "String", "Object", "Runnable", "Thread", "Exception", "RuntimeException", "Integer", "Long", "Boolean", "Void", "System", "Runtime":
 		return "java.lang." + name
 	case "List", "Map", "Set", "Collection", "ArrayList", "HashMap", "HashSet", "Collections":
 		return "java.util." + name

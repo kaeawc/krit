@@ -183,13 +183,26 @@ func registerPotentialbugsLifecycleRules() {
 				if isTestFile(file.Path) {
 					return
 				}
-				if file.FlatHasModifier(idx, "lateinit") {
-					if deadCodeDeclarationHasDIAnnotation(file, idx) {
-						return
-					}
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-						"'lateinit' usage detected. Consider using lazy initialization or nullable types instead.")
+				if !file.FlatHasModifier(idx, "lateinit") {
+					return
 				}
+				if deadCodeDeclarationHasDIAnnotation(file, idx) {
+					return
+				}
+				// IgnoreOnClassesPattern: skip lateinit usages whose
+				// enclosing class name matches the configured pattern.
+				// Common detekt usage is to allow `lateinit var ...` in
+				// fixture/test base classes named like `*Test` or `*Spec`.
+				if r.IgnoreOnClassesPattern != nil {
+					if owner, ok := flatEnclosingAncestor(file, idx, "class_declaration", "object_declaration"); ok {
+						clsName := extractIdentifierFlat(file, owner)
+						if clsName != "" && r.IgnoreOnClassesPattern.MatchString(clsName) {
+							return
+						}
+					}
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"'lateinit' usage detected. Consider using lazy initialization or nullable types instead.")
 			},
 		})
 	}

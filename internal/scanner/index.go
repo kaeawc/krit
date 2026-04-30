@@ -25,6 +25,8 @@ var classRefPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`<([a-z][a-zA-Z0-9_.]+\.[A-Z][a-zA-Z0-9]*)`), // FQN as XML tag
 }
 
+var sourceImportRe = regexp.MustCompile(`(?m)^\s*import\s+(?:static\s+)?([A-Za-z_$][A-Za-z0-9_$.*]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*;?`)
+
 // Symbol represents a declared symbol in the codebase.
 type Symbol struct {
 	Name       string
@@ -53,6 +55,16 @@ type Reference struct {
 	File      string
 	Line      int
 	InComment bool // true if this reference is inside a comment node
+}
+
+// ResolvedSymbol is a language-tagged source declaration resolved from the
+// mixed Kotlin/Java source index.
+type ResolvedSymbol struct {
+	FQN      string
+	Language Language
+	Owner    string
+	Kind     string
+	Symbol   Symbol
 }
 
 // CodeIndex holds the cross-file symbol table.
@@ -644,6 +656,154 @@ func (idx *CodeIndex) SymbolByFQN(fqn string) (Symbol, bool) {
 	}
 	sym, ok := idx.symbolsByFQN[fqn]
 	return sym, ok
+}
+
+// ResolveType resolves a type name from a Kotlin or Java source file using
+// source-visible package and import information plus declarations in the
+// mixed-language CodeIndex.
+func (idx *CodeIndex) ResolveType(file *File, name string) []ResolvedSymbol {
+	if idx == nil || name == "" {
+		return nil
+	}
+	imports, wildcards := sourceImports(file)
+	if imported := imports[name]; imported != "" {
+		return idx.resolveSymbols([]string{imported}, isTypeSymbol)
+	}
+	if strings.Contains(name, ".") {
+		return idx.resolveSymbols([]string{name}, isTypeSymbol)
+	}
+	var candidates []string
+	if !strings.Contains(name, ".") {
+		if pkg := packageNameForFile(file); pkg != "" {
+			candidates = append(candidates, pkg+"."+name)
+		}
+		for _, wildcard := range wildcards {
+			candidates = append(candidates, wildcard+"."+name)
+		}
+	}
+	resolved := idx.resolveSymbols(candidates, isTypeSymbol)
+	if len(resolved) > 0 {
+		return resolved
+	}
+	return idx.resolveSymbols([]string{name}, isTypeSymbol)
+}
+
+// ResolveCallable resolves a function/method/property callable from the mixed
+// source index. arity < 0 disables arity filtering.
+func (idx *CodeIndex) ResolveCallable(file *File, receiver, name string, arity int) []ResolvedSymbol {
+	if idx == nil || name == "" {
+		return nil
+	}
+	var ownerCandidates map[string]bool
+	if receiver != "" {
+		ownerCandidates = make(map[string]bool)
+		for _, sym := range idx.ResolveType(file, receiver) {
+			ownerCandidates[sym.FQN] = true
+			ownerCandidates[sym.Symbol.Name] = true
+		}
+		if len(ownerCandidates) == 0 {
+			ownerCandidates[receiver] = true
+		}
+	}
+	imports, _ := sourceImports(file)
+	if imported := imports[name]; imported != "" {
+		return idx.resolveSymbols([]string{imported}, func(sym Symbol) bool {
+			return isCallableSymbol(sym) && callableMatches(sym, ownerCandidates, arity)
+		})
+	}
+	if strings.Contains(name, ".") {
+		return idx.resolveSymbols([]string{name}, func(sym Symbol) bool {
+			return isCallableSymbol(sym) && callableMatches(sym, ownerCandidates, arity)
+		})
+	}
+	var candidates []string
+	if pkg := packageNameForFile(file); pkg != "" {
+		candidates = append(candidates, pkg+"."+name)
+	}
+	accept := func(sym Symbol) bool {
+		return isCallableSymbol(sym) && callableMatches(sym, ownerCandidates, arity)
+	}
+	resolved := idx.resolveSymbols(candidates, accept)
+	if len(resolved) > 0 {
+		return resolved
+	}
+	return idx.resolveSymbols([]string{name}, accept)
+}
+
+func isTypeSymbol(sym Symbol) bool {
+	switch sym.Kind {
+	case "class", "interface", "object", "enum", "record", "annotation":
+		return true
+	default:
+		return false
+	}
+}
+
+func isCallableSymbol(sym Symbol) bool {
+	switch sym.Kind {
+	case "function", "method", "property", "field", "constructor":
+		return true
+	default:
+		return false
+	}
+}
+
+func callableMatches(sym Symbol, ownerCandidates map[string]bool, arity int) bool {
+	if arity >= 0 && sym.Arity != arity {
+		return false
+	}
+	if len(ownerCandidates) > 0 && !ownerCandidates[sym.Owner] {
+		return false
+	}
+	return true
+}
+
+func (idx *CodeIndex) resolveSymbols(names []string, accept func(Symbol) bool) []ResolvedSymbol {
+	seen := map[string]bool{}
+	var out []ResolvedSymbol
+	for _, name := range names {
+		for _, sym := range idx.SymbolsNamed(name) {
+			key := sym.FQN + "|" + sym.Signature + "|" + sym.File
+			if seen[key] || !accept(sym) {
+				continue
+			}
+			seen[key] = true
+			out = append(out, ResolvedSymbol{
+				FQN:      sym.FQN,
+				Language: sym.Language,
+				Owner:    sym.Owner,
+				Kind:     sym.Kind,
+				Symbol:   sym,
+			})
+		}
+	}
+	return out
+}
+
+func sourceImports(file *File) (map[string]string, []string) {
+	explicit := map[string]string{}
+	if file == nil {
+		return explicit, nil
+	}
+	var wildcards []string
+	for _, match := range sourceImportRe.FindAllStringSubmatch(string(file.Content), -1) {
+		target := strings.TrimSpace(match[1])
+		if target == "" {
+			continue
+		}
+		if strings.HasSuffix(target, ".*") {
+			wildcards = append(wildcards, strings.TrimSuffix(target, ".*"))
+			continue
+		}
+		simple := target
+		if alias := strings.TrimSpace(match[2]); alias != "" {
+			simple = alias
+		} else if dot := strings.LastIndex(target, "."); dot >= 0 {
+			simple = target[dot+1:]
+		}
+		explicit[simple] = target
+	}
+	return explicit, wildcards
 }
 
 func (idx *CodeIndex) buildReferenceLookups(addToBloom bool) {
@@ -1407,7 +1567,44 @@ func collectJavaReferencesFlatUncached(file *File, refs *[]Reference) {
 			File: file.Path,
 			Line: int(node.StartRow) + 1,
 		})
+		if isSimple {
+			if prop := javaAccessorPropertyName(name); prop != "" {
+				*refs = append(*refs, Reference{
+					Name: prop,
+					File: file.Path,
+					Line: int(node.StartRow) + 1,
+				})
+			}
+		}
 	}
+}
+
+func javaAccessorPropertyName(name string) string {
+	switch {
+	case strings.HasPrefix(name, "get") && len(name) > len("get") && isASCIIUpper(name[len("get")]):
+		return lowerASCIIInitial(name[len("get"):])
+	case strings.HasPrefix(name, "set") && len(name) > len("set") && isASCIIUpper(name[len("set")]):
+		return lowerASCIIInitial(name[len("set"):])
+	case strings.HasPrefix(name, "is") && len(name) > len("is") && isASCIIUpper(name[len("is")]):
+		return "is" + name[len("is"):]
+	default:
+		return ""
+	}
+}
+
+func lowerASCIIInitial(value string) string {
+	if value == "" {
+		return ""
+	}
+	b := []byte(value)
+	if b[0] >= 'A' && b[0] <= 'Z' {
+		b[0] = b[0] - 'A' + 'a'
+	}
+	return string(b)
+}
+
+func isASCIIUpper(ch byte) bool {
+	return ch >= 'A' && ch <= 'Z'
 }
 
 func lookupExistingNodeTypes(types ...string) []uint16 {

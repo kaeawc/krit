@@ -18,6 +18,16 @@ This inventory tracks rule families for Java-only and mixed Java/Kotlin Android 
 
 XML resource, Android manifest, Gradle, version-catalog, icon, and resource-value rules apply independently of whether app source is Java, Kotlin, or mixed. These rules are not Java source ports, but they are already useful in Java-only Android projects.
 
+## Mixed Java/Kotlin Source Graph
+
+The cross-file index now exposes a language-tagged source resolver for cheap mixed-source facts:
+
+- Java files can resolve imported Kotlin classes and their source-visible callables.
+- Kotlin files can resolve imported Java classes and Java members indexed from source.
+- Java getter/setter calls such as `getDisplayName()`, `setEnabled(...)`, and `isActive()` add references to the corresponding Kotlin property names so module-aware and dead-code checks do not mark those properties unused.
+
+Conservative gaps remain for Kotlin JVM shapes that require compiler lowering details: overloaded property accessors, `@JvmName`, `@JvmStatic`, `@JvmField`, file-facade naming overrides, companion-object bridge methods, and generated code from annotation processors. Those should stay source-visible where possible and use KAA/javac-backed facts only when the source index cannot answer precisely.
+
 ## Pending Java-Applicable Batches
 
 | Batch | Status | Plan |

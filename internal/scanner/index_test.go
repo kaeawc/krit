@@ -468,6 +468,169 @@ class UseJava {
 	}
 }
 
+func TestCodeIndexResolveType_MixedJavaKotlinImports(t *testing.T) {
+	dir := t.TempDir()
+	kotlinPath := writeTempKt(t, dir, "KotlinApi.kt", `package com.example.api
+
+class KotlinApi {
+    fun greet(): String = "hi"
+}
+`)
+	javaPath := filepath.Join(dir, "UseKotlin.java")
+	if err := os.WriteFile(javaPath, []byte(`package com.example.app;
+
+import com.example.api.KotlinApi;
+
+class UseKotlin {
+  void call(KotlinApi api) {
+    api.greet();
+  }
+}
+`), 0o644); err != nil {
+		t.Fatalf("write java: %v", err)
+	}
+	kt, err := ParseFile(kotlinPath)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	javaFile, err := ParseJavaFile(javaPath)
+	if err != nil {
+		t.Fatalf("ParseJavaFile: %v", err)
+	}
+
+	idx := BuildIndex([]*File{kt}, 1, javaFile)
+	resolved := idx.ResolveType(javaFile, "KotlinApi")
+	if len(resolved) != 1 {
+		t.Fatalf("ResolveType(KotlinApi) = %+v, want one symbol", resolved)
+	}
+	if resolved[0].FQN != "com.example.api.KotlinApi" || resolved[0].Language != LangKotlin {
+		t.Fatalf("resolved KotlinApi = %+v", resolved[0])
+	}
+	callables := idx.ResolveCallable(javaFile, "KotlinApi", "greet", 0)
+	if len(callables) != 1 || callables[0].FQN != "com.example.api.KotlinApi.greet" {
+		t.Fatalf("ResolveCallable(KotlinApi.greet/0) = %+v", callables)
+	}
+}
+
+func TestCodeIndexResolveType_ExplicitImportBeatsSimpleNameLookalike(t *testing.T) {
+	dir := t.TempDir()
+	importedPath := writeTempKt(t, dir, "ImportedApi.kt", `package com.example.api
+
+class KotlinApi {
+    fun greet(): String = "hi"
+}
+`)
+	localPath := writeTempKt(t, dir, "LocalApi.kt", `package com.example.app
+
+class KotlinApi {
+    fun greet(): String = "local"
+}
+`)
+	javaPath := filepath.Join(dir, "UseKotlin.java")
+	if err := os.WriteFile(javaPath, []byte(`package com.example.app;
+
+import com.example.api.KotlinApi;
+
+class UseKotlin {
+  void call(KotlinApi api) {
+    api.greet();
+  }
+}
+`), 0o644); err != nil {
+		t.Fatalf("write java: %v", err)
+	}
+	imported, err := ParseFile(importedPath)
+	if err != nil {
+		t.Fatalf("ParseFile imported: %v", err)
+	}
+	local, err := ParseFile(localPath)
+	if err != nil {
+		t.Fatalf("ParseFile local: %v", err)
+	}
+	javaFile, err := ParseJavaFile(javaPath)
+	if err != nil {
+		t.Fatalf("ParseJavaFile: %v", err)
+	}
+
+	idx := BuildIndex([]*File{imported, local}, 1, javaFile)
+	resolved := idx.ResolveType(javaFile, "KotlinApi")
+	if len(resolved) != 1 {
+		t.Fatalf("ResolveType(KotlinApi) = %+v, want explicit import only", resolved)
+	}
+	if resolved[0].FQN != "com.example.api.KotlinApi" {
+		t.Fatalf("resolved explicit import = %+v", resolved[0])
+	}
+}
+
+func TestCodeIndexResolveType_KotlinImportsJavaClass(t *testing.T) {
+	dir := t.TempDir()
+	javaPath := filepath.Join(dir, "JavaApi.java")
+	if err := os.WriteFile(javaPath, []byte(`package com.example.api;
+
+public class JavaApi {
+  public String label() { return "ok"; }
+}
+`), 0o644); err != nil {
+		t.Fatalf("write java: %v", err)
+	}
+	kotlinPath := writeTempKt(t, dir, "UseJava.kt", `package com.example.app
+
+import com.example.api.JavaApi
+
+fun call(api: JavaApi) = api.label()
+`)
+	javaFile, err := ParseJavaFile(javaPath)
+	if err != nil {
+		t.Fatalf("ParseJavaFile: %v", err)
+	}
+	kt, err := ParseFile(kotlinPath)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	idx := BuildIndex([]*File{kt}, 1, javaFile)
+	resolved := idx.ResolveType(kt, "JavaApi")
+	if len(resolved) != 1 {
+		t.Fatalf("ResolveType(JavaApi) = %+v, want one symbol", resolved)
+	}
+	if resolved[0].FQN != "com.example.api.JavaApi" || resolved[0].Language != LangJava {
+		t.Fatalf("resolved JavaApi = %+v", resolved[0])
+	}
+	callables := idx.ResolveCallable(kt, "JavaApi", "label", 0)
+	if len(callables) != 1 || callables[0].FQN != "com.example.api.JavaApi.label" {
+		t.Fatalf("ResolveCallable(JavaApi.label/0) = %+v", callables)
+	}
+}
+
+func TestCollectJavaReferencesFlat_AddsKotlinPropertyAccessorAliases(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "UseKotlin.java")
+	if err := os.WriteFile(path, []byte(`package com.example;
+
+class UseKotlin {
+  void render(Profile profile) {
+    profile.getDisplayName();
+    profile.setEnabled(true);
+    profile.isActive();
+  }
+}
+`), 0o644); err != nil {
+		t.Fatalf("write java: %v", err)
+	}
+	file, err := ParseJavaFile(path)
+	if err != nil {
+		t.Fatalf("ParseJavaFile: %v", err)
+	}
+
+	var refs []Reference
+	collectJavaReferencesFlat(file, &refs)
+	for _, want := range []string{"displayName", "enabled", "isActive"} {
+		if !hasReferenceNamed(refs, want) {
+			t.Fatalf("missing Java accessor alias %q in %+v", want, refs)
+		}
+	}
+}
+
 func TestAppendXMLReferences_KeepsFQNAndSimpleName(t *testing.T) {
 	var refs []Reference
 	appendXMLReferences(&refs, "res/layout/view.xml", []byte(`<com.example.widgets.CustomView />`))

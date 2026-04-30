@@ -111,6 +111,18 @@ func (r *OptInMarkerNotRecognisedRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *OptInMarkerExposedPubliclyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "OptInMarkerExposedPublicly",
+		RuleSet:       "licensing",
+		Severity:      "warning",
+		Description:   "Detects @OptIn annotations on public API declarations that propagate the opt-in requirement to callers.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.9,
+	}
+}
+
 func (r *MissingSpdxIdentifierRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "MissingSpdxIdentifier",

@@ -311,6 +311,9 @@ rules:
     status: supported
     fixtures:
       - internal/rules/resource_cost_test.go
+  OptInMarkerExposedPublicly:
+    status: not-applicable
+    reason: "@OptIn is a Kotlin-only construct; Java has no equivalent annotation."
   RecyclerAdapterStableIdsDefault:
     status: supported
     fixtures:

@@ -434,6 +434,9 @@ func registerComplexityRules() {
 					if ignoreRe != nil && ignoreRe.MatchString(content) {
 						return
 					}
+					if r.IgnoreAnnotation && stringLiteralInsideAnnotationFlat(file, strNode) {
+						return
+					}
 					counts[text]++
 					if _, ok := firstLine[text]; !ok {
 						firstLine[text] = file.FlatRow(strNode) + 1

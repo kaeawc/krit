@@ -1048,6 +1048,35 @@ func stringLiteralUnquote(text string) string {
 	return text
 }
 
+// stringLiteralInsideAnnotationFlat reports whether the given
+// string_literal node is positioned inside any enclosing `annotation`
+// AST node. Used by StringLiteralDuplicationRule.IgnoreAnnotation to
+// skip strings that live in annotation arguments such as
+// `@Suppress("UNCHECKED_CAST")`. The walk stops at the nearest
+// declaration boundary so it doesn't scan the whole file.
+func stringLiteralInsideAnnotationFlat(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	cur := idx
+	for {
+		parent, ok := file.FlatParent(cur)
+		if !ok {
+			return false
+		}
+		t := file.FlatType(parent)
+		if t == "annotation" {
+			return true
+		}
+		switch t {
+		case "function_declaration", "class_declaration", "object_declaration",
+			"property_declaration", "function_body", "class_body", "source_file":
+			return false
+		}
+		cur = parent
+	}
+}
+
 // TooManyFunctionsRule detects files or classes with too many functions.
 type TooManyFunctionsRule struct {
 	FlatDispatchBase

@@ -1035,6 +1035,57 @@ fun example() {
 	}
 }
 
+func TestStringLiteralDuplication_HonorsIgnoreAnnotation(t *testing.T) {
+	// IgnoreAnnotation was previously a dead config — exposed in zz_meta but
+	// never consulted by the check. With the wiring, repeat string literals
+	// living inside annotation arguments (like @Suppress("UNCHECKED_CAST"))
+	// are excluded from the duplication count.
+	var rule *rules.StringLiteralDuplicationRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "StringLiteralDuplication" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.StringLiteralDuplicationRule)
+			if !ok {
+				t.Fatalf("expected StringLiteralDuplicationRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("StringLiteralDuplication rule not registered")
+	}
+	original := rule.IgnoreAnnotation
+	defer func() { rule.IgnoreAnnotation = original }()
+
+	rule.IgnoreAnnotation = true
+
+	codeAnnotated := `package test
+@Suppress("UNCHECKED_CAST")
+class A
+@Suppress("UNCHECKED_CAST")
+class B
+@Suppress("UNCHECKED_CAST")
+class C
+@Suppress("UNCHECKED_CAST")
+class D
+`
+	if findings := runRuleByName(t, "StringLiteralDuplication", codeAnnotated); len(findings) != 0 {
+		t.Fatalf("expected no findings when IgnoreAnnotation=true and duplicates live in annotations, got %d", len(findings))
+	}
+
+	// Sanity check: same literal repeated outside annotations still fires.
+	codeNonAnnotated := `package test
+fun example() {
+    val a = "duplicated"
+    val b = "duplicated"
+    val c = "duplicated"
+}
+`
+	if findings := runRuleByName(t, "StringLiteralDuplication", codeNonAnnotated); len(findings) == 0 {
+		t.Fatal("expected finding for non-annotation duplicates even with IgnoreAnnotation=true")
+	}
+}
+
 func TestStringLiteralDuplication_HonorsIgnoreStringsRegex(t *testing.T) {
 	// IgnoreStringsRegex was previously a dead config. Configure it via the
 	// rule pointer and verify that string literals matching the regex are

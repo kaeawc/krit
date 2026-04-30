@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
+	"github.com/kaeawc/krit/internal/rules/registry"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -293,6 +294,62 @@ func TestTopLevelPropertyNaming_UsesLocalASTOnly(t *testing.T) {
 	}
 	if rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil || rule.Oracle != nil {
 		t.Fatal("TopLevelPropertyNaming should not declare oracle metadata")
+	}
+}
+
+// TestNamingMetaRegexDefaultsMatchRegistry guards against documentation
+// drift: when the registry initializes a naming rule with a regex, the
+// rule's zz_meta_naming_gen.go Default string for that option must compile
+// (under the registry's anchoring) to an equivalent regex. Otherwise users
+// see one default in the docs / config emitter and another at runtime —
+// the precise class of bug this test was written to prevent.
+func TestNamingMetaRegexDefaultsMatchRegistry(t *testing.T) {
+	cases := []struct {
+		ruleID     string
+		optionName string
+		runtime    string
+	}{
+		{"ObjectPropertyNaming", "constantPattern", `^[A-Z][_A-Z0-9]*$`},
+		{"ObjectPropertyNaming", "propertyPattern", `^[a-z][A-Za-z0-9]*$`},
+		{"TopLevelPropertyNaming", "constantPattern", `^[A-Z][_A-Za-z0-9]*$`},
+		{"TopLevelPropertyNaming", "propertyPattern", `^[a-z][A-Za-z0-9]*$`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.ruleID+"/"+tc.optionName, func(t *testing.T) {
+			rule := buildRuleIndex()[tc.ruleID]
+			if rule == nil {
+				t.Fatalf("rule %q is not registered", tc.ruleID)
+			}
+			impl, ok := rule.Implementation.(interface {
+				Meta() registry.RuleDescriptor
+			})
+			if !ok {
+				t.Fatalf("rule %q does not expose Meta()", tc.ruleID)
+			}
+			meta := impl.Meta()
+			var optDefault string
+			var found bool
+			for _, opt := range meta.Options {
+				if opt.Name == tc.optionName {
+					if s, ok := opt.Default.(string); ok {
+						optDefault = s
+					}
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("option %q not found on rule %q", tc.optionName, tc.ruleID)
+			}
+			compiled := registry.CompileAnchoredPattern(tc.ruleID, tc.optionName, optDefault)
+			if compiled == nil {
+				t.Fatalf("zz_meta default %q failed to compile", optDefault)
+			}
+			if compiled.String() != tc.runtime {
+				t.Fatalf("zz_meta default %q for %s.%s anchors to %q, registry uses %q (drift)",
+					optDefault, tc.ruleID, tc.optionName, compiled.String(), tc.runtime)
+			}
+		})
 	}
 }
 

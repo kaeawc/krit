@@ -235,6 +235,14 @@ func registerDatabaseRules() {
 		})
 	}
 	{
+		r := &RoomEntityChangedMigrationMissingRule{BaseRule: BaseRule{RuleName: "RoomEntityChangedMigrationMissing", RuleSetName: "database", Sev: "warning", Desc: "Detects @Entity columns whose names do not appear in any Room Migration(M, N) declaration in the project."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &JdbcPreparedStatementNotClosedRule{BaseRule: BaseRule{RuleName: "JdbcPreparedStatementNotClosed", RuleSetName: "database", Sev: "warning", Desc: "Detects JDBC prepared statements assigned to local properties without .use {} or .close() in the same scope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

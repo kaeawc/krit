@@ -363,6 +363,214 @@ func roomDatabaseExportSchemaDisabledFlat(file *scanner.File, idx uint32) bool {
 	return strings.Contains(compact, "exportSchema=false")
 }
 
+// RoomEntityChangedMigrationMissingRule detects @Entity columns whose names
+// do not appear in any Room Migration(M, N) declaration in the project. A
+// newly added or removed column without a corresponding migration update
+// will fail Room's schema validation at runtime.
+type RoomEntityChangedMigrationMissingRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+// Confidence reports a tier-3 (low) base confidence. Detection cannot tell
+// when a column was introduced; pre-existing columns left out of migration
+// SQL also match. Inactive by default.
+func (r *RoomEntityChangedMigrationMissingRule) Confidence() float64 { return 0.6 }
+
+func (r *RoomEntityChangedMigrationMissingRule) check(ctx *v2.Context) {
+	index := ctx.CodeIndex
+	if index == nil || len(index.Files) == 0 {
+		return
+	}
+
+	migrationCorpus := collectRoomMigrationCorpus(index.Files)
+	if migrationCorpus == "" {
+		return
+	}
+
+	for _, file := range index.Files {
+		if file == nil || file.FlatTree == nil {
+			continue
+		}
+		if !bytes.Contains(file.Content, []byte("Entity")) {
+			continue
+		}
+		file.FlatWalkNodes(0, "class_declaration", func(idx uint32) {
+			if !hasAnnotationFlat(file, idx, "Entity") {
+				return
+			}
+			ctor, _ := file.FlatFindChild(idx, "primary_constructor")
+			if ctor == 0 {
+				return
+			}
+			className := extractIdentifierFlat(file, idx)
+			if className == "" {
+				className = "Entity"
+			}
+			tableName := roomEntityTableName(file, idx, className)
+			for i := 0; i < file.FlatNamedChildCount(ctor); i++ {
+				param := file.FlatNamedChild(ctor, i)
+				if param == 0 || file.FlatType(param) != "class_parameter" {
+					continue
+				}
+				if hasAnnotationFlat(file, param, "Ignore") {
+					continue
+				}
+				column := roomEntityColumnName(file, param)
+				if column == "" {
+					continue
+				}
+				if migrationCorpusMentions(migrationCorpus, column) {
+					continue
+				}
+				ctx.Emit(r.Finding(
+					file,
+					file.FlatRow(param)+1,
+					file.FlatCol(param)+1,
+					fmt.Sprintf("@Entity '%s' column '%s' is not referenced by any Migration(...) in the project; add a Migration(N-1, N) that updates table '%s' for this column.", className, column, tableName),
+				))
+			}
+		})
+	}
+}
+
+func collectRoomMigrationCorpus(files []*scanner.File) string {
+	var b strings.Builder
+	for _, file := range files {
+		if file == nil || file.FlatTree == nil {
+			continue
+		}
+		if !bytes.Contains(file.Content, []byte("Migration")) {
+			continue
+		}
+		appendMigrationDeclTexts(file, "object_declaration", &b)
+		appendMigrationDeclTexts(file, "class_declaration", &b)
+	}
+	return b.String()
+}
+
+func appendMigrationDeclTexts(file *scanner.File, nodeType string, b *strings.Builder) {
+	file.FlatWalkNodes(0, nodeType, func(idx uint32) {
+		if !declarationExtendsRoomMigrationFlat(file, idx) {
+			return
+		}
+		body, _ := file.FlatFindChild(idx, "class_body")
+		if body == 0 {
+			return
+		}
+		b.WriteString(file.FlatNodeText(body))
+		b.WriteByte('\n')
+	})
+}
+
+func declarationExtendsRoomMigrationFlat(file *scanner.File, idx uint32) bool {
+	found := false
+	file.FlatForEachChild(idx, func(child uint32) {
+		if found {
+			return
+		}
+		if file.FlatType(child) != "delegation_specifier" {
+			return
+		}
+		text := strings.Join(strings.Fields(file.FlatNodeText(child)), "")
+		open := strings.Index(text, "Migration(")
+		if open < 0 {
+			return
+		}
+		if open > 0 {
+			prev := text[open-1]
+			if prev != '.' && prev != ':' && prev != ' ' {
+				return
+			}
+		}
+		args := text[open+len("Migration("):]
+		close := strings.Index(args, ")")
+		if close < 0 {
+			return
+		}
+		parts := strings.Split(args[:close], ",")
+		if len(parts) != 2 {
+			return
+		}
+		if !isIntLiteral(parts[0]) || !isIntLiteral(parts[1]) {
+			return
+		}
+		found = true
+	})
+	return found
+}
+
+func isIntLiteral(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func roomEntityTableName(file *scanner.File, idx uint32, fallback string) string {
+	if name := annotationStringArg(file, idx, "Entity", "tableName"); name != "" {
+		return name
+	}
+	return fallback
+}
+
+func roomEntityColumnName(file *scanner.File, param uint32) string {
+	if name := annotationStringArg(file, param, "ColumnInfo", "name"); name != "" {
+		return name
+	}
+	return extractIdentifierFlat(file, param)
+}
+
+func annotationStringArg(file *scanner.File, idx uint32, annotation, arg string) string {
+	text := findAnnotationTextFlat(file, idx, annotation)
+	if text == "" {
+		return ""
+	}
+	compact := strings.Join(strings.Fields(text), "")
+	key := arg + "=\""
+	start := strings.Index(compact, key)
+	if start < 0 {
+		return ""
+	}
+	rest := compact[start+len(key):]
+	end := strings.Index(rest, "\"")
+	if end < 0 {
+		return ""
+	}
+	return rest[:end]
+}
+
+func migrationCorpusMentions(corpus, column string) bool {
+	if column == "" {
+		return true
+	}
+	pos := 0
+	for {
+		rel := strings.Index(corpus[pos:], column)
+		if rel < 0 {
+			return false
+		}
+		idx := pos + rel
+		end := idx + len(column)
+		var before, after byte = ' ', ' '
+		if idx > 0 {
+			before = corpus[idx-1]
+		}
+		if end < len(corpus) {
+			after = corpus[end]
+		}
+		if !isIdentChar(before) && !isIdentChar(after) {
+			return true
+		}
+		pos = end
+	}
+}
+
 func hasModuleAnnotatedAncestorFlat(file *scanner.File, idx uint32) bool {
 	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
 		switch file.FlatType(cur) {

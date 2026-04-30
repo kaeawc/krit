@@ -282,6 +282,99 @@ interface UserDao {
 	})
 }
 
+func TestRoomEntityChangedMigrationMissing(t *testing.T) {
+	rule := buildRuleIndex()["RoomEntityChangedMigrationMissing"]
+	if rule == nil {
+		t.Fatal("RoomEntityChangedMigrationMissing rule not registered")
+	}
+	if !rule.Needs.Has(v2rules.NeedsCrossFile) {
+		t.Fatal("RoomEntityChangedMigrationMissing does not declare NeedsCrossFile")
+	}
+
+	root := fixtureRoot(t)
+	positivePath := filepath.Join(root, "positive", "database", "RoomEntityChangedMigrationMissing.kt")
+	negativePath := filepath.Join(root, "negative", "database", "RoomEntityChangedMigrationMissing.kt")
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(positivePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", positivePath, err)
+		}
+		findings := runCrossFileRule(rule, []*scanner.File{file})
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+		}
+		if !strings.Contains(findings[0].Message, "avatarUrl") {
+			t.Fatalf("expected finding to reference avatarUrl, got %q", findings[0].Message)
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(negativePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", negativePath, err)
+		}
+		findings := runCrossFileRule(rule, []*scanner.File{file})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("no migrations means no findings", func(t *testing.T) {
+		files := parseKotlinFiles(t,
+			"User.kt", `package db
+
+annotation class Entity(val tableName: String = "")
+annotation class PrimaryKey
+
+@Entity(tableName = "users")
+data class User(
+    @PrimaryKey val id: Long,
+    val avatarUrl: String,
+)
+`,
+		)
+		findings := runCrossFileRule(rule, files)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings without migrations, got %d", len(findings))
+		}
+	})
+
+	t.Run("cross-file migration satisfies entity", func(t *testing.T) {
+		files := parseKotlinFiles(t,
+			"User.kt", `package db
+
+annotation class Entity(val tableName: String = "")
+annotation class PrimaryKey
+
+@Entity(tableName = "users")
+data class User(
+    @PrimaryKey val id: Long,
+    val avatarUrl: String,
+)
+`,
+			"Migration1to2.kt", `package db
+
+abstract class Migration(val from: Int, val to: Int) {
+    abstract fun migrate(db: SupportSQLiteDatabase)
+}
+interface SupportSQLiteDatabase { fun execSQL(sql: String) }
+
+object Migration1to2 : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE users ADD COLUMN id INTEGER")
+        db.execSQL("ALTER TABLE users ADD COLUMN avatarUrl TEXT")
+    }
+}
+`,
+		)
+		findings := runCrossFileRule(rule, files)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+}
+
 func TestJdbcResultSetLeakedFromFunction_Positive(t *testing.T) {
 	findings := runRuleByName(t, "JdbcResultSetLeakedFromFunction", `
 package test

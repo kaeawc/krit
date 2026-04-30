@@ -1,6 +1,9 @@
 package rules_test
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestHardcodedBearerToken_PositiveDirectLiteral(t *testing.T) {
 	findings := runRuleByName(t, "HardcodedBearerToken", `
@@ -53,4 +56,24 @@ fun send(request: Request) {
 	if len(findings) != 0 {
 		t.Fatalf("expected 0 findings, got %d", len(findings))
 	}
+}
+
+func TestHardcodedBearerToken_JavaFixtures(t *testing.T) {
+	root := fixtureRoot(t)
+
+	t.Run("positive", func(t *testing.T) {
+		file := parseJavaFixture(t, filepath.Join(root, "positive", "security", "HardcodedBearerToken.java"))
+		findings := runRuleByNameOnFile(t, "HardcodedBearerToken", file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 Java finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative", func(t *testing.T) {
+		file := parseJavaFixture(t, filepath.Join(root, "negative", "security", "HardcodedBearerToken.java"))
+		findings := runRuleByNameOnFile(t, "HardcodedBearerToken", file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 Java findings, got %d", len(findings))
+		}
+	})
 }

@@ -1514,6 +1514,30 @@ func TestHardcodedLocalhostUrl(t *testing.T) {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+
+	t.Run("positive Java fixture triggers", func(t *testing.T) {
+		path := filepath.Join(root, "positive", "release-engineering", "HardcodedLocalhostUrl.java")
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		findings := runRuleByNameOnJava(t, "HardcodedLocalhostUrl", string(content))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 Java finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative Java fixture is clean", func(t *testing.T) {
+		path := filepath.Join(root, "negative", "release-engineering", "HardcodedLocalhostUrl.java")
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		findings := runRuleByNameOnJava(t, "HardcodedLocalhostUrl", string(content))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 Java findings, got %d", len(findings))
+		}
+	})
 }
 
 func TestTestOnlyImportInProduction(t *testing.T) {

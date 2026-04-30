@@ -49,6 +49,34 @@ func runRuleByNameOnJava(t *testing.T, ruleName string, code string) []scanner.F
 	return runRuleByNameOnFile(t, ruleName, file)
 }
 
+func runRuleByNameOnJavaPath(t *testing.T, ruleName, filename, code string) []scanner.Finding {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), filename)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseJavaFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runRuleByNameOnFile(t, ruleName, file)
+}
+
+func parseJavaFixture(t *testing.T, path string) *scanner.File {
+	t.Helper()
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseJavaFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
 func runRuleByNameOnFile(t *testing.T, ruleName string, file *scanner.File) []scanner.Finding {
 	t.Helper()
 	for _, r := range v2rules.Registry {

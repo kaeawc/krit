@@ -1,6 +1,12 @@
 package rules_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kaeawc/krit/internal/rules"
+	"github.com/kaeawc/krit/internal/rules/registry"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+)
 
 // --- TrailingWhitespace ---
 
@@ -46,7 +52,6 @@ func TestNoTabs_FixUsesDefaultFourSpaces(t *testing.T) {
 	}
 }
 
-
 // --- MaxLineLength ---
 
 func TestMaxLineLength_Positive(t *testing.T) {
@@ -62,6 +67,48 @@ func TestMaxLineLength_Negative(t *testing.T) {
 	findings := runRuleByName(t, "MaxLineLength", "package test\nfun main() {\n    val x = 1\n}\n")
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestMaxLineLengthDefaultsMatchDetekt(t *testing.T) {
+	var rule *rules.MaxLineLengthRule
+	var meta registry.RuleDescriptor
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID != "MaxLineLength" {
+			continue
+		}
+		var ok bool
+		rule, ok = candidate.OriginalV1.(*rules.MaxLineLengthRule)
+		if !ok {
+			t.Fatalf("expected MaxLineLengthRule, got %T", candidate.OriginalV1)
+		}
+		metaProvider, ok := candidate.OriginalV1.(registry.MetaProvider)
+		if !ok {
+			t.Fatalf("expected MaxLineLengthRule to provide metadata")
+		}
+		meta = metaProvider.Meta()
+		break
+	}
+	if rule == nil {
+		t.Fatal("MaxLineLength rule not registered")
+	}
+	if !rule.ExcludePackageStatements {
+		t.Fatal("expected package statements to be excluded by default")
+	}
+	if !rule.ExcludeImportStatements {
+		t.Fatal("expected import statements to be excluded by default")
+	}
+	if !rule.ExcludeRawStrings {
+		t.Fatal("expected raw strings to be excluded by default")
+	}
+	defaults := map[string]interface{}{}
+	for _, opt := range meta.Options {
+		defaults[opt.Name] = opt.Default
+	}
+	for _, name := range []string{"excludePackageStatements", "excludeImportStatements", "excludeRawStrings"} {
+		if defaults[name] != true {
+			t.Fatalf("expected %s metadata default true, got %v", name, defaults[name])
+		}
 	}
 }
 

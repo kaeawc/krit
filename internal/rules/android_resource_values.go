@@ -907,7 +907,17 @@ func (r *StringFormatTrivialResourceRule) check(ctx *v2.Context) {
 	for name, val := range idx.Strings {
 		count := countFormatSpecifiers(val)
 		if count == 1 && strings.Contains(val, "%s") {
-			ctx.Emit(resourceFinding("res/values/strings.xml", 0, r.BaseRule,
+			filePath := "res/values/strings.xml"
+			line := 0
+			if loc, ok := idx.StringsLocation[name]; ok {
+				if loc.FilePath != "" {
+					filePath = loc.FilePath
+				}
+				if loc.Line > 0 {
+					line = loc.Line
+				}
+			}
+			ctx.Emit(resourceFinding(filePath, line, r.BaseRule,
 				fmt.Sprintf("String `%s` uses a single `%%s` format specifier. "+
 					"Consider using string concatenation instead of `String.format`.", name)))
 		}

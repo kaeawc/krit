@@ -2218,6 +2218,32 @@ func TestStringFormatTrivialResource(t *testing.T) {
 		}
 	})
 
+	t.Run("single %s uses parsed source location", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		valuesDir := filepath.Join(resDir, "values")
+		if err := os.MkdirAll(valuesDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s): %v", valuesDir, err)
+		}
+		stringsPath := filepath.Join(valuesDir, "strings.xml")
+		if err := os.WriteFile(stringsPath, []byte("<resources>\n    <string name=\"greeting\">Hello, %s!</string>\n</resources>\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s): %v", stringsPath, err)
+		}
+		idx, err := android.ScanResourceDir(resDir)
+		if err != nil {
+			t.Fatalf("ScanResourceDir(%s): %v", resDir, err)
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].File != stringsPath {
+			t.Fatalf("expected finding file %q, got %q", stringsPath, findings[0].File)
+		}
+		if findings[0].Line != 2 {
+			t.Fatalf("expected finding line 2, got %d", findings[0].Line)
+		}
+	})
+
 	t.Run("multiple specifiers is clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["greeting"] = "Hello, %s! You have %d messages."

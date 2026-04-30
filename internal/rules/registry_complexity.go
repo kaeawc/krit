@@ -225,6 +225,9 @@ func registerComplexityRules() {
 						if strings.Contains(file.FlatNodeText(p.idx), "->") {
 							continue
 						}
+						if paramHasIgnoredAnnotationFlat(file, p.idx, r.IgnoreAnnotatedParameter) {
+							continue
+						}
 						params++
 						if params > limit {
 							name := summary.name
@@ -264,6 +267,9 @@ func registerComplexityRules() {
 							continue
 						}
 						if p.isFunctionType {
+							continue
+						}
+						if paramHasIgnoredAnnotationFlat(file, p.idx, r.IgnoreAnnotatedParameter) {
 							continue
 						}
 						params++

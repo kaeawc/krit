@@ -1337,6 +1337,59 @@ fun Screen() {
 	}
 }
 
+func TestComposeSideEffectInComposition_Negative_ClickableCallback(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun Screen() {
+    var sectionRevealed = false
+    Content(
+        modifier = Modifier.clickable {
+            sectionRevealed = !sectionRevealed
+        }
+    )
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for clickable callback assignment, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_WhenBranchLocalInitialization(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+sealed interface UiState
+object NoTasksAssigned : UiState
+object TasksAssigned : UiState
+
+@Composable
+fun Screen(state: UiState) {
+    val title: TextResource
+    val message: TextResource
+    when (state) {
+        NoTasksAssigned -> {
+            title = TextResource.string("No tasks")
+            message = TextResource.string("Done")
+        }
+        TasksAssigned -> {
+            title = TextResource.string("Tasks")
+            message = TextResource.string("Open")
+        }
+    }
+    Content(title, message)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for local initialization inside when branches, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestComposeSideEffectInComposition_Negative_LocalTypedEventSink(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test
@@ -1505,7 +1558,7 @@ fun Row(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
 	}
 }
 
-func TestComposeSideEffectInComposition_Positive_LocalLayoutLookalike(t *testing.T) {
+func TestComposeSideEffectInComposition_Negative_LocalLayoutLookalikeCallback(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test
 import androidx.compose.runtime.Composable
@@ -1521,12 +1574,12 @@ fun Screen(vm: VM) {
     }
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected finding for local Layout lookalike without Compose layout import, got %d: %v", len(findings), findings)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for assignments inside local callback lookalike, got %d: %v", len(findings), findings)
 	}
 }
 
-func TestComposeSideEffectInComposition_Positive_PlaceWithLayerLookalike(t *testing.T) {
+func TestComposeSideEffectInComposition_Negative_PlaceWithLayerLookalikeCallback(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test
 import androidx.compose.runtime.Composable
@@ -1538,12 +1591,12 @@ fun Screen(vm: VM, placeable: FakePlaceable) {
     }
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected finding for placeWithLayer lookalike without Compose layout evidence, got %d: %v", len(findings), findings)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for assignments inside local placeWithLayer callback lookalike, got %d: %v", len(findings), findings)
 	}
 }
 
-func TestComposeSideEffectInComposition_Positive_NamedContentLambda(t *testing.T) {
+func TestComposeSideEffectInComposition_Negative_NamedContentLambda(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test
 import androidx.compose.runtime.Composable
@@ -1555,12 +1608,12 @@ fun Screen(vm: VM) {
     })
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected finding for composition content lambda assignment, got %d: %v", len(findings), findings)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for composition content lambda assignment, got %d: %v", len(findings), findings)
 	}
 }
 
-func TestComposeSideEffectInComposition_Positive_LocalGraphicsLayerLookalike(t *testing.T) {
+func TestComposeSideEffectInComposition_Negative_LocalGraphicsLayerLookalikeCallback(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test
 import androidx.compose.runtime.Composable
@@ -1576,8 +1629,8 @@ fun Screen(vm: VM) {
     }
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected finding for local graphicsLayer lookalike, got %d: %v", len(findings), findings)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for assignments inside local graphicsLayer callback lookalike, got %d: %v", len(findings), findings)
 	}
 }
 

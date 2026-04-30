@@ -1031,6 +1031,27 @@ func composeAssignmentSynchronizesRememberedObject(file *scanner.File, assignmen
 		strings.Contains(prefix, "var "+receiver+" = remember(")
 }
 
+func composeAssignmentIsDirectFunctionBodyStatement(file *scanner.File, assignment uint32, fn uint32) bool {
+	parent, ok := file.FlatParent(assignment)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(parent) {
+	case "function_body":
+		return flatNodeHasDirectParent(file, parent, fn)
+	case "statements":
+		body, ok := file.FlatParent(parent)
+		return ok && file.FlatType(body) == "function_body" && flatNodeHasDirectParent(file, body, fn)
+	default:
+		return false
+	}
+}
+
+func flatNodeHasDirectParent(file *scanner.File, node uint32, parent uint32) bool {
+	actual, ok := file.FlatParent(node)
+	return ok && actual == parent
+}
+
 func composeSideEffectAllowedLambdaBoundary(file *scanner.File, lambdaIdx uint32, root uint32) bool {
 	if composeLambdaIsNamedEventCallback(file, lambdaIdx, root) {
 		return true

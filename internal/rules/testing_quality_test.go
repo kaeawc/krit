@@ -560,6 +560,34 @@ class RunBlockingInRunOnIdleNegative {
 	}
 }
 
+func TestRunBlockingInTest_NegativeDispatcherThreadIdentity(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", `
+package test
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import org.junit.Test
+
+class RunBlockingDispatcherThreadNegative {
+    @Test
+    fun preservesThreadIdentityAcrossDispatcherSwitch() {
+        runBlocking {
+            val original = Thread.currentThread()
+            val switched = withContext(Dispatchers.Default) {
+                Thread.currentThread()
+            }
+
+            assert(original !== switched)
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for dispatcher/thread identity test, got %d", len(findings))
+	}
+}
+
 func TestTestWithoutAssertion_Positive(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test

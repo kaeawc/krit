@@ -1080,6 +1080,51 @@ func testingQualityInsideAssertionOrCallbackBoundary(file *scanner.File, idx uin
 	return false
 }
 
+func testingQualityRunBlockingTestsDispatcherThreadIdentity(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "call_expression" {
+		return false
+	}
+	var hasWithContext bool
+	var hasThreadCurrentThread bool
+	file.FlatWalkAllNodes(idx, func(n uint32) {
+		if hasWithContext && hasThreadCurrentThread {
+			return
+		}
+		if file.FlatType(n) != "call_expression" {
+			return
+		}
+		switch flatCallNameAny(file, n) {
+		case "withContext":
+			hasWithContext = true
+		case "currentThread":
+			if testingQualityCallReceiverContains(file, n, "Thread") {
+				hasThreadCurrentThread = true
+			}
+		}
+	})
+	return hasWithContext && hasThreadCurrentThread
+}
+
+func testingQualityCallReceiverContains(file *scanner.File, call uint32, name string) bool {
+	if file == nil || call == 0 || name == "" {
+		return false
+	}
+	nav, _ := flatCallExpressionParts(file, call)
+	if nav == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(nav, func(n uint32) {
+		if found {
+			return
+		}
+		if file.FlatType(n) == "simple_identifier" && file.FlatNodeTextEquals(n, name) {
+			found = true
+		}
+	})
+	return found
+}
+
 func testingQualityIsBenchmarkOrGoldenFile(file *scanner.File) bool {
 	if file == nil {
 		return false

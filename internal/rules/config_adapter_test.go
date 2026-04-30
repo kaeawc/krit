@@ -5,11 +5,11 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/config"
-	"github.com/kaeawc/krit/internal/rules/registry"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // TestConfigAdapter_HasKey covers the core presence-vs-absence contract that
-// registry.ApplyConfig relies on.
+// v2.ApplyConfig relies on.
 func TestConfigAdapter_HasKey(t *testing.T) {
 	cfg := config.NewConfig()
 	cfg.Set("complexity", "LongMethod", "threshold", 80)
@@ -137,7 +137,7 @@ func TestConfigAdapter_IsRuleSetActive(t *testing.T) {
 	}
 }
 
-// TestConfigAdapter_AliasFallback exercises registry.ApplyConfig's primary-
+// TestConfigAdapter_AliasFallback exercises v2.ApplyConfig's primary-
 // wins-over-alias behavior via the adapter: when both `allowedLines` and
 // `threshold` are set, the primary key wins.
 func TestConfigAdapter_AliasFallback(t *testing.T) {
@@ -147,22 +147,22 @@ func TestConfigAdapter_AliasFallback(t *testing.T) {
 	rule := &LongMethodRule{AllowedLines: 60}
 	adapter := NewConfigAdapter(cfg)
 
-	// Build a minimal descriptor so we can verify registry.ApplyConfig's
+	// Build a minimal descriptor so we can verify v2.ApplyConfig's
 	// probe order independently.
-	desc := registry.RuleDescriptor{
+	desc := v2.RuleDescriptor{
 		ID:      "LongMethod",
 		RuleSet: "complexity",
-		Options: []registry.ConfigOption{{
+		Options: []v2.ConfigOption{{
 			Name:    "allowedLines",
 			Aliases: []string{"threshold"},
-			Type:    registry.OptInt,
+			Type:    v2.OptInt,
 			Default: 60,
 			Apply: func(target interface{}, value interface{}) {
 				target.(*LongMethodRule).AllowedLines = value.(int)
 			},
 		}},
 	}
-	registry.ApplyConfig(rule, desc, adapter)
+	v2.ApplyConfig(rule, desc, adapter)
 	if rule.AllowedLines != 40 {
 		t.Errorf("alias-only: AllowedLines = %d, want 40", rule.AllowedLines)
 	}
@@ -172,7 +172,7 @@ func TestConfigAdapter_AliasFallback(t *testing.T) {
 	cfg2.Set("complexity", "LongMethod", "allowedLines", 100)
 	cfg2.Set("complexity", "LongMethod", "threshold", 40)
 	rule2 := &LongMethodRule{AllowedLines: 60}
-	registry.ApplyConfig(rule2, desc, NewConfigAdapter(cfg2))
+	v2.ApplyConfig(rule2, desc, NewConfigAdapter(cfg2))
 	if rule2.AllowedLines != 100 {
 		t.Errorf("primary-wins: AllowedLines = %d, want 100 (primary must win over alias)", rule2.AllowedLines)
 	}

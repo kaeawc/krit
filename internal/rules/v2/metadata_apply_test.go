@@ -1,4 +1,4 @@
-package registry
+package v2
 
 import (
 	"regexp"

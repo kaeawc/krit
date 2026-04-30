@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/config"
-	"github.com/kaeawc/krit/internal/rules/registry"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
@@ -103,7 +102,7 @@ func TestConfigParity_AliasRegistrations(t *testing.T) {
 	foundAliases := map[string]string{}
 	for _, r := range v2.Registry {
 		concrete := r.Implementation
-		mp, ok := concrete.(registry.MetaProvider)
+		mp, ok := concrete.(v2.MetaProvider)
 		if !ok {
 			continue
 		}
@@ -144,7 +143,7 @@ type describedRule struct {
 	name string
 
 	// meta is the descriptor (cached to avoid repeated Meta() calls).
-	meta registry.RuleDescriptor
+	meta v2.RuleDescriptor
 
 	// template is the rule pointer from the Registry. Used as the source
 	// for cloning fresh instances per test case.
@@ -152,7 +151,7 @@ type describedRule struct {
 }
 
 // collectAppliedRules walks the global Registry and returns one entry per
-// rule that implements registry.MetaProvider AND whose Meta().ID matches
+// rule that implements v2.MetaProvider AND whose Meta().ID matches
 // the registered Name(). Alias-only registrations are excluded — they
 // cannot be exercised through the registry path.
 func collectAppliedRules(t *testing.T) []describedRule {
@@ -162,7 +161,7 @@ func collectAppliedRules(t *testing.T) []describedRule {
 	for _, r := range v2.Registry {
 		name := r.ID
 		concrete := r.Implementation
-		mp, ok := concrete.(registry.MetaProvider)
+		mp, ok := concrete.(v2.MetaProvider)
 		if !ok {
 			continue
 		}
@@ -289,7 +288,7 @@ func runParityMatrix(t *testing.T, m describedRule) parityResult {
 	// When the rule has options, the ruleset-disable case also populates
 	// option overrides so we prove the short-circuit prevents option
 	// application. We use the first option with a supported Apply.
-	var firstSupportedOption *registry.ConfigOption
+	var firstSupportedOption *v2.ConfigOption
 	for i := range m.meta.Options {
 		if m.meta.Options[i].Apply != nil {
 			firstSupportedOption = &m.meta.Options[i]
@@ -384,15 +383,15 @@ type caseBuilder struct {
 
 type caseEntry struct {
 	key   string
-	otype registry.OptionType
+	otype v2.OptionType
 	value interface{}
 }
 
-func (b *caseBuilder) setOption(opt *registry.ConfigOption, value interface{}) {
+func (b *caseBuilder) setOption(opt *v2.ConfigOption, value interface{}) {
 	b.entries = append(b.entries, caseEntry{key: opt.Name, otype: opt.Type, value: value})
 }
 
-func (b *caseBuilder) setRawValue(key string, otype registry.OptionType, value interface{}) {
+func (b *caseBuilder) setRawValue(key string, otype v2.OptionType, value interface{}) {
 	b.entries = append(b.entries, caseEntry{key: key, otype: otype, value: value})
 }
 
@@ -401,7 +400,7 @@ func boolP(b bool) *bool { return &b }
 // aliasSupportsValueRead returns true when the alias can legitimately be
 // probed for this option type through the config adapter *config.Config path. All
 // current option types support it.
-func aliasSupportsValueRead(opt registry.ConfigOption) bool {
+func aliasSupportsValueRead(opt v2.ConfigOption) bool {
 	return true
 }
 
@@ -424,7 +423,7 @@ func runParityCase(m describedRule, tc parityCase) []string {
 	// --- registry path ---------------------------------------------
 	registryRule := cloneRule(m.template)
 	registryCfg := buildRegistryConfigFromBuilder(m, b)
-	registryActive := registry.ApplyConfig(registryRule, m.meta, registryCfg)
+	registryActive := v2.ApplyConfig(registryRule, m.meta, registryCfg)
 
 	// --- compare ----------------------------------------------------
 	var mismatches []string
@@ -462,8 +461,8 @@ func buildConfigFromBuilder(m describedRule, b *caseBuilder) *config.Config {
 
 // buildRegistryConfigFromBuilder constructs the registry-side
 // FakeConfigSource from the same builder.
-func buildRegistryConfigFromBuilder(m describedRule, b *caseBuilder) *registry.FakeConfigSource {
-	cfg := registry.NewFakeConfigSource()
+func buildRegistryConfigFromBuilder(m describedRule, b *caseBuilder) *v2.FakeConfigSource {
+	cfg := v2.NewFakeConfigSource()
 	if b.ruleSetActive != nil {
 		cfg.SetRuleSetActive(m.meta.RuleSet, *b.ruleSetActive)
 	}
@@ -484,7 +483,7 @@ func buildRegistryConfigFromBuilder(m describedRule, b *caseBuilder) *registry.F
 // so both sides interpret the same raw value.
 func configValue(e caseEntry) interface{} {
 	switch e.otype {
-	case registry.OptStringList:
+	case v2.OptStringList:
 		// *config.Config.Set stores whatever we hand it and GetStringList
 		// copes with []string or []interface{}. Store []interface{} to
 		// exercise the same path a YAML decoder would.
@@ -510,19 +509,19 @@ func registryValue(e caseEntry) interface{} {
 // nonDefaultValue returns a value of the appropriate Go type that differs
 // from opt.Default. The helper picks deterministic values so test output
 // is stable.
-func nonDefaultValue(opt registry.ConfigOption) interface{} {
+func nonDefaultValue(opt v2.ConfigOption) interface{} {
 	switch opt.Type {
-	case registry.OptInt:
+	case v2.OptInt:
 		d, _ := opt.Default.(int)
 		return d + 7
-	case registry.OptBool:
+	case v2.OptBool:
 		d, _ := opt.Default.(bool)
 		return !d
-	case registry.OptString:
+	case v2.OptString:
 		return "non-default-value"
-	case registry.OptStringList:
+	case v2.OptStringList:
 		return []string{"parity-a", "parity-b"}
-	case registry.OptRegex:
+	case v2.OptRegex:
 		// Any valid pattern that isn't the rule's default. Keep it
 		// simple so CompileAnchoredPattern doesn't reject it.
 		return "parityPattern[0-9]+"
@@ -534,19 +533,19 @@ func nonDefaultValue(opt registry.ConfigOption) interface{} {
 // by the "primary wins over alias" case. The config adapter and descriptor paths
 // must both pick the primary value, so we give the alias a different
 // payload to make that observable.
-func secondNonDefaultValue(opt registry.ConfigOption) interface{} {
+func secondNonDefaultValue(opt v2.ConfigOption) interface{} {
 	switch opt.Type {
-	case registry.OptInt:
+	case v2.OptInt:
 		d, _ := opt.Default.(int)
 		return d + 13
-	case registry.OptBool:
+	case v2.OptBool:
 		d, _ := opt.Default.(bool)
 		return d
-	case registry.OptString:
+	case v2.OptString:
 		return "alias-value"
-	case registry.OptStringList:
+	case v2.OptStringList:
 		return []string{"alias-x"}
-	case registry.OptRegex:
+	case v2.OptRegex:
 		return "aliasPattern[A-Z]+"
 	}
 	return nil
@@ -597,7 +596,7 @@ func regexpString(v reflect.Value) string {
 
 // --- config adapter path invocation --------------------------------------------
 
-// applyConfigAdapterSingleRule invokes registry.ApplyConfig through the
+// applyConfigAdapterSingleRule invokes v2.ApplyConfig through the
 // production config adapter.
 //
 // The DefaultInactive bookkeeping mirrors rules.ApplyConfig exactly so
@@ -608,7 +607,7 @@ func regexpString(v reflect.Value) string {
 func applyConfigAdapterSingleRule(rule interface{}, m describedRule, cfg *config.Config) bool {
 	ruleName := m.meta.ID
 	adapter := NewConfigAdapter(cfg)
-	active := registry.ApplyConfig(rule, m.meta, adapter)
+	active := v2.ApplyConfig(rule, m.meta, adapter)
 	if active {
 		delete(DefaultInactive, ruleName)
 	} else {

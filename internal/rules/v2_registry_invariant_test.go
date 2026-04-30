@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kaeawc/krit/internal/rules/registry"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
@@ -149,7 +148,7 @@ func registryHasNoDuplicateIDs() bool {
 func TestV2RegistryAliasSetIsExplicit(t *testing.T) {
 	got := map[string]string{}
 	for _, r := range v2.Registry {
-		mp, ok := r.Implementation.(registry.MetaProvider)
+		mp, ok := r.Implementation.(v2.MetaProvider)
 		if !ok {
 			continue
 		}

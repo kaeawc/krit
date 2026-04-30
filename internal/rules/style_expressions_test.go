@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
-	"github.com/kaeawc/krit/internal/rules/registry"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -503,7 +502,7 @@ fun process(items: List<Int>) {
 
 func TestLoopWithTooManyJumpStatementsDefaultsMatchDetekt(t *testing.T) {
 	var rule *rules.LoopWithTooManyJumpStatementsRule
-	var meta registry.RuleDescriptor
+	var meta v2rules.RuleDescriptor
 	for _, candidate := range v2rules.Registry {
 		if candidate.ID != "LoopWithTooManyJumpStatements" {
 			continue
@@ -513,7 +512,7 @@ func TestLoopWithTooManyJumpStatementsDefaultsMatchDetekt(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected LoopWithTooManyJumpStatementsRule, got %T", candidate.Implementation)
 		}
-		metaProvider, ok := candidate.Implementation.(registry.MetaProvider)
+		metaProvider, ok := candidate.Implementation.(v2rules.MetaProvider)
 		if !ok {
 			t.Fatal("expected LoopWithTooManyJumpStatementsRule to provide metadata")
 		}

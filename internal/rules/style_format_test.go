@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
-	"github.com/kaeawc/krit/internal/rules/registry"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 )
 
@@ -92,7 +91,7 @@ class Example {}
 
 func TestMaxLineLengthDefaultsMatchDetekt(t *testing.T) {
 	var rule *rules.MaxLineLengthRule
-	var meta registry.RuleDescriptor
+	var meta v2rules.RuleDescriptor
 	for _, candidate := range v2rules.Registry {
 		if candidate.ID != "MaxLineLength" {
 			continue
@@ -102,7 +101,7 @@ func TestMaxLineLengthDefaultsMatchDetekt(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected MaxLineLengthRule, got %T", candidate.Implementation)
 		}
-		metaProvider, ok := candidate.Implementation.(registry.MetaProvider)
+		metaProvider, ok := candidate.Implementation.(v2rules.MetaProvider)
 		if !ok {
 			t.Fatalf("expected MaxLineLengthRule to provide metadata")
 		}
@@ -294,7 +293,7 @@ class Example {
 
 func TestUnderscoresInNumericLiteralsDefaultsMatchDetekt(t *testing.T) {
 	var rule *rules.UnderscoresInNumericLiteralsRule
-	var meta registry.RuleDescriptor
+	var meta v2rules.RuleDescriptor
 	for _, candidate := range v2rules.Registry {
 		if candidate.ID != "UnderscoresInNumericLiterals" {
 			continue
@@ -304,7 +303,7 @@ func TestUnderscoresInNumericLiteralsDefaultsMatchDetekt(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected UnderscoresInNumericLiteralsRule, got %T", candidate.Implementation)
 		}
-		metaProvider, ok := candidate.Implementation.(registry.MetaProvider)
+		metaProvider, ok := candidate.Implementation.(v2rules.MetaProvider)
 		if !ok {
 			t.Fatal("expected UnderscoresInNumericLiteralsRule to provide metadata")
 		}

@@ -1,7 +1,7 @@
-package registry
+package v2
 
 // FakeConfigSource is an in-memory ConfigSource for tests. It is also a
-// useful starting point for rule authors experimenting with the registry
+// useful starting point for rule authors experimenting with the v2 metadata
 // runtime — it has no YAML dependency.
 //
 // The three-level Values map is keyed as Values[ruleSet][rule][key] so

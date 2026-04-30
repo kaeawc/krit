@@ -32,18 +32,25 @@ func registerStyleExpressionsRules() {
 				inner := strings.TrimPrefix(bodyText, "{")
 				inner = strings.TrimSuffix(inner, "}")
 				inner = strings.TrimSpace(inner)
-				if strings.HasPrefix(inner, "return ") && !strings.Contains(inner, "\n") {
-					f := r.Finding(file, file.FlatRow(idx)+1, 1,
-						"Function body can be written as expression body syntax.")
-					expr := strings.TrimPrefix(inner, "return ")
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(body)),
-						EndByte:     int(file.FlatEndByte(body)),
-						Replacement: "= " + expr,
-					}
-					ctx.Emit(f)
+				if !strings.HasPrefix(inner, "return ") {
+					return
 				}
+				// Single-line `return X` is always eligible. Multi-line bodies
+				// (e.g. `return foo()\n  .bar()`) are only eligible when
+				// IncludeLineWrapping is true — matches detekt's option.
+				if strings.Contains(inner, "\n") && !r.IncludeLineWrapping {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"Function body can be written as expression body syntax.")
+				expr := strings.TrimPrefix(inner, "return ")
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(body)),
+					EndByte:     int(file.FlatEndByte(body)),
+					Replacement: "= " + expr,
+				}
+				ctx.Emit(f)
 			},
 		})
 	}

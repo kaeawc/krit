@@ -36,6 +36,60 @@ fun double(x: Int): Int = x * 2
 	}
 }
 
+func TestExpressionBodySyntax_HonorsIncludeLineWrapping(t *testing.T) {
+	// IncludeLineWrapping was previously a dead config — exposed in
+	// zz_meta but never consulted. Configure it via the rule pointer
+	// and verify multi-line single-return bodies are flagged only when
+	// the option is on.
+	var rule *rules.ExpressionBodySyntaxRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "ExpressionBodySyntax" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.ExpressionBodySyntaxRule)
+			if !ok {
+				t.Fatalf("expected ExpressionBodySyntaxRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("ExpressionBodySyntax rule not registered")
+	}
+	original := rule.IncludeLineWrapping
+	defer func() { rule.IncludeLineWrapping = original }()
+
+	multiLineCode := `package test
+fun render(name: String): String {
+    return name
+        .trim()
+        .lowercase()
+}
+`
+	// Default (false): multi-line return body NOT flagged.
+	if findings := runRuleByName(t, "ExpressionBodySyntax", multiLineCode); len(findings) != 0 {
+		t.Fatalf("expected no findings for multi-line body under IncludeLineWrapping=false, got %d", len(findings))
+	}
+
+	rule.IncludeLineWrapping = true
+
+	// IncludeLineWrapping=true: same multi-line body is flagged.
+	if findings := runRuleByName(t, "ExpressionBodySyntax", multiLineCode); len(findings) == 0 {
+		t.Fatal("expected finding for multi-line body when IncludeLineWrapping=true")
+	}
+
+	// A non-return-only multi-line body still doesn't fire — IncludeLineWrapping
+	// only affects the single-return-statement case.
+	multiStatement := `package test
+fun work() {
+    println("a")
+    println("b")
+}
+`
+	if findings := runRuleByName(t, "ExpressionBodySyntax", multiStatement); len(findings) != 0 {
+		t.Fatalf("expected no findings for multi-statement body even with IncludeLineWrapping=true, got %d", len(findings))
+	}
+}
+
 func TestExpressionBodySyntax_IgnoresTestSources(t *testing.T) {
 	findings := runRuleByNameOnPath(t, "ExpressionBodySyntax", "src/androidTest/kotlin/TestRunner.kt", `
 package test

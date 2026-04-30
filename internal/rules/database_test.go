@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -778,6 +779,97 @@ class NotAMigration {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings outside Migration class, got %v", findings)
+	}
+}
+
+func TestRoomFallbackToDestructiveMigration_Positive(t *testing.T) {
+	findings := runRuleByName(t, "RoomFallbackToDestructiveMigration", `
+package test
+
+import androidx.room.Room
+
+class Context
+class AppDb
+
+fun open(context: Context): AppDb =
+    Room.databaseBuilder(context, AppDb::class.java, "app.db")
+        .fallbackToDestructiveMigration()
+        .build()
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for fallbackToDestructiveMigration, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRoomFallbackToDestructiveMigration_NegativeBuildConfigGuard(t *testing.T) {
+	findings := runRuleByName(t, "RoomFallbackToDestructiveMigration", `
+package test
+
+import androidx.room.Room
+
+class Context
+class AppDb
+
+object BuildConfig { const val DEBUG = true }
+
+fun open(context: Context): AppDb {
+    val builder = Room.databaseBuilder(context, AppDb::class.java, "app.db")
+    if (BuildConfig.DEBUG) {
+        builder.fallbackToDestructiveMigration()
+    }
+    return builder.build()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings inside BuildConfig.DEBUG guard, got %v", findings)
+	}
+}
+
+func TestRoomFallbackToDestructiveMigration_NegativeNoRoomImport(t *testing.T) {
+	findings := runRuleByName(t, "RoomFallbackToDestructiveMigration", `
+package test
+
+class Builder { fun fallbackToDestructiveMigration(): Builder = this }
+
+fun open(): Builder = Builder().fallbackToDestructiveMigration()
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings without androidx.room import, got %v", findings)
+	}
+}
+
+func TestRoomFallbackToDestructiveMigration_NegativeDebugSourceSet(t *testing.T) {
+	src := `package test
+
+import androidx.room.Room
+
+class Context
+class AppDb
+
+fun open(context: Context): AppDb =
+    Room.databaseBuilder(context, AppDb::class.java, "app.db")
+        .fallbackToDestructiveMigration()
+        .build()
+`
+	dir := filepath.Join(t.TempDir(), "src", "debug")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "Db.kt")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseFile(path)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	rule := buildRuleIndex()["RoomFallbackToDestructiveMigration"]
+	if rule == nil {
+		t.Fatal("rule not registered")
+	}
+	findings := runRule(t, rule, file)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for debug source set, got %v", findings)
 	}
 }
 

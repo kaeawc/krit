@@ -235,6 +235,33 @@ func registerDatabaseRules() {
 		})
 	}
 	{
+		r := &RoomFallbackToDestructiveMigrationRule{BaseRule: BaseRule{RuleName: "RoomFallbackToDestructiveMigration", RuleSetName: "database", Sev: "warning", Desc: "Detects Room database builders calling fallbackToDestructiveMigration outside debug source sets; silent data loss on schema version bump."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: r.Confidence(), Implementation: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				name := databaseCallName(file, idx)
+				if name != "fallbackToDestructiveMigration" &&
+					name != "fallbackToDestructiveMigrationFrom" &&
+					name != "fallbackToDestructiveMigrationOnDowngrade" {
+					return
+				}
+				if !sourceImportsOrMentions(file, "androidx.room") {
+					return
+				}
+				if isDebugSourceFile(file.Path) {
+					return
+				}
+				if enclosedInBuildConfigDebugGuard(file, idx) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("Room.%s() drops all user data on a schema version bump; provide a Migration or restrict the call to debug builds.", name))
+			},
+		})
+	}
+	{
 		r := &RoomEntityChangedMigrationMissingRule{BaseRule: BaseRule{RuleName: "RoomEntityChangedMigrationMissing", RuleSetName: "database", Sev: "warning", Desc: "Detects @Entity columns whose names do not appear in any Room Migration(M, N) declaration in the project."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

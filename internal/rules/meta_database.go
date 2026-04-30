@@ -186,6 +186,18 @@ func (r *RoomMigrationUsesExecSqlWithInterpolationRule) Meta() v2.RuleDescriptor
 	}
 }
 
+func (r *RoomFallbackToDestructiveMigrationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "RoomFallbackToDestructiveMigration",
+		RuleSet:       "database",
+		Severity:      "warning",
+		Description:   "Detects Room database builders calling fallbackToDestructiveMigration outside debug source sets; silent data loss on schema version bump.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.85,
+	}
+}
+
 func (r *JdbcPreparedStatementNotClosedRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "JdbcPreparedStatementNotClosed",

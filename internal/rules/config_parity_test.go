@@ -120,7 +120,7 @@ func TestConfigParity_AliasRegistrations(t *testing.T) {
 	// Now run the local v2 registry helper and verify each alias is flagged
 	// Applied=false.
 	results := applyConfigViaV2Registry(config.NewConfig())
-	byName := make(map[string]v2RegistryApplyResult, len(results))
+	byName := make(map[string]v2ConfigApplyResult, len(results))
 	for _, r := range results {
 		byName[r.Name] = r
 	}
@@ -136,9 +136,9 @@ func TestConfigParity_AliasRegistrations(t *testing.T) {
 	}
 }
 
-// v2RegistryApplyResult is the local parity-test result for applying config
+// v2ConfigApplyResult is the local parity-test result for applying config
 // through checked-in Meta() descriptors.
-type v2RegistryApplyResult struct {
+type v2ConfigApplyResult struct {
 	// Name is the registered rule name.
 	Name string
 
@@ -155,9 +155,9 @@ type v2RegistryApplyResult struct {
 	Active bool
 }
 
-func applyConfigViaV2Registry(cfg *config.Config) []v2RegistryApplyResult {
+func applyConfigViaV2Registry(cfg *config.Config) []v2ConfigApplyResult {
 	adapter := NewConfigAdapter(cfg)
-	results := make([]v2RegistryApplyResult, 0, len(v2.Registry))
+	results := make([]v2ConfigApplyResult, 0, len(v2.Registry))
 
 	for _, r := range v2.Registry {
 		name := r.ID
@@ -165,13 +165,13 @@ func applyConfigViaV2Registry(cfg *config.Config) []v2RegistryApplyResult {
 
 		mp, ok := concrete.(v2.MetaProvider)
 		if !ok {
-			results = append(results, v2RegistryApplyResult{Name: name, Applied: false})
+			results = append(results, v2ConfigApplyResult{Name: name, Applied: false})
 			continue
 		}
 
 		meta := mp.Meta()
 		if meta.ID != name {
-			results = append(results, v2RegistryApplyResult{
+			results = append(results, v2ConfigApplyResult{
 				Name:    name,
 				MetaID:  meta.ID,
 				Applied: false,
@@ -180,7 +180,7 @@ func applyConfigViaV2Registry(cfg *config.Config) []v2RegistryApplyResult {
 		}
 
 		active := v2.ApplyConfig(concrete, meta, adapter)
-		results = append(results, v2RegistryApplyResult{
+		results = append(results, v2ConfigApplyResult{
 			Name:    name,
 			MetaID:  meta.ID,
 			Applied: true,

@@ -21,7 +21,7 @@ The shipped architecture is:
   descriptor index used by defaults, config, schema, and invariant tests.
 - `internal/rules/registry_*.go` files register executable v2 rules with
   `v2.Register`.
-- The old `internal/rules/registry` compatibility package has been deleted.
+- The previous metadata compatibility package has been deleted.
 
 Descriptors intentionally remain in the `rules` package because Go methods must
 be declared in the same package as their receiver type. Runtime ownership still
@@ -63,7 +63,7 @@ keeps schema and config application tied to the same checked-in metadata.
 | Config loading uses descriptors | ✅ | `rules.ApplyConfig` uses `MetaForV2Rule` and `v2.ApplyConfig`. |
 | Defaults come from descriptors | ✅ | `DefaultInactive` is lazily initialized from `AllMetaProviders()`. |
 | Schema generation uses descriptors | ✅ | `internal/schema` reads `v2.RuleDescriptor` values. |
-| Compatibility registry package removed | ✅ | No `internal/rules/registry` package or imports remain. |
+| Metadata compatibility package removed | ✅ | No compatibility package or imports remain. |
 | Test-only migration harness removed from production | ✅ | Config parity helpers live only in `config_parity_test.go`. |
 | Generated files have freshness coverage | ✅ | CI verifies generated metadata and registry files. |
 

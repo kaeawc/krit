@@ -14,7 +14,16 @@ class TestWithoutAssertionPositive {
         expectError<IllegalStateException> { parse("") }
     }
 
+    @Test
+    fun uncheckedLookalike() {
+        uncheckedTemplateFormat()
+    }
+
     private fun <T : Throwable> expectError(block: () -> Unit) {
         block()
+    }
+
+    private fun uncheckedTemplateFormat() {
+        println("not a check helper")
     }
 }

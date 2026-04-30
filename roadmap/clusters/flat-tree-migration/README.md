@@ -177,7 +177,7 @@ move.
 | `api.go` | 0 | ✅ Fully flat-native. Node-era public compat shims (`ResolveNode`, `ResolveByName`, `IsNullable`, `AnnotationValue`) and `flatIndexForNode` byte-range bridge deleted 2026-04-14 in the same pass that migrated ~60 test callsites across 10 test files to `ResolveFlatNode` / `ResolveByNameFlat` / `IsNullableFlat` / `AnnotationValueFlat`. |
 | `fake.go` | 0 | ✅ Fully flat-native. `FakeResolver` node-era methods deleted with the `defaultResolver` ones. |
 
-Plus in `internal/oracle/composite.go`: the `legacyNodeResolver`
+Plus in `internal/oracle/composite.go`: the old node resolver
 interface and the four `CompositeResolver` compat shim methods
 (`ResolveNode`, `ResolveByName`, `IsNullable`, `AnnotationValue`) were
 deleted together. The `fakeTypeResolver` in `oracle_test.go` was
@@ -398,7 +398,7 @@ memory cleanup will register on actual runs.
 - Run `krit --perf` against Signal-Android on current main. Capture
   per-phase timing (`DispatchWalkMs`, `DispatchRuleNs`,
   `SuppressionIndexMs`, `AggregateCollectNs`, `AggregateFinalizeMs`,
-  `LineRuleMs`, `LegacyRuleMs`, `SuppressionFilterMs`). `RunStats`
+  `LineRuleMs`, `SuppressionFilterMs`). `RunStats`
   already tracks all of these.
 - Drop the result in `benchmarks/<today>.md` alongside the existing
   `2026-04-09.md` so the progression is visible.

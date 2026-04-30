@@ -49,9 +49,9 @@ CodegenRegistry ✅
 ## Shipped (4)
 
 - [`unified-rule-interface.md`](unified-rule-interface.md) ✅ —
-  all 634 rules migrated to `v2.Rule`, V2Dispatcher handles all
-  per-file dispatch, 12+ legacy family interfaces deleted, Signal-Android
-  validates byte-identical output
+  rule execution is fully on `v2.Rule`; V2Dispatcher handles per-file
+  dispatch and registry invariants reject duplicate IDs or non-executable
+  registrations
 - [`error-handling-standardization.md`](error-handling-standardization.md) ✅ —
   panics in formatters replaced with errors, structured `DispatchError`
   collection, leveled logging in LSP/MCP

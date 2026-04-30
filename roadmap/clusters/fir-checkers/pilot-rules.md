@@ -97,11 +97,10 @@ when **all** of these hold:
 - The rule's diagnostic appears in the compiler-test data files
   with at least one positive and one negative case
 
-Once a rule is promoted, the Go implementation moves to
-`internal/rules/legacy/` and is marked for deletion on the next
-rule consistency sweep. Do not delete during Track B — wait until
-Track C.1 is shipping and the FIR rule has been running in
-production for at least one release cycle.
+Once a rule is promoted, the Go implementation stays in place until the FIR
+version has run in production for at least one release cycle. After that, remove
+the replaced Go implementation in a focused cleanup PR with fixture parity
+evidence.
 
 ## Definition of done
 

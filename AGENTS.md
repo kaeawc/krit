@@ -5,7 +5,7 @@ Krit is a Go-first static analyzer for Kotlin, Java, and Android projects. It pa
 ## Working Rules
 - Keep core analyzer and rule work in Go. Edit Kotlin/Gradle only for `krit-gradle-plugin/` or `tools/krit-types/`.
 - Use tree-sitter AST/flat nodes for structural analysis; use regex only for line-oriented checks.
-- New rules use the v2 pipeline: implement the local rule struct with the existing bases (`FlatDispatchBase`, `LineBase`, `ManifestBase`, `ResourceBase`, `GradleBase`), expose node types or line/project capabilities through checked-in registry metadata, and never add legacy `Check(file)` walks.
+- New rules use the v2 pipeline: implement the local rule struct with the existing bases (`FlatDispatchBase`, `LineBase`, `ManifestBase`, `ResourceBase`, `GradleBase`), expose node types or line/project capabilities through checked-in registry metadata, and never add standalone `Check(file)` tree walks.
 - Rules that need project context must declare the right capability (`NeedsCrossFile`, `NeedsModuleIndex`, `NeedsParsedFiles`, `NeedsManifest`, `NeedsResources`, `NeedsGradle`, `NeedsTypeInfo`, etc.) so the dispatcher/pipeline can provide indexes, Android data, or type info.
 - New rules require positive and negative fixtures under `tests/fixtures/`; fixable rules also need fixable fixtures.
 - Auto-fixes must be ktfmt-compatible and declare a safety level: `FixCosmetic`, `FixIdiomatic`, or `FixSemantic`.

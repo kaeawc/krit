@@ -1,13 +1,14 @@
 # OnClick
 
-**Cluster:** [android-lint](../README.md) · **Sub-cluster:** source · **Status:** in-progress ·
+**Cluster:** [android-lint](../README.md) · **Sub-cluster:** source · **Status:** shipped ·
 **Severity:** warning · **Default:** active
 
 ## What it catches
 
 Methods referenced by `android:onClick` XML attributes in layout files that either do not exist in the corresponding Activity/Fragment or have the wrong signature. The required signature is `fun methodName(view: View)` (public, single `View` parameter). A mismatch compiles without error but throws a `NoSuchMethodException` at runtime when the button is tapped.
 
-This rule is currently a stub (`Check()` returns nil). It is blocked on the manifest+layout XML scanner being able to extract `android:onClick` attribute values and map them to the source class that inflates the layout.
+Krit implements this by extracting `android:onClick` handler names from layout
+resources and checking source classes that inflate those layouts.
 
 ## Example — triggers
 
@@ -55,9 +56,13 @@ class ProgrammaticActivity : AppCompatActivity() {
 
 ## Implementation notes
 
-- Dispatch: XML attribute (`android:onClick`) + `function_declaration`
-- Infra reuse: `internal/android/` (manifest/layout XML scanner), `internal/rules/android_correctness.go` (stub lives here)
-- Effort: Medium — requires two-phase analysis: (1) extract `android:onClick` method names from layout XML files via the Android XML scanner; (2) cross-reference against public `fun methodName(view: View)` declarations in source files that inflate those layouts; blocked on the XML scanner exposing attribute values to rules
+- Dispatch: resource-indexed `android:onClick` attributes plus
+  `class_declaration` source analysis
+- Infra reuse: `internal/android/`, `internal/rules/android_onclick.go`, and
+  `internal/rules/android_resource_values.go`
+- Coverage: unit tests cover missing handlers, wrong signatures, private
+  handlers, wrong parameter types, valid handlers, and classes that do not
+  inflate the referenced layout
 - Related: `OnClickDetector` (AOSP), manifest+layout XML scanner, `WrongImport`
 
 ## Links

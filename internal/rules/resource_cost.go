@@ -138,6 +138,44 @@ func okHTTPClientConstructionLooksReal(file *scanner.File, idx uint32, name, nod
 	return isDirectConstruction || isBuilderBuild
 }
 
+func bufferedReadJavaFileInputStreamEvidence(file *scanner.File, idx uint32) bool {
+	if !sourceImportsOrMentions(file, "java.io.FileInputStream") {
+		return false
+	}
+	receiverText := javaMethodReceiverText(file, idx)
+	if strings.Contains(receiverText, "BufferedInputStream") {
+		return false
+	}
+	if strings.Contains(receiverText, "FileInputStream") {
+		return true
+	}
+	receiver := databaseCallReceiverName(file, idx)
+	if receiver == "" {
+		return false
+	}
+	fn, ok := flatEnclosingCallable(file, idx)
+	if !ok {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(fn, "local_variable_declaration", func(decl uint32) {
+		if found || file.FlatStartByte(decl) >= file.FlatStartByte(idx) {
+			return
+		}
+		text := file.FlatNodeText(decl)
+		if !strings.Contains(text, receiver) {
+			return
+		}
+		if strings.Contains(text, "BufferedInputStream") {
+			return
+		}
+		if strings.Contains(text, "FileInputStream") {
+			found = true
+		}
+	})
+	return found
+}
+
 func okHTTPClientCreationAssignedToStaticField(file *scanner.File, idx uint32) bool {
 	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
 		switch file.FlatType(current) {
@@ -944,7 +982,7 @@ func databaseCallName(file *scanner.File, call uint32) string {
 		}
 		return flatCallNameAny(file, call)
 	case "method_invocation":
-		return wrongViewCastCallName(file, call)
+		return javaMethodInvocationName(file, call)
 	default:
 		return ""
 	}

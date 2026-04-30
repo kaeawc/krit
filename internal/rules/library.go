@@ -121,7 +121,7 @@ func extractIdentifierFlat(file *scanner.File, idx uint32) string {
 			continue
 		}
 		switch file.FlatType(child) {
-		case "simple_identifier", "type_identifier":
+		case "simple_identifier", "type_identifier", "identifier":
 			return file.FlatNodeString(child, nil)
 		case "variable_declaration":
 			for gc := file.FlatFirstChild(child); gc != 0; gc = file.FlatNextSib(gc) {

@@ -128,15 +128,48 @@ func semanticReferenceTypeName(ctx *v2.Context, node uint32) string {
 
 func classExtendsAnyFlat(file *scanner.File, class uint32, names ...string) bool {
 	for child := file.FlatFirstChild(class); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatType(child) != "delegation_specifier" {
-			continue
-		}
-		typeName := viewConstructorSupertypeNameFlat(file, child)
-		if semanticTypeNameMatches(typeName, names...) {
-			return true
+		switch file.FlatType(child) {
+		case "delegation_specifier":
+			typeName := viewConstructorSupertypeNameFlat(file, child)
+			if semanticTypeNameMatches(typeName, names...) {
+				return true
+			}
+		case "superclass", "super_interfaces":
+			if javaTypeContainerMatchesAny(file, child, names...) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func javaTypeContainerMatchesAny(file *scanner.File, idx uint32, names ...string) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	text := strings.TrimSpace(file.FlatNodeText(idx))
+	for _, name := range names {
+		if semanticTypeNameMatches(text, name) || strings.Contains(text, name) {
+			return true
+		}
+	}
+	found := false
+	file.FlatWalkAllNodes(idx, func(child uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(child) {
+		case "type_identifier", "scoped_type_identifier", "scoped_identifier", "generic_type":
+			typeName := strings.TrimSpace(file.FlatNodeText(child))
+			for _, name := range names {
+				if semanticTypeNameMatches(typeName, name) || strings.Contains(typeName, name) {
+					found = true
+					return
+				}
+			}
+		}
+	})
+	return found
 }
 
 func classHasMemberFunctionFlat(file *scanner.File, class uint32, name string) bool {
@@ -146,6 +179,14 @@ func classHasMemberFunctionFlat(file *scanner.File, class uint32, name string) b
 	}
 	found := false
 	file.FlatWalkNodes(body, "function_declaration", func(fn uint32) {
+		if found {
+			return
+		}
+		if extractIdentifierFlat(file, fn) == name {
+			found = true
+		}
+	})
+	file.FlatWalkNodes(body, "method_declaration", func(fn uint32) {
 		if found {
 			return
 		}
@@ -385,6 +426,14 @@ func subtreeHasCallName(file *scanner.File, root uint32, names ...string) bool {
 			found = true
 		}
 	})
+	file.FlatWalkNodes(root, "method_invocation", func(call uint32) {
+		if found {
+			return
+		}
+		if allowed[databaseCallName(file, call)] {
+			found = true
+		}
+	})
 	return found
 }
 
@@ -422,7 +471,7 @@ func subtreeHasReferenceName(file *scanner.File, root uint32, names ...string) b
 			return
 		}
 		switch file.FlatType(n) {
-		case "simple_identifier", "type_identifier":
+		case "simple_identifier", "type_identifier", "identifier", "scoped_type_identifier":
 			if allowed[file.FlatNodeText(n)] {
 				found = true
 			}

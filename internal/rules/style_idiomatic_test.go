@@ -394,7 +394,7 @@ data class Person(val name: String, val age: Int)
 }
 
 func TestUseDataClass_HonorsAllowVars(t *testing.T) {
-	// AllowVars was previously a dead config — exposed in zz_meta but
+	// AllowVars was previously a dead config — exposed in metadata but
 	// never consulted. The check fired on classes whose primary
 	// constructor used `var` parameters. Default behavior (false,
 	// matching detekt) now skips those classes.

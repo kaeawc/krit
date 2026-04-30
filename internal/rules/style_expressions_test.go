@@ -315,6 +315,53 @@ class SendButton {
 	}
 }
 
+func TestVarCouldBeVal_HonorsIgnoreLateinitVar(t *testing.T) {
+	// IgnoreLateinitVar was previously a dead config — exposed in
+	// zz_meta but never consulted. The check unconditionally skipped
+	// `lateinit var` declarations. Wire the field so the user can
+	// opt OUT of the skip.
+	var rule *rules.VarCouldBeValRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "VarCouldBeVal" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.VarCouldBeValRule)
+			if !ok {
+				t.Fatalf("expected VarCouldBeValRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("VarCouldBeVal rule not registered")
+	}
+	original := rule.IgnoreLateinitVar
+	defer func() { rule.IgnoreLateinitVar = original }()
+
+	// Pathological-but-syntactically-valid: a lateinit var that's never
+	// assigned anywhere in the visible scope. Production code would
+	// crash at first read, but the rule's reassignment analysis just
+	// sees zero assignments and would therefore suggest `val` if it
+	// weren't for the lateinit skip.
+	code := `package test
+class Foo {
+    private lateinit var name: String
+    fun read() = name
+}`
+	// Default (true): lateinit var is skipped regardless of assignment
+	// analysis — no finding.
+	if findings := runRuleByName(t, "VarCouldBeVal", code); len(findings) != 0 {
+		t.Fatalf("expected no findings under default IgnoreLateinitVar=true, got %d", len(findings))
+	}
+
+	rule.IgnoreLateinitVar = false
+
+	// With the flag flipped off, the lateinit skip is bypassed and the
+	// reassignment analysis reports that name is never reassigned.
+	if findings := runRuleByName(t, "VarCouldBeVal", code); len(findings) == 0 {
+		t.Fatal("expected finding under IgnoreLateinitVar=false for never-reassigned lateinit var")
+	}
+}
+
 func TestVarCouldBeVal_DoesNotRequireTypeContext(t *testing.T) {
 	for _, rule := range v2rules.Registry {
 		if rule.ID == "VarCouldBeVal" {

@@ -386,7 +386,7 @@ func registerStyleExpressionsRules() {
 		})
 	}
 	{
-		r := &VarCouldBeValRule{BaseRule: BaseRule{RuleName: "VarCouldBeVal", RuleSetName: "style", Sev: "warning", Desc: "Detects var properties that are never reassigned and could be declared as val."}}
+		r := &VarCouldBeValRule{BaseRule: BaseRule{RuleName: "VarCouldBeVal", RuleSetName: "style", Sev: "warning", Desc: "Detects var properties that are never reassigned and could be declared as val."}, IgnoreLateinitVar: true}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
@@ -409,7 +409,7 @@ func registerStyleExpressionsRules() {
 				if file.FlatHasModifier(idx, "override") {
 					return
 				}
-				if file.FlatHasModifier(idx, "lateinit") {
+				if r.IgnoreLateinitVar && file.FlatHasModifier(idx, "lateinit") {
 					return
 				}
 				if file.FlatHasChildOfType(idx, "property_delegate") {

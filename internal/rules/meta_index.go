@@ -505,6 +505,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*StateFlowMutableLeakRule)(nil),
 		(*StateListReachableResourceRule)(nil),
 		(*StopShipRule)(nil),
+		(*StringConcatForTranslationRule)(nil),
 		(*StringFormatCountResourceRule)(nil),
 		(*StringFormatInvalidResourceRule)(nil),
 		(*StringFormatMatchesResourceRule)(nil),

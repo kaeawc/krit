@@ -50,6 +50,49 @@ fun compute(): Int {
 	}
 }
 
+func TestExc_ExceptionRaisedInUnexpectedLocation_HonorsMethodNames(t *testing.T) {
+	// MethodNames was previously a dead config (the check used a global
+	// hardcoded map). Configure a custom list via the rule pointer and
+	// verify (a) configured names fire, (b) the previous defaults no
+	// longer fire when not in the list.
+	var rule *rules.ExceptionRaisedInUnexpectedLocationRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "ExceptionRaisedInUnexpectedLocation" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.ExceptionRaisedInUnexpectedLocationRule)
+			if !ok {
+				t.Fatalf("expected ExceptionRaisedInUnexpectedLocationRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("ExceptionRaisedInUnexpectedLocation rule not registered")
+	}
+	original := rule.MethodNames
+	defer func() { rule.MethodNames = original }()
+
+	rule.MethodNames = []string{"compute"}
+
+	// `compute` is in the list — should fire.
+	if findings := runRuleByName(t, "ExceptionRaisedInUnexpectedLocation", `
+fun compute(): Int {
+    throw IllegalStateException("nope")
+}
+`); len(findings) == 0 {
+		t.Fatal("expected finding for configured method 'compute'")
+	}
+
+	// `equals` was a default but is no longer in the configured list — should NOT fire.
+	if findings := runRuleByName(t, "ExceptionRaisedInUnexpectedLocation", `
+fun equals(other: Any?): Boolean {
+    throw IllegalStateException("not comparable")
+}
+`); len(findings) != 0 {
+		t.Fatalf("expected no findings for 'equals' when not in configured methodNames, got %d", len(findings))
+	}
+}
+
 func TestExc_ExceptionRaisedInUnexpectedLocation_JavaFixtures(t *testing.T) {
 	root := fixtureRoot(t)
 

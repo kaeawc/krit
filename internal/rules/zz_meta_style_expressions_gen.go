@@ -120,7 +120,7 @@ func (r *LoopWithTooManyJumpStatementsRule) Meta() registry.RuleDescriptor {
 				Name:        "maxJumpCount",
 				Aliases:     []string{"threshold"},
 				Type:        registry.OptInt,
-				Default:     3,
+				Default:     1,
 				Description: "Maximum jump statements allowed in a loop.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*LoopWithTooManyJumpStatementsRule).MaxJumps = value.(int)

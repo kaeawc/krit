@@ -639,7 +639,7 @@ func registerStyleExpressionsRules() {
 		})
 	}
 	{
-		r := &LoopWithTooManyJumpStatementsRule{BaseRule: BaseRule{RuleName: "LoopWithTooManyJumpStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects loops containing more break or continue statements than the configured maximum."}, MaxJumps: 3}
+		r := &LoopWithTooManyJumpStatementsRule{BaseRule: BaseRule{RuleName: "LoopWithTooManyJumpStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects loops containing more break or continue statements than the configured maximum."}, MaxJumps: 1}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"for_statement", "while_statement", "do_while_statement"}, Confidence: 0.75, OriginalV1: r,

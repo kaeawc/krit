@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *LogOfSharedPreferenceReadRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LogOfSharedPreferenceReadRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LogOfSharedPreferenceRead",
 		RuleSet:       "privacy",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *LogOfSharedPreferenceReadRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *PlainFileWriteOfSensitiveRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *PlainFileWriteOfSensitiveRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "PlainFileWriteOfSensitive",
 		RuleSet:       "privacy",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *PlainFileWriteOfSensitiveRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SharedPreferencesForSensitiveKeyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SharedPreferencesForSensitiveKeyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SharedPreferencesForSensitiveKey",
 		RuleSet:       "privacy",
 		Severity:      "warning",

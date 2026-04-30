@@ -5,13 +5,13 @@ package rules
 import (
 	"regexp"
 
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
 var _ = regexp.MustCompile
 
-func (r *UnusedImportRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnusedImportRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnusedImport",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -22,8 +22,8 @@ func (r *UnusedImportRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnusedParameterRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnusedParameterRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnusedParameter",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -31,10 +31,10 @@ func (r *UnusedParameterRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowedNames",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "^(ignored|expected|_)$",
 				Description: "Regex pattern for parameter names to allow.",
 				Apply: func(target interface{}, value interface{}) {
@@ -45,8 +45,8 @@ func (r *UnusedParameterRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnusedPrivateClassRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnusedPrivateClassRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnusedPrivateClass",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -57,8 +57,8 @@ func (r *UnusedPrivateClassRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnusedPrivateFunctionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnusedPrivateFunctionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnusedPrivateFunction",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -66,10 +66,10 @@ func (r *UnusedPrivateFunctionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowedNames",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex pattern for function names to allow.",
 				Apply: func(target interface{}, value interface{}) {
@@ -80,8 +80,8 @@ func (r *UnusedPrivateFunctionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnusedPrivateMemberRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnusedPrivateMemberRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnusedPrivateMember",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -89,10 +89,10 @@ func (r *UnusedPrivateMemberRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowedNames",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex pattern for member names to allow.",
 				Apply: func(target interface{}, value interface{}) {
@@ -101,7 +101,7 @@ func (r *UnusedPrivateMemberRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreAnnotated",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Annotations that suppress this rule.",
 				Apply: func(target interface{}, value interface{}) {
@@ -112,8 +112,8 @@ func (r *UnusedPrivateMemberRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnusedPrivatePropertyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnusedPrivatePropertyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnusedPrivateProperty",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -121,10 +121,10 @@ func (r *UnusedPrivatePropertyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowedNames",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex pattern for property names to allow.",
 				Apply: func(target interface{}, value interface{}) {
@@ -135,8 +135,8 @@ func (r *UnusedPrivatePropertyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnusedVariableRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnusedVariableRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnusedVariable",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -144,10 +144,10 @@ func (r *UnusedVariableRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowedNames",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "^(ignored|_)$",
 				Description: "Regex pattern for variable names to allow.",
 				Apply: func(target interface{}, value interface{}) {

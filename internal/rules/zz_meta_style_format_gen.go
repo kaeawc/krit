@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *CascadingCallWrappingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CascadingCallWrappingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CascadingCallWrapping",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -15,10 +15,10 @@ func (r *CascadingCallWrappingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "includeElvis",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Also check elvis operator chaining.",
 				Apply: func(target interface{}, value interface{}) {
@@ -29,8 +29,8 @@ func (r *CascadingCallWrappingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EqualsOnSignatureLineRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EqualsOnSignatureLineRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EqualsOnSignatureLine",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -41,8 +41,8 @@ func (r *EqualsOnSignatureLineRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MaxChainedCallsOnSameLineRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MaxChainedCallsOnSameLineRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MaxChainedCallsOnSameLine",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -50,11 +50,11 @@ func (r *MaxChainedCallsOnSameLineRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "maxChainedCalls",
 				Aliases:     []string{"threshold"},
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     5,
 				Description: "Maximum chained calls allowed on one line.",
 				Apply: func(target interface{}, value interface{}) {
@@ -65,8 +65,8 @@ func (r *MaxChainedCallsOnSameLineRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MaxLineLengthRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MaxLineLengthRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MaxLineLength",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -74,10 +74,10 @@ func (r *MaxLineLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "excludeCommentStatements",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Exclude comment lines from check.",
 				Apply: func(target interface{}, value interface{}) {
@@ -86,7 +86,7 @@ func (r *MaxLineLengthRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "excludeImportStatements",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Exclude import statements from check.",
 				Apply: func(target interface{}, value interface{}) {
@@ -95,7 +95,7 @@ func (r *MaxLineLengthRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "excludePackageStatements",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Exclude package statements from check.",
 				Apply: func(target interface{}, value interface{}) {
@@ -104,7 +104,7 @@ func (r *MaxLineLengthRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "excludeRawStrings",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Exclude raw string lines from check.",
 				Apply: func(target interface{}, value interface{}) {
@@ -114,7 +114,7 @@ func (r *MaxLineLengthRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "maxLineLength",
 				Aliases:     []string{"threshold"},
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     120,
 				Description: "Maximum allowed line length.",
 				Apply:       func(target interface{}, value interface{}) { target.(*MaxLineLengthRule).Max = value.(int) },
@@ -123,8 +123,8 @@ func (r *MaxLineLengthRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NewLineAtEndOfFileRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NewLineAtEndOfFileRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NewLineAtEndOfFile",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -135,8 +135,8 @@ func (r *NewLineAtEndOfFileRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NoTabsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NoTabsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NoTabs",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -144,11 +144,11 @@ func (r *NoTabsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "indentSize",
 				Aliases:     []string{"indent_size", "tabWidth", "tab_width"},
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     4,
 				Description: "Number of spaces to replace each tab with when applying the fix.",
 				Apply: func(target interface{}, value interface{}) {
@@ -159,8 +159,8 @@ func (r *NoTabsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SpacingAfterPackageAndImportsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SpacingAfterPackageAndImportsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SpacingAfterPackageAndImports",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -171,8 +171,8 @@ func (r *SpacingAfterPackageAndImportsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TrailingWhitespaceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TrailingWhitespaceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TrailingWhitespace",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -183,8 +183,8 @@ func (r *TrailingWhitespaceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnderscoresInNumericLiteralsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnderscoresInNumericLiteralsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnderscoresInNumericLiterals",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -192,10 +192,10 @@ func (r *UnderscoresInNumericLiteralsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "cosmetic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "acceptableLength",
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     4,
 				Description: "Acceptable numeric literal length without underscores.",
 				Apply: func(target interface{}, value interface{}) {
@@ -204,7 +204,7 @@ func (r *UnderscoresInNumericLiteralsRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "allowNonStandardGrouping",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Allow underscore groups that are not exactly three digits.",
 				Apply: func(target interface{}, value interface{}) {

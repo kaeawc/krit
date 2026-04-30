@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AssertRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AssertRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "Assert",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -18,8 +18,8 @@ func (r *AssertRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CheckResultRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CheckResultRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CheckResult",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -30,8 +30,8 @@ func (r *CheckResultRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CommitPrefEditsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CommitPrefEditsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CommitPrefEdits",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -42,8 +42,8 @@ func (r *CommitPrefEditsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CommitTransactionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CommitTransactionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CommitTransaction",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -54,8 +54,8 @@ func (r *CommitTransactionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DefaultLocaleRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DefaultLocaleRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DefaultLocale",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -66,8 +66,8 @@ func (r *DefaultLocaleRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NestedScrollingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NestedScrollingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NestedScrolling",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -78,8 +78,8 @@ func (r *NestedScrollingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RegisteredRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RegisteredRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "Registered",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -90,8 +90,8 @@ func (r *RegisteredRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SQLiteStringRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SQLiteStringRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SQLiteString",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -102,8 +102,8 @@ func (r *SQLiteStringRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ScrollViewCountRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ScrollViewCountRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ScrollViewCount",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -114,8 +114,8 @@ func (r *ScrollViewCountRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SetTextI18nRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SetTextI18nRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SetTextI18n",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -126,8 +126,8 @@ func (r *SetTextI18nRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ShiftFlagsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ShiftFlagsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ShiftFlags",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -138,8 +138,8 @@ func (r *ShiftFlagsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SimpleDateFormatRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SimpleDateFormatRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SimpleDateFormat",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -150,8 +150,8 @@ func (r *SimpleDateFormatRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *StopShipRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *StopShipRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "StopShip",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -162,8 +162,8 @@ func (r *StopShipRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UniqueConstantsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UniqueConstantsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UniqueConstants",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -174,8 +174,8 @@ func (r *UniqueConstantsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WrongCallRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WrongCallRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WrongCall",
 		RuleSet:       "android-lint",
 		Severity:      "",
@@ -186,8 +186,8 @@ func (r *WrongCallRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WrongThreadRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WrongThreadRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WrongThread",
 		RuleSet:       "android-lint",
 		Severity:      "",

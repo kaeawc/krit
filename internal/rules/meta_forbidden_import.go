@@ -8,11 +8,11 @@ package rules
 //   Patterns on the rule struct. Keeping the dual write in one place here
 //   keeps descriptor behavior explicit until the Patterns shim is retired.
 
-import "github.com/kaeawc/krit/internal/rules/registry"
+import "github.com/kaeawc/krit/internal/rules/v2"
 
 // Meta returns the descriptor for ForbiddenImportRule.
-func (r *ForbiddenImportRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ForbiddenImportRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ForbiddenImport",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -20,10 +20,10 @@ func (r *ForbiddenImportRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowedImports",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Allowed import patterns (override forbidden).",
 				Apply: func(target interface{}, value interface{}) {
@@ -32,7 +32,7 @@ func (r *ForbiddenImportRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "forbiddenImports",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string{"sun.", "jdk.internal."},
 				Description: "Forbidden import patterns.",
 				// Assign to BOTH ForbiddenImports and Patterns. Patterns

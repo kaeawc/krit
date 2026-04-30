@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *ContentDescriptionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ContentDescriptionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ContentDescription",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *ContentDescriptionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ExportedServiceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ExportedServiceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ExportedService",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *ExportedServiceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *HardcodedTextRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *HardcodedTextRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "HardcodedText",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *HardcodedTextRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LogDetectorRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LogDetectorRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LogConditional",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *LogDetectorRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ObsoleteLayoutParamsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ObsoleteLayoutParamsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ObsoleteLayoutParam",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *ObsoleteLayoutParamsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *PrivateKeyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *PrivateKeyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "PackagedPrivateKey",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -78,8 +78,8 @@ func (r *PrivateKeyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SdCardPathRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SdCardPathRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SdCardPath",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *SdCardPathRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SetJavaScriptEnabledRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SetJavaScriptEnabledRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SetJavaScriptEnabled",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *SetJavaScriptEnabledRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ViewHolderRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ViewHolderRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ViewHolder",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -114,8 +114,8 @@ func (r *ViewHolderRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WakelockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WakelockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "Wakelock",
 		RuleSet:       "android-lint",
 		Severity:      "warning",

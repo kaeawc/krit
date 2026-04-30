@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AlsoCouldBeApplyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AlsoCouldBeApplyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AlsoCouldBeApply",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *AlsoCouldBeApplyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EqualsNullCallRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EqualsNullCallRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EqualsNullCall",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *EqualsNullCallRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ExplicitCollectionElementAccessMethodRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ExplicitCollectionElementAccessMethodRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ExplicitCollectionElementAccessMethod",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *ExplicitCollectionElementAccessMethodRule) Meta() registry.RuleDescript
 	}
 }
 
-func (r *UseArrayLiteralsInAnnotationsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseArrayLiteralsInAnnotationsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseArrayLiteralsInAnnotations",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *UseArrayLiteralsInAnnotationsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseDataClassRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseDataClassRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseDataClass",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -63,10 +63,10 @@ func (r *UseDataClassRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowVars",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Allow classes with var properties.",
 				Apply:       func(target interface{}, value interface{}) { target.(*UseDataClassRule).AllowVars = value.(bool) },
@@ -75,8 +75,8 @@ func (r *UseDataClassRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseIfEmptyOrIfBlankRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseIfEmptyOrIfBlankRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseIfEmptyOrIfBlank",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -87,8 +87,8 @@ func (r *UseIfEmptyOrIfBlankRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseIfInsteadOfWhenRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseIfInsteadOfWhenRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseIfInsteadOfWhen",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -96,10 +96,10 @@ func (r *UseIfInsteadOfWhenRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "ignoreWhenContainingVariableDeclaration",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Ignore when with variable declarations.",
 				Apply: func(target interface{}, value interface{}) {
@@ -110,8 +110,8 @@ func (r *UseIfInsteadOfWhenRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseLetRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseLetRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseLet",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -122,8 +122,8 @@ func (r *UseLetRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UseSumOfInsteadOfFlatMapSizeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseSumOfInsteadOfFlatMapSizeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseSumOfInsteadOfFlatMapSize",
 		RuleSet:       "style",
 		Severity:      "warning",

@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AllowBackupManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AllowBackupManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AllowBackupManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *AllowBackupManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *BackupRulesRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *BackupRulesRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "BackupRules",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *BackupRulesRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CleartextTrafficRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CleartextTrafficRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CleartextTraffic",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *CleartextTrafficRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DebuggableManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DebuggableManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DebuggableManifest",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -54,8 +54,8 @@ func (r *DebuggableManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ExportedPreferenceActivityManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ExportedPreferenceActivityManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ExportedPreferenceActivityManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *ExportedPreferenceActivityManifestRule) Meta() registry.RuleDescriptor 
 	}
 }
 
-func (r *ExportedServiceManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ExportedServiceManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ExportedServiceManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *ExportedServiceManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ExportedWithoutPermissionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ExportedWithoutPermissionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ExportedWithoutPermission",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *ExportedWithoutPermissionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *InsecureBaseConfigurationManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InsecureBaseConfigurationManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "InsecureBaseConfigurationManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *InsecureBaseConfigurationManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingExportedFlagRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingExportedFlagRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingExportedFlag",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -114,8 +114,8 @@ func (r *MissingExportedFlagRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ProtectedPermissionsManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ProtectedPermissionsManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ProtectedPermissionsManifest",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -126,8 +126,8 @@ func (r *ProtectedPermissionsManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ServiceExportedManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ServiceExportedManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ServiceExportedManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -138,8 +138,8 @@ func (r *ServiceExportedManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnprotectedSMSBroadcastReceiverManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnprotectedSMSBroadcastReceiverManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnprotectedSMSBroadcastReceiverManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -150,8 +150,8 @@ func (r *UnprotectedSMSBroadcastReceiverManifestRule) Meta() registry.RuleDescri
 	}
 }
 
-func (r *UnsafeProtectedBroadcastReceiverManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnsafeProtectedBroadcastReceiverManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnsafeProtectedBroadcastReceiverManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -162,8 +162,8 @@ func (r *UnsafeProtectedBroadcastReceiverManifestRule) Meta() registry.RuleDescr
 	}
 }
 
-func (r *UseCheckPermissionManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UseCheckPermissionManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UseCheckPermissionManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",

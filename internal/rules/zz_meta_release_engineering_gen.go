@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AllProjectsBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AllProjectsBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AllProjectsBlock",
 		RuleSet:       "release-engineering",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *AllProjectsBlockRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *BuildConfigDebugInLibraryRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *BuildConfigDebugInLibraryRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "BuildConfigDebugInLibrary",
 		RuleSet:       "release-engineering",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *BuildConfigDebugInLibraryRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *BuildConfigDebugInvertedRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *BuildConfigDebugInvertedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "BuildConfigDebugInverted",
 		RuleSet:       "release-engineering",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *BuildConfigDebugInvertedRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CommentedOutCodeBlockRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CommentedOutCodeBlockRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CommentedOutCodeBlock",
 		RuleSet:       "release-engineering",
 		Severity:      "info",
@@ -54,8 +54,8 @@ func (r *CommentedOutCodeBlockRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CommentedOutImportRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CommentedOutImportRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CommentedOutImport",
 		RuleSet:       "release-engineering",
 		Severity:      "info",
@@ -66,8 +66,8 @@ func (r *CommentedOutImportRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ConventionPluginDeadCodeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ConventionPluginDeadCodeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ConventionPluginDeadCode",
 		RuleSet:       "release-engineering",
 		Severity:      "info",
@@ -78,8 +78,8 @@ func (r *ConventionPluginDeadCodeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DebugToastInProductionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DebugToastInProductionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DebugToastInProduction",
 		RuleSet:       "release-engineering",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *DebugToastInProductionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GradleBuildContainsTodoRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GradleBuildContainsTodoRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GradleBuildContainsTodo",
 		RuleSet:       "release-engineering",
 		Severity:      "info",
@@ -102,8 +102,8 @@ func (r *GradleBuildContainsTodoRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *HardcodedEnvironmentNameRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *HardcodedEnvironmentNameRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "HardcodedEnvironmentName",
 		RuleSet:       "release-engineering",
 		Severity:      "warning",
@@ -114,8 +114,8 @@ func (r *HardcodedEnvironmentNameRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *HardcodedLocalhostUrlRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *HardcodedLocalhostUrlRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "HardcodedLocalhostUrl",
 		RuleSet:       "release-engineering",
 		Severity:      "warning",
@@ -126,8 +126,8 @@ func (r *HardcodedLocalhostUrlRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *HardcodedLogTagRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *HardcodedLogTagRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "HardcodedLogTag",
 		RuleSet:       "release-engineering",
 		Severity:      "info",
@@ -138,8 +138,8 @@ func (r *HardcodedLogTagRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MergeConflictMarkerLeftoverRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MergeConflictMarkerLeftoverRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MergeConflictMarkerLeftover",
 		RuleSet:       "release-engineering",
 		Severity:      "warning",
@@ -150,8 +150,8 @@ func (r *MergeConflictMarkerLeftoverRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NonAsciiIdentifierRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NonAsciiIdentifierRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NonAsciiIdentifier",
 		RuleSet:       "release-engineering",
 		Severity:      "info",
@@ -162,8 +162,8 @@ func (r *NonAsciiIdentifierRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *OpenForTestingCallerInNonTestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *OpenForTestingCallerInNonTestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "OpenForTestingCallerInNonTest",
 		RuleSet:       "release-engineering",
 		Severity:      "info",
@@ -174,8 +174,8 @@ func (r *OpenForTestingCallerInNonTestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *PrintStackTraceInProductionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *PrintStackTraceInProductionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "PrintStackTraceInProduction",
 		RuleSet:       "release-engineering",
 		Severity:      "warning",
@@ -186,8 +186,8 @@ func (r *PrintStackTraceInProductionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *PrintlnInProductionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *PrintlnInProductionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "PrintlnInProduction",
 		RuleSet:       "release-engineering",
 		Severity:      "warning",
@@ -198,8 +198,8 @@ func (r *PrintlnInProductionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TestFixtureAccessedFromProductionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TestFixtureAccessedFromProductionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TestFixtureAccessedFromProduction",
 		RuleSet:       "release-engineering",
 		Severity:      "warning",
@@ -210,8 +210,8 @@ func (r *TestFixtureAccessedFromProductionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TestOnlyImportInProductionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TestOnlyImportInProductionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TestOnlyImportInProduction",
 		RuleSet:       "release-engineering",
 		Severity:      "warning",
@@ -222,8 +222,8 @@ func (r *TestOnlyImportInProductionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TimberTreeNotPlantedRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TimberTreeNotPlantedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TimberTreeNotPlanted",
 		RuleSet:       "release-engineering",
 		Severity:      "warning",
@@ -234,8 +234,8 @@ func (r *TimberTreeNotPlantedRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *VisibleForTestingCallerInNonTestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *VisibleForTestingCallerInNonTestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "VisibleForTestingCallerInNonTest",
 		RuleSet:       "release-engineering",
 		Severity:      "warning",

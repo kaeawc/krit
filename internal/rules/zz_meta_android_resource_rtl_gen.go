@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *NotSiblingResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NotSiblingResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NotSiblingResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -18,8 +18,8 @@ func (r *NotSiblingResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RelativeOverlapResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RelativeOverlapResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RelativeOverlapResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *RelativeOverlapResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RtlHardcodedResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RtlHardcodedResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RtlHardcodedResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *RtlHardcodedResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RtlSuperscriptResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RtlSuperscriptResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RtlSuperscriptResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *RtlSuperscriptResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RtlSymmetryResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RtlSymmetryResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RtlSymmetryResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",

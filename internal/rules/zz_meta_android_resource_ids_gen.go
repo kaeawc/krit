@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AppCompatResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AppCompatResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AppCompatResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *AppCompatResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CutPasteIdResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CutPasteIdResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CutPasteIdResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *CutPasteIdResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DuplicateIdsResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DuplicateIdsResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DuplicateIdsResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -42,8 +42,8 @@ func (r *DuplicateIdsResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DuplicateIncludedIdsResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DuplicateIncludedIdsResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DuplicateIncludedIdsResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *DuplicateIncludedIdsResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IllegalResourceRefResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IllegalResourceRefResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IllegalResourceRefResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -66,8 +66,8 @@ func (r *IllegalResourceRefResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *InvalidIdResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InvalidIdResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "InvalidIdResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -78,8 +78,8 @@ func (r *InvalidIdResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *InvalidResourceFolderResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InvalidResourceFolderResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "InvalidResourceFolderResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -90,8 +90,8 @@ func (r *InvalidResourceFolderResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingIdResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingIdResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingIdResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *MissingIdResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingPrefixResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingPrefixResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingPrefixResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -114,8 +114,8 @@ func (r *MissingPrefixResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NamespaceTypoResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NamespaceTypoResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NamespaceTypoResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -126,8 +126,8 @@ func (r *NamespaceTypoResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ResAutoResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ResAutoResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ResAutoResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -138,8 +138,8 @@ func (r *ResAutoResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnusedNamespaceResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnusedNamespaceResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnusedNamespaceResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -150,8 +150,8 @@ func (r *UnusedNamespaceResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WrongCaseResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WrongCaseResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WrongCaseResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -162,8 +162,8 @@ func (r *WrongCaseResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WrongFolderResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WrongFolderResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WrongFolderResource",
 		RuleSet:       "android-lint",
 		Severity:      "error",

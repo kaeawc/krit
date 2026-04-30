@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AppIndexingErrorManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AppIndexingErrorManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AppIndexingErrorManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *AppIndexingErrorManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *AppIndexingWarningManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AppIndexingWarningManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AppIndexingWarningManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *AppIndexingWarningManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DeviceAdminManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DeviceAdminManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DeviceAdminManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *DeviceAdminManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *FullBackupContentManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *FullBackupContentManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "FullBackupContentManifest",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -54,8 +54,8 @@ func (r *FullBackupContentManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GoogleAppIndexingDeepLinkErrorManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GoogleAppIndexingDeepLinkErrorManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GoogleAppIndexingDeepLinkErrorManifest",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -66,8 +66,8 @@ func (r *GoogleAppIndexingDeepLinkErrorManifestRule) Meta() registry.RuleDescrip
 	}
 }
 
-func (r *GoogleAppIndexingWarningManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GoogleAppIndexingWarningManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GoogleAppIndexingWarningManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *GoogleAppIndexingWarningManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingLeanbackLauncherManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingLeanbackLauncherManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingLeanbackLauncherManifest",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -90,8 +90,8 @@ func (r *MissingLeanbackLauncherManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingLeanbackSupportManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingLeanbackSupportManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingLeanbackSupportManifest",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -102,8 +102,8 @@ func (r *MissingLeanbackSupportManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingRegisteredManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingRegisteredManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingRegisteredManifest",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -114,8 +114,8 @@ func (r *MissingRegisteredManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *PermissionImpliesUnsupportedHardwareManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *PermissionImpliesUnsupportedHardwareManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "PermissionImpliesUnsupportedHardwareManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -126,8 +126,8 @@ func (r *PermissionImpliesUnsupportedHardwareManifestRule) Meta() registry.RuleD
 	}
 }
 
-func (r *RtlCompatManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RtlCompatManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RtlCompatManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -138,8 +138,8 @@ func (r *RtlCompatManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RtlEnabledManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RtlEnabledManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RtlEnabledManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -150,8 +150,8 @@ func (r *RtlEnabledManifestRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnsupportedChromeOsHardwareManifestRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnsupportedChromeOsHardwareManifestRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnsupportedChromeOsHardwareManifest",
 		RuleSet:       "android-lint",
 		Severity:      "warning",

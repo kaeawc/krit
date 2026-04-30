@@ -5,13 +5,13 @@ package rules
 import (
 	"regexp"
 
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
 var _ = regexp.MustCompile
 
-func (r *ErrorUsageWithThrowableRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ErrorUsageWithThrowableRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ErrorUsageWithThrowable",
 		RuleSet:       "exceptions",
 		Severity:      "warning",
@@ -22,8 +22,8 @@ func (r *ErrorUsageWithThrowableRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ExceptionRaisedInUnexpectedLocationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ExceptionRaisedInUnexpectedLocationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ExceptionRaisedInUnexpectedLocation",
 		RuleSet:       "exceptions",
 		Severity:      "warning",
@@ -31,10 +31,10 @@ func (r *ExceptionRaisedInUnexpectedLocationRule) Meta() registry.RuleDescriptor
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "methodNames",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string{"equals", "hashCode", "toString", "finalize"},
 				Description: "Method names where exceptions are unexpected.",
 				Apply: func(target interface{}, value interface{}) {
@@ -45,8 +45,8 @@ func (r *ExceptionRaisedInUnexpectedLocationRule) Meta() registry.RuleDescriptor
 	}
 }
 
-func (r *InstanceOfCheckForExceptionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InstanceOfCheckForExceptionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "InstanceOfCheckForException",
 		RuleSet:       "exceptions",
 		Severity:      "warning",
@@ -57,8 +57,8 @@ func (r *InstanceOfCheckForExceptionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NotImplementedDeclarationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NotImplementedDeclarationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NotImplementedDeclaration",
 		RuleSet:       "exceptions",
 		Severity:      "warning",
@@ -69,8 +69,8 @@ func (r *NotImplementedDeclarationRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ObjectExtendsThrowableRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ObjectExtendsThrowableRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ObjectExtendsThrowable",
 		RuleSet:       "exceptions",
 		Severity:      "warning",
@@ -81,8 +81,8 @@ func (r *ObjectExtendsThrowableRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RethrowCaughtExceptionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RethrowCaughtExceptionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RethrowCaughtException",
 		RuleSet:       "exceptions",
 		Severity:      "warning",
@@ -93,8 +93,8 @@ func (r *RethrowCaughtExceptionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ReturnFromFinallyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ReturnFromFinallyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ReturnFromFinally",
 		RuleSet:       "exceptions",
 		Severity:      "warning",
@@ -102,10 +102,10 @@ func (r *ReturnFromFinallyRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "ignoreLabeled",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Ignore labeled returns.",
 				Apply: func(target interface{}, value interface{}) {
@@ -116,8 +116,8 @@ func (r *ReturnFromFinallyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SwallowedExceptionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SwallowedExceptionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SwallowedException",
 		RuleSet:       "exceptions",
 		Severity:      "warning",
@@ -125,10 +125,10 @@ func (r *SwallowedExceptionRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowedExceptionNameRegex",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "^_$",
 				Description: "Regex for exception names allowed to be swallowed.",
 				Apply: func(target interface{}, value interface{}) {
@@ -137,7 +137,7 @@ func (r *SwallowedExceptionRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoredExceptionTypes",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Exception types allowed to be swallowed.",
 				Apply: func(target interface{}, value interface{}) {
@@ -148,8 +148,8 @@ func (r *SwallowedExceptionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ThrowingExceptionFromFinallyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ThrowingExceptionFromFinallyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ThrowingExceptionFromFinally",
 		RuleSet:       "exceptions",
 		Severity:      "warning",
@@ -160,8 +160,8 @@ func (r *ThrowingExceptionFromFinallyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ThrowingExceptionInMainRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ThrowingExceptionInMainRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ThrowingExceptionInMain",
 		RuleSet:       "exceptions",
 		Severity:      "warning",
@@ -172,8 +172,8 @@ func (r *ThrowingExceptionInMainRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ThrowingExceptionsWithoutMessageOrCauseRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ThrowingExceptionsWithoutMessageOrCauseRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ThrowingExceptionsWithoutMessageOrCause",
 		RuleSet:       "exceptions",
 		Severity:      "warning",
@@ -181,10 +181,10 @@ func (r *ThrowingExceptionsWithoutMessageOrCauseRule) Meta() registry.RuleDescri
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "exceptions",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Exception types to check.",
 				Apply: func(target interface{}, value interface{}) {
@@ -195,8 +195,8 @@ func (r *ThrowingExceptionsWithoutMessageOrCauseRule) Meta() registry.RuleDescri
 	}
 }
 
-func (r *ThrowingNewInstanceOfSameExceptionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ThrowingNewInstanceOfSameExceptionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ThrowingNewInstanceOfSameException",
 		RuleSet:       "exceptions",
 		Severity:      "warning",

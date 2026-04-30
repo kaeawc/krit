@@ -5,13 +5,13 @@ package rules
 import (
 	"regexp"
 
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
 var _ = regexp.MustCompile
 
-func (r *BooleanPropertyNamingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *BooleanPropertyNamingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "BooleanPropertyNaming",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -19,10 +19,10 @@ func (r *BooleanPropertyNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowedPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex for allowed non-standard Boolean property names.",
 				Apply: func(target interface{}, value interface{}) {
@@ -33,8 +33,8 @@ func (r *BooleanPropertyNamingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ClassNamingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ClassNamingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ClassNaming",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -42,10 +42,10 @@ func (r *ClassNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "classPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "[A-Z][a-zA-Z0-9]*",
 				Description: "Regex pattern for class names.",
 				Apply: func(target interface{}, value interface{}) {
@@ -56,8 +56,8 @@ func (r *ClassNamingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ConstructorParameterNamingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ConstructorParameterNamingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ConstructorParameterNaming",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -65,10 +65,10 @@ func (r *ConstructorParameterNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "excludeClassPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex for classes to exclude from this rule.",
 				Apply: func(target interface{}, value interface{}) {
@@ -77,7 +77,7 @@ func (r *ConstructorParameterNamingRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "parameterPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "[a-z][a-zA-Z0-9]*",
 				Description: "Regex pattern for constructor parameter names.",
 				Apply: func(target interface{}, value interface{}) {
@@ -86,7 +86,7 @@ func (r *ConstructorParameterNamingRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "privateParameterPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex for private constructor parameter names.",
 				Apply: func(target interface{}, value interface{}) {
@@ -97,8 +97,8 @@ func (r *ConstructorParameterNamingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EnumNamingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EnumNamingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EnumNaming",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -106,10 +106,10 @@ func (r *EnumNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "enumEntryPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "[A-Z][_a-zA-Z0-9]*",
 				Description: "Regex pattern for enum entry names.",
 				Apply:       func(target interface{}, value interface{}) { target.(*EnumNamingRule).Pattern = value.(*regexp.Regexp) },
@@ -118,8 +118,8 @@ func (r *EnumNamingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ForbiddenClassNameRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ForbiddenClassNameRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ForbiddenClassName",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -127,10 +127,10 @@ func (r *ForbiddenClassNameRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "forbiddenName",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string{"Manager", "Helper", "Util", "Utils"},
 				Description: "List of forbidden class names.",
 				Apply: func(target interface{}, value interface{}) {
@@ -141,8 +141,8 @@ func (r *ForbiddenClassNameRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *FunctionNameMaxLengthRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *FunctionNameMaxLengthRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "FunctionNameMaxLength",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -150,11 +150,11 @@ func (r *FunctionNameMaxLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "maximumFunctionNameLength",
 				Aliases:     []string{"maxLength"},
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     30,
 				Description: "Maximum allowed function name length.",
 				Apply: func(target interface{}, value interface{}) {
@@ -165,8 +165,8 @@ func (r *FunctionNameMaxLengthRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *FunctionNameMinLengthRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *FunctionNameMinLengthRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "FunctionNameMinLength",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -174,11 +174,11 @@ func (r *FunctionNameMinLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "minimumFunctionNameLength",
 				Aliases:     []string{"minLength"},
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     3,
 				Description: "Minimum allowed function name length.",
 				Apply: func(target interface{}, value interface{}) {
@@ -189,8 +189,8 @@ func (r *FunctionNameMinLengthRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *FunctionNamingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *FunctionNamingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "FunctionNaming",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -198,10 +198,10 @@ func (r *FunctionNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "excludeClassPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex for classes to exclude from this rule.",
 				Apply: func(target interface{}, value interface{}) {
@@ -210,7 +210,7 @@ func (r *FunctionNamingRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "functionPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "[a-z][a-zA-Z0-9]*",
 				Description: "Regex pattern for function names.",
 				Apply: func(target interface{}, value interface{}) {
@@ -219,7 +219,7 @@ func (r *FunctionNamingRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreAnnotated",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Annotations that suppress this rule.",
 				Apply: func(target interface{}, value interface{}) {
@@ -230,8 +230,8 @@ func (r *FunctionNamingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *FunctionParameterNamingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *FunctionParameterNamingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "FunctionParameterNaming",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -239,10 +239,10 @@ func (r *FunctionParameterNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "excludeClassPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex for classes to exclude from this rule.",
 				Apply: func(target interface{}, value interface{}) {
@@ -251,7 +251,7 @@ func (r *FunctionParameterNamingRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "parameterPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "[a-z][a-zA-Z0-9]*",
 				Description: "Regex pattern for function parameter names.",
 				Apply: func(target interface{}, value interface{}) {
@@ -262,8 +262,8 @@ func (r *FunctionParameterNamingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *InvalidPackageDeclarationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InvalidPackageDeclarationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "InvalidPackageDeclaration",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -271,10 +271,10 @@ func (r *InvalidPackageDeclarationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "requireRootInDeclaration",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Require rootPackage in package declaration.",
 				Apply: func(target interface{}, value interface{}) {
@@ -283,7 +283,7 @@ func (r *InvalidPackageDeclarationRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "rootPackage",
-				Type:        registry.OptString,
+				Type:        v2.OptString,
 				Default:     "",
 				Description: "Root package prefix to require.",
 				Apply: func(target interface{}, value interface{}) {
@@ -294,8 +294,8 @@ func (r *InvalidPackageDeclarationRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LambdaParameterNamingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LambdaParameterNamingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LambdaParameterNaming",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -303,10 +303,10 @@ func (r *LambdaParameterNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "parameterPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "[a-z][a-zA-Z0-9]*",
 				Description: "Regex pattern for lambda parameter names.",
 				Apply: func(target interface{}, value interface{}) {
@@ -317,8 +317,8 @@ func (r *LambdaParameterNamingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MatchingDeclarationNameRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MatchingDeclarationNameRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MatchingDeclarationName",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -326,10 +326,10 @@ func (r *MatchingDeclarationNameRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "multiplatformTargets",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string{"ios", "android", "js", "jvm", "native", "iosArm64", "iosX64", "macosX64", "mingwX64", "linuxX64"},
 				Description: "Multiplatform target suffixes to strip from filename.",
 				Apply: func(target interface{}, value interface{}) {
@@ -338,7 +338,7 @@ func (r *MatchingDeclarationNameRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "mustBeFirst",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Declaration must be first in file.",
 				Apply: func(target interface{}, value interface{}) {
@@ -349,8 +349,8 @@ func (r *MatchingDeclarationNameRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MemberNameEqualsClassNameRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MemberNameEqualsClassNameRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MemberNameEqualsClassName",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -358,10 +358,10 @@ func (r *MemberNameEqualsClassNameRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "ignoreOverridden",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Ignore overridden members.",
 				Apply: func(target interface{}, value interface{}) {
@@ -372,8 +372,8 @@ func (r *MemberNameEqualsClassNameRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NoNameShadowingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NoNameShadowingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NoNameShadowing",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -384,8 +384,8 @@ func (r *NoNameShadowingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NonBooleanPropertyPrefixedWithIsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NonBooleanPropertyPrefixedWithIsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NonBooleanPropertyPrefixedWithIs",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -396,8 +396,8 @@ func (r *NonBooleanPropertyPrefixedWithIsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ObjectPropertyNamingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ObjectPropertyNamingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ObjectPropertyNaming",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -405,10 +405,10 @@ func (r *ObjectPropertyNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "constantPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "[A-Z][_A-Z0-9]*",
 				Description: "Regex pattern for constant properties in objects.",
 				Apply: func(target interface{}, value interface{}) {
@@ -417,7 +417,7 @@ func (r *ObjectPropertyNamingRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "privatePropertyPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex for private properties in objects.",
 				Apply: func(target interface{}, value interface{}) {
@@ -426,7 +426,7 @@ func (r *ObjectPropertyNamingRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "propertyPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "[a-z][A-Za-z0-9]*",
 				Description: "Regex pattern for non-constant properties in objects.",
 				Apply: func(target interface{}, value interface{}) {
@@ -437,8 +437,8 @@ func (r *ObjectPropertyNamingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *PackageNamingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *PackageNamingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "PackageNaming",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -446,10 +446,10 @@ func (r *PackageNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "packagePattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "[a-z]+(\\.[a-z][A-Za-z0-9]*)*",
 				Description: "Regex pattern for package names.",
 				Apply: func(target interface{}, value interface{}) {
@@ -460,8 +460,8 @@ func (r *PackageNamingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *TopLevelPropertyNamingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *TopLevelPropertyNamingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "TopLevelPropertyNaming",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -469,10 +469,10 @@ func (r *TopLevelPropertyNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "constantPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "[A-Z][_A-Za-z0-9]*",
 				Description: "Regex pattern for top-level constant properties.",
 				Apply: func(target interface{}, value interface{}) {
@@ -481,7 +481,7 @@ func (r *TopLevelPropertyNamingRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "privatePropertyPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex for private top-level properties.",
 				Apply: func(target interface{}, value interface{}) {
@@ -490,7 +490,7 @@ func (r *TopLevelPropertyNamingRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "propertyPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "[a-z][A-Za-z0-9]*",
 				Description: "Regex pattern for top-level non-constant properties.",
 				Apply: func(target interface{}, value interface{}) {
@@ -501,8 +501,8 @@ func (r *TopLevelPropertyNamingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *VariableMaxLengthRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *VariableMaxLengthRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "VariableMaxLength",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -510,11 +510,11 @@ func (r *VariableMaxLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "maximumVariableNameLength",
 				Aliases:     []string{"maxLength"},
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     64,
 				Description: "Maximum allowed variable name length.",
 				Apply:       func(target interface{}, value interface{}) { target.(*VariableMaxLengthRule).MaxLength = value.(int) },
@@ -523,8 +523,8 @@ func (r *VariableMaxLengthRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *VariableMinLengthRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *VariableMinLengthRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "VariableMinLength",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -532,11 +532,11 @@ func (r *VariableMinLengthRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "minimumVariableNameLength",
 				Aliases:     []string{"minLength"},
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     2,
 				Description: "Minimum allowed variable name length.",
 				Apply:       func(target interface{}, value interface{}) { target.(*VariableMinLengthRule).MinLength = value.(int) },
@@ -545,8 +545,8 @@ func (r *VariableMinLengthRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *VariableNamingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *VariableNamingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "VariableNaming",
 		RuleSet:       "naming",
 		Severity:      "warning",
@@ -554,10 +554,10 @@ func (r *VariableNamingRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.95,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "excludeClassPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex for classes to exclude from this rule.",
 				Apply: func(target interface{}, value interface{}) {
@@ -566,7 +566,7 @@ func (r *VariableNamingRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "privateVariablePattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex pattern for private variable names.",
 				Apply: func(target interface{}, value interface{}) {
@@ -575,7 +575,7 @@ func (r *VariableNamingRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "variablePattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "[a-z][a-zA-Z0-9]*",
 				Description: "Regex pattern for variable names.",
 				Apply: func(target interface{}, value interface{}) {

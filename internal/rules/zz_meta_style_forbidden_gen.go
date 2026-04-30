@@ -6,13 +6,13 @@ package rules
 import (
 	"regexp"
 
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
 var _ = regexp.MustCompile
 
-func (r *ForbiddenAnnotationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ForbiddenAnnotationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ForbiddenAnnotation",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -20,10 +20,10 @@ func (r *ForbiddenAnnotationRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "annotations",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string{"SuppressWarnings"},
 				Description: "Forbidden annotation names.",
 				Apply: func(target interface{}, value interface{}) {
@@ -34,8 +34,8 @@ func (r *ForbiddenAnnotationRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ForbiddenCommentRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ForbiddenCommentRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ForbiddenComment",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -43,10 +43,10 @@ func (r *ForbiddenCommentRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowedPatterns",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex pattern for allowed comments.",
 				Apply: func(target interface{}, value interface{}) {
@@ -55,7 +55,7 @@ func (r *ForbiddenCommentRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "comments",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string{"TODO:", "FIXME:", "STOPSHIP:"},
 				Description: "Forbidden comment markers.",
 				Apply: func(target interface{}, value interface{}) {
@@ -66,8 +66,8 @@ func (r *ForbiddenCommentRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ForbiddenMethodCallRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ForbiddenMethodCallRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ForbiddenMethodCall",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -75,10 +75,10 @@ func (r *ForbiddenMethodCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "methods",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string{"print(", "println("},
 				Description: "Forbidden method calls.",
 				Apply: func(target interface{}, value interface{}) {
@@ -89,8 +89,8 @@ func (r *ForbiddenMethodCallRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ForbiddenNamedParamRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ForbiddenNamedParamRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ForbiddenNamedParam",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -98,10 +98,10 @@ func (r *ForbiddenNamedParamRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "methods",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string{"require", "check", "assert"},
 				Description: "Methods where named parameters are forbidden.",
 				Apply: func(target interface{}, value interface{}) {
@@ -112,8 +112,8 @@ func (r *ForbiddenNamedParamRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ForbiddenOptInRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ForbiddenOptInRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ForbiddenOptIn",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -121,10 +121,10 @@ func (r *ForbiddenOptInRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "markerClasses",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Specific @OptIn marker classes to forbid (empty = all @OptIn).",
 				Apply: func(target interface{}, value interface{}) {
@@ -135,8 +135,8 @@ func (r *ForbiddenOptInRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ForbiddenSuppressRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ForbiddenSuppressRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ForbiddenSuppress",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -144,10 +144,10 @@ func (r *ForbiddenSuppressRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "rules",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Specific suppressed rules to forbid (empty = all @Suppress).",
 				Apply:       func(target interface{}, value interface{}) { target.(*ForbiddenSuppressRule).Rules = value.([]string) },
@@ -156,8 +156,8 @@ func (r *ForbiddenSuppressRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ForbiddenVoidRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ForbiddenVoidRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ForbiddenVoid",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -165,10 +165,10 @@ func (r *ForbiddenVoidRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "ignoreOverridden",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Ignore overridden functions.",
 				Apply: func(target interface{}, value interface{}) {
@@ -177,7 +177,7 @@ func (r *ForbiddenVoidRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreUsageInGenerics",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Ignore Void in generic type arguments.",
 				Apply: func(target interface{}, value interface{}) {
@@ -188,8 +188,8 @@ func (r *ForbiddenVoidRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MagicNumberRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MagicNumber",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -197,10 +197,10 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "ignoreAnnotated",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Annotations that suppress this rule on a declaration.",
 				Apply: func(target interface{}, value interface{}) {
@@ -209,14 +209,14 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreAnnotation",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Ignore numbers inside annotations.",
 				Apply:       func(target interface{}, value interface{}) { target.(*MagicNumberRule).IgnoreAnnotation = value.(bool) },
 			},
 			{
 				Name:        "ignoreColorLiterals",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Ignore Color(0x...) hex literals.",
 				Apply: func(target interface{}, value interface{}) {
@@ -225,7 +225,7 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreCompanionObjectPropertyDeclaration",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Ignore numbers in companion object property declarations.",
 				Apply: func(target interface{}, value interface{}) {
@@ -234,7 +234,7 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreComposeUnits",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Ignore Compose unit literals (dp, sp, em).",
 				Apply: func(target interface{}, value interface{}) {
@@ -243,7 +243,7 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreConstantDeclaration",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Ignore numbers in const val declarations.",
 				Apply: func(target interface{}, value interface{}) {
@@ -252,14 +252,14 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreEnums",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Ignore numbers in enum entries.",
 				Apply:       func(target interface{}, value interface{}) { target.(*MagicNumberRule).IgnoreEnums = value.(bool) },
 			},
 			{
 				Name:        "ignoreExtensionFunctions",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Ignore numbers in extension functions.",
 				Apply: func(target interface{}, value interface{}) {
@@ -268,7 +268,7 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreHashCodeFunction",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Ignore numbers in hashCode() functions.",
 				Apply: func(target interface{}, value interface{}) {
@@ -277,7 +277,7 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreLocalVariableDeclaration",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Ignore numbers in local variable declarations.",
 				Apply: func(target interface{}, value interface{}) {
@@ -286,7 +286,7 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreNamedArgument",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Ignore numbers used as named arguments.",
 				Apply: func(target interface{}, value interface{}) {
@@ -295,7 +295,7 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreNumbers",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string{"-1", "0", "1", "2", "0f", "0.0f", "0.5f", "1f", "1.0f", "-1f", "0.5", ".5", "90f", "180f", "270f", "360f", "100", "100f", "1000", "1000L", "10000", "10000L", "255", "255f", "60", "60f", "60L", "60000", "60000L", "24", "24L", "1024", "1024L", "16", "16f", "8", "8f", "4", "4f"},
 				Description: "Numbers to ignore.",
 				Apply: func(target interface{}, value interface{}) {
@@ -304,7 +304,7 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignorePropertyDeclaration",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Ignore numbers in property declarations.",
 				Apply: func(target interface{}, value interface{}) {
@@ -313,7 +313,7 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 			},
 			{
 				Name:        "ignoreRanges",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     true,
 				Description: "Ignore numbers in range expressions.",
 				Apply:       func(target interface{}, value interface{}) { target.(*MagicNumberRule).IgnoreRanges = value.(bool) },
@@ -322,8 +322,8 @@ func (r *MagicNumberRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WildcardImportRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WildcardImportRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WildcardImport",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -331,10 +331,10 @@ func (r *WildcardImportRule) Meta() registry.RuleDescriptor {
 		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "excludeImports",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string{"java.util.*", "platform.**", "kotlinx.cinterop.*"},
 				Description: "Wildcard imports to exclude from this rule.",
 				Apply: func(target interface{}, value interface{}) {

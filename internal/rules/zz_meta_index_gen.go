@@ -5,7 +5,7 @@ package rules
 import (
 	"sync"
 
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // AllMetaProviders returns a zero-value pointer for every rule
@@ -13,8 +13,8 @@ import (
 // indexed metaByName map without depending on Registry entries
 // (which may be v2 adapter wrappers whose concrete struct is not
 // reachable via Unwrap).
-func AllMetaProviders() []registry.MetaProvider {
-	return []registry.MetaProvider{
+func AllMetaProviders() []v2.MetaProvider {
+	return []v2.MetaProvider{
 		(*AbsentOrWrongFileLicenseRule)(nil),
 		(*AbstractClassCanBeConcreteClassRule)(nil),
 		(*AbstractClassCanBeInterfaceRule)(nil),
@@ -655,16 +655,16 @@ func AllMetaProviders() []registry.MetaProvider {
 
 var (
 	metaByNameOnce sync.Once
-	metaByNameMap  map[string]registry.RuleDescriptor
+	metaByNameMap  map[string]v2.RuleDescriptor
 )
 
 // metaByName builds a name-indexed map from AllMetaProviders.
 // Each provider's Meta() is called once on first use; the map is
 // keyed by RuleDescriptor.ID.
-func metaByName() map[string]registry.RuleDescriptor {
+func metaByName() map[string]v2.RuleDescriptor {
 	metaByNameOnce.Do(func() {
 		providers := AllMetaProviders()
-		metaByNameMap = make(map[string]registry.RuleDescriptor, len(providers))
+		metaByNameMap = make(map[string]v2.RuleDescriptor, len(providers))
 		for _, p := range providers {
 			m := p.Meta()
 			metaByNameMap[m.ID] = m

@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *MapGetWithNotNullAssertionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MapGetWithNotNullAssertionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MapGetWithNotNullAssertionOperator",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *MapGetWithNotNullAssertionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnsafeCallOnNullableTypeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnsafeCallOnNullableTypeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnsafeCallOnNullableType",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",

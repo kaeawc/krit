@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *CastNullableToNonNullableTypeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CastNullableToNonNullableTypeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CastNullableToNonNullableType",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *CastNullableToNonNullableTypeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CastToNullableTypeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CastToNullableTypeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CastToNullableType",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *CastToNullableTypeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnsafeCastRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnsafeCastRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnsafeCast",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",

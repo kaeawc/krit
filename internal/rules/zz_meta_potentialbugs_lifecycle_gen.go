@@ -5,13 +5,13 @@ package rules
 import (
 	"regexp"
 
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
 var _ = regexp.MustCompile
 
-func (r *ExitOutsideMainRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ExitOutsideMainRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ExitOutsideMain",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -22,8 +22,8 @@ func (r *ExitOutsideMainRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ExplicitGarbageCollectionCallRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ExplicitGarbageCollectionCallRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ExplicitGarbageCollectionCall",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -34,8 +34,8 @@ func (r *ExplicitGarbageCollectionCallRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *InvalidRangeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InvalidRangeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "InvalidRange",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -46,8 +46,8 @@ func (r *InvalidRangeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IteratorHasNextCallsNextMethodRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IteratorHasNextCallsNextMethodRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IteratorHasNextCallsNextMethod",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -58,8 +58,8 @@ func (r *IteratorHasNextCallsNextMethodRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IteratorNotThrowingNoSuchElementExceptionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IteratorNotThrowingNoSuchElementExceptionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IteratorNotThrowingNoSuchElementException",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -70,8 +70,8 @@ func (r *IteratorNotThrowingNoSuchElementExceptionRule) Meta() registry.RuleDesc
 	}
 }
 
-func (r *LateinitUsageRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LateinitUsageRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LateinitUsage",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -79,10 +79,10 @@ func (r *LateinitUsageRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "ignoreOnClassesPattern",
-				Type:        registry.OptRegex,
+				Type:        v2.OptRegex,
 				Default:     "",
 				Description: "Regex for classes to exclude.",
 				Apply: func(target interface{}, value interface{}) {
@@ -93,8 +93,8 @@ func (r *LateinitUsageRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingPackageDeclarationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingPackageDeclarationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingPackageDeclaration",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -105,8 +105,8 @@ func (r *MissingPackageDeclarationRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingSuperCallRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingSuperCallRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingSuperCall",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -114,10 +114,10 @@ func (r *MissingSuperCallRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "semantic",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "mustInvokeSuperAnnotations",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string{"androidx.annotation.CallSuper", "javax.annotation.OverridingMethodsMustInvokeSuper"},
 				Description: "",
 				Apply: func(target interface{}, value interface{}) {
@@ -128,8 +128,8 @@ func (r *MissingSuperCallRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingUseCallRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingUseCallRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingUseCall",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",

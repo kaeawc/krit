@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *BackButtonResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *BackButtonResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "BackButtonResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *BackButtonResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ButtonCaseResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ButtonCaseResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ButtonCaseResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *ButtonCaseResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ButtonOrderResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ButtonOrderResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ButtonOrderResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *ButtonOrderResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ButtonStyleResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ButtonStyleResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ButtonStyleResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *ButtonStyleResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ClickableViewAccessibilityResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ClickableViewAccessibilityResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ClickableViewAccessibilityResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *ClickableViewAccessibilityResourceRule) Meta() registry.RuleDescriptor 
 	}
 }
 
-func (r *HardcodedValuesResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *HardcodedValuesResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "HardcodedValuesResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *HardcodedValuesResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LabelForResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LabelForResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LabelForResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *LabelForResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LayoutAutofillHintMismatchRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LayoutAutofillHintMismatchRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LayoutAutofillHintMismatch",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *LayoutAutofillHintMismatchRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LayoutClickableWithoutMinSizeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LayoutClickableWithoutMinSizeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LayoutClickableWithoutMinSize",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -114,8 +114,8 @@ func (r *LayoutClickableWithoutMinSizeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LayoutEditTextMissingImportanceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LayoutEditTextMissingImportanceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LayoutEditTextMissingImportance",
 		RuleSet:       "android-lint",
 		Severity:      "info",
@@ -126,8 +126,8 @@ func (r *LayoutEditTextMissingImportanceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LayoutImportantForAccessibilityNoRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LayoutImportantForAccessibilityNoRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LayoutImportantForAccessibilityNo",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -138,8 +138,8 @@ func (r *LayoutImportantForAccessibilityNoRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LayoutMinTouchTargetInButtonRowRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LayoutMinTouchTargetInButtonRowRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LayoutMinTouchTargetInButtonRow",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -150,8 +150,8 @@ func (r *LayoutMinTouchTargetInButtonRowRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingContentDescriptionResourceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingContentDescriptionResourceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingContentDescriptionResource",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -162,8 +162,8 @@ func (r *MissingContentDescriptionResourceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *StringNotSelectableRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *StringNotSelectableRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "StringNotSelectable",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -174,8 +174,8 @@ func (r *StringNotSelectableRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *StringRepeatedInContentDescriptionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *StringRepeatedInContentDescriptionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "StringRepeatedInContentDescription",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -186,8 +186,8 @@ func (r *StringRepeatedInContentDescriptionRule) Meta() registry.RuleDescriptor 
 	}
 }
 
-func (r *StringSpanInContentDescriptionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *StringSpanInContentDescriptionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "StringSpanInContentDescription",
 		RuleSet:       "android-lint",
 		Severity:      "warning",

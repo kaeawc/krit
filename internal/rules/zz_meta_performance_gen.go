@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *ArrayPrimitiveRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ArrayPrimitiveRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ArrayPrimitive",
 		RuleSet:       "performance",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *ArrayPrimitiveRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *BitmapDecodeWithoutOptionsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *BitmapDecodeWithoutOptionsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "BitmapDecodeWithoutOptions",
 		RuleSet:       "performance",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *BitmapDecodeWithoutOptionsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CouldBeSequenceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CouldBeSequenceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CouldBeSequence",
 		RuleSet:       "performance",
 		Severity:      "warning",
@@ -39,11 +39,11 @@ func (r *CouldBeSequenceRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowedOperations",
 				Aliases:     []string{"threshold"},
-				Type:        registry.OptInt,
+				Type:        v2.OptInt,
 				Default:     2,
 				Description: "Minimum chained collection operations to suggest sequence.",
 				Apply: func(target interface{}, value interface{}) {
@@ -54,8 +54,8 @@ func (r *CouldBeSequenceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ForEachOnRangeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ForEachOnRangeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ForEachOnRange",
 		RuleSet:       "performance",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *ForEachOnRangeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SpreadOperatorRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SpreadOperatorRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SpreadOperator",
 		RuleSet:       "performance",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *SpreadOperatorRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryInitOnArrayRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryInitOnArrayRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryInitOnArray",
 		RuleSet:       "performance",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *UnnecessaryInitOnArrayRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryPartOfBinaryExpressionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryPartOfBinaryExpressionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryPartOfBinaryExpression",
 		RuleSet:       "performance",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *UnnecessaryPartOfBinaryExpressionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryTemporaryInstantiationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryTemporaryInstantiationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryTemporaryInstantiation",
 		RuleSet:       "performance",
 		Severity:      "warning",
@@ -114,8 +114,8 @@ func (r *UnnecessaryTemporaryInstantiationRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryTypeCastingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryTypeCastingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryTypeCasting",
 		RuleSet:       "performance",
 		Severity:      "warning",

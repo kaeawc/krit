@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *ContentProviderQueryWithSelectionInterpolationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ContentProviderQueryWithSelectionInterpolationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ContentProviderQueryWithSelectionInterpolation",
 		RuleSet:       "security",
 		Severity:      "info",
@@ -18,8 +18,8 @@ func (r *ContentProviderQueryWithSelectionInterpolationRule) Meta() registry.Rul
 	}
 }
 
-func (r *FileFromUntrustedPathRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *FileFromUntrustedPathRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "FileFromUntrustedPath",
 		RuleSet:       "security",
 		Severity:      "info",
@@ -30,8 +30,8 @@ func (r *FileFromUntrustedPathRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *HardcodedBearerTokenRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *HardcodedBearerTokenRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "HardcodedBearerToken",
 		RuleSet:       "security",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *HardcodedBearerTokenRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *HardcodedGcpServiceAccountRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *HardcodedGcpServiceAccountRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "HardcodedGcpServiceAccount",
 		RuleSet:       "security",
 		Severity:      "warning",

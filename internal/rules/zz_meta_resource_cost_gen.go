@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *BufferedReadWithoutBufferRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *BufferedReadWithoutBufferRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "BufferedReadWithoutBuffer",
 		RuleSet:       "resource-cost",
 		Severity:      "info",
@@ -18,8 +18,8 @@ func (r *BufferedReadWithoutBufferRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposePainterResourceInLoopRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposePainterResourceInLoopRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposePainterResourceInLoop",
 		RuleSet:       "resource-cost",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *ComposePainterResourceInLoopRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeRememberInListRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeRememberInListRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeRememberInList",
 		RuleSet:       "resource-cost",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *ComposeRememberInListRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CursorLoopWithColumnIndexInLoopRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CursorLoopWithColumnIndexInLoopRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CursorLoopWithColumnIndexInLoop",
 		RuleSet:       "resource-cost",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *CursorLoopWithColumnIndexInLoopRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DatabaseQueryOnMainThreadRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DatabaseQueryOnMainThreadRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DatabaseQueryOnMainThread",
 		RuleSet:       "resource-cost",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *DatabaseQueryOnMainThreadRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *HttpClientNotReusedRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *HttpClientNotReusedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "HttpClientNotReused",
 		RuleSet:       "resource-cost",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *HttpClientNotReusedRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ImageLoadedAtFullSizeInListRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ImageLoadedAtFullSizeInListRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ImageLoadedAtFullSizeInList",
 		RuleSet:       "resource-cost",
 		Severity:      "info",
@@ -90,8 +90,8 @@ func (r *ImageLoadedAtFullSizeInListRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ImageLoaderNoMemoryCacheRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ImageLoaderNoMemoryCacheRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ImageLoaderNoMemoryCache",
 		RuleSet:       "resource-cost",
 		Severity:      "info",
@@ -102,8 +102,8 @@ func (r *ImageLoaderNoMemoryCacheRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LazyColumnInsideColumnRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LazyColumnInsideColumnRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LazyColumnInsideColumn",
 		RuleSet:       "resource-cost",
 		Severity:      "warning",
@@ -114,8 +114,8 @@ func (r *LazyColumnInsideColumnRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *OkHttpCallExecuteSyncRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *OkHttpCallExecuteSyncRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "OkHttpCallExecuteSync",
 		RuleSet:       "resource-cost",
 		Severity:      "warning",
@@ -126,8 +126,8 @@ func (r *OkHttpCallExecuteSyncRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *OkHttpClientCreatedPerCallRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *OkHttpClientCreatedPerCallRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "OkHttpClientCreatedPerCall",
 		RuleSet:       "resource-cost",
 		Severity:      "warning",
@@ -138,8 +138,8 @@ func (r *OkHttpClientCreatedPerCallRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *PeriodicWorkRequestLessThan15MinRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *PeriodicWorkRequestLessThan15MinRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "PeriodicWorkRequestLessThan15Min",
 		RuleSet:       "resource-cost",
 		Severity:      "warning",
@@ -150,8 +150,8 @@ func (r *PeriodicWorkRequestLessThan15MinRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RecyclerAdapterStableIdsDefaultRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RecyclerAdapterStableIdsDefaultRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RecyclerAdapterStableIdsDefault",
 		RuleSet:       "resource-cost",
 		Severity:      "info",
@@ -162,8 +162,8 @@ func (r *RecyclerAdapterStableIdsDefaultRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RecyclerAdapterWithoutDiffUtilRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RecyclerAdapterWithoutDiffUtilRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RecyclerAdapterWithoutDiffUtil",
 		RuleSet:       "resource-cost",
 		Severity:      "warning",
@@ -174,8 +174,8 @@ func (r *RecyclerAdapterWithoutDiffUtilRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RecyclerViewInLazyColumnRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RecyclerViewInLazyColumnRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RecyclerViewInLazyColumn",
 		RuleSet:       "resource-cost",
 		Severity:      "warning",
@@ -186,8 +186,8 @@ func (r *RecyclerViewInLazyColumnRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RetrofitCreateInHotPathRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RetrofitCreateInHotPathRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RetrofitCreateInHotPath",
 		RuleSet:       "resource-cost",
 		Severity:      "warning",
@@ -198,8 +198,8 @@ func (r *RetrofitCreateInHotPathRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RoomLoadsAllWhereFirstUsedRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RoomLoadsAllWhereFirstUsedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RoomLoadsAllWhereFirstUsed",
 		RuleSet:       "resource-cost",
 		Severity:      "warning",
@@ -210,8 +210,8 @@ func (r *RoomLoadsAllWhereFirstUsedRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WorkManagerNoBackoffRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WorkManagerNoBackoffRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WorkManagerNoBackoff",
 		RuleSet:       "resource-cost",
 		Severity:      "info",
@@ -222,8 +222,8 @@ func (r *WorkManagerNoBackoffRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *WorkManagerUniquePolicyKeepButReplaceIntendedRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *WorkManagerUniquePolicyKeepButReplaceIntendedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "WorkManagerUniquePolicyKeepButReplaceIntended",
 		RuleSet:       "resource-cost",
 		Severity:      "info",

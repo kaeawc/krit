@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AbstractClassCanBeConcreteClassRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AbstractClassCanBeConcreteClassRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AbstractClassCanBeConcreteClass",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *AbstractClassCanBeConcreteClassRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *AbstractClassCanBeInterfaceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AbstractClassCanBeInterfaceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AbstractClassCanBeInterface",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *AbstractClassCanBeInterfaceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ClassOrderingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ClassOrderingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ClassOrdering",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *ClassOrderingRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DataClassContainsFunctionsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DataClassContainsFunctionsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DataClassContainsFunctions",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -51,10 +51,10 @@ func (r *DataClassContainsFunctionsRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "conversionFunctionPrefix",
-				Type:        registry.OptStringList,
+				Type:        v2.OptStringList,
 				Default:     []string(nil),
 				Description: "Prefixes for allowed conversion functions.",
 				Apply: func(target interface{}, value interface{}) {
@@ -65,8 +65,8 @@ func (r *DataClassContainsFunctionsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DataClassShouldBeImmutableRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DataClassShouldBeImmutableRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DataClassShouldBeImmutable",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -77,8 +77,8 @@ func (r *DataClassShouldBeImmutableRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NestedClassesVisibilityRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NestedClassesVisibilityRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NestedClassesVisibility",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -89,8 +89,8 @@ func (r *NestedClassesVisibilityRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ObjectLiteralToLambdaRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ObjectLiteralToLambdaRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ObjectLiteralToLambda",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -101,8 +101,8 @@ func (r *ObjectLiteralToLambdaRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *OptionalAbstractKeywordRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *OptionalAbstractKeywordRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "OptionalAbstractKeyword",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -113,8 +113,8 @@ func (r *OptionalAbstractKeywordRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ProtectedMemberInFinalClassRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ProtectedMemberInFinalClassRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ProtectedMemberInFinalClass",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -125,8 +125,8 @@ func (r *ProtectedMemberInFinalClassRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *SerialVersionUIDInSerializableClassRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *SerialVersionUIDInSerializableClassRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "SerialVersionUIDInSerializableClass",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -137,8 +137,8 @@ func (r *SerialVersionUIDInSerializableClassRule) Meta() registry.RuleDescriptor
 	}
 }
 
-func (r *UtilityClassWithPublicConstructorRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UtilityClassWithPublicConstructorRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UtilityClassWithPublicConstructor",
 		RuleSet:       "style",
 		Severity:      "warning",

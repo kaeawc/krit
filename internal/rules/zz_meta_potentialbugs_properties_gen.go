@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *PropertyUsedBeforeDeclarationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *PropertyUsedBeforeDeclarationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "PropertyUsedBeforeDeclaration",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *PropertyUsedBeforeDeclarationRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnconditionalJumpStatementInLoopRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnconditionalJumpStatementInLoopRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnconditionalJumpStatementInLoop",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *UnconditionalJumpStatementInLoopRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnamedParameterUseRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnamedParameterUseRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnamedParameterUse",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -39,10 +39,10 @@ func (r *UnnamedParameterUseRule) Meta() registry.RuleDescriptor {
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "allowSingleParamUse",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
 				Description: "Allow unnamed use of single parameter.",
 				Apply: func(target interface{}, value interface{}) {
@@ -53,8 +53,8 @@ func (r *UnnamedParameterUseRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnusedUnaryOperatorRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnusedUnaryOperatorRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnusedUnaryOperator",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
@@ -65,8 +65,8 @@ func (r *UnusedUnaryOperatorRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UselessPostfixExpressionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UselessPostfixExpressionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UselessPostfixExpression",
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",

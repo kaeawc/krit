@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AnimatorDurationIgnoresScaleRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AnimatorDurationIgnoresScaleRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AnimatorDurationIgnoresScale",
 		RuleSet:       "a11y",
 		Severity:      "info",
@@ -18,8 +18,8 @@ func (r *AnimatorDurationIgnoresScaleRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeClickableWithoutMinTouchTargetRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeClickableWithoutMinTouchTargetRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeClickableWithoutMinTouchTarget",
 		RuleSet:       "a11y",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *ComposeClickableWithoutMinTouchTargetRule) Meta() registry.RuleDescript
 	}
 }
 
-func (r *ComposeDecorativeImageContentDescriptionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeDecorativeImageContentDescriptionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeDecorativeImageContentDescription",
 		RuleSet:       "a11y",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *ComposeDecorativeImageContentDescriptionRule) Meta() registry.RuleDescr
 	}
 }
 
-func (r *ComposeIconButtonMissingContentDescriptionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeIconButtonMissingContentDescriptionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeIconButtonMissingContentDescription",
 		RuleSet:       "a11y",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *ComposeIconButtonMissingContentDescriptionRule) Meta() registry.RuleDes
 	}
 }
 
-func (r *ComposeRawTextLiteralRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeRawTextLiteralRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeRawTextLiteral",
 		RuleSet:       "a11y",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *ComposeRawTextLiteralRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeSemanticsMissingRoleRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeSemanticsMissingRoleRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeSemanticsMissingRole",
 		RuleSet:       "a11y",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *ComposeSemanticsMissingRoleRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ComposeTextFieldMissingLabelRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ComposeTextFieldMissingLabelRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ComposeTextFieldMissingLabel",
 		RuleSet:       "a11y",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *ComposeTextFieldMissingLabelRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ToastForAccessibilityAnnouncementRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ToastForAccessibilityAnnouncementRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ToastForAccessibilityAnnouncement",
 		RuleSet:       "a11y",
 		Severity:      "warning",

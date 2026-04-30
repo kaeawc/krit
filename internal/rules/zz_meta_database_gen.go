@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *DaoNotInterfaceRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DaoNotInterfaceRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DaoNotInterface",
 		RuleSet:       "database",
 		Severity:      "info",
@@ -18,8 +18,8 @@ func (r *DaoNotInterfaceRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DaoWithoutAnnotationsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DaoWithoutAnnotationsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DaoWithoutAnnotations",
 		RuleSet:       "database",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *DaoWithoutAnnotationsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EntityMutableColumnRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EntityMutableColumnRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EntityMutableColumn",
 		RuleSet:       "database",
 		Severity:      "info",
@@ -42,8 +42,8 @@ func (r *EntityMutableColumnRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DatabaseInstanceRecreatedRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DatabaseInstanceRecreatedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DatabaseInstanceRecreated",
 		RuleSet:       "resource-cost",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *DatabaseInstanceRecreatedRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ForeignKeyWithoutOnDeleteRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ForeignKeyWithoutOnDeleteRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ForeignKeyWithoutOnDelete",
 		RuleSet:       "database",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *ForeignKeyWithoutOnDeleteRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *RoomConflictStrategyReplaceOnFkRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RoomConflictStrategyReplaceOnFkRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RoomConflictStrategyReplaceOnFk",
 		RuleSet:       "database",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *RoomConflictStrategyReplaceOnFkRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *JdbcResultSetLeakedFromFunctionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *JdbcResultSetLeakedFromFunctionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "JdbcResultSetLeakedFromFunction",
 		RuleSet:       "database",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *JdbcResultSetLeakedFromFunctionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *EntityPrimaryKeyNotStableRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *EntityPrimaryKeyNotStableRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "EntityPrimaryKeyNotStable",
 		RuleSet:       "database",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *EntityPrimaryKeyNotStableRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *JdbcPreparedStatementNotClosedRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *JdbcPreparedStatementNotClosedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "JdbcPreparedStatementNotClosed",
 		RuleSet:       "database",
 		Severity:      "warning",

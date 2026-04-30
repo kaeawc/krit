@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *LocaleConfigMissingRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LocaleConfigMissingRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LocaleConfigMissing",
 		RuleSet:       "android-lint",
 		Severity:      "info",

@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *InlinedApiRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *InlinedApiRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "InlinedApi",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *InlinedApiRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *NewApiRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *NewApiRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "NewApi",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -30,8 +30,8 @@ func (r *NewApiRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *OverrideRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *OverrideRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "Override",
 		RuleSet:       "android-lint",
 		Severity:      "error",
@@ -42,8 +42,8 @@ func (r *OverrideRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnusedResourcesRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnusedResourcesRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnusedResources",
 		RuleSet:       "android-lint",
 		Severity:      "warning",

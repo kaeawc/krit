@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *RedundantHigherOrderMapUsageRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *RedundantHigherOrderMapUsageRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "RedundantHigherOrderMapUsage",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *RedundantHigherOrderMapUsageRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryAnyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryAnyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryAny",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *UnnecessaryAnyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryApplyRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryApplyRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryApply",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *UnnecessaryApplyRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryBracesAroundTrailingLambdaRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryBracesAroundTrailingLambdaRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryBracesAroundTrailingLambda",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *UnnecessaryBracesAroundTrailingLambdaRule) Meta() registry.RuleDescript
 	}
 }
 
-func (r *UnnecessaryFilterRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryFilterRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryFilter",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *UnnecessaryFilterRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryFullyQualifiedNameRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryFullyQualifiedNameRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryFullyQualifiedName",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *UnnecessaryFullyQualifiedNameRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryLetRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryLetRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryLet",
 		RuleSet:       "style",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *UnnecessaryLetRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *UnnecessaryReversedRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *UnnecessaryReversedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "UnnecessaryReversed",
 		RuleSet:       "style",
 		Severity:      "warning",

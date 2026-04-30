@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *CopyrightYearOutdatedRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CopyrightYearOutdatedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CopyrightYearOutdated",
 		RuleSet:       "licensing",
 		Severity:      "info",
@@ -18,21 +18,21 @@ func (r *CopyrightYearOutdatedRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *DependencyLicenseUnknownRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *DependencyLicenseUnknownRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "DependencyLicenseUnknown",
 		RuleSet:       "licensing",
 		Severity:      "info",
-		Description:   "Detects external dependencies not present in the embedded license registry.",
+		Description:   "Detects external dependencies not present in the embedded license v2.",
 		DefaultActive: false,
 		FixLevel:      "",
 		Confidence:    0.75,
-		Options: []registry.ConfigOption{
+		Options: []v2.ConfigOption{
 			{
 				Name:        "requireVerification",
-				Type:        registry.OptBool,
+				Type:        v2.OptBool,
 				Default:     false,
-				Description: "Require external dependencies to exist in the embedded license registry.",
+				Description: "Require external dependencies to exist in the embedded license v2.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*DependencyLicenseUnknownRule).RequireVerification = value.(bool)
 				},
@@ -41,8 +41,8 @@ func (r *DependencyLicenseUnknownRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *MissingSpdxIdentifierRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *MissingSpdxIdentifierRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "MissingSpdxIdentifier",
 		RuleSet:       "licensing",
 		Severity:      "info",

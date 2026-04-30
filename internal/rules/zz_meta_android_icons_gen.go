@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *ConvertToWebpRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ConvertToWebpRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ConvertToWebp",
 		RuleSet:       "android-lint",
 		Severity:      "informational",
@@ -18,8 +18,8 @@ func (r *ConvertToWebpRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *GifUsageRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *GifUsageRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "GifUsage",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *GifUsageRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IconDensitiesRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IconDensitiesRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IconDensities",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *IconDensitiesRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IconDipSizeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IconDipSizeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IconDipSize",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *IconDipSizeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IconDuplicatesConfigRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IconDuplicatesConfigRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IconDuplicatesConfig",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *IconDuplicatesConfigRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IconDuplicatesRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IconDuplicatesRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IconDuplicates",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -78,8 +78,8 @@ func (r *IconDuplicatesRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IconExpectedSizeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IconExpectedSizeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IconExpectedSize",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -90,8 +90,8 @@ func (r *IconExpectedSizeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IconExtensionRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IconExtensionRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IconExtension",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -102,8 +102,8 @@ func (r *IconExtensionRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IconLocationRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IconLocationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IconLocation",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -114,8 +114,8 @@ func (r *IconLocationRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IconMixedNinePatchRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IconMixedNinePatchRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IconMixedNinePatch",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -126,8 +126,8 @@ func (r *IconMixedNinePatchRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IconMissingDensityFolderRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IconMissingDensityFolderRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IconMissingDensityFolder",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -138,8 +138,8 @@ func (r *IconMissingDensityFolderRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IconColorsRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IconColorsRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IconColors",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -150,8 +150,8 @@ func (r *IconColorsRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IconLauncherShapeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IconLauncherShapeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IconLauncherShape",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -162,8 +162,8 @@ func (r *IconLauncherShapeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IconXmlAndPngRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IconXmlAndPngRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IconXmlAndPng",
 		RuleSet:       "android-lint",
 		Severity:      "warning",
@@ -174,8 +174,8 @@ func (r *IconXmlAndPngRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *IconNoDpiRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *IconNoDpiRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "IconNoDpi",
 		RuleSet:       "android-lint",
 		Severity:      "warning",

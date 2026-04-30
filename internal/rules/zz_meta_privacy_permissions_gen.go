@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AdMobInitializedBeforeConsentRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AdMobInitializedBeforeConsentRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AdMobInitializedBeforeConsent",
 		RuleSet:       "privacy",
 		Severity:      "warning",
@@ -18,8 +18,8 @@ func (r *AdMobInitializedBeforeConsentRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *BiometricAuthNotFallingBackToDeviceCredentialRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *BiometricAuthNotFallingBackToDeviceCredentialRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "BiometricAuthNotFallingBackToDeviceCredential",
 		RuleSet:       "privacy",
 		Severity:      "info",
@@ -30,8 +30,8 @@ func (r *BiometricAuthNotFallingBackToDeviceCredentialRule) Meta() registry.Rule
 	}
 }
 
-func (r *ClipboardOnSensitiveInputTypeRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ClipboardOnSensitiveInputTypeRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ClipboardOnSensitiveInputType",
 		RuleSet:       "privacy",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *ClipboardOnSensitiveInputTypeRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *ContactsAccessWithoutPermissionUiRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ContactsAccessWithoutPermissionUiRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ContactsAccessWithoutPermissionUi",
 		RuleSet:       "privacy",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *ContactsAccessWithoutPermissionUiRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *LocationBackgroundWithoutRationaleRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *LocationBackgroundWithoutRationaleRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "LocationBackgroundWithoutRationale",
 		RuleSet:       "privacy",
 		Severity:      "warning",
@@ -66,8 +66,8 @@ func (r *LocationBackgroundWithoutRationaleRule) Meta() registry.RuleDescriptor 
 	}
 }
 
-func (r *ScreenshotNotBlockedOnLoginScreenRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *ScreenshotNotBlockedOnLoginScreenRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "ScreenshotNotBlockedOnLoginScreen",
 		RuleSet:       "privacy",
 		Severity:      "warning",

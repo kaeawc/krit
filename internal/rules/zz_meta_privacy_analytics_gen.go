@@ -3,11 +3,11 @@
 package rules
 
 import (
-	"github.com/kaeawc/krit/internal/rules/registry"
+	"github.com/kaeawc/krit/internal/rules/v2"
 )
 
-func (r *AnalyticsCallWithoutConsentGateRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AnalyticsCallWithoutConsentGateRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AnalyticsCallWithoutConsentGate",
 		RuleSet:       "privacy",
 		Severity:      "info",
@@ -18,8 +18,8 @@ func (r *AnalyticsCallWithoutConsentGateRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *AnalyticsEventWithPiiParamNameRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AnalyticsEventWithPiiParamNameRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AnalyticsEventWithPiiParamName",
 		RuleSet:       "privacy",
 		Severity:      "warning",
@@ -30,8 +30,8 @@ func (r *AnalyticsEventWithPiiParamNameRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *AnalyticsUserIdFromPiiRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *AnalyticsUserIdFromPiiRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "AnalyticsUserIdFromPii",
 		RuleSet:       "privacy",
 		Severity:      "warning",
@@ -42,8 +42,8 @@ func (r *AnalyticsUserIdFromPiiRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *CrashlyticsCustomKeyWithPiiRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *CrashlyticsCustomKeyWithPiiRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "CrashlyticsCustomKeyWithPii",
 		RuleSet:       "privacy",
 		Severity:      "warning",
@@ -54,8 +54,8 @@ func (r *CrashlyticsCustomKeyWithPiiRule) Meta() registry.RuleDescriptor {
 	}
 }
 
-func (r *FirebaseRemoteConfigDefaultsWithPiiRule) Meta() registry.RuleDescriptor {
-	return registry.RuleDescriptor{
+func (r *FirebaseRemoteConfigDefaultsWithPiiRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
 		ID:            "FirebaseRemoteConfigDefaultsWithPii",
 		RuleSet:       "privacy",
 		Severity:      "info",

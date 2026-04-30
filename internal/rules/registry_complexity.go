@@ -402,7 +402,7 @@ func registerComplexityRules() {
 		})
 	}
 	{
-		r := &StringLiteralDuplicationRule{BaseRule: BaseRule{RuleName: "StringLiteralDuplication", RuleSetName: "complexity", Sev: "warning", Desc: "Detects string literals that appear more than a configurable number of times in a file."}, AllowedDuplications: 2}
+		r := &StringLiteralDuplicationRule{BaseRule: BaseRule{RuleName: "StringLiteralDuplication", RuleSetName: "complexity", Sev: "warning", Desc: "Detects string literals that appear more than a configurable number of times in a file."}, AllowedDuplications: 2, AllowedWithLengthLessThan: 5}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"source_file"}, Confidence: 0.75, Implementation: r,
@@ -418,14 +418,20 @@ func registerComplexityRules() {
 						ignoreRe = compiled
 					}
 				}
+				// Content-length floor: skip literals whose unquoted content
+				// is shorter than AllowedWithLengthLessThan. Default 5 mirrors
+				// detekt's `excludeStringsWithLessThan5Characters` (always-on)
+				// cutoff. AllowedWithLengthLessThan <= 0 disables the floor.
+				minContentLen := r.AllowedWithLengthLessThan
 				counts := make(map[string]int)
 				firstLine := make(map[string]int)
 				file.FlatWalkNodes(idx, "string_literal", func(strNode uint32) {
 					text := file.FlatNodeText(strNode)
-					if len(text) <= 3 {
+					content := stringLiteralUnquote(text)
+					if minContentLen > 0 && len(content) < minContentLen {
 						return
 					}
-					if ignoreRe != nil && ignoreRe.MatchString(stringLiteralUnquote(text)) {
+					if ignoreRe != nil && ignoreRe.MatchString(content) {
 						return
 					}
 					counts[text]++

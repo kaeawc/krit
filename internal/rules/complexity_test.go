@@ -969,6 +969,72 @@ fun example() {
 	}
 }
 
+func TestStringLiteralDuplication_HonorsAllowedWithLengthLessThan(t *testing.T) {
+	// AllowedWithLengthLessThan was previously a dead config (the check
+	// hardcoded a `len(text) <= 3` skip on the quoted text). With the
+	// detekt-aligned default of 5, short literals are excluded by content
+	// length and don't contribute to the duplication count.
+	codeShort := `package test
+fun example() {
+    val a = "x"
+    val b = "x"
+    val c = "x"
+    val d = "x"
+}
+`
+	if findings := runRuleByName(t, "StringLiteralDuplication", codeShort); len(findings) != 0 {
+		t.Fatalf("expected no findings for short '\"x\"' literals, got %d", len(findings))
+	}
+
+	// Right at the boundary: "abcd" content length 4 — under default of 5,
+	// should still be ignored.
+	codeBoundary := `package test
+fun example() {
+    val a = "abcd"
+    val b = "abcd"
+    val c = "abcd"
+}
+`
+	if findings := runRuleByName(t, "StringLiteralDuplication", codeBoundary); len(findings) != 0 {
+		t.Fatalf("expected no findings for 4-char literals under default threshold, got %d", len(findings))
+	}
+
+	// One past the boundary: "abcde" content length 5 — counted.
+	codeFlagged := `package test
+fun example() {
+    val a = "abcde"
+    val b = "abcde"
+    val c = "abcde"
+}
+`
+	if findings := runRuleByName(t, "StringLiteralDuplication", codeFlagged); len(findings) == 0 {
+		t.Fatal("expected finding for 5-char literal repeated above threshold")
+	}
+
+	// Configured smaller cutoff — short literals now count.
+	var rule *rules.StringLiteralDuplicationRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "StringLiteralDuplication" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.StringLiteralDuplicationRule)
+			if !ok {
+				t.Fatalf("expected StringLiteralDuplicationRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("StringLiteralDuplication rule not registered")
+	}
+	original := rule.AllowedWithLengthLessThan
+	defer func() { rule.AllowedWithLengthLessThan = original }()
+	rule.AllowedWithLengthLessThan = 0
+
+	if findings := runRuleByName(t, "StringLiteralDuplication", codeShort); len(findings) == 0 {
+		t.Fatal("expected finding for short literals when allowedWithLengthLessThan disabled")
+	}
+}
+
 func TestStringLiteralDuplication_HonorsIgnoreStringsRegex(t *testing.T) {
 	// IgnoreStringsRegex was previously a dead config. Configure it via the
 	// rule pointer and verify that string literals matching the regex are

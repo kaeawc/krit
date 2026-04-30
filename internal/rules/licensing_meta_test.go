@@ -8,10 +8,10 @@ import (
 	"github.com/kaeawc/krit/internal/rules/registry"
 )
 
-// Phase 2C of the CodegenRegistry migration: validate that the Meta()
+// config descriptor registry: validate that the Meta()
 // descriptors on the three licensing rules produce the SAME observable
-// effect as the legacy switch in config.go#applyRuleConfig. These tests
-// prove the registry contract against real rule structs — the legacy path
+// effect as the config adapter in config.go#applyRuleConfig. These tests
+// prove the registry contract against real rule structs — the config adapter path
 // is deliberately kept; only Meta() is added.
 
 // newCopyrightYearOutdatedRule returns a freshly constructed rule with the
@@ -148,7 +148,7 @@ func TestLicensing_Meta_RegistryApply(t *testing.T) {
 }
 
 // licensingParityCase drives the parity test: the same YAML-equivalent
-// configuration is applied via both the legacy switch (rules.ApplyConfig
+// configuration is applied via both the config adapter (rules.ApplyConfig
 // with a *config.Config) and the new registry (registry.ApplyConfig with a
 // FakeConfigSource). We assert the observable rule state is identical.
 type licensingParityCase struct {
@@ -169,7 +169,7 @@ type licensingParityCase struct {
 
 func boolPtr(b bool) *bool { return &b }
 
-// TestLicensing_Parity_DependencyLicenseUnknown verifies legacy vs
+// TestLicensing_Parity_DependencyLicenseUnknown verifies adapter vs
 // registry application produce the same rule state for the single rule
 // with configurable options.
 func TestLicensing_Parity_DependencyLicenseUnknown(t *testing.T) {
@@ -210,8 +210,8 @@ func TestLicensing_Parity_DependencyLicenseUnknown(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			// --- legacy path -----------------------------------------
-			// The legacy code path mutates the global DefaultInactive
+			// --- config adapter path -----------------------------------------
+			// The config adapter path mutates the global DefaultInactive
 			// map. Snapshot and restore so parallel/subsequent tests
 			// aren't affected.
 			prevActive, prevHad := DefaultInactive["DependencyLicenseUnknown"]
@@ -225,12 +225,12 @@ func TestLicensing_Parity_DependencyLicenseUnknown(t *testing.T) {
 			// Start from the declared default.
 			DefaultInactive["DependencyLicenseUnknown"] = true
 
-			legacyRule := newDependencyLicenseUnknownRule()
-			legacyCfg := buildLegacyConfig(tc)
-			// We invoke the legacy switch directly to target only our
+			configRule := newDependencyLicenseUnknownRule()
+			configCfg := buildConfigAdapterConfig(tc)
+			// We invoke the config adapter directly to target only our
 			// rule, bypassing the Registry walk (which would try to
 			// apply to other rules too).
-			legacyActive := applyLegacyLicensing(legacyRule, legacyCfg)
+			configActive := applyConfigAdapterLicensing(configRule, configCfg)
 
 			// --- registry path ---------------------------------------
 			registryRule := newDependencyLicenseUnknownRule()
@@ -238,27 +238,27 @@ func TestLicensing_Parity_DependencyLicenseUnknown(t *testing.T) {
 			registryActive := registry.ApplyConfig(registryRule, registryRule.Meta(), registryCfg)
 
 			// --- compare ---------------------------------------------
-			if legacyActive != registryActive {
-				t.Errorf("active mismatch: legacy=%v, registry=%v", legacyActive, registryActive)
+			if configActive != registryActive {
+				t.Errorf("active mismatch: config=%v, registry=%v", configActive, registryActive)
 			}
-			if !reflect.DeepEqual(legacyRule, registryRule) {
-				t.Errorf("rule state mismatch:\n  legacy:   %+v\n  registry: %+v", legacyRule, registryRule)
+			if !reflect.DeepEqual(configRule, registryRule) {
+				t.Errorf("rule state mismatch:\n  config:   %+v\n  registry: %+v", configRule, registryRule)
 			}
 		})
 	}
 }
 
-// applyLegacyLicensing drives the existing rules.ApplyConfig semantics for
+// applyConfigAdapterLicensing drives the existing rules.ApplyConfig semantics for
 // the single DependencyLicenseUnknown rule. This mirrors the logic in
 // config.go#ApplyConfig (ruleset gate → rule-level active → option apply)
 // so the parity test can target one rule in isolation without mutating
 // state for every other rule in the Registry.
-func applyLegacyLicensing(rule *DependencyLicenseUnknownRule, cfg *config.Config) bool {
+func applyConfigAdapterLicensing(rule *DependencyLicenseUnknownRule, cfg *config.Config) bool {
 	ruleSet := licensingRuleSet
 	ruleName := "DependencyLicenseUnknown"
 
 	if rsActive := cfg.IsRuleSetActive(ruleSet); rsActive != nil && !*rsActive {
-		// Legacy marks the rule as inactive and skips option apply.
+		// Config adapter marks the rule as inactive and skips option apply.
 		DefaultInactive[ruleName] = true
 		return false
 	}
@@ -276,19 +276,19 @@ func applyLegacyLicensing(rule *DependencyLicenseUnknownRule, cfg *config.Config
 		}
 	}
 
-	// Apply option overrides (same call the legacy switch makes).
+	// Apply option overrides (same call the config adapter makes).
 	rule.RequireVerification = cfg.GetBool(ruleSet, ruleName, "requireVerification", rule.RequireVerification)
 
 	return active
 }
 
-// buildLegacyConfig builds a *config.Config matching the test case.
+// buildConfigAdapterConfig builds a *config.Config matching the test case.
 //
 // config.Config has no public helper for writing the ruleset-level
 // "active" key (Set() always nests under ruleSet → rule → key), so we
 // prime the structure via Set() and then rewrite the ruleset map to
 // install the flag where IsRuleSetActive expects it.
-func buildLegacyConfig(tc licensingParityCase) *config.Config {
+func buildConfigAdapterConfig(tc licensingParityCase) *config.Config {
 	cfg := config.NewConfig()
 	if tc.ruleActive != nil {
 		cfg.Set(licensingRuleSet, "DependencyLicenseUnknown", "active", *tc.ruleActive)
@@ -369,13 +369,13 @@ func TestLicensing_Parity_NoOptionRules(t *testing.T) {
 					})
 					DefaultInactive[rr.id] = true
 
-					// Build legacy config.
-					legacyCfg := config.NewConfig()
+					// Build config adapter config.
+					configCfg := config.NewConfig()
 					if tc.ruleActive != nil {
-						legacyCfg.Set(licensingRuleSet, rr.id, "active", *tc.ruleActive)
+						configCfg.Set(licensingRuleSet, rr.id, "active", *tc.ruleActive)
 					}
 					if tc.ruleSetActive != nil {
-						data := legacyCfg.Data()
+						data := configCfg.Data()
 						rsMap, ok := data[licensingRuleSet].(map[string]interface{})
 						if !ok {
 							rsMap = make(map[string]interface{})
@@ -383,7 +383,7 @@ func TestLicensing_Parity_NoOptionRules(t *testing.T) {
 						}
 						rsMap["active"] = *tc.ruleSetActive
 					}
-					legacyActive := legacyNoOptionActive(rr.id, legacyCfg)
+					configActive := configAdapterNoOptionActive(rr.id, configCfg)
 
 					// Build registry config.
 					regCfg := registry.NewFakeConfigSource()
@@ -400,8 +400,8 @@ func TestLicensing_Parity_NoOptionRules(t *testing.T) {
 					}
 					registryActive := registry.ApplyConfig(ruleInstance, ruleInstance.(metaProvider).Meta(), regCfg)
 
-					if legacyActive != registryActive {
-						t.Errorf("active mismatch for %s case %q: legacy=%v, registry=%v", rr.id, tc.name, legacyActive, registryActive)
+					if configActive != registryActive {
+						t.Errorf("active mismatch for %s case %q: config=%v, registry=%v", rr.id, tc.name, configActive, registryActive)
 					}
 				})
 			}
@@ -409,9 +409,9 @@ func TestLicensing_Parity_NoOptionRules(t *testing.T) {
 	}
 }
 
-// legacyNoOptionActive reproduces the legacy active-state logic for a
+// configAdapterNoOptionActive reproduces the config adapter active-state logic for a
 // rule with no options.
-func legacyNoOptionActive(ruleName string, cfg *config.Config) bool {
+func configAdapterNoOptionActive(ruleName string, cfg *config.Config) bool {
 	if rsActive := cfg.IsRuleSetActive(licensingRuleSet); rsActive != nil && !*rsActive {
 		DefaultInactive[ruleName] = true
 		return false

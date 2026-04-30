@@ -1,15 +1,9 @@
 package rules
 
 // v2dispatcher.go provides V2Dispatcher — a rule dispatcher that
-// operates directly on *v2.Rule values instead of the six v1 interface
-// families (flat-dispatch rule, line rule, aggregate rule, cross-file rule,
-// module-aware rule, legacy Rule). The public API intentionally mirrors
-// the v1 Dispatcher so it can be swapped in at call sites (main.go,
-// LSP, MCP) without rewriting pipeline code.
-//
-// This file is purely additive — the existing v1 Dispatcher in
-// dispatch.go is left untouched so comparison tests can exercise both
-// side-by-side.
+// operates directly on *v2.Rule values. The public API mirrors the
+// higher-level Dispatcher wrapper used by main.go, LSP, MCP, and the
+// pipeline.
 
 import (
 	"context"
@@ -56,7 +50,7 @@ func runWithRuleProfileLabel(ruleID, family string, fn func()) {
 // V2Dispatcher runs per-file rule execution directly against v2.Rule
 // values. It classifies rules once in the constructor and keeps them
 // in parallel slices indexed by FlatNode.Type for O(1) node dispatch,
-// matching the v1 Dispatcher's flat-type index strategy.
+// using the scanner's flat-type index.
 //
 // Cross-file and module-aware rules are stored but NOT invoked inside
 // Run — they require indexes that are only available once all files
@@ -158,8 +152,7 @@ func NewV2Dispatcher(rules []*v2.Rule, resolver ...typeinfer.TypeResolver) *V2Di
 			d.nodeDispatchRules = append(d.nodeDispatchRules, r)
 		case r.NodeTypes == nil:
 			// nil NodeTypes + no other flag → treat as a "receive every
-			// node" rule. This matches v1 flat-dispatch rule semantics
-			// where NodeTypes()==nil means "all nodes".
+			// node" rule. This is the explicit v2 all-node dispatch shape.
 			d.allNodeRules = append(d.allNodeRules, r)
 		}
 	}
@@ -177,7 +170,7 @@ func NewV2Dispatcher(rules []*v2.Rule, resolver ...typeinfer.TypeResolver) *V2Di
 		}
 		// Placement into flatTypeRules happens inside buildFlatTypeIndex so
 		// resizing NodeTypeTable (lazy intern of node types) is handled
-		// uniformly with the v1 Dispatcher.
+		// uniformly.
 	}
 
 	d.buildFlatTypeIndex(rules)
@@ -263,9 +256,8 @@ func rulesNeedsIcons(r *v2.Rule) bool {
 	return r != nil && AndroidDataDependency(r.AndroidDeps)&AndroidDepIcons != 0
 }
 
-// ensureFlatTypeIndex returns the flat-type rule index, rebuilding it
-// if NodeTypeTable has grown since the last build. This mirrors the
-// behavior of the v1 dispatcher's ensureFlatTypeIndex.
+// ensureFlatTypeIndex returns the flat-type rule index, rebuilding it if
+// NodeTypeTable has grown since the last build.
 func (d *V2Dispatcher) ensureFlatTypeIndex(rules []*v2.Rule) [][]*v2.Rule {
 	d.mu.RLock()
 	idx := d.flatTypeRules
@@ -287,7 +279,7 @@ func (d *V2Dispatcher) ensureFlatTypeIndex(rules []*v2.Rule) [][]*v2.Rule {
 }
 
 // Run executes all per-file rules and returns findings in columnar form.
-// Rule panics are logged to stderr, matching v1 Dispatcher.Run behavior.
+// Rule panics are logged to stderr.
 func (d *V2Dispatcher) Run(file *scanner.File) scanner.FindingColumns {
 	columns, stats := d.RunColumnsWithStats(file)
 	for _, e := range stats.Errors {
@@ -541,9 +533,8 @@ func allRuleExcludes() map[string][]string {
 }
 
 // buildExcludedSet returns rule IDs that should be skipped for filePath
-// based on YAML "excludes" glob patterns. Lookup is performed via the
-// v1 GetRuleExcludes helper so the exclusion config remains a single
-// source of truth across both dispatchers.
+// based on YAML "excludes" glob patterns. Lookup is performed through the
+// package-level exclusion map so config remains a single source of truth.
 func (d *V2Dispatcher) buildExcludedSet(filePath string) map[string]bool {
 	excluded := make(map[string]bool)
 	check := func(r *v2.Rule) {
@@ -623,12 +614,11 @@ func (d *V2Dispatcher) collectAllRules() []*v2.Rule {
 	return out
 }
 
-// Stats returns the same count tuple as v1 Dispatcher.Stats, so
-// downstream loggers can consume either dispatcher without branching.
+// Stats returns per-family rule counts for logging.
 // The "aggregate" count is always 0 because v2 has no separate
 // aggregate family — rules that need whole-file state use
 // NeedsParsedFiles or simply aggregate inside a per-file closure.
-func (d *V2Dispatcher) Stats() (dispatched, aggregate, lineRules, crossFile, moduleAware, legacy int) {
+func (d *V2Dispatcher) Stats() (dispatched, aggregate, lineRules, crossFile, moduleAware int) {
 	seen := make(map[*v2.Rule]bool)
 	for _, bucket := range d.flatTypeRules {
 		for _, r := range bucket {
@@ -639,7 +629,7 @@ func (d *V2Dispatcher) Stats() (dispatched, aggregate, lineRules, crossFile, mod
 		}
 	}
 	dispatched += len(d.allNodeRules)
-	return dispatched, 0, len(d.lineRules), len(d.crossFileRules), len(d.moduleAwareRules), 0
+	return dispatched, 0, len(d.lineRules), len(d.crossFileRules), len(d.moduleAwareRules)
 }
 
 // ReportMissingCapabilities emits one diagnostic line per rule whose

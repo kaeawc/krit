@@ -14,7 +14,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &OverrideAbstractRule{AndroidRule: alcRule("OverrideAbstract", "Missing abstract method overrides", ALSError, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.9, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// The class must itself be concrete. `abstract class Foo : Service`
@@ -54,7 +54,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &ParcelCreatorRule{AndroidRule: alcRule("ParcelCreator", "Missing Parcelable CREATOR field", ALSError, 3)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.9, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !classHasSupertypeNamed(file, idx, "Parcelable") {
@@ -74,7 +74,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &SwitchIntDefRule{AndroidRule: alcRule("SwitchIntDef", "Missing @IntDef constants in switch", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"when_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"when_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Check if the when subject contains a "visibility" identifier.
@@ -135,7 +135,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &TextViewEditsRule{AndroidRule: alcRule("TextViewEdits", "Calling setText on an EditText", ALSWarning, 5)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "setText" {
@@ -167,7 +167,7 @@ func registerAndroidCorrectnessChecksRules() {
 			// Checks whether the cast target is assignable to the receiver view type;
 			// needs the class hierarchy but not member signatures.
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
-			Confidence:             r.Confidence(), OriginalV1: r,
+			Confidence:             r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -175,7 +175,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &DeprecatedRule{AndroidRule: alcRule("Deprecated", "Using deprecated API", ALSWarning, 2)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"type_identifier", "simple_identifier"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"type_identifier", "simple_identifier"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if _, inImport := flatEnclosingAncestor(file, idx, "import_header"); inImport {
@@ -195,7 +195,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &RangeRule{AndroidRule: alcRule("Range", "Outside allowed range", ALSError, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: r.Confidence(), Implementation: r,
 			Oracle:            &v2.OracleFilter{Identifiers: []string{"IntRange", "FloatRange", "Color", "setAlpha", "setProgress", "setRotation"}},
 			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"argb", "rgb", "setAlpha", "setProgress", "setRotation"}},
 			// Uses LookupCallTarget to verify the method is a framework target;
@@ -208,7 +208,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &ResourceTypeRule{AndroidRule: alcRule("ResourceType", "Wrong resource type", ALSError, 7)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -250,7 +250,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &ResourceAsColorRule{AndroidRule: alcRule("ResourceAsColor", "Should pass resolved color instead of resource id", ALSError, 7)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -290,7 +290,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &SupportAnnotationUsageRule{AndroidRule: alcRule("SupportAnnotationUsage", "Incorrect support annotation usage", ALSError, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Require @MainThread annotation in the preceding sibling (modifiers block).
@@ -312,7 +312,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &AccidentalOctalRule{AndroidRule: alcRule("AccidentalOctal", "Accidental octal interpretation", ALSWarning, 5)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"integer_literal"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"integer_literal"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -334,7 +334,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &AppCompatMethodRule{AndroidRule: alcRule("AppCompatMethod", "Using Wrong AppCompat Method", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -349,7 +349,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &CustomViewStyleableRule{AndroidRule: alcRule("CustomViewStyleable", "Mismatched Styleable/Custom View Name", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "obtainStyledAttributes" {
@@ -386,7 +386,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &InnerclassSeparatorRule{AndroidRule: alcRule("InnerclassSeparator", "Inner classes should use '$' not '/'", ALSWarning, 3)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "forName" {
@@ -424,7 +424,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &ObjectAnimatorBindingRule{AndroidRule: alcRule("ObjectAnimatorBinding", "Incorrect ObjectAnimator Property", ALSError, 4)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: r.Confidence(), Implementation: r,
 			Oracle: &v2.OracleFilter{Identifiers: []string{"ObjectAnimator", "ofFloat", "ofInt", "ofObject"}},
 			OracleCallTargets: &v2.OracleCallTargetFilter{TargetFQNs: []string{
 				"android.animation.ObjectAnimator.ofFloat",
@@ -443,7 +443,7 @@ func registerAndroidCorrectnessChecksRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			Needs:       v2.NeedsResources | v2.NeedsParsedFiles,
 			AndroidDeps: uint32(AndroidDepLayout),
-			Confidence:  r.Confidence(), OriginalV1: r,
+			Confidence:  r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -451,7 +451,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &PropertyEscapeRule{AndroidRule: alcRule("PropertyEscape", "Invalid property file escapes", ALSError, 5)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal", "line_string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"string_literal", "line_string_literal"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatType(idx) != "string_literal" {
@@ -495,7 +495,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &ShortAlarmRule{AndroidRule: alcRule("ShortAlarm", "Short or frequent alarm", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -534,7 +534,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &LocalSuppressRule{AndroidRule: alcRule("LocalSuppress", "@SuppressLint misuse", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"annotation"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"annotation"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Tree-sitter-kotlin nests the annotation name + args under
@@ -600,7 +600,7 @@ func registerAndroidCorrectnessChecksRules() {
 		r := &PluralsCandidateRule{AndroidRule: alcRule("PluralsCandidate", "Potential plurals", ALSWarning, 5)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"if_expression", "when_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"if_expression", "when_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				nodeType := file.FlatType(idx)

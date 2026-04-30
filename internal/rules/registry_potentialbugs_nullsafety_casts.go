@@ -31,7 +31,7 @@ func registerPotentialbugsNullsafetyCastsRules() {
 			// types for the conservative local fallback; no declarations traversal
 			// needed.
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
-			OriginalV1:             r,
+			Implementation:         r,
 			Check:                  r.check,
 		})
 	}
@@ -40,17 +40,17 @@ func registerPotentialbugsNullsafetyCastsRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic,
-			Needs:      v2.NeedsResolver,
-			TypeInfo:   v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true},
-			OriginalV1: r,
-			Check:      r.check,
+			Needs:          v2.NeedsResolver,
+			TypeInfo:       v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true},
+			Implementation: r,
+			Check:          r.check,
 		})
 	}
 	{
 		r := &CastToNullableTypeRule{BaseRule: BaseRule{RuleName: "CastToNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects casts to nullable types like 'as Type?' which always succeed and may hide bugs."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Check: r.check,
 		})
 	}

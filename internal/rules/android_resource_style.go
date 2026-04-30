@@ -784,9 +784,6 @@ func (r *AlwaysShowActionResourceRule) check(ctx *v2.Context) {
 // StateListReachableResourceRule detects unreachable items in selector
 // drawables. A non-last <item> with no state attributes (android:state_*)
 // catches all states, making subsequent items unreachable.
-//
-// Stub: full implementation requires drawable XML parsing to inspect
-// <selector> child items and their android:state_* attributes.
 type StateListReachableResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
@@ -797,10 +794,30 @@ type StateListReachableResourceRule struct {
 // XML. Classified per roadmap/17.
 func (r *StateListReachableResourceRule) Confidence() float64 { return 0.75 }
 
-func (r *StateListReachableResourceRule) check(_ *v2.Context) {
-	// Drawable XML parsing is not yet available in ResourceIndex.
-	// This is a placeholder that returns no findings until drawable XML
-	// parsing support is added.
+func (r *StateListReachableResourceRule) check(ctx *v2.Context) {
+	idx := ctx.ResourceIndex
+	if idx == nil {
+		return
+	}
+	for _, items := range idx.DrawableSelectors {
+		for i, item := range items {
+			if i == len(items)-1 {
+				continue
+			}
+			if len(item.StateAttrs) == 0 {
+				ctx.Emit(scanner.Finding{
+					File:       item.FilePath,
+					Line:       item.Line,
+					Col:        1,
+					RuleSet:    r.RuleSetName,
+					Rule:       r.RuleName,
+					Severity:   r.Sev,
+					Message:    "Selector item without state attributes catches all states; subsequent items are unreachable.",
+					Confidence: r.Confidence(),
+				})
+			}
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------

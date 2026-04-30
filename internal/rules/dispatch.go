@@ -32,7 +32,6 @@ type RunStats struct {
 	AggregateCollectNs   int64
 	AggregateFinalizeMs  int64
 	LineRuleMs           int64
-	LegacyRuleMs         int64
 	SuppressionFilterMs  int64
 	DispatchRuleNsByRule map[string]int64
 	RuleStatsByRule      map[string]RuleExecutionStat
@@ -152,7 +151,7 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 }
 
 // Stats returns counts for logging.
-func (d *Dispatcher) Stats() (dispatched, aggregate, lineRules, crossFile, moduleAware, legacy int) {
+func (d *Dispatcher) Stats() (dispatched, aggregate, lineRules, crossFile, moduleAware int) {
 	return d.v2.Stats()
 }
 

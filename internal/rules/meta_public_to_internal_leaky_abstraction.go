@@ -5,11 +5,10 @@ package rules
 //
 // Why hand-written:
 //   The YAML option thresholdPercent is an int percent (0-100) but the
-//   rule's Threshold field is a float64 fraction (0.0-1.0). The legacy
-//   switch in config.go:625-629 performs the transform
-//   `rule.Threshold = float64(pct) / 100.0` and only applies it when
-//   `pct > 0`. That conditional + transform cannot be expressed by a
-//   plain ConfigOption without hand-authoring the Apply closure.
+//   rule's Threshold field is a float64 fraction (0.0-1.0). The descriptor
+//   applies `rule.Threshold = float64(pct) / 100.0` only when `pct > 0`.
+//   That conditional + transform cannot be expressed by a plain ConfigOption
+//   without hand-authoring the Apply closure.
 
 import "github.com/kaeawc/krit/internal/rules/registry"
 

@@ -14,16 +14,15 @@ import (
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
-// Phase 3B of the CodegenRegistry migration: prove that the generated
-// Meta() descriptors (fed through registry.ApplyConfig) produce behaviorally
-// identical rule state to the legacy 631-line applyRuleConfig switch for
-// every rule that has a Meta() method.
+// Config descriptor registry: prove that Meta() descriptors produce the same
+// rule state whether config values come from the production config adapter or
+// the registry test source.
 //
 // The harness in this file runs a matrix of YAML-equivalent configurations
-// against every migrated rule, applies both paths to isolated rule clones,
+// against every described rule, applies both paths to isolated rule clones,
 // and asserts the resulting rule struct + active flag are deep-equal. A
-// divergence here is the signal that phase 3C (deletion of applyRuleConfig)
-// is not yet safe for the affected rule.
+// divergence here is the signal that the production adapter and descriptor
+// source disagree on config coercion or option precedence.
 //
 // Matrix (per rule):
 //
@@ -31,7 +30,7 @@ import (
 //	2.  rule explicitly disabled (active: false)
 //	3.  rule explicitly enabled (active: true)
 //	4.  ruleset disabled — options present but must not apply
-//	5.  ruleset disabled + rule enable — ruleset wins (legacy semantics)
+//	5.  ruleset disabled + rule enable — ruleset wins (config adapter semantics)
 //	6.  each option set to a non-default value (one case per option)
 //	7.  alias-keyed option — set only the alias
 //	8.  both primary and alias set — primary wins
@@ -47,8 +46,8 @@ import (
 // Registry, filters to rules with Meta() (where Meta().ID matches the
 // registered name), and runs the matrix against each.
 func TestConfigParity(t *testing.T) {
-	// Collect the migrated-rule set.
-	migrated := collectMigratedRules(t)
+	// Collect the described-rule set.
+	described := collectAppliedRules(t)
 
 	// Per-rule result buckets.
 	var (
@@ -57,7 +56,7 @@ func TestConfigParity(t *testing.T) {
 		skips    []string
 	)
 
-	for _, m := range migrated {
+	for _, m := range described {
 		m := m
 		// Use sub-tests so diagnostic output names the offending rule.
 		t.Run(m.name, func(t *testing.T) {
@@ -74,8 +73,8 @@ func TestConfigParity(t *testing.T) {
 	}
 
 	// Summary row for the human reading -v output.
-	t.Logf("parity summary: %d migrated rules, %d passes, %d failures, %d skips",
-		len(migrated), len(passes), len(failures), len(skips))
+	t.Logf("parity summary: %d described rules, %d passes, %d failures, %d skips",
+		len(described), len(passes), len(failures), len(skips))
 	if len(skips) > 0 {
 		sort.Strings(skips)
 		t.Logf("skipped rules:\n  %s", strings.Join(skips, "\n  "))
@@ -87,8 +86,7 @@ func TestConfigParity(t *testing.T) {
 }
 
 // TestConfigParity_AliasRegistrations guards the invariant that the 4
-// alias-registered rules skip the Meta() path (their ID != Name()). Phase
-// 3C must preserve the legacy switch for them.
+// alias-registered rules skip descriptor application under the alias ID.
 func TestConfigParity_AliasRegistrations(t *testing.T) {
 	// These are the known alias pairs from android_gradle.go:
 	//   DynamicVersion          -> GradleDynamicVersion
@@ -104,7 +102,7 @@ func TestConfigParity_AliasRegistrations(t *testing.T) {
 
 	foundAliases := map[string]string{}
 	for _, r := range v2.Registry {
-		concrete := r.OriginalV1
+		concrete := r.Implementation
 		mp, ok := concrete.(registry.MetaProvider)
 		if !ok {
 			continue
@@ -121,7 +119,7 @@ func TestConfigParity_AliasRegistrations(t *testing.T) {
 	}
 
 	// Now run ApplyConfigViaRegistry and verify each alias is flagged
-	// Migrated=false.
+	// Applied=false.
 	results := ApplyConfigViaRegistry(config.NewConfig())
 	byName := make(map[string]RegistryApplyResult, len(results))
 	for _, r := range results {
@@ -133,15 +131,15 @@ func TestConfigParity_AliasRegistrations(t *testing.T) {
 			t.Errorf("alias %s not present in ApplyConfigViaRegistry results", aliasName)
 			continue
 		}
-		if res.Migrated {
-			t.Errorf("alias %s was Migrated=true, want false (alias must fall back to legacy)", aliasName)
+		if res.Applied {
+			t.Errorf("alias %s was Applied=true, want false (alias must fall back to config adapter)", aliasName)
 		}
 	}
 }
 
-// --- migrated rule collection ------------------------------------------
+// --- described rule collection ------------------------------------------
 
-type migratedRule struct {
+type describedRule struct {
 	// name is the registered rule name.
 	name string
 
@@ -153,17 +151,17 @@ type migratedRule struct {
 	template interface{}
 }
 
-// collectMigratedRules walks the global Registry and returns one entry per
+// collectAppliedRules walks the global Registry and returns one entry per
 // rule that implements registry.MetaProvider AND whose Meta().ID matches
 // the registered Name(). Alias-only registrations are excluded — they
 // cannot be exercised through the registry path.
-func collectMigratedRules(t *testing.T) []migratedRule {
+func collectAppliedRules(t *testing.T) []describedRule {
 	t.Helper()
 	seen := make(map[string]bool)
-	var out []migratedRule
+	var out []describedRule
 	for _, r := range v2.Registry {
 		name := r.ID
-		concrete := r.OriginalV1
+		concrete := r.Implementation
 		mp, ok := concrete.(registry.MetaProvider)
 		if !ok {
 			continue
@@ -178,7 +176,7 @@ func collectMigratedRules(t *testing.T) []migratedRule {
 			continue
 		}
 		seen[name] = true
-		out = append(out, migratedRule{
+		out = append(out, describedRule{
 			name:     name,
 			meta:     meta,
 			template: concrete,
@@ -194,7 +192,7 @@ func collectMigratedRules(t *testing.T) []migratedRule {
 // (slices and maps share backing storage) — adequate because every case in
 // our matrix mutates only scalar fields or replaces slice fields wholesale.
 // For slice fields we do a one-level copy to avoid cross-test bleed when
-// a case replaces a slice via the legacy path.
+// a case replaces a slice via the config adapter path.
 func cloneRule(template interface{}) interface{} {
 	tval := reflect.ValueOf(template)
 	if tval.Kind() != reflect.Ptr {
@@ -239,11 +237,11 @@ type parityResult struct {
 }
 
 // knownParityDivergences lists rules whose Meta() descriptor cannot yet
-// reproduce the legacy behavior. Keeping the list here rather than suppressing
+// reproduce the config adapter behavior. Keeping the list here rather than suppressing
 // failures silently makes it visible to reviewers and ensures the test still
 // runs the matrix.
 //
-// As of Phase 3C the map is empty: the four rules previously listed here
+// As of Descriptor registry the map is empty: the four rules previously listed here
 // (ForbiddenImport's dual-field write, LayerDependencyViolation's
 // whole-config read, NewerVersionAvailable's []string → []libMinVersion
 // transform, and PublicToInternalLeakyAbstraction's int-percent →
@@ -253,7 +251,7 @@ var knownParityDivergences = map[string]string{}
 
 // runParityMatrix exercises the full case matrix against a single rule.
 // Any failure is captured into t and reflected in the returned result.
-func runParityMatrix(t *testing.T, m migratedRule) parityResult {
+func runParityMatrix(t *testing.T, m describedRule) parityResult {
 	if reason, ok := knownParityDivergences[m.name]; ok {
 		return parityResult{kind: paritySkip, reason: "KNOWN_DIVERGENCE: " + reason}
 	}
@@ -371,7 +369,7 @@ type parityCase struct {
 }
 
 // caseBuilder collects the YAML-equivalent state for a single case. It
-// emits both a *config.Config (for the legacy path) and a set of
+// emits both a *config.Config (for the config adapter path) and a set of
 // key/value pairs for the registry FakeConfigSource. Having one builder
 // keeps the two paths strictly in sync.
 type caseBuilder struct {
@@ -401,27 +399,27 @@ func (b *caseBuilder) setRawValue(key string, otype registry.OptionType, value i
 func boolP(b bool) *bool { return &b }
 
 // aliasSupportsValueRead returns true when the alias can legitimately be
-// probed for this option type through the legacy *config.Config path. All
+// probed for this option type through the config adapter *config.Config path. All
 // current option types support it.
 func aliasSupportsValueRead(opt registry.ConfigOption) bool {
 	return true
 }
 
 // runParityCase returns the list of divergence messages for a single case.
-// An empty slice means the legacy and registry paths produced identical
+// An empty slice means the config adapter and descriptor paths produced identical
 // state.
-func runParityCase(m migratedRule, tc parityCase) []string {
+func runParityCase(m describedRule, tc parityCase) []string {
 	b := &caseBuilder{}
 	tc.build(b)
 
-	// --- legacy path -----------------------------------------------
-	// The legacy path mutates DefaultInactive. Snapshot and restore.
+	// --- config adapter path -----------------------------------------------
+	// The config adapter path mutates DefaultInactive. Snapshot and restore.
 	guard := defaultInactiveGuard.snapshot(m.name)
 	defer guard.restore()
 
-	legacyRule := cloneRule(m.template)
-	legacyCfg := buildLegacyConfigFromBuilder(m, b)
-	legacyActive := applyLegacySingleRule(legacyRule, m, legacyCfg)
+	configRule := cloneRule(m.template)
+	configCfg := buildConfigFromBuilder(m, b)
+	configActive := applyConfigAdapterSingleRule(configRule, m, configCfg)
 
 	// --- registry path ---------------------------------------------
 	registryRule := cloneRule(m.template)
@@ -430,25 +428,25 @@ func runParityCase(m migratedRule, tc parityCase) []string {
 
 	// --- compare ----------------------------------------------------
 	var mismatches []string
-	if legacyActive != registryActive {
-		mismatches = append(mismatches, fmt.Sprintf("active: legacy=%v registry=%v", legacyActive, registryActive))
+	if configActive != registryActive {
+		mismatches = append(mismatches, fmt.Sprintf("active: config=%v registry=%v", configActive, registryActive))
 	}
-	if diff := compareRuleState(legacyRule, registryRule); diff != "" {
+	if diff := compareRuleState(configRule, registryRule); diff != "" {
 		mismatches = append(mismatches, "state: "+diff)
 	}
 	return mismatches
 }
 
-// buildLegacyConfigFromBuilder constructs a *config.Config reproducing the
+// buildConfigFromBuilder constructs a *config.Config reproducing the
 // case's YAML shape. The ruleset-level active flag has to be poked into
 // the raw map because Set only nests values under ruleSet.rule.key.
-func buildLegacyConfigFromBuilder(m migratedRule, b *caseBuilder) *config.Config {
+func buildConfigFromBuilder(m describedRule, b *caseBuilder) *config.Config {
 	cfg := config.NewConfig()
 	if b.ruleActive != nil {
 		cfg.Set(m.meta.RuleSet, m.meta.ID, "active", *b.ruleActive)
 	}
 	for _, e := range b.entries {
-		cfg.Set(m.meta.RuleSet, m.meta.ID, e.key, legacyValue(e))
+		cfg.Set(m.meta.RuleSet, m.meta.ID, e.key, configValue(e))
 	}
 	if b.ruleSetActive != nil {
 		data := cfg.Data()
@@ -464,7 +462,7 @@ func buildLegacyConfigFromBuilder(m migratedRule, b *caseBuilder) *config.Config
 
 // buildRegistryConfigFromBuilder constructs the registry-side
 // FakeConfigSource from the same builder.
-func buildRegistryConfigFromBuilder(m migratedRule, b *caseBuilder) *registry.FakeConfigSource {
+func buildRegistryConfigFromBuilder(m describedRule, b *caseBuilder) *registry.FakeConfigSource {
 	cfg := registry.NewFakeConfigSource()
 	if b.ruleSetActive != nil {
 		cfg.SetRuleSetActive(m.meta.RuleSet, *b.ruleSetActive)
@@ -478,13 +476,13 @@ func buildRegistryConfigFromBuilder(m migratedRule, b *caseBuilder) *registry.Fa
 	return cfg
 }
 
-// legacyValue shapes a case value so *config.Config.GetStringList / GetInt
-// see the expected types after YAML decode. The legacy *config.Config has
+// configValue shapes a case value so *config.Config.GetStringList / GetInt
+// see the expected types after YAML decode. The config adapter *config.Config has
 // slightly different coercions than our FakeConfigSource: GetStringList
 // accepts []interface{} and []string, GetInt accepts int/int64/float64,
 // GetBool accepts bool/"true"/"false". Normalize to the native Go types
 // so both sides interpret the same raw value.
-func legacyValue(e caseEntry) interface{} {
+func configValue(e caseEntry) interface{} {
 	switch e.otype {
 	case registry.OptStringList:
 		// *config.Config.Set stores whatever we hand it and GetStringList
@@ -533,7 +531,7 @@ func nonDefaultValue(opt registry.ConfigOption) interface{} {
 }
 
 // secondNonDefaultValue produces a second distinct non-default value, used
-// by the "primary wins over alias" case. The legacy and registry paths
+// by the "primary wins over alias" case. The config adapter and descriptor paths
 // must both pick the primary value, so we give the alias a different
 // payload to make that observable.
 func secondNonDefaultValue(opt registry.ConfigOption) interface{} {
@@ -576,13 +574,13 @@ func compareRuleState(a, b interface{}) string {
 			as := regexpString(af)
 			bs := regexpString(bf)
 			if as != bs {
-				return fmt.Sprintf("field %s (regex): legacy=%q registry=%q",
+				return fmt.Sprintf("field %s (regex): config=%q registry=%q",
 					av.Type().Field(i).Name, as, bs)
 			}
 			continue
 		}
 		if !reflect.DeepEqual(af.Interface(), bf.Interface()) {
-			return fmt.Sprintf("field %s: legacy=%v registry=%v",
+			return fmt.Sprintf("field %s: config=%v registry=%v",
 				av.Type().Field(i).Name, af.Interface(), bf.Interface())
 		}
 	}
@@ -597,21 +595,17 @@ func regexpString(v reflect.Value) string {
 	return r.String()
 }
 
-// --- legacy path invocation --------------------------------------------
+// --- config adapter path invocation --------------------------------------------
 
-// applyLegacySingleRule historically drove the 631-line applyRuleConfig
-// switch on a single rule instance. Phase 3D of the CodegenRegistry
-// migration deleted that switch and flipped rules.ApplyConfig over to
-// registry.ApplyConfig. The parity test is retained as a safety net for
-// future regressions, so we invoke the same registry path here that
-// production now uses.
+// applyConfigAdapterSingleRule invokes registry.ApplyConfig through the
+// production config adapter.
 //
 // The DefaultInactive bookkeeping mirrors rules.ApplyConfig exactly so
 // downstream assertions on the map continue to pass. This keeps the
 // parity test meaningful even though the two sides converge on the same
 // code path — it guards against anyone reintroducing a divergent code
 // path in ApplyConfig.
-func applyLegacySingleRule(rule interface{}, m migratedRule, cfg *config.Config) bool {
+func applyConfigAdapterSingleRule(rule interface{}, m describedRule, cfg *config.Config) bool {
 	ruleName := m.meta.ID
 	adapter := NewConfigAdapter(cfg)
 	active := registry.ApplyConfig(rule, m.meta, adapter)

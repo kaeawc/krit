@@ -7,7 +7,7 @@ import (
 )
 
 // RuleNeedsKotlinOracle reports whether a rule is an actual KAA consumer.
-// NeedsTypeInfo is intentionally not enough: it is resolver-only legacy type
+// NeedsTypeInfo is intentionally not enough: it is resolver-only source type
 // information. Oracle participation must come from the explicit NeedsOracle
 // bit or rule metadata that the pipeline passes to krit-types.
 func RuleNeedsKotlinOracle(r *v2.Rule) bool {

@@ -44,7 +44,7 @@ fun main() {
 }
 `
 
-// --- 1. V2Dispatcher routes node rules, line rules, and legacy rules ---------
+// --- 1. V2Dispatcher routes node and line rules independently ----------------
 
 func TestV2Dispatcher_RoutesFamiliesIndependently(t *testing.T) {
 	file := writeKotlinFile(t, sampleKotlin, "Sample.kt")
@@ -340,7 +340,7 @@ func TestV2Dispatcher_Stats(t *testing.T) {
 	// Force the index to rebuild against the populated NodeTypeTable.
 	_ = d.ensureFlatTypeIndex(d.collectAllRules())
 
-	dispatched, aggregate, lineRules, crossFile, moduleAware, legacy := d.Stats()
+	dispatched, aggregate, lineRules, crossFile, moduleAware := d.Stats()
 	if lineRules != 1 {
 		t.Errorf("lineRules=%d want 1", lineRules)
 	}
@@ -352,9 +352,6 @@ func TestV2Dispatcher_Stats(t *testing.T) {
 	}
 	if aggregate != 0 {
 		t.Errorf("aggregate=%d want 0 (v2 has no separate aggregate family)", aggregate)
-	}
-	if legacy != 0 {
-		t.Errorf("legacy=%d want 0", legacy)
 	}
 	// dispatched may be 0 if "function_declaration" isn't in the
 	// NodeTypeTable yet — as long as it is not negative we're good.

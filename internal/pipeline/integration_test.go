@@ -71,7 +71,7 @@ func TestEndToEnd_MCP_LSP_CLI_ShareActiveRules(t *testing.T) {
 		t.Fatalf("DefaultActiveRules inconsistent between calls: %d vs %d", len(first), len(second))
 	}
 	// Order must also match so callers that iterate by index (e.g. the
-	// v2→v1 wrapper map) stay in lock-step.
+	// dispatcher construction) stay in lock-step.
 	for i := range first {
 		if first[i].ID != second[i].ID {
 			t.Errorf("rule[%d]: first=%q, second=%q", i, first[i].ID, second[i].ID)

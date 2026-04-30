@@ -39,9 +39,9 @@ func CollectModuleAwareNeedsV2(activeRules []*v2.Rule) ModuleAwareNeeds {
 			NeedsDependencies: true,
 			NeedsIndex:        true,
 		}
-		// Check if the underlying v1 rule declares tuning preferences.
-		if r.OriginalV1 != nil {
-			if tuned, ok := r.OriginalV1.(ModuleAwareRuleTuning); ok {
+		// Check if the concrete rule declares tuning preferences.
+		if r.Implementation != nil {
+			if tuned, ok := r.Implementation.(ModuleAwareRuleTuning); ok {
 				current = tuned.ModuleAwareNeeds()
 			}
 		}

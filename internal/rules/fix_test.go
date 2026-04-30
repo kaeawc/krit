@@ -169,7 +169,7 @@ func runPerRuleFixableFixtures(t *testing.T, dir string) (int, error) {
 
 			// Run the single rule in isolation. Every fixable rule is
 			// either a flat-dispatch rule, line rule, aggregate rule,
-			// cross-file rule, module-aware rule, or legacy Rule; the
+			// cross-file rule or module-aware rule; the
 			// dispatcher handles all of those when given a singleton
 			// registry.
 			soloDispatcher := rules.NewDispatcherV2([]*v2rules.Rule{rule})
@@ -287,8 +287,7 @@ var knownFixableRulesWithoutPerRuleFixture = map[string]bool{
 // TestFixableRulesHavePerRuleFixture asserts that every newly advertised v2
 // fixable rule has a corresponding per-rule fixture under
 // tests/fixtures/fixable/per-rule/. The allowlist captures pre-existing
-// coverage debt that became visible when fix metadata moved off the legacy
-// OriginalV1 fallback and onto v2.Rule.Fix.
+// coverage debt that remains while fix metadata is declared on v2.Rule.Fix.
 func TestFixableRulesHavePerRuleFixture(t *testing.T) {
 	root := fixtureRoot(t)
 	perRuleDir := filepath.Join(root, "fixable", "per-rule")

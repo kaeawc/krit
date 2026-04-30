@@ -271,6 +271,9 @@ func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
 		out.Styles[k] = cloneStyle(v)
 	}
 	out.Drawables = append(out.Drawables, idx.Drawables...)
+	for k, v := range idx.DrawableSelectors {
+		out.DrawableSelectors[k] = cloneSelectorItems(v)
+	}
 	for k, v := range idx.StringArrays {
 		out.StringArrays[k] = append([]string(nil), v...)
 	}
@@ -287,6 +290,17 @@ func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
 		out.IDs[k] = v
 	}
 	out.ExtraTexts = append(out.ExtraTexts, idx.ExtraTexts...)
+	return out
+}
+
+func cloneSelectorItems(in []SelectorItem) []SelectorItem {
+	out := make([]SelectorItem, len(in))
+	for i, item := range in {
+		out[i] = item
+		if item.StateAttrs != nil {
+			out[i].StateAttrs = cloneStringMap(item.StateAttrs)
+		}
+	}
 	return out
 }
 

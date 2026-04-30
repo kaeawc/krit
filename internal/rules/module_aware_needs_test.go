@@ -61,7 +61,7 @@ func TestCollectModuleAwareNeedsV2(t *testing.T) {
 		if r == nil {
 			t.Skip("CompileSdkMismatchAcrossModules not found in registry")
 		}
-		// A synthetic rule with no OriginalV1 (no ModuleAwareRuleTuning) should default conservative.
+		// A synthetic rule with no Implementation (no ModuleAwareRuleTuning) should default conservative.
 		synthetic := &v2.Rule{ID: "SyntheticModuleAware", Needs: v2.NeedsModuleIndex}
 		needs := CollectModuleAwareNeedsV2([]*v2.Rule{r, synthetic})
 		if !needs.NeedsFiles || !needs.NeedsDependencies || !needs.NeedsIndex {

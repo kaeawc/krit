@@ -15,7 +15,7 @@ func registerStyleForbiddenRules() {
 		r := &WildcardImportRule{BaseRule: BaseRule{RuleName: "WildcardImport", RuleSetName: "style", Sev: "warning", Desc: "Detects wildcard import statements that should be replaced with explicit imports."}, ExcludeImports: []string{"java.util.*", "platform.**", "kotlinx.cinterop.*"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"import_header"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"import_header"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Skip test files and test-fixture Kotlin sources. Fixtures routinely
@@ -49,7 +49,7 @@ func registerStyleForbiddenRules() {
 		r := &ForbiddenCommentRule{BaseRule: BaseRule{RuleName: "ForbiddenComment", RuleSetName: "style", Sev: "warning", Desc: "Detects comments containing forbidden markers like TODO, FIXME, or STOPSHIP."}, Comments: defaultForbiddenCommentMarkers}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"line_comment", "multiline_comment"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"line_comment", "multiline_comment"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -78,7 +78,7 @@ func registerStyleForbiddenRules() {
 		r := &ForbiddenVoidRule{BaseRule: BaseRule{RuleName: "ForbiddenVoid", RuleSetName: "style", Sev: "warning", Desc: "Detects usage of the Java Void type that should be replaced with Kotlin Unit."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"user_type"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"user_type"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -136,7 +136,7 @@ func registerStyleForbiddenRules() {
 		r := &ForbiddenImportRule{BaseRule: BaseRule{RuleName: "ForbiddenImport", RuleSetName: "style", Sev: "warning", Desc: "Detects import statements matching configured forbidden patterns."}, Patterns: defaultForbiddenImports}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"import_header"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"import_header"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -187,7 +187,7 @@ func registerStyleForbiddenRules() {
 		r := &ForbiddenMethodCallRule{BaseRule: BaseRule{RuleName: "ForbiddenMethodCall", RuleSetName: "style", Sev: "warning", Desc: "Detects calls to methods that are configured as forbidden."}, Methods: defaultForbiddenMethods}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"print", "println"}},
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
@@ -222,7 +222,7 @@ func registerStyleForbiddenRules() {
 		r := &ForbiddenAnnotationRule{BaseRule: BaseRule{RuleName: "ForbiddenAnnotation", RuleSetName: "style", Sev: "warning", Desc: "Detects usage of annotations that are configured as forbidden."}, Annotations: defaultForbiddenAnnotations}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"annotation"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"annotation"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -256,7 +256,7 @@ func registerStyleForbiddenRules() {
 		r := &ForbiddenNamedParamRule{BaseRule: BaseRule{RuleName: "ForbiddenNamedParam", RuleSetName: "style", Sev: "warning", Desc: "Detects named arguments in function calls where they should not be used."}, Methods: []string{"require", "check", "assert"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				funcName := flatCallExpressionName(file, idx)
@@ -283,7 +283,7 @@ func registerStyleForbiddenRules() {
 		r := &ForbiddenOptInRule{BaseRule: BaseRule{RuleName: "ForbiddenOptIn", RuleSetName: "style", Sev: "warning", Desc: "Detects @OptIn annotations that opt into experimental APIs."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"annotation"}, Confidence: 0.9, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"annotation"}, Confidence: 0.9, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if annotationFinalName(file, idx) != "OptIn" {
@@ -330,7 +330,7 @@ func registerStyleForbiddenRules() {
 		r := &ForbiddenSuppressRule{BaseRule: BaseRule{RuleName: "ForbiddenSuppress", RuleSetName: "style", Sev: "warning", Desc: "Detects @Suppress annotations that silence warnings instead of fixing the underlying issue."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"annotation"}, Confidence: 0.9, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"annotation"}, Confidence: 0.9, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if annotationFinalName(file, idx) != "Suppress" {
@@ -398,7 +398,7 @@ func registerStyleForbiddenRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"integer_literal", "real_literal", "long_literal", "hex_literal"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"integer_literal", "real_literal", "long_literal", "hex_literal"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Skip database migration files — they contain frozen-in-time constants

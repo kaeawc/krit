@@ -132,10 +132,8 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 		in.Logger("verbose: Skipped cross-file analysis (no active cross-file rules)\n")
 	}
 
-	// Module-aware rule execution. Main.go iterates
-	// dispatcher.V2Rules().ModuleAware, which BuildV2Index derives from the
-	// v1 rule slice. We reproduce that shape here so the phase produces the
-	// same rule set regardless of whether the caller supplied v1 or v2.
+	// Module-aware rule execution. The phase derives the same module-aware
+	// v2 rule set as the CLI dispatcher path.
 	moduleStart := time.Now()
 	moduleAwareRules := pickModuleAwareV2Rules(in.ActiveRules)
 	hasModuleAwareRule := len(moduleAwareRules) > 0

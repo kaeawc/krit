@@ -86,9 +86,9 @@ func IsDefaultActive(name string) bool {
 	return !DefaultInactive[name]
 }
 
-// ActiveRulesV2 filters v2.Registry using the same config-driven logic as
-// main.go's v1 loop. Returns rules that are enabled, not disabled, and
-// either in enabledSet, allRules=true, or IsDefaultActive.
+// ActiveRulesV2 filters v2.Registry using config-driven activation. Returns
+// rules that are enabled, not disabled, and either in enabledSet,
+// allRules=true, or IsDefaultActive.
 func ActiveRulesV2(disabledSet, enabledSet map[string]bool, allRules bool) []*v2.Rule {
 	var out []*v2.Rule
 	for _, r := range v2.Registry {

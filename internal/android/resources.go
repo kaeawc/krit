@@ -50,12 +50,20 @@ type ResourceIndex struct {
 	Dimensions          map[string]string            // dimen name -> value
 	Styles              map[string]*Style            // style name -> style definition
 	Drawables           []string                     // drawable resource names
+	DrawableSelectors   map[string][]SelectorItem    // selector drawable name -> child items
 	StringArrays        map[string][]string          // string-array name -> items
 	Plurals             map[string]map[string]string // plural name -> quantity -> value
 	Integers            map[string]string            // integer name -> value
 	Booleans            map[string]string            // bool name -> value
 	IDs                 map[string]bool              // declared @+id names
 	ExtraTexts          []ExtraTextEntry             // stray text nodes in values files
+}
+
+// SelectorItem records a child <item> in a drawable selector XML file.
+type SelectorItem struct {
+	FilePath   string
+	Line       int
+	StateAttrs map[string]string
 }
 
 // StringLocation records where a <string> element was defined.
@@ -229,6 +237,7 @@ func newResourceIndex() *ResourceIndex {
 		Colors:              make(map[string]string),
 		Dimensions:          make(map[string]string),
 		Styles:              make(map[string]*Style),
+		DrawableSelectors:   make(map[string][]SelectorItem),
 		StringArrays:        make(map[string][]string),
 		Plurals:             make(map[string]map[string]string),
 		Integers:            make(map[string]string),
@@ -330,6 +339,12 @@ func (idx *ResourceIndex) mergeFrom(other *ResourceIndex) {
 		idx.Styles[name] = style
 	}
 	idx.Drawables = append(idx.Drawables, other.Drawables...)
+	for name, items := range other.DrawableSelectors {
+		if idx.DrawableSelectors == nil {
+			idx.DrawableSelectors = make(map[string][]SelectorItem)
+		}
+		idx.DrawableSelectors[name] = append(idx.DrawableSelectors[name], items...)
+	}
 	for name, items := range other.StringArrays {
 		idx.StringArrays[name] = items
 	}
@@ -694,6 +709,43 @@ func (idx *ResourceIndex) scanDrawableDir(dir string) {
 		ext := filepath.Ext(name)
 		resName := strings.TrimSuffix(name, ext)
 		idx.Drawables = append(idx.Drawables, resName)
+		if ext == ".xml" {
+			idx.parseDrawableSelectorFile(filepath.Join(dir, name), resName)
+		}
+	}
+}
+
+func (idx *ResourceIndex) parseDrawableSelectorFile(path, resName string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	root, err := ParseXMLAST(data)
+	if err != nil || root == nil || root.Tag != "selector" {
+		return
+	}
+	var items []SelectorItem
+	for _, child := range root.Children {
+		if child == nil || child.Tag != "item" {
+			continue
+		}
+		item := SelectorItem{
+			FilePath:   path,
+			Line:       child.Line,
+			StateAttrs: make(map[string]string),
+		}
+		for _, attr := range child.Attrs {
+			if strings.HasPrefix(attr.Name, "android:state_") {
+				item.StateAttrs[attr.Name] = attr.Value
+			}
+		}
+		items = append(items, item)
+	}
+	if len(items) > 0 {
+		if idx.DrawableSelectors == nil {
+			idx.DrawableSelectors = make(map[string][]SelectorItem)
+		}
+		idx.DrawableSelectors[resName] = append(idx.DrawableSelectors[resName], items...)
 	}
 }
 

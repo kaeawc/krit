@@ -16,7 +16,7 @@ func registerReleaseEngineeringRules() {
 		r := &BuildConfigDebugInLibraryRule{BaseRule: BaseRule{RuleName: "BuildConfigDebugInLibrary", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects BuildConfig.DEBUG references inside Android library modules where the value is always false in release."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isBuildConfigDebugReferenceFlat(file, idx) {
@@ -33,7 +33,7 @@ func registerReleaseEngineeringRules() {
 		r := &BuildConfigDebugInvertedRule{BaseRule: BaseRule{RuleName: "BuildConfigDebugInverted", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects negated BuildConfig.DEBUG guards wrapping logging calls that likely invert a debug-only check."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"if_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				condition, body := ifConditionAndThenBodyFlat(file, idx)
@@ -51,7 +51,7 @@ func registerReleaseEngineeringRules() {
 		r := &AllProjectsBlockRule{BaseRule: BaseRule{RuleName: "AllProjectsBlock", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects deprecated allprojects {} blocks in Gradle build scripts."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isGradleBuildScript(file.Path) {
@@ -68,7 +68,7 @@ func registerReleaseEngineeringRules() {
 		r := &HardcodedEnvironmentNameRule{BaseRule: BaseRule{RuleName: "HardcodedEnvironmentName", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects hardcoded environment names like 'dev', 'staging', or 'prod' passed to config APIs."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				funcName := flatCallExpressionName(file, idx)
@@ -99,7 +99,7 @@ func registerReleaseEngineeringRules() {
 		r := &DebugToastInProductionRule{BaseRule: BaseRule{RuleName: "DebugToastInProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects Toast.makeText calls whose message starts with debug-related prefixes in production code."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.85, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.85, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -140,7 +140,7 @@ func registerReleaseEngineeringRules() {
 		r := &PrintlnInProductionRule{BaseRule: BaseRule{RuleName: "PrintlnInProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects println or print calls in production code that should use a logging framework."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.85, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.85, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) || isGradleBuildScript(file.Path) {
@@ -170,7 +170,7 @@ func registerReleaseEngineeringRules() {
 		r := &PrintStackTraceInProductionRule{BaseRule: BaseRule{RuleName: "PrintStackTraceInProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects printStackTrace() calls in code that has a logging framework available."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.85, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.85, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -191,7 +191,7 @@ func registerReleaseEngineeringRules() {
 		r := &NonAsciiIdentifierRule{BaseRule: BaseRule{RuleName: "NonAsciiIdentifier", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects class, function, or property names containing non-ASCII characters."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration", "function_declaration", "property_declaration"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"class_declaration", "function_declaration", "property_declaration"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -222,7 +222,7 @@ func registerReleaseEngineeringRules() {
 		r := &HardcodedLogTagRule{BaseRule: BaseRule{RuleName: "HardcodedLogTag", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects Log tag string literals matching the enclosing class name instead of using a companion TAG constant."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.80, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.80, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -262,7 +262,7 @@ func registerReleaseEngineeringRules() {
 		r := &CommentedOutCodeBlockRule{BaseRule: BaseRule{RuleName: "CommentedOutCodeBlock", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects consecutive lines of commented-out Kotlin code that should be deleted or restored."}, MinLines: 3}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Needs: v2.NeedsLinePass, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -270,7 +270,7 @@ func registerReleaseEngineeringRules() {
 		r := &GradleBuildContainsTodoRule{BaseRule: BaseRule{RuleName: "GradleBuildContainsTodo", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects TODO comments in build.gradle(.kts) files that may block release readiness."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Needs: v2.NeedsLinePass, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -278,7 +278,7 @@ func registerReleaseEngineeringRules() {
 		r := &CommentedOutImportRule{BaseRule: BaseRule{RuleName: "CommentedOutImport", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects commented-out import statements that are either dead code or incomplete refactors."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"line_comment"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"line_comment"}, Confidence: r.Confidence(), Implementation: r,
 			Check: r.checkNode,
 		})
 	}
@@ -286,7 +286,7 @@ func registerReleaseEngineeringRules() {
 		r := &MergeConflictMarkerLeftoverRule{BaseRule: BaseRule{RuleName: "MergeConflictMarkerLeftover", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects unresolved merge conflict markers (<<<, ===, >>>) left in source files."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Needs: v2.NeedsLinePass, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -294,7 +294,7 @@ func registerReleaseEngineeringRules() {
 		r := &HardcodedLocalhostUrlRule{BaseRule: BaseRule{RuleName: "HardcodedLocalhostUrl", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects hardcoded localhost or 10.0.2.2 URLs in non-test production source files."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -302,7 +302,7 @@ func registerReleaseEngineeringRules() {
 		r := &TestOnlyImportInProductionRule{BaseRule: BaseRule{RuleName: "TestOnlyImportInProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects test framework imports (JUnit, Mockito, MockK, etc.) in non-test source files."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"import_header"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"import_header"}, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -310,7 +310,7 @@ func registerReleaseEngineeringRules() {
 		r := &ConventionPluginDeadCodeRule{BaseRule: BaseRule{RuleName: "ConventionPluginDeadCode", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects convention plugins under build-logic or buildSrc that are never applied by any module."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), OriginalV1: r,
+			Needs: v2.NeedsModuleIndex, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -318,7 +318,7 @@ func registerReleaseEngineeringRules() {
 		r := &VisibleForTestingCallerInNonTestRule{BaseRule: BaseRule{RuleName: "VisibleForTestingCallerInNonTest", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects calls to @VisibleForTesting-annotated functions from non-test source files."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
+			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -326,7 +326,7 @@ func registerReleaseEngineeringRules() {
 		r := &OpenForTestingCallerInNonTestRule{BaseRule: BaseRule{RuleName: "OpenForTestingCallerInNonTest", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects subclassing of @OpenForTesting types outside test source sets."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
+			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -334,7 +334,7 @@ func registerReleaseEngineeringRules() {
 		r := &TestFixtureAccessedFromProductionRule{BaseRule: BaseRule{RuleName: "TestFixtureAccessedFromProduction", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects usage of types declared under src/testFixtures/ from production source files."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsCrossFile | v2.NeedsParsedFiles | v2.NeedsResolver, Confidence: r.Confidence(), OriginalV1: r,
+			Needs: v2.NeedsCrossFile | v2.NeedsParsedFiles | v2.NeedsResolver, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -359,7 +359,7 @@ func registerReleaseEngineeringRules() {
 			// Uses call target FQNs to detect Timber.v/d/i/w/e calls and
 			// Timber.plant(); never reads class declarations.
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
-			Confidence:             r.Confidence(), OriginalV1: r,
+			Confidence:             r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}

@@ -245,7 +245,7 @@ type IndexResult struct {
 	CacheScanPaths []string
 	// EmitPerFileStats, when true, makes DispatchPhase append
 	// suppressionIndex / walkTraversal / ruleCallbacks / aggregateCollect
-	// / aggregateFinalize / lineRules / legacyRules / suppressionFilter /
+	// / aggregateFinalize / lineRules / suppressionFilter /
 	// topDispatchRules entries onto the per-run ruleExecution tracker.
 	EmitPerFileStats bool
 	// CrossFileParentTracker, when non-nil, is the "crossFileAnalysis"
@@ -286,8 +286,8 @@ type DispatchResult struct {
 	// FileTimings is populated when IndexResult.ProfileDispatch is true.
 	// One entry per dispatched (non-cached) file.
 	FileTimings []FileTiming
-	// FindingsByFile is populated when ActiveRulesV1 is non-nil and a
-	// cache is present on the input IndexResult, for cache write-back.
+	// FindingsByFile is populated when a cache is present on the input
+	// IndexResult, for cache write-back.
 	FindingsByFile map[string]scanner.FindingColumns
 }
 

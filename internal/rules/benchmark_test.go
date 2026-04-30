@@ -68,9 +68,9 @@ func BenchmarkDispatcherRun_AllRules(b *testing.B) {
 	// Use ALL registered rules on the largest fixture
 	file := parseFixtureB(b, "../../tests/fixtures/positive/complexity/LargeClass.kt")
 	d := rules.NewDispatcherV2(v2rules.Registry)
-	dispatched, aggregate, lineRules, crossFile, moduleAware, legacy := d.Stats()
-	b.Logf("rules: dispatched=%d aggregate=%d line=%d cross-file=%d module-aware=%d legacy=%d",
-		dispatched, aggregate, lineRules, crossFile, moduleAware, legacy)
+	dispatched, aggregate, lineRules, crossFile, moduleAware := d.Stats()
+	b.Logf("rules: dispatched=%d aggregate=%d line=%d cross-file=%d module-aware=%d",
+		dispatched, aggregate, lineRules, crossFile, moduleAware)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = d.Run(file)

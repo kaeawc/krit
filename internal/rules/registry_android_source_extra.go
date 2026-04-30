@@ -13,7 +13,7 @@ func registerAndroidSourceExtraRules() {
 		r := &ViewConstructorRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ViewConstructor", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ViewConstructor", Brief: "Missing View constructors", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatHasModifier(idx, "abstract") {
@@ -75,7 +75,7 @@ func registerAndroidSourceExtraRules() {
 		r := &WrongImportRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "WrongImport", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "WrongImport", Brief: "Importing android.R instead of app R", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"import_header"}, Confidence: r.Confidence(), Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"import_header"}, Confidence: r.Confidence(), Fix: v2.FixIdiomatic, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -85,7 +85,7 @@ func registerAndroidSourceExtraRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"},
 			Needs:     v2.NeedsResources, Languages: []scanner.Language{scanner.LangKotlin},
-			AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), OriginalV1: r,
+			AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -95,7 +95,7 @@ func registerAndroidSourceExtraRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes:  []string{"call_expression"},
 			Needs:      v2.NeedsTypeInfo,
-			Confidence: r.Confidence(), OriginalV1: r,
+			Confidence: r.Confidence(), Implementation: r,
 			Oracle:            &v2.OracleFilter{Identifiers: []string{"setTag"}},
 			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"setTag"}},
 			// Checks whether the receiver extends View (class hierarchy) to
@@ -108,7 +108,7 @@ func registerAndroidSourceExtraRules() {
 		r := &TrulyRandomRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "TrulyRandom", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "TrulyRandom", Brief: "Hardcoded seed defeats SecureRandom", Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 9, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -116,7 +116,7 @@ func registerAndroidSourceExtraRules() {
 		r := &MissingPermissionRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "MissingPermission", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "MissingPermission", Brief: "Missing permission check before API call", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 9, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: r.Confidence(), Implementation: r,
 			Oracle: &v2.OracleFilter{Identifiers: missingPermissionOracleIdentifiers()},
 			OracleCallTargets: &v2.OracleCallTargetFilter{
 				CalleeNames:          missingPermissionCandidateCalleeNames(),
@@ -141,7 +141,7 @@ func registerAndroidSourceExtraRules() {
 			// Uses LookupCallTarget to verify framework target; allowed constant
 			// sets come from hardcoded tables, not oracle member annotations.
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
-			Confidence:             r.Confidence(), OriginalV1: r,
+			Confidence:             r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -149,7 +149,7 @@ func registerAndroidSourceExtraRules() {
 		r := &InstantiatableRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "Instantiatable", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "Instantiatable", Brief: "Registered class not instantiatable", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.9, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				isComponent := false
@@ -183,7 +183,7 @@ func registerAndroidSourceExtraRules() {
 		r := &RtlAwareRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "RtlAware", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "RtlAware", Brief: "Using non-RTL-aware View methods", Category: ALCRTL, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -198,7 +198,7 @@ func registerAndroidSourceExtraRules() {
 		r := &RtlFieldAccessRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "RtlFieldAccess", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "RtlFieldAccess", Brief: "Direct field access of non-RTL-aware View fields", Category: ALCRTL, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Confidence: 0.9, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatContainsStringInterpolation(file, idx) {
@@ -219,7 +219,7 @@ func registerAndroidSourceExtraRules() {
 		r := &GridLayoutRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "GridLayout", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "GridLayout", Brief: "GridLayout without columnCount", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 4, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.85, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.85, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "GridLayout" {
@@ -257,7 +257,7 @@ func registerAndroidSourceExtraRules() {
 		r := &LocaleFolderRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "LocaleFolder", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "LocaleFolder", Brief: "Wrong locale folder naming", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -265,7 +265,7 @@ func registerAndroidSourceExtraRules() {
 		r := &UseAlpha2Rule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "UseAlpha2", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "UseAlpha2", Brief: "3-letter ISO code in locale folder", Category: ALCI18N, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsLinePass, Confidence: 0.75, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -273,7 +273,7 @@ func registerAndroidSourceExtraRules() {
 		r := &MangledCRLFRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "MangledCRLF", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "MangledCRLF", Brief: "Mixed line endings in file", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 3, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsLinePass, Confidence: 0.75, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -281,7 +281,7 @@ func registerAndroidSourceExtraRules() {
 		r := &ResourceNameRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ResourceName", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ResourceName", Brief: "Resource name not in snake_case", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 4, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"navigation_expression"}, Confidence: 0.9, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Structural R.<kind>.<name> decomposition. Require the nav
@@ -306,7 +306,7 @@ func registerAndroidSourceExtraRules() {
 		r := &ProguardRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "Proguard", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "Proguard", Brief: "Obsolete proguard.cfg reference", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 4, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Confidence: 0.9, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatContainsStringInterpolation(file, idx) {
@@ -322,7 +322,7 @@ func registerAndroidSourceExtraRules() {
 		r := &ProguardSplitRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ProguardSplit", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ProguardSplit", Brief: "Proguard config should be split", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 3, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -330,7 +330,7 @@ func registerAndroidSourceExtraRules() {
 		r := &NfcTechWhitespaceRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "NfcTechWhitespace", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "NfcTechWhitespace", Brief: "Whitespace in NFC tech-list", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Confidence: 0.9, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatContainsStringInterpolation(file, idx) {
@@ -347,7 +347,7 @@ func registerAndroidSourceExtraRules() {
 		r := &LibraryCustomViewRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "LibraryCustomView", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "LibraryCustomView", Brief: "Custom view using hardcoded namespace", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Confidence: 0.9, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatContainsStringInterpolation(file, idx) {
@@ -364,7 +364,7 @@ func registerAndroidSourceExtraRules() {
 		r := &UnknownIdInLayoutRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "UnknownIdInLayout", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "UnknownIdInLayout", Brief: "Reference to unknown @id in layout", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"navigation_expression"}, Confidence: 0.9, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				segments := flatNavigationChainIdentifiers(file, idx)

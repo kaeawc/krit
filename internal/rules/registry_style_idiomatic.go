@@ -16,7 +16,7 @@ func registerStyleIdiomaticRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
-			Needs: v2.NeedsResolver, OriginalV1: r,
+			Needs: v2.NeedsResolver, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				argText, suffixText, ok := flatNonNullCheckText(file, idx, "check")
@@ -50,7 +50,7 @@ func registerStyleIdiomaticRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
-			Needs: v2.NeedsResolver, OriginalV1: r,
+			Needs: v2.NeedsResolver, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				argText, suffixText, ok := flatNonNullCheckText(file, idx, "require")
@@ -84,7 +84,7 @@ func registerStyleIdiomaticRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
-			OriginalV1: r,
+			Implementation: r,
 			Check: func(ctx *v2.Context) {
 				file := ctx.File
 				flatThrowPattern(ctx, file.FlatType(ctx.Idx), file.FlatNodeText(ctx.Idx), "IllegalStateException", "check", r.BaseRule)
@@ -96,7 +96,7 @@ func registerStyleIdiomaticRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
-			OriginalV1: r,
+			Implementation: r,
 			Check: func(ctx *v2.Context) {
 				file := ctx.File
 				flatThrowPattern(ctx, file.FlatType(ctx.Idx), file.FlatNodeText(ctx.Idx), "IllegalArgumentException", "require", r.BaseRule)
@@ -120,7 +120,7 @@ func registerStyleIdiomaticRules() {
 			// Matches the receiver FQN against known collection/String types via
 			// the expressions map; no class declarations needed.
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
-			OriginalV1:             r,
+			Implementation:         r,
 			Check: func(ctx *v2.Context) {
 				flatUseIsNullOrEmpty(ctx, r.BaseRule)
 			},
@@ -131,7 +131,7 @@ func registerStyleIdiomaticRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"elvis_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
-			OriginalV1: r,
+			Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatChildCount(idx) < 3 {
@@ -179,7 +179,7 @@ func registerStyleIdiomaticRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
-			OriginalV1: r,
+			Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatChildCount(idx) < 3 {
@@ -257,7 +257,7 @@ func registerStyleIdiomaticRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
-			OriginalV1: r,
+			Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatChildCount(idx) == 0 {

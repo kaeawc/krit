@@ -15,7 +15,7 @@ func registerPotentialbugsTypesRules() {
 		r := &AvoidReferentialEqualityRule{BaseRule: BaseRule{RuleName: "AvoidReferentialEquality", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects usage of referential equality operators === or !== which compare object identity instead of value."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
@@ -76,7 +76,7 @@ func registerPotentialbugsTypesRules() {
 		r := &DoubleMutabilityForCollectionRule{BaseRule: BaseRule{RuleName: "DoubleMutabilityForCollection", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects var declarations with mutable collection types, creating double mutability."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -122,7 +122,7 @@ func registerPotentialbugsTypesRules() {
 		r := &EqualsAlwaysReturnsTrueOrFalseRule{BaseRule: BaseRule{RuleName: "EqualsAlwaysReturnsTrueOrFalse", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects equals() implementations that always return true or always return false."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := extractIdentifierFlat(file, idx)
@@ -171,7 +171,7 @@ func registerPotentialbugsTypesRules() {
 		r := &EqualsWithHashCodeExistRule{BaseRule: BaseRule{RuleName: "EqualsWithHashCodeExist", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects classes that override equals() without hashCode() or vice versa."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				body, _ := file.FlatFindChild(idx, "class_body")
@@ -215,7 +215,7 @@ func registerPotentialbugsTypesRules() {
 		r := &WrongEqualsTypeParameterRule{BaseRule: BaseRule{RuleName: "WrongEqualsTypeParameter", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects equals() with a parameter type other than Any?, which does not properly override the contract."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.85, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.85, Fix: v2.FixSemantic, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -223,7 +223,7 @@ func registerPotentialbugsTypesRules() {
 		r := &CharArrayToStringCallRule{BaseRule: BaseRule{RuleName: "CharArrayToStringCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects charArray.toString() calls that return the array's address instead of its content."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Fix: v2.FixIdiomatic, Implementation: r,
 			Needs: v2.NeedsResolver,
 			Check: r.check,
 		})
@@ -232,7 +232,7 @@ func registerPotentialbugsTypesRules() {
 		r := &DontDowncastCollectionTypesRule{BaseRule: BaseRule{RuleName: "DontDowncastCollectionTypes", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects downcasting read-only collection types to mutable variants like 'as MutableList'."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"as_expression"}, Fix: v2.FixSemantic, Implementation: r,
 			Needs: v2.NeedsResolver,
 			Check: r.check,
 		})
@@ -241,7 +241,7 @@ func registerPotentialbugsTypesRules() {
 		r := &ImplicitUnitReturnTypeRule{BaseRule: BaseRule{RuleName: "ImplicitUnitReturnType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects block-body functions that implicitly return Unit without an explicit return type."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) || file.FlatHasModifier(idx, "override") {
@@ -296,7 +296,7 @@ func registerPotentialbugsTypesRules() {
 		r := &ElseCaseInsteadOfExhaustiveWhenRule{BaseRule: BaseRule{RuleName: "ElseCaseInsteadOfExhaustiveWhen", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects when expressions on sealed classes or enums that use an else branch instead of exhaustive matching."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"when_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"when_expression"}, Confidence: 0.75, Implementation: r,
 			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File

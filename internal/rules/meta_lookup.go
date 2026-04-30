@@ -8,15 +8,15 @@ import (
 
 // MetaForV2Rule returns the RuleDescriptor for a v2 rule.
 //
-// It first checks OriginalV1 for a registry.MetaProvider (fast path for
+// It first checks Implementation for a registry.MetaProvider (fast path for
 // rules that set the concrete struct pointer on their v2.Rule). It then
 // falls back to the metaByName index keyed by rule ID.
 func MetaForV2Rule(r *v2.Rule) (registry.RuleDescriptor, bool) {
 	if r == nil {
 		return registry.RuleDescriptor{}, false
 	}
-	if r.OriginalV1 != nil {
-		if mp, ok := r.OriginalV1.(registry.MetaProvider); ok {
+	if r.Implementation != nil {
+		if mp, ok := r.Implementation.(registry.MetaProvider); ok {
 			m := mp.Meta()
 			if m.ID == r.ID {
 				return m, true
@@ -29,13 +29,23 @@ func MetaForV2Rule(r *v2.Rule) (registry.RuleDescriptor, bool) {
 	return registry.RuleDescriptor{}, false
 }
 
-// IsImplementedV2 reports whether a v2 rule has a real implementation path.
-// Rules without node types, line pass, or android deps are pure stubs.
-func IsImplementedV2(r *v2.Rule) bool {
+// HasV2Implementation reports whether a v2 rule has both executable analysis
+// logic and a declared dispatcher route.
+func HasV2Implementation(r *v2.Rule) bool {
 	if r == nil {
 		return false
 	}
-	return len(r.NodeTypes) > 0 || r.Needs != 0 || r.AndroidDeps != 0
+	hasCheck := r.Check != nil
+	hasAggregate := r.Needs.Has(v2.NeedsAggregate) &&
+		r.Aggregate != nil &&
+		r.Aggregate.Collect != nil &&
+		r.Aggregate.Finalize != nil &&
+		r.Aggregate.Reset != nil
+	hasRoute := len(r.NodeTypes) > 0 ||
+		r.NodeTypes == nil ||
+		r.Needs != 0 ||
+		r.AndroidDeps != 0
+	return (hasCheck || hasAggregate) && hasRoute
 }
 
 // V2RulePrecision returns the dominant precision class for a v2 rule.
@@ -70,8 +80,8 @@ func V2RulePrecision(r *v2.Rule) Precision {
 	if r.Needs.Has(v2.NeedsResolver) {
 		return PrecisionTypeAware
 	}
-	if r.OriginalV1 != nil {
-		if _, ok := r.OriginalV1.(interface {
+	if r.Implementation != nil {
+		if _, ok := r.Implementation.(interface {
 			SetResolver(typeinfer.TypeResolver)
 		}); ok {
 			return PrecisionTypeAware

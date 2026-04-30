@@ -123,3 +123,15 @@ func (r *LocaleDefaultForCurrencyRule) Meta() v2.RuleDescriptor {
 		Confidence:    0.75,
 	}
 }
+
+func (r *HardcodedDateFormatRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "HardcodedDateFormat",
+		RuleSet:       "potential-bugs",
+		Severity:      "warning",
+		Description:   "Detects DateTimeFormatter.ofPattern constructed without an explicit Locale.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.85,
+	}
+}

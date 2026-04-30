@@ -419,4 +419,40 @@ func registerPotentialbugsMiscRules() {
 			},
 		})
 	}
+	{
+		r := &HardcodedDateFormatRule{BaseRule: BaseRule{RuleName: "HardcodedDateFormat", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects DateTimeFormatter.ofPattern constructed without an explicit Locale."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes:  []string{"call_expression"},
+			Languages:  []scanner.Language{scanner.LangKotlin},
+			Confidence: r.Confidence(), Implementation: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				navExpr, args := flatCallExpressionParts(file, idx)
+				if navExpr == 0 || args == 0 {
+					return
+				}
+				_, argCount := flatValueArgumentStats(file, args)
+				if argCount != 1 {
+					return
+				}
+				if flatNavigationExpressionLastIdentifier(file, navExpr) != "ofPattern" {
+					return
+				}
+				receiver := file.FlatNamedChild(navExpr, 0)
+				if receiver == 0 {
+					return
+				}
+				receiverText := strings.TrimSpace(file.FlatNodeText(receiver))
+				if receiverText != "DateTimeFormatter" && receiverText != "java.time.format.DateTimeFormatter" {
+					return
+				}
+				if receiverText == "DateTimeFormatter" && !sourceImportsOrMentions(file, "java.time.format.DateTimeFormatter") {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"DateTimeFormatter.ofPattern(pattern) without explicit Locale. Pass Locale.ROOT for machine-readable formats or Locale.getDefault() to be explicit.")
+			},
+		})
+	}
 }

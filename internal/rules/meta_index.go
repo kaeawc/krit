@@ -242,6 +242,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*GridLayoutRule)(nil),
 		(*HandlerLeakRule)(nil),
 		(*HardcodedBearerTokenRule)(nil),
+		(*HardcodedDateFormatRule)(nil),
 		(*HardcodedEnvironmentNameRule)(nil),
 		(*HardcodedGcpServiceAccountRule)(nil),
 		(*HardcodedLocalhostUrlRule)(nil),

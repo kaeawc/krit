@@ -1239,12 +1239,13 @@ potential-bugs:
 	androidDispatcher := rules.NewDispatcherV2(activeRules, resolver)
 	androidDispatcher.SetLibraryFacts(libraryFacts)
 	androidRes, err := (pipeline.AndroidPhase{}).Run(context.Background(), pipeline.AndroidInput{
-		Project:     androidProject,
-		ActiveRules: activeRules,
-		Dispatcher:  androidDispatcher,
-		SourceFiles: sourceFiles,
-		Providers:   androidProviders,
-		Tracker:     androidTracker,
+		Project:      androidProject,
+		ActiveRules:  activeRules,
+		Dispatcher:   androidDispatcher,
+		SourceFiles:  sourceFiles,
+		Providers:    androidProviders,
+		LibraryFacts: libraryFacts,
+		Tracker:      androidTracker,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

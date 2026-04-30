@@ -857,6 +857,99 @@ class Foo
 	}
 }
 
+func TestNaming_InvalidPackageDeclaration_HonorsRequireRootInDeclaration(t *testing.T) {
+	// RequireRootInDeclaration was previously a dead config — exposed
+	// in zz_meta but never consulted. Configure it via the rule pointer
+	// and verify a package that doesn't start with the configured
+	// rootPackage is flagged with the "must start with" message.
+	var rule *rules.InvalidPackageDeclarationRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "InvalidPackageDeclaration" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.InvalidPackageDeclarationRule)
+			if !ok {
+				t.Fatalf("expected InvalidPackageDeclarationRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("InvalidPackageDeclaration rule not registered")
+	}
+	originalReq := rule.RequireRootInDeclaration
+	originalRoot := rule.RootPackage
+	defer func() {
+		rule.RequireRootInDeclaration = originalReq
+		rule.RootPackage = originalRoot
+	}()
+
+	rule.RequireRootInDeclaration = true
+	rule.RootPackage = "com.example"
+
+	// Package outside the root — must fire with the root-prefix message.
+	findings := runRuleByName(t, "InvalidPackageDeclaration", `
+package other.pkg
+class Foo
+`)
+	gotRootMessage := false
+	for _, f := range findings {
+		if f.Rule == "InvalidPackageDeclaration" && strings.Contains(f.Message, "root package 'com.example'") {
+			gotRootMessage = true
+		}
+	}
+	if !gotRootMessage {
+		t.Fatal("expected InvalidPackageDeclaration to fire with root-prefix message")
+	}
+}
+
+func TestNaming_InvalidPackageDeclaration_RootPackageStripsDirSuffix(t *testing.T) {
+	// When RootPackage is configured, the directory-suffix check should
+	// strip the root prefix so that a file at <root>/foo/Bar.kt
+	// declaring `package <root>.foo` passes even though the directory
+	// layout doesn't physically include the root segments.
+	var rule *rules.InvalidPackageDeclarationRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "InvalidPackageDeclaration" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.InvalidPackageDeclarationRule)
+			if !ok {
+				t.Fatalf("expected InvalidPackageDeclarationRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("InvalidPackageDeclaration rule not registered")
+	}
+	originalRoot := rule.RootPackage
+	defer func() { rule.RootPackage = originalRoot }()
+
+	rule.RootPackage = "com.example"
+
+	// runRuleByName writes to a temp dir whose path won't end in
+	// `com/example/foo`. Without RootPackage, this would fire. With
+	// RootPackage="com.example", the suffix check sees `foo` and should
+	// only fire if the directory doesn't end with `foo`.
+	// Since the temp file ends in /test.kt with no `foo` parent, the
+	// directory doesn't end with `foo` — we still expect a finding,
+	// but importantly the message refers to mismatch, not root.
+	if findings := runRuleByName(t, "InvalidPackageDeclaration", `
+package com.example.foo
+class Foo
+`); len(findings) == 0 {
+		t.Fatal("expected InvalidPackageDeclaration to still flag mismatch when dir doesn't end with stripped suffix")
+	}
+
+	// Pure root package with no subpackage: stripped suffix is empty,
+	// so the directory check is short-circuited and no finding emitted.
+	if findings := runRuleByName(t, "InvalidPackageDeclaration", `
+package com.example
+class Foo
+`); len(findings) != 0 {
+		t.Fatalf("expected no findings when package equals RootPackage and no subpackage to verify, got %d", len(findings))
+	}
+}
+
 // --- LambdaParameterNaming ---
 
 func TestNaming_LambdaParameter_FlagsBadName(t *testing.T) {

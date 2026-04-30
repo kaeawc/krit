@@ -347,7 +347,30 @@ func registerNamingRules() {
 				if pkg == "" {
 					return
 				}
-				expectedSuffix := strings.ReplaceAll(pkg, ".", string(filepath.Separator))
+				if r.RequireRootInDeclaration && r.RootPackage != "" {
+					if pkg != r.RootPackage && !strings.HasPrefix(pkg, r.RootPackage+".") {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Package declaration '%s' must start with the configured root package '%s'", pkg, r.RootPackage))
+						return
+					}
+				}
+				// Compute the directory-suffix the package implies. When
+				// RootPackage is configured, strip it from the package
+				// declaration before forming the suffix — the project root
+				// maps to that package, so a file at `<root>/foo/Bar.kt`
+				// declaring `package <root>.foo` should pass even though
+				// `<root>` doesn't appear in the directory layout.
+				pkgForPath := pkg
+				if r.RootPackage != "" {
+					if pkg == r.RootPackage {
+						pkgForPath = ""
+					} else if strings.HasPrefix(pkg, r.RootPackage+".") {
+						pkgForPath = strings.TrimPrefix(pkg, r.RootPackage+".")
+					}
+				}
+				if pkgForPath == "" {
+					return
+				}
+				expectedSuffix := strings.ReplaceAll(pkgForPath, ".", string(filepath.Separator))
 				dir := filepath.Dir(file.Path)
 				dirNorm := filepath.ToSlash(dir)
 				expectedNorm := filepath.ToSlash(expectedSuffix)

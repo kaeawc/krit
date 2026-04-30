@@ -52,8 +52,8 @@ func TestFixableFixtures(t *testing.T) {
 }
 
 // runBundledFixableFixtures walks the top-level fixable/ directory and
-// runs each <Name>.kt / <Name>.kt.expected pair against every active
-// rule (the original pre-Phase-4 behavior).
+// runs each supported source fixture with a matching .expected file against
+// every active rule (the original pre-Phase-4 behavior).
 func runBundledFixableFixtures(t *testing.T, dir string, activeRules []*v2rules.Rule) (int, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -62,7 +62,7 @@ func runBundledFixableFixtures(t *testing.T, dir string, activeRules []*v2rules.
 
 	count := 0
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".kt") {
+		if entry.IsDir() || !isFixableSourceFixture(entry.Name()) {
 			continue
 		}
 		expectedPath := filepath.Join(dir, entry.Name()+".expected")
@@ -70,14 +70,14 @@ func runBundledFixableFixtures(t *testing.T, dir string, activeRules []*v2rules.
 			continue
 		}
 
-		name := strings.TrimSuffix(entry.Name(), ".kt")
-		ktPath := filepath.Join(dir, entry.Name())
+		name := fixableFixtureRuleName(entry.Name())
+		sourcePath := filepath.Join(dir, entry.Name())
 
 		count++
 		t.Run("fixable/"+name, func(t *testing.T) {
-			file, err := scanner.ParseFile(ktPath)
+			file, err := parseFixableSourceFixture(sourcePath)
 			if err != nil {
-				t.Fatalf("failed to parse %s: %v", ktPath, err)
+				t.Fatalf("failed to parse %s: %v", sourcePath, err)
 			}
 
 			dispatcher := rules.NewDispatcherV2(activeRules)
@@ -99,7 +99,7 @@ func runBundledFixableFixtures(t *testing.T, dir string, activeRules []*v2rules.
 				return
 			}
 
-			applyAndCompare(t, ktPath, entry.Name(), fixableFindings, expectedPath, name)
+			applyAndCompare(t, sourcePath, entry.Name(), fixableFindings, expectedPath, name)
 		})
 	}
 	return count, nil
@@ -115,8 +115,8 @@ func rulesNeedResolver(activeRules []*v2rules.Rule) bool {
 }
 
 // runPerRuleFixableFixtures walks the fixable/per-rule/ directory. Each
-// <RuleName>.kt / <RuleName>.kt.expected pair is run through ONLY the
-// rule whose Name() matches <RuleName>. This gives per-rule coverage
+// <RuleName>.<ext> / <RuleName>.<ext>.expected pair is run through ONLY
+// the rule whose Name() matches <RuleName>. This gives per-rule coverage
 // that isolates the fix under test from any other rule's output on
 // the same input.
 func runPerRuleFixableFixtures(t *testing.T, dir string) (int, error) {
@@ -135,7 +135,7 @@ func runPerRuleFixableFixtures(t *testing.T, dir string) (int, error) {
 
 	count := 0
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".kt") {
+		if entry.IsDir() || !isFixableSourceFixture(entry.Name()) {
 			continue
 		}
 		expectedPath := filepath.Join(dir, entry.Name()+".expected")
@@ -150,21 +150,21 @@ func runPerRuleFixableFixtures(t *testing.T, dir string) (int, error) {
 			}
 		}
 
-		name := strings.TrimSuffix(entry.Name(), ".kt")
+		name := fixableFixtureRuleName(entry.Name())
 		rule, ok := byName[name]
 		if !ok {
 			t.Run("fixable/per-rule/"+name, func(t *testing.T) {
-				t.Fatalf("per-rule fixture %s.kt does not match any registered rule", name)
+				t.Fatalf("per-rule fixture %s does not match any registered rule", entry.Name())
 			})
 			continue
 		}
-		ktPath := filepath.Join(dir, entry.Name())
+		sourcePath := filepath.Join(dir, entry.Name())
 
 		count++
 		t.Run("fixable/per-rule/"+name, func(t *testing.T) {
-			file, err := scanner.ParseFile(ktPath)
+			file, err := parseFixableSourceFixture(sourcePath)
 			if err != nil {
-				t.Fatalf("failed to parse %s: %v", ktPath, err)
+				t.Fatalf("failed to parse %s: %v", sourcePath, err)
 			}
 
 			// Run the single rule in isolation. Every fixable rule is
@@ -192,27 +192,27 @@ func runPerRuleFixableFixtures(t *testing.T, dir string) (int, error) {
 			}
 			if len(fixableFindings) == 0 {
 				if bootstrap {
-					t.Skipf("bootstrap: rule %s produced no fixable findings for per-rule/%s.kt; remove or rewrite the fixture", name, name)
+					t.Skipf("bootstrap: rule %s produced no fixable findings for per-rule/%s; remove or rewrite the fixture", name, entry.Name())
 					return
 				}
-				t.Fatalf("per-rule fixture %s.kt triggers %d findings but none have Fix populated — rule isn't fixing this input", name, len(findings))
+				t.Fatalf("per-rule fixture %s triggers %d findings but none have Fix populated — rule isn't fixing this input", entry.Name(), len(findings))
 			}
 
-			applyAndCompare(t, ktPath, entry.Name(), fixableFindings, expectedPath, name)
+			applyAndCompare(t, sourcePath, entry.Name(), fixableFindings, expectedPath, name)
 		})
 	}
 	return count, nil
 }
 
 // applyAndCompare applies the given findings' fixes to a temporary
-// copy of ktPath and diffs the result against expectedPath. Set
+// copy of sourcePath and diffs the result against expectedPath. Set
 // UPDATE_FIXABLE_EXPECTED=1 to regenerate the .expected file from
 // the applied output instead of comparing.
-func applyAndCompare(t *testing.T, ktPath, baseName string, findings []scanner.Finding, expectedPath, name string) {
+func applyAndCompare(t *testing.T, sourcePath, baseName string, findings []scanner.Finding, expectedPath, name string) {
 	t.Helper()
 	tmpDir := t.TempDir()
 	tmpPath := filepath.Join(tmpDir, baseName)
-	srcContent, _ := os.ReadFile(ktPath)
+	srcContent, _ := os.ReadFile(sourcePath)
 	if err := os.WriteFile(tmpPath, srcContent, 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -254,6 +254,28 @@ func applyAndCompare(t *testing.T, ktPath, baseName string, findings []scanner.F
 		t.Errorf("fixed output for %s does not match expected.\n--- got ---\n%s\n--- expected ---\n%s",
 			name, truncate(got, 2000), truncate(expected, 2000))
 	}
+}
+
+func isFixableSourceFixture(name string) bool {
+	return strings.HasSuffix(name, ".kt") ||
+		strings.HasSuffix(name, ".kts") ||
+		strings.HasSuffix(name, ".java")
+}
+
+func fixableFixtureRuleName(name string) string {
+	for _, suffix := range []string{".kt", ".kts", ".java"} {
+		if strings.HasSuffix(name, suffix) {
+			return strings.TrimSuffix(name, suffix)
+		}
+	}
+	return name
+}
+
+func parseFixableSourceFixture(path string) (*scanner.File, error) {
+	if strings.HasSuffix(path, ".java") {
+		return scanner.ParseJavaFile(path)
+	}
+	return scanner.ParseFile(path)
 }
 
 func truncate(s string, max int) string {
@@ -298,14 +320,14 @@ func TestFixableRulesHavePerRuleFixture(t *testing.T) {
 		t.Fatalf("reading per-rule dir: %v", err)
 	}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".kt") {
+		if e.IsDir() || !isFixableSourceFixture(e.Name()) {
 			continue
 		}
 		expectedPath := filepath.Join(perRuleDir, e.Name()+".expected")
 		if _, err := os.Stat(expectedPath); err != nil {
 			continue
 		}
-		name := strings.TrimSuffix(e.Name(), ".kt")
+		name := fixableFixtureRuleName(e.Name())
 		existing[name] = true
 	}
 

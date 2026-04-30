@@ -34,6 +34,10 @@ Java-aware rules can use a shared checked-in type profile from `librarymodel.Fac
 
 Library-specific entries stay conservative: Room Java annotation facts are enabled when Room is present or dependency extraction is incomplete, and disabled when Gradle facts prove Room is absent.
 
+## Java Autofix Support
+
+Java-only source runs participate in text autofix when active rules declare Java support. The first low-risk Java fixes are cosmetic line edits shared with Kotlin: trailing whitespace removal, tab indentation replacement, and blank-line insertion after package/import declarations. The fixable fixture harness accepts `.java` before/after pairs, and CLI coverage verifies `krit --fix` mutates Java-only targets instead of exiting early when no Kotlin files are present.
+
 ## Pending Java-Applicable Batches
 
 | Batch | Status | Plan |

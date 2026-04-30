@@ -70,6 +70,7 @@ func init() {
 	registerI18nPluralsRules()
 	registerI18nStringConcatRules()
 	registerI18nStringTemplateRules()
+	registerI18nTextDirectionRules()
 	registerLayerDependencyViolationRules()
 	registerLibraryRules()
 	registerLicensingRules()

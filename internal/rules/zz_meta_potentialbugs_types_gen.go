@@ -82,7 +82,7 @@ func (r *ElseCaseInsteadOfExhaustiveWhenRule) Meta() registry.RuleDescriptor {
 		RuleSet:       "potential-bugs",
 		Severity:      "warning",
 		Description:   "Detects when expressions on sealed classes or enums that use an else branch instead of exhaustive matching.",
-		DefaultActive: false,
+		DefaultActive: true,
 		FixLevel:      "",
 		Confidence:    0.75,
 	}

@@ -578,7 +578,7 @@ potential-bugs:
   DontDowncastCollectionTypes:
     active: false
   ElseCaseInsteadOfExhaustiveWhen:
-    active: false
+    active: true
   ImplicitUnitReturnType:
     active: false
   LateinitUsage:

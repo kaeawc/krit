@@ -498,6 +498,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*SparseArrayRule)(nil),
 		(*SpreadOperatorRule)(nil),
 		(*SpyOnDataClassRule)(nil),
+		(*SqliteCursorWithoutCloseRule)(nil),
 		(*StateFlowCompareByReferenceRule)(nil),
 		(*StateFlowMutableLeakRule)(nil),
 		(*StateListReachableResourceRule)(nil),

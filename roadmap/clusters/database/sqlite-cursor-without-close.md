@@ -1,6 +1,6 @@
 # SqliteCursorWithoutClose
 
-**Cluster:** [database](README.md) · **Status:** planned · **Severity:** warning · **Default:** active
+**Cluster:** [database](README.md) · **Status:** shipped · **Severity:** warning · **Default:** active
 
 ## Catches
 

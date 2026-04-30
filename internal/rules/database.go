@@ -115,6 +115,37 @@ type JdbcPreparedStatementNotClosedRule struct {
 	BaseRule
 }
 
+// SqliteCursorWithoutCloseRule detects Android SQLiteDatabase rawQuery/query
+// results assigned to local properties without a later .use {} or .close() in
+// the same scope.
+type SqliteCursorWithoutCloseRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Detection matches on
+// method name without confirming the receiver is SQLiteDatabase.
+func (r *SqliteCursorWithoutCloseRule) Confidence() float64 { return 0.75 }
+
+func sqliteCursorCallFlat(file *scanner.File, idx uint32) bool {
+	found := false
+	file.FlatWalkNodes(idx, "call_expression", func(callIdx uint32) {
+		if found {
+			return
+		}
+		name := flatCallExpressionName(file, callIdx)
+		if name == "rawQuery" || name == "query" {
+			found = true
+		}
+	})
+	return found
+}
+
+func sqliteCursorRHSWrappedInUseFlat(file *scanner.File, idx uint32) bool {
+	text := file.FlatNodeText(idx)
+	return strings.Contains(text, ".use(") || strings.Contains(text, ".use {") || strings.Contains(text, ".use{")
+}
+
 // Confidence reports a tier-2 (medium) base confidence. Database/Room rule. Detection matches on annotation names and function
 // calls without confirming the declared type is a Room DAO or entity.
 // Classified per roadmap/17.

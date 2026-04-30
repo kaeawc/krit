@@ -251,6 +251,30 @@ func registerDatabaseRules() {
 		})
 	}
 	{
+		r := &SqliteCursorWithoutCloseRule{BaseRule: BaseRule{RuleName: "SqliteCursorWithoutClose", RuleSetName: "database", Sev: "warning", Desc: "Detects SQLiteDatabase rawQuery/query cursors assigned to local properties without .use {} or .close() in the same scope."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Implementation: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				cursorName := extractIdentifierFlat(file, idx)
+				if cursorName == "" {
+					return
+				}
+				if !sqliteCursorCallFlat(file, idx) {
+					return
+				}
+				if sqliteCursorRHSWrappedInUseFlat(file, idx) {
+					return
+				}
+				if jdbcPreparedStatementHasCleanupFlat(file, idx, cursorName) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Cursor '%s' from rawQuery/query should be wrapped in use { } or explicitly closed with .close().", cursorName))
+			},
+		})
+	}
+	{
 		r := &JdbcPreparedStatementNotClosedRule{BaseRule: BaseRule{RuleName: "JdbcPreparedStatementNotClosed", RuleSetName: "database", Sev: "warning", Desc: "Detects JDBC prepared statements assigned to local properties without .use {} or .close() in the same scope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

@@ -1469,6 +1469,28 @@ val DataMessage?.hasGroupContext: Boolean
 	}
 }
 
+func TestUnnecessarySafeCall_NegativeNullableWithReceiverThis(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnnecessarySafeCall", `
+package test
+
+class Logger(val lastTracked: Tracked?)
+class Tracked(val a: A?)
+class A(val b: B?)
+class B(val event: Event?)
+class Event(val id: String, val uiContext: String)
+
+fun render(logger: Logger) {
+    with(logger.lastTracked?.a?.b?.event) {
+        val id = this?.id
+        val uiContext = this?.uiContext
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for this safe calls inside with(nullable), got %d", len(findings))
+	}
+}
+
 func TestUnnecessarySafeCall_PositiveNonNullCanvasParameter(t *testing.T) {
 	findings := runRuleByNameWithResolver(t, "UnnecessarySafeCall", `
 package test

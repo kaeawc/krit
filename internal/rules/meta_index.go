@@ -559,6 +559,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*TooManyViewsResourceRule)(nil),
 		(*TopLevelPropertyNamingRule)(nil),
 		(*TrailingWhitespaceRule)(nil),
+		(*TranslatableMarkupMismatchRule)(nil),
 		(*TrimMultilineRawStringRule)(nil),
 		(*TrulyRandomRule)(nil),
 		(*TrustedServerRule)(nil),

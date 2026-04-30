@@ -173,6 +173,7 @@ func AllMetaProviders() []registry.MetaProvider {
 		(*EmptyWhenBlockRule)(nil),
 		(*EmptyWhileBlockRule)(nil),
 		(*EndOfSentenceFormatRule)(nil),
+		(*EntityMutableColumnRule)(nil),
 		(*EntityPrimaryKeyNotStableRule)(nil),
 		(*EnumNamingRule)(nil),
 		(*EqualsAlwaysReturnsTrueOrFalseRule)(nil),

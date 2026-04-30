@@ -408,6 +408,44 @@ data class User(
 	}
 }
 
+func TestEntityMutableColumn_Positive(t *testing.T) {
+	findings := runRuleByName(t, "EntityMutableColumn", `
+package test
+
+annotation class Entity
+annotation class PrimaryKey
+
+@Entity
+data class User(
+    @PrimaryKey val id: Long,
+    var name: String,
+)`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for @Entity var column")
+	}
+}
+
+func TestEntityMutableColumn_Negative(t *testing.T) {
+	findings := runRuleByName(t, "EntityMutableColumn", `
+package test
+
+annotation class Entity
+annotation class PrimaryKey
+
+@Entity
+data class User(
+    @PrimaryKey val id: Long,
+    val name: String,
+)
+
+data class DraftUser(
+    var name: String,
+)`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for all-val @Entity or non-Entity var, got %v", findings)
+	}
+}
+
 func TestJdbcPreparedStatementNotClosed_Positive(t *testing.T) {
 	findings := runRuleByName(t, "JdbcPreparedStatementNotClosed", `
 package test

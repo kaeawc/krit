@@ -187,10 +187,36 @@ type RoomConflictStrategyReplaceOnFkRule struct {
 	BaseRule
 }
 
+// EntityMutableColumnRule detects Room @Entity class declarations whose
+// primary-constructor parameters use `var`, preventing straightforward
+// copy-on-write semantics for entity rows.
+type EntityMutableColumnRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
 // Confidence reports a tier-2 (medium) base confidence. Database/Room rule.
 // Detection matches on annotation names without confirming the parameter
 // resolves to a Room @Entity class.
 func (r *RoomConflictStrategyReplaceOnFkRule) Confidence() float64 { return 0.75 }
+
+// Confidence reports a tier-2 (medium) base confidence. Database/Room rule. Detection matches on annotation names and function
+// calls without confirming the declared type is a Room DAO or entity.
+// Classified per roadmap/17.
+func (r *EntityMutableColumnRule) Confidence() float64 { return 0.75 }
+
+func classParameterIsVarFlat(file *scanner.File, param uint32) bool {
+	bpk, _ := file.FlatFindChild(param, "binding_pattern_kind")
+	if bpk == 0 {
+		return false
+	}
+	for c := file.FlatFirstChild(bpk); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "var" {
+			return true
+		}
+	}
+	return false
+}
 
 func (r *RoomConflictStrategyReplaceOnFkRule) check(ctx *v2.Context) {
 	index := ctx.CodeIndex

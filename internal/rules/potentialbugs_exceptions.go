@@ -869,7 +869,16 @@ func isNothingCallFlat(file *scanner.File, idx uint32) bool {
 	if file == nil || file.FlatType(idx) != "call_expression" {
 		return false
 	}
-	return nothingReturningFuncs[flatCallExpressionName(file, idx)]
+	name := flatCallExpressionName(file, idx)
+	if !nothingReturningFuncs[name] {
+		return false
+	}
+	nav, _ := flatCallExpressionParts(file, idx)
+	if nav == 0 {
+		return true
+	}
+	segments := flatNavigationChainIdentifiers(file, nav)
+	return len(segments) == 2 && segments[0] == "kotlin" && segments[1] == name
 }
 
 // ifAllBranchesTerminateFlat checks if an if_expression has both then and else branches

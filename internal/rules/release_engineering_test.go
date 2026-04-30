@@ -1569,6 +1569,42 @@ func TestTestOnlyImportInProduction(t *testing.T) {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+
+	t.Run("android test artifact main sources are clean", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			path string
+			code string
+		}{
+			{
+				name: "maestro runner",
+				path: "/repo/maestro-runner/src/main/kotlin/com/example/MaestroRunner.kt",
+				code: `package com.example
+
+import androidx.test.ext.junit.runners.AndroidJUnit4
+
+class MaestroRunner`,
+			},
+			{
+				name: "idling resources",
+				path: "/repo/idling-resources/src/main/kotlin/com/example/AppIdlingResource.kt",
+				code: `package com.example
+
+import androidx.test.espresso.IdlingResource
+
+class AppIdlingResource`,
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				file := parseInline(t, tc.code)
+				file.Path = tc.path
+				findings := runRule(t, rule, file)
+				if len(findings) != 0 {
+					t.Fatalf("expected 0 findings, got %d", len(findings))
+				}
+			})
+		}
+	})
 }
 
 func TestNonAsciiIdentifier(t *testing.T) {

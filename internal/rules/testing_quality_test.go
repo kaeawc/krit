@@ -652,6 +652,56 @@ class RunBlockingObjectIdentityPositive {
 	}
 }
 
+func TestRunBlockingInTest_NegativeIntentionalComment(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", `
+package test
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import org.junit.Test
+
+class RunBlockingIntentionalCommentNegative {
+    @Test
+    fun preservesDispatcherBehavior() {
+        // Intentionally use runBlocking here to test real dispatcher behavior.
+        runBlocking {
+            withContext(Dispatchers.Default) {
+                delay(1)
+            }
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for intentionally documented runBlocking test, got %d", len(findings))
+	}
+}
+
+func TestRunBlockingInTest_PositiveVagueRunBlockingComment(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", `
+package test
+
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+
+class RunBlockingVagueCommentPositive {
+    @Test
+    fun waitsForResult() {
+        // Use runBlocking for this coroutine.
+        runBlocking {
+            delay(1)
+        }
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding when comment does not document intentional dispatcher/thread behavior")
+	}
+}
+
 func TestTestWithoutAssertion_Positive(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test

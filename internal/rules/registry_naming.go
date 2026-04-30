@@ -106,13 +106,19 @@ func registerNamingRules() {
 					return
 				}
 				name := extractIdentifierFlat(file, idx)
-				if name == "_" {
+				if name == "" || name == "_" {
 					return
 				}
 				if strings.HasPrefix(name, "`") {
 					return
 				}
-				if name != "" && !r.Pattern.MatchString(name) {
+				if file.FlatHasModifier(idx, "private") && r.PrivateVariablePattern != nil {
+					if !r.PrivateVariablePattern.MatchString(name) {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Private variable name '%s' does not match pattern: %s", name, r.PrivateVariablePattern.String()))
+					}
+					return
+				}
+				if !r.Pattern.MatchString(name) {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Variable name '%s' does not match pattern: %s", name, r.Pattern.String()))
 				}
 			},

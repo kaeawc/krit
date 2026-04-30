@@ -119,6 +119,59 @@ fun example() {
 	}
 }
 
+func TestVariableNaming_HonorsPrivateVariablePattern(t *testing.T) {
+	// PrivateVariablePattern was previously a dead config — exposed in
+	// zz_meta but never consulted by the check. The Kotlin compiler
+	// rejects visibility modifiers on local vars, but tree-sitter parses
+	// them leniently — so a half-finished `private val Foo = ...` inside
+	// a function still has a "private" modifier on the property_declaration
+	// node, and the wired check should validate it against
+	// PrivateVariablePattern instead of the public Pattern.
+	var rule *rules.VariableNamingRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "VariableNaming" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.VariableNamingRule)
+			if !ok {
+				t.Fatalf("expected VariableNamingRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("VariableNaming rule not registered")
+	}
+	original := rule.PrivateVariablePattern
+	defer func() { rule.PrivateVariablePattern = original }()
+
+	rule.PrivateVariablePattern = registry.CompileAnchoredPattern(
+		"VariableNaming", "privateVariablePattern", "_[a-z][A-Za-z0-9]*")
+	if rule.PrivateVariablePattern == nil {
+		t.Fatal("failed to compile test pattern")
+	}
+
+	if findings := runRuleByName(t, "VariableNaming", `
+package test
+fun example() {
+    private val plain = 1
+}
+`); len(findings) == 0 {
+		t.Fatal("expected finding when private local doesn't match PrivateVariablePattern")
+	}
+
+	// Permissive private pattern — finding goes away.
+	rule.PrivateVariablePattern = registry.CompileAnchoredPattern(
+		"VariableNaming", "privateVariablePattern", "_?[a-z][A-Za-z0-9]*")
+	if findings := runRuleByName(t, "VariableNaming", `
+package test
+fun example() {
+    private val plain = 1
+}
+`); len(findings) != 0 {
+		t.Fatalf("expected no findings under permissive PrivateVariablePattern, got %d", len(findings))
+	}
+}
+
 func TestVariableNaming_AcceptsDiscardLocal(t *testing.T) {
 	findings := runRuleByName(t, "VariableNaming", `
 package test

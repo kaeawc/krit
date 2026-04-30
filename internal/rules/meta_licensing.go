@@ -41,6 +41,18 @@ func (r *DependencyLicenseUnknownRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *OptInWithoutJustificationRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "OptInWithoutJustification",
+		RuleSet:       "licensing",
+		Severity:      "info",
+		Description:   "Detects @OptIn annotations whose declaration has no preceding KDoc explaining why opting in is safe.",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *MissingSpdxIdentifierRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "MissingSpdxIdentifier",

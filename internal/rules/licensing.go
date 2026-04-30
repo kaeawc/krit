@@ -146,6 +146,40 @@ func leadingHeaderComment(lines []string) ([]string, int) {
 	return nil, 0
 }
 
+// OptInWithoutJustificationRule flags `@OptIn(...)` annotations whose
+// enclosing declaration lacks a preceding KDoc comment explaining why the
+// opt-in is safe.
+type OptInWithoutJustificationRule struct {
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Licensing rule.
+func (r *OptInWithoutJustificationRule) Confidence() float64 { return 0.75 }
+
+func (r *OptInWithoutJustificationRule) check(ctx *v2.Context) {
+	idx, file := ctx.Idx, ctx.File
+	if annotationFinalName(file, idx) != "OptIn" {
+		return
+	}
+	decl, ok := flatEnclosingAncestor(file, idx,
+		"function_declaration",
+		"class_declaration",
+		"object_declaration",
+		"property_declaration",
+		"type_alias",
+		"secondary_constructor",
+		"anonymous_initializer",
+	)
+	if !ok {
+		return
+	}
+	if _, ok := flatPrecedingKDoc(file, decl); ok {
+		return
+	}
+	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"@OptIn annotation has no KDoc explaining why opting in is safe."))
+}
+
 // DependencyLicenseUnknownRule flags external dependencies that are not present
 // in the embedded license registry when license verification is required.
 type DependencyLicenseUnknownRule struct {

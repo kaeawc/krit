@@ -407,6 +407,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*OnClickResourceRule)(nil),
 		(*OnClickRule)(nil),
 		(*OpenForTestingCallerInNonTestRule)(nil),
+		(*OptInWithoutJustificationRule)(nil),
 		(*OptionalAbstractKeywordRule)(nil),
 		(*OptionalUnitRule)(nil),
 		(*OrientationResourceRule)(nil),

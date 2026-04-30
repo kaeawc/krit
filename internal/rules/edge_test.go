@@ -10,6 +10,7 @@ import (
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
+	"github.com/kaeawc/krit/internal/rules/registry"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -1112,6 +1113,28 @@ fun example() {
 }
 
 // --- ElseCaseInsteadOfExhaustiveWhen without resolver tests ---
+
+// TestElseCaseInsteadOfExhaustiveWhen_ActiveByDefault guards the
+// active-by-default state at both the metadata layer (zz_meta) and the
+// shipped YAML configs. Detekt's @ActiveByDefault(since "1.21.0") makes
+// the rule active in default config; krit had previously left it at
+// `active: false` in both default-krit.yml and balanced.yml, so users
+// silently never saw findings. Both layers must agree.
+func TestElseCaseInsteadOfExhaustiveWhen_ActiveByDefault(t *testing.T) {
+	rule := buildRuleIndex()["ElseCaseInsteadOfExhaustiveWhen"]
+	if rule == nil {
+		t.Fatal("ElseCaseInsteadOfExhaustiveWhen rule not registered")
+	}
+	impl, ok := rule.Implementation.(interface {
+		Meta() registry.RuleDescriptor
+	})
+	if !ok {
+		t.Fatalf("rule does not expose Meta()")
+	}
+	if !impl.Meta().DefaultActive {
+		t.Fatal("expected ElseCaseInsteadOfExhaustiveWhen DefaultActive=true (detekt parity)")
+	}
+}
 
 func TestElseCaseInsteadOfExhaustiveWhen_NoResolverNoFindings(t *testing.T) {
 	// Without a type resolver the rule should not fire to avoid false positives

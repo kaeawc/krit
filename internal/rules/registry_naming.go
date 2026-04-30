@@ -17,7 +17,7 @@ func registerNamingRules() {
 		r := &ClassNamingRule{BaseRule: BaseRule{RuleName: "ClassNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects class names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[A-Z][a-zA-Z0-9]*$`)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -45,7 +45,7 @@ func registerNamingRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -99,7 +99,7 @@ func registerNamingRules() {
 		r := &VariableNamingRule{BaseRule: BaseRule{RuleName: "VariableNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects local variable names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !variableNamingIsFunctionLocalPropertyFlat(file, idx) {
@@ -129,7 +129,7 @@ func registerNamingRules() {
 		r := &PackageNamingRule{BaseRule: BaseRule{RuleName: "PackageNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects package names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[a-z][a-zA-Z0-9_]*(\.[a-z][a-zA-Z0-9_]*)*$`)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"package_header"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"package_header"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var pkg string
@@ -159,7 +159,7 @@ func registerNamingRules() {
 		r := &EnumNamingRule{BaseRule: BaseRule{RuleName: "EnumNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects enum entry names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[A-Z][_a-zA-Z0-9]*$`)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"enum_entry"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"enum_entry"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := extractIdentifierFlat(file, idx)
@@ -173,7 +173,7 @@ func registerNamingRules() {
 		r := &BooleanPropertyNamingRule{BaseRule: BaseRule{RuleName: "BooleanPropertyNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects Boolean properties that do not start with an allowed prefix like is, has, or are."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) || !isPublicDeclarationFlat(file, idx) {
@@ -211,7 +211,7 @@ func registerNamingRules() {
 		r := &ConstructorParameterNamingRule{BaseRule: BaseRule{RuleName: "ConstructorParameterNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects constructor val/var parameter names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"primary_constructor"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"primary_constructor"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				for i := 0; i < file.FlatChildCount(idx); i++ {
@@ -237,7 +237,7 @@ func registerNamingRules() {
 		r := &ForbiddenClassNameRule{BaseRule: BaseRule{RuleName: "ForbiddenClassName", RuleSetName: "naming", Sev: "warning", Desc: "Detects class names that match a configured list of disallowed names."}, ForbiddenNames: []string{"Manager", "Helper", "Util", "Utils"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if len(r.ForbiddenNames) == 0 {
@@ -258,7 +258,7 @@ func registerNamingRules() {
 		r := &FunctionNameMaxLengthRule{BaseRule: BaseRule{RuleName: "FunctionNameMaxLength", RuleSetName: "naming", Sev: "warning", Desc: "Detects function names that exceed the configured maximum length."}, MaxLength: 30}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -275,7 +275,7 @@ func registerNamingRules() {
 		r := &FunctionNameMinLengthRule{BaseRule: BaseRule{RuleName: "FunctionNameMinLength", RuleSetName: "naming", Sev: "warning", Desc: "Detects function names that are shorter than the configured minimum length."}, MinLength: 3}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := extractIdentifierFlat(file, idx)
@@ -292,7 +292,7 @@ func registerNamingRules() {
 		r := &FunctionParameterNamingRule{BaseRule: BaseRule{RuleName: "FunctionParameterNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects function parameter names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				paramsNode, _ := file.FlatFindChild(idx, "function_value_parameters")
@@ -315,7 +315,7 @@ func registerNamingRules() {
 		r := &InvalidPackageDeclarationRule{BaseRule: BaseRule{RuleName: "InvalidPackageDeclaration", RuleSetName: "naming", Sev: "warning", Desc: "Detects package declarations that do not match the file directory structure."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"package_header"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"package_header"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var pkg string
@@ -346,7 +346,7 @@ func registerNamingRules() {
 		r := &LambdaParameterNamingRule{BaseRule: BaseRule{RuleName: "LambdaParameterNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects lambda parameter names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[a-z][A-Za-z0-9]*$|^_$`)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"lambda_literal"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"lambda_literal"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				paramsNode, _ := file.FlatFindChild(idx, "lambda_parameters")
@@ -384,7 +384,7 @@ func registerNamingRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"source_file"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"source_file"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if strings.HasSuffix(file.Path, ".kts") {
@@ -495,7 +495,7 @@ func registerNamingRules() {
 		r := &MemberNameEqualsClassNameRule{BaseRule: BaseRule{RuleName: "MemberNameEqualsClassName", RuleSetName: "naming", Sev: "warning", Desc: "Detects class members whose name is the same as the containing class name."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				className := extractIdentifierFlat(file, idx)
@@ -523,7 +523,7 @@ func registerNamingRules() {
 		r := &NoNameShadowingRule{BaseRule: BaseRule{RuleName: "NoNameShadowing", RuleSetName: "naming", Sev: "warning", Desc: "Detects inner declarations that shadow an outer declaration with the same name."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"source_file"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"source_file"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var findings []scanner.Finding
@@ -543,7 +543,7 @@ func registerNamingRules() {
 		r := &NonBooleanPropertyPrefixedWithIsRule{BaseRule: BaseRule{RuleName: "NonBooleanPropertyPrefixedWithIs", RuleSetName: "naming", Sev: "warning", Desc: "Detects non-Boolean properties whose name starts with the is prefix."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := extractIdentifierFlat(file, idx)
@@ -564,7 +564,7 @@ func registerNamingRules() {
 		r := &ObjectPropertyNamingRule{BaseRule: BaseRule{RuleName: "ObjectPropertyNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects property names inside object declarations that do not match the expected naming pattern."}, ConstPattern: regexp.MustCompile(`^[A-Z][_A-Z0-9]*$`), PropertyPattern: regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"object_declaration", "companion_object"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"object_declaration", "companion_object"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				classBody, _ := file.FlatFindChild(idx, "class_body")
@@ -601,7 +601,7 @@ func registerNamingRules() {
 		r := &TopLevelPropertyNamingRule{BaseRule: BaseRule{RuleName: "TopLevelPropertyNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects top-level property names that do not match the expected naming pattern."}, ConstPattern: regexp.MustCompile(`^[A-Z][_A-Za-z0-9]*$`), PropertyPattern: regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				parent, ok := file.FlatParent(idx)
@@ -632,7 +632,7 @@ func registerNamingRules() {
 		r := &VariableMaxLengthRule{BaseRule: BaseRule{RuleName: "VariableMaxLength", RuleSetName: "naming", Sev: "warning", Desc: "Detects variable names that exceed the configured maximum length."}, MaxLength: 64}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !file.FlatHasAncestorOfType(idx, "function_body") {
@@ -649,7 +649,7 @@ func registerNamingRules() {
 		r := &VariableMinLengthRule{BaseRule: BaseRule{RuleName: "VariableMinLength", RuleSetName: "naming", Sev: "warning", Desc: "Detects variable names that are shorter than the configured minimum length."}, MinLength: 2}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !file.FlatHasAncestorOfType(idx, "function_body") {

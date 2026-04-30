@@ -16,7 +16,7 @@ func registerPotentialbugsMiscRules() {
 		r := &DeprecationRule{BaseRule: BaseRule{RuleName: "Deprecation", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects usage of deprecated functions, classes, or properties."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "navigation_expression", "user_type"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "navigation_expression", "user_type"}, Confidence: 0.75, Implementation: r,
 			Needs:             v2.NeedsTypeInfo,
 			OracleCallTargets: &v2.OracleCallTargetFilter{AnnotatedIdentifiers: []string{"Deprecated"}},
 			// Narrow by the "Deprecated" token — captures @Deprecated,
@@ -117,7 +117,7 @@ func registerPotentialbugsMiscRules() {
 		r := &HasPlatformTypeRule{BaseRule: BaseRule{RuleName: "HasPlatformType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects public functions with expression bodies that lack an explicit return type, risking platform type exposure from Java interop."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -178,7 +178,7 @@ func registerPotentialbugsMiscRules() {
 		r := &IgnoredReturnValueRule{BaseRule: BaseRule{RuleName: "IgnoredReturnValue", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects discarded return values from functional operations or @CheckReturnValue-annotated functions."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Needs: v2.NeedsTypeInfo,
 			OracleCallTargets: &v2.OracleCallTargetFilter{
 				DiscardedOnly:        true,
@@ -274,7 +274,7 @@ func registerPotentialbugsMiscRules() {
 		r := &ImplicitDefaultLocaleRule{BaseRule: BaseRule{RuleName: "ImplicitDefaultLocale", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects locale-sensitive string methods called without an explicit Locale argument."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Needs: v2.NeedsTypeInfo,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
@@ -375,7 +375,7 @@ func registerPotentialbugsMiscRules() {
 		r := &LocaleDefaultForCurrencyRule{BaseRule: BaseRule{RuleName: "LocaleDefaultForCurrency", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Currency.getInstance(Locale.getDefault()) in money-related classes where currency should come from business data."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				className := enclosingClassNameFlat(file, idx)

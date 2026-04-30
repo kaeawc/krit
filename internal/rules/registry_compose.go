@@ -12,7 +12,7 @@ func registerComposeRules() {
 		r := &ComposeColumnRowInScrollableRule{BaseRule: BaseRule{RuleName: "ComposeColumnRowInScrollable", RuleSetName: "compose", Sev: "warning", Desc: "Detects nested same-axis scroll containers such as Column with verticalScroll containing LazyColumn."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				call := file.FlatChild(idx, 0)
@@ -65,7 +65,7 @@ func registerComposeRules() {
 		r := &ComposeDerivedStateMisuseRule{BaseRule: BaseRule{RuleName: "ComposeDerivedStateMisuse", RuleSetName: "compose", Sev: "warning", Desc: "Detects unnecessary derivedStateOf wrapping a direct boolean comparison of Compose state reads."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "derivedStateOf" {
@@ -91,7 +91,7 @@ func registerComposeRules() {
 		r := &ComposeLambdaCapturesUnstableStateRule{BaseRule: BaseRule{RuleName: "ComposeLambdaCapturesUnstableState", RuleSetName: "compose", Sev: "warning", Desc: "Detects inline onClick lambdas in lazy item builders that capture the current item without hoisting through remember."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"lambda_literal"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"lambda_literal"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !composeIsNamedArgumentLambdaFlat(file, idx, "onClick") {
@@ -115,7 +115,7 @@ func registerComposeRules() {
 		r := &ComposeModifierFillAfterSizeRule{BaseRule: BaseRule{RuleName: "ComposeModifierFillAfterSize", RuleSetName: "compose", Sev: "info", Desc: "Detects Modifier chains where fillMaxWidth/Height/Size follows size(), overriding the explicit size."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if _, ok := composeFillMaxAxisNames[flatCallExpressionName(file, idx)]; !ok {
@@ -134,7 +134,7 @@ func registerComposeRules() {
 		r := &ComposeModifierBackgroundAfterClipRule{BaseRule: BaseRule{RuleName: "ComposeModifierBackgroundAfterClip", RuleSetName: "compose", Sev: "warning", Desc: "Detects Modifier chains where background() is applied before clip(), painting outside the clip shape."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "clip" {
@@ -153,7 +153,7 @@ func registerComposeRules() {
 		r := &ComposeModifierClickableBeforePaddingRule{BaseRule: BaseRule{RuleName: "ComposeModifierClickableBeforePadding", RuleSetName: "compose", Sev: "warning", Desc: "Detects Modifier chains where clickable is applied before padding, excluding the padding region from the click area."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "padding" {
@@ -172,7 +172,7 @@ func registerComposeRules() {
 		r := &ComposePreviewAnnotationMissingRule{BaseRule: BaseRule{RuleName: "ComposePreviewAnnotationMissing", RuleSetName: "compose", Sev: "info", Desc: "Detects @Composable functions whose name ends in Preview but lack the @Preview annotation."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !flatHasAnnotationNamed(file, idx, "Composable") {
@@ -198,7 +198,7 @@ func registerComposeRules() {
 		r := &ComposeMutableDefaultArgumentRule{BaseRule: BaseRule{RuleName: "ComposeMutableDefaultArgument", RuleSetName: "compose", Sev: "warning", Desc: "Detects @Composable parameters with mutable collection defaults that re-evaluate on each recomposition."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !flatHasAnnotationNamed(file, idx, "Composable") {
@@ -240,7 +240,7 @@ func registerComposeRules() {
 		r := &ComposeStringResourceInsideLambdaRule{BaseRule: BaseRule{RuleName: "ComposeStringResourceInsideLambda", RuleSetName: "compose", Sev: "warning", Desc: "Detects stringResource() calls inside callback lambdas where the composition-only API will crash at runtime."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "stringResource" {
@@ -262,7 +262,7 @@ func registerComposeRules() {
 		r := &ComposeRememberWithoutKeyRule{BaseRule: BaseRule{RuleName: "ComposeRememberWithoutKey", RuleSetName: "compose", Sev: "warning", Desc: "Detects remember blocks that reference enclosing parameters but have no keys, causing stale cached values."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallNameAny(file, idx) != "remember" {
@@ -288,7 +288,7 @@ func registerComposeRules() {
 		r := &ComposeLaunchedEffectWithoutKeysRule{BaseRule: BaseRule{RuleName: "ComposeLaunchedEffectWithoutKeys", RuleSetName: "compose", Sev: "warning", Desc: "Detects LaunchedEffect blocks keyed only on constants whose body reads enclosing parameters that change."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallNameAny(file, idx) != "LaunchedEffect" {
@@ -324,7 +324,7 @@ func registerComposeRules() {
 		r := &ComposeMutableStateInCompositionRule{BaseRule: BaseRule{RuleName: "ComposeMutableStateInComposition", RuleSetName: "compose", Sev: "warning", Desc: "Detects mutableStateOf() used as a plain local without remember, causing state loss on every recomposition."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				fn, ok := flatEnclosingFunction(file, idx)
@@ -360,7 +360,7 @@ func registerComposeRules() {
 		r := &ComposeStatefulDefaultParameterRule{BaseRule: BaseRule{RuleName: "ComposeStatefulDefaultParameter", RuleSetName: "compose", Sev: "warning", Desc: "Detects @Composable parameters with constructor-call defaults that allocate fresh instances every recomposition."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !flatHasAnnotationNamed(file, idx, "Composable") {
@@ -406,7 +406,7 @@ func registerComposeRules() {
 		r := &ComposePreviewWithBackingStateRule{BaseRule: BaseRule{RuleName: "ComposePreviewWithBackingState", RuleSetName: "compose", Sev: "warning", Desc: "Detects @Preview functions that call runtime state holders like hiltViewModel() or collectAsState() which fail in the preview renderer."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !flatHasAnnotationNamed(file, idx, "Preview") {
@@ -437,7 +437,7 @@ func registerComposeRules() {
 		r := &ComposeDisposableEffectMissingDisposeRule{BaseRule: BaseRule{RuleName: "ComposeDisposableEffectMissingDispose", RuleSetName: "compose", Sev: "warning", Desc: "Detects DisposableEffect blocks whose body does not end with onDispose, causing resource leaks."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallNameAny(file, idx) != "DisposableEffect" {
@@ -472,7 +472,7 @@ func registerComposeRules() {
 		r := &ComposeModifierPassedThenChainedRule{BaseRule: BaseRule{RuleName: "ComposeModifierPassedThenChained", RuleSetName: "compose", Sev: "warning", Desc: "Detects @Composable functions that declare a modifier parameter but never use it, starting fresh Modifier chains instead."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !flatHasAnnotationNamed(file, idx, "Composable") {
@@ -532,7 +532,7 @@ func registerComposeRules() {
 		r := &ComposeSideEffectInCompositionRule{BaseRule: BaseRule{RuleName: "ComposeSideEffectInComposition", RuleSetName: "compose", Sev: "warning", Desc: "Detects direct assignments inside @Composable function bodies that are not wrapped in a recognized effect scope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"assignment"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"assignment"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				fn, ok := flatEnclosingFunction(file, idx)
@@ -568,7 +568,7 @@ func registerComposeRules() {
 		r := &ComposeUnstableParameterRule{BaseRule: BaseRule{RuleName: "ComposeUnstableParameter", RuleSetName: "compose", Sev: "warning", Desc: "Detects @Composable function parameters using mutable collection types that prevent recomposition skipping."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !flatHasAnnotationNamed(file, idx, "Composable") {
@@ -608,7 +608,7 @@ func registerComposeRules() {
 		r := &ComposeRememberSaveableNonParcelableRule{BaseRule: BaseRule{RuleName: "ComposeRememberSaveableNonParcelable", RuleSetName: "compose", Sev: "warning", Desc: "Detects rememberSaveable blocks constructing non-primitive types without an explicit saver argument."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallNameAny(file, idx) != "rememberSaveable" {

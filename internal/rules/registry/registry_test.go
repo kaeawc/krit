@@ -180,8 +180,7 @@ func TestApplyConfig_3_RegexOption(t *testing.T) {
 }
 
 // Test 5: Ruleset disable — when the ruleset is inactive, the function
-// returns false AND no option overrides are applied. This mirrors the
-// `continue` branch in the legacy config.go:47-51.
+// returns false AND no option overrides are applied.
 func TestApplyConfig_5_RuleSetDisable(t *testing.T) {
 	rule := &configurableRule{AllowedLines: 60}
 	cfg := NewFakeConfigSource()

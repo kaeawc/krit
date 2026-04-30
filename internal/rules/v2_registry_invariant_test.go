@@ -16,12 +16,6 @@ var knownRegistryAliases = map[string]string{
 	"StringShouldBeInt":    "StringInteger",
 }
 
-var knownDuplicateRuleIDs = map[string]int{
-	// AppCompatResource has two Android lint-compatible registrations that
-	// share the same ID but cover different resource contexts.
-	"AppCompatResource": 2,
-}
-
 func TestV2RegistryIdentityAndMetadataInvariants(t *testing.T) {
 	if len(v2.Registry) == 0 {
 		t.Fatal("v2 registry is empty")
@@ -32,8 +26,8 @@ func TestV2RegistryIdentityAndMetadataInvariants(t *testing.T) {
 	var metaMismatch []string
 	var missingIdentity []string
 	var missingCheck []string
-	var fixFallbackRules []string
-	var fixFromV2, fixFromFallback int
+	var missingImplementation []string
+	var fixFromV2 int
 
 	for _, r := range v2.Registry {
 		if r == nil {
@@ -46,6 +40,9 @@ func TestV2RegistryIdentityAndMetadataInvariants(t *testing.T) {
 		}
 		if r.Check == nil && !r.Needs.Has(v2.NeedsAggregate) {
 			missingCheck = append(missingCheck, r.ID)
+		}
+		if !HasV2Implementation(r) {
+			missingImplementation = append(missingImplementation, r.ID)
 		}
 
 		meta, ok := MetaForV2Rule(r)
@@ -60,21 +57,12 @@ func TestV2RegistryIdentityAndMetadataInvariants(t *testing.T) {
 		if _, ok := GetV2FixLevel(r); ok {
 			if r.Fix != v2.FixNone {
 				fixFromV2++
-			} else {
-				fixFromFallback++
-				fixFallbackRules = append(fixFallbackRules, r.ID)
 			}
 		}
 	}
 
 	var duplicateIDs []string
 	for id, count := range seen {
-		if want, ok := knownDuplicateRuleIDs[id]; ok {
-			if count != want {
-				duplicateIDs = append(duplicateIDs, id)
-			}
-			continue
-		}
 		if count > 1 {
 			duplicateIDs = append(duplicateIDs, id)
 		}
@@ -85,7 +73,7 @@ func TestV2RegistryIdentityAndMetadataInvariants(t *testing.T) {
 	sort.Strings(metaMismatch)
 	sort.Strings(missingIdentity)
 	sort.Strings(missingCheck)
-	sort.Strings(fixFallbackRules)
+	sort.Strings(missingImplementation)
 
 	if len(duplicateIDs) > 0 {
 		t.Fatalf("unexpected duplicate v2 rule IDs: %s", strings.Join(duplicateIDs, ", "))
@@ -96,6 +84,9 @@ func TestV2RegistryIdentityAndMetadataInvariants(t *testing.T) {
 	if len(missingCheck) > 0 {
 		t.Fatalf("rules missing Check function: %s", strings.Join(missingCheck, ", "))
 	}
+	if len(missingImplementation) > 0 {
+		t.Fatalf("rules missing runnable v2 implementations: %s", strings.Join(missingImplementation, ", "))
+	}
 	if len(missingMeta) > 0 {
 		t.Fatalf("rules missing metadata descriptors: %s", strings.Join(missingMeta, ", "))
 	}
@@ -103,12 +94,8 @@ func TestV2RegistryIdentityAndMetadataInvariants(t *testing.T) {
 	if len(metaMismatch) != 0 {
 		t.Fatalf("unexpected metadata ID mismatches: %s", strings.Join(metaMismatch, ", "))
 	}
-	if len(fixFallbackRules) != 0 {
-		t.Fatalf("rules still relying on OriginalV1 fix-level fallback: %s", strings.Join(fixFallbackRules, ", "))
-	}
-
-	t.Logf("v2 registry: %d rules, %d fix levels on v2.Rule, %d fix levels via transitional fallback",
-		len(v2.Registry), fixFromV2, fixFromFallback)
+	t.Logf("v2 registry: %d rules, %d fix levels on v2.Rule",
+		len(v2.Registry), fixFromV2)
 }
 
 func TestV2RegistryDefaultActiveMatchesMetadata(t *testing.T) {
@@ -142,18 +129,27 @@ func TestV2RegistryDefaultActiveMatchesMetadata(t *testing.T) {
 	}
 }
 
-func TestV2RegistryDispatcherClassificationHasNoLegacyRules(t *testing.T) {
-	dispatcher := NewDispatcherV2(v2.Registry)
-	_, _, _, _, _, legacyCount := dispatcher.Stats()
-	if legacyCount != 0 {
-		t.Fatalf("v2 registry has %d rules classified into legacy fallback", legacyCount)
+func TestV2RegistryHasNoDuplicateRuleIDs(t *testing.T) {
+	if !registryHasNoDuplicateIDs() {
+		t.Fatal("v2 registry contains duplicate rule IDs")
 	}
+}
+
+func registryHasNoDuplicateIDs() bool {
+	seen := make(map[string]bool, len(v2.Registry))
+	for _, r := range v2.Registry {
+		if seen[r.ID] {
+			return false
+		}
+		seen[r.ID] = true
+	}
+	return true
 }
 
 func TestV2RegistryAliasSetIsExplicit(t *testing.T) {
 	got := map[string]string{}
 	for _, r := range v2.Registry {
-		mp, ok := r.OriginalV1.(registry.MetaProvider)
+		mp, ok := r.Implementation.(registry.MetaProvider)
 		if !ok {
 			continue
 		}

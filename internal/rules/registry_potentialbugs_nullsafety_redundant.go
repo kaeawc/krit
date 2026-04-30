@@ -11,7 +11,7 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		r := &UnnecessaryNotNullCheckRule{BaseRule: BaseRule{RuleName: "UnnecessaryNotNullCheck", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects unnecessary null checks on expressions that are already non-nullable."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Needs: v2.NeedsResolver,
 			Check: r.check,
 		})
@@ -21,10 +21,10 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"postfix_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
-			Needs:      v2.NeedsResolver,
-			TypeInfo:   v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true},
-			OriginalV1: r,
-			Check:      r.check,
+			Needs:          v2.NeedsResolver,
+			TypeInfo:       v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true},
+			Implementation: r,
+			Check:          r.check,
 		})
 	}
 	{
@@ -32,7 +32,7 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"navigation_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic,
-			Needs: v2.NeedsResolver, OriginalV1: r,
+			Needs: v2.NeedsResolver, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -40,7 +40,7 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		r := &NullCheckOnMutablePropertyRule{BaseRule: BaseRule{RuleName: "NullCheckOnMutableProperty", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects null checks on mutable var properties that may be changed by another thread between the check and use."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"equality_expression"}, Needs: v2.NeedsResolver, OriginalV1: r,
+			NodeTypes: []string{"equality_expression"}, Needs: v2.NeedsResolver, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -51,7 +51,7 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 			NodeTypes: []string{"call_expression", "string_literal"}, Confidence: 0.75,
 			Needs:             v2.NeedsTypeInfo,
 			Oracle:            &v2.OracleFilter{Identifiers: []string{"toString", "$"}},
-			OriginalV1:        r,
+			Implementation:    r,
 			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"toString"}},
 			// Resolves the receiver type to check nullability via expressions map.
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},

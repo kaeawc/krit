@@ -60,11 +60,11 @@ const (
 	NeedsConcurrent
 )
 
-// NeedsTypeInfo is the legacy source type-information capability. It now
-// aliases NeedsResolver only: rules that need KAA must declare NeedsOracle
-// or explicit oracle metadata (Oracle, OracleCallTargets,
-// OracleDeclarationNeeds, diagnostics). This keeps source-level AT/typeinfer
-// rules from accidentally widening the Kotlin Analysis API workload.
+// NeedsTypeInfo is a source type-information alias for NeedsResolver only:
+// rules that need KAA must declare NeedsOracle or explicit oracle metadata
+// (Oracle, OracleCallTargets, OracleDeclarationNeeds, diagnostics). This keeps
+// source-level AT/typeinfer rules from accidentally widening the Kotlin
+// Analysis API workload.
 //
 // Prefer NeedsResolver for new rules unless the implementation consumes
 // KAA-only facts.
@@ -261,7 +261,7 @@ type Rule struct {
 	Sev         Severity
 
 	// Dispatch routing
-	NodeTypes []string     // nil + no NeedsLinePass → legacy; nil + NeedsLinePass → line rule
+	NodeTypes []string     // nil + no NeedsLinePass means every AST node; nil + NeedsLinePass means line rule
 	Needs     Capabilities // zero → no extra deps
 
 	// Languages declares which source languages this rule applies to.
@@ -315,19 +315,15 @@ type Rule struct {
 	Check func(*Context)
 
 	// AndroidDeps carries the AndroidDataDependency bitfield (stored as
-	// uint32 to avoid an import cycle with the rules package) for rules
-	// that implement AndroidDependencyProvider. The rules package reads
-	// this when constructing v1 compat wrappers so the
-	// AndroidDependencies() method returns the same value as the
-	// original rule. Zero means "not an Android data rule".
+	// uint32 to avoid an import cycle with the rules package) for Android
+	// project-data rules. Zero means "not an Android data rule".
 	AndroidDeps uint32
 
-	// OriginalV1 stores a pointer to the underlying v1 rule struct, if
-	// any. This lets test code and advanced callers recover the concrete
-	// rule for type assertions (e.g. reading config fields after
-	// ApplyConfig). Typed as interface{} to avoid an import cycle; the
-	// rules package type-asserts back to its v1 rule types.
-	OriginalV1 interface{}
+	// Implementation stores the concrete rule instance captured by this v2
+	// registration. Config descriptors apply option overrides to this value,
+	// and tests may type-assert it to inspect configured fields. Typed as
+	// interface{} to avoid an import cycle with the rules package.
+	Implementation interface{}
 
 	// Aggregate carries the collect/finalize/reset lifecycle hooks
 	// for rules declared with NeedsAggregate. Non-aggregate rules
@@ -352,7 +348,7 @@ type Aggregate struct {
 	Reset func()
 }
 
-// Name returns the rule ID (compatibility with v1 Rule interface).
+// Name returns the rule ID.
 func (r *Rule) Name() string { return r.ID }
 
 // Context carries everything a rule could need. Fields are populated
@@ -371,8 +367,7 @@ type Context struct {
 
 	// DefaultConfidence is the family-level fallback confidence applied
 	// to findings emitted through Emit when the rule doesn't set its own
-	// Confidence. Set by the dispatcher (0.95 node-dispatch, 0.75 line,
-	// 0.50 legacy).
+	// Confidence. Set by the dispatcher (0.95 node-dispatch, 0.75 line).
 	DefaultConfidence float64
 
 	// Collector receives findings written via Emit/EmitAt in columnar form.

@@ -9,7 +9,7 @@ import (
 // Android Lint rules: Usability, Icons, Messages, UNKNOWN categories.
 // Origin: https://android.googlesource.com/platform/tools/base/+/refs/heads/main/lint/libs/lint-checks/
 //
-// Stub aliases for XML/resource/manifest-only rules have been removed;
+// Source aliases for XML/resource/manifest-only rules have been removed;
 // those checks are handled by specialized manifest, resource, Gradle, and
 // icon-check pipelines.
 

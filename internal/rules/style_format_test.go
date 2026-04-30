@@ -78,11 +78,11 @@ func TestMaxLineLengthDefaultsMatchDetekt(t *testing.T) {
 			continue
 		}
 		var ok bool
-		rule, ok = candidate.OriginalV1.(*rules.MaxLineLengthRule)
+		rule, ok = candidate.Implementation.(*rules.MaxLineLengthRule)
 		if !ok {
-			t.Fatalf("expected MaxLineLengthRule, got %T", candidate.OriginalV1)
+			t.Fatalf("expected MaxLineLengthRule, got %T", candidate.Implementation)
 		}
-		metaProvider, ok := candidate.OriginalV1.(registry.MetaProvider)
+		metaProvider, ok := candidate.Implementation.(registry.MetaProvider)
 		if !ok {
 			t.Fatalf("expected MaxLineLengthRule to provide metadata")
 		}
@@ -223,11 +223,11 @@ func TestUnderscoresInNumericLiteralsDefaultsMatchDetekt(t *testing.T) {
 			continue
 		}
 		var ok bool
-		rule, ok = candidate.OriginalV1.(*rules.UnderscoresInNumericLiteralsRule)
+		rule, ok = candidate.Implementation.(*rules.UnderscoresInNumericLiteralsRule)
 		if !ok {
-			t.Fatalf("expected UnderscoresInNumericLiteralsRule, got %T", candidate.OriginalV1)
+			t.Fatalf("expected UnderscoresInNumericLiteralsRule, got %T", candidate.Implementation)
 		}
-		metaProvider, ok := candidate.OriginalV1.(registry.MetaProvider)
+		metaProvider, ok := candidate.Implementation.(registry.MetaProvider)
 		if !ok {
 			t.Fatal("expected UnderscoresInNumericLiteralsRule to provide metadata")
 		}
@@ -263,9 +263,9 @@ func TestUnderscoresInNumericLiteralsAllowsConfiguredNonStandardGrouping(t *test
 	for _, candidate := range v2rules.Registry {
 		if candidate.ID == "UnderscoresInNumericLiterals" {
 			var ok bool
-			rule, ok = candidate.OriginalV1.(*rules.UnderscoresInNumericLiteralsRule)
+			rule, ok = candidate.Implementation.(*rules.UnderscoresInNumericLiteralsRule)
 			if !ok {
-				t.Fatalf("expected UnderscoresInNumericLiteralsRule, got %T", candidate.OriginalV1)
+				t.Fatalf("expected UnderscoresInNumericLiteralsRule, got %T", candidate.Implementation)
 			}
 			break
 		}

@@ -8,7 +8,7 @@ import (
 
 // ApplyConfig applies YAML configuration to all registered rules.
 //
-// Semantics match the legacy switch that used to live here (pre-Phase 3D):
+// Semantics are owned by the checked-in rule descriptors:
 //   - ruleset-level `active: false` short-circuits and marks every rule in
 //     the set inactive regardless of rule-level overrides
 //   - rule-level `active: true|false` overrides DefaultInactive
@@ -17,9 +17,8 @@ import (
 //     to the concrete struct via its descriptor Apply closure
 //
 // The single source of truth for rule metadata is MetaForRule(), which
-// reads Meta() from the rule struct when available (via Unwrap) and
-// falls back to the metaByName index for adapter-wrapped rules that dropped
-// the concrete pointer.
+// reads Meta() from the registered concrete rule when available and falls
+// back to the metaByName index for rules without a concrete config target.
 func ApplyConfig(cfg *config.Config) {
 	if cfg == nil {
 		return
@@ -58,10 +57,10 @@ func ApplyConfig(cfg *config.Config) {
 			continue
 		}
 
-		// Use the concrete original-v1 struct when available so option
-		// Apply closures can mutate the live rule fields. Fall back to
-		// active-only when no concrete pointer is available.
-		concrete := r.OriginalV1
+		// Use the registered concrete rule when available so option Apply
+		// closures can mutate the live rule fields. Fall back to active-only
+		// when no concrete pointer is available.
+		concrete := r.Implementation
 		if _, hasMeta := concrete.(registry.MetaProvider); hasMeta {
 			active := registry.ApplyConfig(concrete, meta, adapter)
 			if active {

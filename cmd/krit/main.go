@@ -550,7 +550,6 @@ potential-bugs:
 		fmt.Println("Available rules:")
 		fixable := 0
 		active := 0
-		stubs := 0
 		for _, r := range v2rules.Registry {
 			markers := ""
 			if rules.IsDefaultActive(r.ID) {
@@ -559,45 +558,31 @@ potential-bugs:
 			} else {
 				markers += " "
 			}
-			implemented := rules.IsImplementedV2(r)
-			if !implemented {
-				stubs++
-			}
-			stubMarker := ""
-			if !implemented {
-				stubMarker = " (stub)"
-			}
 			if fixLvl, isFixable := rules.GetV2FixLevel(r); isFixable {
 				markers += "F"
 				fixable++
 				if *verboseFlag {
-					fmt.Printf("  %s %-40s [%-15s] %s (fix: %s, precision: %s)%s\n", markers, r.ID, r.Category, string(r.Sev), fixLvl, rules.V2RulePrecision(r), stubMarker)
+					fmt.Printf("  %s %-40s [%-15s] %s (fix: %s, precision: %s)\n", markers, r.ID, r.Category, string(r.Sev), fixLvl, rules.V2RulePrecision(r))
 					if r.Description != "" {
 						fmt.Printf("    %s\n", r.Description)
 					}
 				} else {
-					fmt.Printf("  %s %-40s [%-15s] %s%s\n", markers, r.ID, r.Category, string(r.Sev), stubMarker)
+					fmt.Printf("  %s %-40s [%-15s] %s\n", markers, r.ID, r.Category, string(r.Sev))
 				}
 			} else {
 				markers += " "
 				if *verboseFlag {
-					fmt.Printf("  %s %-40s [%-15s] %s (precision: %s)%s\n", markers, r.ID, r.Category, string(r.Sev), rules.V2RulePrecision(r), stubMarker)
+					fmt.Printf("  %s %-40s [%-15s] %s (precision: %s)\n", markers, r.ID, r.Category, string(r.Sev), rules.V2RulePrecision(r))
 					if r.Description != "" {
 						fmt.Printf("    %s\n", r.Description)
 					}
 				} else {
-					fmt.Printf("  %s %-40s [%-15s] %s%s\n", markers, r.ID, r.Category, string(r.Sev), stubMarker)
+					fmt.Printf("  %s %-40s [%-15s] %s\n", markers, r.ID, r.Category, string(r.Sev))
 				}
 			}
 		}
-		implemented := len(v2rules.Registry) - stubs
-		if stubs > 0 {
-			fmt.Printf("\nTotal: %d rules (%d implemented, %d stubs, %d active by default, %d fixable)\n", len(v2rules.Registry), implemented, stubs, active, fixable)
-			fmt.Println("A=active by default, F=fixable, (stub)=placeholder without implementation. Use -v for fix levels, --all-rules to enable all.")
-		} else {
-			fmt.Printf("\nTotal: %d rules (%d active by default, %d fixable)\n", len(v2rules.Registry), active, fixable)
-			fmt.Println("A=active by default, F=fixable. Use -v for fix levels, --all-rules to enable all.")
-		}
+		fmt.Printf("\nTotal: %d rules (%d active by default, %d fixable)\n", len(v2rules.Registry), active, fixable)
+		fmt.Println("A=active by default, F=fixable. Use -v for fix levels, --all-rules to enable all.")
 		os.Exit(0)
 	}
 
@@ -909,7 +894,7 @@ potential-bugs:
 	// Stats come from a throwaway dispatcher so the verbose banner can
 	// report per-family rule counts before the phase runs. Construction
 	// is side-effect free (beyond classifying rules by capability).
-	dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount, _ := rules.NewDispatcherV2(activeRules, resolver).Stats()
+	dispatchCount, aggregateCount, lineCount, crossFileCount, moduleAwareCount := rules.NewDispatcherV2(activeRules, resolver).Stats()
 
 	if *verboseFlag {
 		if len(javaPathsForDispatch) > 0 {

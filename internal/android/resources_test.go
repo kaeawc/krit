@@ -721,6 +721,38 @@ func TestIsScrollableView(t *testing.T) {
 	}
 }
 
+func TestScanResourceDir_ParsesDrawableSelectors(t *testing.T) {
+	tmp := t.TempDir()
+	resDir := filepath.Join(tmp, "res")
+	drawableDir := filepath.Join(resDir, "drawable")
+	os.MkdirAll(drawableDir, 0o755)
+
+	writeFile(t, filepath.Join(drawableDir, "button.xml"), `<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/normal" />
+    <item android:state_pressed="true" android:drawable="@drawable/pressed" />
+</selector>
+`)
+
+	idx, err := ScanResourceDir(resDir)
+	if err != nil {
+		t.Fatalf("ScanResourceDir: %v", err)
+	}
+	items := idx.DrawableSelectors["button"]
+	if len(items) != 2 {
+		t.Fatalf("expected 2 selector items, got %d", len(items))
+	}
+	if items[0].Line != 3 {
+		t.Fatalf("first item line = %d, want 3", items[0].Line)
+	}
+	if len(items[0].StateAttrs) != 0 {
+		t.Fatalf("first item state attrs = %#v, want none", items[0].StateAttrs)
+	}
+	if got := items[1].StateAttrs["android:state_pressed"]; got != "true" {
+		t.Fatalf("second item pressed state = %q, want true", got)
+	}
+}
+
 func TestIsLayoutView(t *testing.T) {
 	layouts := []string{"LinearLayout", "RelativeLayout", "FrameLayout",
 		"ConstraintLayout", "CoordinatorLayout"}

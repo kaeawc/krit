@@ -31,12 +31,10 @@ func (DispatchPhase) Name() string { return "dispatch" }
 // shared dispatcher, and accumulates the findings and run statistics.
 //
 // It creates the dispatcher from in.ActiveRules ([]*v2.Rule) via
-// NewDispatcherV2, skipping the v2→v1 roundtrip. When in.Tracker is
-// non-nil it wraps the dispatch loop in a "ruleExecution" serial child
-// and emits per-family timing entries + a topDispatchRules breakdown
-// matching the pre-refactor CLI. When in.UseCache / Cache / Version are
-// set, the phase updates and saves the cache under a "cacheSave" tracker
-// entry.
+// NewDispatcherV2. When in.Tracker is non-nil it wraps the dispatch loop in a
+// "ruleExecution" serial child and emits per-family timing entries plus a
+// topDispatchRules breakdown. When in.UseCache / Cache / Version are set, the
+// phase updates and saves the cache under a "cacheSave" tracker entry.
 func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult, error) {
 	if err := ctx.Err(); err != nil {
 		return DispatchResult{}, err
@@ -178,7 +176,6 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 		perf.AddEntry(ruleTracker, "aggregateCollect", time.Duration(acc.AggregateCollectNs))
 		perf.AddEntry(ruleTracker, "aggregateFinalize", time.Duration(acc.AggregateFinalizeMs)*time.Millisecond)
 		perf.AddEntry(ruleTracker, "lineRules", time.Duration(acc.LineRuleMs)*time.Millisecond)
-		perf.AddEntry(ruleTracker, "legacyRules", time.Duration(acc.LegacyRuleMs)*time.Millisecond)
 		perf.AddEntry(ruleTracker, "suppressionFilter", time.Duration(acc.SuppressionFilterMs)*time.Millisecond)
 		if len(acc.DispatchRuleNsByRule) > 0 {
 			type timedRule struct {
@@ -284,7 +281,6 @@ func mergeStats(dst *rules.RunStats, src rules.RunStats) {
 	dst.AggregateCollectNs += src.AggregateCollectNs
 	dst.AggregateFinalizeMs += src.AggregateFinalizeMs
 	dst.LineRuleMs += src.LineRuleMs
-	dst.LegacyRuleMs += src.LegacyRuleMs
 	dst.SuppressionFilterMs += src.SuppressionFilterMs
 	if src.DispatchRuleNsByRule != nil {
 		if dst.DispatchRuleNsByRule == nil {

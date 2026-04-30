@@ -11,7 +11,7 @@ func registerPrivacyPermissionsRules() {
 		r := &AdMobInitializedBeforeConsentRule{BaseRule: BaseRule{RuleName: "AdMobInitializedBeforeConsent", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects MobileAds.initialize() in Application.onCreate before any consent info update call."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				navExpr, _ := flatCallExpressionParts(file, idx)
@@ -41,7 +41,7 @@ func registerPrivacyPermissionsRules() {
 		r := &BiometricAuthNotFallingBackToDeviceCredentialRule{BaseRule: BaseRule{RuleName: "BiometricAuthNotFallingBackToDeviceCredential", RuleSetName: privacyRuleSet, Sev: "info", Desc: "Detects BiometricPrompt.authenticate() calls whose PromptInfo lacks device credential fallback."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !biometricAuthenticateReceiverMatchesFlat(file, idx) {
@@ -68,7 +68,7 @@ func registerPrivacyPermissionsRules() {
 		r := &ContactsAccessWithoutPermissionUiRule{BaseRule: BaseRule{RuleName: "ContactsAccessWithoutPermissionUi", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects contacts queries not gated behind a RequestPermission activity-result callback."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "query" {
@@ -104,7 +104,7 @@ func registerPrivacyPermissionsRules() {
 		r := &LocationBackgroundWithoutRationaleRule{BaseRule: BaseRule{RuleName: "LocationBackgroundWithoutRationale", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects ACCESS_BACKGROUND_LOCATION requests without a shouldShowRequestPermissionRationale call."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -130,7 +130,7 @@ func registerPrivacyPermissionsRules() {
 		r := &ScreenshotNotBlockedOnLoginScreenRule{BaseRule: BaseRule{RuleName: "ScreenshotNotBlockedOnLoginScreen", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects sensitive screens (login, payment, PIN) that do not set FLAG_SECURE to block screenshots."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration", "function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration", "function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				nodeType := file.FlatType(idx)
@@ -172,7 +172,7 @@ func registerPrivacyPermissionsRules() {
 		r := &ClipboardOnSensitiveInputTypeRule{BaseRule: BaseRule{RuleName: "ClipboardOnSensitiveInputType", RuleSetName: privacyRuleSet, Sev: "warning", Desc: "Detects clipboard writes from variables whose names suggest passwords or credentials."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "setPrimaryClip" {

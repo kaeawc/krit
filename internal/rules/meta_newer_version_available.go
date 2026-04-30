@@ -14,9 +14,7 @@ package rules
 
 import "github.com/kaeawc/krit/internal/rules/registry"
 
-// Meta returns the descriptor for NewerVersionAvailableRule. The legacy
-// case in config.go:617-620 performs the same transform via
-// parseRecommendedVersionSpecs; this preserves that behavior.
+// Meta returns the descriptor for NewerVersionAvailableRule.
 func (r *NewerVersionAvailableRule) Meta() registry.RuleDescriptor {
 	return registry.RuleDescriptor{
 		ID:            "NewerVersionAvailable",
@@ -34,8 +32,8 @@ func (r *NewerVersionAvailableRule) Meta() registry.RuleDescriptor {
 				Description: "",
 				// RecommendedVersions is []libMinVersion on the rule struct;
 				// YAML stores a []string of "group:name=version" specs.
-				// Parse via parseRecommendedVersionSpecs to match the legacy
-				// switch in config.go:617-620.
+				// Parse via parseRecommendedVersionSpecs before assigning
+				// the typed rule field.
 				Apply: func(target interface{}, value interface{}) {
 					target.(*NewerVersionAvailableRule).RecommendedVersions =
 						parseRecommendedVersionSpecs(value.([]string))

@@ -9,7 +9,7 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-func TestDispatcher_DoesNotTreatCrossFileOrModuleAwareAsLegacy(t *testing.T) {
+func TestDispatcher_DefersCrossFileAndModuleAwareRules(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "Example.kt")
 	if err := os.WriteFile(path, []byte("fun example() = 1\n"), 0o644); err != nil {
@@ -42,7 +42,7 @@ func TestDispatcher_DoesNotTreatCrossFileOrModuleAwareAsLegacy(t *testing.T) {
 		t.Fatalf("expected module-aware rule Check to be skipped, got %d calls", modInvoked)
 	}
 
-	dispatchCount, aggregateCount, lineCount, crossCount, moduleCount, legacyCount := dispatcher.Stats()
+	dispatchCount, aggregateCount, lineCount, crossCount, moduleCount := dispatcher.Stats()
 	if dispatchCount != 0 || aggregateCount != 0 || lineCount != 0 {
 		t.Fatalf("expected no dispatch/aggregate/line rules, got dispatch=%d aggregate=%d line=%d", dispatchCount, aggregateCount, lineCount)
 	}
@@ -51,9 +51,6 @@ func TestDispatcher_DoesNotTreatCrossFileOrModuleAwareAsLegacy(t *testing.T) {
 	}
 	if moduleCount != 1 {
 		t.Fatalf("expected 1 module-aware rule, got %d", moduleCount)
-	}
-	if legacyCount != 0 {
-		t.Fatalf("expected 0 legacy rules, got %d", legacyCount)
 	}
 }
 
@@ -84,7 +81,7 @@ func TestDispatcher_RunWithStats_TracksRuleBuckets(t *testing.T) {
 	}
 	if stats.SuppressionIndexMs < 0 || stats.DispatchWalkMs < 0 || stats.AggregateFinalizeMs < 0 ||
 		stats.DispatchRuleNs < 0 || stats.AggregateCollectNs < 0 ||
-		stats.LineRuleMs < 0 || stats.LegacyRuleMs < 0 || stats.SuppressionFilterMs < 0 {
+		stats.LineRuleMs < 0 || stats.SuppressionFilterMs < 0 {
 		t.Fatalf("expected non-negative stats, got %+v", stats)
 	}
 	if len(stats.DispatchRuleNsByRule) == 0 {
@@ -176,10 +173,10 @@ func TestDispatcher_FlatDispatchRuleRunsOnFlatTree(t *testing.T) {
 		t.Fatalf("expected flat rule timing to be recorded, got %+v", stats.DispatchRuleNsByRule)
 	}
 
-	dispatchCount, aggregateCount, lineCount, crossCount, moduleCount, legacyCount := dispatcher.Stats()
-	if dispatchCount != 1 || aggregateCount != 0 || lineCount != 0 || crossCount != 0 || moduleCount != 0 || legacyCount != 0 {
-		t.Fatalf("unexpected dispatcher stats: dispatch=%d aggregate=%d line=%d cross=%d module=%d legacy=%d",
-			dispatchCount, aggregateCount, lineCount, crossCount, moduleCount, legacyCount)
+	dispatchCount, aggregateCount, lineCount, crossCount, moduleCount := dispatcher.Stats()
+	if dispatchCount != 1 || aggregateCount != 0 || lineCount != 0 || crossCount != 0 || moduleCount != 0 {
+		t.Fatalf("unexpected dispatcher stats: dispatch=%d aggregate=%d line=%d cross=%d module=%d",
+			dispatchCount, aggregateCount, lineCount, crossCount, moduleCount)
 	}
 }
 
@@ -306,7 +303,7 @@ fun second() = 2
 	if columnStats.AggregateCollectNs != sliceStats.AggregateCollectNs ||
 		columnStats.AggregateFinalizeMs != sliceStats.AggregateFinalizeMs ||
 		columnStats.LineRuleMs != sliceStats.LineRuleMs ||
-		columnStats.LegacyRuleMs != sliceStats.LegacyRuleMs {
+		columnStats.SuppressionFilterMs != sliceStats.SuppressionFilterMs {
 		t.Fatalf("expected stable empty buckets, got columns=%+v slice=%+v", columnStats, sliceStats)
 	}
 }
@@ -384,31 +381,31 @@ func TestDispatcher_ExplicitFindingConfidenceBeatsRuleDefault(t *testing.T) {
 	}
 }
 
-func TestIsImplementedV2_DetectsFlatDispatchRule(t *testing.T) {
+func TestHasV2Implementation_DetectsFlatDispatchRule(t *testing.T) {
 	rule := v2.FakeRule("Flat",
 		v2.WithNodeTypes("call_expression"),
 		v2.WithCheck(func(ctx *v2.Context) {}),
 	)
-	if !IsImplementedV2(rule) {
+	if !HasV2Implementation(rule) {
 		t.Fatal("expected a flat-dispatch rule to be classified as implemented")
 	}
 }
 
-func TestIsImplementedV2_DetectsStub(t *testing.T) {
-	rule := &v2.Rule{ID: "Stub", Category: "test"}
-	if IsImplementedV2(rule) {
-		t.Fatal("expected a rule with no NodeTypes/Needs to be classified as stub")
+func TestHasV2Implementation_RejectsMissingCheck(t *testing.T) {
+	rule := &v2.Rule{ID: "MissingCheck", Category: "test", NodeTypes: []string{"call_expression"}}
+	if HasV2Implementation(rule) {
+		t.Fatal("expected a rule with no executable callback to be rejected")
 	}
 }
 
-func TestIsImplementedV2_RegistryHasFewStubs(t *testing.T) {
-	stubs := 0
+func TestV2RegistryHasRunnableImplementations(t *testing.T) {
+	var missing []string
 	for _, r := range v2.Registry {
-		if !IsImplementedV2(r) {
-			stubs++
+		if !HasV2Implementation(r) {
+			missing = append(missing, r.ID)
 		}
 	}
-	if stubs > 25 {
-		t.Fatalf("stub count grew unexpectedly: %d stubs in v2 registry of %d rules; if intentional, raise threshold", stubs, len(v2.Registry))
+	if len(missing) > 0 {
+		t.Fatalf("v2 registry contains rules without runnable implementations: %v", missing)
 	}
 }

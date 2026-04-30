@@ -17,7 +17,7 @@ func registerCoroutinesRules() {
 		r := &CollectInOnCreateWithoutLifecycleRule{BaseRule: BaseRule{RuleName: "CollectInOnCreateWithoutLifecycle", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Flow.collect calls in lifecycle callbacks that are not wrapped by repeatOnLifecycle."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				navExpr, _ := flatCallExpressionParts(file, idx)
@@ -40,7 +40,7 @@ func registerCoroutinesRules() {
 		r := &GlobalCoroutineUsageRule{BaseRule: BaseRule{RuleName: "GlobalCoroutineUsage", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects GlobalScope.launch/async usage instead of structured concurrency with a proper CoroutineScope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "navigation_expression"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "navigation_expression"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				switch file.FlatType(idx) {
@@ -115,7 +115,7 @@ func registerCoroutinesRules() {
 		r := &InjectDispatcherRule{BaseRule: BaseRule{RuleName: "InjectDispatcher", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects hardcoded Dispatchers.IO/Default/Unconfined passed as arguments instead of injected dispatchers."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -146,7 +146,7 @@ func registerCoroutinesRules() {
 		r := &RedundantSuspendModifierRule{BaseRule: BaseRule{RuleName: "RedundantSuspendModifier", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects suspend functions that contain no suspend calls in their body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Needs:  v2.NeedsTypeInfo,
 			Oracle: &v2.OracleFilter{Identifiers: []string{"suspend"}},
 			OracleCallTargets: &v2.OracleCallTargetFilter{
@@ -288,7 +288,7 @@ func registerCoroutinesRules() {
 		r := &SleepInsteadOfDelayRule{BaseRule: BaseRule{RuleName: "SleepInsteadOfDelay", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Thread.sleep() usage inside suspend functions or coroutine builder lambdas instead of delay()."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatChildCount(idx) == 0 {
@@ -334,7 +334,7 @@ func registerCoroutinesRules() {
 		r := &SuspendFunWithFlowReturnTypeRule{BaseRule: BaseRule{RuleName: "SuspendFunWithFlowReturnType", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects suspend functions that return a Flow type, since Flow builders are cold and do not require suspend."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.85, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.85, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !hasSuspendModifierFlat(file, idx) {
@@ -374,7 +374,7 @@ func registerCoroutinesRules() {
 		r := &CoroutineLaunchedInTestWithoutRunTestRule{BaseRule: BaseRule{RuleName: "CoroutineLaunchedInTestWithoutRunTest", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects launch/async calls in @Test functions that are not wrapped in runTest."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !hasAnnotationFlat(file, idx, "Test") {
@@ -398,7 +398,7 @@ func registerCoroutinesRules() {
 		r := &SuspendFunInFinallySectionRule{BaseRule: BaseRule{RuleName: "SuspendFunInFinallySection", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects suspend function calls inside finally blocks that may not execute if the coroutine is cancelled."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"finally_block"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"finally_block"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				file.FlatWalkNodes(idx, "call_expression", func(callNode uint32) {
@@ -419,7 +419,7 @@ func registerCoroutinesRules() {
 		r := &SuspendFunSwallowedCancellationRule{BaseRule: BaseRule{RuleName: "SuspendFunSwallowedCancellation", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects catch blocks that catch CancellationException without rethrowing, breaking structured concurrency."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"catch_block"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"catch_block"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Needs:                  v2.NeedsTypeInfo,
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
@@ -488,7 +488,7 @@ func registerCoroutinesRules() {
 		r := &SuspendFunWithCoroutineScopeReceiverRule{BaseRule: BaseRule{RuleName: "SuspendFunWithCoroutineScopeReceiver", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects functions that are both suspend and extension on CoroutineScope, which should be one or the other."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !hasSuspendModifierFlat(file, idx) {
@@ -530,7 +530,7 @@ func registerCoroutinesRules() {
 		r := &ChannelReceiveWithoutCloseRule{BaseRule: BaseRule{RuleName: "ChannelReceiveWithoutClose", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Channel properties in a class that are never closed, leaking the receiver coroutine."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.85, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.85, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// The property's initializer must be a direct call to
@@ -560,7 +560,7 @@ func registerCoroutinesRules() {
 		r := &CollectionsSynchronizedListIterationRule{BaseRule: BaseRule{RuleName: "CollectionsSynchronizedListIteration", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects iteration over Collections.synchronized* wrappers without external synchronization."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"for_statement"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"for_statement"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				forText := file.FlatNodeText(idx)
@@ -586,7 +586,7 @@ func registerCoroutinesRules() {
 		r := &ConcurrentModificationIterationRule{BaseRule: BaseRule{RuleName: "ConcurrentModificationIteration", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects collection mutation inside for loops that causes ConcurrentModificationException."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"for_statement"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"for_statement"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				iterableNode := uint32(0)
@@ -624,7 +624,7 @@ func registerCoroutinesRules() {
 		r := &CoroutineScopeCreatedButNeverCancelledRule{BaseRule: BaseRule{RuleName: "CoroutineScopeCreatedButNeverCancelled", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects CoroutineScope properties in a class that are never cancelled, leaking coroutines."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.85, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.85, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Initializer must be a direct `CoroutineScope(...)` call.
@@ -653,7 +653,7 @@ func registerCoroutinesRules() {
 		r := &DeferredAwaitInFinallyRule{BaseRule: BaseRule{RuleName: "DeferredAwaitInFinally", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Deferred.await() calls inside finally blocks that can throw and mask the original exception."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				navExpr, _ := flatCallExpressionParts(file, idx)
@@ -676,7 +676,7 @@ func registerCoroutinesRules() {
 		r := &FlowWithoutFlowOnRule{BaseRule: BaseRule{RuleName: "FlowWithoutFlowOn", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects flow chains with a terminal operator but no flowOn, risking execution on the wrong dispatcher."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				navExpr, _ := flatCallExpressionParts(file, idx)
@@ -703,7 +703,7 @@ func registerCoroutinesRules() {
 		r := &SynchronizedOnStringRule{BaseRule: BaseRule{RuleName: "SynchronizedOnString", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects synchronized() blocks using a string literal as the lock monitor."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "synchronized" {
@@ -732,7 +732,7 @@ func registerCoroutinesRules() {
 		r := &SynchronizedOnBoxedPrimitiveRule{BaseRule: BaseRule{RuleName: "SynchronizedOnBoxedPrimitive", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects synchronized() blocks using a boxed primitive value as the lock monitor."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "synchronized" {
@@ -772,7 +772,7 @@ func registerCoroutinesRules() {
 		r := &SynchronizedOnNonFinalRule{BaseRule: BaseRule{RuleName: "SynchronizedOnNonFinal", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects synchronized() blocks using a var property as the lock, which can change the monitor object."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "synchronized" {
@@ -802,7 +802,7 @@ func registerCoroutinesRules() {
 		r := &VolatileMissingOnDclRule{BaseRule: BaseRule{RuleName: "VolatileMissingOnDcl", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects double-checked locking patterns on a var property without @Volatile annotation."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				isVar := false
@@ -847,7 +847,7 @@ func registerCoroutinesRules() {
 		r := &MutableStateInObjectRule{BaseRule: BaseRule{RuleName: "MutableStateInObject", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects mutable var properties inside object declarations that are shared mutable state without synchronization."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"object_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"object_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatType(idx) == "companion_object" {
@@ -893,7 +893,7 @@ func registerCoroutinesRules() {
 		r := &StateFlowMutableLeakRule{BaseRule: BaseRule{RuleName: "StateFlowMutableLeak", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects publicly exposed MutableStateFlow properties that should be private with a read-only StateFlow accessor."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				propText := file.FlatNodeText(idx)
@@ -923,7 +923,7 @@ func registerCoroutinesRules() {
 		r := &SharedFlowWithoutReplayRule{BaseRule: BaseRule{RuleName: "SharedFlowWithoutReplay", RuleSetName: "coroutines", Sev: "info", Desc: "Detects MutableSharedFlow() created with default configuration that has no replay or buffer capacity."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				propText := file.FlatNodeText(idx)
@@ -948,7 +948,7 @@ func registerCoroutinesRules() {
 		r := &StateFlowCompareByReferenceRule{BaseRule: BaseRule{RuleName: "StateFlowCompareByReference", RuleSetName: "coroutines", Sev: "info", Desc: "Detects redundant .distinctUntilChanged() after .map{} on StateFlow, which already deduplicates by equality."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				navExpr, _ := flatCallExpressionParts(file, idx)
@@ -972,7 +972,7 @@ func registerCoroutinesRules() {
 		r := &GlobalScopeLaunchInViewModelRule{BaseRule: BaseRule{RuleName: "GlobalScopeLaunchInViewModel", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects GlobalScope.launch/async inside ViewModel or Presenter classes instead of viewModelScope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				receiver := flatReceiverNameFromCall(file, idx)
@@ -1000,7 +1000,7 @@ func registerCoroutinesRules() {
 		r := &SupervisorScopeInEventHandlerRule{BaseRule: BaseRule{RuleName: "SupervisorScopeInEventHandler", RuleSetName: "coroutines", Sev: "info", Desc: "Detects supervisorScope with a single child operation where supervisor semantics provide no benefit."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallNameAny(file, idx) != "supervisorScope" {
@@ -1032,7 +1032,7 @@ func registerCoroutinesRules() {
 		r := &WithContextInSuspendFunctionNoopRule{BaseRule: BaseRule{RuleName: "WithContextInSuspendFunctionNoop", RuleSetName: "coroutines", Sev: "info", Desc: "Detects nested withContext calls using the same dispatcher as the parent, which is redundant."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, Implementation: r,
 			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"withContext"}},
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
@@ -1075,7 +1075,7 @@ func registerCoroutinesRules() {
 		r := &LaunchWithoutCoroutineExceptionHandlerRule{BaseRule: BaseRule{RuleName: "LaunchWithoutCoroutineExceptionHandler", RuleSetName: "coroutines", Sev: "info", Desc: "Detects launch blocks containing throw statements but no CoroutineExceptionHandler to catch uncaught exceptions."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				callee := flatCallNameAny(file, idx)
@@ -1114,7 +1114,7 @@ func registerCoroutinesRules() {
 		r := &MainDispatcherInLibraryCodeRule{BaseRule: BaseRule{RuleName: "MainDispatcherInLibraryCode", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Dispatchers.Main usage in library modules that lack the kotlinx-coroutines-android dependency."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsModuleIndex | v2.NeedsTypeInfo, Confidence: r.Confidence(), OriginalV1: r,
+			Needs: v2.NeedsModuleIndex | v2.NeedsTypeInfo, Confidence: r.Confidence(), Implementation: r,
 			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"Main"}},
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check:                  r.check,

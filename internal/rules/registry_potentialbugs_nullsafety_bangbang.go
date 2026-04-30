@@ -12,8 +12,8 @@ func registerPotentialbugsNullsafetyBangbangRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"postfix_expression"}, Confidence: 0.85,
-			OriginalV1: r,
-			Check:      r.check,
+			Implementation: r,
+			Check:          r.check,
 		})
 	}
 	{
@@ -30,7 +30,7 @@ func registerPotentialbugsNullsafetyBangbangRules() {
 			// Checks class hierarchy (ClassShell+Supertypes) to verify Map type,
 			// and reads member types via mapMemberType() for navigation expressions.
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true, Members: true},
-			OriginalV1:             r,
+			Implementation:         r,
 			Check:                  r.check,
 		})
 	}

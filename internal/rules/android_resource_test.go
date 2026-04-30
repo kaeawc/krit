@@ -1168,7 +1168,7 @@ func TestNegativeMarginResource(t *testing.T) {
 	})
 
 	t.Run("project allowlist suppresses matching negative margins", func(t *testing.T) {
-		rule := r.OriginalV1.(*rulespkg.NegativeMarginResourceRule)
+		rule := r.Implementation.(*rulespkg.NegativeMarginResourceRule)
 		orig := append([]string(nil), rule.AllowedNegativeMargins...)
 		rule.AllowedNegativeMargins = []string{
 			"TextView:android:layout_marginTop=-8dp",
@@ -3450,8 +3450,39 @@ func TestInOrMmUsageResource(t *testing.T) {
 func TestStateListReachableResource(t *testing.T) {
 	r := findResourceRule(t, "StateListReachableResource")
 
-	t.Run("empty index returns no findings (placeholder)", func(t *testing.T) {
+	t.Run("empty index returns no findings", func(t *testing.T) {
 		findings := runResourceRule(r, emptyIndex())
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("catch-all item before later state triggers", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.DrawableSelectors = map[string][]android.SelectorItem{
+			"button": {
+				{FilePath: "res/drawable/button.xml", Line: 3, StateAttrs: map[string]string{}},
+				{FilePath: "res/drawable/button.xml", Line: 6, StateAttrs: map[string]string{"android:state_pressed": "true"}},
+			},
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Line != 3 {
+			t.Fatalf("line = %d, want 3", findings[0].Line)
+		}
+	})
+
+	t.Run("catch-all last item is clean", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.DrawableSelectors = map[string][]android.SelectorItem{
+			"button": {
+				{FilePath: "res/drawable/button.xml", Line: 3, StateAttrs: map[string]string{"android:state_pressed": "true"}},
+				{FilePath: "res/drawable/button.xml", Line: 6, StateAttrs: map[string]string{}},
+			},
+		}
+		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}

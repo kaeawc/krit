@@ -18,7 +18,7 @@ func registerAndroidSourceRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatHasModifier(idx, "abstract") ||
@@ -65,7 +65,7 @@ func registerAndroidSourceRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"as_expression"}, Confidence: 0.9, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// First named child is the source expression; we want
@@ -121,7 +121,7 @@ func registerAndroidSourceRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.85, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.85, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "makeText" {
@@ -147,7 +147,7 @@ func registerAndroidSourceRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !getSignaturesCallUsesDeprecatedFlag(file, idx) {
@@ -167,7 +167,7 @@ func registerAndroidSourceRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "HashMap" {
@@ -240,7 +240,7 @@ func registerAndroidSourceRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes:  []string{"call_expression", "object_creation_expression"},
 			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
-			Confidence: 0.9, Fix: v2.FixIdiomatic, OriginalV1: r,
+			Confidence: 0.9, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				switch file.FlatType(idx) {
@@ -261,7 +261,7 @@ func registerAndroidSourceRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isReceiverNamed(file, idx, "Log") || !logMethodNames[flatCallExpressionName(file, idx)] {
@@ -290,7 +290,7 @@ func registerAndroidSourceRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -350,7 +350,7 @@ func registerAndroidSourceRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				if !nonInternationalizedSmsCallFlat(ctx.File, ctx.Idx) {
 					return

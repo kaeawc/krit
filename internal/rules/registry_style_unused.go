@@ -15,7 +15,7 @@ func registerStyleUnusedRules() {
 		r := &UnusedImportRule{BaseRule: BaseRule{RuleName: "UnusedImport", RuleSetName: "style", Sev: "warning", Desc: "Detects import statements where the imported name is not referenced in the file."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"import_header"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"import_header"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				shortName := importShortNameFlat(file, idx)
@@ -50,7 +50,7 @@ func registerStyleUnusedRules() {
 		r := &UnusedParameterRule{BaseRule: BaseRule{RuleName: "UnusedParameter", RuleSetName: "style", Sev: "warning", Desc: "Detects function parameters that are never used in the function body."}, AllowedNames: regexp.MustCompile(`^(ignored|expected|_)$`)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -144,7 +144,7 @@ func registerStyleUnusedRules() {
 		r := &UnusedVariableRule{BaseRule: BaseRule{RuleName: "UnusedVariable", RuleSetName: "style", Sev: "warning", Desc: "Detects local variables that are declared but never used."}, AllowedNames: regexp.MustCompile(`^(ignored|_)$`)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration", "variable_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"property_declaration", "variable_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -169,7 +169,7 @@ func registerStyleUnusedRules() {
 		r := &UnusedPrivateClassRule{BaseRule: BaseRule{RuleName: "UnusedPrivateClass", RuleSetName: "style", Sev: "warning", Desc: "Detects private classes that are never referenced in the file."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !file.FlatHasModifier(idx, "private") {
@@ -190,7 +190,7 @@ func registerStyleUnusedRules() {
 		r := &UnusedPrivateFunctionRule{BaseRule: BaseRule{RuleName: "UnusedPrivateFunction", RuleSetName: "style", Sev: "warning", Desc: "Detects private functions that are never called in the file."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -220,7 +220,7 @@ func registerStyleUnusedRules() {
 		r := &UnusedPrivatePropertyRule{BaseRule: BaseRule{RuleName: "UnusedPrivateProperty", RuleSetName: "style", Sev: "warning", Desc: "Detects private properties that are never referenced in the file."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !file.FlatHasModifier(idx, "private") {
@@ -252,7 +252,7 @@ func registerStyleUnusedRules() {
 		r := &UnusedPrivateMemberRule{BaseRule: BaseRule{RuleName: "UnusedPrivateMember", RuleSetName: "style", Sev: "warning", Desc: "Detects private members (classes, functions, properties) that are never used."}, IgnoreAnnotated: DefaultUnusedMemberIgnoreAnnotated}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration", "function_declaration", "property_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"class_declaration", "function_declaration", "property_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !file.FlatHasModifier(idx, "private") {

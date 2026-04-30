@@ -79,8 +79,8 @@ type IndexInput struct {
 	// false, the oracle block is skipped entirely (matches --no-type-oracle
 	// or absence of a base resolver in the CLI).
 	OracleEnabled bool
-	// BaseResolver is the v1 typeinfer resolver the CLI pre-built before
-	// wrapping in oracle.CompositeResolver. When nil, no oracle wiring
+	// BaseResolver is the source-level typeinfer resolver the CLI pre-built
+	// before wrapping in oracle.CompositeResolver. When nil, no oracle wiring
 	// happens (there is nothing to wrap).
 	BaseResolver typeinfer.TypeResolver
 	// OracleScanPaths are the raw CLI scan paths (flag.Args) used by the
@@ -141,8 +141,8 @@ type IndexInput struct {
 	CacheFilePaths []string
 	// CacheConfig is the *config.Config used to compute the rule hash.
 	CacheConfig *config.Config
-	// CacheRuleNames are the active rule names (v1) used to compute the
-	// rule hash. When nil, derived from ActiveRulesV1.
+	// CacheRuleNames are the active rule names used to compute the rule hash.
+	// When nil, derived from ActiveRules.
 	CacheRuleNames []string
 	// CacheEditorConfigEnabled is the --editorconfig flag value used by
 	// ComputeConfigHash.
@@ -293,9 +293,9 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		result.Resolver = r
 	}
 
-	// Module graph (legacy LSP-style path: no tracker, best-effort, no
-	// dependencies/PerModuleIndex). Superseded by BuildModuleIndex for
-	// CLI callers that need tracker parity.
+	// Module graph for callers that need only best-effort module boundaries.
+	// Superseded by BuildModuleIndex for CLI callers that need dependencies
+	// and PerModuleIndex.
 	if !p.SkipModules && !in.BuildModuleIndex {
 		scanRoot := p.ScanRoot
 		if scanRoot == "" {

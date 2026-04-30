@@ -13,7 +13,7 @@ func registerDatabaseRules() {
 		r := &DatabaseInstanceRecreatedRule{BaseRule: BaseRule{RuleName: "DatabaseInstanceRecreated", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects Room.databaseBuilder calls inside regular functions that recreate the database on each invocation."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isRoomDatabaseBuilderCallFlat(file, idx) {
@@ -37,7 +37,7 @@ func registerDatabaseRules() {
 		r := &DaoNotInterfaceRule{BaseRule: BaseRule{RuleName: "DaoNotInterface", RuleSetName: "database", Sev: "info", Desc: "Detects Room DAOs declared as abstract classes instead of interfaces."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !hasAnnotationFlat(file, idx, "Dao") {
@@ -58,7 +58,7 @@ func registerDatabaseRules() {
 		r := &DaoWithoutAnnotationsRule{BaseRule: BaseRule{RuleName: "DaoWithoutAnnotations", RuleSetName: "database", Sev: "warning", Desc: "Detects Room DAO member functions missing required annotations like @Query, @Insert, @Update, or @Delete."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !hasAnnotationFlat(file, idx, "Dao") {
@@ -93,7 +93,7 @@ func registerDatabaseRules() {
 		r := &ForeignKeyWithoutOnDeleteRule{BaseRule: BaseRule{RuleName: "ForeignKeyWithoutOnDelete", RuleSetName: "database", Sev: "warning", Desc: "Detects Room @ForeignKey(...) without an onDelete argument; the default NO_ACTION usually leaves stale rows."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "constructor_invocation"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "constructor_invocation"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var args uint32
@@ -125,7 +125,7 @@ func registerDatabaseRules() {
 		r := &RoomConflictStrategyReplaceOnFkRule{BaseRule: BaseRule{RuleName: "RoomConflictStrategyReplaceOnFk", RuleSetName: "database", Sev: "warning", Desc: "Detects @Insert(onConflict = REPLACE) on a Room entity that declares foreign keys; REPLACE deletes and re-inserts, cascading FK deletes."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), OriginalV1: r,
+			Needs: v2.NeedsCrossFile, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -133,7 +133,7 @@ func registerDatabaseRules() {
 		r := &JdbcResultSetLeakedFromFunctionRule{BaseRule: BaseRule{RuleName: "JdbcResultSetLeakedFromFunction", RuleSetName: "database", Sev: "warning", Desc: "Detects functions whose declared return type is java.sql.ResultSet; callers almost always forget to close the ResultSet."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !functionHasBodyFlat(file, idx) {
@@ -154,7 +154,7 @@ func registerDatabaseRules() {
 		r := &EntityPrimaryKeyNotStableRule{BaseRule: BaseRule{RuleName: "EntityPrimaryKeyNotStable", RuleSetName: "database", Sev: "warning", Desc: "Detects @Entity @PrimaryKey declared as var without autoGenerate = true; mutable primary keys break equals/hashCode."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_parameter", "property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_parameter", "property_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !hasAnnotationFlat(file, idx, "PrimaryKey") {
@@ -182,7 +182,7 @@ func registerDatabaseRules() {
 		r := &EntityMutableColumnRule{BaseRule: BaseRule{RuleName: "EntityMutableColumn", RuleSetName: "database", Sev: "info", Desc: "Detects Room @Entity class primary-constructor parameters declared as var, which prevents straightforward copy-on-write."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !hasAnnotationFlat(file, idx, "Entity") {
@@ -217,7 +217,7 @@ func registerDatabaseRules() {
 		r := &JdbcPreparedStatementNotClosedRule{BaseRule: BaseRule{RuleName: "JdbcPreparedStatementNotClosed", RuleSetName: "database", Sev: "warning", Desc: "Detects JDBC prepared statements assigned to local properties without .use {} or .close() in the same scope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				stmtName := extractIdentifierFlat(file, idx)

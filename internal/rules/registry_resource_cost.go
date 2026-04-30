@@ -15,7 +15,7 @@ func registerResourceCostRules() {
 		r := &BufferedReadWithoutBufferRule{BaseRule: BaseRule{RuleName: "BufferedReadWithoutBuffer", RuleSetName: "resource-cost", Sev: "info", Desc: "Detects FileInputStream.read() without BufferedInputStream wrapping for efficient reads."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := databaseCallName(file, idx)
@@ -40,7 +40,7 @@ func registerResourceCostRules() {
 		r := &CursorLoopWithColumnIndexInLoopRule{BaseRule: BaseRule{RuleName: "CursorLoopWithColumnIndexInLoop", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects getColumnIndex() calls inside cursor while-loops that should be hoisted before the loop."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"while_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"while_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !whileConditionHasCallName(file, idx, "moveToNext") {
@@ -86,7 +86,7 @@ func registerResourceCostRules() {
 		r := &OkHttpClientCreatedPerCallRule{BaseRule: BaseRule{RuleName: "OkHttpClientCreatedPerCall", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects OkHttpClient construction in function bodies instead of reusing a singleton instance."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "method_invocation", "object_creation_expression"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation", "object_creation_expression"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -138,7 +138,7 @@ func registerResourceCostRules() {
 		r := &OkHttpCallExecuteSyncRule{BaseRule: BaseRule{RuleName: "OkHttpCallExecuteSync", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects synchronous OkHttp Call.execute() inside suspend functions that block the coroutine thread."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -171,7 +171,7 @@ func registerResourceCostRules() {
 		r := &RetrofitCreateInHotPathRule{BaseRule: BaseRule{RuleName: "RetrofitCreateInHotPath", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects Retrofit.Builder().build().create() in function bodies instead of a singleton or @Provides."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := databaseCallName(file, idx)
@@ -206,7 +206,7 @@ func registerResourceCostRules() {
 		r := &HttpClientNotReusedRule{BaseRule: BaseRule{RuleName: "HttpClientNotReused", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects Java HttpClient.newHttpClient() in function bodies without singleton reuse."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := databaseCallName(file, idx)
@@ -237,7 +237,7 @@ func registerResourceCostRules() {
 		r := &DatabaseQueryOnMainThreadRule{BaseRule: BaseRule{RuleName: "DatabaseQueryOnMainThread", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects SQLiteDatabase query calls in code with positive main-thread evidence."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsParsedFiles, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsParsedFiles, Confidence: 0.75, Implementation: r,
 			Check: r.checkParsedFiles,
 		})
 	}
@@ -245,7 +245,7 @@ func registerResourceCostRules() {
 		r := &RoomLoadsAllWhereFirstUsedRule{BaseRule: BaseRule{RuleName: "RoomLoadsAllWhereFirstUsed", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects getAll().first() patterns that load an entire table for a single element instead of using LIMIT 1."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsParsedFiles, Confidence: 0.75, OriginalV1: r,
+			Needs: v2.NeedsParsedFiles, Confidence: 0.75, Implementation: r,
 			Check: r.checkParsedFiles,
 		})
 	}
@@ -257,7 +257,7 @@ func registerResourceCostRules() {
 			Needs:                  v2.NeedsTypeInfo,
 			Languages:              []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
-			Confidence:             0.75, OriginalV1: r,
+			Confidence:             0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isRecyclerAdapterClassFlat(ctx, idx) {
@@ -288,7 +288,7 @@ func registerResourceCostRules() {
 			Needs:                  v2.NeedsTypeInfo,
 			Languages:              []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
-			Confidence:             0.75, OriginalV1: r,
+			Confidence:             0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isRecyclerAdapterClassFlat(ctx, idx) {
@@ -312,7 +312,7 @@ func registerResourceCostRules() {
 		r := &LazyColumnInsideColumnRule{BaseRule: BaseRule{RuleName: "LazyColumnInsideColumn", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects LazyColumn or LazyRow nested inside a scrollable Column or Row causing measurement issues."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallNameAny(file, idx)
@@ -349,7 +349,7 @@ func registerResourceCostRules() {
 		r := &RecyclerViewInLazyColumnRule{BaseRule: BaseRule{RuleName: "RecyclerViewInLazyColumn", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects AndroidView wrapping a RecyclerView inside a LazyColumn or LazyRow causing nested scrolling conflicts."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallNameAny(file, idx)
@@ -383,7 +383,7 @@ func registerResourceCostRules() {
 			NodeTypes:              []string{"call_expression"},
 			Needs:                  v2.NeedsTypeInfo,
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
-			Confidence:             0.75, OriginalV1: r,
+			Confidence:             0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -427,7 +427,7 @@ func registerResourceCostRules() {
 		r := &ImageLoaderNoMemoryCacheRule{BaseRule: BaseRule{RuleName: "ImageLoaderNoMemoryCache", RuleSetName: "resource-cost", Sev: "info", Desc: "Detects image loaders configured to skip the memory cache, causing repeated decoding and GC pressure."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -446,7 +446,7 @@ func registerResourceCostRules() {
 		r := &ComposePainterResourceInLoopRule{BaseRule: BaseRule{RuleName: "ComposePainterResourceInLoop", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects painterResource() calls inside list or loop lambdas that create a fresh painter per iteration."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -468,7 +468,7 @@ func registerResourceCostRules() {
 		r := &ComposeRememberInListRule{BaseRule: BaseRule{RuleName: "ComposeRememberInList", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects remember {} inside items {} without a key argument, causing recomputation on list reorder."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -498,7 +498,7 @@ func registerResourceCostRules() {
 		r := &PeriodicWorkRequestLessThan15MinRule{BaseRule: BaseRule{RuleName: "PeriodicWorkRequestLessThan15Min", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects PeriodicWorkRequest intervals below the 15-minute minimum enforced by WorkManager."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -541,7 +541,7 @@ func registerResourceCostRules() {
 		r := &WorkManagerNoBackoffRule{BaseRule: BaseRule{RuleName: "WorkManagerNoBackoff", RuleSetName: "resource-cost", Sev: "info", Desc: "Detects OneTimeWorkRequest chains without a setBackoffCriteria policy for retryable work."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -566,7 +566,7 @@ func registerResourceCostRules() {
 		r := &WorkManagerUniquePolicyKeepButReplaceIntendedRule{BaseRule: BaseRule{RuleName: "WorkManagerUniquePolicyKeepButReplaceIntended", RuleSetName: "resource-cost", Sev: "info", Desc: "Detects enqueueUniqueWork with KEEP policy followed by cancel logic where REPLACE may be intended."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)

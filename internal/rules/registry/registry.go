@@ -43,9 +43,8 @@ type ConfigSource interface {
 // overrides:
 //
 //   - If IsRuleSetActive(ruleSet) is non-nil and false, the rule is
-//     inactive and option overrides are NOT applied. This mirrors the
-//     `continue` branch in the legacy internal/rules/config.go#ApplyConfig
-//     (lines 47–51): disabling a ruleset short-circuits everything else.
+//     inactive and option overrides are NOT applied: disabling a ruleset
+//     short-circuits everything else.
 //
 //   - Otherwise, if IsRuleActive(ruleSet, rule) is non-nil, it overrides
 //     d.DefaultActive. Options are still applied — a rule-level disable
@@ -68,8 +67,7 @@ func ApplyConfig(rule interface{}, d RuleDescriptor, cfg ConfigSource) (active b
 		return d.DefaultActive
 	}
 
-	// Ruleset-level disable short-circuits everything, matching the
-	// legacy `continue` in internal/rules/config.go.
+	// Ruleset-level disable short-circuits everything.
 	if rs := cfg.IsRuleSetActive(d.RuleSet); rs != nil && !*rs {
 		return false
 	}
@@ -81,9 +79,8 @@ func ApplyConfig(rule interface{}, d RuleDescriptor, cfg ConfigSource) (active b
 		active = *r
 	}
 
-	// Apply option overrides. Note: the legacy code applies options even
-	// when a rule is disabled at the rule level (so that re-enabling via a
-	// different code path would see the overrides). We preserve that.
+	// Apply option overrides even when a rule is disabled at the rule level,
+	// so that re-enabling via a different code path sees the overrides.
 	for _, opt := range d.Options {
 		applyOption(rule, d, opt, cfg)
 	}
@@ -144,9 +141,9 @@ func applyOption(rule interface{}, d RuleDescriptor, opt ConfigOption, cfg Confi
 		case OptStringList:
 			list := cfg.GetStringList(d.RuleSet, d.ID, key)
 			if list == nil {
-				// HasKey said yes but the getter returned nil — treat
-				// as "not set" to match the legacy behavior where
-				// GetStringList returning nil leaves the field alone.
+				// HasKey said yes but the getter returned nil — treat it
+				// as "not set" so GetStringList returning nil leaves the
+				// field alone.
 				continue
 			}
 			opt.Apply(rule, list)
@@ -172,8 +169,7 @@ func applyOption(rule interface{}, d RuleDescriptor, opt ConfigOption, cfg Confi
 
 // ApplyConfigActiveOnly mirrors ApplyConfig but skips the Options loop.
 // Use it when a rule publishes a Meta() descriptor but the concrete
-// struct pointer is unreachable (e.g. an adapter-wrapped rule that dropped
-// its OriginalV1 pointer). The ruleset-disable short-circuit and the
+// struct pointer is unreachable. The ruleset-disable short-circuit and the
 // rule-level active override are still honored.
 //
 // Rules passed through this path MUST have no configurable options, since
@@ -214,10 +210,9 @@ func DefaultInactiveSet(descs []RuleDescriptor) map[string]bool {
 
 // CompileAnchoredPattern compiles a regex pattern, anchoring it with ^ and
 // $ when those anchors are missing. This matches detekt's semantics (full-
-// string match rather than substring match) and mirrors the legacy
-// compilePattern helper in internal/rules/config.go. Invalid patterns
-// log a warning to stderr and return nil — callers must treat nil as
-// "leave the existing field alone".
+// string match rather than substring match). Invalid patterns log a warning to
+// stderr and return nil — callers must treat nil as "leave the existing field
+// alone".
 //
 // Exposed so generated code and migrated rules can share a single
 // implementation without importing internal/rules.

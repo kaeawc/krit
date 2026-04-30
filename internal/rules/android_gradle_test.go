@@ -302,9 +302,9 @@ func TestOldTargetApi(t *testing.T) {
 	})
 
 	t.Run("threshold is configurable", func(t *testing.T) {
-		rule, ok := r.OriginalV1.(*rules.GradleOldTargetApiRule)
+		rule, ok := r.Implementation.(*rules.GradleOldTargetApiRule)
 		if !ok {
-			t.Fatalf("expected *GradleOldTargetApiRule, got %T", r.OriginalV1)
+			t.Fatalf("expected *GradleOldTargetApiRule, got %T", r.Implementation)
 		}
 		original := rule.Threshold
 		defer func() { rule.Threshold = original }()
@@ -448,9 +448,9 @@ func TestMinSdkTooLow(t *testing.T) {
 	})
 
 	t.Run("threshold is configurable", func(t *testing.T) {
-		rule, ok := r.OriginalV1.(*rules.MinSdkTooLowRule)
+		rule, ok := r.Implementation.(*rules.MinSdkTooLowRule)
 		if !ok {
-			t.Fatalf("expected *MinSdkTooLowRule, got %T", r.OriginalV1)
+			t.Fatalf("expected *MinSdkTooLowRule, got %T", r.Implementation)
 		}
 		original := rule.Threshold
 		defer func() { rule.Threshold = original }()
@@ -974,9 +974,9 @@ func TestNewerVersionAvailable(t *testing.T) {
 	})
 
 	t.Run("recommended versions are configurable", func(t *testing.T) {
-		rule, ok := r.OriginalV1.(*rules.NewerVersionAvailableRule)
+		rule, ok := r.Implementation.(*rules.NewerVersionAvailableRule)
 		if !ok {
-			t.Fatalf("expected *NewerVersionAvailableRule, got %T", r.OriginalV1)
+			t.Fatalf("expected *NewerVersionAvailableRule, got %T", r.Implementation)
 		}
 		defer func() { rule.RecommendedVersions = nil }()
 

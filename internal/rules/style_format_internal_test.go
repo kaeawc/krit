@@ -30,7 +30,7 @@ func TestNoTabs_FixHonorsConfiguredIndentSize(t *testing.T) {
 			}
 			v2rule := &v2.Rule{
 				ID: "NoTabs", Category: "style", Sev: v2.Severity("warning"),
-				Needs: v2.NeedsLinePass, Fix: v2.FixCosmetic, OriginalV1: rule,
+				Needs: v2.NeedsLinePass, Fix: v2.FixCosmetic, Implementation: rule,
 				Check: rule.check,
 			}
 			d := NewDispatcherV2([]*v2.Rule{v2rule})

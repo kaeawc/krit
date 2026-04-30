@@ -402,8 +402,7 @@ func (p *AndroidProjectProviders) icon(resDir string) *android.IconScanFuture {
 }
 
 // CollectAndroidDependenciesV2 reads AndroidDeps directly from
-// v2.Rule.AndroidDeps, falling back to the v1 wrapper for rules that
-// set the field at registration time.
+// v2.Rule.AndroidDeps.
 func CollectAndroidDependenciesV2(activeRules []*v2.Rule) rules.AndroidDataDependency {
 	var deps rules.AndroidDataDependency
 	for _, r := range activeRules {

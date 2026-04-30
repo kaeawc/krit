@@ -455,11 +455,11 @@ func TestLoopWithTooManyJumpStatementsDefaultsMatchDetekt(t *testing.T) {
 			continue
 		}
 		var ok bool
-		rule, ok = candidate.OriginalV1.(*rules.LoopWithTooManyJumpStatementsRule)
+		rule, ok = candidate.Implementation.(*rules.LoopWithTooManyJumpStatementsRule)
 		if !ok {
-			t.Fatalf("expected LoopWithTooManyJumpStatementsRule, got %T", candidate.OriginalV1)
+			t.Fatalf("expected LoopWithTooManyJumpStatementsRule, got %T", candidate.Implementation)
 		}
-		metaProvider, ok := candidate.OriginalV1.(registry.MetaProvider)
+		metaProvider, ok := candidate.Implementation.(registry.MetaProvider)
 		if !ok {
 			t.Fatal("expected LoopWithTooManyJumpStatementsRule to provide metadata")
 		}

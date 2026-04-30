@@ -16,7 +16,7 @@ func registerAndroidCorrectnessRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes:  []string{"call_expression", "method_invocation"},
 			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
-			Confidence: r.Confidence(), OriginalV1: r,
+			Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatType(idx) == "method_invocation" {
@@ -96,7 +96,7 @@ func registerAndroidCorrectnessRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "method_invocation"},
-			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, OriginalV1: r,
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatType(idx) == "method_invocation" {
@@ -129,7 +129,7 @@ func registerAndroidCorrectnessRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "method_invocation"},
-			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, OriginalV1: r,
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatType(idx) == "method_invocation" {
@@ -154,7 +154,7 @@ func registerAndroidCorrectnessRules() {
 		r := &AssertRule{AndroidRule: alcRule("Assert", "Assertions are unreliable on Android", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "assert" {
@@ -169,7 +169,7 @@ func registerAndroidCorrectnessRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "method_invocation"},
-			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, OriginalV1: r,
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if strings.HasSuffix(file.Path, ".gradle.kts") {
@@ -200,7 +200,7 @@ func registerAndroidCorrectnessRules() {
 		r := &ShiftFlagsRule{AndroidRule: alcRule("ShiftFlags", "Suspicious flag constant declarations", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Require const modifier.
@@ -259,7 +259,7 @@ func registerAndroidCorrectnessRules() {
 		r := &UniqueConstantsRule{AndroidRule: alcRule("UniqueConstants", "Overlapping enumeration constants", ALSError, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"annotation"}, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"annotation"}, Confidence: 0.9, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				ctor, _ := file.FlatFindChild(idx, "constructor_invocation")
@@ -302,7 +302,7 @@ func registerAndroidCorrectnessRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Check if the function has a @WorkerThread annotation. The
@@ -339,7 +339,7 @@ func registerAndroidCorrectnessRules() {
 		r := &SQLiteStringRule{AndroidRule: alcRule("SQLiteString", "Using STRING instead of TEXT in SQLite", ALSWarning, 5)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal", "line_string_literal", "multi_line_string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"string_literal", "line_string_literal", "multi_line_string_literal"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatType(idx) != "string_literal" {
@@ -359,7 +359,7 @@ func registerAndroidCorrectnessRules() {
 		r := &RegisteredRule{AndroidRule: alcRule("Registered", "Class is not registered in the manifest", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Needs: v2.NeedsResolver, TypeInfo: v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Needs: v2.NeedsResolver, TypeInfo: v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				componentType, confidence := androidComponentType(file, idx, ctx.Resolver)
@@ -387,7 +387,7 @@ func registerAndroidCorrectnessRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallNameAny(file, idx)
@@ -409,7 +409,7 @@ func registerAndroidCorrectnessRules() {
 		scrollViewCtorNames := map[string]bool{"ScrollView": true, "HorizontalScrollView": true}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "apply" {
@@ -459,7 +459,7 @@ func registerAndroidCorrectnessRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes:  []string{"call_expression", "object_creation_expression"},
 			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
-			Confidence: r.Confidence(), OriginalV1: r,
+			Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatType(idx) == "object_creation_expression" {
@@ -491,7 +491,7 @@ func registerAndroidCorrectnessRules() {
 		r := &SetTextI18nRule{AndroidRule: alcRule("SetTextI18n", "TextView with internationalization issues", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "setText" {
@@ -523,7 +523,7 @@ func registerAndroidCorrectnessRules() {
 		r := &StopShipRule{AndroidRule: alcRule("StopShip", "STOPSHIP comment found", ALSFatal, 10)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r,
+			Needs: v2.NeedsLinePass, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -531,7 +531,7 @@ func registerAndroidCorrectnessRules() {
 		r := &WrongCallRule{AndroidRule: alcRule("WrongCall", "Using wrong draw/layout method", ALSError, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)

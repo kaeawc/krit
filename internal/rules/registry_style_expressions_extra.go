@@ -14,7 +14,7 @@ func registerStyleExpressionsExtraRules() {
 		r := &MultilineLambdaItParameterRule{BaseRule: BaseRule{RuleName: "MultilineLambdaItParameter", RuleSetName: "style", Sev: "warning", Desc: "Detects multiline lambdas that use the implicit it parameter instead of naming it explicitly."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"lambda_literal"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"lambda_literal"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) || isGradleBuildScript(file.Path) {
@@ -42,7 +42,7 @@ func registerStyleExpressionsExtraRules() {
 		r := &MultilineRawStringIndentationRule{BaseRule: BaseRule{RuleName: "MultilineRawStringIndentation", RuleSetName: "style", Sev: "warning", Desc: "Detects multiline raw strings that are missing trimIndent() or trimMargin() calls."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal", "multi_line_string_literal"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"string_literal", "multi_line_string_literal"}, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -50,7 +50,7 @@ func registerStyleExpressionsExtraRules() {
 		r := &TrimMultilineRawStringRule{BaseRule: BaseRule{RuleName: "TrimMultilineRawString", RuleSetName: "style", Sev: "warning", Desc: "Detects multiline raw strings that should use trimIndent() or trimMargin() for proper indentation."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal", "multi_line_string_literal"}, Confidence: r.Confidence(), Fix: v2.FixCosmetic, OriginalV1: r,
+			NodeTypes: []string{"string_literal", "multi_line_string_literal"}, Confidence: r.Confidence(), Fix: v2.FixCosmetic, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -58,7 +58,7 @@ func registerStyleExpressionsExtraRules() {
 		r := &StringShouldBeRawStringRule{BaseRule: BaseRule{RuleName: "StringShouldBeRawString", RuleSetName: "style", Sev: "warning", Desc: "Detects string literals with many escape characters that would be more readable as raw strings."}, MaxEscapes: 2}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"string_literal"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -77,7 +77,7 @@ func registerStyleExpressionsExtraRules() {
 		r := &CanBeNonNullableRule{BaseRule: BaseRule{RuleName: "CanBeNonNullable", RuleSetName: "style", Sev: "warning", Desc: "Detects nullable types that are initialized with non-null values and never assigned null."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration", "function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"property_declaration", "function_declaration"}, Confidence: 0.75, Implementation: r,
 			Needs: v2.NeedsResolver,
 			Check: func(ctx *v2.Context) {
 				switch ctx.File.FlatType(ctx.Idx) {
@@ -93,7 +93,7 @@ func registerStyleExpressionsExtraRules() {
 		r := &DoubleNegativeExpressionRule{BaseRule: BaseRule{RuleName: "DoubleNegativeExpression", RuleSetName: "style", Sev: "warning", Desc: "Detects double negative expressions like !isNotEmpty() that should use the positive variant."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"prefix_expression"}, Confidence: r.Confidence(), Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"prefix_expression"}, Confidence: r.Confidence(), Fix: v2.FixIdiomatic, Implementation: r,
 			Check: r.checkDoubleNegativeExpressionFlat,
 		})
 	}
@@ -101,7 +101,7 @@ func registerStyleExpressionsExtraRules() {
 		r := &DoubleNegativeLambdaRule{BaseRule: BaseRule{RuleName: "DoubleNegativeLambda", RuleSetName: "style", Sev: "warning", Desc: "Detects double negative lambda patterns like filterNot { !predicate } that should use filter."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: r.checkDoubleNegativeLambdaFlat,
 		})
 	}
@@ -109,7 +109,7 @@ func registerStyleExpressionsExtraRules() {
 		r := &NullableBooleanCheckRule{BaseRule: BaseRule{RuleName: "NullableBooleanCheck", RuleSetName: "style", Sev: "warning", Desc: "Detects equality comparisons against Boolean literals like x == true on nullable Booleans."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatChildCount(idx) < 3 {
@@ -153,7 +153,7 @@ func registerStyleExpressionsExtraRules() {
 		r := &RangeUntilInsteadOfRangeToRule{BaseRule: BaseRule{RuleName: "RangeUntilInsteadOfRangeTo", RuleSetName: "style", Sev: "warning", Desc: "Detects usage of the until infix function that can be replaced with the ..< range operator."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"infix_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"infix_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatChildCount(idx) < 3 {
@@ -186,7 +186,7 @@ func registerStyleExpressionsExtraRules() {
 		r := &DestructuringDeclarationWithTooManyEntriesRule{BaseRule: BaseRule{RuleName: "DestructuringDeclarationWithTooManyEntries", RuleSetName: "style", Sev: "warning", Desc: "Detects destructuring declarations with more entries than the configured maximum."}, MaxEntries: 3}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"multi_variable_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"multi_variable_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				count := 0

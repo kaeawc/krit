@@ -18,7 +18,7 @@ func registerAndroidSecurityRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(),
 			Sev: v2.Severity(r.Sev), NodeTypes: []string{"call_expression"},
-			Confidence: r.Confidence(), OriginalV1: r, Check: r.check,
+			Confidence: r.Confidence(), Implementation: r, Check: r.check,
 		})
 	}
 	{
@@ -31,7 +31,7 @@ func registerAndroidSecurityRules() {
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "method_invocation"}, Needs: v2.NeedsTypeInfo,
-			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, OriginalV1: r,
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Implementation: r,
 			Oracle:            &v2.OracleFilter{Identifiers: []string{"addJavascriptInterface"}},
 			OracleCallTargets: &v2.OracleCallTargetFilter{CalleeNames: []string{"addJavascriptInterface"}},
 			// Traverses the class hierarchy to confirm the receiver is a WebView subtype;
@@ -47,7 +47,7 @@ func registerAndroidSecurityRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 9,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
 	{
 		r := &EasterEggRule{AndroidRule: AndroidRule{
@@ -56,7 +56,7 @@ func registerAndroidSecurityRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
 	{
 		r := &ExportedContentProviderRule{AndroidRule: AndroidRule{
@@ -65,7 +65,7 @@ func registerAndroidSecurityRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"class_declaration"}, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"class_declaration"}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
 	{
 		r := &ExportedReceiverRule{AndroidRule: AndroidRule{
@@ -74,7 +74,7 @@ func registerAndroidSecurityRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"class_declaration"}, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"class_declaration"}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
 	{
 		r := &GrantAllUrisRule{AndroidRule: AndroidRule{
@@ -87,7 +87,7 @@ func registerAndroidSecurityRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "method_invocation"}, Needs: v2.NeedsTypeInfo,
 			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
-			Confidence: r.Confidence(), OriginalV1: r,
+			Confidence: r.Confidence(), Implementation: r,
 			// Traverses the class hierarchy to confirm the receiver is a Context subtype;
 			// only ClassShell+Supertypes needed, no member inspection.
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
@@ -105,7 +105,7 @@ func registerAndroidSecurityRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes:  []string{"call_expression", "method_invocation"},
 			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
-			Confidence: r.Confidence(), OriginalV1: r,
+			Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -116,7 +116,7 @@ func registerAndroidSecurityRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"simple_identifier", "type_identifier", "class_declaration", "object_declaration", "object_literal"}, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"simple_identifier", "type_identifier", "class_declaration", "object_declaration", "object_literal"}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
 	{
 		r := &WorldReadableFilesRule{AndroidRule: AndroidRule{
@@ -129,7 +129,7 @@ func registerAndroidSecurityRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes:  []string{"simple_identifier", "identifier"},
 			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
-			Confidence: r.Confidence(), OriginalV1: r, Check: r.check,
+			Confidence: r.Confidence(), Implementation: r, Check: r.check,
 		})
 	}
 	{
@@ -143,7 +143,7 @@ func registerAndroidSecurityRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes:  []string{"simple_identifier", "identifier"},
 			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
-			Confidence: r.Confidence(), OriginalV1: r, Check: r.check,
+			Confidence: r.Confidence(), Implementation: r, Check: r.check,
 		})
 	}
 	{
@@ -155,7 +155,7 @@ func registerAndroidSecurityRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -166,7 +166,7 @@ func registerAndroidSecurityRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 3,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"navigation_expression"}, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"navigation_expression"}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
 	{
 		r := &HandlerLeakRule{AndroidRule: AndroidRule{
@@ -175,7 +175,7 @@ func registerAndroidSecurityRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 7,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"class_declaration", "object_literal", "object_creation_expression"}, Needs: v2.NeedsResolver, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, TypeInfo: v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true}, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"class_declaration", "object_literal", "object_creation_expression"}, Needs: v2.NeedsResolver, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, TypeInfo: v2.TypeInfoHint{PreferBackend: v2.PreferResolver, Required: true}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
 	{
 		r := &RecycleRule{AndroidRule: AndroidRule{
@@ -184,7 +184,7 @@ func registerAndroidSecurityRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 7,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"property_declaration"}, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), NodeTypes: []string{"property_declaration"}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
 	{
 		r := &ByteOrderMarkRule{AndroidRule: AndroidRule{
@@ -193,6 +193,6 @@ func registerAndroidSecurityRules() {
 			Category: ALCI18N, ALSeverity: ALSWarning, Priority: 8,
 			Origin: "AOSP Android Lint",
 		}}
-		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), OriginalV1: r, Check: r.check})
+		v2.Register(&v2.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev), Needs: v2.NeedsLinePass, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
 }

@@ -14,7 +14,7 @@ func registerStyleIdiomaticDataRules() {
 		r := &UseArrayLiteralsInAnnotationsRule{BaseRule: BaseRule{RuleName: "UseArrayLiteralsInAnnotations", RuleSetName: "style", Sev: "warning", Desc: "Detects arrayOf() calls in annotations that should use array literal [] syntax."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"annotation"}, Confidence: 0.9, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"annotation"}, Confidence: 0.9, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Require an actual call to `arrayOf` somewhere under this
@@ -57,7 +57,7 @@ func registerStyleIdiomaticDataRules() {
 		r := &UseSumOfInsteadOfFlatMapSizeRule{BaseRule: BaseRule{RuleName: "UseSumOfInsteadOfFlatMapSize", RuleSetName: "style", Sev: "warning", Desc: "Detects flatMap/map followed by size/count/sum chains that should use sumOf instead."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
@@ -137,7 +137,7 @@ func registerStyleIdiomaticDataRules() {
 		r := &UseLetRule{BaseRule: BaseRule{RuleName: "UseLet", RuleSetName: "style", Sev: "warning", Desc: "Detects null checks that could be replaced with ?.let {} scope function."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -151,7 +151,7 @@ func registerStyleIdiomaticDataRules() {
 		r := &UseDataClassRule{BaseRule: BaseRule{RuleName: "UseDataClass", RuleSetName: "style", Sev: "warning", Desc: "Detects classes with only properties in the constructor that could be data classes."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatHasModifier(idx, "data") || file.FlatHasModifier(idx, "abstract") || file.FlatHasModifier(idx, "open") || file.FlatHasModifier(idx, "sealed") || file.FlatHasModifier(idx, "enum") || file.FlatHasModifier(idx, "annotation") {
@@ -188,7 +188,7 @@ func registerStyleIdiomaticDataRules() {
 		r := &UseIfInsteadOfWhenRule{BaseRule: BaseRule{RuleName: "UseIfInsteadOfWhen", RuleSetName: "style", Sev: "warning", Desc: "Detects when expressions with two or fewer branches that could be replaced with if."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"when_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"when_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				entryCount := 0
@@ -207,7 +207,7 @@ func registerStyleIdiomaticDataRules() {
 		r := &UseIfEmptyOrIfBlankRule{BaseRule: BaseRule{RuleName: "UseIfEmptyOrIfBlank", RuleSetName: "style", Sev: "warning", Desc: "Detects manual isEmpty/isBlank checks that could use .ifEmpty {} or .ifBlank {} instead."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var condNode, thenNode, elseNode uint32
@@ -292,7 +292,7 @@ func registerStyleIdiomaticDataRules() {
 		r := &ExplicitCollectionElementAccessMethodRule{BaseRule: BaseRule{RuleName: "ExplicitCollectionElementAccessMethod", RuleSetName: "style", Sev: "warning", Desc: "Detects explicit .get() and .set() calls that should use index operator syntax."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var navNode uint32
@@ -367,7 +367,7 @@ func registerStyleIdiomaticDataRules() {
 		r := &AlsoCouldBeApplyRule{BaseRule: BaseRule{RuleName: "AlsoCouldBeApply", RuleSetName: "style", Sev: "warning", Desc: "Detects .also {} blocks with multiple it. references that could use .apply {} instead."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.9, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.9, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if flatCallExpressionName(file, idx) != "also" {
@@ -406,7 +406,7 @@ func registerStyleIdiomaticDataRules() {
 		r := &EqualsNullCallRule{BaseRule: BaseRule{RuleName: "EqualsNullCall", RuleSetName: "style", Sev: "warning", Desc: "Detects .equals(null) calls that should use == null instead."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var navNode uint32

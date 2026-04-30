@@ -1,8 +1,7 @@
 package rules
 
 // Android Lint Correctness rules ported from AOSP.
-// 85 rules total. Rules that can detect issues in Kotlin source have real
-// implementations; XML/Manifest-only rules are stubs (Check returns nil).
+// XML and manifest-only checks live in the Android project-data registries.
 
 import (
 	"fmt"

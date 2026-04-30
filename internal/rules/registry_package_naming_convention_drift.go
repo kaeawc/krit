@@ -13,7 +13,7 @@ func registerPackageNamingConventionDriftRules() {
 		r := &PackageNamingConventionDriftRule{BaseRule: BaseRule{RuleName: "PackageNamingConventionDrift", RuleSetName: "architecture", Sev: "info", Desc: "Detects Kotlin source files whose package declaration does not match the directory path under src/main/kotlin."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"package_header"}, Confidence: 0.95, OriginalV1: r,
+			NodeTypes: []string{"package_header"}, Confidence: 0.95, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				pkg := packageHeaderNameFlat(file, idx)

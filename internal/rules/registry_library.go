@@ -13,7 +13,7 @@ func registerLibraryRules() {
 		r := &ForbiddenPublicDataClassRule{BaseRule: BaseRule{RuleName: "ForbiddenPublicDataClass", RuleSetName: "libraries", Sev: "warning", Desc: "Detects public data classes in library code whose exposed properties make the API hard to evolve."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !file.FlatHasModifier(idx, "data") {
@@ -31,7 +31,7 @@ func registerLibraryRules() {
 		r := &LibraryEntitiesShouldNotBePublicRule{BaseRule: BaseRule{RuleName: "LibraryEntitiesShouldNotBePublic", RuleSetName: "libraries", Sev: "warning", Desc: "Detects public top-level declarations in library code that could be made internal."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration", "function_declaration", "property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"class_declaration", "function_declaration", "property_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				parent, ok := file.FlatParent(idx)
@@ -54,7 +54,7 @@ func registerLibraryRules() {
 		r := &LibraryCodeMustSpecifyReturnTypeRule{BaseRule: BaseRule{RuleName: "LibraryCodeMustSpecifyReturnType", RuleSetName: "libraries", Sev: "warning", Desc: "Detects public functions and properties in library code without explicit return type annotations."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration", "property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration", "property_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				parent, ok := file.FlatParent(idx)

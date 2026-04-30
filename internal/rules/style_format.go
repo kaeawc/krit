@@ -124,7 +124,7 @@ func (r *MaxLineLengthRule) check(ctx *v2.Context) {
 		if r.ExcludeCommentStatements && scanner.IsCommentLine(line) {
 			continue
 		}
-		// Legacy compat
+		// Keep package/import declarations out of line-length wrapping.
 		if strings.HasPrefix(trimmed, "import ") || strings.HasPrefix(trimmed, "package ") {
 			continue
 		}

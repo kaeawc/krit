@@ -15,7 +15,7 @@ func registerStyleExpressionsRules() {
 		r := &ExpressionBodySyntaxRule{BaseRule: BaseRule{RuleName: "ExpressionBodySyntax", RuleSetName: "style", Sev: "warning", Desc: "Detects single-expression functions that could use expression body syntax with the = operator."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -51,7 +51,7 @@ func registerStyleExpressionsRules() {
 		r := &ReturnCountRule{BaseRule: BaseRule{RuleName: "ReturnCount", RuleSetName: "style", Sev: "warning", Desc: "Detects functions with more return statements than the configured maximum."}, Max: 2, ExcludeReturnFromLambda: true}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := extractIdentifierFlat(file, idx)
@@ -117,7 +117,7 @@ func registerStyleExpressionsRules() {
 		r := &ThrowsCountRule{BaseRule: BaseRule{RuleName: "ThrowsCount", RuleSetName: "style", Sev: "warning", Desc: "Detects functions with more throw statements than the configured maximum."}, Max: 2}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if hasAnnotationFlat(file, idx, "Throws") {
@@ -147,7 +147,7 @@ func registerStyleExpressionsRules() {
 		r := &CollapsibleIfStatementsRule{BaseRule: BaseRule{RuleName: "CollapsibleIfStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects nested if statements without else that can be merged with a logical AND."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"if_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Only collapse plain if/then chains — if the if_expression
@@ -235,7 +235,7 @@ func registerStyleExpressionsRules() {
 		r := &SafeCastRule{BaseRule: BaseRule{RuleName: "SafeCast", RuleSetName: "style", Sev: "warning", Desc: "Detects is-check followed by unsafe cast patterns that should use safe cast as? instead."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"if_expression", "when_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"if_expression", "when_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				nodeType := file.FlatType(idx)
@@ -382,7 +382,7 @@ func registerStyleExpressionsRules() {
 		r := &VarCouldBeValRule{BaseRule: BaseRule{RuleName: "VarCouldBeVal", RuleSetName: "style", Sev: "warning", Desc: "Detects var properties that are never reassigned and could be declared as val."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -464,7 +464,7 @@ func registerStyleExpressionsRules() {
 		r := &MayBeConstantRule{BaseRule: BaseRule{RuleName: "MayBeConstant", RuleSetName: "style", Sev: "warning", Desc: "Detects top-level val properties with constant initializers that could be declared as const val."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if strings.HasSuffix(file.Path, ".kts") {
@@ -523,7 +523,7 @@ func registerStyleExpressionsRules() {
 		r := &ModifierOrderRule{BaseRule: BaseRule{RuleName: "ModifierOrder", RuleSetName: "style", Sev: "warning", Desc: "Detects modifiers that are not in the recommended Kotlin ordering."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"modifiers"}, Confidence: 0.75, Fix: v2.FixCosmetic, OriginalV1: r,
+			NodeTypes: []string{"modifiers"}, Confidence: 0.75, Fix: v2.FixCosmetic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				var mods []string
@@ -569,7 +569,7 @@ func registerStyleExpressionsRules() {
 		r := &FunctionOnlyReturningConstantRule{BaseRule: BaseRule{RuleName: "FunctionOnlyReturningConstant", RuleSetName: "style", Sev: "warning", Desc: "Detects functions whose body only returns a constant value that could be a const val."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatHasModifier(idx, "override") ||
@@ -642,7 +642,7 @@ func registerStyleExpressionsRules() {
 		r := &LoopWithTooManyJumpStatementsRule{BaseRule: BaseRule{RuleName: "LoopWithTooManyJumpStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects loops containing more break or continue statements than the configured maximum."}, MaxJumps: 1}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"for_statement", "while_statement", "do_while_statement"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"for_statement", "while_statement", "do_while_statement"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				jumpCount := 0
@@ -680,7 +680,7 @@ func registerStyleExpressionsRules() {
 		r := &ExplicitItLambdaParameterRule{BaseRule: BaseRule{RuleName: "ExplicitItLambdaParameter", RuleSetName: "style", Sev: "warning", Desc: "Detects single-parameter lambdas that explicitly name their parameter it instead of using the implicit it."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"lambda_literal"}, Confidence: 0.75, Fix: v2.FixCosmetic, OriginalV1: r,
+			NodeTypes: []string{"lambda_literal"}, Confidence: 0.75, Fix: v2.FixCosmetic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				paramsNode, _ := file.FlatFindChild(idx, "lambda_parameters")
@@ -745,7 +745,7 @@ func registerStyleExpressionsRules() {
 		r := &ExplicitItLambdaMultipleParametersRule{BaseRule: BaseRule{RuleName: "ExplicitItLambdaMultipleParameters", RuleSetName: "style", Sev: "warning", Desc: "Detects multi-parameter lambdas that use it as a parameter name."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"lambda_literal"}, Confidence: 0.75, Fix: v2.FixCosmetic, OriginalV1: r,
+			NodeTypes: []string{"lambda_literal"}, Confidence: 0.75, Fix: v2.FixCosmetic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				paramsNode, _ := file.FlatFindChild(idx, "lambda_parameters")

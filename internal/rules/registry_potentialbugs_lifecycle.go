@@ -14,7 +14,7 @@ func registerPotentialbugsLifecycleRules() {
 		r := &ExitOutsideMainRule{BaseRule: BaseRule{RuleName: "ExitOutsideMain", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects exitProcess() or System.exit() calls outside of the main function."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -38,7 +38,7 @@ func registerPotentialbugsLifecycleRules() {
 		r := &ExplicitGarbageCollectionCallRule{BaseRule: BaseRule{RuleName: "ExplicitGarbageCollectionCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects explicit calls to System.gc() or Runtime.getRuntime().gc() which rarely improve performance."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -69,7 +69,7 @@ func registerPotentialbugsLifecycleRules() {
 		r := &InvalidRangeRule{BaseRule: BaseRule{RuleName: "InvalidRange", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects backwards ranges like 10..1 that produce empty ranges instead of using downTo."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"range_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, OriginalV1: r,
+			NodeTypes: []string{"range_expression"}, Confidence: 0.75, Fix: v2.FixIdiomatic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatChildCount(idx) < 3 {
@@ -103,7 +103,7 @@ func registerPotentialbugsLifecycleRules() {
 		r := &IteratorHasNextCallsNextMethodRule{BaseRule: BaseRule{RuleName: "IteratorHasNextCallsNextMethod", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects hasNext() implementations that call next(), which modifies iterator state."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Needs: v2.NeedsResolver, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Needs: v2.NeedsResolver, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := extractIdentifierFlat(file, idx)
@@ -137,7 +137,7 @@ func registerPotentialbugsLifecycleRules() {
 		r := &IteratorNotThrowingNoSuchElementExceptionRule{BaseRule: BaseRule{RuleName: "IteratorNotThrowingNoSuchElementException", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Iterator.next() implementations that do not throw NoSuchElementException when exhausted."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Needs: v2.NeedsResolver, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Needs: v2.NeedsResolver, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := extractIdentifierFlat(file, idx)
@@ -162,7 +162,7 @@ func registerPotentialbugsLifecycleRules() {
 		r := &LateinitUsageRule{BaseRule: BaseRule{RuleName: "LateinitUsage", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects lateinit var usage and suggests lazy initialization or nullable types instead."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -182,7 +182,7 @@ func registerPotentialbugsLifecycleRules() {
 		r := &MissingPackageDeclarationRule{BaseRule: BaseRule{RuleName: "MissingPackageDeclaration", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Kotlin files that are missing a package declaration."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Fix: v2.FixCosmetic, OriginalV1: r,
+			Needs: v2.NeedsLinePass, Fix: v2.FixCosmetic, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -196,7 +196,7 @@ func registerPotentialbugsLifecycleRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !file.FlatHasModifier(idx, "override") {
@@ -262,7 +262,7 @@ func registerPotentialbugsLifecycleRules() {
 		r := &MissingUseCallRule{BaseRule: BaseRule{RuleName: "MissingUseCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Closeable or AutoCloseable resources opened without a .use {} block."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, OriginalV1: r,
+			NodeTypes: []string{"call_expression"}, Needs: v2.NeedsTypeInfo, Confidence: 0.75, Implementation: r,
 			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: closeableConstructorCallees()},
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {

@@ -208,7 +208,7 @@ func isNonMainManifestPath(path string) bool {
 	return segment != "main"
 }
 
-// isTestManifestPath is a legacy alias used by security rules.
+// isTestManifestPath is shared by security rules.
 func isTestManifestPath(path string) bool {
 	return isNonMainManifestPath(path) || isTestFile(path)
 }

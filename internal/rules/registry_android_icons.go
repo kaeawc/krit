@@ -15,15 +15,15 @@ type iconRegistryRule interface {
 
 func registerAndroidIconRule(r iconRegistryRule, check func(*v2.Context)) {
 	v2.Register(&v2.Rule{
-		ID:          r.Name(),
-		Category:    r.RuleSet(),
-		Description: r.Description(),
-		Sev:         v2.Severity(r.Severity()),
-		Languages:   []scanner.Language{scanner.LangXML},
-		AndroidDeps: uint32(AndroidDepIcons),
-		Confidence:  r.Confidence(),
-		OriginalV1:  r,
-		Check:       check,
+		ID:             r.Name(),
+		Category:       r.RuleSet(),
+		Description:    r.Description(),
+		Sev:            v2.Severity(r.Severity()),
+		Languages:      []scanner.Language{scanner.LangXML},
+		AndroidDeps:    uint32(AndroidDepIcons),
+		Confidence:     r.Confidence(),
+		Implementation: r,
+		Check:          check,
 	})
 }
 

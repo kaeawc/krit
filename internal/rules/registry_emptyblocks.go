@@ -14,7 +14,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyCatchBlockRule{BaseRule: BaseRule{RuleName: "EmptyCatchBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects catch blocks with an empty body that silently swallow exceptions."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"catch_block"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"catch_block"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isBlockEmptyFlat(file, idx) {
@@ -48,7 +48,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyClassBlockRule{BaseRule: BaseRule{RuleName: "EmptyClassBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects class declarations with an empty body that can have their braces removed."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_body"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"class_body"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if isTestFile(file.Path) {
@@ -85,7 +85,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyDefaultConstructorRule{BaseRule: BaseRule{RuleName: "EmptyDefaultConstructor", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects explicit empty default constructors that are redundant and can be removed."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"class_declaration"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatHasModifier(idx, "annotation") {
@@ -133,7 +133,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyDoWhileBlockRule{BaseRule: BaseRule{RuleName: "EmptyDoWhileBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects do-while loops with an empty body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"do_while_statement"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"do_while_statement"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isBlockEmptyFlat(file, idx) {
@@ -156,7 +156,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyElseBlockRule{BaseRule: BaseRule{RuleName: "EmptyElseBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects else blocks with an empty body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"if_expression"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"if_expression"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// Find the `else` token and its companion control_structure_body.
@@ -205,7 +205,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyFinallyBlockRule{BaseRule: BaseRule{RuleName: "EmptyFinallyBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects finally blocks with an empty body that serve no purpose."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"finally_block"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"finally_block"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isBlockEmptyFlat(file, idx) {
@@ -231,7 +231,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyForBlockRule{BaseRule: BaseRule{RuleName: "EmptyForBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects for loops with an empty body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"for_statement"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"for_statement"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				body, _ := file.FlatFindChild(idx, "control_structure_body")
@@ -262,7 +262,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyFunctionBlockRule{BaseRule: BaseRule{RuleName: "EmptyFunctionBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects function declarations with an empty body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatHasModifier(idx, "override") || file.FlatHasModifier(idx, "open") {
@@ -338,7 +338,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyIfBlockRule{BaseRule: BaseRule{RuleName: "EmptyIfBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects if blocks with an empty body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"if_expression"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"if_expression"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -381,7 +381,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyInitBlockRule{BaseRule: BaseRule{RuleName: "EmptyInitBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects init blocks with an empty body that can be removed."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"anonymous_initializer"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"anonymous_initializer"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isBlockEmptyFlat(file, idx) {
@@ -404,7 +404,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyKotlinFileRule{BaseRule: BaseRule{RuleName: "EmptyKotlinFile", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects Kotlin files with no meaningful code beyond package and import declarations."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Needs: v2.NeedsLinePass, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -412,7 +412,7 @@ func registerEmptyblocksRules() {
 		r := &EmptySecondaryConstructorRule{BaseRule: BaseRule{RuleName: "EmptySecondaryConstructor", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects secondary constructors with an empty body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"secondary_constructor"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"secondary_constructor"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				nodeText := file.FlatNodeText(idx)
@@ -445,7 +445,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyTryBlockRule{BaseRule: BaseRule{RuleName: "EmptyTryBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects try blocks with an empty body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"try_expression"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"try_expression"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)
@@ -495,7 +495,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyWhenBlockRule{BaseRule: BaseRule{RuleName: "EmptyWhenBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects when expressions with no entries."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"when_expression"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"when_expression"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				hasEntries := false
@@ -527,7 +527,7 @@ func registerEmptyblocksRules() {
 		r := &EmptyWhileBlockRule{BaseRule: BaseRule{RuleName: "EmptyWhileBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects while loops with an empty body."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"while_statement"}, Confidence: 0.95, Fix: v2.FixSemantic, OriginalV1: r,
+			NodeTypes: []string{"while_statement"}, Confidence: 0.95, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isBlockEmptyFlat(file, idx) {

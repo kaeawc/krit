@@ -14,7 +14,7 @@ func registerPublicToInternalLeakyAbstractionRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, OriginalV1: r,
+			Needs: v2.NeedsLinePass, Implementation: r,
 			Check: r.check,
 		})
 	}

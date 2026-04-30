@@ -4,8 +4,7 @@ package rules
 // source of truth for the rule's descriptor.
 //
 // Why hand-written:
-//   Legacy internal/rules/config.go#applyRuleConfig (case
-//   *LayerDependencyViolationRule) calls arch.ParseLayerConfig(cfg) — a
+//   LayerDependencyViolationRule calls arch.ParseLayerConfig(cfg) — a
 //   whole-config-tree read rather than a single YAML key lookup. The
 //   ConfigOption expresses "read key X, assign field Y"; no single Option can
 //   represent "read the entire config, parse nested maps, build a

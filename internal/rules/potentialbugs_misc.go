@@ -1116,3 +1116,16 @@ func isCurrencyCarrierClassName(name string) bool {
 func compactKotlinExpr(text string) string {
 	return strings.Join(strings.Fields(text), "")
 }
+
+// HardcodedDateFormatRule detects DateTimeFormatter.ofPattern(pattern) called
+// with a single string argument. Without an explicit Locale the formatter
+// silently falls back to the device default, which produces locale-dependent
+// output for what is usually meant to be a stable machine-readable timestamp.
+// SimpleDateFormat is intentionally not handled here; SimpleDateFormatRule in
+// the android-correctness rule set covers that constructor.
+type HardcodedDateFormatRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *HardcodedDateFormatRule) Confidence() float64 { return 0.85 }

@@ -519,19 +519,32 @@ func (r *CascadingCallWrappingRule) check(ctx *v2.Context) {
 	file := ctx.File
 	for i, line := range file.Lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, ".") && i > 0 {
-			prevTrimmed := strings.TrimSpace(file.Lines[i-1])
-			if strings.HasPrefix(prevTrimmed, ".") {
-				continue // already wrapped
+		isDot := strings.HasPrefix(trimmed, ".")
+		isElvis := r.IncludeElvis && strings.HasPrefix(trimmed, "?:")
+		if !(isDot || isElvis) || i == 0 {
+			continue
+		}
+		prevTrimmed := strings.TrimSpace(file.Lines[i-1])
+		if strings.HasPrefix(prevTrimmed, ".") || (r.IncludeElvis && strings.HasPrefix(prevTrimmed, "?:")) {
+			continue // already wrapped
+		}
+		// `.` chain requires the previous line to have a `.`; the `?:`
+		// continuation only requires that the previous line is part of
+		// an expression (not a block opener).
+		if isDot && !strings.Contains(prevTrimmed, ".") {
+			continue
+		}
+		if strings.HasSuffix(prevTrimmed, "{") {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " \t"))
+		prevIndent := len(file.Lines[i-1]) - len(strings.TrimLeft(file.Lines[i-1], " \t"))
+		if indent <= prevIndent {
+			msg := "Chained call should be indented from the previous line."
+			if isElvis {
+				msg = "Elvis-operator continuation should be indented from the previous line."
 			}
-			if strings.Contains(prevTrimmed, ".") && !strings.HasSuffix(prevTrimmed, "{") {
-				indent := len(line) - len(strings.TrimLeft(line, " \t"))
-				prevIndent := len(file.Lines[i-1]) - len(strings.TrimLeft(file.Lines[i-1], " \t"))
-				if indent <= prevIndent {
-					ctx.Emit(r.Finding(file, i+1, 1,
-						"Chained call should be indented from the previous line."))
-				}
-			}
+			ctx.Emit(r.Finding(file, i+1, 1, msg))
 		}
 	}
 }

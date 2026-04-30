@@ -2,6 +2,7 @@ package rules_test
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -47,6 +48,26 @@ fun compute(): Int {
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
 	}
+}
+
+func TestExc_ExceptionRaisedInUnexpectedLocation_JavaFixtures(t *testing.T) {
+	root := fixtureRoot(t)
+
+	t.Run("positive", func(t *testing.T) {
+		file := parseJavaFixture(t, filepath.Join(root, "positive", "exceptions", "ExceptionRaisedInUnexpectedLocation.java"))
+		findings := runRuleByNameOnFile(t, "ExceptionRaisedInUnexpectedLocation", file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 Java finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative", func(t *testing.T) {
+		file := parseJavaFixture(t, filepath.Join(root, "negative", "exceptions", "ExceptionRaisedInUnexpectedLocation.java"))
+		findings := runRuleByNameOnFile(t, "ExceptionRaisedInUnexpectedLocation", file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 Java findings, got %d", len(findings))
+		}
+	})
 }
 
 // --- InstanceOfCheckForException ---
@@ -858,6 +879,26 @@ fun main(args: Array<String>) {
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
 	}
+}
+
+func TestExc_ThrowingExceptionInMain_JavaFixtures(t *testing.T) {
+	root := fixtureRoot(t)
+
+	t.Run("positive", func(t *testing.T) {
+		file := parseJavaFixture(t, filepath.Join(root, "positive", "exceptions", "ThrowingExceptionInMain.java"))
+		findings := runRuleByNameOnFile(t, "ThrowingExceptionInMain", file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 Java finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative", func(t *testing.T) {
+		file := parseJavaFixture(t, filepath.Join(root, "negative", "exceptions", "ThrowingExceptionInMain.java"))
+		findings := runRuleByNameOnFile(t, "ThrowingExceptionInMain", file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 Java findings, got %d", len(findings))
+		}
+	})
 }
 
 // --- ErrorUsageWithThrowable ---

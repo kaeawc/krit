@@ -43,6 +43,11 @@ func registerPotentialbugsTypesRules() {
 				if enclosingBoolExprHasEqualsCall(file, idx, equalsFamilyCallNames) {
 					return
 				}
+				// Comparator/Comparable implementations commonly short-circuit
+				// identical object references before doing deeper ordering work.
+				if isComparatorIdentityFastPath(file, idx) {
+					return
+				}
 				// Enum constants — the identity compare is correct.
 				if looksLikeEnumConstantRef(file.FlatNodeText(left)) || looksLikeEnumConstantRef(file.FlatNodeText(right)) {
 					return

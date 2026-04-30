@@ -147,6 +147,66 @@ func enclosingBoolExprHasEqualsCall(file *scanner.File, idx uint32, names map[st
 	return found
 }
 
+func isComparatorIdentityFastPath(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	var ifExpr uint32
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "if_expression":
+			ifExpr = p
+		case "function_declaration":
+			name := flatFunctionName(file, p)
+			if name != "compareTo" && name != "compare" {
+				return false
+			}
+			if ifExpr == 0 || !referentialEqualityIsIfCondition(file, idx, ifExpr) {
+				return false
+			}
+			if !ifExpressionReturnsZero(file, ifExpr) {
+				return false
+			}
+			return ifExpressionIsFirstStatementInFunction(file, ifExpr, p)
+		case "source_file", "class_declaration", "object_declaration":
+			return false
+		}
+	}
+	return false
+}
+
+func referentialEqualityIsIfCondition(file *scanner.File, idx uint32, ifExpr uint32) bool {
+	for child := file.FlatFirstChild(ifExpr); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "control_structure_body" {
+			return file.FlatEndByte(idx) <= file.FlatStartByte(child)
+		}
+	}
+	return false
+}
+
+func ifExpressionReturnsZero(file *scanner.File, ifExpr uint32) bool {
+	text := file.FlatNodeText(ifExpr)
+	return strings.Contains(text, "return 0") || strings.Contains(text, "-> 0")
+}
+
+func ifExpressionIsFirstStatementInFunction(file *scanner.File, ifExpr uint32, fn uint32) bool {
+	for p, ok := file.FlatParent(ifExpr); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "statements":
+			for child := file.FlatFirstChild(p); child != 0; child = file.FlatNextSib(child) {
+				if !file.FlatIsNamed(child) {
+					continue
+				}
+				return child == ifExpr
+			}
+			return false
+		case "function_declaration":
+			return p == fn
+		}
+	}
+	return false
+}
+
 // Confidence reports a tier-2 (medium) base confidence — flags === / !==
 // on value types; needs resolver to confirm operand types, falls back to a
 // name-based heuristic. Classified per roadmap/17.

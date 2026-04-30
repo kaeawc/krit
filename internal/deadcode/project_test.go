@@ -152,3 +152,34 @@ class UnusedScreen
 		t.Errorf("UnusedScreen should be reported as dead, got %+v", findings)
 	}
 }
+
+func TestAnalyzeProject_IncludesJavaAndUsesKotlinReferences(t *testing.T) {
+	dir := t.TempDir()
+	javaSrc := filepath.Join(dir, "src", "main", "java", "com", "acme")
+	ktSrc := filepath.Join(dir, "src", "main", "kotlin")
+
+	writeFile(t, filepath.Join(javaSrc, "JavaApi.java"), `package com.acme;
+
+public class JavaApi {
+  public void usedFromKotlin() {}
+  public void trulyUnused() {}
+}
+`)
+	writeFile(t, filepath.Join(ktSrc, "UseJava.kt"), `package com.acme
+
+fun main(api: JavaApi) {
+    api.usedFromKotlin()
+}
+`)
+
+	findings, err := AnalyzeProject(dir, ProjectOptions{Paths: []string{dir}})
+	if err != nil {
+		t.Fatalf("AnalyzeProject: %v", err)
+	}
+	if f := findFinding(findings, "usedFromKotlin"); f != nil {
+		t.Errorf("usedFromKotlin should be reachable from Kotlin, got %+v", f)
+	}
+	if findFinding(findings, "trulyUnused") == nil {
+		t.Errorf("expected trulyUnused Java method to be reported, got %+v", findings)
+	}
+}

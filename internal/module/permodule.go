@@ -30,7 +30,7 @@ func GroupFilesByModule(graph *ModuleGraph, allFiles []*scanner.File) map[string
 	return moduleFiles
 }
 
-// BuildPerModuleIndex assigns each file to its module, builds a per-module
+// BuildPerModuleIndex assigns each Kotlin/Java source file to its module, builds a per-module
 // CodeIndex in parallel, and also builds a global CodeIndex from all files.
 // The global scan happens once; per-module indexes are sliced out of the
 // collected symbols/references instead of re-parsing the AST for each module.
@@ -52,11 +52,13 @@ func BuildPerModuleIndexWithGlobal(graph *ModuleGraph, allFiles []*scanner.File,
 		ModuleFiles: GroupFilesByModule(graph, allFiles),
 	}
 
+	kotlinFiles, javaFiles := splitModuleSourceFiles(allFiles)
+
 	// Step 1: build the global index once, unless the caller already has one.
 	if globalIndex != nil {
 		pmi.GlobalIndex = globalIndex
 	} else {
-		pmi.GlobalIndex = scanner.BuildIndex(allFiles, workers)
+		pmi.GlobalIndex = scanner.BuildIndex(kotlinFiles, workers, javaFiles...)
 	}
 
 	// Step 2: partition the global index into module-specific buckets.
@@ -128,4 +130,19 @@ func BuildPerModuleIndexWithGlobal(graph *ModuleGraph, allFiles []*scanner.File,
 	wg.Wait()
 
 	return pmi
+}
+
+func splitModuleSourceFiles(allFiles []*scanner.File) (kotlinFiles []*scanner.File, javaFiles []*scanner.File) {
+	for _, file := range allFiles {
+		if file == nil {
+			continue
+		}
+		switch file.Language {
+		case scanner.LangJava:
+			javaFiles = append(javaFiles, file)
+		default:
+			kotlinFiles = append(kotlinFiles, file)
+		}
+	}
+	return kotlinFiles, javaFiles
 }

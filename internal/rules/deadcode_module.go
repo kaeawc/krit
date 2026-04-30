@@ -156,14 +156,14 @@ func classifySymbol(
 		if consumerIdx == nil {
 			continue
 		}
-		if consumerIdx.ReferenceCount(sym.Name) > 0 {
+		if consumerIdx.SymbolReferenceCount(sym) > 0 {
 			usedByConsumer = true
 			break
 		}
 	}
 
 	// Check if the symbol is used within its own module (in a different file)
-	usedInOwnModule := modIndex.IsReferencedOutsideFile(sym.Name, sym.File) || modIndex.ReferenceCount(sym.Name) > 1
+	usedInOwnModule := modIndex.IsSymbolReferencedOutsideFile(sym, false) || modIndex.SymbolReferenceCount(sym) > 1
 
 	switch {
 	case usedByConsumer:

@@ -177,9 +177,9 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 		pmi := &module.PerModuleIndex{Graph: in.ModuleGraph}
 		switch {
 		case moduleNeeds.NeedsIndex:
-			pmi = module.BuildPerModuleIndexWithGlobal(in.ModuleGraph, in.KotlinFiles, workers, codeIndex)
+			pmi = module.BuildPerModuleIndexWithGlobal(in.ModuleGraph, in.SourceFiles(), workers, codeIndex)
 		case moduleNeeds.NeedsFiles:
-			pmi.ModuleFiles = module.GroupFilesByModule(in.ModuleGraph, in.KotlinFiles)
+			pmi.ModuleFiles = module.GroupFilesByModule(in.ModuleGraph, in.SourceFiles())
 		}
 		result.ModuleIndex = pmi
 		for _, r := range in.ActiveRules {

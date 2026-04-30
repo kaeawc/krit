@@ -746,6 +746,19 @@ func (idx *CodeIndex) ReferenceFiles(name string) map[string]bool {
 	return idx.refFilesByName[name]
 }
 
+// SymbolReferenceCount returns the total number of references that can identify
+// sym by either simple name or fully-qualified name.
+func (idx *CodeIndex) SymbolReferenceCount(sym Symbol) int {
+	if idx == nil {
+		return 0
+	}
+	count := 0
+	for _, name := range symbolReferenceNames(sym) {
+		count += idx.ReferenceCount(name)
+	}
+	return count
+}
+
 // IsReferencedOutsideFile checks if a name is referenced in any file other than the given one.
 func (idx *CodeIndex) IsReferencedOutsideFile(name, file string) bool {
 	// Fast path: bloom filter says name not referenced at all
@@ -758,6 +771,24 @@ func (idx *CodeIndex) IsReferencedOutsideFile(name, file string) bool {
 	}
 	for f := range files {
 		if f != file {
+			return true
+		}
+	}
+	return false
+}
+
+// IsSymbolReferencedOutsideFile checks whether sym is referenced from another
+// file by either simple name or fully-qualified name.
+func (idx *CodeIndex) IsSymbolReferencedOutsideFile(sym Symbol, ignoreCommentRefs bool) bool {
+	if idx == nil {
+		return false
+	}
+	for _, name := range symbolReferenceNames(sym) {
+		if ignoreCommentRefs {
+			if idx.IsReferencedOutsideFileExcludingComments(name, sym.File) {
+				return true
+			}
+		} else if idx.IsReferencedOutsideFile(name, sym.File) {
 			return true
 		}
 	}
@@ -792,6 +823,25 @@ func (idx *CodeIndex) CountNonCommentRefsInFile(name, file string) int {
 	return files[file]
 }
 
+func (idx *CodeIndex) countRefsInFileForSymbol(sym Symbol, file string, ignoreCommentRefs bool) int {
+	if idx == nil {
+		return 0
+	}
+	count := 0
+	for _, name := range symbolReferenceNames(sym) {
+		if ignoreCommentRefs {
+			count += idx.CountNonCommentRefsInFile(name, file)
+			continue
+		}
+		for _, ref := range idx.References {
+			if ref.Name == name && ref.File == file {
+				count++
+			}
+		}
+	}
+	return count
+}
+
 // UnusedSymbols returns symbols that are never referenced from any other file.
 // If ignoreCommentRefs is true, references inside comments don't count as usage.
 func (idx *CodeIndex) UnusedSymbols(ignoreCommentRefs bool) []Symbol {
@@ -805,25 +855,11 @@ func (idx *CodeIndex) UnusedSymbols(ignoreCommentRefs bool) []Symbol {
 		}
 
 		// Check for references outside the declaring file
-		hasExternalRef := false
-		if ignoreCommentRefs {
-			hasExternalRef = idx.IsReferencedOutsideFileExcludingComments(sym.Name, sym.File)
-		} else {
-			hasExternalRef = idx.IsReferencedOutsideFile(sym.Name, sym.File)
-		}
+		hasExternalRef := idx.IsSymbolReferencedOutsideFile(sym, ignoreCommentRefs)
 
 		if !hasExternalRef {
 			// Check if referenced within its own file beyond the declaration itself
-			localRefs := 0
-			if ignoreCommentRefs {
-				localRefs = idx.CountNonCommentRefsInFile(sym.Name, sym.File)
-			} else {
-				for _, ref := range idx.References {
-					if ref.Name == sym.Name && ref.File == sym.File {
-						localRefs++
-					}
-				}
-			}
+			localRefs := idx.countRefsInFileForSymbol(sym, sym.File, ignoreCommentRefs)
 			// The declaration itself counts as 1 non-comment ref. If there are more, it's used locally.
 			if localRefs > 1 {
 				continue
@@ -832,6 +868,16 @@ func (idx *CodeIndex) UnusedSymbols(ignoreCommentRefs bool) []Symbol {
 		}
 	}
 	return unused
+}
+
+func symbolReferenceNames(sym Symbol) []string {
+	if sym.Name == "" {
+		return nil
+	}
+	if sym.FQN == "" || sym.FQN == sym.Name {
+		return []string{sym.Name}
+	}
+	return []string{sym.Name, sym.FQN}
 }
 
 // BloomStats returns the bloom filter memory usage in bytes.
@@ -1013,6 +1059,7 @@ func collectJavaDeclarationsFlat(file *File, symbols *[]Symbol) {
 				FQN:        fqn,
 				Owner:      owner,
 				Signature:  fqn,
+				IsTest:     javaDeclarationHasTestAnnotation(file, idx),
 				IsStatic:   file.FlatHasModifier(idx, "static"),
 				IsFinal:    file.FlatHasModifier(idx, "final"),
 			})
@@ -1038,6 +1085,7 @@ func collectJavaDeclarationsFlat(file *File, symbols *[]Symbol) {
 				Owner:      owner,
 				Signature:  symbolSignature(owner, name, arity),
 				Arity:      arity,
+				IsTest:     javaDeclarationHasTestAnnotation(file, idx),
 				IsStatic:   file.FlatHasModifier(idx, "static"),
 				IsFinal:    file.FlatHasModifier(idx, "final"),
 			})
@@ -1063,6 +1111,7 @@ func collectJavaDeclarationsFlat(file *File, symbols *[]Symbol) {
 				Owner:      owner,
 				Signature:  symbolSignature(owner, name, arity),
 				Arity:      arity,
+				IsTest:     javaDeclarationHasTestAnnotation(file, idx),
 			})
 		case "field_declaration":
 			collectJavaFieldDeclarations(file, idx, pkg, symbols)
@@ -1141,6 +1190,10 @@ func javaClassKind(nodeType string) string {
 	default:
 		return "class"
 	}
+}
+
+func javaDeclarationHasTestAnnotation(file *File, idx uint32) bool {
+	return strings.Contains(file.FlatNodeText(idx), "@Test")
 }
 
 func packageNameForFile(file *File) string {

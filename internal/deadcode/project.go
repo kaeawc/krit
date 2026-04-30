@@ -54,7 +54,7 @@ var rootAnnotations = []string{
 var servicesEntryRe = regexp.MustCompile(`(?m)^([\w.$]+)`)
 
 // AnalyzeProject performs project-level reachability dead-code analysis.
-// It discovers Gradle modules at scanRoot (best effort), parses Kotlin
+// It discovers Gradle modules at scanRoot (best effort), parses Kotlin and Java
 // files under opts.Paths, identifies reachability roots, and reports any
 // non-private declarations not reachable from those roots.
 func AnalyzeProject(scanRoot string, opts ProjectOptions) ([]ProjectFinding, error) {
@@ -76,10 +76,18 @@ func AnalyzeProject(scanRoot string, opts ProjectOptions) ([]ProjectFinding, err
 		return nil, err
 	}
 	files, _ := scanner.ScanFiles(ktPaths, opts.Workers)
-	idx := scanner.BuildIndex(files, opts.Workers)
+	javaPaths, err := scanner.CollectJavaFiles(paths, nil)
+	if err != nil {
+		return nil, err
+	}
+	javaFiles, _ := scanner.ScanJavaFiles(javaPaths, opts.Workers)
+	idx := scanner.BuildIndex(files, opts.Workers, javaFiles...)
 
-	fileByPath := make(map[string]*scanner.File, len(files))
-	for _, f := range files {
+	allFiles := make([]*scanner.File, 0, len(files)+len(javaFiles))
+	allFiles = append(allFiles, files...)
+	allFiles = append(allFiles, javaFiles...)
+	fileByPath := make(map[string]*scanner.File, len(allFiles))
+	for _, f := range allFiles {
 		fileByPath[f.Path] = f
 	}
 
@@ -97,6 +105,9 @@ func AnalyzeProject(scanRoot string, opts ProjectOptions) ([]ProjectFinding, err
 	declSites := make(map[string]map[string]map[int]bool)
 	for i, s := range idx.Symbols {
 		nameToSyms[s.Name] = append(nameToSyms[s.Name], i)
+		if s.FQN != "" && s.FQN != s.Name {
+			nameToSyms[s.FQN] = append(nameToSyms[s.FQN], i)
+		}
 		byName := declSites[s.File]
 		if byName == nil {
 			byName = make(map[string]map[int]bool)
@@ -182,7 +193,7 @@ func AnalyzeProject(scanRoot string, opts ProjectOptions) ([]ProjectFinding, err
 			Line:       s.Line,
 			Kind:       s.Kind,
 			Name:       s.Name,
-			FQN:        buildFQN(modPath, s.Name),
+			FQN:        projectSymbolFQN(modPath, s),
 			Visibility: s.Visibility,
 			Reason:     "no-callers",
 			Module:     modPath,
@@ -214,7 +225,24 @@ func isReportableSymbol(s scanner.Symbol) bool {
 	if s.IsTest || s.IsMain {
 		return false
 	}
+	if s.Language == scanner.LangJava {
+		return isReportableJavaProjectSymbol(s)
+	}
 	return true
+}
+
+func isReportableJavaProjectSymbol(s scanner.Symbol) bool {
+	if s.Visibility != "public" {
+		return false
+	}
+	switch s.Kind {
+	case "class", "interface", "enum", "record", "annotation":
+		return s.FQN != ""
+	case "method":
+		return s.Owner != "" && s.FQN != "" && s.Signature != ""
+	default:
+		return false
+	}
 }
 
 func isRootSymbol(s scanner.Symbol, f *scanner.File, rootNames map[string]bool, graph *module.ModuleGraph) bool {
@@ -222,6 +250,9 @@ func isRootSymbol(s scanner.Symbol, f *scanner.File, rootNames map[string]bool, 
 		return true
 	}
 	if rootNames[s.Name] {
+		return true
+	}
+	if s.FQN != "" && rootNames[s.FQN] {
 		return true
 	}
 	if graph != nil && s.Visibility != "private" {
@@ -337,3 +368,9 @@ func buildFQN(modPath, name string) string {
 	return modPath + "." + name
 }
 
+func projectSymbolFQN(modPath string, s scanner.Symbol) string {
+	if s.FQN != "" {
+		return s.FQN
+	}
+	return buildFQN(modPath, s.Name)
+}

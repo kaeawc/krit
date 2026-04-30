@@ -850,9 +850,9 @@ func (p IndexPhase) runModuleIndexBuild(in IndexInput, result *IndexResult) {
 			pmi = &module.PerModuleIndex{Graph: graph}
 			switch {
 			case moduleNeeds.NeedsIndex:
-				pmi = module.BuildPerModuleIndexWithGlobal(graph, in.KotlinFiles, moduleWorkers, result.CodeIndex)
+				pmi = module.BuildPerModuleIndexWithGlobal(graph, in.SourceFiles(), moduleWorkers, result.CodeIndex)
 			case moduleNeeds.NeedsFiles:
-				pmi.ModuleFiles = module.GroupFilesByModule(graph, in.KotlinFiles)
+				pmi.ModuleFiles = module.GroupFilesByModule(graph, in.SourceFiles())
 			}
 			return nil
 		})

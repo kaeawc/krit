@@ -618,6 +618,94 @@ class HelperVerificationNegative {
 	}
 }
 
+func TestTestWithoutAssertion_NegativeCheckNamedHelper(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class CheckNamedHelperNegative {
+    @Test
+    fun templateIsFormatted() {
+        checkTemplateFormat()
+    }
+
+    private fun checkTemplateFormat() {
+        println("delegates to snapshot framework")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected check-named helper to count as assertion-equivalent, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeVerificationNamedHelper(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class VerificationNamedHelperNegative {
+    @Test
+    fun templateIsFormatted() {
+        performTemplateVerification()
+    }
+
+    private fun performTemplateVerification() {
+        println("delegates to a custom verification wrapper")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected verification-named helper to count as assertion-equivalent, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeEspressoIntentVerification(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import androidx.test.espresso.intent.Intents.intended
+import androidx.test.espresso.intent.Intents.intending
+import org.junit.Test
+
+class EspressoIntentNegative {
+    @Test
+    fun opensShareSheet() {
+        intending(hasAction(Intent.ACTION_SEND)).respondWith(result)
+        button.performClick()
+        intended(hasAction(Intent.ACTION_SEND))
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected Espresso intended/intending calls to count as verification, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_PositiveUncheckedLookalike(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class UncheckedLookalikePositive {
+    @Test
+    fun templateIsFormatted() {
+        uncheckedTemplateFormat()
+    }
+
+    private fun uncheckedTemplateFormat() {
+        println("not a check helper")
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected unchecked lookalike not to count as assertion-equivalent")
+	}
+}
+
 func TestTestWithoutAssertion_NegativeGradleOutputAssertionHelper(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test

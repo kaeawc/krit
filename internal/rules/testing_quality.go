@@ -576,13 +576,17 @@ var assertionCallNames = map[string]bool{
 	"measureRepeated": true,
 	"waitUntil":       true, "testExecute": true, "testEnqueue": true,
 	"complete": true,
+	"intended": true, "intending": true,
 }
 
 func testingQualityIsAssertionCall(name string) bool {
 	if assertionCallNames[name] {
 		return true
 	}
-	return strings.HasPrefix(name, "assert")
+	if strings.HasPrefix(name, "assert") {
+		return true
+	}
+	return testingQualityNameLooksAssertionEquivalent(name)
 }
 
 func testingQualityIsAssertionOrVerify(name string) bool {
@@ -600,6 +604,72 @@ var verifyCallNames = map[string]bool{
 
 func testingQualityIsVerifyCall(name string) bool {
 	return verifyCallNames[name]
+}
+
+func testingQualityNameLooksAssertionEquivalent(name string) bool {
+	if name == "" || name == "expectError" {
+		return false
+	}
+	for _, token := range []string{"assertion", "assert", "check", "verification", "verify", "expectation", "expect"} {
+		if testingQualityNameContainsTokenFold(name, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func testingQualityNameContainsTokenFold(name, token string) bool {
+	lowerName := strings.ToLower(name)
+	lowerToken := strings.ToLower(token)
+	for start := strings.Index(lowerName, lowerToken); start >= 0; {
+		end := start + len(lowerToken)
+		if testingQualityIdentifierTokenBoundaryBefore(name, start) &&
+			testingQualityIdentifierTokenBoundaryAfter(name, end) {
+			return true
+		}
+		nextStart := end
+		if nextStart >= len(lowerName) {
+			break
+		}
+		if next := strings.Index(lowerName[nextStart:], lowerToken); next >= 0 {
+			start = nextStart + next
+		} else {
+			break
+		}
+	}
+	return false
+}
+
+func testingQualityIdentifierTokenBoundaryBefore(name string, idx int) bool {
+	if idx <= 0 || idx >= len(name) {
+		return idx == 0
+	}
+	prev := name[idx-1]
+	cur := name[idx]
+	return !testingQualityIsASCIIIdentifierByte(prev) ||
+		(testingQualityIsASCIILower(prev) && testingQualityIsASCIIUpper(cur))
+}
+
+func testingQualityIdentifierTokenBoundaryAfter(name string, idx int) bool {
+	if idx >= len(name) {
+		return true
+	}
+	next := name[idx]
+	return !testingQualityIsASCIIIdentifierByte(next) || testingQualityIsASCIIUpper(next)
+}
+
+func testingQualityIsASCIIIdentifierByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9')
+}
+
+func testingQualityIsASCIILower(b byte) bool {
+	return b >= 'a' && b <= 'z'
+}
+
+func testingQualityIsASCIIUpper(b byte) bool {
+	return b >= 'A' && b <= 'Z'
 }
 
 func testingQualityIsTestFile(file *scanner.File) bool {

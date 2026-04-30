@@ -90,18 +90,9 @@ func (r *EndOfSentenceFormatRule) Meta() registry.RuleDescriptor {
 		Options: []registry.ConfigOption{
 			{
 				Name:        "endOfSentenceFormat",
-				Type:        registry.OptString,
-				Default:     "",
-				Description: "Regex pattern for end of sentence format.",
-				Apply: func(target interface{}, value interface{}) {
-					target.(*EndOfSentenceFormatRule).EndOfSentenceFormat = value.(string)
-				},
-			},
-			{
-				Name:        "endOfSentenceFormat",
 				Type:        registry.OptRegex,
-				Default:     "",
-				Description: "Regex pattern for end of sentence format.",
+				Default:     `([.?!][ \t\n\r])|([.?!]$)`,
+				Description: "Regex pattern matched against the first KDoc sentence's terminator.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*EndOfSentenceFormatRule).Pattern = value.(*regexp.Regexp)
 				},

@@ -1,7 +1,11 @@
 package rules_test
 
 import (
+	"regexp"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 )
 
 // --- UndocumentedPublicClass ---
@@ -252,6 +256,84 @@ fun foo() {}
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for properly punctuated KDoc, got %d", len(findings))
+	}
+}
+
+// TestEndOfSentenceFormat_MetaSingleEndOfSentenceFormatOption guards
+// against re-introducing the duplicate `endOfSentenceFormat` option that
+// previously appeared twice — once as OptString writing to a dead field
+// and once as OptRegex writing to the live Pattern field — which would
+// silently apply twice when users set the option in YAML.
+func TestEndOfSentenceFormat_MetaSingleEndOfSentenceFormatOption(t *testing.T) {
+	impl := (*rules.EndOfSentenceFormatRule)(nil)
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "EndOfSentenceFormat" {
+			var ok bool
+			impl, ok = candidate.Implementation.(*rules.EndOfSentenceFormatRule)
+			if !ok {
+				t.Fatalf("expected *EndOfSentenceFormatRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if impl == nil {
+		t.Fatal("EndOfSentenceFormat rule not registered")
+	}
+	desc := impl.Meta()
+	count := 0
+	for _, opt := range desc.Options {
+		if opt.Name == "endOfSentenceFormat" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one `endOfSentenceFormat` option in zz_meta, got %d", count)
+	}
+}
+
+// TestEndOfSentenceFormat_HonorsConfiguredPattern verifies the regex
+// option is wired: with a pattern that requires a question mark only
+// (no period), a KDoc ending in `.` is flagged as not matching.
+func TestEndOfSentenceFormat_HonorsConfiguredPattern(t *testing.T) {
+	var rule *rules.EndOfSentenceFormatRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "EndOfSentenceFormat" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.EndOfSentenceFormatRule)
+			if !ok {
+				t.Fatalf("expected EndOfSentenceFormatRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("EndOfSentenceFormat rule not registered")
+	}
+	original := rule.Pattern
+	defer func() { rule.Pattern = original }()
+
+	// Configure a stricter pattern that only accepts `?` as a terminator.
+	stricter, err := regexp.Compile(`\?$|\? `)
+	if err != nil {
+		t.Fatalf("compile pattern: %v", err)
+	}
+	rule.Pattern = stricter
+
+	if findings := runRuleByName(t, "EndOfSentenceFormat", `
+package test
+
+/** Ends with period. */
+fun foo() {}
+`); len(findings) == 0 {
+		t.Fatal("expected finding when pattern only accepts '?' but KDoc ends with '.'")
+	}
+	if findings := runRuleByName(t, "EndOfSentenceFormat", `
+package test
+
+/** Ends with question? */
+fun foo() {}
+`); len(findings) != 0 {
+		t.Fatalf("expected no findings when KDoc matches configured pattern, got %d", len(findings))
 	}
 }
 

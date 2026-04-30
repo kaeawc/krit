@@ -532,7 +532,24 @@ func splitIsNotPrefix(name string) (kind, suffix string) {
 type DoubleNegativeLambdaRule struct {
 	FlatDispatchBase
 	BaseRule
+	// NegativeFunctions is an additional callee allowlist. Configured
+	// names are treated as double-negation candidates alongside the
+	// always-on `filterNot` and `none`.
 	NegativeFunctions []string
+}
+
+// doubleNegativeLambdaCalleeConfigured reports whether the callee name
+// appears in the user-configured NegativeFunctions list.
+func doubleNegativeLambdaCalleeConfigured(callee string, configured []string) bool {
+	if callee == "" || len(configured) == 0 {
+		return false
+	}
+	for _, name := range configured {
+		if name == callee {
+			return true
+		}
+	}
+	return false
 }
 
 // Confidence: tier-1 syntactic — the shape `.filterNot { <negation> }` and
@@ -544,7 +561,9 @@ func (r *DoubleNegativeLambdaRule) Confidence() float64 { return 0.9 }
 
 // checkDoubleNegativeLambdaFlat runs on a call_expression. Fires when the
 // callee is `filterNot` or `none` (qualified or unqualified) and the
-// trailing lambda body is a single unary-bang expression.
+// trailing lambda body is a single unary-bang expression. Additional
+// callee names can be configured via NegativeFunctions; those receive a
+// generic suggestion to invert the lambda body.
 func (r *DoubleNegativeLambdaRule) checkDoubleNegativeLambdaFlat(ctx *v2.Context) {
 	idx, file := ctx.Idx, ctx.File
 	callee := flatCallExpressionName(file, idx)
@@ -555,7 +574,10 @@ func (r *DoubleNegativeLambdaRule) checkDoubleNegativeLambdaFlat(ctx *v2.Context
 	case "none":
 		msg = "Double negative in '.none { !... }'. Use '.all { ... }' instead."
 	default:
-		return
+		if !doubleNegativeLambdaCalleeConfigured(callee, r.NegativeFunctions) {
+			return
+		}
+		msg = fmt.Sprintf("Double negative in '.%s { !... }'. Invert the lambda body to remove the redundant negation.", callee)
 	}
 	lambda := flatCallTrailingLambda(file, idx)
 	if lambda == 0 {

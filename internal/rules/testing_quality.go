@@ -1092,25 +1092,38 @@ func testingQualityRunBlockingTestsDispatcherThreadIdentity(file *scanner.File, 
 	if file == nil || idx == 0 || file.FlatType(idx) != "call_expression" {
 		return false
 	}
-	var hasWithContext bool
 	var hasThreadCurrentThread bool
+	var hasThreadIdentityAssertion bool
 	file.FlatWalkAllNodes(idx, func(n uint32) {
-		if hasWithContext && hasThreadCurrentThread {
+		if hasThreadCurrentThread && hasThreadIdentityAssertion {
 			return
 		}
 		if file.FlatType(n) != "call_expression" {
 			return
 		}
 		switch flatCallNameAny(file, n) {
-		case "withContext":
-			hasWithContext = true
 		case "currentThread":
 			if testingQualityCallReceiverContains(file, n, "Thread") {
 				hasThreadCurrentThread = true
 			}
+		case "isSameInstanceAs", "isNotSameInstanceAs":
+			if testingQualityLooksLikeThreadIdentityAssertion(file, n) {
+				hasThreadIdentityAssertion = true
+			}
 		}
 	})
-	return hasWithContext && hasThreadCurrentThread
+	return hasThreadCurrentThread || hasThreadIdentityAssertion
+}
+
+func testingQualityLooksLikeThreadIdentityAssertion(file *scanner.File, call uint32) bool {
+	if file == nil || call == 0 {
+		return false
+	}
+	name := flatCallNameAny(file, call)
+	if name != "isSameInstanceAs" && name != "isNotSameInstanceAs" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(file.FlatNodeText(call)), "thread")
 }
 
 func testingQualityCallReceiverContains(file *scanner.File, call uint32, name string) bool {

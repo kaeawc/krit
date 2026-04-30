@@ -588,6 +588,70 @@ class RunBlockingDispatcherThreadNegative {
 	}
 }
 
+func TestRunBlockingInTest_NegativeThreadCurrentThreadIntent(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", `
+package test
+
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+
+class RunBlockingThreadIntentNegative {
+    @Test
+    fun capturesRealThread() {
+        runBlocking {
+            val thread = Thread.currentThread()
+            assert(thread.name.isNotBlank())
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for runBlocking test inspecting current thread, got %d", len(findings))
+	}
+}
+
+func TestRunBlockingInTest_NegativeThreadIdentityAssertionIntent(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", `
+package test
+
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+
+class RunBlockingThreadIdentityAssertionNegative {
+    @Test
+    fun comparesThreadIdentity() {
+        runBlocking {
+            assertThat(innerThread).isSameInstanceAs(outerThread)
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for thread identity assertion in runBlocking test, got %d", len(findings))
+	}
+}
+
+func TestRunBlockingInTest_PositiveNonThreadIdentityAssertion(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", `
+package test
+
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+
+class RunBlockingObjectIdentityPositive {
+    @Test
+    fun comparesObjectIdentity() {
+        runBlocking {
+            assertThat(first).isSameInstanceAs(second)
+        }
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for runBlocking with non-thread identity assertion")
+	}
+}
+
 func TestTestWithoutAssertion_Positive(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test

@@ -7,6 +7,17 @@ description: Use when analyzing Krit findings in context of a project's Gradle v
 
 Use this when investigating findings that depend on what libraries, SDK versions, or Gradle facts are present in a target project.
 
+## Recent Project-Context Regression Checks
+
+Recent Java/source-index PRs (#676-#680) fixed gaps where project analysis was Kotlin-complete but Java-incomplete. When a finding depends on cross-file, module, Android, or dependency context, verify the project surface includes every language and source kind the rule claims to support:
+
+- Java files must participate in parse discovery, excludes/generated-source filtering, suppression indexing, dispatch cache writes, cross-file references, source-symbol indexing, module grouping, and output file counts.
+- Java declarations need package/FQN, owner, arity/signature, static/final, field, method, constructor, record, enum, annotation, and class/interface evidence where the rule uses those facts.
+- Module/dead-code checks must use both simple-name and FQN reference evidence and avoid declaration-site self-references marking the declaration live.
+- Android or library rules ported to Java need Java positive fixtures plus Java local-lookalike negatives, not just Kotlin coverage.
+
+If a rule appears precise in Kotlin but noisy or silent in Java, inspect the project profile and source index before changing rule heuristics.
+
 ## Understand the Project Profile
 
 After running Krit with `--perf`, the JSON output contains the project profile derived from Gradle:
@@ -72,6 +83,7 @@ When a rule fires in a project that doesn't use the relevant library:
 2. Check whether `dependencyExtractionComplete` is false — if so, absence is not confirmed.
 3. Read the rule implementation and verify it calls `EnsureFacts`.
 4. If the rule doesn't gate on profile, add a `MayUseAnyDependency` check and test with `CatalogCompletenessNone` and `CatalogCompletenessStandardTOML`.
+5. If the rule was recently ported or claims Java support, verify the Java import/object-creation/call/annotation shape is indexed and dispatched before assuming the library gate is wrong.
 
 ## Version Catalog Analysis
 

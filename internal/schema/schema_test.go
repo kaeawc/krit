@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/config"
-	_ "github.com/kaeawc/krit/internal/rules" // ensure rules are registered via init()
+	"github.com/kaeawc/krit/internal/rules" // ensure rules are registered via init()
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
 )
 
@@ -266,6 +266,24 @@ func TestCollectRuleMeta_NotEmpty(t *testing.T) {
 	if !hasOptions {
 		t.Error("no rules have configurable options")
 	}
+}
+
+func TestCollectRuleMeta_IncludesJavaSupportClassification(t *testing.T) {
+	metas := CollectRuleMeta()
+	for _, m := range metas {
+		if m.Name != "AddJavascriptInterface" {
+			continue
+		}
+		support, ok := m.LanguageSupport[rules.JavaLanguageSupportKey]
+		if !ok {
+			t.Fatal("AddJavascriptInterface missing Java support classification")
+		}
+		if support.Status != v2rules.LanguageSupportSupported {
+			t.Fatalf("AddJavascriptInterface Java support = %s, want %s", support.Status, v2rules.LanguageSupportSupported)
+		}
+		return
+	}
+	t.Fatal("AddJavascriptInterface metadata not found")
 }
 
 // TestControversialRulesRegistry parses config/onboarding/controversial-rules.json

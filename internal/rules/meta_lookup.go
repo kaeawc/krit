@@ -18,14 +18,34 @@ func MetaForV2Rule(r *v2.Rule) (v2.RuleDescriptor, bool) {
 		if mp, ok := r.Implementation.(v2.MetaProvider); ok {
 			m := mp.Meta()
 			if m.ID == r.ID {
-				return m, true
+				return withRuleLanguageSupport(r, m), true
 			}
 		}
 	}
 	if m, ok := metaByName()[r.ID]; ok {
-		return m, true
+		return withRuleLanguageSupport(r, m), true
 	}
 	return v2.RuleDescriptor{}, false
+}
+
+func withRuleLanguageSupport(r *v2.Rule, m v2.RuleDescriptor) v2.RuleDescriptor {
+	support, ok := JavaSupportForRule(r)
+	if !ok {
+		return m
+	}
+	if m.LanguageSupport == nil {
+		m.LanguageSupport = map[string]v2.LanguageSupport{}
+	} else {
+		copied := make(map[string]v2.LanguageSupport, len(m.LanguageSupport)+1)
+		for lang, existing := range m.LanguageSupport {
+			copied[lang] = existing
+		}
+		m.LanguageSupport = copied
+	}
+	if _, exists := m.LanguageSupport[JavaLanguageSupportKey]; !exists {
+		m.LanguageSupport[JavaLanguageSupportKey] = support
+	}
+	return m
 }
 
 // HasV2Implementation reports whether a v2 rule has both executable analysis

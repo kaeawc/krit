@@ -104,6 +104,9 @@ func registerComplexityRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if r.IgnoreLocalFunctions && functionIsLocalFlat(file, idx) {
+					return
+				}
 				if file.FlatHasModifier(idx, "override") {
 					name := extractIdentifierFlat(file, idx)
 					if name == "equals" || name == "hashCode" {

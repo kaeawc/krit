@@ -335,6 +335,41 @@ func registerDatabaseRules() {
 		})
 	}
 	{
+		r := &RoomMigrationUsesExecSqlWithInterpolationRule{BaseRule: BaseRule{RuleName: "RoomMigrationUsesExecSqlWithInterpolation", RuleSetName: "database", Sev: "warning", Desc: "Detects db.execSQL(...) calls inside a Room Migration that use Kotlin string interpolation in the SQL string."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Languages: []scanner.Language{scanner.LangKotlin}, Confidence: r.Confidence(), Implementation: r,
+			Check: func(ctx *v2.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if !flatCallExpressionNameEquals(file, idx, "execSQL") {
+					return
+				}
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
+					return
+				}
+				firstArg := uint32(0)
+				for c := file.FlatFirstChild(args); c != 0; c = file.FlatNextSib(c) {
+					if file.FlatType(c) == "value_argument" {
+						firstArg = c
+						break
+					}
+				}
+				expr := flatValueArgumentExpression(file, firstArg)
+				if expr == 0 || file.FlatType(expr) != "string_literal" {
+					return
+				}
+				if !flatContainsStringInterpolation(file, expr) {
+					return
+				}
+				if !enclosingMigrationOwnerFlat(file, idx) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "execSQL inside a Room Migration uses string interpolation; use a non-interpolated literal or bindArgs to avoid SQL injection and migration drift.")
+			},
+		})
+	}
+	{
 		r := &JdbcPreparedStatementNotClosedRule{BaseRule: BaseRule{RuleName: "JdbcPreparedStatementNotClosed", RuleSetName: "database", Sev: "warning", Desc: "Detects JDBC prepared statements assigned to local properties without .use {} or .close() in the same scope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

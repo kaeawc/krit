@@ -714,6 +714,73 @@ fun loadUsers(db: SQLiteDatabase) {
 	}
 }
 
+func TestRoomMigrationUsesExecSqlWithInterpolation_Positive(t *testing.T) {
+	findings := runRuleByName(t, "RoomMigrationUsesExecSqlWithInterpolation", `
+package test
+
+abstract class Migration(val s: Int, val e: Int) {
+    abstract fun migrate(db: SupportSQLiteDatabase)
+}
+
+interface SupportSQLiteDatabase {
+    fun execSQL(sql: String)
+}
+
+object Migration1to2 : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        val tableName = "users"
+        db.execSQL("ALTER TABLE ${tableName} ADD COLUMN foo TEXT")
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for interpolated execSQL inside Migration, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRoomMigrationUsesExecSqlWithInterpolation_NegativeLiteral(t *testing.T) {
+	findings := runRuleByName(t, "RoomMigrationUsesExecSqlWithInterpolation", `
+package test
+
+abstract class Migration(val s: Int, val e: Int) {
+    abstract fun migrate(db: SupportSQLiteDatabase)
+}
+
+interface SupportSQLiteDatabase {
+    fun execSQL(sql: String)
+}
+
+object Migration1to2 : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE users ADD COLUMN foo TEXT")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for non-interpolated SQL, got %v", findings)
+	}
+}
+
+func TestRoomMigrationUsesExecSqlWithInterpolation_NegativeNotMigration(t *testing.T) {
+	findings := runRuleByName(t, "RoomMigrationUsesExecSqlWithInterpolation", `
+package test
+
+interface SupportSQLiteDatabase {
+    fun execSQL(sql: String)
+}
+
+class NotAMigration {
+    fun run(db: SupportSQLiteDatabase) {
+        val tableName = "users"
+        db.execSQL("ALTER TABLE ${tableName} ADD COLUMN foo TEXT")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings outside Migration class, got %v", findings)
+	}
+}
+
 func TestJdbcPreparedStatementNotClosed_Positive(t *testing.T) {
 	findings := runRuleByName(t, "JdbcPreparedStatementNotClosed", `
 package test

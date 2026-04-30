@@ -558,6 +558,10 @@ func (r *NoNameShadowingRule) walkScopeFlat(node uint32, ctx *shadowScanCtx, vis
 						addLocalName(name)
 						continue
 					}
+					if noNameShadowIsSetterAssignPatternFlat(file, child, name) {
+						addLocalName(name)
+						continue
+					}
 					r.reportIfShadowedFlat(ctx, name, child, visible, localNames, blocked)
 					addLocalName(name)
 				}
@@ -594,6 +598,8 @@ func (r *NoNameShadowingRule) walkScopeFlat(node uint32, ctx *shadowScanCtx, vis
 					if file.FlatType(enclosingFn) == "function_declaration" &&
 						file.FlatHasModifier(enclosingFn, "override") {
 						// Skip shadow check for override param; still add to scope
+						addLocalName(name)
+					} else if noNameShadowIsSetterParamFlat(file, enclosingFn, name) {
 						addLocalName(name)
 					} else {
 						r.reportIfShadowedFlat(ctx, name, child, visible, localNames, blocked)
@@ -820,6 +826,94 @@ func noNameShadowIsConstructorBackedClassPropertyFlat(file *scanner.File, decl u
 	}
 	return classHeaderHasNonPropertyParameterNamedFlat(file, classDecl, name) ||
 		classHeaderTextBeforeDeclarationContainsParamFlat(file, classDecl, decl, name)
+}
+
+func noNameShadowIsSetterAssignPatternFlat(file *scanner.File, decl uint32, name string) bool {
+	if file.FlatType(decl) != "property_declaration" && file.FlatType(decl) != "variable_declaration" {
+		return false
+	}
+	parent, ok := file.FlatParent(decl)
+	if !ok {
+		return false
+	}
+	next, ok := noNameShadowNextNamedSiblingInParent(file, parent, decl)
+	if !ok || !noNameShadowIsThisAssignmentFromName(file, next, name) {
+		return false
+	}
+	return !noNameShadowIdentifierUsedAfterSibling(file, parent, next, name)
+}
+
+func noNameShadowIsSetterParamFlat(file *scanner.File, fn uint32, name string) bool {
+	if fn == 0 || file.FlatType(fn) != "function_declaration" {
+		return false
+	}
+	body, ok := file.FlatFindChild(fn, "function_body")
+	if !ok || body == 0 {
+		return false
+	}
+	stmts, _ := file.FlatFindChild(body, "statements")
+	if stmts == 0 {
+		stmts = body
+	}
+	first := noNameShadowFirstNamedChild(file, stmts)
+	if first == 0 || !noNameShadowIsThisAssignmentFromName(file, first, name) {
+		return false
+	}
+	return !noNameShadowIdentifierUsedAfterSibling(file, stmts, first, name)
+}
+
+func noNameShadowIsThisAssignmentFromName(file *scanner.File, stmt uint32, name string) bool {
+	text := strings.TrimSpace(file.FlatNodeText(stmt))
+	eq := strings.Index(text, "=")
+	if eq < 0 {
+		return false
+	}
+	lhs := strings.TrimSpace(text[:eq])
+	rhs := strings.TrimSpace(text[eq+1:])
+	return lhs == "this."+name && rhs == name
+}
+
+func noNameShadowIdentifierUsedAfterSibling(file *scanner.File, parent uint32, sibling uint32, name string) bool {
+	pastSibling := false
+	for i := 0; i < file.FlatNamedChildCount(parent); i++ {
+		child := file.FlatNamedChild(parent, i)
+		if child == sibling {
+			pastSibling = true
+			continue
+		}
+		if !pastSibling {
+			continue
+		}
+		if containsIdentifierToken(file.FlatNodeText(child), name) {
+			return true
+		}
+	}
+	return false
+}
+
+func noNameShadowFirstNamedChild(file *scanner.File, parent uint32) uint32 {
+	for i := 0; i < file.FlatNamedChildCount(parent); i++ {
+		child := file.FlatNamedChild(parent, i)
+		if child != 0 {
+			return child
+		}
+	}
+	return 0
+}
+
+func noNameShadowNextNamedSiblingInParent(file *scanner.File, parent uint32, node uint32) (uint32, bool) {
+	pastNode := false
+	for i := 0; i < file.FlatNamedChildCount(parent); i++ {
+		child := file.FlatNamedChild(parent, i)
+		if child == node {
+			pastNode = true
+			continue
+		}
+		if pastNode && child != 0 {
+			return child, true
+		}
+	}
+	return 0, false
 }
 
 func classHeaderHasNonPropertyParameterNamedFlat(file *scanner.File, classDecl uint32, name string) bool {

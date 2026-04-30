@@ -1403,6 +1403,64 @@ class Attacher {
 	}
 }
 
+func TestNaming_NoNameShadowing_SkipsLocalFlowbackToProperty(t *testing.T) {
+	findings := runRuleByName(t, "NoNameShadowing", `
+package test
+
+class SearchResults(val query: String) {
+    fun toList(): List<String> = emptyList()
+}
+
+class SearchState {
+    var initialResults: List<String>? = null
+}
+
+fun SearchState.update(initialResults: List<String>?, results: SearchResults) {
+    if (initialResults == null && results.query.isBlank()) {
+        val initialResults = results.toList()
+        this.initialResults = initialResults
+    }
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "NoNameShadowing" {
+			t.Fatalf("NoNameShadowing should ignore local value immediately flowed back to same-named property, got: %s", f.Message)
+		}
+	}
+}
+
+func TestNaming_NoNameShadowing_FlagsFlowbackShadowUsedIndependently(t *testing.T) {
+	findings := runRuleByName(t, "NoNameShadowing", `
+package test
+
+class SearchResults(val query: String) {
+    fun toList(): List<String> = emptyList()
+}
+
+class SearchState {
+    var initialResults: List<String>? = null
+}
+
+fun SearchState.update(initialResults: List<String>?, results: SearchResults) {
+    if (initialResults == null && results.query.isBlank()) {
+        val initialResults = results.toList()
+        this.initialResults = initialResults
+        println(initialResults)
+    }
+}
+`)
+	found := false
+	for _, f := range findings {
+		if f.Rule == "NoNameShadowing" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected NoNameShadowing to flag local flowback shadow that is also used independently")
+	}
+}
+
 // Regression: the null-narrowing self-shadow detector previously used
 // substring scanning over the declaration text, which produced both false
 // positives (treating arbitrary code containing "?:" or "?." as the idiom)

@@ -30,6 +30,16 @@ func registerLicensingRules() {
 		})
 	}
 	{
+		r := &NoticeFileOutOfDateRule{
+			BaseRule: BaseRule{RuleName: "NoticeFileOutOfDate", RuleSetName: licensingRuleSet, Sev: "info", Desc: "Detects projects whose NOTICE file is missing required attribution for declared dependencies."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &DependencyLicenseUnknownRule{
 			BaseRule: BaseRule{RuleName: "DependencyLicenseUnknown", RuleSetName: licensingRuleSet, Sev: "info", Desc: "Detects external dependencies not present in the embedded license registry."},
 		}

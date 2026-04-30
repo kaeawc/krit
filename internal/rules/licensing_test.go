@@ -132,6 +132,66 @@ licensing:
 	})
 }
 
+func TestNoticeFileOutOfDate(t *testing.T) {
+	root := fixtureRoot(t)
+	positiveDir := filepath.Join(root, "positive", "licensing", "notice-file-out-of-date")
+	negativeDir := filepath.Join(root, "negative", "licensing", "notice-file-out-of-date")
+
+	t.Run("positive fixture flags missing attribution", func(t *testing.T) {
+		restoreDefaults := snapshotDefaultInactive()
+		defer restoreDefaults()
+		loadFixtureRuleConfig(t, filepath.Join(positiveDir, "krit.yml"))
+		findings := runNoticeFileOutOfDateFixture(t, filepath.Join(positiveDir, "app", "build.gradle.kts"))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Rule != "NoticeFileOutOfDate" {
+			t.Fatalf("expected NoticeFileOutOfDate finding, got %s", findings[0].Rule)
+		}
+	})
+
+	t.Run("negative fixture is clean when NOTICE covers attribution", func(t *testing.T) {
+		restoreDefaults := snapshotDefaultInactive()
+		defer restoreDefaults()
+		loadFixtureRuleConfig(t, filepath.Join(negativeDir, "krit.yml"))
+		findings := runNoticeFileOutOfDateFixture(t, filepath.Join(negativeDir, "app", "build.gradle.kts"))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("missing NOTICE file does not trigger", func(t *testing.T) {
+		restoreDefaults := snapshotDefaultInactive()
+		defer restoreDefaults()
+		dir := t.TempDir()
+		buildPath := filepath.Join(dir, "build.gradle.kts")
+		content := `dependencies {
+    implementation("com.example:attrib-required-lib:1.2.3")
+}`
+		if err := os.WriteFile(buildPath, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		findings := runNoticeFileOutOfDateFixture(t, buildPath)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings (no NOTICE), got %d", len(findings))
+		}
+	})
+}
+
+func runNoticeFileOutOfDateFixture(t *testing.T, buildPath string) []scanner.Finding {
+	t.Helper()
+	content, err := os.ReadFile(buildPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", buildPath, err)
+	}
+	cfg, err := android.ParseBuildGradleContent(string(content))
+	if err != nil {
+		t.Fatalf("ParseBuildGradleContent(%s): %v", buildPath, err)
+	}
+	r := findGradleRule(t, "NoticeFileOutOfDate")
+	return runGradleRule(r, buildPath, string(content), cfg)
+}
+
 func runDependencyLicenseUnknownFixture(t *testing.T, _ *rules.DependencyLicenseUnknownRule, buildPath string) []scanner.Finding {
 	t.Helper()
 	content, err := os.ReadFile(buildPath)

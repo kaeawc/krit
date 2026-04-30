@@ -2,6 +2,8 @@ package rules
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -193,4 +195,88 @@ func (r *DependencyLicenseUnknownRule) check(ctx *v2.Context) {
 		ctx.Emit(gradleFinding(path, line, r.BaseRule,
 			fmt.Sprintf("Dependency %s is not present in the embedded license registry; add a registry entry or disable license verification for this project.", coord)))
 	}
+}
+
+// noticeRequiredArtifacts is the embedded registry of artifacts that
+// require attribution text in the project's NOTICE file.
+var noticeRequiredArtifacts = map[string]struct{}{
+	"com.example:attrib-required-lib": {},
+}
+
+// noticeFileSearchLimit caps how far up the directory tree the rule
+// walks looking for a NOTICE file. Six levels comfortably covers
+// typical multi-module Gradle layouts without scanning the whole disk.
+const noticeFileSearchLimit = 6
+
+// NoticeFileOutOfDateRule flags projects whose NOTICE file is missing
+// attribution text required by one or more declared dependencies.
+type NoticeFileOutOfDateRule struct {
+	GradleBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Licensing rule.
+// Detection scans a NOTICE file for artifact identifiers; custom phrasing
+// can produce false negatives.
+func (r *NoticeFileOutOfDateRule) Confidence() float64 { return 0.75 }
+
+func (r *NoticeFileOutOfDateRule) check(ctx *v2.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
+	if cfg == nil {
+		return
+	}
+
+	noticeText, ok := readNearestNoticeFile(path)
+	if !ok {
+		return
+	}
+
+	for _, dep := range cfg.Dependencies {
+		if dep.Group == "" || dep.Name == "" {
+			continue
+		}
+		coord := dep.Group + ":" + dep.Name
+		if _, required := noticeRequiredArtifacts[coord]; !required {
+			continue
+		}
+		if strings.Contains(noticeText, coord) {
+			continue
+		}
+
+		fullCoord := coord
+		if dep.Version != "" {
+			fullCoord += ":" + dep.Version
+		}
+		line := findGradleLineStr(content, fullCoord)
+		if line == 0 {
+			line = findGradleLineStr(content, coord)
+		}
+		if line == 0 {
+			line = 1
+		}
+
+		ctx.Emit(gradleFinding(path, line, r.BaseRule,
+			fmt.Sprintf("NOTICE file is missing required attribution for %s; add the attribution text to NOTICE.", coord)))
+	}
+}
+
+func readNearestNoticeFile(gradlePath string) (string, bool) {
+	dir := filepath.Dir(gradlePath)
+	if !filepath.IsAbs(dir) {
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs
+		}
+	}
+	for i := 0; i < noticeFileSearchLimit; i++ {
+		candidate := filepath.Join(dir, "NOTICE")
+		if data, err := os.ReadFile(candidate); err == nil {
+			return string(data), true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", false
 }

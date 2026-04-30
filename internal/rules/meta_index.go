@@ -393,6 +393,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*NonInternationalizedSmsRule)(nil),
 		(*NotImplementedDeclarationRule)(nil),
 		(*NotSiblingResourceRule)(nil),
+		(*NoticeFileOutOfDateRule)(nil),
 		(*NullCheckOnMutablePropertyRule)(nil),
 		(*NullableBooleanCheckRule)(nil),
 		(*NullableToStringCallRule)(nil),

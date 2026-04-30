@@ -618,6 +618,14 @@ func CheckIconDuplicatesConfig(idx *android.IconIndex, c *scanner.FindingCollect
 // actionBarIconPrefixes identifies action bar / notification icons by name prefix.
 var actionBarIconPrefixes = []string{"ic_action_", "ic_menu_", "ic_notification_", "ic_stat_"}
 
+const iconGrayChannelTolerance = 10
+
+func isGrayIconColor(r, g, b uint32) bool {
+	minChannel := min(r, g, b)
+	maxChannel := max(r, g, b)
+	return maxChannel-minChannel <= iconGrayChannelTolerance
+}
+
 // CheckIconColors checks that action bar icons use primarily white/gray colors
 // as recommended by Material Design guidelines. Samples pixels from the image
 // and flags if too many are non-white/gray/transparent.
@@ -669,10 +677,8 @@ func CheckIconColors(idx *android.IconIndex, c *scanner.FindingCollector) {
 
 				totalPixels++
 
-				// Check if pixel is white/gray (R==G==B with high values, or any gray)
-				isGray := math.Abs(float64(r8)-float64(g8)) < 30 &&
-					math.Abs(float64(g8)-float64(b8)) < 30 &&
-					math.Abs(float64(r8)-float64(b8)) < 30
+				// Check if pixel is white/gray while allowing minor anti-aliasing drift.
+				isGray := isGrayIconColor(r8, g8, b8)
 				isWhite := r8 > 200 && g8 > 200 && b8 > 200
 
 				if !isGray && !isWhite {

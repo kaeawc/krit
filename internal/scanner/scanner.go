@@ -3,6 +3,7 @@ package scanner
 import (
 	"bufio"
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -228,6 +229,75 @@ func CollectKotlinFiles(paths []string, excludes []string) ([]string, error) {
 	return collectSourceFiles(paths, excludes, isKotlinFile)
 }
 
+// CollectKotlinAndJavaFiles walks the tree once and returns Kotlin and Java
+// files separately. Equivalent to calling CollectKotlinFiles and CollectJavaFiles
+// but does a single filesystem traversal.
+func CollectKotlinAndJavaFiles(paths []string, excludes []string) (kotlin []string, java []string, err error) {
+	seenKt := make(map[string]bool)
+	seenJv := make(map[string]bool)
+	ignoreMatchers := make(map[string]*fileignore.Matcher)
+	for _, p := range paths {
+		info, statErr := os.Stat(p)
+		if statErr != nil {
+			return nil, nil, statErr
+		}
+		matcher := fileignore.MatcherForPath(p, info, ignoreMatchers)
+		if !info.IsDir() {
+			if isExcluded(p, excludes) {
+				continue
+			}
+			if matcher.Ignored(p, false) {
+				continue
+			}
+			abs, _ := filepath.Abs(p)
+			if isKotlinFile(p) && !seenKt[abs] {
+				seenKt[abs] = true
+				kotlin = append(kotlin, p)
+			} else if isJavaFile(p) && !seenJv[abs] {
+				seenJv[abs] = true
+				java = append(java, p)
+			}
+			continue
+		}
+		walkErr := filepath.WalkDir(p, func(path string, d fs.DirEntry, werr error) error {
+			if werr != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if fileignore.DefaultPrunedDir(d.Name()) || matcher.Ignored(path, true) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			isKt := isKotlinFile(path)
+			isJv := !isKt && isJavaFile(path)
+			if !isKt && !isJv {
+				return nil
+			}
+			if matcher.Ignored(path, false) || isExcluded(path, excludes) {
+				return nil
+			}
+			abs, _ := filepath.Abs(path)
+			if isKt {
+				if !seenKt[abs] {
+					seenKt[abs] = true
+					kotlin = append(kotlin, path)
+				}
+			} else {
+				if !seenJv[abs] {
+					seenJv[abs] = true
+					java = append(java, path)
+				}
+			}
+			return nil
+		})
+		if walkErr != nil {
+			return nil, nil, walkErr
+		}
+	}
+	return kotlin, java, nil
+}
+
 // ScanFiles parses all files in parallel and returns parsed File objects.
 func ScanFiles(paths []string, workers int) ([]*File, []error) {
 	return scanFilesParallel(paths, workers, ParseFile)
@@ -280,12 +350,12 @@ func collectSourceFiles(paths []string, excludes []string, isSourceFile func(str
 			}
 			continue
 		}
-		err = filepath.Walk(p, func(path string, info os.FileInfo, err error) error {
+		err = filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil
 			}
-			if info.IsDir() {
-				if fileignore.DefaultPrunedDir(info.Name()) || matcher.Ignored(path, true) {
+			if d.IsDir() {
+				if fileignore.DefaultPrunedDir(d.Name()) || matcher.Ignored(path, true) {
 					return filepath.SkipDir
 				}
 				return nil

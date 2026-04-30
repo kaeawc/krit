@@ -10,13 +10,14 @@ import (
 
 // RuleMeta describes a rule's configurable options for schema generation.
 type RuleMeta struct {
-	Name        string
-	Description string
-	RuleSet     string
-	Active      bool // default active state
-	Fixable     bool
-	FixLevel    string // cosmetic/idiomatic/semantic or ""
-	Options     []OptionMeta
+	Name            string
+	Description     string
+	RuleSet         string
+	Active          bool // default active state
+	Fixable         bool
+	FixLevel        string // cosmetic/idiomatic/semantic or ""
+	LanguageSupport map[string]v2.LanguageSupport
+	Options         []OptionMeta
 }
 
 // OptionMeta describes one configurable option of a rule.
@@ -43,21 +44,35 @@ func CollectRuleMeta() []RuleMeta {
 		}
 
 		var opts []OptionMeta
+		var languageSupport map[string]v2.LanguageSupport
 		if desc, ok := rules.MetaForV2Rule(r); ok {
 			opts = descriptorOptions(desc)
+			languageSupport = copyLanguageSupport(desc.LanguageSupport)
 		}
 
 		metas = append(metas, RuleMeta{
-			Name:        r.ID,
-			Description: r.Description,
-			RuleSet:     r.Category,
-			Active:      active,
-			Fixable:     fixable,
-			FixLevel:    fixLevel,
-			Options:     opts,
+			Name:            r.ID,
+			Description:     r.Description,
+			RuleSet:         r.Category,
+			Active:          active,
+			Fixable:         fixable,
+			FixLevel:        fixLevel,
+			LanguageSupport: languageSupport,
+			Options:         opts,
 		})
 	}
 	return metas
+}
+
+func copyLanguageSupport(in map[string]v2.LanguageSupport) map[string]v2.LanguageSupport {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]v2.LanguageSupport, len(in))
+	for lang, support := range in {
+		out[lang] = support
+	}
+	return out
 }
 
 // descriptorOptions converts v2.ConfigOption values into the

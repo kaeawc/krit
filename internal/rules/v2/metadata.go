@@ -9,9 +9,9 @@ import (
 
 // RuleDescriptor is the metadata a rule publishes via its Meta method.
 //
-// A descriptor is a pure value: it contains no pointers to rule state and
-// carries no runtime behavior other than the per-option Apply closures. The
-// descriptor must be cheap to copy and safe to share across goroutines.
+// A descriptor is metadata rather than rule state, and carries no runtime
+// behavior other than the per-option Apply closures. Treat map and slice fields
+// as immutable after construction so descriptors remain safe to copy and share.
 type RuleDescriptor struct {
 	// ID is the stable rule identifier (matches the rule's Name()).
 	ID string
@@ -38,6 +38,12 @@ type RuleDescriptor struct {
 	// Confidence is the base confidence tier (0 = use family default).
 	Confidence float64
 
+	// LanguageSupport records per-source-language support status for a rule.
+	// It is product/support metadata rather than dispatcher routing: Languages
+	// on Rule controls where a rule runs, while LanguageSupport explains whether
+	// that behavior counts as full, partial, pending, or inapplicable support.
+	LanguageSupport map[string]LanguageSupport
+
 	// Options are the configurable fields the rule exposes via YAML.
 	Options []ConfigOption
 
@@ -52,6 +58,53 @@ type RuleDescriptor struct {
 	// implementation (e.g. the real ConfigAdapter) and no-op on the fake
 	// sources used by unit tests.
 	CustomApply func(target interface{}, cfg ConfigSource)
+}
+
+// LanguageSupportStatus is the stable support classification for a rule or
+// ruleset in a source language. These values are intended to be serialized in
+// docs and tooling, so prefer adding values over renaming existing ones.
+type LanguageSupportStatus string
+
+const (
+	// LanguageSupportSupported means the language path is implemented and
+	// covered by evidence or fixtures.
+	LanguageSupportSupported LanguageSupportStatus = "supported"
+	// LanguageSupportPartial means important coverage exists, but known gaps
+	// remain before the rule or ruleset can be counted as complete support.
+	LanguageSupportPartial LanguageSupportStatus = "partial"
+	// LanguageSupportPending means the language path has not yet been reviewed
+	// or implemented.
+	LanguageSupportPending LanguageSupportStatus = "pending"
+	// LanguageSupportNotApplicable means the rule intentionally does not apply
+	// to the language.
+	LanguageSupportNotApplicable LanguageSupportStatus = "not-applicable"
+	// LanguageSupportNeedsDesign means applicability is plausible, but the
+	// implementation approach needs design before work can be estimated.
+	LanguageSupportNeedsDesign LanguageSupportStatus = "needs-design"
+)
+
+// Valid reports whether s is one of the known support statuses.
+func (s LanguageSupportStatus) Valid() bool {
+	switch s {
+	case LanguageSupportSupported,
+		LanguageSupportPartial,
+		LanguageSupportPending,
+		LanguageSupportNotApplicable,
+		LanguageSupportNeedsDesign:
+		return true
+	default:
+		return false
+	}
+}
+
+// LanguageSupport captures the source-of-truth support classification and the
+// evidence used to justify it.
+type LanguageSupport struct {
+	Status   LanguageSupportStatus `json:"status" yaml:"status"`
+	Reason   string                `json:"reason,omitempty" yaml:"reason,omitempty"`
+	Issue    int                   `json:"issue,omitempty" yaml:"issue,omitempty"`
+	Evidence []string              `json:"evidence,omitempty" yaml:"evidence,omitempty"`
+	Fixtures []string              `json:"fixtures,omitempty" yaml:"fixtures,omitempty"`
 }
 
 // ConfigOption describes a single configurable field on a rule.

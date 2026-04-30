@@ -29,6 +29,19 @@ fun foo() {
 	}
 }
 
+func TestEmptyFunctionBlock_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "EmptyFunctionBlock", `
+package test;
+class Example {
+  void empty() {}
+  void used() { System.out.println("ok"); }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java empty method finding, got %d", len(findings))
+	}
+}
+
 // TestEmptyFunctionBlock_FlagsOverrideEmptyBodyByDefault matches detekt:
 // with ignoreOverridden=false (the new default), an override function
 // with an empty body is a finding. The previous krit behavior — silently
@@ -105,6 +118,19 @@ class Foo {
 	}
 }
 
+func TestEmptyClassBlock_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "EmptyClassBlock", `
+package test;
+class Empty {}
+class NonEmpty {
+  int value;
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java empty class finding, got %d", len(findings))
+	}
+}
+
 // --- EmptyCatchBlock ---
 
 func TestEmptyCatchBlock_Positive(t *testing.T) {
@@ -135,6 +161,23 @@ fun foo() {
 	}
 }
 
+func TestEmptyCatchBlock_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "EmptyCatchBlock", `
+package test;
+class Example {
+  void run() {
+    try {
+      work();
+    } catch (Exception e) {}
+  }
+  void work() {}
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected Java empty catch finding")
+	}
+}
+
 // --- EmptyIfBlock ---
 
 func TestEmptyIfBlock_Positive(t *testing.T) {
@@ -160,6 +203,22 @@ fun foo() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEmptyIfBlock_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "EmptyIfBlock", `
+package test;
+class Example {
+  void run(boolean ok) {
+    if (ok) {}
+    if (!ok) { work(); }
+  }
+  void work() { System.out.println("ok"); }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java empty if finding, got %d", len(findings))
 	}
 }
 
@@ -192,6 +251,23 @@ fun foo() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEmptyElseBlock_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "EmptyElseBlock", `
+package test;
+class Example {
+  void run(boolean ok) {
+    if (ok) {
+      work();
+    } else {}
+  }
+  void work() { System.out.println("ok"); }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected Java empty else finding")
 	}
 }
 
@@ -251,6 +327,21 @@ fun foo() {
 	}
 }
 
+func TestEmptyForBlock_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "EmptyForBlock", `
+package test;
+class Example {
+  void run(int[] values) {
+    for (int value : values) {}
+    for (int i = 0; i < values.length; i++) { System.out.println(values[i]); }
+  }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java empty for finding, got %d", len(findings))
+	}
+}
+
 // --- EmptyWhileBlock ---
 
 func TestEmptyWhileBlock_Positive(t *testing.T) {
@@ -274,6 +365,21 @@ fun foo() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEmptyWhileBlock_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "EmptyWhileBlock", `
+package test;
+class Example {
+  void run(boolean ok) {
+    while (ok) {}
+    while (!ok) { break; }
+  }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java empty while finding, got %d", len(findings))
 	}
 }
 
@@ -307,6 +413,21 @@ fun foo() {
 	}
 }
 
+func TestEmptyTryBlock_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "EmptyTryBlock", `
+package test;
+class Example {
+  void run() {
+    try {} catch (Exception e) { handle(); }
+  }
+  void handle() {}
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected Java empty try finding")
+	}
+}
+
 // --- EmptyFinallyBlock ---
 
 func TestEmptyFinallyBlock_Positive(t *testing.T) {
@@ -334,6 +455,23 @@ fun foo() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEmptyFinallyBlock_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "EmptyFinallyBlock", `
+package test;
+class Example {
+  void run() {
+    try {
+      work();
+    } finally {}
+  }
+  void work() {}
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected Java empty finally finding")
 	}
 }
 
@@ -386,6 +524,22 @@ fun foo() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEmptyDoWhileBlock_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "EmptyDoWhileBlock", `
+package test;
+class Example {
+  void run(boolean ok) {
+    do {} while (ok);
+    do { work(); } while (!ok);
+  }
+  void work() {}
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 Java empty do-while finding, got %d", len(findings))
 	}
 }
 

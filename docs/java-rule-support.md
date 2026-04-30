@@ -15,6 +15,7 @@ The machine-checked readiness gate lives in [`java-support-readiness.yml`](java-
 | Security literal checks | `HardcodedBearerToken`, `HardcodedGcpServiceAccount` | Java support added in #700. These inspect `string_literal` nodes and avoid comments or arbitrary line scans. |
 | Release engineering literal checks | `HardcodedLocalhostUrl` | Java support added in #700. Test/debug source paths remain excluded. |
 | Exceptions | `ExceptionRaisedInUnexpectedLocation`, `ThrowingExceptionInMain` | Java support added in #700 for method-level throw checks that only need Java `method_declaration` and `throw_statement` nodes. |
+| Empty blocks | `EmptyCatchBlock`, `EmptyClassBlock`, `EmptyDoWhileBlock`, `EmptyElseBlock`, `EmptyFinallyBlock`, `EmptyForBlock`, `EmptyFunctionBlock`, `EmptyIfBlock`, `EmptyTryBlock`, `EmptyWhileBlock` | Java support added in #700 for common braced Java block shapes. Kotlin-only file/constructor/when rules remain Kotlin-only or need design. |
 
 ## Supported Non-Source Android Rules
 

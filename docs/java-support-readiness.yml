@@ -96,9 +96,9 @@ ruleSetDefaults:
     issue: 700
     reason: DI source rules need Java annotation and class-shape coverage before being counted as supported.
   empty-blocks:
-    status: pending
+    status: partial
     issue: 700
-    reason: Empty-block rules need Java AST node mapping before Java support is counted.
+    reason: Common Java block shapes are supported; Kotlin-only file/constructor/when rules remain non-Java or need design.
   exceptions:
     status: partial
     issue: 700
@@ -197,6 +197,46 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_correctness_test.go
+  EmptyCatchBlock:
+    status: supported
+    fixtures:
+      - internal/rules/emptyblocks_test.go
+  EmptyClassBlock:
+    status: supported
+    fixtures:
+      - internal/rules/emptyblocks_test.go
+  EmptyDoWhileBlock:
+    status: supported
+    fixtures:
+      - internal/rules/emptyblocks_test.go
+  EmptyElseBlock:
+    status: supported
+    fixtures:
+      - internal/rules/emptyblocks_test.go
+  EmptyFinallyBlock:
+    status: supported
+    fixtures:
+      - internal/rules/emptyblocks_test.go
+  EmptyForBlock:
+    status: supported
+    fixtures:
+      - internal/rules/emptyblocks_test.go
+  EmptyFunctionBlock:
+    status: supported
+    fixtures:
+      - internal/rules/emptyblocks_test.go
+  EmptyIfBlock:
+    status: supported
+    fixtures:
+      - internal/rules/emptyblocks_test.go
+  EmptyTryBlock:
+    status: supported
+    fixtures:
+      - internal/rules/emptyblocks_test.go
+  EmptyWhileBlock:
+    status: supported
+    fixtures:
+      - internal/rules/emptyblocks_test.go
   ExceptionRaisedInUnexpectedLocation:
     status: supported
     fixtures:

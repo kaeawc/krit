@@ -492,6 +492,53 @@ func (*CyclomaticComplexMethodRule) Description() string {
 	return "Counts independent paths through a function (branches, loops, catches). High cyclomatic complexity predicts defect density and makes code harder to test exhaustively."
 }
 
+// functionBodyIsSingleWhenExpressionFlat reports whether the function's
+// body consists of exactly one `when` expression — either as an
+// expression body (`= when (...) { ... }`) or as a block whose only
+// statement is a `when`. Used to honor
+// CyclomaticComplexMethodRule.IgnoreSingleWhenExpression so that
+// switch-style dispatch functions don't pop the threshold purely by
+// virtue of having many when entries.
+func functionBodyIsSingleWhenExpressionFlat(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	body, ok := file.FlatFindChild(idx, "function_body")
+	if !ok || body == 0 {
+		return false
+	}
+	var sole uint32
+	for c := file.FlatFirstChild(body); c != 0; c = file.FlatNextSib(c) {
+		if !file.FlatIsNamed(c) {
+			continue
+		}
+		if sole != 0 {
+			return false
+		}
+		sole = c
+	}
+	if sole == 0 {
+		return false
+	}
+	switch file.FlatType(sole) {
+	case "when_expression":
+		return true
+	case "statements":
+		var inner uint32
+		for c := file.FlatFirstChild(sole); c != 0; c = file.FlatNextSib(c) {
+			if !file.FlatIsNamed(c) {
+				continue
+			}
+			if inner != 0 {
+				return false
+			}
+			inner = c
+		}
+		return inner != 0 && file.FlatType(inner) == "when_expression"
+	}
+	return false
+}
+
 // functionIsLocalFlat reports whether the given function_declaration is
 // nested inside another function/lambda body — i.e. it's a local
 // function rather than a top-level or member declaration. Used to honor

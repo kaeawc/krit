@@ -107,6 +107,9 @@ func registerComplexityRules() {
 				if r.IgnoreLocalFunctions && functionIsLocalFlat(file, idx) {
 					return
 				}
+				if r.IgnoreSingleWhenExpression && functionBodyIsSingleWhenExpressionFlat(file, idx) {
+					return
+				}
 				if file.FlatHasModifier(idx, "override") {
 					name := extractIdentifierFlat(file, idx)
 					if name == "equals" || name == "hashCode" {

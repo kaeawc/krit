@@ -21,7 +21,7 @@ check() {
 
 FAIL=0
 check "playground/webservice" "playground/kotlin-webservice/" 15 35 || ((FAIL++))
-check "playground/android-app" "playground/android-app/" 30 55 || ((FAIL++))
+check "playground/android-app" "playground/android-app/" 30 60 || ((FAIL++))
 
 echo ""
 if [ $FAIL -eq 0 ]; then

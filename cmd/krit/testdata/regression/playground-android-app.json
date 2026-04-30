@@ -1,6 +1,6 @@
 {
   "project": "../../playground/android-app/",
-  "findings_count": 63,
+  "findings_count": 65,
   "findings": [
     {
       "rule": "MagicNumber",
@@ -425,6 +425,22 @@
       "line": 25,
       "col": 0,
       "message": "Trust manager overrides checkClientTrusted/checkServerTrusted with an empty body. Perform real certificate validation."
+    },
+    {
+      "rule": "EmptyFunctionBlock",
+      "ruleSet": "empty-blocks",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 26,
+      "col": 0,
+      "message": "Empty function body detected."
+    },
+    {
+      "rule": "EmptyFunctionBlock",
+      "ruleSet": "empty-blocks",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 27,
+      "col": 0,
+      "message": "Empty function body detected."
     },
     {
       "rule": "UseEmptyCounterpart",

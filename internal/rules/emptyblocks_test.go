@@ -1,6 +1,11 @@
 package rules_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kaeawc/krit/internal/rules"
+	v2rules "github.com/kaeawc/krit/internal/rules/v2"
+)
 
 // --- EmptyFunctionBlock ---
 
@@ -21,6 +26,60 @@ fun foo() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+// TestEmptyFunctionBlock_FlagsOverrideEmptyBodyByDefault matches detekt:
+// with ignoreOverridden=false (the new default), an override function
+// with an empty body is a finding. The previous krit behavior — silently
+// skipping all overrides — masked legitimate issues like an empty
+// X509TrustManager.checkClientTrusted that disables certificate checks.
+func TestEmptyFunctionBlock_FlagsOverrideEmptyBodyByDefault(t *testing.T) {
+	findings := runRuleByName(t, "EmptyFunctionBlock", `
+package test
+class TrustNothing : X509TrustManager {
+    override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+    override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+    override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings (one per empty override body), got %d", len(findings))
+	}
+}
+
+// TestEmptyFunctionBlock_HonorsIgnoreOverridden verifies the wired field:
+// when ignoreOverridden is true, override functions with empty bodies
+// are not flagged. This restores krit's pre-fix behavior for users who
+// opt into it via YAML.
+func TestEmptyFunctionBlock_HonorsIgnoreOverridden(t *testing.T) {
+	var rule *rules.EmptyFunctionBlockRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "EmptyFunctionBlock" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.EmptyFunctionBlockRule)
+			if !ok {
+				t.Fatalf("expected EmptyFunctionBlockRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("EmptyFunctionBlock rule not registered")
+	}
+	original := rule.IgnoreOverridden
+	defer func() { rule.IgnoreOverridden = original }()
+
+	rule.IgnoreOverridden = true
+
+	findings := runRuleByName(t, "EmptyFunctionBlock", `
+package test
+class Sub : Parent {
+    override fun handle() {}
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings when ignoreOverridden=true, got %d", len(findings))
 	}
 }
 

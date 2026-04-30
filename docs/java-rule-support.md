@@ -17,7 +17,7 @@ The machine-checked readiness gate lives in [`java-support-readiness.yml`](java-
 | Exceptions | `ExceptionRaisedInUnexpectedLocation`, `InstanceOfCheckForException`, `RethrowCaughtException`, `ReturnFromFinally`, `ThrowingExceptionFromFinally`, `ThrowingExceptionInMain`, `ThrowingNewInstanceOfSameException` | Java support added in #700 for method-level throw checks plus catch/finally rules that use Java `catch_clause`, `finally_clause`, `instanceof_expression`, `return_statement`, and `throw_statement` nodes. |
 | Empty blocks | `EmptyCatchBlock`, `EmptyClassBlock`, `EmptyDoWhileBlock`, `EmptyElseBlock`, `EmptyFinallyBlock`, `EmptyForBlock`, `EmptyFunctionBlock`, `EmptyIfBlock`, `EmptyTryBlock`, `EmptyWhileBlock` | Java support added in #700 for common braced Java block shapes. Kotlin-only file/constructor/when rules remain Kotlin-only or need design. |
 | Potential bugs | `ExitOutsideMain`, `ExplicitGarbageCollectionCall`, `MissingPackageDeclaration` | Java support added in #700 for `java.lang.System`/`Runtime` lifecycle calls plus Java file package declarations. Source-fact guards cover same-file and imported lookalikes for lifecycle calls. |
-| Style | `ForbiddenComment`, `ForbiddenImport`, `MaxChainedCallsOnSameLine`, `MaxLineLength`, `WildcardImport` | Java support added in #700 for comment/import declarations and line-based formatting checks that are source-language local and do not need type resolution. |
+| Style | `ForbiddenComment`, `ForbiddenImport`, `MaxChainedCallsOnSameLine`, `MaxLineLength`, `UnderscoresInNumericLiterals`, `WildcardImport` | Java support added in #700 for comment/import declarations, line-based formatting checks, and decimal numeric literal readability checks that are source-language local and do not need type resolution. |
 
 ## Supported Non-Source Android Rules
 
@@ -52,7 +52,7 @@ Java-only source runs participate in text autofix when active rules declare Java
 | Privacy | Pending | Port storage/logging/analytics rules that depend on shared Android APIs. Add local-lookalike negatives for API names such as `SharedPreferences`, `Log`, and analytics clients. |
 | Release engineering | Partial | Literal URL support is done. Follow with Java-safe logging/import/build-config rules where AST support is adequate. |
 | Security | Partial | Literal credential support is done. Follow with Java-safe source rules that can use imports/source facts or explicit future javac fact requirements. |
-| Style and naming | Partial | Java comment/import style rules and line-based formatting checks are done. Continue classifying carefully; many style rules encode Kotlin syntax and should remain Kotlin-only unless a Java-specific implementation is designed. |
+| Style and naming | Partial | Java comment/import style rules, line-based formatting checks, and decimal numeric literal readability are done. Continue classifying carefully; many style rules encode Kotlin syntax and should remain Kotlin-only unless a Java-specific implementation is designed. |
 | Autofix | Partial | Low-risk cosmetic line fixes now support Java with `.java` fixable fixtures and CLI coverage. Semantic Java fixes still need separate safety review and Java fixtures. |
 
 ## Kotlin-Only or Needs Design

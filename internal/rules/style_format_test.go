@@ -265,6 +265,33 @@ fun main() {
 	}
 }
 
+func TestUnderscoresInNumericLiterals_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "UnderscoresInNumericLiterals", `
+package test;
+class Example {
+  int count = 1000000;
+  long timeoutMs = 2500000L;
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 Java numeric-underscore findings, got %d", len(findings))
+	}
+}
+
+func TestUnderscoresInNumericLiterals_JavaNegative(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "UnderscoresInNumericLiterals", `
+package test;
+class Example {
+  int count = 1_000_000;
+  int mask = 0xFF00FF;
+  int bits = 0b10101010;
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no Java numeric-underscore findings, got %d", len(findings))
+	}
+}
+
 func TestUnderscoresInNumericLiteralsDefaultsMatchDetekt(t *testing.T) {
 	var rule *rules.UnderscoresInNumericLiteralsRule
 	var meta registry.RuleDescriptor

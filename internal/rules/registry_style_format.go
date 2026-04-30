@@ -76,7 +76,7 @@ func registerStyleFormatRules() {
 		r := &UnderscoresInNumericLiteralsRule{BaseRule: BaseRule{RuleName: "UnderscoresInNumericLiterals", RuleSetName: "style", Sev: "warning", Desc: "Detects large numeric literals that should use underscore separators for readability."}, AcceptableLength: 4}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"integer_literal", "long_literal"}, Confidence: 0.75, Fix: v2.FixCosmetic, Implementation: r,
+			NodeTypes: []string{"integer_literal", "long_literal", "decimal_integer_literal"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Fix: v2.FixCosmetic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)

@@ -146,7 +146,7 @@ ruleSetDefaults:
   style:
     status: partial
     issue: 700
-    reason: Java comment/import style rules and line-based formatting checks are supported; most remaining style rules encode Kotlin syntax and require explicit per-rule review.
+    reason: Java comment/import style rules, line-based formatting checks, and decimal numeric literal readability are supported; most remaining style rules encode Kotlin syntax and require explicit per-rule review.
   testing:
     status: pending
     issue: 700
@@ -363,6 +363,10 @@ rules:
     status: supported
     fixtures:
       - tests/fixtures/fixable/per-rule/TrailingWhitespace.java
+  UnderscoresInNumericLiterals:
+    status: supported
+    fixtures:
+      - internal/rules/style_format_test.go
   UseValueOf:
     status: supported
     fixtures:

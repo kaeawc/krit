@@ -132,6 +132,62 @@ licensing:
 	})
 }
 
+func TestLgplStaticLinkingInApk(t *testing.T) {
+	root := fixtureRoot(t)
+	positiveDir := filepath.Join(root, "positive", "licensing", "lgpl-static-linking-in-apk")
+	negativeDir := filepath.Join(root, "negative", "licensing", "lgpl-static-linking-in-apk")
+
+	t.Run("positive fixture flags LGPL implementation in com.android.application", func(t *testing.T) {
+		restoreDefaults := snapshotDefaultInactive()
+		defer restoreDefaults()
+
+		loadFixtureRuleConfig(t, filepath.Join(positiveDir, "krit.yml"))
+		findings := runLgplStaticLinkingFixture(t, filepath.Join(positiveDir, "app", "build.gradle.kts"))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Rule != "LgplStaticLinkingInApk" {
+			t.Fatalf("expected LgplStaticLinkingInApk finding, got %s", findings[0].Rule)
+		}
+	})
+
+	t.Run("negative com.android.application without LGPL is clean", func(t *testing.T) {
+		restoreDefaults := snapshotDefaultInactive()
+		defer restoreDefaults()
+
+		loadFixtureRuleConfig(t, filepath.Join(negativeDir, "krit.yml"))
+		findings := runLgplStaticLinkingFixture(t, filepath.Join(negativeDir, "app", "build.gradle.kts"))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings on app, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative dynamic-feature with LGPL is clean", func(t *testing.T) {
+		restoreDefaults := snapshotDefaultInactive()
+		defer restoreDefaults()
+
+		loadFixtureRuleConfig(t, filepath.Join(negativeDir, "krit.yml"))
+		findings := runLgplStaticLinkingFixture(t, filepath.Join(negativeDir, "feature", "maps", "build.gradle.kts"))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings on dynamic-feature, got %d", len(findings))
+		}
+	})
+}
+
+func runLgplStaticLinkingFixture(t *testing.T, buildPath string) []scanner.Finding {
+	t.Helper()
+	content, err := os.ReadFile(buildPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", buildPath, err)
+	}
+	cfg, err := android.ParseBuildGradleContent(string(content))
+	if err != nil {
+		t.Fatalf("ParseBuildGradleContent(%s): %v", buildPath, err)
+	}
+	r := findGradleRule(t, "LgplStaticLinkingInApk")
+	return runGradleRule(r, buildPath, string(content), cfg)
+}
+
 func runDependencyLicenseUnknownFixture(t *testing.T, _ *rules.DependencyLicenseUnknownRule, buildPath string) []scanner.Finding {
 	t.Helper()
 	content, err := os.ReadFile(buildPath)

@@ -41,6 +41,18 @@ func (r *DependencyLicenseUnknownRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *LgplStaticLinkingInApkRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "LgplStaticLinkingInApk",
+		RuleSet:       "licensing",
+		Severity:      "warning",
+		Description:   "Detects Android application modules that statically link known-LGPL dependencies into the APK.",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *MissingSpdxIdentifierRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "MissingSpdxIdentifier",

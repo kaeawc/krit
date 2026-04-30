@@ -30,6 +30,16 @@ func registerLicensingRules() {
 		})
 	}
 	{
+		r := &LgplStaticLinkingInApkRule{
+			BaseRule: BaseRule{RuleName: "LgplStaticLinkingInApk", RuleSetName: licensingRuleSet, Sev: "warning", Desc: "Detects Android application modules that statically link known-LGPL dependencies into the APK."},
+		}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &DependencyLicenseUnknownRule{
 			BaseRule: BaseRule{RuleName: "DependencyLicenseUnknown", RuleSetName: licensingRuleSet, Sev: "info", Desc: "Detects external dependencies not present in the embedded license registry."},
 		}

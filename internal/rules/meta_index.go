@@ -310,6 +310,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*LayoutInflationRule)(nil),
 		(*LayoutMinTouchTargetInButtonRowRule)(nil),
 		(*LazyColumnInsideColumnRule)(nil),
+		(*LgplStaticLinkingInApkRule)(nil),
 		(*LibraryCodeMustSpecifyReturnTypeRule)(nil),
 		(*LibraryCustomViewRule)(nil),
 		(*LibraryEntitiesShouldNotBePublicRule)(nil),

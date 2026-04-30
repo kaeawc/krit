@@ -159,6 +159,29 @@ var embeddedDependencyLicenseRegistry = map[string]string{
 	"org.jetbrains.kotlin:kotlin-stdlib":   "Apache-2.0",
 }
 
+// embeddedLgplDependencyRegistry maps `group:name` to the SPDX identifier of
+// known LGPL-licensed artifacts. The fixture entries mirror the artifacts used
+// by `tests/fixtures/(positive|negative)/licensing/lgpl-static-linking-in-apk`.
+var embeddedLgplDependencyRegistry = map[string]string{
+	"fixture.registry:lgpl21-only-lib":   "LGPL-2.1-only",
+	"fixture.registry:lgpl21-or-later":   "LGPL-2.1-or-later",
+	"fixture.registry:lgpl3-only-lib":    "LGPL-3.0-only",
+	"fixture.registry:lgpl3-or-later":    "LGPL-3.0-or-later",
+}
+
+// staticLinkingConfigurations are the Gradle dependency configurations that
+// bundle a library into the APK as part of the application's shipped binary.
+var staticLinkingConfigurations = map[string]bool{
+	"implementation":           true,
+	"api":                      true,
+	"compile":                  true,
+	"releaseImplementation":    true,
+	"debugImplementation":      true,
+	"runtimeOnly":              true,
+	"releaseRuntimeOnly":       true,
+	"debugRuntimeOnly":         true,
+}
+
 // Confidence reports a tier-2 (medium) base confidence. Licensing rule. Detection scans file headers and manifests for license
 // markers via regex; custom or non-English headers can produce false
 // negatives. Classified per roadmap/17.
@@ -193,4 +216,61 @@ func (r *DependencyLicenseUnknownRule) check(ctx *v2.Context) {
 		ctx.Emit(gradleFinding(path, line, r.BaseRule,
 			fmt.Sprintf("Dependency %s is not present in the embedded license registry; add a registry entry or disable license verification for this project.", coord)))
 	}
+}
+
+// LgplStaticLinkingInApkRule flags `com.android.application` modules that
+// statically link a known-LGPL artifact. Static linking creates redistribution
+// ambiguity under the LGPL; isolating the dependency to a
+// `com.android.dynamic-feature` module delivered separately avoids the issue.
+type LgplStaticLinkingInApkRule struct {
+	GradleBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Licensing rule keyed on
+// an embedded LGPL artifact registry; coverage depends on registry breadth.
+func (r *LgplStaticLinkingInApkRule) Confidence() float64 { return 0.75 }
+
+func (r *LgplStaticLinkingInApkRule) check(ctx *v2.Context) {
+	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
+	if cfg == nil || !hasAndroidApplicationPlugin(cfg.Plugins) {
+		return
+	}
+
+	for _, dep := range cfg.Dependencies {
+		if dep.Group == "" || dep.Name == "" {
+			continue
+		}
+		if !staticLinkingConfigurations[dep.Configuration] {
+			continue
+		}
+		spdx, ok := embeddedLgplDependencyRegistry[dep.Group+":"+dep.Name]
+		if !ok {
+			continue
+		}
+
+		coord := dep.Group + ":" + dep.Name
+		if dep.Version != "" {
+			coord += ":" + dep.Version
+		}
+		line := findGradleLineStr(content, coord)
+		if line == 0 {
+			line = findGradleLineStr(content, dep.Group+":"+dep.Name)
+		}
+		if line == 0 {
+			line = 1
+		}
+
+		ctx.Emit(gradleFinding(path, line, r.BaseRule,
+			fmt.Sprintf("Dependency %s is %s and is statically linked into the application APK via `%s`. Move it to a `com.android.dynamic-feature` delivered separately or replace it with a permissively licensed alternative.", coord, spdx, dep.Configuration)))
+	}
+}
+
+func hasAndroidApplicationPlugin(plugins []string) bool {
+	for _, p := range plugins {
+		if p == "com.android.application" {
+			return true
+		}
+	}
+	return false
 }

@@ -150,6 +150,18 @@ func (r *SqliteCursorWithoutCloseRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *RoomDatabaseVersionNotBumpedRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "RoomDatabaseVersionNotBumped",
+		RuleSet:       "database",
+		Severity:      "warning",
+		Description:   "Detects @Database whose version is unchanged while @Entity sources have changed since HEAD. CI-only: skipped unless KRIT_CI_MODE=1.",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.65,
+	}
+}
+
 func (r *JdbcPreparedStatementNotClosedRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "JdbcPreparedStatementNotClosed",

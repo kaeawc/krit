@@ -275,6 +275,14 @@ func registerDatabaseRules() {
 		})
 	}
 	{
+		r := &RoomDatabaseVersionNotBumpedRule{BaseRule: BaseRule{RuleName: "RoomDatabaseVersionNotBumped", RuleSetName: "database", Sev: "warning", Desc: "Detects @Database whose version is unchanged while @Entity sources have changed since HEAD. CI-only: skipped unless KRIT_CI_MODE=1."}}
+		v2.Register(&v2.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
+			Needs: v2.NeedsParsedFiles, Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &JdbcPreparedStatementNotClosedRule{BaseRule: BaseRule{RuleName: "JdbcPreparedStatementNotClosed", RuleSetName: "database", Sev: "warning", Desc: "Detects JDBC prepared statements assigned to local properties without .use {} or .close() in the same scope."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),

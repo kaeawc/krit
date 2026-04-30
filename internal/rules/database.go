@@ -3,6 +3,10 @@ package rules
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
@@ -872,6 +876,173 @@ func innerEntityTypeName(typeText string) string {
 		t = t[dot+1:]
 	}
 	return t
+}
+
+// RoomDatabaseVersionNotBumpedRule detects @Database classes whose version
+// literal is unchanged since HEAD while at least one @Entity-bearing source
+// file has changed in the working tree. CI-only: skipped unless
+// KRIT_CI_MODE=1 and git is available.
+type RoomDatabaseVersionNotBumpedRule struct {
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Schema-change
+// detection is best-effort and depends on git diff state.
+func (r *RoomDatabaseVersionNotBumpedRule) Confidence() float64 { return 0.65 }
+
+// gitChangedSinceHEAD lists working-tree files changed relative to HEAD.
+// Returned keys are absolute paths. Tests may override.
+var gitChangedSinceHEAD = defaultGitChangedSinceHEAD
+
+// gitFileAtHEAD returns the file's content at HEAD, or "" if absent.
+// Tests may override.
+var gitFileAtHEAD = defaultGitFileAtHEAD
+
+func defaultGitChangedSinceHEAD() (map[string]bool, error) {
+	rootBytes, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return nil, err
+	}
+	root := strings.TrimSpace(string(rootBytes))
+	if root == "" {
+		return nil, fmt.Errorf("empty git toplevel")
+	}
+	out, err := exec.Command("git", "-C", root, "diff", "HEAD", "--name-only").Output()
+	if err != nil {
+		return nil, err
+	}
+	changed := make(map[string]bool)
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		changed[filepath.Join(root, line)] = true
+	}
+	return changed, nil
+}
+
+func defaultGitFileAtHEAD(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	rootBytes, err := exec.Command("git", "-C", filepath.Dir(abs), "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", err
+	}
+	root := strings.TrimSpace(string(rootBytes))
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return "", err
+	}
+	out, err := exec.Command("git", "-C", root, "show", "HEAD:"+filepath.ToSlash(rel)).Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+var roomDatabaseVersionRe = regexp.MustCompile(`@Database\b[\s\S]*?\bversion\s*=\s*(\d+)`)
+
+func extractRoomDatabaseVersionLiteral(text string) string {
+	m := roomDatabaseVersionRe.FindStringSubmatch(text)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
+func absPathOrEmpty(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return ""
+	}
+	return abs
+}
+
+func (r *RoomDatabaseVersionNotBumpedRule) check(ctx *v2.Context) {
+	if os.Getenv("KRIT_CI_MODE") != "1" {
+		return
+	}
+	if ctx == nil || len(ctx.ParsedFiles) == 0 {
+		return
+	}
+
+	type dbInfo struct {
+		file    *scanner.File
+		idx     uint32
+		version string
+	}
+	var dbs []dbInfo
+	var entityFiles []*scanner.File
+
+	for _, file := range ctx.ParsedFiles {
+		if file == nil || file.FlatTree == nil {
+			continue
+		}
+		hasDatabase := bytes.Contains(file.Content, []byte("Database"))
+		hasEntity := bytes.Contains(file.Content, []byte("Entity"))
+		if !hasDatabase && !hasEntity {
+			continue
+		}
+		seenEntity := false
+		file.FlatWalkNodes(0, "class_declaration", func(idx uint32) {
+			if hasDatabase {
+				if text := findAnnotationTextFlat(file, idx, "Database"); text != "" {
+					if v := extractRoomDatabaseVersionLiteral(text); v != "" {
+						dbs = append(dbs, dbInfo{file, idx, v})
+					}
+				}
+			}
+			if hasEntity && !seenEntity && hasAnnotationFlat(file, idx, "Entity") {
+				seenEntity = true
+			}
+		})
+		if seenEntity {
+			entityFiles = append(entityFiles, file)
+		}
+	}
+
+	if len(dbs) == 0 || len(entityFiles) == 0 {
+		return
+	}
+
+	changed, err := gitChangedSinceHEAD()
+	if err != nil || len(changed) == 0 {
+		return
+	}
+
+	entityChanged := false
+	for _, f := range entityFiles {
+		if changed[absPathOrEmpty(f.Path)] {
+			entityChanged = true
+			break
+		}
+	}
+	if !entityChanged {
+		return
+	}
+
+	for _, db := range dbs {
+		dbAbs := absPathOrEmpty(db.file.Path)
+		if changed[dbAbs] {
+			prior, err := gitFileAtHEAD(db.file.Path)
+			if err != nil {
+				continue
+			}
+			priorVersion := extractRoomDatabaseVersionLiteral(prior)
+			if priorVersion == "" || priorVersion != db.version {
+				continue
+			}
+		}
+		ctx.Emit(r.Finding(
+			db.file,
+			db.file.FlatRow(db.idx)+1,
+			db.file.FlatCol(db.idx)+1,
+			fmt.Sprintf("@Database version=%s is unchanged but @Entity sources have changed since HEAD; bump the version and add a Migration.", db.version),
+		))
+	}
 }
 
 func hasModuleAnnotatedAncestorFlat(file *scanner.File, idx uint32) bool {

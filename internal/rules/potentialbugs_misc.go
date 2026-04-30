@@ -380,6 +380,58 @@ func ignoredReturnValueIsEmitterSignalCall(file *scanner.File, idx uint32, funcN
 	return strings.EqualFold(receiver, "emitter") || strings.HasSuffix(strings.ToLower(receiver), "emitter")
 }
 
+func ignoredReturnValueIsSideEffectFoldDispatch(file *scanner.File, idx uint32, funcName string) bool {
+	if file == nil || idx == 0 || funcName != "fold" {
+		return false
+	}
+	args := flatCallKeyArguments(file, idx)
+	if args == 0 {
+		return false
+	}
+	lambdaCount := 0
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		lambda := ignoredReturnValueArgumentLambda(file, arg)
+		if lambda == 0 {
+			continue
+		}
+		lambdaCount++
+		if !ignoredReturnValueLambdaHasSideEffect(file, lambda) {
+			return false
+		}
+	}
+	return lambdaCount >= 2
+}
+
+func ignoredReturnValueArgumentLambda(file *scanner.File, arg uint32) uint32 {
+	var lambda uint32
+	file.FlatWalkAllNodes(arg, func(n uint32) {
+		if lambda == 0 && file.FlatType(n) == "lambda_literal" {
+			lambda = n
+		}
+	})
+	return lambda
+}
+
+func ignoredReturnValueLambdaHasSideEffect(file *scanner.File, lambda uint32) bool {
+	found := false
+	file.FlatWalkAllNodes(lambda, func(n uint32) {
+		if found || n == lambda {
+			return
+		}
+		switch file.FlatType(n) {
+		case "assignment", "augmented_assignment", "call_expression":
+			found = true
+		case "jump_expression":
+			text := strings.TrimSpace(file.FlatNodeText(n))
+			found = strings.HasPrefix(text, "throw ")
+		}
+	})
+	return found
+}
+
 func ignoredReturnValueStatementRoot(file *scanner.File, idx uint32) uint32 {
 	root := idx
 	for {

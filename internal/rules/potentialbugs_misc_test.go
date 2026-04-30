@@ -321,6 +321,41 @@ fun f(emitter: Emitter<String>, value: String, error: Throwable) {
 	}
 }
 
+func TestIgnoredReturnValue_OracleSkipsSideEffectResultFold(t *testing.T) {
+	findings := runIgnoredReturnValueWithOracle(t, `package test
+class Logger {
+    fun error(error: Throwable): Unit = Unit
+}
+
+fun f(result: Result<String>, logger: Logger) {
+    var rendered = ""
+    result.fold(
+        onSuccess = { value -> rendered = value },
+        onFailure = { error -> logger.error(error) },
+    )
+}
+`, "result.fold(\n        onSuccess = { value -> rendered = value },\n        onFailure = { error -> logger.error(error) },\n    )",
+		&typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}, nil)
+	if len(findings) != 0 {
+		t.Fatalf("expected side-effect Result.fold dispatch to be ignored, got %d: %#v", len(findings), findings)
+	}
+}
+
+func TestIgnoredReturnValue_OracleFlagsPureResultFold(t *testing.T) {
+	callText := "result.fold(\n        onSuccess = { value -> value },\n        onFailure = { error -> error.message.orEmpty() },\n    )"
+	findings := runIgnoredReturnValueWithOracle(t, `package test
+fun f(result: Result<String>) {
+    result.fold(
+        onSuccess = { value -> value },
+        onFailure = { error -> error.message.orEmpty() },
+    )
+}
+`, callText, &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}, nil)
+	if len(findings) == 0 {
+		t.Fatal("expected discarded pure Result.fold result to be flagged")
+	}
+}
+
 func TestIgnoredReturnValue_OracleSkipsStateFlowValueAssignmentReceiver(t *testing.T) {
 	findings := runIgnoredReturnValueWithOracle(t, `package test
 import kotlinx.coroutines.flow.MutableStateFlow

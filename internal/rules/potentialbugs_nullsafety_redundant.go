@@ -903,6 +903,9 @@ func (r *UnnecessarySafeCallRule) check(ctx *v2.Context) {
 	if name == "this" && unnecessarySafeCallNullableReceiverFlat(file, idx, structural) {
 		return
 	}
+	if name == "it" && unnecessarySafeCallNullableImplicitItReceiverFlat(file, idx) {
+		return
+	}
 
 	// If the receiver is a simple identifier that matches a parameter of the
 	// enclosing (override) function whose type is nullable, the safe call is
@@ -992,6 +995,12 @@ func (r *UnnecessarySafeCallRule) check(ctx *v2.Context) {
 func unnecessarySafeCallNullableReceiverFlat(file *scanner.File, idx uint32, structural bool) bool {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		pt := file.FlatType(p)
+		if pt == "lambda_literal" {
+			if unnecessarySafeCallLambdaHasNullableThisReceiver(file, p) {
+				return true
+			}
+			continue
+		}
 		if pt != "function_declaration" && pt != "property_declaration" && pt != "getter" {
 			continue
 		}
@@ -1045,6 +1054,73 @@ func unnecessarySafeCallNullableReceiverFlat(file *scanner.File, idx uint32, str
 		continue
 	}
 	return false
+}
+
+func unnecessarySafeCallNullableImplicitItReceiverFlat(file *scanner.File, idx uint32) bool {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "lambda_literal":
+			return unnecessarySafeCallLambdaHasNullableImplicitItReceiver(file, p)
+		case "function_declaration", "property_declaration", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+func unnecessarySafeCallLambdaHasNullableThisReceiver(file *scanner.File, lambda uint32) bool {
+	call := unnecessarySafeCallScopeFunctionCallForLambda(file, lambda)
+	if call == 0 {
+		return false
+	}
+	switch flatCallNameAny(file, call) {
+	case "with", "run", "apply":
+		return unnecessarySafeCallScopeFunctionPrefixHasSafeCall(file, call, lambda)
+	default:
+		return false
+	}
+}
+
+func unnecessarySafeCallLambdaHasNullableImplicitItReceiver(file *scanner.File, lambda uint32) bool {
+	call := unnecessarySafeCallScopeFunctionCallForLambda(file, lambda)
+	if call == 0 {
+		return false
+	}
+	switch flatCallNameAny(file, call) {
+	case "let", "also":
+		return unnecessarySafeCallScopeFunctionPrefixHasSafeCall(file, call, lambda)
+	default:
+		return false
+	}
+}
+
+func unnecessarySafeCallScopeFunctionCallForLambda(file *scanner.File, lambda uint32) uint32 {
+	for p, ok := file.FlatParent(lambda); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "call_expression":
+			return p
+		case "function_declaration", "property_declaration", "source_file":
+			return 0
+		}
+	}
+	return 0
+}
+
+func unnecessarySafeCallScopeFunctionPrefixHasSafeCall(file *scanner.File, call uint32, lambda uint32) bool {
+	if file == nil || call == 0 || lambda == 0 {
+		return false
+	}
+	text := file.FlatNodeText(call)
+	callStart := file.FlatStartByte(call)
+	lambdaByte := file.FlatStartByte(lambda)
+	if lambdaByte <= callStart {
+		return strings.Contains(text, "?.")
+	}
+	lambdaStart := int(lambdaByte - callStart)
+	if lambdaStart <= 0 || lambdaStart > len(text) {
+		return strings.Contains(text, "?.")
+	}
+	return strings.Contains(text[:lambdaStart], "?.")
 }
 
 func getterNullableReceiverFlat(file *scanner.File, getter uint32, structural bool) bool {

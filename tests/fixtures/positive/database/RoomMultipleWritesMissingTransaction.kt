@@ -17,6 +17,7 @@ interface UserDao {
     @Insert
     fun insertPrefs(prefs: Prefs)
 
+    @Suppress("DaoWithoutAnnotations")
     fun save(user: User, prefs: Prefs) {
         insertUser(user)
         insertPrefs(prefs)

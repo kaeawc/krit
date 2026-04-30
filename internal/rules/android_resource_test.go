@@ -3839,6 +3839,119 @@ func TestStringTrailingWhitespace(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// StringResourceMissingPositional
+// ---------------------------------------------------------------------------
+
+func TestStringResourceMissingPositional(t *testing.T) {
+	r := findResourceRule(t, "StringResourceMissingPositional")
+
+	t.Run("two bare %s triggers", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["greet"] = "%s meets %s"
+		idx.StringsLocation["greet"] = android.StringLocation{
+			FilePath: "app/src/main/res/values/strings.xml",
+			Line:     7,
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "positional") {
+			t.Fatalf("expected message about positional, got %q", findings[0].Message)
+		}
+		if findings[0].File != "app/src/main/res/values/strings.xml" || findings[0].Line != 7 {
+			t.Fatalf("unexpected location %s:%d", findings[0].File, findings[0].Line)
+		}
+	})
+
+	t.Run("mixed specifiers trigger", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["mix"] = "Hello %s, you are %d"
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("positional form is clean", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["greet"] = "%1$s meets %2$s"
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("single specifier is clean", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["one"] = "Hello %s"
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("translatable=false is clean", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["greet"] = "%s meets %s"
+		idx.StringsNonTranslate = map[string]bool{"greet": true}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("formatted=false is clean", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["greet"] = "%s meets %s"
+		idx.StringsNonFormatted = map[string]bool{"greet": true}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("escaped percent is ignored", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["pct"] = "100%% sure %s"
+		findings := runResourceRule(r, idx)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("end-to-end via XML scan", func(t *testing.T) {
+		dir := t.TempDir()
+		valuesDir := filepath.Join(dir, "res", "values")
+		if err := os.MkdirAll(valuesDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		content := `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bad">%s meets %s</string>
+    <string name="ok">%1$s meets %2$s</string>
+    <string name="single">Hello %s</string>
+    <string name="bad_nontranslatable" translatable="false">%s meets %s</string>
+</resources>
+`
+		if err := os.WriteFile(filepath.Join(valuesDir, "strings.xml"), []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		idx, err := android.ScanResourceDir(filepath.Join(dir, "res"))
+		if err != nil {
+			t.Fatalf("ScanResourceDir: %v", err)
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "`bad`") {
+			t.Fatalf("expected finding for `bad`, got %q", findings[0].Message)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
 // ExtraTextResource
 // ---------------------------------------------------------------------------
 

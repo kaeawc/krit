@@ -387,6 +387,94 @@ fun doSomething(x: Int) {}
 	}
 }
 
+func TestOutdatedDocumentation_HonorsMatchTypeParameters(t *testing.T) {
+	// MatchTypeParameters was previously a dead config — exposed but
+	// never consulted. Default true means @param tags can document
+	// type parameters without being flagged as orphans.
+	docCode := `package test
+
+fun anchor() {}
+
+/**
+ * Maps a value.
+ * @param T input type
+ * @param R output type
+ * @param value the input
+ */
+fun <T, R> map(value: T, transform: (T) -> R): R = transform(value)
+`
+	if findings := runRuleByName(t, "OutdatedDocumentation", docCode); len(findings) != 0 {
+		t.Fatalf("expected no findings under default MatchTypeParameters=true (type-param tags T, R recognized), got %d", len(findings))
+	}
+
+	// Flip MatchTypeParameters off via the rule pointer and verify the
+	// type-param tags now read as orphans.
+	var rule *rules.OutdatedDocumentationRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "OutdatedDocumentation" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.OutdatedDocumentationRule)
+			if !ok {
+				t.Fatalf("expected OutdatedDocumentationRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("OutdatedDocumentation rule not registered")
+	}
+	original := rule.MatchTypeParameters
+	defer func() { rule.MatchTypeParameters = original }()
+	rule.MatchTypeParameters = false
+
+	if findings := runRuleByName(t, "OutdatedDocumentation", docCode); len(findings) == 0 {
+		t.Fatal("expected findings under MatchTypeParameters=false for @param T / @param R")
+	}
+}
+
+func TestOutdatedDocumentation_HonorsMatchDeclarationsOrder(t *testing.T) {
+	// MatchDeclarationsOrder was previously a dead config. Default
+	// true: @param tags must appear in the same order as the function's
+	// parameters. Out-of-order tags fire.
+	swappedOrder := `package test
+
+fun anchor() {}
+
+/**
+ * Combines two values.
+ * @param b the second value
+ * @param a the first value
+ */
+fun combine(a: Int, b: Int): Int = a + b
+`
+	if findings := runRuleByName(t, "OutdatedDocumentation", swappedOrder); len(findings) == 0 {
+		t.Fatal("expected finding for out-of-order @param tags under default MatchDeclarationsOrder=true")
+	}
+
+	// Flip the flag off and verify the same swapped order doesn't fire.
+	var rule *rules.OutdatedDocumentationRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "OutdatedDocumentation" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.OutdatedDocumentationRule)
+			if !ok {
+				t.Fatalf("expected OutdatedDocumentationRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("OutdatedDocumentation rule not registered")
+	}
+	original := rule.MatchDeclarationsOrder
+	defer func() { rule.MatchDeclarationsOrder = original }()
+	rule.MatchDeclarationsOrder = false
+
+	if findings := runRuleByName(t, "OutdatedDocumentation", swappedOrder); len(findings) != 0 {
+		t.Fatalf("expected no findings under MatchDeclarationsOrder=false for swapped order, got %d", len(findings))
+	}
+}
+
 // --- KDocReferencesNonPublicProperty ---
 
 func TestKDocReferencesNonPublicProperty_Positive(t *testing.T) {

@@ -29,3 +29,15 @@ func (r *PluralsMissingZeroRule) Meta() v2.RuleDescriptor {
 		Confidence:    0.9,
 	}
 }
+
+func (r *StringResourcePlaceholderOrderRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "StringResourcePlaceholderOrder",
+		RuleSet:       "i18n",
+		Severity:      "warning",
+		Description:   "Translation variants must keep positional format syntax (`%1$s`, `%2$s`) used by the default string.",
+		DefaultActive: true,
+		FixLevel:      "",
+		Confidence:    0.9,
+	}
+}

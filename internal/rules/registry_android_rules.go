@@ -2,6 +2,7 @@ package rules
 
 import (
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
+	"github.com/kaeawc/krit/internal/scanner"
 	"strings"
 )
 
@@ -222,7 +223,8 @@ func registerAndroidRules() {
 		}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "assignment"}, Needs: v2.NeedsTypeInfo, Confidence: 0.9, OriginalV1: r,
+			NodeTypes: []string{"call_expression", "method_invocation", "assignment"}, Needs: v2.NeedsTypeInfo,
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.9, OriginalV1: r,
 			OracleCallTargets:      &v2.OracleCallTargetFilter{CalleeNames: []string{"setJavaScriptEnabled"}},
 			OracleDeclarationNeeds: &v2.OracleDeclarationProfile{},
 			Check: func(ctx *v2.Context) {
@@ -239,6 +241,10 @@ func registerAndroidRules() {
 					}
 					expr := flatValueArgumentExpression(file, firstArg)
 					if !isBooleanLiteralTrue(file, expr) {
+						return
+					}
+				case "method_invocation":
+					if !setJavaScriptEnabledJavaCall(ctx, idx) {
 						return
 					}
 				case "assignment":

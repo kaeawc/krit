@@ -547,6 +547,26 @@ func setJavaScriptEnabledCall(ctx *v2.Context, call uint32) bool {
 	return receiver != 0 && navigationReceiverHasTypedRoot(ctx.File, receiver, "WebView") && navigationChainContainsSegment(ctx.File, receiver, "settings")
 }
 
+func setJavaScriptEnabledJavaCall(ctx *v2.Context, call uint32) bool {
+	file := ctx.File
+	if javaMethodInvocationName(file, call) != "setJavaScriptEnabled" {
+		return false
+	}
+	args := javaArgumentExpressions(file, call)
+	if len(args) != 1 || !isJavaBooleanTrue(file, args[0]) {
+		return false
+	}
+	if !sourceImportsOrMentions(file, "android.webkit.WebSettings") && !sourceImportsOrMentions(file, "android.webkit.WebView") {
+		return false
+	}
+	receiver := javaMethodReceiverText(file, call)
+	if strings.Contains(receiver, "getSettings") {
+		return true
+	}
+	name := wrongViewCastCallReceiverName(file, call)
+	return name == "settings" || name == "webSettings" || strings.HasSuffix(name, ".settings") || strings.HasSuffix(name, ".webSettings")
+}
+
 func webSettingsAssignmentTarget(ctx *v2.Context, assignment uint32) bool {
 	file := ctx.File
 	target, _ := file.FlatFindChild(assignment, "directly_assignable_expression")

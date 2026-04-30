@@ -40,18 +40,13 @@ func (r *AddJavascriptInterfaceRule) check(ctx *v2.Context) {
 		return
 	}
 	file := ctx.File
-	if file.FlatType(ctx.Idx) != "call_expression" {
+	if file.FlatType(ctx.Idx) != "call_expression" && file.FlatType(ctx.Idx) != "method_invocation" {
 		return
 	}
-	if flatCallExpressionName(file, ctx.Idx) != "addJavascriptInterface" {
+	if javaAwareCallName(file, ctx.Idx) != "addJavascriptInterface" {
 		return
 	}
-	navExpr, _ := flatCallExpressionParts(file, ctx.Idx)
-	if navExpr == 0 || file.FlatNamedChildCount(navExpr) == 0 {
-		return
-	}
-	receiverExpr := file.FlatNamedChild(navExpr, 0)
-	confidence, ok := addJavascriptInterfaceReceiverConfidence(ctx, receiverExpr)
+	confidence, ok := addJavascriptInterfaceCallConfidence(ctx, ctx.Idx)
 	if !ok {
 		return
 	}
@@ -70,6 +65,39 @@ func (r *AddJavascriptInterfaceRule) check(ctx *v2.Context) {
 		f.Confidence = confidence
 		ctx.Emit(f)
 	}
+}
+
+func addJavascriptInterfaceCallConfidence(ctx *v2.Context, call uint32) (float64, bool) {
+	file := ctx.File
+	if file.FlatType(call) == "method_invocation" {
+		return addJavascriptInterfaceJavaConfidence(file, call)
+	}
+	navExpr, _ := flatCallExpressionParts(file, call)
+	if navExpr == 0 || file.FlatNamedChildCount(navExpr) == 0 {
+		return 0, false
+	}
+	return addJavascriptInterfaceReceiverConfidence(ctx, file.FlatNamedChild(navExpr, 0))
+}
+
+func addJavascriptInterfaceJavaConfidence(file *scanner.File, call uint32) (float64, bool) {
+	if !sourceImportsOrMentions(file, "android.webkit.WebView") {
+		return 0, false
+	}
+	receiver := javaMethodReceiverText(file, call)
+	if receiver == "" {
+		return 0, false
+	}
+	if strings.Contains(receiver, "getSettings") {
+		return 0, false
+	}
+	name := wrongViewCastCallReceiverName(file, call)
+	if name == "" {
+		name = receiver
+	}
+	if name == "webView" || name == "wv" || strings.HasSuffix(name, ".webView") || strings.HasSuffix(name, ".wv") {
+		return 0.85, true
+	}
+	return 0, false
 }
 
 type addJavascriptInterfaceSDKContext struct {
@@ -201,6 +229,15 @@ func addJavascriptInterfaceClassHasAnnotatedMethod(file *scanner.File, classDecl
 		}
 		owner, ok := flatEnclosingAncestor(file, fn, "class_declaration")
 		if ok && owner == classDecl && hasAnnotationNamed(file, fn, "JavascriptInterface") {
+			found = true
+		}
+	})
+	file.FlatWalkNodes(classDecl, "method_declaration", func(method uint32) {
+		if found {
+			return
+		}
+		owner, ok := flatEnclosingAncestor(file, method, "class_declaration")
+		if ok && owner == classDecl && strings.Contains(file.FlatNodeText(method), "@JavascriptInterface") {
 			found = true
 		}
 	})

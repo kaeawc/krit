@@ -17,3 +17,15 @@ func (r *PluralsBuiltWithIfElseRule) Meta() v2.RuleDescriptor {
 		Confidence:    0.75,
 	}
 }
+
+func (r *PluralsMissingZeroRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "PluralsMissingZero",
+		RuleSet:       "i18n",
+		Severity:      "info",
+		Description:   "<plurals> in a CLDR zero-form locale is missing the zero quantity",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.9,
+	}
+}

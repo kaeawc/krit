@@ -1,6 +1,13 @@
 package rules
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/kaeawc/krit/internal/android"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -104,4 +111,106 @@ func lastBranchExpression(file *scanner.File, body uint32) uint32 {
 		return flatLastNamedChild(file, last)
 	}
 	return last
+}
+
+// PluralsMissingZeroRule flags <plurals> definitions in values-LL/ folders
+// for languages whose CLDR plural rules include a "zero" category but that
+// do not declare an `<item quantity="zero">`.
+type PluralsMissingZeroRule struct {
+	ValuesPluralsResourceBase
+	AndroidRule
+}
+
+// Confidence reports a tier-3 (high) base confidence — locale-folder gating
+// plus a literal child-tag check leaves little room for misidentification.
+func (r *PluralsMissingZeroRule) Confidence() float64 { return 0.9 }
+
+// pluralsZeroFormLocales lists language tags where CLDR specifies a `zero`
+// plural category. Russian is included per the cluster spec even though
+// Russian's CLDR plural rules categorize n=0 under `many`.
+var pluralsZeroFormLocales = map[string]bool{
+	"ar":  true,
+	"cy":  true,
+	"lv":  true,
+	"prg": true,
+	"ru":  true,
+}
+
+func (r *PluralsMissingZeroRule) check(ctx *v2.Context) {
+	if ctx.ResourceIndex == nil {
+		return
+	}
+	for _, resRoot := range resourceRootsFromIndex(ctx.ResourceIndex) {
+		entries, err := os.ReadDir(resRoot)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			lang, ok := pluralsZeroFormLanguage(entry.Name())
+			if !ok {
+				continue
+			}
+			r.scanValuesDir(ctx, filepath.Join(resRoot, entry.Name()), lang)
+		}
+	}
+}
+
+func (r *PluralsMissingZeroRule) scanValuesDir(ctx *v2.Context, dir, lang string) {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	names := make([]string, 0, len(files))
+	for _, f := range files {
+		if f.IsDir() || !strings.HasSuffix(strings.ToLower(f.Name()), ".xml") {
+			continue
+		}
+		names = append(names, f.Name())
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		path := filepath.Join(dir, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		root, err := android.ParseXMLAST(data)
+		if err != nil || root == nil || root.Tag != "resources" {
+			continue
+		}
+		for _, p := range root.ChildrenByTag("plurals") {
+			if pluralHasQuantity(p, "zero") {
+				continue
+			}
+			pluralName := p.Attr("name")
+			ctx.Emit(resourceFinding(path, p.Line, r.BaseRule,
+				fmt.Sprintf("Plural `%s` in `values-%s/` is missing `<item quantity=\"zero\">`. CLDR specifies a zero form for `%s`.",
+					pluralName, lang, lang)))
+		}
+	}
+}
+
+func pluralHasQuantity(plural *android.XMLNode, quantity string) bool {
+	for _, item := range plural.ChildrenByTag("item") {
+		if item.Attr("quantity") == quantity {
+			return true
+		}
+	}
+	return false
+}
+
+func pluralsZeroFormLanguage(dir string) (string, bool) {
+	locale, ok := localeTagFromValuesDir(dir)
+	if !ok {
+		return "", false
+	}
+	lang, _, _ := strings.Cut(locale, "-")
+	lang = strings.ToLower(lang)
+	if !pluralsZeroFormLocales[lang] {
+		return "", false
+	}
+	return lang, true
 }

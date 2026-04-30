@@ -423,6 +423,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*PlainFileWriteOfSensitiveRule)(nil),
 		(*PluralsBuiltWithIfElseRule)(nil),
 		(*PluralsCandidateRule)(nil),
+		(*PluralsMissingZeroRule)(nil),
 		(*PrintStackTraceInProductionRule)(nil),
 		(*PrintStackTraceRule)(nil),
 		(*PrintlnInProductionRule)(nil),

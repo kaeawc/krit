@@ -37,6 +37,114 @@ class Foo {
 	}
 }
 
+func TestUndocumentedPublicClass_HonorsSearchInFlags(t *testing.T) {
+	// Four flags were previously dead config — the rule fired on every
+	// undocumented public class regardless of nesting context. Wired
+	// flags now let users opt out of searching specific container types.
+	var rule *rules.UndocumentedPublicClassRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "UndocumentedPublicClass" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.UndocumentedPublicClassRule)
+			if !ok {
+				t.Fatalf("expected UndocumentedPublicClassRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("UndocumentedPublicClass rule not registered")
+	}
+	originals := struct {
+		nested, inner, object, iface bool
+	}{
+		nested: rule.SearchInNestedClass,
+		inner:  rule.SearchInInnerClass,
+		object: rule.SearchInInnerObject,
+		iface:  rule.SearchInInnerInterface,
+	}
+	defer func() {
+		rule.SearchInNestedClass = originals.nested
+		rule.SearchInInnerClass = originals.inner
+		rule.SearchInInnerObject = originals.object
+		rule.SearchInInnerInterface = originals.iface
+	}()
+
+	cases := []struct {
+		name      string
+		code      string
+		flagOff   func()
+		expectOn  bool
+		expectOff bool
+	}{
+		{
+			name: "nested",
+			code: `package test
+/** outer doc */
+class Outer {
+    class Nested
+}
+`,
+			flagOff:   func() { rule.SearchInNestedClass = false },
+			expectOn:  true,
+			expectOff: false,
+		},
+		{
+			name: "inner",
+			code: `package test
+/** outer doc */
+class Outer {
+    inner class Inner
+}
+`,
+			flagOff:   func() { rule.SearchInInnerClass = false },
+			expectOn:  true,
+			expectOff: false,
+		},
+		{
+			name: "inside-object",
+			code: `package test
+/** obj doc */
+object Obj {
+    class InsideObj
+}
+`,
+			flagOff:   func() { rule.SearchInInnerObject = false },
+			expectOn:  true,
+			expectOff: false,
+		},
+		{
+			name: "inside-interface",
+			code: `package test
+/** iface doc */
+interface IF {
+    class InsideIF
+}
+`,
+			flagOff:   func() { rule.SearchInInnerInterface = false },
+			expectOn:  true,
+			expectOff: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rule.SearchInNestedClass = true
+			rule.SearchInInnerClass = true
+			rule.SearchInInnerObject = true
+			rule.SearchInInnerInterface = true
+			gotOn := len(runRuleByName(t, "UndocumentedPublicClass", tc.code)) > 0
+			if gotOn != tc.expectOn {
+				t.Fatalf("with all flags on, expected finding=%v, got=%v", tc.expectOn, gotOn)
+			}
+			tc.flagOff()
+			gotOff := len(runRuleByName(t, "UndocumentedPublicClass", tc.code)) > 0
+			if gotOff != tc.expectOff {
+				t.Fatalf("with %s flag off, expected finding=%v, got=%v", tc.name, tc.expectOff, gotOff)
+			}
+		})
+	}
+}
+
 // --- UndocumentedPublicFunction ---
 
 func TestUndocumentedPublicFunction_Positive(t *testing.T) {

@@ -231,7 +231,7 @@ func registerCommentsRules() {
 		})
 	}
 	{
-		r := &UndocumentedPublicClassRule{BaseRule: BaseRule{RuleName: "UndocumentedPublicClass", RuleSetName: "comments", Sev: "warning", Desc: "Detects public classes that are missing KDoc documentation."}}
+		r := &UndocumentedPublicClassRule{BaseRule: BaseRule{RuleName: "UndocumentedPublicClass", RuleSetName: "comments", Sev: "warning", Desc: "Detects public classes that are missing KDoc documentation."}, SearchInNestedClass: true, SearchInInnerClass: true, SearchInInnerObject: true, SearchInInnerInterface: true}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: 0.95, Implementation: r,
@@ -241,6 +241,11 @@ func registerCommentsRules() {
 					return
 				}
 				if shouldSkipPublicDocumentationRule(file, idx) {
+					return
+				}
+				if shouldSkipUndocumentedNestedClass(file, idx,
+					r.SearchInNestedClass, r.SearchInInnerClass,
+					r.SearchInInnerObject, r.SearchInInnerInterface) {
 					return
 				}
 				name := extractIdentifierFlat(file, idx)
@@ -296,6 +301,46 @@ func registerCommentsRules() {
 			},
 		})
 	}
+}
+
+// shouldSkipUndocumentedNestedClass returns true when the class
+// at idx is contained within another declaration whose corresponding
+// search-in flag is false. The four flags map to the kind of immediate
+// enclosing declaration:
+//
+//   - searchInInnerClass: the class carries `inner` modifier (Kotlin
+//     inner classes; capture an outer instance)
+//   - searchInNestedClass: the class is nested in a class without the
+//     `inner` modifier
+//   - searchInInnerObject: the class is declared inside an object
+//   - searchInInnerInterface: the class is declared inside an interface
+//
+// When all four flags are true (the default), no nested class is
+// skipped and the rule fires on every undocumented public class.
+func shouldSkipUndocumentedNestedClass(file *scanner.File, idx uint32, searchNested, searchInner, searchObject, searchInterface bool) bool {
+	if file == nil {
+		return false
+	}
+	owner, ok := flatEnclosingAncestor(file, idx, "class_declaration", "object_declaration", "companion_object")
+	if !ok || owner == 0 {
+		return false
+	}
+	switch file.FlatType(owner) {
+	case "object_declaration", "companion_object":
+		return !searchObject
+	case "class_declaration":
+		// Differentiate interface containers via the `interface` modifier.
+		if file.FlatHasChildOfType(owner, "interface") {
+			return !searchInterface
+		}
+		// Differentiate inner from nested classes by the inner modifier
+		// on the candidate class itself, NOT on the enclosing owner.
+		if file.FlatHasModifier(idx, "inner") {
+			return !searchInner
+		}
+		return !searchNested
+	}
+	return false
 }
 
 func shouldSkipPublicDocumentationRule(file *scanner.File, idx uint32) bool {

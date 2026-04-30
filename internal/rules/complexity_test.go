@@ -194,6 +194,85 @@ func TestCyclomaticComplexMethod_DetektParitySimpleWhenEntriesCount(t *testing.T
 	}
 }
 
+func TestCyclomaticComplexMethod_HonorsIgnoreSingleWhenExpression(t *testing.T) {
+	// IgnoreSingleWhenExpression was previously a dead config — exposed
+	// in zz_meta but never consulted. With it set to true, a function
+	// whose entire body is a single when-expression is treated as
+	// dispatch and skipped, even if it has many branches that would
+	// otherwise pop the threshold.
+	var rule *rules.CyclomaticComplexMethodRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "CyclomaticComplexMethod" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.CyclomaticComplexMethodRule)
+			if !ok {
+				t.Fatalf("expected CyclomaticComplexMethodRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("CyclomaticComplexMethod rule not registered")
+	}
+	original := rule.IgnoreSingleWhenExpression
+	defer func() { rule.IgnoreSingleWhenExpression = original }()
+
+	// Switch-style dispatch with 16 branches — over the limit by default.
+	var b strings.Builder
+	b.WriteString("package test\nfun classify(x: Int): String = when (x) {\n")
+	for i := 1; i <= 16; i++ {
+		b.WriteString("    ")
+		b.WriteString(itoa(i))
+		b.WriteString(" -> \"v")
+		b.WriteString(itoa(i))
+		b.WriteString("\"\n")
+	}
+	b.WriteString("    else -> \"other\"\n}\n")
+	code := b.String()
+
+	rule.IgnoreSingleWhenExpression = true
+	if findings := runRuleByName(t, "CyclomaticComplexMethod", code); len(findings) != 0 {
+		t.Fatalf("expected no findings under IgnoreSingleWhenExpression=true, got %d", len(findings))
+	}
+
+	rule.IgnoreSingleWhenExpression = false
+	if findings := runRuleByName(t, "CyclomaticComplexMethod", code); len(findings) == 0 {
+		t.Fatal("expected finding for the same when-dispatch under IgnoreSingleWhenExpression=false")
+	}
+
+	// A function whose body is more than just a single when (e.g. a
+	// guard `if` followed by `when`) is NOT treated as single-when
+	// dispatch even with the flag on — the bypass should not apply.
+	mixedCode := `package test
+fun classify(x: Int): String {
+    if (x < 0) return "negative"
+    return when (x) {
+        1 -> "one"
+        2 -> "two"
+        3 -> "three"
+        4 -> "four"
+        5 -> "five"
+        6 -> "six"
+        7 -> "seven"
+        8 -> "eight"
+        9 -> "nine"
+        10 -> "ten"
+        11 -> "eleven"
+        12 -> "twelve"
+        13 -> "thirteen"
+        14 -> "fourteen"
+        15 -> "fifteen"
+        16 -> "sixteen"
+        else -> "other"
+    }
+}
+`
+	rule.IgnoreSingleWhenExpression = true
+	if findings := runRuleByName(t, "CyclomaticComplexMethod", mixedCode); len(findings) == 0 {
+		t.Fatal("expected finding when body has more than just a when, even with IgnoreSingleWhenExpression=true")
+	}
+}
+
 func TestCyclomaticComplexMethod_HonorsIgnoreLocalFunctions(t *testing.T) {
 	// IgnoreLocalFunctions was previously a dead config — exposed in
 	// zz_meta but never consulted. With it set to true, complexity

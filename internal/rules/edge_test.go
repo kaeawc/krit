@@ -956,7 +956,7 @@ func TestMatchingDeclarationName_MultiplatformSuffix(t *testing.T) {
 // --- UnderscoresInNumericLiterals acceptableLength tests ---
 
 func TestUnderscoresInNumericLiterals_SkipsShortNumbers(t *testing.T) {
-	// 4-digit numbers should not be flagged (acceptableLength default = 5)
+	// 4-digit numbers should not be flagged (acceptableLength default = 4)
 	findings := runRuleByName(t, "UnderscoresInNumericLiterals", `
 package test
 fun example() {
@@ -974,7 +974,7 @@ fun example() {
 }
 
 func TestUnderscoresInNumericLiterals_FlagsLongNumbers(t *testing.T) {
-	// 5+ digit numbers without underscores should be flagged
+	// 5+ consecutive digits without underscores should be flagged
 	findings := runRuleByName(t, "UnderscoresInNumericLiterals", `
 package test
 fun example() {
@@ -1010,6 +1010,17 @@ fun example() {
 }`)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for already-formatted literals, got %d", len(findings))
+	}
+}
+
+func TestUnderscoresInNumericLiterals_FlagsNonStandardGrouping(t *testing.T) {
+	findings := runRuleByName(t, "UnderscoresInNumericLiterals", `
+package test
+fun example() {
+    val x = 10_00
+}`)
+	if len(findings) != 1 {
+		t.Errorf("expected 1 finding for non-standard underscore grouping, got %d", len(findings))
 	}
 }
 

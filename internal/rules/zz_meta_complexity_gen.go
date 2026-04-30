@@ -137,7 +137,7 @@ func (r *CyclomaticComplexMethodRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "ignoreSimpleWhenEntries",
 				Type:        registry.OptBool,
-				Default:     true,
+				Default:     false,
 				Description: "Ignore simple when entries.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*CyclomaticComplexMethodRule).IgnoreSimpleWhenEntries = value.(bool)

@@ -171,6 +171,29 @@ func TestCyclomaticComplexMethod_Negative(t *testing.T) {
 	}
 }
 
+func TestCyclomaticComplexMethod_DetektParitySimpleWhenEntriesCount(t *testing.T) {
+	// detekt parity: ignoreSimpleWhenEntries default is false, so each
+	// simple when entry contributes 1 to cyclomatic complexity. A `when`
+	// with 16 simple entries (and an else branch) on top of the base 1
+	// pushes complexity above the default threshold of 14. Under the
+	// previous default (true) the rule would have skipped these entries
+	// entirely and produced no finding.
+	var b strings.Builder
+	b.WriteString("package test\nfun classify(x: Int): String = when (x) {\n")
+	for i := 1; i <= 16; i++ {
+		b.WriteString("    ")
+		b.WriteString(itoa(i))
+		b.WriteString(" -> \"v")
+		b.WriteString(itoa(i))
+		b.WriteString("\"\n")
+	}
+	b.WriteString("    else -> \"other\"\n}\n")
+	findings := runRuleByName(t, "CyclomaticComplexMethod", b.String())
+	if len(findings) == 0 {
+		t.Fatal("expected CyclomaticComplexMethod finding for 16 simple when entries")
+	}
+}
+
 // --- LongParameterList ---
 
 func TestLongParameterList_Positive(t *testing.T) {

@@ -96,7 +96,7 @@ func registerComplexityRules() {
 		})
 	}
 	{
-		r := &CyclomaticComplexMethodRule{BaseRule: BaseRule{RuleName: "CyclomaticComplexMethod", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions whose cyclomatic complexity exceeds a configurable threshold."}, AllowedComplexity: 14, IgnoreSimpleWhenEntries: true}
+		r := &CyclomaticComplexMethodRule{BaseRule: BaseRule{RuleName: "CyclomaticComplexMethod", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions whose cyclomatic complexity exceeds a configurable threshold."}, AllowedComplexity: 14, IgnoreSimpleWhenEntries: false}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.75, OriginalV1: r,

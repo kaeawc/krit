@@ -1033,6 +1033,20 @@ type StringLiteralDuplicationRule struct {
 // roadmap/17.
 func (r *StringLiteralDuplicationRule) Confidence() float64 { return 0.75 }
 
+// stringLiteralUnquote strips the surrounding quote delimiters from a
+// Kotlin string literal's raw text so that user-supplied
+// IgnoreStringsRegex patterns match against the contents rather than
+// the quoted form. Both regular ("...") and triple-quoted ("""...""")
+// shapes are handled.
+func stringLiteralUnquote(text string) string {
+	if strings.HasPrefix(text, `"""`) && strings.HasSuffix(text, `"""`) && len(text) >= 6 {
+		return text[3 : len(text)-3]
+	}
+	if strings.HasPrefix(text, `"`) && strings.HasSuffix(text, `"`) && len(text) >= 2 {
+		return text[1 : len(text)-1]
+	}
+	return text
+}
 
 // TooManyFunctionsRule detects files or classes with too many functions.
 type TooManyFunctionsRule struct {

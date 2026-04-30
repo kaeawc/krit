@@ -423,6 +423,10 @@ func scanResourceDirWithStatsWorkers(resDir string, maxWorkers int, includeLayou
 	idx := newResourceIndex()
 	var stats ResourceScanStats
 
+	if abs, err := filepath.Abs(resDir); err == nil {
+		resDir = abs
+	}
+
 	info, err := os.Stat(resDir)
 	if err != nil {
 		return nil, stats, fmt.Errorf("cannot access res directory: %w", err)

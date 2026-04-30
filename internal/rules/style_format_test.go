@@ -430,3 +430,62 @@ fun main() {
 		t.Fatalf("expected no findings, got %d", len(findings))
 	}
 }
+
+func TestCascadingCallWrapping_HonorsIncludeElvis(t *testing.T) {
+	// IncludeElvis was previously a dead config — exposed in zz_meta but
+	// never consulted. Configure it via the rule pointer and verify
+	// elvis-chain continuations are checked under the same indentation
+	// rule as dotted continuations.
+	var rule *rules.CascadingCallWrappingRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "CascadingCallWrapping" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.CascadingCallWrappingRule)
+			if !ok {
+				t.Fatalf("expected CascadingCallWrappingRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("CascadingCallWrapping rule not registered")
+	}
+	original := rule.IncludeElvis
+	defer func() { rule.IncludeElvis = original }()
+
+	// Default (IncludeElvis=false): elvis continuations are not checked.
+	if findings := runRuleByName(t, "CascadingCallWrapping", `
+package test
+fun main() {
+    val x = bar
+    ?: baz
+}
+`); len(findings) != 0 {
+		t.Fatalf("expected no findings under IncludeElvis=false, got %d", len(findings))
+	}
+
+	rule.IncludeElvis = true
+
+	// Now the misindented elvis continuation should fire.
+	if findings := runRuleByName(t, "CascadingCallWrapping", `
+package test
+fun main() {
+    val x = bar
+    ?: baz
+}
+`); len(findings) == 0 {
+		t.Fatal("expected finding for misindented elvis continuation under IncludeElvis=true")
+	}
+
+	// Properly indented elvis chain should not fire.
+	if findings := runRuleByName(t, "CascadingCallWrapping", `
+package test
+fun main() {
+    val x = bar
+        ?: baz
+        ?: qux
+}
+`); len(findings) != 0 {
+		t.Fatalf("expected no findings for properly indented elvis chain under IncludeElvis=true, got %d", len(findings))
+	}
+}

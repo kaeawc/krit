@@ -194,6 +194,55 @@ func TestCyclomaticComplexMethod_DetektParitySimpleWhenEntriesCount(t *testing.T
 	}
 }
 
+func TestCyclomaticComplexMethod_HonorsIgnoreLocalFunctions(t *testing.T) {
+	// IgnoreLocalFunctions was previously a dead config — exposed in
+	// zz_meta but never consulted. With it set to true, complexity
+	// findings on nested local functions are suppressed; the outer
+	// function is still analyzed independently.
+	var rule *rules.CyclomaticComplexMethodRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "CyclomaticComplexMethod" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.CyclomaticComplexMethodRule)
+			if !ok {
+				t.Fatalf("expected CyclomaticComplexMethodRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("CyclomaticComplexMethod rule not registered")
+	}
+	original := rule.IgnoreLocalFunctions
+	defer func() { rule.IgnoreLocalFunctions = original }()
+
+	// A simple outer function whose only complexity comes from a nested
+	// local helper that crosses the threshold. With IgnoreLocalFunctions
+	// = true, the local helper's complexity is suppressed; the outer
+	// function has trivial complexity, so total findings = 0.
+	var b strings.Builder
+	b.WriteString("package test\nfun outer() {\n  fun helper(x: Int): Int {\n    var r = 0\n")
+	for i := 1; i <= 16; i++ {
+		b.WriteString("    if (x > ")
+		b.WriteString(itoa(i))
+		b.WriteString(") r += ")
+		b.WriteString(itoa(i))
+		b.WriteString("\n")
+	}
+	b.WriteString("    return r\n  }\n  helper(1)\n}\n")
+	code := b.String()
+
+	rule.IgnoreLocalFunctions = true
+	if findings := runRuleByName(t, "CyclomaticComplexMethod", code); len(findings) != 0 {
+		t.Fatalf("expected no findings under IgnoreLocalFunctions=true, got %d", len(findings))
+	}
+
+	rule.IgnoreLocalFunctions = false
+	if findings := runRuleByName(t, "CyclomaticComplexMethod", code); len(findings) == 0 {
+		t.Fatal("expected complexity finding for the local helper when IgnoreLocalFunctions=false")
+	}
+}
+
 // --- LongParameterList ---
 
 func TestLongParameterList_Positive(t *testing.T) {

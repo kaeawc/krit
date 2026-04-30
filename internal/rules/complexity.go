@@ -492,6 +492,26 @@ func (*CyclomaticComplexMethodRule) Description() string {
 	return "Counts independent paths through a function (branches, loops, catches). High cyclomatic complexity predicts defect density and makes code harder to test exhaustively."
 }
 
+// functionIsLocalFlat reports whether the given function_declaration is
+// nested inside another function/lambda body — i.e. it's a local
+// function rather than a top-level or member declaration. Used to honor
+// CyclomaticComplexMethodRule.IgnoreLocalFunctions and any future rules
+// that need to distinguish member methods from local helpers.
+func functionIsLocalFlat(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "function_declaration", "anonymous_function", "lambda_literal":
+			return true
+		case "class_body", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
 var decisionTypes = map[string]bool{
 	"if_expression":          true,
 	"for_statement":          true,

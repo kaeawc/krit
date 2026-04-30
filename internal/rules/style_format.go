@@ -540,8 +540,8 @@ func (r *CascadingCallWrappingRule) check(ctx *v2.Context) {
 type UnderscoresInNumericLiteralsRule struct {
 	FlatDispatchBase
 	BaseRule
-	Threshold        int
-	AcceptableLength int // don't flag numbers shorter than this many digits (default 5)
+	AcceptableLength         int // maximum consecutive digits allowed without underscores
+	AllowNonStandardGrouping bool
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Style/formatting rule. Detection is pattern or regex based on line text;
@@ -563,6 +563,52 @@ func formatWithUnderscores(digits string) string {
 		result = append(result, byte(c))
 	}
 	return string(result)
+}
+
+func maxConsecutiveDigits(text string) int {
+	maxRun := 0
+	current := 0
+	for _, c := range text {
+		if c >= '0' && c <= '9' {
+			current++
+			if current > maxRun {
+				maxRun = current
+			}
+			continue
+		}
+		current = 0
+	}
+	return maxRun
+}
+
+func stripNumericLiteralUnderscores(text string) string {
+	if !strings.Contains(text, "_") {
+		return text
+	}
+	var b strings.Builder
+	b.Grow(len(text))
+	for _, c := range text {
+		if c != '_' {
+			b.WriteRune(c)
+		}
+	}
+	return b.String()
+}
+
+func hasStandardNumericGrouping(text string) bool {
+	groups := strings.Split(text, "_")
+	if len(groups) == 1 {
+		return true
+	}
+	if len(groups[0]) == 0 || len(groups[0]) > 3 {
+		return false
+	}
+	for _, group := range groups[1:] {
+		if len(group) != 3 {
+			return false
+		}
+	}
+	return true
 }
 
 // EqualsOnSignatureLineRule detects `=` on the next line of a function signature.

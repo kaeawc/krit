@@ -196,19 +196,19 @@ func (r *UnderscoresInNumericLiteralsRule) Meta() registry.RuleDescriptor {
 			{
 				Name:        "acceptableLength",
 				Type:        registry.OptInt,
-				Default:     5,
+				Default:     4,
 				Description: "Acceptable numeric literal length without underscores.",
 				Apply: func(target interface{}, value interface{}) {
 					target.(*UnderscoresInNumericLiteralsRule).AcceptableLength = value.(int)
 				},
 			},
 			{
-				Name:        "threshold",
-				Type:        registry.OptInt,
-				Default:     10000,
-				Description: "Alias for acceptableLength.",
+				Name:        "allowNonStandardGrouping",
+				Type:        registry.OptBool,
+				Default:     false,
+				Description: "Allow underscore groups that are not exactly three digits.",
 				Apply: func(target interface{}, value interface{}) {
-					target.(*UnderscoresInNumericLiteralsRule).Threshold = value.(int)
+					target.(*UnderscoresInNumericLiteralsRule).AllowNonStandardGrouping = value.(bool)
 				},
 			},
 		},

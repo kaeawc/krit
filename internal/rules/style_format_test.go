@@ -215,6 +215,89 @@ fun main() {
 	}
 }
 
+func TestUnderscoresInNumericLiteralsDefaultsMatchDetekt(t *testing.T) {
+	var rule *rules.UnderscoresInNumericLiteralsRule
+	var meta registry.RuleDescriptor
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID != "UnderscoresInNumericLiterals" {
+			continue
+		}
+		var ok bool
+		rule, ok = candidate.OriginalV1.(*rules.UnderscoresInNumericLiteralsRule)
+		if !ok {
+			t.Fatalf("expected UnderscoresInNumericLiteralsRule, got %T", candidate.OriginalV1)
+		}
+		metaProvider, ok := candidate.OriginalV1.(registry.MetaProvider)
+		if !ok {
+			t.Fatal("expected UnderscoresInNumericLiteralsRule to provide metadata")
+		}
+		meta = metaProvider.Meta()
+		break
+	}
+	if rule == nil {
+		t.Fatal("UnderscoresInNumericLiterals rule not registered")
+	}
+	if rule.AcceptableLength != 4 {
+		t.Fatalf("expected AcceptableLength default 4, got %d", rule.AcceptableLength)
+	}
+	if rule.AllowNonStandardGrouping {
+		t.Fatal("expected AllowNonStandardGrouping default false")
+	}
+	defaults := map[string]interface{}{}
+	for _, opt := range meta.Options {
+		defaults[opt.Name] = opt.Default
+	}
+	if defaults["acceptableLength"] != 4 {
+		t.Fatalf("expected acceptableLength metadata default 4, got %v", defaults["acceptableLength"])
+	}
+	if defaults["allowNonStandardGrouping"] != false {
+		t.Fatalf("expected allowNonStandardGrouping metadata default false, got %v", defaults["allowNonStandardGrouping"])
+	}
+	if _, ok := defaults["threshold"]; ok {
+		t.Fatal("did not expect non-detekt threshold metadata option")
+	}
+}
+
+func TestUnderscoresInNumericLiteralsAllowsConfiguredNonStandardGrouping(t *testing.T) {
+	var rule *rules.UnderscoresInNumericLiteralsRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "UnderscoresInNumericLiterals" {
+			var ok bool
+			rule, ok = candidate.OriginalV1.(*rules.UnderscoresInNumericLiteralsRule)
+			if !ok {
+				t.Fatalf("expected UnderscoresInNumericLiteralsRule, got %T", candidate.OriginalV1)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("UnderscoresInNumericLiterals rule not registered")
+	}
+	originalAcceptableLength := rule.AcceptableLength
+	originalAllowNonStandardGrouping := rule.AllowNonStandardGrouping
+	defer func() {
+		rule.AcceptableLength = originalAcceptableLength
+		rule.AllowNonStandardGrouping = originalAllowNonStandardGrouping
+	}()
+
+	rules.ApplyConfig(loadTempConfig(t, `
+style:
+  UnderscoresInNumericLiterals:
+    allowNonStandardGrouping: true
+`))
+
+	findings := runRuleByName(t, "UnderscoresInNumericLiterals", `
+package test
+
+fun main() {
+    val x = 10_00
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when non-standard grouping is configured as allowed, got %d", len(findings))
+	}
+}
+
 // --- EqualsOnSignatureLine ---
 
 func TestEqualsOnSignatureLine_Positive(t *testing.T) {

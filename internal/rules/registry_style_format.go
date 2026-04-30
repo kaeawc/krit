@@ -73,7 +73,7 @@ func registerStyleFormatRules() {
 		})
 	}
 	{
-		r := &UnderscoresInNumericLiteralsRule{BaseRule: BaseRule{RuleName: "UnderscoresInNumericLiterals", RuleSetName: "style", Sev: "warning", Desc: "Detects large numeric literals that should use underscore separators for readability."}, Threshold: 10000, AcceptableLength: 5}
+		r := &UnderscoresInNumericLiteralsRule{BaseRule: BaseRule{RuleName: "UnderscoresInNumericLiterals", RuleSetName: "style", Sev: "warning", Desc: "Detects large numeric literals that should use underscore separators for readability."}, AcceptableLength: 4}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"integer_literal", "long_literal"}, Confidence: 0.75, Fix: v2.FixCosmetic, OriginalV1: r,
@@ -84,45 +84,30 @@ func registerStyleFormatRules() {
 				if strings.HasPrefix(clean, "0x") || strings.HasPrefix(clean, "0b") || strings.HasPrefix(clean, "0o") {
 					return
 				}
-				if strings.Contains(clean, "_") {
-					return
-				}
-				digitCount := 0
-				for _, c := range clean {
-					if c >= '0' && c <= '9' {
-						digitCount++
-					}
-				}
 				acceptLen := r.AcceptableLength
 				if acceptLen <= 0 {
-					acceptLen = 5
+					acceptLen = 4
 				}
-				if digitCount < acceptLen {
+				usesUnderscores := strings.Contains(clean, "_")
+				if maxConsecutiveDigits(clean) <= acceptLen &&
+					(!usesUnderscores || r.AllowNonStandardGrouping || hasStandardNumericGrouping(clean)) {
 					return
 				}
-				val := 0
-				for _, c := range clean {
-					if c >= '0' && c <= '9' {
-						val = val*10 + int(c-'0')
-					}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("Numeric literal '%s' should use underscores for readability.", text))
+				suffix := ""
+				digits := stripNumericLiteralUnderscores(clean)
+				if strings.HasSuffix(text, "L") || strings.HasSuffix(text, "l") {
+					suffix = text[len(text)-1:]
 				}
-				if val >= r.Threshold {
-					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-						fmt.Sprintf("Numeric literal '%s' should use underscores for readability.", text))
-					suffix := ""
-					digits := clean
-					if strings.HasSuffix(text, "L") || strings.HasSuffix(text, "l") {
-						suffix = text[len(text)-1:]
-					}
-					formatted := formatWithUnderscores(digits) + suffix
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(idx)),
-						EndByte:     int(file.FlatEndByte(idx)),
-						Replacement: formatted,
-					}
-					ctx.Emit(f)
+				formatted := formatWithUnderscores(digits) + suffix
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: formatted,
 				}
+				ctx.Emit(f)
 			},
 		})
 	}

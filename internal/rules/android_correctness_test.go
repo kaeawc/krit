@@ -70,6 +70,63 @@ fun example() {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+	t.Run("positive Java String.format without Locale", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "DefaultLocale", `
+package test;
+class Formatter {
+  String format(int count) {
+    return String.format("%d items", count);
+  }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected Java String.format finding")
+		}
+	})
+	t.Run("positive Java case conversion without Locale", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "DefaultLocale", `
+package test;
+class Formatter {
+  String normalize(String name) {
+    return name.toLowerCase();
+  }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected Java toLowerCase finding")
+		}
+	})
+	t.Run("negative Java calls with Locale", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "DefaultLocale", `
+package test;
+import java.util.Locale;
+class Formatter {
+  String normalize(String name, int count) {
+    String a = name.toUpperCase(Locale.ROOT);
+    return String.format(Locale.US, "%d items", count) + a;
+  }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative Java local format lookalike", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "DefaultLocale", `
+package test;
+class Formatter {
+  static class LocalString {
+    static String format(String pattern, int count) { return pattern; }
+  }
+  String format(int count) {
+    return LocalString.format("%d items", count);
+  }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for Java local lookalike, got %d", len(findings))
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -444,6 +501,51 @@ fun format() {
 }`)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("positive Java without Locale", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "SimpleDateFormat", `
+package test;
+import java.text.SimpleDateFormat;
+class Dates {
+  Object format() {
+    return new SimpleDateFormat("yyyy-MM-dd");
+  }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected Java SimpleDateFormat finding")
+		}
+	})
+	t.Run("negative Java with Locale", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "SimpleDateFormat", `
+package test;
+import java.text.SimpleDateFormat;
+import java.util.Locale;
+class Dates {
+  Object format() {
+    return new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+  }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative Java local lookalike", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "SimpleDateFormat", `
+package test;
+class SimpleDateFormat {
+  SimpleDateFormat(String pattern) {}
+}
+class Dates {
+  Object format() {
+    return new SimpleDateFormat("yyyy-MM-dd");
+  }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for Java local lookalike, got %d", len(findings))
 		}
 	})
 }

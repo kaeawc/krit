@@ -14,9 +14,15 @@ func registerAndroidCorrectnessRules() {
 		r := &DefaultLocaleRule{AndroidRule: alcRule("DefaultLocale", "Implied default locale in case conversion", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes:  []string{"call_expression", "method_invocation"},
+			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Confidence: r.Confidence(), OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if file.FlatType(idx) == "method_invocation" {
+					checkDefaultLocaleJava(ctx, idx)
+					return
+				}
 				name := flatCallExpressionName(file, idx)
 				switch name {
 				case "lowercase", "uppercase":
@@ -436,9 +442,15 @@ func registerAndroidCorrectnessRules() {
 		r := &SimpleDateFormatRule{AndroidRule: alcRule("SimpleDateFormat", "Using SimpleDateFormat directly without Locale", ALSWarning, 6)}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), OriginalV1: r,
+			NodeTypes:  []string{"call_expression", "object_creation_expression"},
+			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Confidence: r.Confidence(), OriginalV1: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if file.FlatType(idx) == "object_creation_expression" {
+					checkSimpleDateFormatJava(ctx, idx)
+					return
+				}
 				if flatCallExpressionName(file, idx) != "SimpleDateFormat" {
 					return
 				}
@@ -532,4 +544,86 @@ func registerAndroidCorrectnessRules() {
 			},
 		})
 	}
+}
+
+func checkDefaultLocaleJava(ctx *v2.Context, idx uint32) {
+	file := ctx.File
+	name := wrongViewCastCallName(file, idx)
+	args := wrongViewCastCallArgumentExpressions(file, idx)
+	switch name {
+	case "toLowerCase", "toUpperCase":
+		if len(args) == 0 {
+			ctx.EmitAt(file.FlatRow(idx)+1, 1, "Implicitly using the default locale. Use lowercase(Locale) or uppercase(Locale) instead.")
+			return
+		}
+		if !javaExprMentionsLocale(file, args[0]) {
+			ctx.EmitAt(file.FlatRow(idx)+1, 1, "Implicitly using the default locale. Use lowercase(Locale) or uppercase(Locale) instead.")
+		}
+	case "format":
+		receiver := wrongViewCastCallReceiverName(file, idx)
+		if receiver != "String" && receiver != "java.lang.String" {
+			return
+		}
+		if len(args) == 0 {
+			return
+		}
+		if javaExprMentionsLocale(file, args[0]) {
+			return
+		}
+		ctx.EmitAt(file.FlatRow(idx)+1, 1, "Implicitly using the default locale. Use String.format(Locale, ...) instead.")
+	}
+}
+
+func checkSimpleDateFormatJava(ctx *v2.Context, idx uint32) {
+	file := ctx.File
+	typeName := javaObjectCreationTypeName(file, idx)
+	if typeName != "SimpleDateFormat" && typeName != "java.text.SimpleDateFormat" {
+		return
+	}
+	if typeName == "SimpleDateFormat" && !sourceImportsOrMentions(file, "java.text.SimpleDateFormat") {
+		return
+	}
+	args := javaArgumentExpressions(file, idx)
+	if len(args) < 2 {
+		ctx.EmitAt(file.FlatRow(idx)+1, 1, "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs.")
+	}
+}
+
+func javaObjectCreationTypeName(file *scanner.File, idx uint32) string {
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "type_identifier", "scoped_type_identifier", "scoped_identifier", "generic_type":
+			text := strings.TrimSpace(file.FlatNodeText(child))
+			if i := strings.IndexByte(text, '<'); i >= 0 {
+				text = text[:i]
+			}
+			return text
+		case "argument_list", "class_body":
+			return ""
+		}
+	}
+	return ""
+}
+
+func javaArgumentExpressions(file *scanner.File, idx uint32) []uint32 {
+	argsNode, ok := file.FlatFindChild(idx, "argument_list")
+	if !ok {
+		return nil
+	}
+	var args []uint32
+	for child := file.FlatFirstChild(argsNode); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatIsNamed(child) {
+			args = append(args, child)
+		}
+	}
+	return args
+}
+
+func javaExprMentionsLocale(file *scanner.File, idx uint32) bool {
+	if idx == 0 {
+		return false
+	}
+	text := strings.TrimSpace(file.FlatNodeText(idx))
+	return text == "Locale" || strings.HasPrefix(text, "Locale.") ||
+		text == "java.util.Locale" || strings.HasPrefix(text, "java.util.Locale.")
 }

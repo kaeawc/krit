@@ -39,6 +39,17 @@ func wildcardImportExcluded(imp, excl string) bool {
 	return false
 }
 
+func importStatementPath(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 {
+		return ""
+	}
+	text := strings.TrimSpace(file.FlatNodeText(idx))
+	text = strings.TrimSpace(strings.TrimPrefix(text, "import"))
+	text = strings.TrimSpace(strings.TrimPrefix(text, "static"))
+	text = strings.TrimSuffix(text, ";")
+	return strings.TrimSpace(text)
+}
+
 // ForbiddenCommentRule detects TODO:, FIXME:, STOPSHIP: markers.
 type ForbiddenCommentRule struct {
 	FlatDispatchBase

@@ -1142,6 +1142,63 @@ fun doStuff(value: String?) {
 	}
 }
 
+func TestNestedScopeFunctions_HonorsFunctions(t *testing.T) {
+	// Functions was previously a dead config — exposed in metadata
+	// but never consulted. With it set to a custom list, only the
+	// configured callees count toward the depth limit.
+	var rule *rules.NestedScopeFunctionsRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "NestedScopeFunctions" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.NestedScopeFunctionsRule)
+			if !ok {
+				t.Fatalf("expected NestedScopeFunctionsRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("NestedScopeFunctions rule not registered")
+	}
+	original := rule.Functions
+	defer func() { rule.Functions = original }()
+
+	// Project-specific helper that nests like apply/run.
+	rule.Functions = []string{"configure"}
+
+	customCode := `package test
+fun build(value: String?) {
+    value?.configure {
+        it.configure {
+            it.configure {
+                println(it)
+            }
+        }
+    }
+}
+`
+	if findings := runRuleByName(t, "NestedScopeFunctions", customCode); len(findings) == 0 {
+		t.Fatal("expected finding for custom scope function 'configure' nested 3 deep")
+	}
+
+	// With the custom list active, the standard scope functions should
+	// no longer be considered nested.
+	stdScopeCode := `package test
+fun doStuff(value: String?) {
+    value?.let {
+        it.run {
+            it.also {
+                println(this)
+            }
+        }
+    }
+}
+`
+	if findings := runRuleByName(t, "NestedScopeFunctions", stdScopeCode); len(findings) != 0 {
+		t.Fatalf("expected no findings under custom Functions list with standard scope functions, got %d", len(findings))
+	}
+}
+
 // --- ReplaceSafeCallChainWithRun ---
 
 func TestReplaceSafeCallChainWithRun_Positive(t *testing.T) {

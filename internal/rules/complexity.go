@@ -1001,6 +1001,26 @@ var scopeFunctions = map[string]bool{
 	"apply": true, "also": true, "let": true, "run": true, "with": true,
 }
 
+// nestedScopeFunctionsActiveSet returns the set of callee names treated
+// as scope functions for NestedScopeFunctionsRule. When the configured
+// list is empty (the registry default), the always-on set covers the
+// five Kotlin standard scope functions. A non-empty configured list
+// fully replaces the defaults so users can include project-specific
+// scope-style helpers (or narrow the set to exclude one of the five).
+func nestedScopeFunctionsActiveSet(configured []string) map[string]bool {
+	if len(configured) == 0 {
+		return scopeFunctions
+	}
+	out := make(map[string]bool, len(configured))
+	for _, name := range configured {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			out[name] = true
+		}
+	}
+	return out
+}
+
 // Confidence reports a tier-2 (medium) base confidence. This rule
 // uses a threshold-based metric (line count, nesting depth, branch
 // count, parameter count, etc.) against a configurable limit. The

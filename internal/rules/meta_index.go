@@ -136,6 +136,7 @@ func AllMetaProviders() []v2.MetaProvider {
 		(*DebuggableManifestRule)(nil),
 		(*DefaultLocaleRule)(nil),
 		(*DeferredAwaitInFinallyRule)(nil),
+		(*DependencyLicenseIncompatibleRule)(nil),
 		(*DependencyLicenseUnknownRule)(nil),
 		(*DeprecatedBlockTagRule)(nil),
 		(*DeprecatedDependencyRule)(nil),

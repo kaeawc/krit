@@ -87,7 +87,7 @@ func TestDependencyLicenseUnknown(t *testing.T) {
 		defer restoreDefaults()
 
 		loadFixtureRuleConfig(t, filepath.Join(positiveDir, "krit.yml"))
-		findings := runDependencyLicenseUnknownFixture(t, rule, filepath.Join(positiveDir, "app", "build.gradle.kts"))
+		findings := runGradleFixture(t, "DependencyLicenseUnknown", filepath.Join(positiveDir, "app", "build.gradle.kts"))
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -101,7 +101,7 @@ func TestDependencyLicenseUnknown(t *testing.T) {
 		defer restoreDefaults()
 
 		loadFixtureRuleConfig(t, filepath.Join(negativeDir, "krit.yml"))
-		findings := runDependencyLicenseUnknownFixture(t, rule, filepath.Join(negativeDir, "app", "build.gradle.kts"))
+		findings := runGradleFixture(t, "DependencyLicenseUnknown", filepath.Join(negativeDir, "app", "build.gradle.kts"))
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
@@ -142,7 +142,7 @@ func TestLgplStaticLinkingInApk(t *testing.T) {
 		defer restoreDefaults()
 
 		loadFixtureRuleConfig(t, filepath.Join(positiveDir, "krit.yml"))
-		findings := runLgplStaticLinkingFixture(t, filepath.Join(positiveDir, "app", "build.gradle.kts"))
+		findings := runGradleFixture(t, "LgplStaticLinkingInApk", filepath.Join(positiveDir, "app", "build.gradle.kts"))
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
@@ -156,7 +156,7 @@ func TestLgplStaticLinkingInApk(t *testing.T) {
 		defer restoreDefaults()
 
 		loadFixtureRuleConfig(t, filepath.Join(negativeDir, "krit.yml"))
-		findings := runLgplStaticLinkingFixture(t, filepath.Join(negativeDir, "app", "build.gradle.kts"))
+		findings := runGradleFixture(t, "LgplStaticLinkingInApk", filepath.Join(negativeDir, "app", "build.gradle.kts"))
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings on app, got %d", len(findings))
 		}
@@ -167,28 +167,79 @@ func TestLgplStaticLinkingInApk(t *testing.T) {
 		defer restoreDefaults()
 
 		loadFixtureRuleConfig(t, filepath.Join(negativeDir, "krit.yml"))
-		findings := runLgplStaticLinkingFixture(t, filepath.Join(negativeDir, "feature", "maps", "build.gradle.kts"))
+		findings := runGradleFixture(t, "LgplStaticLinkingInApk", filepath.Join(negativeDir, "feature", "maps", "build.gradle.kts"))
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings on dynamic-feature, got %d", len(findings))
 		}
 	})
 }
 
-func runLgplStaticLinkingFixture(t *testing.T, buildPath string) []scanner.Finding {
-	t.Helper()
-	content, err := os.ReadFile(buildPath)
-	if err != nil {
-		t.Fatalf("ReadFile(%s): %v", buildPath, err)
+func TestDependencyLicenseIncompatible(t *testing.T) {
+	r := findGradleRule(t, "DependencyLicenseIncompatible")
+	rule, ok := r.Implementation.(*rules.DependencyLicenseIncompatibleRule)
+	if !ok {
+		t.Fatalf("expected *rules.DependencyLicenseIncompatibleRule, got %T", r.Implementation)
 	}
-	cfg, err := android.ParseBuildGradleContent(string(content))
-	if err != nil {
-		t.Fatalf("ParseBuildGradleContent(%s): %v", buildPath, err)
-	}
-	r := findGradleRule(t, "LgplStaticLinkingInApk")
-	return runGradleRule(r, buildPath, string(content), cfg)
+
+	originalProjectLicense := rule.ProjectLicense
+	defer func() { rule.ProjectLicense = originalProjectLicense }()
+
+	root := fixtureRoot(t)
+	positiveDir := filepath.Join(root, "positive", "licensing", "dependency-license-incompatible")
+	negativeDir := filepath.Join(root, "negative", "licensing", "dependency-license-incompatible")
+
+	t.Run("positive fixture flags GPL-3.0 dep against Apache-2.0 project", func(t *testing.T) {
+		restoreDefaults := snapshotDefaultInactive()
+		defer restoreDefaults()
+
+		loadFixtureRuleConfig(t, filepath.Join(positiveDir, "krit.yml"))
+		findings := runGradleFixture(t, "DependencyLicenseIncompatible", filepath.Join(positiveDir, "app", "build.gradle.kts"))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Rule != "DependencyLicenseIncompatible" {
+			t.Fatalf("expected DependencyLicenseIncompatible finding, got %s", findings[0].Rule)
+		}
+	})
+
+	t.Run("negative fixture is clean when all dep licenses are compatible", func(t *testing.T) {
+		restoreDefaults := snapshotDefaultInactive()
+		defer restoreDefaults()
+
+		loadFixtureRuleConfig(t, filepath.Join(negativeDir, "krit.yml"))
+		findings := runGradleFixture(t, "DependencyLicenseIncompatible", filepath.Join(negativeDir, "app", "build.gradle.kts"))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("no project license configured is clean", func(t *testing.T) {
+		restoreDefaults := snapshotDefaultInactive()
+		defer restoreDefaults()
+		rule.ProjectLicense = ""
+
+		rules.ApplyConfig(loadTempConfig(t, `
+licensing:
+  DependencyLicenseIncompatible:
+    active: true
+`))
+
+		content := `dependencies {
+    implementation("fixture.registry:gpl3-only-lib:1.0.0")
+}`
+		cfg, err := android.ParseBuildGradleContent(content)
+		if err != nil {
+			t.Fatalf("ParseBuildGradleContent: %v", err)
+		}
+		r2 := findGradleRule(t, "DependencyLicenseIncompatible")
+		findings := runGradleRule(r2, "build.gradle.kts", content, cfg)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
 }
 
-func runDependencyLicenseUnknownFixture(t *testing.T, _ *rules.DependencyLicenseUnknownRule, buildPath string) []scanner.Finding {
+func runGradleFixture(t *testing.T, ruleName, buildPath string) []scanner.Finding {
 	t.Helper()
 	content, err := os.ReadFile(buildPath)
 	if err != nil {
@@ -198,8 +249,7 @@ func runDependencyLicenseUnknownFixture(t *testing.T, _ *rules.DependencyLicense
 	if err != nil {
 		t.Fatalf("ParseBuildGradleContent(%s): %v", buildPath, err)
 	}
-	r2 := findGradleRule(t, "DependencyLicenseUnknown")
-	return runGradleRule(r2, buildPath, string(content), cfg)
+	return runGradleRule(findGradleRule(t, ruleName), buildPath, string(content), cfg)
 }
 
 func loadFixtureRuleConfig(t *testing.T, path string) {

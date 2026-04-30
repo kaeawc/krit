@@ -2,7 +2,6 @@ package rules
 
 import (
 	"github.com/kaeawc/krit/internal/config"
-	"github.com/kaeawc/krit/internal/rules/registry"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
@@ -61,15 +60,15 @@ func ApplyConfig(cfg *config.Config) {
 		// closures can mutate the live rule fields. Fall back to active-only
 		// when no concrete pointer is available.
 		concrete := r.Implementation
-		if _, hasMeta := concrete.(registry.MetaProvider); hasMeta {
-			active := registry.ApplyConfig(concrete, meta, adapter)
+		if _, hasMeta := concrete.(v2.MetaProvider); hasMeta {
+			active := v2.ApplyConfig(concrete, meta, adapter)
 			if active {
 				delete(DefaultInactive, ruleName)
 			} else {
 				DefaultInactive[ruleName] = true
 			}
 		} else {
-			active := registry.ApplyConfigActiveOnly(meta, adapter)
+			active := v2.ApplyConfigActiveOnly(meta, adapter)
 			if active {
 				delete(DefaultInactive, ruleName)
 			} else {

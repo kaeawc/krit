@@ -2,15 +2,15 @@ package rules
 
 import (
 	"github.com/kaeawc/krit/internal/config"
-	"github.com/kaeawc/krit/internal/rules/registry"
+	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
-// ConfigAdapter wraps *config.Config so it satisfies registry.ConfigSource.
+// ConfigAdapter wraps *config.Config so it satisfies v2.ConfigSource.
 //
-// The registry runtime (ApplyConfig) reads YAML-derived values through a
-// small interface so the registry package itself stays free of any YAML or
-// detekt-specific plumbing. This adapter bridges the gap between the
-// existing internal/config package and the Meta() descriptors.
+// The v2 metadata runtime reads YAML-derived values through a small interface
+// so rule metadata stays free of any YAML or detekt-specific plumbing. This
+// adapter bridges the gap between the existing internal/config package and the
+// Meta descriptors.
 //
 // The adapter is a thin pass-through: every ConfigSource method delegates
 // directly to the corresponding *config.Config method. The one piece of
@@ -20,7 +20,7 @@ type ConfigAdapter struct {
 	cfg *config.Config
 }
 
-// NewConfigAdapter wraps cfg in a registry.ConfigSource-compatible adapter.
+// NewConfigAdapter wraps cfg in a v2.ConfigSource-compatible adapter.
 // A nil cfg is allowed: every method short-circuits to "no override", which
 // is the same behavior as *config.Config's own nil-safe accessors.
 func NewConfigAdapter(cfg *config.Config) *ConfigAdapter {
@@ -36,7 +36,7 @@ func (a *ConfigAdapter) Unwrap() *config.Config {
 	return a.cfg
 }
 
-// HasKey implements registry.ConfigSource.
+// HasKey implements v2.ConfigSource.
 func (a *ConfigAdapter) HasKey(ruleSet, rule, key string) bool {
 	if a == nil {
 		return false
@@ -44,7 +44,7 @@ func (a *ConfigAdapter) HasKey(ruleSet, rule, key string) bool {
 	return a.cfg.Has(ruleSet, rule, key)
 }
 
-// GetInt implements registry.ConfigSource.
+// GetInt implements v2.ConfigSource.
 func (a *ConfigAdapter) GetInt(ruleSet, rule, key string, def int) int {
 	if a == nil {
 		return def
@@ -52,7 +52,7 @@ func (a *ConfigAdapter) GetInt(ruleSet, rule, key string, def int) int {
 	return a.cfg.GetInt(ruleSet, rule, key, def)
 }
 
-// GetBool implements registry.ConfigSource.
+// GetBool implements v2.ConfigSource.
 func (a *ConfigAdapter) GetBool(ruleSet, rule, key string, def bool) bool {
 	if a == nil {
 		return def
@@ -60,7 +60,7 @@ func (a *ConfigAdapter) GetBool(ruleSet, rule, key string, def bool) bool {
 	return a.cfg.GetBool(ruleSet, rule, key, def)
 }
 
-// GetString implements registry.ConfigSource.
+// GetString implements v2.ConfigSource.
 func (a *ConfigAdapter) GetString(ruleSet, rule, key, def string) string {
 	if a == nil {
 		return def
@@ -68,7 +68,7 @@ func (a *ConfigAdapter) GetString(ruleSet, rule, key, def string) string {
 	return a.cfg.GetString(ruleSet, rule, key, def)
 }
 
-// GetStringList implements registry.ConfigSource.
+// GetStringList implements v2.ConfigSource.
 func (a *ConfigAdapter) GetStringList(ruleSet, rule, key string) []string {
 	if a == nil {
 		return nil
@@ -76,7 +76,7 @@ func (a *ConfigAdapter) GetStringList(ruleSet, rule, key string) []string {
 	return a.cfg.GetStringList(ruleSet, rule, key)
 }
 
-// IsRuleActive implements registry.ConfigSource.
+// IsRuleActive implements v2.ConfigSource.
 func (a *ConfigAdapter) IsRuleActive(ruleSet, rule string) *bool {
 	if a == nil {
 		return nil
@@ -84,7 +84,7 @@ func (a *ConfigAdapter) IsRuleActive(ruleSet, rule string) *bool {
 	return a.cfg.IsRuleActive(ruleSet, rule)
 }
 
-// IsRuleSetActive implements registry.ConfigSource.
+// IsRuleSetActive implements v2.ConfigSource.
 func (a *ConfigAdapter) IsRuleSetActive(ruleSet string) *bool {
 	if a == nil {
 		return nil
@@ -92,5 +92,5 @@ func (a *ConfigAdapter) IsRuleSetActive(ruleSet string) *bool {
 	return a.cfg.IsRuleSetActive(ruleSet)
 }
 
-// Compile-time check that ConfigAdapter satisfies the registry contract.
-var _ registry.ConfigSource = (*ConfigAdapter)(nil)
+// Compile-time check that ConfigAdapter satisfies the v2 metadata contract.
+var _ v2.ConfigSource = (*ConfigAdapter)(nil)

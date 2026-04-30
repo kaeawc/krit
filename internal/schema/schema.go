@@ -5,7 +5,6 @@ import (
 	"sort"
 
 	"github.com/kaeawc/krit/internal/rules"
-	"github.com/kaeawc/krit/internal/rules/registry"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 )
 
@@ -61,7 +60,7 @@ func CollectRuleMeta() []RuleMeta {
 	return metas
 }
 
-// descriptorOptions converts registry.ConfigOption values into the
+// descriptorOptions converts v2.ConfigOption values into the
 // schema-facing OptionMeta shape. Each option emits:
 //   - one primary entry keyed by ConfigOption.Name
 //   - one alias entry per ConfigOption.Aliases[], with
@@ -69,7 +68,7 @@ func CollectRuleMeta() []RuleMeta {
 //
 // This matches the shape the legacy hand-written knownRuleOptions() used
 // to emit so the JSON Schema and validator behavior stay identical.
-func descriptorOptions(d registry.RuleDescriptor) []OptionMeta {
+func descriptorOptions(d v2.RuleDescriptor) []OptionMeta {
 	if len(d.Options) == 0 {
 		return nil
 	}
@@ -92,18 +91,18 @@ func descriptorOptions(d registry.RuleDescriptor) []OptionMeta {
 	return out
 }
 
-// optionTypeString maps registry.OptionType to the schema's string tag.
-func optionTypeString(t registry.OptionType) string {
+// optionTypeString maps v2.OptionType to the schema's string tag.
+func optionTypeString(t v2.OptionType) string {
 	switch t {
-	case registry.OptInt:
+	case v2.OptInt:
 		return "int"
-	case registry.OptBool:
+	case v2.OptBool:
 		return "bool"
-	case registry.OptString:
+	case v2.OptString:
 		return "string"
-	case registry.OptRegex:
+	case v2.OptRegex:
 		return "regex"
-	case registry.OptStringList:
+	case v2.OptStringList:
 		return "string[]"
 	default:
 		return "string"
@@ -113,12 +112,12 @@ func optionTypeString(t registry.OptionType) string {
 // optionDefault returns the default value suitable for embedding in the
 // JSON Schema. String-list options with a nil default are omitted so the
 // schema doesn't fabricate a `default: []` field that didn't exist before.
-func optionDefault(opt registry.ConfigOption) interface{} {
+func optionDefault(opt v2.ConfigOption) interface{} {
 	if opt.Default == nil {
 		return nil
 	}
 	switch opt.Type {
-	case registry.OptStringList:
+	case v2.OptStringList:
 		// Only emit when the default is a non-empty concrete slice.
 		if s, ok := opt.Default.([]string); ok && len(s) > 0 {
 			return s

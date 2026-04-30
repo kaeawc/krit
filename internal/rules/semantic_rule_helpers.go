@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -39,6 +40,9 @@ func semanticResolvedTargetMatches(ctx *v2.Context, call uint32, fqns ...string)
 }
 
 func semanticCallReceiverTypeMatches(ctx *v2.Context, call uint32, types ...string) bool {
+	if javaSemanticCallReceiverTypeMatches(ctx, call, types...) {
+		return true
+	}
 	target, ok := semantics.ResolveCallTarget(ctx, call)
 	if !ok || !target.Receiver.Valid() {
 		return false
@@ -65,6 +69,9 @@ func semanticTypeNameMatches(got string, wants ...string) bool {
 }
 
 func semanticCallTargetOrReceiverType(ctx *v2.Context, call uint32, owners []string, receiverTypes []string) bool {
+	if javaSemanticCallTargetOrReceiverType(ctx, call, owners, receiverTypes) {
+		return true
+	}
 	target, ok := semantics.ResolveCallTarget(ctx, call)
 	if !ok {
 		return false
@@ -73,6 +80,37 @@ func semanticCallTargetOrReceiverType(ctx *v2.Context, call uint32, owners []str
 		return semanticTargetOwnerMatches(target.QualifiedName, owners...)
 	}
 	return semanticCallReceiverTypeMatches(ctx, call, receiverTypes...)
+}
+
+func javaSemanticCallFact(ctx *v2.Context, call uint32) (javafacts.CallFact, bool) {
+	if ctx == nil || ctx.File == nil || ctx.JavaSemanticFacts == nil || ctx.File.Language != scanner.LangJava {
+		return javafacts.CallFact{}, false
+	}
+	return ctx.JavaSemanticFacts.CallAt(ctx.File.Path, ctx.File.FlatRow(call)+1, ctx.File.FlatCol(call)+1)
+}
+
+func javaSemanticCallReceiverTypeMatches(ctx *v2.Context, call uint32, types ...string) bool {
+	fact, ok := javaSemanticCallFact(ctx, call)
+	return ok && semanticTypeNameMatches(fact.ReceiverType, types...)
+}
+
+func javaSemanticCallReturnTypeMatches(ctx *v2.Context, call uint32, types ...string) bool {
+	fact, ok := javaSemanticCallFact(ctx, call)
+	return ok && semanticTypeNameMatches(fact.ReturnType, types...)
+}
+
+func javaSemanticCallOwnerMatches(ctx *v2.Context, call uint32, owners ...string) bool {
+	fact, ok := javaSemanticCallFact(ctx, call)
+	return ok && semanticTargetOwnerMatches(fact.MethodOwner, owners...)
+}
+
+func javaSemanticCallTargetOrReceiverType(ctx *v2.Context, call uint32, owners []string, receiverTypes []string) bool {
+	fact, ok := javaSemanticCallFact(ctx, call)
+	if !ok {
+		return false
+	}
+	return semanticTargetOwnerMatches(fact.MethodOwner, owners...) ||
+		semanticTypeNameMatches(fact.ReceiverType, receiverTypes...)
 }
 
 func obsoleteComposeModifierCall(ctx *v2.Context, call uint32) (name string, replacement string, ok bool) {
@@ -604,6 +642,9 @@ func setJavaScriptEnabledJavaCall(ctx *v2.Context, call uint32) bool {
 	args := javaArgumentExpressions(file, call)
 	if len(args) != 1 || !isJavaBooleanTrue(file, args[0]) {
 		return false
+	}
+	if fact, ok := javaSemanticCallFact(ctx, call); ok {
+		return semanticTypeNameMatches(fact.ReceiverType, "android.webkit.WebSettings", "WebSettings")
 	}
 	if !sourceImportsOrMentions(file, "android.webkit.WebSettings") && !sourceImportsOrMentions(file, "android.webkit.WebView") {
 		return false

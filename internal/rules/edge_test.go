@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	v2rules "github.com/kaeawc/krit/internal/rules/v2"
@@ -63,6 +64,64 @@ func runRuleByNameOnJavaPath(t *testing.T, ruleName, filename, code string) []sc
 		t.Fatal(err)
 	}
 	return runRuleByNameOnFile(t, ruleName, file)
+}
+
+type javaSemanticCallSpec struct {
+	Callee       string
+	ReceiverType string
+	MethodOwner  string
+	ReturnType   string
+}
+
+func runRuleByNameOnJavaWithSemanticCalls(t *testing.T, ruleName string, code string, specs ...javaSemanticCallSpec) []scanner.Finding {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.java")
+	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseJavaFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := &javafacts.Facts{Version: javafacts.Version}
+	for _, spec := range specs {
+		call, ok := firstJavaMethodInvocationContaining(file, spec.Callee+"(")
+		if !ok {
+			t.Fatalf("method invocation %q not found", spec.Callee)
+		}
+		facts.Calls = append(facts.Calls, javafacts.CallFact{
+			File:         file.Path,
+			Line:         file.FlatRow(call) + 1,
+			Col:          file.FlatCol(call) + 1,
+			Callee:       spec.Callee,
+			ReceiverType: spec.ReceiverType,
+			MethodOwner:  spec.MethodOwner,
+			ReturnType:   spec.ReturnType,
+		})
+	}
+	for _, r := range v2rules.Registry {
+		if r.ID == ruleName {
+			d := rules.NewDispatcherV2([]*v2rules.Rule{r})
+			d.SetJavaSemanticFacts(facts)
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", ruleName)
+	return nil
+}
+
+func firstJavaMethodInvocationContaining(file *scanner.File, needle string) (uint32, bool) {
+	var found uint32
+	file.FlatWalkNodes(0, "method_invocation", func(idx uint32) {
+		if found != 0 {
+			return
+		}
+		if strings.Contains(file.FlatNodeText(idx), needle) {
+			found = idx
+		}
+	})
+	return found, found != 0
 }
 
 func parseJavaFixture(t *testing.T, path string) *scanner.File {

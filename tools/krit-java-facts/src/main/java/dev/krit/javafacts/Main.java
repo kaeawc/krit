@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.TypeMirror;
@@ -108,8 +109,10 @@ public final class Main {
     long col;
     String callee;
     String receiverType;
+    String methodOwner;
     String element;
     String returnType;
+    final List<String> annotations = new ArrayList<>();
   }
 
   private static final class ClassFact {
@@ -143,6 +146,15 @@ public final class Main {
       fact.callee = calleeName(node);
       Element element = trees.getElement(path);
       fact.element = element == null ? "" : element.toString();
+      fact.methodOwner =
+          element == null || element.getEnclosingElement() == null
+              ? ""
+              : element.getEnclosingElement().toString();
+      if (element != null) {
+        for (AnnotationMirror annotation : element.getAnnotationMirrors()) {
+          fact.annotations.add(annotation.getAnnotationType().toString());
+        }
+      }
       TypeMirror returnType = trees.getTypeMirror(path);
       fact.returnType = returnType == null ? "" : returnType.toString();
       Tree receiver = receiverExpression(node);
@@ -208,9 +220,15 @@ public final class Main {
       for (int i = 0; i < facts.calls.size(); i++) {
         CallFact f = facts.calls.get(i);
         out.printf(
-            "  {\"file\":\"%s\",\"line\":%d,\"col\":%d,\"callee\":\"%s\",\"receiverType\":\"%s\",\"element\":\"%s\",\"returnType\":\"%s\"}%s%n",
-            json(f.file), f.line, f.col, json(f.callee), json(f.receiverType), json(f.element),
-            json(f.returnType), i + 1 == facts.calls.size() ? "" : ",");
+            "  {\"file\":\"%s\",\"line\":%d,\"col\":%d,\"callee\":\"%s\",\"receiverType\":\"%s\",\"methodOwner\":\"%s\",\"element\":\"%s\",\"returnType\":\"%s\",\"annotations\":[",
+            json(f.file), f.line, f.col, json(f.callee), json(f.receiverType), json(f.methodOwner),
+            json(f.element), json(f.returnType));
+        for (int j = 0; j < f.annotations.size(); j++) {
+          out.printf(
+              "\"%s\"%s",
+              json(f.annotations.get(j)), j + 1 == f.annotations.size() ? "" : ",");
+        }
+        out.printf("]}%s%n", i + 1 == facts.calls.size() ? "" : ",");
       }
       out.println("],\"classes\":[");
       for (int i = 0; i < facts.classes.size(); i++) {

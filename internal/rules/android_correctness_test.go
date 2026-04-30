@@ -236,6 +236,26 @@ class Store {
 			t.Fatalf("expected 0 findings for local lookalike, got %d", len(findings))
 		}
 	})
+	t.Run("Java semantic facts suppress imported local lookalike", func(t *testing.T) {
+		findings := runRuleByNameOnJavaWithSemanticCalls(t, "CommitPrefEdits", `
+package test;
+import android.content.SharedPreferences;
+class Prefs {
+  Editor edit() { return new Editor(); }
+}
+class Editor {
+  void putString(String key, String value) {}
+}
+class Store {
+  void save(Prefs prefs) {
+    Editor editor = prefs.edit();
+    editor.putString("key", "value");
+  }
+}`, javaSemanticCallSpec{Callee: "edit", ReceiverType: "test.Prefs", ReturnType: "test.Editor"})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for javac-confirmed local lookalike, got %d", len(findings))
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +310,25 @@ class Screen {
 }`)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("Java semantic facts suppress imported local lookalike", func(t *testing.T) {
+		findings := runRuleByNameOnJavaWithSemanticCalls(t, "CommitTransaction", `
+package test;
+import androidx.fragment.app.FragmentManager;
+class Manager {
+  Transaction beginTransaction() { return new Transaction(); }
+}
+class Transaction {
+  Transaction replace(int id, Object fragment) { return this; }
+}
+class Screen {
+  void show(Manager manager) {
+    manager.beginTransaction().replace(1, new Object());
+  }
+}`, javaSemanticCallSpec{Callee: "beginTransaction", ReceiverType: "test.Manager", ReturnType: "test.Transaction"})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for javac-confirmed local lookalike, got %d", len(findings))
 		}
 	})
 }
@@ -412,6 +451,21 @@ class Strings {
 }`)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("Java semantic facts suppress non-String replace lookalike", func(t *testing.T) {
+		findings := runRuleByNameOnJavaWithSemanticCalls(t, "CheckResult", `
+package test;
+class MutableValue {
+  MutableValue replace(String a, String b) { return this; }
+}
+class Strings {
+  void example(MutableValue value) {
+    value.replace("a", "b");
+  }
+}`, javaSemanticCallSpec{Callee: "replace", ReceiverType: "test.MutableValue", ReturnType: "test.MutableValue"})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for javac-confirmed non-String replace, got %d", len(findings))
 		}
 	})
 }

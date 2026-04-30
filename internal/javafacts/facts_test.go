@@ -7,13 +7,25 @@ import (
 )
 
 func TestParseAndLookupReceiverType(t *testing.T) {
-	data := []byte(`{"version":1,"calls":[{"file":"/tmp/T.java","line":4,"col":5,"callee":"setJavaScriptEnabled","receiverType":"android.webkit.WebSettings","element":"setJavaScriptEnabled(boolean)","returnType":"void"}],"classes":[]}`)
+	data := []byte(`{"version":1,"calls":[{"file":"/tmp/T.java","line":4,"col":5,"callee":"setJavaScriptEnabled","receiverType":"android.webkit.WebSettings","methodOwner":"android.webkit.WebSettings","element":"setJavaScriptEnabled(boolean)","returnType":"void","annotations":["androidx.annotation.CheckResult"]}],"classes":[{"file":"/tmp/T.java","line":2,"col":1,"name":"Browser","qualifiedName":"test.Browser","supertypes":["android.app.Activity"]}]}`)
 	facts, err := Parse(data)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := facts.ReceiverType("/tmp/T.java", 4, 5); got != "android.webkit.WebSettings" {
 		t.Fatalf("ReceiverType = %q", got)
+	}
+	if got := facts.MethodOwner("/tmp/T.java", 4, 5); got != "android.webkit.WebSettings" {
+		t.Fatalf("MethodOwner = %q", got)
+	}
+	if got := facts.ReturnType("/tmp/T.java", 4, 5); got != "void" {
+		t.Fatalf("ReturnType = %q", got)
+	}
+	if !facts.HasCallAnnotation("/tmp/T.java", 4, 5, "CheckResult") {
+		t.Fatal("expected CheckResult annotation")
+	}
+	if got := facts.ClassSupertypes("/tmp/T.java", 2, 1); len(got) != 1 || got[0] != "android.app.Activity" {
+		t.Fatalf("ClassSupertypes = %#v", got)
 	}
 }
 

@@ -242,6 +242,22 @@ class Browser {
 			t.Fatalf("expected 0 findings for local lookalike, got %d", len(findings))
 		}
 	})
+	t.Run("semantic facts suppress imported local lookalike", func(t *testing.T) {
+		findings := runRuleByNameOnJavaWithSemanticCalls(t, "SetJavaScriptEnabled", `
+package test;
+import android.webkit.WebSettings;
+class FakeSettings {
+  void setJavaScriptEnabled(boolean enabled) {}
+}
+class Browser {
+  void setup(FakeSettings webSettings) {
+    webSettings.setJavaScriptEnabled(true);
+  }
+}`, javaSemanticCallSpec{Callee: "setJavaScriptEnabled", ReceiverType: "test.FakeSettings", ReturnType: "void"})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for javac-confirmed local lookalike, got %d", len(findings))
+		}
+	})
 }
 
 // --- PrivateKeyRule (PackagedPrivateKey) ---

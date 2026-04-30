@@ -97,6 +97,7 @@ func registerAndroidCorrectnessRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "method_invocation"},
 			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, Implementation: r,
+			JavaFacts: &v2.JavaFactProfile{ReceiverTypesForCallees: []string{"edit"}},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatType(idx) == "method_invocation" {
@@ -130,6 +131,7 @@ func registerAndroidCorrectnessRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "method_invocation"},
 			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, Implementation: r,
+			JavaFacts: &v2.JavaFactProfile{ReceiverTypesForCallees: []string{"beginTransaction"}},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatType(idx) == "method_invocation" {
@@ -170,6 +172,7 @@ func registerAndroidCorrectnessRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"call_expression", "method_invocation"},
 			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.8, Implementation: r,
+			JavaFacts: &v2.JavaFactProfile{ReturnTypesForCallees: []string{"animate", "buildUpon", "edit", "format", "trim", "replace"}},
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if strings.HasSuffix(file.Path, ".gradle.kts") {
@@ -651,7 +654,11 @@ func checkCommitPrefEditsJava(ctx *v2.Context, idx uint32) {
 	if len(javaArgumentExpressions(file, idx)) != 0 {
 		return
 	}
-	if !sourceImportsOrMentions(file, "android.content.SharedPreferences") {
+	if fact, ok := javaSemanticCallFact(ctx, idx); ok {
+		if !semanticTypeNameMatches(fact.ReceiverType, "android.content.SharedPreferences", "SharedPreferences") {
+			return
+		}
+	} else if !sourceImportsOrMentions(file, "android.content.SharedPreferences") {
 		return
 	}
 	if javaAncestorCallNameMatches(file, idx, commitOrApplyNames) {
@@ -673,7 +680,13 @@ func checkCommitTransactionJava(ctx *v2.Context, idx uint32) {
 	if javaMethodInvocationName(file, idx) != "beginTransaction" {
 		return
 	}
-	if !sourceImportsOrMentions(file, "android.app.FragmentTransaction") &&
+	if fact, ok := javaSemanticCallFact(ctx, idx); ok {
+		if !semanticTypeNameMatches(fact.ReceiverType,
+			"android.app.FragmentManager", "FragmentManager",
+			"androidx.fragment.app.FragmentManager") {
+			return
+		}
+	} else if !sourceImportsOrMentions(file, "android.app.FragmentTransaction") &&
 		!sourceImportsOrMentions(file, "androidx.fragment.app.FragmentTransaction") &&
 		!sourceImportsOrMentions(file, "android.app.FragmentManager") &&
 		!sourceImportsOrMentions(file, "androidx.fragment.app.FragmentManager") {
@@ -705,6 +718,9 @@ func checkResultJava(ctx *v2.Context, idx uint32) {
 	if !checkResultCalleeNames[name] {
 		return
 	}
+	if ok, known := checkResultJavaSemanticConfirmed(ctx, idx, name); known && !ok {
+		return
+	}
 	if name == "format" {
 		receiver := wrongViewCastCallReceiverName(file, idx)
 		if receiver != "String" && receiver != "java.lang.String" {
@@ -713,6 +729,26 @@ func checkResultJava(ctx *v2.Context, idx uint32) {
 	}
 	ctx.EmitAt(file.FlatRow(idx)+1, 1,
 		"The result of this call is not used. Check if the return value should be consumed.")
+}
+
+func checkResultJavaSemanticConfirmed(ctx *v2.Context, idx uint32, name string) (bool, bool) {
+	fact, ok := javaSemanticCallFact(ctx, idx)
+	if !ok {
+		return false, false
+	}
+	switch name {
+	case "edit":
+		return semanticTypeNameMatches(fact.ReturnType, "android.content.SharedPreferences.Editor", "SharedPreferences.Editor"), true
+	case "format", "trim", "replace":
+		return semanticTypeNameMatches(fact.ReturnType, "java.lang.String", "String"), true
+	case "buildUpon":
+		return strings.HasSuffix(strings.ReplaceAll(fact.ReturnType, "$", "."), ".Builder") ||
+			semanticTypeNameMatches(fact.ReturnType, "Builder"), true
+	case "animate":
+		return semanticTypeNameMatches(fact.ReturnType, "android.view.ViewPropertyAnimator", "ViewPropertyAnimator"), true
+	default:
+		return false, false
+	}
 }
 
 func javaMethodInvocationResultIsIgnored(file *scanner.File, idx uint32) bool {

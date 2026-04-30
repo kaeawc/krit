@@ -129,6 +129,7 @@ type TypeInfoHint struct {
 // fallbacks when facts are unavailable.
 type JavaFactProfile struct {
 	ReceiverTypesForCallees []string
+	ReturnTypesForCallees   []string
 	ClassSupertypes         []string
 	Annotations             []string
 	DeclarationNames        []string
@@ -407,6 +408,9 @@ type Context struct {
 	// dispatch receives a one-file index.
 	JavaFacts       *javafacts.JavaFileFacts
 	JavaSourceIndex *javafacts.SourceIndex
+	// Populated when at least one enabled Java rule requested optional
+	// javac-backed semantic facts and the helper was available.
+	JavaSemanticFacts *javafacts.Facts
 
 	// Project-wide library and platform facts derived from Gradle where
 	// available. Rules should use this instead of baking library-version

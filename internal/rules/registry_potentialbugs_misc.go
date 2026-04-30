@@ -227,6 +227,9 @@ func registerPotentialbugsMiscRules() {
 				if flatIsUsedAsExpression(file, idx) {
 					return
 				}
+				if ignoredReturnValueIsSideEffectFoldDispatch(file, idx, funcName) {
+					return
+				}
 
 				var oracleReturnType *typeinfer.ResolvedType
 				if oracleLookup != nil {

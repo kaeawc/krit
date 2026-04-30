@@ -70,6 +70,26 @@ func TestMaxLineLength_Negative(t *testing.T) {
 	}
 }
 
+func TestMaxLineLength_Java(t *testing.T) {
+	longLine := "String result = aaaaaaaa + bbbbbbbb + cccccccc + dddddddd + eeeeeeee + ffffffff + gggggggg + hhhhhhhh + iiiiiiii + jjjjjjjj;"
+	code := "package test;\nclass Example {\n  void run() {\n    " + longLine + "\n  }\n}\n"
+	findings := runRuleByNameOnJava(t, "MaxLineLength", code)
+	if len(findings) == 0 {
+		t.Fatal("expected Java finding for line exceeding max length")
+	}
+}
+
+func TestMaxLineLength_JavaExcludesPackageAndImportLines(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "MaxLineLength", `
+package com.example.this.is.a.very.long.package.name.that.would.otherwise.exceed.the.configured.maximum.line.length.for.source.files;
+import com.example.this.is.a.very.long.import.name.that.would.otherwise.exceed.the.configured.maximum.line.length.ForSourceFiles;
+class Example {}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no Java max-line-length findings for excluded package/import lines, got %d", len(findings))
+	}
+}
+
 func TestMaxLineLengthDefaultsMatchDetekt(t *testing.T) {
 	var rule *rules.MaxLineLengthRule
 	var meta registry.RuleDescriptor
@@ -169,6 +189,36 @@ fun main() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestMaxChainedCallsOnSameLine_Java(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "MaxChainedCallsOnSameLine", `
+package test;
+
+class Example {
+  void run() {
+    Object x = a.b().c().d().e().f().g();
+  }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected Java finding for too many chained calls")
+	}
+}
+
+func TestMaxChainedCallsOnSameLine_JavaNegative(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "MaxChainedCallsOnSameLine", `
+package test;
+
+class Example {
+  void run() {
+    Object x = a.b().c();
+  }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no Java chained-call findings, got %d", len(findings))
 	}
 }
 

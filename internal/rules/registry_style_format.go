@@ -36,7 +36,7 @@ func registerStyleFormatRules() {
 		}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Implementation: r,
+			Needs: v2.NeedsLinePass, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -60,7 +60,7 @@ func registerStyleFormatRules() {
 		r := &MaxChainedCallsOnSameLineRule{BaseRule: BaseRule{RuleName: "MaxChainedCallsOnSameLine", RuleSetName: "style", Sev: "warning", Desc: "Detects lines with more chained method calls than the configured maximum."}, MaxCalls: 5}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			Needs: v2.NeedsLinePass, Implementation: r,
+			Needs: v2.NeedsLinePass, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Implementation: r,
 			Check: r.check,
 		})
 	}

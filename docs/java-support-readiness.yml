@@ -146,7 +146,7 @@ ruleSetDefaults:
   style:
     status: partial
     issue: 700
-    reason: Java comment/import style rules are supported; most remaining style rules encode Kotlin syntax and require explicit per-rule review.
+    reason: Java comment/import style rules and line-based formatting checks are supported; most remaining style rules encode Kotlin syntax and require explicit per-rule review.
   testing:
     status: pending
     issue: 700
@@ -287,6 +287,14 @@ rules:
     status: supported
     fixtures:
       - internal/rules/exceptions_test.go
+  MaxChainedCallsOnSameLine:
+    status: supported
+    fixtures:
+      - internal/rules/style_format_test.go
+  MaxLineLength:
+    status: supported
+    fixtures:
+      - internal/rules/style_format_test.go
   NewLineAtEndOfFile:
     status: supported
     fixtures:

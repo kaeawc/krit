@@ -73,6 +73,13 @@ type CodeIndex struct {
 	References []Reference
 	Files      []*File
 
+	// Fingerprint is the cache fingerprint computed from the input file
+	// set's content hashes. Populated by BuildIndexCached on both hit
+	// and miss paths so downstream callers (e.g. cross-file findings
+	// cache) can reuse it as part of their own cache keys without
+	// rehashing every file.
+	Fingerprint string
+
 	// Lookup maps
 	symbolsByName                map[string][]Symbol
 	symbolsByFQN                 map[string]Symbol
@@ -116,6 +123,7 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 
 	if cachedIdx, ok := LoadCrossFileCacheIndex(cacheDir, fingerprint); ok {
 		cachedIdx.Files = append(cachedIdx.Files, files...)
+		cachedIdx.Fingerprint = fingerprint
 		return cachedIdx, true
 	}
 
@@ -126,6 +134,7 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 	symbols, refs, prebuiltBloom := collectIndexDataSharded(cacheDir, files, javaFiles, xmlFiles, workers, tracker)
 	idx := BuildIndexFromDataWithBloom(symbols, refs, prebuiltBloom, tracker)
 	idx.Files = append(idx.Files, files...)
+	idx.Fingerprint = fingerprint
 
 	meta := CrossFileCacheMeta{
 		KotlinFiles: len(files),

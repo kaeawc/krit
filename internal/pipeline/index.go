@@ -182,6 +182,11 @@ type IndexInput struct {
 	// CrossFileCacheDir enables the on-disk cross-file index cache when
 	// non-empty; empty forces a full rebuild every run.
 	CrossFileCacheDir string
+	// CrossFindingsCacheDir enables the on-disk cross-rule findings cache
+	// when non-empty; empty forces a full re-run of cross-file rules every
+	// invocation. Independent of CrossFileCacheDir so the index cache and
+	// findings cache can be cleared separately.
+	CrossFindingsCacheDir string
 	// CrossFileWorkers is the pre-computed initial worker count for the
 	// Kotlin-only case (before Java file paths are known). IndexPhase
 	// recomputes when Java files land. When zero, IndexPhase derives it
@@ -248,7 +253,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		return IndexResult{}, err
 	}
 
-	result := IndexResult{ParseResult: in.ParseResult, LibraryFacts: in.PrebuiltLibraryFacts}
+	result := IndexResult{ParseResult: in.ParseResult, LibraryFacts: in.PrebuiltLibraryFacts, CrossFindingsCacheDir: in.CrossFindingsCacheDir}
 
 	caps := unionNeeds(in.ActiveRules)
 
@@ -340,6 +345,22 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	// byte-identical.
 	if !in.SkipCache && in.CacheEnabled {
 		p.runCacheLoad(in, &result)
+	}
+
+	// Always populate RuleHash, independent of the per-file cache path.
+	// Downstream caches (cross-file findings, etc.) key on this hash and
+	// must work even when --no-cache disables the per-file findings cache.
+	if result.RuleHash == "" {
+		ruleNames := in.CacheRuleNames
+		if ruleNames == nil {
+			ruleNames = make([]string, 0, len(in.ActiveRules))
+			for _, r := range in.ActiveRules {
+				if r != nil {
+					ruleNames = append(ruleNames, r.ID)
+				}
+			}
+		}
+		result.RuleHash = cache.ComputeConfigHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled)
 	}
 
 	return result, nil

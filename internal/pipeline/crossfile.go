@@ -83,6 +83,23 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 		parsedFiles := crossRuleParsedFiles(in.KotlinFiles, in.JavaFiles)
 		javaSourceIndex := javaSourceIndexForParsedFiles(parsedFiles)
 		crossTracker := in.CrossFileParentTracker
+
+		// Cross-rule findings cache. Skips runCrossRules entirely when
+		// (codeIndex.Fingerprint or parsed-files fingerprint, ruleHash)
+		// matches a previous run. Cache miss runs cross-rules and writes
+		// the merged column slice back. Any error path falls through to
+		// the normal run.
+		crossFindingsKey, crossFindingsCacheable := crossFindingsCacheKey(codeIndex, parsedFiles, in.RuleHash)
+		var crossFindingsCacheHit bool
+		if crossFindingsCacheable && in.CrossFindingsCacheDir != "" {
+			if cached, ok := scanner.LoadCrossFindings(in.CrossFindingsCacheDir, crossFindingsKey); ok {
+				crossCollector.AppendColumns(&cached)
+				crossFindingsCacheHit = true
+				if in.Logger != nil {
+					in.Logger("verbose: Cross-file findings cache: HIT (%d findings)\n", cached.Len())
+				}
+			}
+		}
 		runCrossRules := func() error {
 			ruleTracker := crossTracker
 			if ruleTracker != nil {
@@ -116,10 +133,22 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 			}
 			return nil
 		}
-		if crossTracker != nil {
-			_ = crossTracker.Track("crossRuleExecution", runCrossRules)
-		} else {
-			_ = runCrossRules()
+		if !crossFindingsCacheHit {
+			if crossTracker != nil {
+				_ = crossTracker.Track("crossRuleExecution", runCrossRules)
+			} else {
+				_ = runCrossRules()
+			}
+			if crossFindingsCacheable && in.CrossFindingsCacheDir != "" {
+				snapshot := crossCollector.Columns().Clone()
+				if err := scanner.SaveCrossFindings(in.CrossFindingsCacheDir, crossFindingsKey, snapshot); err != nil {
+					if in.Logger != nil {
+						in.Logger("verbose: Cross-file findings cache: save failed: %v\n", err)
+					}
+				} else if in.Logger != nil {
+					in.Logger("verbose: Cross-file findings cache: MISS (saved %d findings)\n", snapshot.Len())
+				}
+			}
 		}
 		if in.Logger != nil {
 			if codeIndex != nil {
@@ -207,6 +236,18 @@ func (p CrossFilePhase) Run(ctx context.Context, in DispatchResult) (CrossFileRe
 	result.Findings = *merged.Columns()
 
 	return result, nil
+}
+
+// crossFindingsCacheKey derives the cache key for the cross-rule
+// findings cache. Returns (key, cacheable). Caching is only enabled
+// when the codeIndex has a non-empty Fingerprint (set by
+// scanner.BuildIndexCached) and ruleHash is populated; the parsed-files
+// only path skips caching to keep the fingerprint truly cheap.
+func crossFindingsCacheKey(codeIndex *scanner.CodeIndex, _ []*scanner.File, ruleHash string) (string, bool) {
+	if codeIndex == nil || codeIndex.Fingerprint == "" || ruleHash == "" {
+		return "", false
+	}
+	return scanner.CrossFindingsKey(codeIndex.Fingerprint, ruleHash), true
 }
 
 // pickModuleAwareV2Rules returns the v2 rules that need module-aware dispatch.

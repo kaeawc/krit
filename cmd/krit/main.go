@@ -56,6 +56,20 @@ func resolveCrossFileCacheDir(paths []string, disabled bool) string {
 	return scanner.CrossFileCacheDir(repoDir)
 }
 
+// resolveCrossFindingsCacheDir returns the directory backing the
+// cross-rule findings cache, or "" when caching is disabled (mirrors
+// resolveCrossFileCacheDir).
+func resolveCrossFindingsCacheDir(paths []string, disabled bool) string {
+	if disabled {
+		return ""
+	}
+	repoDir := oracle.FindRepoDir(paths)
+	if repoDir == "" {
+		return ""
+	}
+	return scanner.CrossFindingsCacheDir(repoDir)
+}
+
 func detectConfigForScanArgs(args []string) string {
 	if len(args) == 0 {
 		return ""
@@ -1281,6 +1295,7 @@ potential-bugs:
 		CrossFileParentTracker: crossTracker,
 		CrossFileJobsFlag:      *jobsFlag,
 		CrossFileCacheDir:      resolveCrossFileCacheDir(paths, *noCrossFileCacheFlag),
+		CrossFindingsCacheDir:  resolveCrossFindingsCacheDir(paths, *noCrossFileCacheFlag),
 		ParseCache:             parseCache,
 		BuildModuleIndex:       true,
 		ModuleParentTracker:    moduleTracker,

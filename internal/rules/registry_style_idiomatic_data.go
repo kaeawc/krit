@@ -204,10 +204,20 @@ func registerStyleIdiomaticDataRules() {
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				entryCount := 0
+				containsVarDecl := false
 				for i := 0; i < file.FlatChildCount(idx); i++ {
-					if file.FlatType(file.FlatChild(idx, i)) == "when_entry" {
+					child := file.FlatChild(idx, i)
+					if file.FlatType(child) == "when_entry" {
 						entryCount++
+						if r.IgnoreWhenContainingVariableDeclaration && !containsVarDecl {
+							file.FlatWalkNodes(child, "property_declaration", func(uint32) {
+								containsVarDecl = true
+							})
+						}
 					}
+				}
+				if r.IgnoreWhenContainingVariableDeclaration && containsVarDecl {
+					return
 				}
 				if entryCount <= 2 {
 					ctx.EmitAt(file.FlatRow(idx)+1, 1, "When expression with two or fewer branches could be replaced with if.")

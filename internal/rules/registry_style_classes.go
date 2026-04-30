@@ -279,7 +279,7 @@ func registerStyleClassesRules() {
 		})
 	}
 	{
-		r := &DataClassContainsFunctionsRule{BaseRule: BaseRule{RuleName: "DataClassContainsFunctions", RuleSetName: "style", Sev: "warning", Desc: "Detects data classes that contain function members."}}
+		r := &DataClassContainsFunctionsRule{BaseRule: BaseRule{RuleName: "DataClassContainsFunctions", RuleSetName: "style", Sev: "warning", Desc: "Detects data classes that contain function members."}, ConversionFunctionPrefix: []string{"to"}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
@@ -292,7 +292,7 @@ func registerStyleClassesRules() {
 				if body == 0 {
 					return
 				}
-				if file.FlatCountNodes(body, "function_declaration") > 0 {
+				if dataClassHasNonConversionFunctionFlat(file, body, r.ConversionFunctionPrefix) {
 					name := extractIdentifierFlat(file, idx)
 					ctx.EmitAt(file.FlatRow(idx)+1, 1,
 						fmt.Sprintf("Data class '%s' contains functions. Consider using a regular class.", name))

@@ -362,15 +362,16 @@ func registerComplexityRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				active := nestedScopeFunctionsActiveSet(r.Functions)
 				name := extractCallNameFlat(file, idx)
-				if !scopeFunctions[name] {
+				if !active[name] {
 					return
 				}
 				depth := 0
 				for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
 					if file.FlatType(parent) == "call_expression" {
 						pName := extractCallNameFlat(file, parent)
-						if scopeFunctions[pName] {
+						if active[pName] {
 							depth++
 						}
 					}

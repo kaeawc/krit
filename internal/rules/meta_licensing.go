@@ -41,6 +41,18 @@ func (r *DependencyLicenseUnknownRule) Meta() v2.RuleDescriptor {
 	}
 }
 
+func (r *NoticeFileOutOfDateRule) Meta() v2.RuleDescriptor {
+	return v2.RuleDescriptor{
+		ID:            "NoticeFileOutOfDate",
+		RuleSet:       "licensing",
+		Severity:      "info",
+		Description:   "Detects projects whose NOTICE file is missing required attribution for declared dependencies.",
+		DefaultActive: false,
+		FixLevel:      "",
+		Confidence:    0.75,
+	}
+}
+
 func (r *MissingSpdxIdentifierRule) Meta() v2.RuleDescriptor {
 	return v2.RuleDescriptor{
 		ID:            "MissingSpdxIdentifier",

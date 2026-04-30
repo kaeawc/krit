@@ -85,10 +85,6 @@ func registerPotentialbugsLifecycleRules() {
 				}
 				startText := file.FlatNodeText(left)
 				endText := file.FlatNodeText(right)
-				lineIdx := file.FlatRow(idx)
-				if lineIdx < len(file.Lines) && strings.Contains(file.Lines[lineIdx], "downTo") {
-					return
-				}
 				if len(startText) > len(endText) || (len(startText) == len(endText) && startText > endText) {
 					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 						fmt.Sprintf("Invalid range: %s..%s. The range is empty. Use 'downTo' for descending ranges.", startText, endText))

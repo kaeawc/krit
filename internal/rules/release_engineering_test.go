@@ -1621,6 +1621,15 @@ import androidx.test.runner.AndroidJUnitRunner
 
 class Runner`,
 			},
+			{
+				name: "shared instrumentation utilities",
+				path: "/repo/libraries/shared-instrumentation/src/main/kotlin/com/example/SharedInstrumentation.kt",
+				code: `package com.example
+
+import androidx.test.core.app.ApplicationProvider
+
+class SharedInstrumentation`,
+			},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				file := parseInline(t, tc.code)

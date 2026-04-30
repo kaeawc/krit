@@ -834,8 +834,14 @@ func isAndroidTestSupportArtifactSource(path string) bool {
 		"/maestro-runner/",
 		"/idling-resources/",
 		"/idlingresources/",
+		"/shared-instrumentation/",
+		"/instrumentation-utils/",
 		"/instrumentation-tests/",
 		"/instrumentationtests/",
+		"/android-test-utils/",
+		"/androidtest-utils/",
+		"/test-utils/",
+		"/testutils/",
 	} {
 		if strings.Contains(normalized, marker) {
 			return true

@@ -800,6 +800,27 @@ class TurbineTestNegative {
 	}
 }
 
+func TestTestWithoutAssertion_NegativeTurbineTestWithLifecycleAwaitItem(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import app.cash.turbine.testWithLifecycle
+import org.junit.Test
+
+class TurbineLifecycleTestNegative {
+    @Test
+    fun emitsLoadedState() {
+        states.testWithLifecycle {
+            awaitItem()
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected Turbine testWithLifecycle block with awaitItem to count as assertion-equivalent, got %d", len(findings))
+	}
+}
+
 func TestTestWithoutAssertion_NegativeEspressoIntentVerification(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test

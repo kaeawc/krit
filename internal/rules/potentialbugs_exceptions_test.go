@@ -243,3 +243,21 @@ fun create(): CircuitScreenComposeView {
 		t.Fatalf("expected no findings for multiline return expression cast, got %d", len(findings))
 	}
 }
+
+func TestUnreachableCode_NegativeAfterLoggerError(t *testing.T) {
+	findings := runRuleByName(t, "UnreachableCode", `
+package test
+
+class Logger {
+    fun error(message: String) {}
+}
+
+fun main(logger: Logger) {
+    logger.error("failed")
+    println("still reachable")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings after logger.error(), got %d", len(findings))
+	}
+}

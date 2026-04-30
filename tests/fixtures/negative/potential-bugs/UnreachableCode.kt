@@ -39,6 +39,11 @@ class UnreachableCode {
         error("not implemented")
     }
 
+    fun loggerErrorIsReachable(logger: Logger) {
+        logger.error("failed")
+        println("still reachable")
+    }
+
     // Conditional TODO
     fun conditionalTodo(debug: Boolean) {
         if (debug) TODO()
@@ -132,3 +137,7 @@ open class View
 class CircuitScreenComposeView : View()
 
 fun showInflatedView(): View = CircuitScreenComposeView()
+
+class Logger {
+    fun error(message: String) {}
+}

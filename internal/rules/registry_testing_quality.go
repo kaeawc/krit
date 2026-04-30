@@ -276,6 +276,9 @@ func registerTestingQualityRules() {
 				if testingQualityRunBlockingTestsDispatcherThreadIdentity(file, idx) {
 					return
 				}
+				if testingQualityRunBlockingHasIntentionalComment(file, idx, fn) {
+					return
+				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Use `runTest` instead of `runBlocking` in test functions.")
 			},
 		})

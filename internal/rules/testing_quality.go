@@ -1126,6 +1126,45 @@ func testingQualityLooksLikeThreadIdentityAssertion(file *scanner.File, call uin
 	return strings.Contains(strings.ToLower(file.FlatNodeText(call)), "thread")
 }
 
+func testingQualityRunBlockingHasIntentionalComment(file *scanner.File, idx uint32, fn uint32) bool {
+	if file == nil || idx == 0 || fn == 0 {
+		return false
+	}
+	callLine := file.FlatRow(idx) + 1
+	fnStart := file.FlatRow(fn) + 1
+	found := false
+	file.FlatWalkAllNodes(fn, func(n uint32) {
+		if found || !isFlatCommentNode(file, n) {
+			return
+		}
+		commentLine := file.FlatRow(n) + 1
+		if commentLine < fnStart || commentLine > callLine {
+			return
+		}
+		found = testingQualityRunBlockingCommentDocumentsIntent(file.FlatNodeText(n))
+	})
+	return found
+}
+
+func testingQualityRunBlockingCommentDocumentsIntent(text string) bool {
+	lower := strings.ToLower(text)
+	if !strings.Contains(lower, "runblocking") {
+		return false
+	}
+	intent := strings.Contains(lower, "intentional") ||
+		strings.Contains(lower, "intentionally") ||
+		strings.Contains(lower, "deliberate") ||
+		strings.Contains(lower, "deliberately")
+	if !intent {
+		return false
+	}
+	return strings.Contains(lower, "dispatcher") ||
+		strings.Contains(lower, "thread") ||
+		strings.Contains(lower, "confinement") ||
+		strings.Contains(lower, "reentrant") ||
+		strings.Contains(lower, "locking")
+}
+
 func testingQualityCallReceiverContains(file *scanner.File, call uint32, name string) bool {
 	if file == nil || call == 0 || name == "" {
 		return false

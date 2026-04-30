@@ -303,6 +303,35 @@ fun bar() {
 	}
 }
 
+func TestAvoidReferentialEquality_NegativeSentinelObject(t *testing.T) {
+	findings := runRuleByName(t, "AvoidReferentialEquality", `
+package test
+
+object DISPOSED
+
+fun check(d: Any): Boolean {
+    return d === DISPOSED
+}`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for sentinel object identity check, got %d", len(findings))
+	}
+}
+
+func TestAvoidReferentialEquality_NegativeViewIdentity(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "AvoidReferentialEquality", `
+package test
+
+class View
+class Binding(val blockMultiSelectList: View)
+
+fun check(view: View, binding: Binding): Boolean {
+    return view !== binding.blockMultiSelectList
+}`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for view identity check, got %d", len(findings))
+	}
+}
+
 // Verifies the fix is pinned to the operator child, not a strings.Replace
 // on the whole node text. With the old implementation, an equality
 // expression whose operand contained "!==" inside a string literal would

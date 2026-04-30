@@ -34,7 +34,7 @@ func registerExceptionsRules() {
 		r := &InstanceOfCheckForExceptionRule{BaseRule: BaseRule{RuleName: "InstanceOfCheckForException", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects instanceof/is checks for exception types inside catch blocks instead of using specific catch clauses."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"catch_block"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"catch_block", "catch_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				catchVarName := extractCaughtVarNameFlat(file, idx)
@@ -62,6 +62,20 @@ func registerExceptionsRules() {
 							"Instance-of check for exception type inside catch block. Use specific catch clauses instead.")
 					})
 				}
+				if file.Language == scanner.LangJava {
+					file.FlatWalkNodes(idx, "instanceof_expression", func(instanceOfNode uint32) {
+						text := file.FlatNodeText(instanceOfNode)
+						if !javaInstanceOfExceptionRe.MatchString(text) {
+							return
+						}
+						lhs := strings.TrimSpace(strings.Split(text, "instanceof")[0])
+						if lhs != catchVarName {
+							return
+						}
+						ctx.EmitAt(file.FlatRow(instanceOfNode)+1, file.FlatCol(instanceOfNode)+1,
+							"Instance-of check for exception type inside catch block. Use specific catch clauses instead.")
+					})
+				}
 			},
 		})
 	}
@@ -84,11 +98,18 @@ func registerExceptionsRules() {
 		r := &RethrowCaughtExceptionRule{BaseRule: BaseRule{RuleName: "RethrowCaughtException", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects catch blocks whose only statement is rethrowing the caught exception, making the catch block useless."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"catch_block"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"catch_block", "catch_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				caughtVar := extractCaughtVarNameFlat(file, idx)
 				if caughtVar == "" {
+					return
+				}
+				if file.Language == scanner.LangJava {
+					if javaCatchOnlyRethrowsVar(file, idx, caughtVar) {
+						ctx.EmitAt(file.FlatRow(idx)+1, 1,
+							fmt.Sprintf("Caught exception '%s' is immediately rethrown. Remove the catch block or add handling logic.", caughtVar))
+					}
 					return
 				}
 				body, _ := file.FlatFindChild(idx, "statements")
@@ -120,29 +141,35 @@ func registerExceptionsRules() {
 		r := &ReturnFromFinallyRule{BaseRule: BaseRule{RuleName: "ReturnFromFinally", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects return statements inside finally blocks that can swallow exceptions from the try/catch."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"finally_block"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
+			NodeTypes: []string{"finally_block", "finally_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
-				file.FlatWalkNodes(idx, "jump_expression", func(jumpNode uint32) {
-					text := file.FlatNodeText(jumpNode)
-					if strings.HasPrefix(text, "return") {
-						f := r.Finding(file, file.FlatRow(jumpNode)+1, file.FlatCol(jumpNode)+1,
-							"Return from finally block. This can swallow exceptions from try/catch.")
-						lineIdx := file.FlatRow(jumpNode)
-						lineStart := file.LineOffset(lineIdx)
-						lineEnd := lineStart + len(file.Lines[lineIdx]) + 1
-						if lineEnd > len(file.Content) {
-							lineEnd = len(file.Content)
+				returnTypes := []string{"jump_expression"}
+				if file.Language == scanner.LangJava {
+					returnTypes = append(returnTypes, "return_statement")
+				}
+				for _, returnType := range returnTypes {
+					file.FlatWalkNodes(idx, returnType, func(jumpNode uint32) {
+						text := file.FlatNodeText(jumpNode)
+						if strings.HasPrefix(text, "return") {
+							f := r.Finding(file, file.FlatRow(jumpNode)+1, file.FlatCol(jumpNode)+1,
+								"Return from finally block. This can swallow exceptions from try/catch.")
+							lineIdx := file.FlatRow(jumpNode)
+							lineStart := file.LineOffset(lineIdx)
+							lineEnd := lineStart + len(file.Lines[lineIdx]) + 1
+							if lineEnd > len(file.Content) {
+								lineEnd = len(file.Content)
+							}
+							f.Fix = &scanner.Fix{
+								ByteMode:    true,
+								StartByte:   lineStart,
+								EndByte:     lineEnd,
+								Replacement: "",
+							}
+							ctx.Emit(f)
 						}
-						f.Fix = &scanner.Fix{
-							ByteMode:    true,
-							StartByte:   lineStart,
-							EndByte:     lineEnd,
-							Replacement: "",
-						}
-						ctx.Emit(f)
-					}
-				})
+					})
+				}
 			},
 		})
 	}
@@ -161,7 +188,7 @@ func registerExceptionsRules() {
 		r := &ThrowingExceptionFromFinallyRule{BaseRule: BaseRule{RuleName: "ThrowingExceptionFromFinally", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects throw statements inside finally blocks that can mask exceptions from the try/catch."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"finally_block"}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
+			NodeTypes: []string{"finally_block", "finally_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Fix: v2.FixSemantic, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				walkThrowExpressionsFlat(file, idx, func(throwNode uint32) {
@@ -250,24 +277,17 @@ func registerExceptionsRules() {
 		r := &ThrowingNewInstanceOfSameExceptionRule{BaseRule: BaseRule{RuleName: "ThrowingNewInstanceOfSameException", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects catch blocks that throw a new instance of the same exception type instead of rethrowing the original."}}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
-			NodeTypes: []string{"catch_block"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"catch_block", "catch_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
 				caughtType := extractCaughtTypeNameFlat(file, idx)
 				if caughtType == "" {
 					return
 				}
-				caughtVar := ""
-				for i := 0; i < file.FlatChildCount(idx); i++ {
-					c := file.FlatChild(idx, i)
-					if file.FlatType(c) == "simple_identifier" {
-						caughtVar = file.FlatNodeText(c)
-						break
-					}
-				}
+				caughtVar := extractCaughtVarNameFlat(file, idx)
 				walkThrowExpressionsFlat(file, idx, func(throwNode uint32) {
 					throwText := file.FlatNodeText(throwNode)
-					pattern := fmt.Sprintf(`throw\s+%s\s*\(`, regexp.QuoteMeta(caughtType))
+					pattern := fmt.Sprintf(`throw\s+(?:new\s+)?%s\s*\(`, regexp.QuoteMeta(caughtType))
 					matched, err := regexp.MatchString(pattern, throwText)
 					if err != nil {
 						matched = strings.Contains(throwText, "throw "+caughtType+"(")

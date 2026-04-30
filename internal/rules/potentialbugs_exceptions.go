@@ -193,7 +193,24 @@ func (r *TooGenericExceptionCaughtRule) checkNode(ctx *v2.Context) {
 }
 
 func extractCaughtVarNameFlat(file *scanner.File, catchNode uint32) string {
-	if file == nil || catchNode == 0 || file.FlatType(catchNode) != "catch_block" {
+	if file == nil || catchNode == 0 {
+		return ""
+	}
+	if file.FlatType(catchNode) == "catch_clause" {
+		last := ""
+		for child := file.FlatFirstChild(catchNode); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "block" {
+				break
+			}
+			file.FlatWalkAllNodes(child, func(idx uint32) {
+				if file.FlatType(idx) == "identifier" || file.FlatType(idx) == "simple_identifier" {
+					last = file.FlatNodeText(idx)
+				}
+			})
+		}
+		return last
+	}
+	if file.FlatType(catchNode) != "catch_block" {
 		return ""
 	}
 	for child := file.FlatFirstChild(catchNode); child != 0; child = file.FlatNextSib(child) {
@@ -257,7 +274,27 @@ func catchBodyCallsOnCaughtVar(file *scanner.File, catchNode uint32, varName str
 }
 
 func extractCaughtTypeNameFlat(file *scanner.File, catchNode uint32) string {
-	if file == nil || catchNode == 0 || file.FlatType(catchNode) != "catch_block" {
+	if file == nil || catchNode == 0 {
+		return ""
+	}
+	if file.FlatType(catchNode) == "catch_clause" {
+		last := ""
+		for child := file.FlatFirstChild(catchNode); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "block" {
+				break
+			}
+			file.FlatWalkAllNodes(child, func(idx uint32) {
+				if file.FlatType(idx) == "type_identifier" || file.FlatType(idx) == "scoped_type_identifier" {
+					last = flatTypeLastIdentifier(file, idx)
+					if last == "" {
+						last = strings.TrimSpace(file.FlatNodeText(idx))
+					}
+				}
+			})
+		}
+		return last
+	}
+	if file.FlatType(catchNode) != "catch_block" {
 		return ""
 	}
 	for child := file.FlatFirstChild(catchNode); child != 0; child = file.FlatNextSib(child) {
@@ -276,7 +313,7 @@ func flatTypeLastIdentifier(file *scanner.File, idx uint32) string {
 	last := ""
 	file.FlatWalkAllNodes(idx, func(candidate uint32) {
 		switch file.FlatType(candidate) {
-		case "type_identifier", "simple_identifier":
+		case "type_identifier", "simple_identifier", "identifier":
 			last = file.FlatNodeString(candidate, nil)
 		}
 	})

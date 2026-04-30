@@ -55,7 +55,10 @@ type InstanceOfCheckForExceptionRule struct {
 	BaseRule
 }
 
-var isExceptionRe = regexp.MustCompile(`\bis\s+\w*Exception\b`)
+var (
+	isExceptionRe             = regexp.MustCompile(`\bis\s+\w*Exception\b`)
+	javaInstanceOfExceptionRe = regexp.MustCompile(`\binstanceof\s+[\w.]*Exception\b`)
+)
 
 // Confidence reports a tier-2 (medium) base confidence. Exceptions rule. Detection matches exception type names and catch/ throw
 // shapes via structural AST + name-list lookups. Classified per
@@ -1169,4 +1172,27 @@ func walkThrowExpressionsFlat(file *scanner.File, idx uint32, fn func(throwNode 
 		}
 	})
 	file.FlatWalkNodes(idx, "throw_statement", fn)
+}
+
+func javaCatchOnlyRethrowsVar(file *scanner.File, catchNode uint32, varName string) bool {
+	block, ok := file.FlatFindChild(catchNode, "block")
+	if !ok || block == 0 {
+		return false
+	}
+	statementCount := 0
+	rethrows := false
+	for child := file.FlatFirstChild(block); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "{", "}", "line_comment", "block_comment", "comment":
+			continue
+		case "throw_statement":
+			statementCount++
+			rethrows = strings.TrimSpace(file.FlatNodeText(child)) == "throw "+varName+";"
+		default:
+			if file.FlatIsNamed(child) {
+				statementCount++
+			}
+		}
+	}
+	return statementCount == 1 && rethrows
 }

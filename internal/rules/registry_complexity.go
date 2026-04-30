@@ -2,6 +2,8 @@ package rules
 
 import (
 	"fmt"
+	"regexp"
+
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"strings"
 )
@@ -406,11 +408,24 @@ func registerComplexityRules() {
 			NodeTypes: []string{"source_file"}, Confidence: 0.75, Implementation: r,
 			Check: func(ctx *v2.Context) {
 				idx, file := ctx.Idx, ctx.File
+				// Compile the configured ignore-regex once per file walk.
+				// Invalid patterns are silently skipped (no findings filtered);
+				// the registry's CompileAnchoredPattern path doesn't run for
+				// OptString options, so guard here.
+				var ignoreRe *regexp.Regexp
+				if r.IgnoreStringsRegex != "" {
+					if compiled, err := regexp.Compile(r.IgnoreStringsRegex); err == nil {
+						ignoreRe = compiled
+					}
+				}
 				counts := make(map[string]int)
 				firstLine := make(map[string]int)
 				file.FlatWalkNodes(idx, "string_literal", func(strNode uint32) {
 					text := file.FlatNodeText(strNode)
 					if len(text) <= 3 {
+						return
+					}
+					if ignoreRe != nil && ignoreRe.MatchString(stringLiteralUnquote(text)) {
 						return
 					}
 					counts[text]++

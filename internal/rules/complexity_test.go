@@ -969,6 +969,57 @@ fun example() {
 	}
 }
 
+func TestStringLiteralDuplication_HonorsIgnoreStringsRegex(t *testing.T) {
+	// IgnoreStringsRegex was previously a dead config. Configure it via the
+	// rule pointer and verify that string literals matching the regex are
+	// excluded from the duplication count.
+	var rule *rules.StringLiteralDuplicationRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "StringLiteralDuplication" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.StringLiteralDuplicationRule)
+			if !ok {
+				t.Fatalf("expected StringLiteralDuplicationRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("StringLiteralDuplication rule not registered")
+	}
+	original := rule.IgnoreStringsRegex
+	defer func() { rule.IgnoreStringsRegex = original }()
+
+	rule.IgnoreStringsRegex = `^https?://`
+
+	// URL-shaped literals match the ignore regex and should not contribute
+	// to the duplication count, so the file produces no finding even though
+	// the URL appears four times.
+	codeIgnored := `package test
+fun example() {
+    val a = "http://example.com/a"
+    val b = "http://example.com/a"
+    val c = "http://example.com/a"
+    val d = "http://example.com/a"
+}
+`
+	if findings := runRuleByName(t, "StringLiteralDuplication", codeIgnored); len(findings) != 0 {
+		t.Fatalf("expected no findings when URL literals match ignoreStringsRegex, got %d", len(findings))
+	}
+
+	// A non-matching literal repeated past the threshold still fires.
+	codeFlagged := `package test
+fun example() {
+    val a = "duplicated string"
+    val b = "duplicated string"
+    val c = "duplicated string"
+}
+`
+	if findings := runRuleByName(t, "StringLiteralDuplication", codeFlagged); len(findings) == 0 {
+		t.Fatal("expected StringLiteralDuplication to still fire on non-matching duplicate")
+	}
+}
+
 func parseBenchmarkFile(b *testing.B, code string) *scanner.File {
 	b.Helper()
 	dir := b.TempDir()

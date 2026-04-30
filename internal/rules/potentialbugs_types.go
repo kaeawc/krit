@@ -780,6 +780,32 @@ func whenHasElseBranchFlat(file *scanner.File, idx uint32) bool {
 	return false
 }
 
+func whenElseBranchTerminatesFlat(file *scanner.File, idx uint32) bool {
+	if file == nil || file.FlatType(idx) != "when_expression" {
+		return false
+	}
+	for entry := file.FlatFirstChild(idx); entry != 0; entry = file.FlatNextSib(entry) {
+		if file.FlatType(entry) != "when_entry" {
+			continue
+		}
+		isElse := false
+		for child := file.FlatFirstChild(entry); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "else" {
+				isElse = true
+				break
+			}
+		}
+		if !isElse {
+			continue
+		}
+		if body, ok := file.FlatFindChild(entry, "control_structure_body"); ok {
+			return blockTerminatesFlat(file, body)
+		}
+		return blockTerminatesFlat(file, entry)
+	}
+	return false
+}
+
 // whenConditionTypeTestName returns the type identifier from an
 // `is TypeName` when_condition, or "" if the condition is not a
 // type_test. Works on the condition node, not the whole entry.

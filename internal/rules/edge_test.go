@@ -1178,6 +1178,46 @@ fun describe(shape: Shape): String {
 	}
 }
 
+func TestElseCaseInsteadOfExhaustiveWhen_NegativeConditionBasedWhen(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "ElseCaseInsteadOfExhaustiveWhen", `
+package test
+
+sealed class Shape
+class Circle : Shape()
+class Square : Shape()
+
+fun describe(shape: Shape): String {
+    return when {
+        shape is Circle -> "circle"
+        shape is Square -> "square"
+        else -> "unknown"
+    }
+}`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for condition-based when with else, got %d", len(findings))
+	}
+}
+
+func TestElseCaseInsteadOfExhaustiveWhen_NegativeElseThrowGuard(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "ElseCaseInsteadOfExhaustiveWhen", `
+package test
+
+sealed class Shape
+class Circle : Shape()
+class Square : Shape()
+
+fun describe(shape: Shape): String {
+    return when (shape) {
+        is Circle -> "circle"
+        is Square -> "square"
+        else -> throw IllegalStateException("Unexpected shape")
+    }
+}`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for defensive else throw guard, got %d", len(findings))
+	}
+}
+
 // ---------------------------------------------------------------------------
 // UnreachableCode with oracle diagnostics
 // ---------------------------------------------------------------------------

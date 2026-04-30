@@ -303,6 +303,12 @@ func registerPotentialbugsTypesRules() {
 				if !whenHasElseBranchFlat(file, idx) {
 					return
 				}
+				if _, ok := file.FlatFindChild(idx, "when_subject"); !ok {
+					return
+				}
+				if whenElseBranchTerminatesFlat(file, idx) {
+					return
+				}
 				if ctx.Resolver != nil {
 					coveredTypes := make(map[string]bool)
 					var subjectTypeName string

@@ -1253,6 +1253,72 @@ private class CustomDrawWrapper(
 	}
 }
 
+func TestNaming_NoNameShadowing_SkipsLambdaParameters(t *testing.T) {
+	findings := runRuleByName(t, "NoNameShadowing", `
+package test
+
+class Flow<T> {
+    fun collect(block: (T) -> Unit) = Unit
+}
+
+fun matcher(block: (String) -> Boolean) = Unit
+
+fun example(flow: Flow<String>, text: String) {
+    flow.collect { text ->
+        println(text)
+    }
+    matcher { text ->
+        text.isNotEmpty()
+    }
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "NoNameShadowing" {
+			t.Fatalf("NoNameShadowing should ignore lambda parameters shadowing outer names, got: %s", f.Message)
+		}
+	}
+}
+
+func TestNaming_NoNameShadowing_SkipsWhenSubjectBinding(t *testing.T) {
+	findings := runRuleByName(t, "NoNameShadowing", `
+package test
+
+fun example(key: String?) {
+    when (val key = key?.trim()) {
+        null -> println("missing")
+        else -> println(key)
+    }
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "NoNameShadowing" {
+			t.Fatalf("NoNameShadowing should ignore when subject bindings, got: %s", f.Message)
+		}
+	}
+}
+
+func TestNaming_NoNameShadowing_SkipsClassPropertyAssignmentParameter(t *testing.T) {
+	findings := runRuleByName(t, "NoNameShadowing", `
+package test
+
+class View
+
+class Attacher {
+    private var view: View? = null
+
+    fun attach(view: View) {
+        this.view = view
+        println(view)
+    }
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "NoNameShadowing" {
+			t.Fatalf("NoNameShadowing should ignore parameter assigned to same-named class property, got: %s", f.Message)
+		}
+	}
+}
+
 // Regression: the null-narrowing self-shadow detector previously used
 // substring scanning over the declaration text, which produced both false
 // positives (treating arbitrary code containing "?:" or "?." as the idiom)

@@ -11,6 +11,9 @@ fun example() {
     items.map { item ->
         item.toString()
     }
+    items.map { name ->
+        name.toString()
+    }
 
     // Underscore names should not be flagged
     val _ = 1

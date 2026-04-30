@@ -507,6 +507,14 @@ func (r *NoNameShadowingRule) walkScopeFlat(node uint32, ctx *shadowScanCtx, vis
 				}
 				name := extractIdentifierFlat(file, child)
 				if name != "" && name != "_" {
+					if noNameShadowIsLambdaParameterFlat(file, child) {
+						addLocalName(name)
+						continue
+					}
+					if noNameShadowIsWhenSubjectBindingFlat(file, child) {
+						addLocalName(name)
+						continue
+					}
 					if file.FlatHasAncestorOfType(child, "catch_block") {
 						addLocalName(name)
 						continue
@@ -553,6 +561,10 @@ func (r *NoNameShadowingRule) walkScopeFlat(node uint32, ctx *shadowScanCtx, vis
 			if childType == "parameter" {
 				name := extractIdentifierFlat(file, child)
 				if name != "" && name != "_" {
+					if noNameShadowIsLambdaParameterFlat(file, child) {
+						addLocalName(name)
+						continue
+					}
 					// Check if we're inside an override function.
 					enclosingFn := n
 					if file.FlatType(enclosingFn) != "function_declaration" {
@@ -902,6 +914,32 @@ func isInsideDestructuringFlat(file *scanner.File, idx uint32) bool {
 		case "multi_variable_declaration":
 			return true
 		case "function_declaration", "lambda_literal", "class_body", "function_body", "statements", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+func noNameShadowIsLambdaParameterFlat(file *scanner.File, idx uint32) bool {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "statements":
+			return false
+		case "lambda_literal":
+			return true
+		case "function_declaration", "class_declaration", "object_declaration", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+func noNameShadowIsWhenSubjectBindingFlat(file *scanner.File, idx uint32) bool {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "when_subject":
+			return true
+		case "when_entry", "function_declaration", "class_declaration", "object_declaration", "source_file":
 			return false
 		}
 	}

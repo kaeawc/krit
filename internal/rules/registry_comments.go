@@ -161,7 +161,7 @@ func registerCommentsRules() {
 		})
 	}
 	{
-		r := &OutdatedDocumentationRule{BaseRule: BaseRule{RuleName: "OutdatedDocumentation", RuleSetName: "comments", Sev: "warning", Desc: "Detects @param tags in KDoc that do not match the actual function parameters."}}
+		r := &OutdatedDocumentationRule{BaseRule: BaseRule{RuleName: "OutdatedDocumentation", RuleSetName: "comments", Sev: "warning", Desc: "Detects @param tags in KDoc that do not match the actual function parameters."}, MatchDeclarationsOrder: true, MatchTypeParameters: true}
 		v2.Register(&v2.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: v2.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Implementation: r,
@@ -176,11 +176,23 @@ func registerCommentsRules() {
 				if len(docParams) == 0 {
 					return
 				}
-				actualParams := make(map[string]bool)
 				summary := getFunctionDeclSummaryFlat(file, idx)
+				actualParams := make(map[string]bool)
+				orderedNames := make([]string, 0)
+				// Type parameters are declared `<T, R>` before the
+				// value-parameter list and conventionally documented in
+				// that order. Add them first when MatchTypeParameters is
+				// on so the order check sees the canonical sequence.
+				if r.MatchTypeParameters {
+					for _, name := range outdatedDocCollectTypeParameterNamesFlat(file, idx) {
+						actualParams[name] = true
+						orderedNames = append(orderedNames, name)
+					}
+				}
 				for _, param := range summary.params {
 					if param.name != "" {
 						actualParams[param.name] = true
+						orderedNames = append(orderedNames, param.name)
 					}
 				}
 				for _, dp := range docParams {
@@ -188,6 +200,31 @@ func registerCommentsRules() {
 					if !actualParams[name] {
 						ctx.EmitAt(file.FlatRow(prev)+1, 1,
 							"KDoc @param \""+name+"\" does not match any actual parameter.")
+					}
+				}
+				// MatchDeclarationsOrder: ensure the @param tags that
+				// reference real (or — when MatchTypeParameters is on —
+				// type) parameters appear in the same order as the
+				// declared parameters. A monotonic index walk catches
+				// out-of-order tags.
+				if r.MatchDeclarationsOrder && len(orderedNames) > 1 {
+					position := make(map[string]int, len(orderedNames))
+					for i, name := range orderedNames {
+						position[name] = i
+					}
+					prevIdx := -1
+					for _, dp := range docParams {
+						name := dp[1]
+						pos, ok := position[name]
+						if !ok {
+							continue
+						}
+						if pos < prevIdx {
+							ctx.EmitAt(file.FlatRow(prev)+1, 1,
+								"KDoc @param \""+name+"\" is out of declaration order.")
+							break
+						}
+						prevIdx = pos
 					}
 				}
 			},

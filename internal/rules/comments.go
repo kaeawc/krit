@@ -228,6 +228,36 @@ var paramTagRe = regexp.MustCompile(`@param\s+([A-Za-z_][A-Za-z0-9_]*)`)
 // heuristic path. Classified per roadmap/17.
 func (r *OutdatedDocumentationRule) Confidence() float64 { return 0.95 }
 
+// outdatedDocCollectTypeParameterNamesFlat returns the type-parameter
+// identifiers declared on a function (e.g. `T`, `R` in `fun <T, R> map`).
+// Tree-sitter Kotlin emits a `type_parameters` child of
+// `function_declaration` with one `type_parameter` per name, each
+// containing a `type_identifier`.
+func outdatedDocCollectTypeParameterNamesFlat(file *scanner.File, idx uint32) []string {
+	if file == nil || idx == 0 {
+		return nil
+	}
+	tps, ok := file.FlatFindChild(idx, "type_parameters")
+	if !ok || tps == 0 {
+		return nil
+	}
+	var names []string
+	for child := file.FlatFirstChild(tps); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "type_parameter" {
+			continue
+		}
+		ident, _ := file.FlatFindChild(child, "type_identifier")
+		if ident == 0 {
+			continue
+		}
+		text := strings.TrimSpace(file.FlatNodeText(ident))
+		if text != "" {
+			names = append(names, text)
+		}
+	}
+	return names
+}
+
 // UndocumentedPublicClassRule detects public classes without KDoc.
 type UndocumentedPublicClassRule struct {
 	FlatDispatchBase

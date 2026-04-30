@@ -388,6 +388,61 @@ fun test(): Int {
 	}
 }
 
+func TestExc_ReturnFromFinally_HonorsIgnoreLabeled(t *testing.T) {
+	// IgnoreLabeled was previously a dead config — exposed in zz_meta but
+	// never consulted by the check. Configure it via the rule pointer and
+	// verify labeled returns (return@something) are excluded while plain
+	// `return` inside finally is still flagged.
+	var rule *rules.ReturnFromFinallyRule
+	for _, candidate := range v2rules.Registry {
+		if candidate.ID == "ReturnFromFinally" {
+			var ok bool
+			rule, ok = candidate.Implementation.(*rules.ReturnFromFinallyRule)
+			if !ok {
+				t.Fatalf("expected ReturnFromFinallyRule, got %T", candidate.Implementation)
+			}
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("ReturnFromFinally rule not registered")
+	}
+	original := rule.IgnoreLabeled
+	defer func() { rule.IgnoreLabeled = original }()
+
+	rule.IgnoreLabeled = true
+
+	// Labeled return inside finally — under IgnoreLabeled=true, no finding.
+	if findings := runRuleByName(t, "ReturnFromFinally", `
+fun example() {
+    try {
+        listOf(1).forEach forEach@{
+            try {
+                doWork()
+            } finally {
+                return@forEach
+            }
+        }
+    } finally {}
+}
+`); len(findings) != 0 {
+		t.Fatalf("expected no findings for labeled return when IgnoreLabeled=true, got %d", len(findings))
+	}
+
+	// Plain return still fires.
+	if findings := runRuleByName(t, "ReturnFromFinally", `
+fun example(): Int {
+    try {
+        return 1
+    } finally {
+        return 2
+    }
+}
+`); len(findings) == 0 {
+		t.Fatal("expected finding for plain return inside finally even with IgnoreLabeled=true")
+	}
+}
+
 func TestExc_ReturnFromFinally_Java(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "ReturnFromFinally", `
 package test;

@@ -346,6 +346,15 @@ var ignoredReturnValueVerificationContextCalls = map[string]bool{
 	"verifyBlocking": true,
 }
 
+var ignoredReturnValueBuilderCallbackCalls = map[string]bool{
+	"listener":  true,
+	"onCancel":  true,
+	"onError":   true,
+	"onFailure": true,
+	"onStart":   true,
+	"onSuccess": true,
+}
+
 func ignoredReturnValueFunctionalCallees() []string {
 	return append([]string(nil), ignoredReturnValueFunctionalOpNames...)
 }
@@ -403,6 +412,72 @@ func ignoredReturnValueIsSideEffectFoldDispatch(file *scanner.File, idx uint32, 
 		}
 	}
 	return lambdaCount >= 2
+}
+
+func ignoredReturnValueIsBuilderCallbackCall(file *scanner.File, idx uint32, funcName string) bool {
+	if file == nil || idx == 0 || !ignoredReturnValueBuilderCallbackCalls[funcName] {
+		return false
+	}
+	if flatCallTrailingLambda(file, idx) == 0 && !ignoredReturnValueCallHasLambdaArgument(file, idx) {
+		return false
+	}
+	if ignoredReturnValueCallHasBuilderReceiver(file, idx) {
+		return true
+	}
+	if strings.Contains(file.FlatNodeText(idx), "Builder(") {
+		return true
+	}
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "lambda_literal":
+			if ignoredReturnValueLambdaBelongsToBuilderCall(file, p) {
+				return true
+			}
+			return false
+		case "class_body", "function_declaration", "source_file":
+			return false
+		case "call_expression":
+			if ignoredReturnValueCallHasBuilderReceiver(file, p) || strings.Contains(file.FlatNodeText(p), "Builder(") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func ignoredReturnValueLambdaBelongsToBuilderCall(file *scanner.File, lambda uint32) bool {
+	for p, ok := file.FlatParent(lambda); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "call_expression":
+			return ignoredReturnValueCallHasBuilderReceiver(file, p) || strings.Contains(file.FlatNodeText(p), "Builder(")
+		case "function_declaration", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+func ignoredReturnValueCallHasLambdaArgument(file *scanner.File, idx uint32) bool {
+	args := flatCallKeyArguments(file, idx)
+	if args == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(args, func(n uint32) {
+		if found {
+			return
+		}
+		found = file.FlatType(n) == "lambda_literal"
+	})
+	return found
+}
+
+func ignoredReturnValueCallHasBuilderReceiver(file *scanner.File, idx uint32) bool {
+	receiver := flatReceiverNameFromCall(file, idx)
+	if receiver == "" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(receiver), "builder")
 }
 
 func ignoredReturnValueArgumentLambda(file *scanner.File, arg uint32) uint32 {

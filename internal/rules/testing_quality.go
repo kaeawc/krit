@@ -874,7 +874,8 @@ func testingQualityBodyHasAssertionOrVerificationWithHelpers(file *scanner.File,
 			name := flatCallNameAny(file, n)
 			found = testingQualityIsAssertionOrVerify(name) ||
 				helpers[name] ||
-				testingQualityIsHarnessVerificationCall(file, n, name)
+				testingQualityIsHarnessVerificationCall(file, n, name) ||
+				testingQualityIsExplicitThisOrSuperHelperCall(file, n)
 		case "infix_expression":
 			found = testingQualityIsAssertionOrVerify(testingQualityInfixOperatorName(file, n))
 		case "jump_expression":
@@ -882,6 +883,22 @@ func testingQualityBodyHasAssertionOrVerificationWithHelpers(file *scanner.File,
 		}
 	})
 	return found
+}
+
+func testingQualityIsExplicitThisOrSuperHelperCall(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || file.FlatType(idx) != "call_expression" {
+		return false
+	}
+	nav, _ := flatCallExpressionParts(file, idx)
+	if nav == 0 {
+		return false
+	}
+	segments := flatNavigationChainIdentifiers(file, nav)
+	if len(segments) >= 2 && (segments[0] == "this" || segments[0] == "super") {
+		return true
+	}
+	text := strings.TrimSpace(file.FlatNodeText(idx))
+	return strings.HasPrefix(text, "this.") || strings.HasPrefix(text, "super.")
 }
 
 func testingQualityIsHarnessVerificationCall(file *scanner.File, idx uint32, name string) bool {

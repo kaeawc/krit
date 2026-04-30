@@ -1213,6 +1213,72 @@ class LocalAssertionHelperNegative {
 	}
 }
 
+func TestTestWithoutAssertion_NegativeExplicitThisHelper(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class ExplicitThisHelperNegative {
+    @Test
+    fun delegatesToHarness() {
+        this.runHarness()
+    }
+
+    private fun runHarness() {
+        println("external framework assertion")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected explicit this helper call to count as delegated assertion, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeExplicitSuperHelper(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+open class BaseHarness {
+    fun runHarness() {}
+}
+
+class ExplicitSuperHelperNegative : BaseHarness() {
+    @Test
+    fun delegatesToBaseHarness() {
+        super.runHarness()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected explicit super helper call to count as delegated assertion, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_PositiveImplicitNeutralHelper(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class ImplicitNeutralHelperPositive {
+    @Test
+    fun delegatesToSetupOnly() {
+        runHarness()
+    }
+
+    private fun runHarness() {
+        println("setup only")
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected implicit neutral helper call without assertion evidence to be reported")
+	}
+}
+
 func TestTestWithoutAssertion_NegativeCompilerHarnessCompile(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test

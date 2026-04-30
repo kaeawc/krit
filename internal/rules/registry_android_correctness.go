@@ -655,7 +655,7 @@ func checkCommitPrefEditsJava(ctx *v2.Context, idx uint32) {
 		return
 	}
 	if fact, ok := javaSemanticCallFact(ctx, idx); ok {
-		if !semanticTypeNameMatches(fact.ReceiverType, "android.content.SharedPreferences", "SharedPreferences") {
+		if !javaProfileTypeMatches(ctx, fact.ReceiverType, "android.content.SharedPreferences") {
 			return
 		}
 	} else if !sourceImportsOrMentions(file, "android.content.SharedPreferences") {
@@ -681,8 +681,8 @@ func checkCommitTransactionJava(ctx *v2.Context, idx uint32) {
 		return
 	}
 	if fact, ok := javaSemanticCallFact(ctx, idx); ok {
-		if !semanticTypeNameMatches(fact.ReceiverType,
-			"android.app.FragmentManager", "FragmentManager",
+		if !javaProfileTypeMatches(ctx, fact.ReceiverType,
+			"android.app.FragmentManager",
 			"androidx.fragment.app.FragmentManager") {
 			return
 		}
@@ -736,16 +736,19 @@ func checkResultJavaSemanticConfirmed(ctx *v2.Context, idx uint32, name string) 
 	if !ok {
 		return false, false
 	}
+	if expected := javaProfileMethodReturn(ctx, fact.MethodOwner, fact.ReceiverType, name, len(javaArgumentExpressions(ctx.File, idx))); expected != "" {
+		return javaProfileTypeMatches(ctx, fact.ReturnType, expected), true
+	}
 	switch name {
 	case "edit":
-		return semanticTypeNameMatches(fact.ReturnType, "android.content.SharedPreferences.Editor", "SharedPreferences.Editor"), true
+		return javaProfileTypeMatches(ctx, fact.ReturnType, "android.content.SharedPreferences.Editor"), true
 	case "format", "trim", "replace":
-		return semanticTypeNameMatches(fact.ReturnType, "java.lang.String", "String"), true
+		return javaProfileTypeMatches(ctx, fact.ReturnType, "java.lang.String"), true
 	case "buildUpon":
 		return strings.HasSuffix(strings.ReplaceAll(fact.ReturnType, "$", "."), ".Builder") ||
-			semanticTypeNameMatches(fact.ReturnType, "Builder"), true
+			javaProfileTypeMatches(ctx, fact.ReturnType, "Builder"), true
 	case "animate":
-		return semanticTypeNameMatches(fact.ReturnType, "android.view.ViewPropertyAnimator", "ViewPropertyAnimator"), true
+		return javaProfileTypeMatches(ctx, fact.ReturnType, "android.view.ViewPropertyAnimator"), true
 	default:
 		return false, false
 	}

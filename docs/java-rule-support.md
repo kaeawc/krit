@@ -28,6 +28,12 @@ The cross-file index now exposes a language-tagged source resolver for cheap mix
 
 Conservative gaps remain for Kotlin JVM shapes that require compiler lowering details: overloaded property accessors, `@JvmName`, `@JvmStatic`, `@JvmField`, file-facade naming overrides, companion-object bridge methods, and generated code from annotation processors. Those should stay source-visible where possible and use KAA/javac-backed facts only when the source index cannot answer precisely.
 
+## Java Type Profile
+
+Java-aware rules can use a shared checked-in type profile from `librarymodel.Facts.Java` for common Android, JDK, and dependency-gated library facts. The profile currently covers high-value framework types used by Java rules, known method returns such as `SharedPreferences.edit()`, `FragmentManager.beginTransaction()`, `WebView.getSettings()`, selected JDK string returns, and annotation aliases such as `androidx.annotation.CheckResult`.
+
+Library-specific entries stay conservative: Room Java annotation facts are enabled when Room is present or dependency extraction is incomplete, and disabled when Gradle facts prove Room is absent.
+
 ## Pending Java-Applicable Batches
 
 | Batch | Status | Plan |

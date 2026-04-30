@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/kaeawc/krit/internal/javafacts"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -91,17 +92,17 @@ func javaSemanticCallFact(ctx *v2.Context, call uint32) (javafacts.CallFact, boo
 
 func javaSemanticCallReceiverTypeMatches(ctx *v2.Context, call uint32, types ...string) bool {
 	fact, ok := javaSemanticCallFact(ctx, call)
-	return ok && semanticTypeNameMatches(fact.ReceiverType, types...)
+	return ok && javaProfileTypeMatches(ctx, fact.ReceiverType, types...)
 }
 
 func javaSemanticCallReturnTypeMatches(ctx *v2.Context, call uint32, types ...string) bool {
 	fact, ok := javaSemanticCallFact(ctx, call)
-	return ok && semanticTypeNameMatches(fact.ReturnType, types...)
+	return ok && javaProfileTypeMatches(ctx, fact.ReturnType, types...)
 }
 
 func javaSemanticCallOwnerMatches(ctx *v2.Context, call uint32, owners ...string) bool {
 	fact, ok := javaSemanticCallFact(ctx, call)
-	return ok && semanticTargetOwnerMatches(fact.MethodOwner, owners...)
+	return ok && javaProfileTypeMatches(ctx, fact.MethodOwner, owners...)
 }
 
 func javaSemanticCallTargetOrReceiverType(ctx *v2.Context, call uint32, owners []string, receiverTypes []string) bool {
@@ -109,8 +110,32 @@ func javaSemanticCallTargetOrReceiverType(ctx *v2.Context, call uint32, owners [
 	if !ok {
 		return false
 	}
-	return semanticTargetOwnerMatches(fact.MethodOwner, owners...) ||
-		semanticTypeNameMatches(fact.ReceiverType, receiverTypes...)
+	return javaProfileTypeMatches(ctx, fact.MethodOwner, owners...) ||
+		javaProfileTypeMatches(ctx, fact.ReceiverType, receiverTypes...)
+}
+
+func javaProfileTypeMatches(ctx *v2.Context, got string, wants ...string) bool {
+	if ctx == nil {
+		return semanticTypeNameMatches(got, wants...)
+	}
+	profile := librarymodel.EnsureFacts(ctx.LibraryFacts).Java
+	for _, want := range wants {
+		if profile.IsSubtypeCandidate(want, got) || semanticTypeNameMatches(got, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func javaProfileMethodReturn(ctx *v2.Context, owner, receiver, method string, arity int) string {
+	if ctx == nil {
+		return ""
+	}
+	profile := librarymodel.EnsureFacts(ctx.LibraryFacts).Java
+	if ret := profile.MethodReturn(owner, method, arity); ret != "" {
+		return ret
+	}
+	return profile.MethodReturn(receiver, method, arity)
 }
 
 func obsoleteComposeModifierCall(ctx *v2.Context, call uint32) (name string, replacement string, ok bool) {
@@ -644,7 +669,7 @@ func setJavaScriptEnabledJavaCall(ctx *v2.Context, call uint32) bool {
 		return false
 	}
 	if fact, ok := javaSemanticCallFact(ctx, call); ok {
-		return semanticTypeNameMatches(fact.ReceiverType, "android.webkit.WebSettings", "WebSettings")
+		return javaProfileTypeMatches(ctx, fact.ReceiverType, "android.webkit.WebSettings")
 	}
 	if !sourceImportsOrMentions(file, "android.webkit.WebSettings") && !sourceImportsOrMentions(file, "android.webkit.WebView") {
 		return false

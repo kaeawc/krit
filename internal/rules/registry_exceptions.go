@@ -151,23 +151,31 @@ func registerExceptionsRules() {
 				for _, returnType := range returnTypes {
 					file.FlatWalkNodes(idx, returnType, func(jumpNode uint32) {
 						text := file.FlatNodeText(jumpNode)
-						if strings.HasPrefix(text, "return") {
-							f := r.Finding(file, file.FlatRow(jumpNode)+1, file.FlatCol(jumpNode)+1,
-								"Return from finally block. This can swallow exceptions from try/catch.")
-							lineIdx := file.FlatRow(jumpNode)
-							lineStart := file.LineOffset(lineIdx)
-							lineEnd := lineStart + len(file.Lines[lineIdx]) + 1
-							if lineEnd > len(file.Content) {
-								lineEnd = len(file.Content)
-							}
-							f.Fix = &scanner.Fix{
-								ByteMode:    true,
-								StartByte:   lineStart,
-								EndByte:     lineEnd,
-								Replacement: "",
-							}
-							ctx.Emit(f)
+						if !strings.HasPrefix(text, "return") {
+							return
 						}
+						// IgnoreLabeled: skip `return@something` jumps. These
+						// typically return from an enclosing lambda rather
+						// than the surrounding function and don't swallow
+						// the try/catch exception in the same way.
+						if r.IgnoreLabeled && strings.HasPrefix(text, "return@") {
+							return
+						}
+						f := r.Finding(file, file.FlatRow(jumpNode)+1, file.FlatCol(jumpNode)+1,
+							"Return from finally block. This can swallow exceptions from try/catch.")
+						lineIdx := file.FlatRow(jumpNode)
+						lineStart := file.LineOffset(lineIdx)
+						lineEnd := lineStart + len(file.Lines[lineIdx]) + 1
+						if lineEnd > len(file.Content) {
+							lineEnd = len(file.Content)
+						}
+						f.Fix = &scanner.Fix{
+							ByteMode:    true,
+							StartByte:   lineStart,
+							EndByte:     lineEnd,
+							Replacement: "",
+						}
+						ctx.Emit(f)
 					})
 				}
 			},

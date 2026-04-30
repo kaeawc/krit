@@ -662,6 +662,52 @@ class VerificationNamedHelperNegative {
 	}
 }
 
+func TestTestWithoutAssertion_NegativeSnapshotHelpers(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class SnapshotHelperNegative {
+    @Test
+    fun fullScreenMatchesGolden() {
+        snapshotEntireScreen()
+    }
+
+    @Test
+    fun contentMatchesWithInsets() {
+        snapshotWithInsets {
+            Content()
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected snapshot-named helpers to count as assertion-equivalent, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeTurbineTestAwaitItem(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import app.cash.turbine.test
+import org.junit.Test
+
+class TurbineTestNegative {
+    @Test
+    fun emitsLoadedState() {
+        states.test {
+            awaitItem()
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected Turbine test block with awaitItem to count as assertion-equivalent, got %d", len(findings))
+	}
+}
+
 func TestTestWithoutAssertion_NegativeEspressoIntentVerification(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test
@@ -888,6 +934,32 @@ class LocalWaitForLookalikePositive {
 `)
 	if len(findings) == 0 {
 		t.Fatal("expected local waitFor lookalike without PollingCheck import to be reported")
+	}
+}
+
+func TestTestWithoutAssertion_PositiveLocalTurbineTestLookalike(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class LocalTurbineTestLookalikePositive {
+    @Test
+    fun waitsWithoutVerification() {
+        states.test {
+            awaitItem()
+        }
+    }
+
+    private fun <T> Flow<T>.test(block: () -> Unit) {
+        block()
+    }
+
+    private fun awaitItem() = Unit
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected local test lookalike without Turbine import to be reported")
 	}
 }
 

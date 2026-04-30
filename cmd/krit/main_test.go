@@ -8,14 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/pipeline"
-	"github.com/kaeawc/krit/internal/rules"
-	"github.com/kaeawc/krit/internal/scanner"
 )
 
 var binPath string
@@ -256,50 +253,6 @@ func TestConfigDisablesRule(t *testing.T) {
 		if fm["rule"] == "UnusedVariable" {
 			t.Fatalf("UnusedVariable should be disabled by config, but was reported")
 		}
-	}
-}
-
-func TestRunActiveIconChecksColumnsMatchesUnderlyingRules(t *testing.T) {
-	gifIcon := &android.IconFile{
-		Path:    "res/drawable-mdpi/anim.gif",
-		Name:    "anim",
-		Density: "mdpi",
-		Format:  "gif",
-		Size:    2048,
-	}
-	pngIcon := &android.IconFile{
-		Path:    "res/drawable-mdpi/large.png",
-		Name:    "large",
-		Density: "mdpi",
-		Format:  "png",
-		Size:    12 * 1024,
-	}
-	idx := &android.IconIndex{
-		Densities: map[string][]*android.IconFile{
-			"mdpi": {gifIcon, pngIcon},
-		},
-		Icons: []*android.IconFile{gifIcon, pngIcon},
-	}
-	activeNames := map[string]bool{
-		"GifUsage":                 true,
-		"ConvertToWebp":            true,
-		"IconMissingDensityFolder": true,
-	}
-
-	columns := pipeline.RunActiveIconChecksColumns(idx, activeNames)
-	got := columns.Findings()
-	wantCollector := scanner.NewFindingCollector(0)
-	rules.CheckGifUsage(idx, wantCollector)
-	rules.CheckConvertToWebp(idx, wantCollector)
-	rules.CheckIconMissingDensityFolder(idx, wantCollector)
-	normalizedWant := wantCollector.Columns().Findings()
-
-	if !reflect.DeepEqual(got, normalizedWant) {
-		t.Fatalf("icon columns mismatch:\nwant: %#v\ngot:  %#v", normalizedWant, got)
-	}
-	wrapperCols := pipeline.RunActiveIconChecksColumns(idx, activeNames)
-	if wrapper := wrapperCols.Findings(); !reflect.DeepEqual(wrapper, normalizedWant) {
-		t.Fatalf("icon wrapper mismatch:\nwant: %#v\ngot:  %#v", normalizedWant, wrapper)
 	}
 }
 

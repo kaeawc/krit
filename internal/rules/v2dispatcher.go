@@ -74,7 +74,7 @@ type V2Dispatcher struct {
 	// CrossFileRules()/ModuleAwareRules() and not invoked from Run.
 	crossFileRules   []*v2.Rule
 	moduleAwareRules []*v2.Rule
-	// manifestRules / resourceRules / gradleRules / aggregateRules
+	// manifestRules / resourceRules / iconRules / gradleRules / aggregateRules
 	// are also NOT invoked from Run — they require project-level
 	// context that is assembled by the main pipeline. They are stored
 	// here so ensureFlatTypeIndex and collectAllRules can see them for
@@ -82,6 +82,7 @@ type V2Dispatcher struct {
 	manifestRules       []*v2.Rule
 	resourceRules       []*v2.Rule
 	resourceSourceRules []*v2.Rule
+	iconRules           []*v2.Rule
 	gradleRules         []*v2.Rule
 	aggregateRules      []*v2.Rule
 	// nodeDispatchRules are rules with non-empty NodeTypes. They live in
@@ -142,6 +143,8 @@ func NewV2Dispatcher(rules []*v2.Rule, resolver ...typeinfer.TypeResolver) *V2Di
 			d.resourceSourceRules = append(d.resourceSourceRules, r)
 		case r.Needs.Has(v2.NeedsResources):
 			d.resourceRules = append(d.resourceRules, r)
+		case rulesNeedsIcons(r):
+			d.iconRules = append(d.iconRules, r)
 		case r.Needs.Has(v2.NeedsGradle):
 			d.gradleRules = append(d.gradleRules, r)
 		case r.Needs.Has(v2.NeedsAggregate):
@@ -250,9 +253,14 @@ func isDeferredFromPerFileDispatch(r *v2.Rule) bool {
 		r.Needs.Has(v2.NeedsModuleIndex) ||
 		r.Needs.Has(v2.NeedsManifest) ||
 		r.Needs.Has(v2.NeedsResources) ||
+		rulesNeedsIcons(r) ||
 		r.Needs.Has(v2.NeedsGradle) ||
 		r.Needs.Has(v2.NeedsAggregate) ||
 		r.Needs.Has(v2.NeedsLinePass)
+}
+
+func rulesNeedsIcons(r *v2.Rule) bool {
+	return r != nil && AndroidDataDependency(r.AndroidDeps)&AndroidDepIcons != 0
 }
 
 // ensureFlatTypeIndex returns the flat-type rule index, rebuilding it
@@ -569,6 +577,9 @@ func (d *V2Dispatcher) buildExcludedSet(filePath string) map[string]bool {
 	for _, r := range d.resourceSourceRules {
 		check(r)
 	}
+	for _, r := range d.iconRules {
+		check(r)
+	}
 	for _, r := range d.gradleRules {
 		check(r)
 	}
@@ -581,7 +592,7 @@ func (d *V2Dispatcher) buildExcludedSet(filePath string) map[string]bool {
 // collectAllRules returns every rule the dispatcher knows about, used
 // when rebuilding the flat-type index after NodeTypeTable grows.
 func (d *V2Dispatcher) collectAllRules() []*v2.Rule {
-	out := make([]*v2.Rule, 0, len(d.nodeDispatchRules)+len(d.allNodeRules)+len(d.lineRules)+len(d.crossFileRules)+len(d.moduleAwareRules)+len(d.manifestRules)+len(d.resourceRules)+len(d.resourceSourceRules)+len(d.gradleRules)+len(d.aggregateRules))
+	out := make([]*v2.Rule, 0, len(d.nodeDispatchRules)+len(d.allNodeRules)+len(d.lineRules)+len(d.crossFileRules)+len(d.moduleAwareRules)+len(d.manifestRules)+len(d.resourceRules)+len(d.resourceSourceRules)+len(d.iconRules)+len(d.gradleRules)+len(d.aggregateRules))
 	seen := make(map[*v2.Rule]bool)
 	addAll := func(rs []*v2.Rule) {
 		for _, r := range rs {
@@ -606,6 +617,7 @@ func (d *V2Dispatcher) collectAllRules() []*v2.Rule {
 	addAll(d.manifestRules)
 	addAll(d.resourceRules)
 	addAll(d.resourceSourceRules)
+	addAll(d.iconRules)
 	addAll(d.gradleRules)
 	addAll(d.aggregateRules)
 	return out
@@ -686,6 +698,9 @@ func (d *V2Dispatcher) ResourceRules() []*v2.Rule { return d.resourceRules }
 // ResourceIndex. The Android phase invokes these after resource scanning.
 func (d *V2Dispatcher) ResourceSourceRules() []*v2.Rule { return d.resourceSourceRules }
 
+// IconRules returns Android icon rules stored on this dispatcher.
+func (d *V2Dispatcher) IconRules() []*v2.Rule { return d.iconRules }
+
 // RunGradle runs every registered Gradle rule against a single parsed
 // Gradle build script. The file argument carries path/content with
 // Language == LangGradle; cfg is the parsed BuildConfig. Findings are
@@ -714,6 +729,14 @@ func (d *V2Dispatcher) RunManifest(file *scanner.File, manifest interface{}) sca
 func (d *V2Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) scanner.FindingColumns {
 	return d.runProjectRuleSet(file, d.resourceRules, func(ctx *v2.Context) {
 		ctx.ResourceIndex = idx
+	})
+}
+
+// RunIcons runs every registered icon rule against an IconIndex for a
+// single res/ directory.
+func (d *V2Dispatcher) RunIcons(file *scanner.File, idx *android.IconIndex) scanner.FindingColumns {
+	return d.runProjectRuleSet(file, d.iconRules, func(ctx *v2.Context) {
+		ctx.IconIndex = idx
 	})
 }
 

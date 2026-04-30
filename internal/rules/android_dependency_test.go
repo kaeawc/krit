@@ -26,8 +26,46 @@ func TestAndroidDependencyMetadata(t *testing.T) {
 	check("ExtraTextResource", rules.AndroidDepValuesExtraText)
 	check("PxUsageResource", rules.AndroidDepValuesDimensions|rules.AndroidDepLayout)
 	check("GradlePluginCompatibility", rules.AndroidDepGradle)
-	check("IconDensities", rules.AndroidDepIcons)
+	for _, name := range allIconRuleNames() {
+		check(name, rules.AndroidDepIcons)
+	}
 	check("UseValueOf", rules.AndroidDepNone)
+}
+
+func TestIconRulesAreClassifiedForV2Dispatch(t *testing.T) {
+	dispatcher := rules.NewDispatcherV2(v2rules.Registry)
+	got := make(map[string]bool)
+	for _, rule := range dispatcher.IconRules() {
+		if rule.Check == nil {
+			t.Fatalf("icon rule %q has nil Check", rule.ID)
+		}
+		got[rule.ID] = true
+	}
+	for _, name := range allIconRuleNames() {
+		if !got[name] {
+			t.Fatalf("icon rule %q was not classified as an icon rule", name)
+		}
+	}
+}
+
+func allIconRuleNames() []string {
+	return []string{
+		"IconDensities",
+		"IconDipSize",
+		"IconDuplicates",
+		"GifUsage",
+		"ConvertToWebp",
+		"IconMissingDensityFolder",
+		"IconExpectedSize",
+		"IconExtension",
+		"IconLocation",
+		"IconMixedNinePatch",
+		"IconXmlAndPng",
+		"IconNoDpi",
+		"IconDuplicatesConfig",
+		"IconColors",
+		"IconLauncherShape",
+	}
 }
 
 func findRegisteredRule(t *testing.T, name string) *v2rules.Rule {

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/rules"
 	v2 "github.com/kaeawc/krit/internal/rules/v2"
@@ -285,7 +286,7 @@ func (s *Server) toolSuggestFixes(arguments json.RawMessage) ToolResult {
 				return false
 			}
 			lvl, _ := rules.GetV2FixLevel(r)
-				return lvl <= maxLevel
+			return lvl <= maxLevel
 		})
 	}
 
@@ -883,7 +884,9 @@ func (s *Server) toolAnalyzeAndroid(arguments json.RawMessage) ToolResult {
 
 	collector := scanner.NewFindingCollector(len(proj.ManifestPaths)*4 + len(proj.ResDirs)*8 + len(proj.GradlePaths)*4)
 
+	libraryFacts := librarymodel.FactsForProfile(librarymodel.ProfileFromGradlePaths(proj.GradlePaths))
 	dispatcher := rules.NewDispatcherV2(v2.Registry)
+	dispatcher.SetLibraryFacts(libraryFacts)
 
 	// Manifest analysis
 	if scope == "manifest" || scope == "all" {
@@ -949,7 +952,13 @@ func (s *Server) toolAnalyzeAndroid(arguments json.RawMessage) ToolResult {
 			if err != nil {
 				continue
 			}
-			rules.RunAllIconChecks(idx, collector)
+			file := &scanner.File{
+				Path:     resDir,
+				Language: scanner.LangXML,
+				Metadata: idx,
+			}
+			cols := dispatcher.RunIcons(file, idx)
+			collector.AppendColumns(&cols)
 		}
 	}
 

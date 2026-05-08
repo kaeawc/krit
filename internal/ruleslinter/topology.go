@@ -43,8 +43,14 @@ func AnalyzeSubpackageTopology(rulesParentDir string) ([]Violation, error) {
 		// import whatever they need; they are not domain rule packages.
 		// (v2 was renamed to api in #1210; both names are tolerated until
 		// any remaining v2 directories are removed.)
+		//
+		// ruletest is the canonical test-helper package for rule unit
+		// tests. It depends on the parent rules package (it builds a
+		// Dispatcher) and is meant to be imported from _test.go files
+		// only, so the production-side topology constraint does not
+		// apply.
 		switch e.Name() {
-		case "api", "v2", "base", "semantics":
+		case "api", "v2", "base", "semantics", "ruletest":
 			continue
 		}
 		subDir := filepath.Join(rulesParentDir, e.Name())

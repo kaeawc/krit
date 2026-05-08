@@ -73,7 +73,7 @@ func (s *Server) Run() {
 	s.buildDispatcher()
 
 	for {
-		msg, err := jsonrpc.ReadMessage(s.reader)
+		msg, err := jsonrpc.ReadMessageNDJSON(s.reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				s.logInfo("EOF on stdin, exiting")
@@ -104,7 +104,7 @@ func (s *Server) buildDispatcher() {
 
 // sendResponse sends a JSON-RPC 2.0 response via the shared transport.
 func (s *Server) sendResponse(id interface{}, result interface{}, rpcErr *RPCError) {
-	jsonrpc.SendResponse(s.writer, &s.mu, id, result, rpcErr)
+	jsonrpc.SendResponseNDJSON(s.writer, &s.mu, id, result, rpcErr)
 }
 
 // handleMessage dispatches a JSON-RPC request or notification.

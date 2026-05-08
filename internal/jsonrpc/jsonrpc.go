@@ -1,5 +1,7 @@
-// Package jsonrpc implements Content-Length-framed JSON-RPC 2.0 message
-// transport shared by the LSP and MCP servers.
+// Package jsonrpc implements JSON-RPC 2.0 message transport shared by the
+// LSP and MCP servers. LSP uses Content-Length-header framing
+// (ReadMessage/WriteMessage); MCP-over-stdio uses newline-delimited JSON
+// per the MCP spec (ReadMessageNDJSON/WriteMessageNDJSON).
 package jsonrpc
 
 import (
@@ -148,6 +150,68 @@ func SendResponse(w io.Writer, mu *sync.Mutex, id interface{}, result interface{
 		return
 	}
 	WriteMessage(w, mu, successResponse{JSONRPC: "2.0", ID: id, Result: result})
+}
+
+// ReadMessageNDJSON reads one newline-delimited JSON-RPC message from r.
+// Per the MCP stdio transport spec, each message is a single line of JSON
+// terminated by \n, with no embedded newlines and no Content-Length header.
+// Blank lines are skipped so a stray CRLF between messages does not error.
+func ReadMessageNDJSON(r *bufio.Reader) ([]byte, error) {
+	for {
+		line, err := r.ReadBytes('\n')
+		if err != nil {
+			// Return any trailing partial line so callers can still
+			// process a final message that lacked a newline before EOF.
+			if err == io.EOF && len(line) > 0 {
+				trimmed := trimNDJSON(line)
+				if len(trimmed) > 0 {
+					return trimmed, nil
+				}
+			}
+			return nil, err
+		}
+		trimmed := trimNDJSON(line)
+		if len(trimmed) == 0 {
+			continue
+		}
+		return trimmed, nil
+	}
+}
+
+func trimNDJSON(line []byte) []byte {
+	// Strip trailing \r\n / \n and any surrounding whitespace.
+	return []byte(strings.TrimSpace(string(line)))
+}
+
+// WriteMessageNDJSON serializes msg as JSON and writes it as a single line
+// terminated by \n. The write is protected by mu.
+func WriteMessageNDJSON(w io.Writer, mu *sync.Mutex, msg interface{}) {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		pkgLog.Error("marshal error", "err", err)
+		return
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if _, err := w.Write(data); err != nil {
+		pkgLog.Error("write body error", "err", err)
+		return
+	}
+	if _, err := io.WriteString(w, "\n"); err != nil {
+		pkgLog.Error("write newline error", "err", err)
+		return
+	}
+}
+
+// SendResponseNDJSON is the NDJSON counterpart of SendResponse.
+func SendResponseNDJSON(w io.Writer, mu *sync.Mutex, id interface{}, result interface{}, rpcErr *Error) {
+	if rpcErr != nil {
+		WriteMessageNDJSON(w, mu, errorResponse{JSONRPC: "2.0", ID: id, Error: rpcErr})
+		return
+	}
+	WriteMessageNDJSON(w, mu, successResponse{JSONRPC: "2.0", ID: id, Result: result})
 }
 
 // SendNotification sends a JSON-RPC 2.0 notification (no ID).

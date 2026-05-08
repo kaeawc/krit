@@ -12,14 +12,15 @@ import (
 	"github.com/kaeawc/krit/internal/jsonrpc"
 )
 
-// helper: build a Content-Length framed message from a JSON-RPC request.
+// helper: build a newline-delimited JSON-RPC message. MCP-over-stdio uses
+// NDJSON framing, not Content-Length headers.
 func frameMessage(t *testing.T, req Request) string {
 	t.Helper()
 	data, err := json.Marshal(req)
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}
-	return fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(data), data)
+	return fmt.Sprintf("%s\n", data)
 }
 
 // runServerWithSrv is runServer that also returns the *Server so tests
@@ -38,7 +39,7 @@ func runServerWithSrv(t *testing.T, requests ...Request) (*Server, []Response) {
 	server.buildDispatcher()
 
 	for {
-		msg, err := jsonrpc.ReadMessage(reader)
+		msg, err := jsonrpc.ReadMessageNDJSON(reader)
 		if err != nil {
 			break
 		}
@@ -52,7 +53,7 @@ func runServerWithSrv(t *testing.T, requests ...Request) (*Server, []Response) {
 	outReader := bufio.NewReader(bytes.NewReader(output.Bytes()))
 	var responses []Response
 	for {
-		msg, err := jsonrpc.ReadMessage(outReader)
+		msg, err := jsonrpc.ReadMessageNDJSON(outReader)
 		if err != nil {
 			break
 		}
@@ -81,7 +82,7 @@ func runServer(t *testing.T, requests ...Request) []Response {
 
 	// Process messages until EOF
 	for {
-		msg, err := jsonrpc.ReadMessage(reader)
+		msg, err := jsonrpc.ReadMessageNDJSON(reader)
 		if err != nil {
 			break
 		}
@@ -96,7 +97,7 @@ func runServer(t *testing.T, requests ...Request) []Response {
 	outReader := bufio.NewReader(bytes.NewReader(output.Bytes()))
 	var responses []Response
 	for {
-		msg, err := jsonrpc.ReadMessage(outReader)
+		msg, err := jsonrpc.ReadMessageNDJSON(outReader)
 		if err != nil {
 			break
 		}

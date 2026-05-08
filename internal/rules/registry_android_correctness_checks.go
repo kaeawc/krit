@@ -184,7 +184,9 @@ func registerAndroidCorrectnessChecksWrongViewCast() {
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression", "as_expression", "cast_expression", "local_variable_declaration"},
-		Needs:     api.NeedsTypeInfo,
+		Needs: api.NeedsTypeInfo |
+			api.NeedsOracleCallTargets |
+			api.NeedsOracleSupertypes,
 		Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 		OracleCallTargets: &api.OracleCallTargetFilter{
 			CalleeNames: []string{"findViewById", "requireViewById"},
@@ -222,7 +224,9 @@ func registerAndroidCorrectnessChecksRange() {
 	r := &RangeRule{AndroidRule: alcRule("Range", "Outside allowed range", ALSError, 6)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Needs: api.NeedsTypeInfo, Confidence: r.Confidence(), Implementation: r,
+		NodeTypes: []string{"call_expression"},
+		Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+		Confidence: r.Confidence(), Implementation: r,
 		Oracle:            &api.OracleFilter{Identifiers: []string{"IntRange", "FloatRange", "Color", "setAlpha", "setProgress", "setRotation"}},
 		OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{"argb", "rgb", "setAlpha", "setProgress", "setRotation"}},
 		// Uses LookupCallTarget to verify the method is a framework target;
@@ -459,7 +463,12 @@ func registerAndroidCorrectnessChecksObjectAnimatorBinding() {
 	r := &ObjectAnimatorBindingRule{AndroidRule: alcRule("ObjectAnimatorBinding", "Incorrect ObjectAnimator Property", ALSError, 4)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Needs: api.NeedsTypeInfo, Confidence: r.Confidence(), Implementation: r,
+		NodeTypes: []string{"call_expression"},
+		Needs: api.NeedsTypeInfo |
+			api.NeedsOracleCallTargets |
+			api.NeedsOracleSupertypes |
+			api.NeedsOracleMembers,
+		Confidence: r.Confidence(), Implementation: r,
 		Oracle: &api.OracleFilter{Identifiers: []string{"ObjectAnimator", "ofFloat", "ofInt", "ofObject"}},
 		OracleCallTargets: &api.OracleCallTargetFilter{TargetFQNs: []string{
 			"android.animation.ObjectAnimator.ofFloat",

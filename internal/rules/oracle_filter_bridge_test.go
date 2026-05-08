@@ -16,7 +16,9 @@ func TestBuildOracleFilterRulesV2_SkipsRulesWithoutOracleNeed(t *testing.T) {
 		{ID: "OracleFiltered", Needs: api.NeedsResolver | api.NeedsOracle,
 			Oracle: &api.OracleFilter{Identifiers: []string{"suspend"}}},
 		{ID: "TypeInfoOnly", Needs: api.NeedsTypeInfo},
-		{ID: "TypeInfoFiltered", Needs: api.NeedsTypeInfo,
+		{ID: "BareOracleNoBits", Needs: api.NeedsTypeInfo, // bare Oracle filter w/o bits → excluded
+			Oracle: &api.OracleFilter{Identifiers: []string{"!!"}}},
+		{ID: "NarrowOracleFiltered", Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Oracle: &api.OracleFilter{Identifiers: []string{"!!"}}},
 	}
 	got := BuildOracleFilterRulesV2(rules)
@@ -28,12 +30,12 @@ func TestBuildOracleFilterRulesV2_SkipsRulesWithoutOracleNeed(t *testing.T) {
 	for _, r := range got {
 		byName[r.Name] = r
 	}
-	for _, want := range []string{"OracleAll", "OracleFiltered", "TypeInfoFiltered"} {
+	for _, want := range []string{"OracleAll", "OracleFiltered", "NarrowOracleFiltered"} {
 		if _, ok := byName[want]; !ok {
 			t.Errorf("%s missing from filter set: %+v", want, byName)
 		}
 	}
-	for _, skip := range []string{"SyntacticRule", "ResolverOnly", "TypeInfoOnly"} {
+	for _, skip := range []string{"SyntacticRule", "ResolverOnly", "TypeInfoOnly", "BareOracleNoBits"} {
 		if _, leaked := byName[skip]; leaked {
 			t.Errorf("non-oracle rule leaked through: %s", skip)
 		}
@@ -45,7 +47,7 @@ func TestBuildOracleFilterRulesV2_SkipsRulesWithoutOracleNeed(t *testing.T) {
 			t.Errorf("%s: Filter=%+v, want AllFiles:true default", name, r.Filter)
 		}
 	}
-	wantIDs := map[string]string{"OracleFiltered": "suspend", "TypeInfoFiltered": "!!"}
+	wantIDs := map[string]string{"OracleFiltered": "suspend", "NarrowOracleFiltered": "!!"}
 	for name, want := range wantIDs {
 		r := byName[name]
 		if r.Filter == nil || r.Filter.AllFiles ||
@@ -71,7 +73,7 @@ func TestBuildOracleCallTargetFilterV2_Bounded(t *testing.T) {
 	rules := []*api.Rule{
 		{ID: "SyntacticRule"},
 		{ID: "NoCallTarget", Needs: api.NeedsTypeInfo},
-		{ID: "Suspend", Needs: api.NeedsTypeInfo, OracleCallTargets: &api.OracleCallTargetFilter{
+		{ID: "Suspend", Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets, OracleCallTargets: &api.OracleCallTargetFilter{
 			TargetFQNs:  []string{"kotlinx.coroutines.delay"},
 			CalleeNames: []string{"await", "delay"},
 			LexicalHintsByCallee: map[string][]string{
@@ -81,7 +83,7 @@ func TestBuildOracleCallTargetFilterV2_Bounded(t *testing.T) {
 				"w": {"Log"},
 			},
 		}},
-		{ID: "Cast", Needs: api.NeedsTypeInfo, OracleCallTargets: &api.OracleCallTargetFilter{
+		{ID: "Cast", Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets, OracleCallTargets: &api.OracleCallTargetFilter{
 			CalleeNames: []string{"getSystemService", "findViewById"},
 		}},
 	}
@@ -121,8 +123,8 @@ func TestBuildOracleCallTargetFilterV2_Bounded(t *testing.T) {
 
 func TestBuildOracleCallTargetFilterV2_BroadDisables(t *testing.T) {
 	rules := []*api.Rule{
-		{ID: "Bounded", Needs: api.NeedsTypeInfo, OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{"delay"}}},
-		{ID: "Broad", Needs: api.NeedsTypeInfo, OracleCallTargets: &api.OracleCallTargetFilter{AllCalls: true}},
+		{ID: "Bounded", Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets, OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{"delay"}}},
+		{ID: "Broad", Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets, OracleCallTargets: &api.OracleCallTargetFilter{AllCalls: true}},
 	}
 
 	got := BuildOracleCallTargetFilterV2(rules)
@@ -158,7 +160,7 @@ fun topLevelMustUse(): String = ""
 	}}
 	rules := []*api.Rule{{
 		ID:    "AnnotatedCalls",
-		Needs: api.NeedsTypeInfo,
+		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		OracleCallTargets: &api.OracleCallTargetFilter{
 			AnnotatedIdentifiers: []string{"Deprecated", "CheckReturnValue", "CheckResult"},
 		},
@@ -184,7 +186,7 @@ fun topLevelMustUse(): String = ""
 func TestBuildOracleCallTargetFilterV2_AnnotatedCalleesNeedFiles(t *testing.T) {
 	rules := []*api.Rule{{
 		ID:    "AnnotatedCalls",
-		Needs: api.NeedsTypeInfo,
+		Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		OracleCallTargets: &api.OracleCallTargetFilter{
 			AnnotatedIdentifiers: []string{"Deprecated"},
 		},
@@ -209,11 +211,12 @@ func containsString(values []string, want string) bool {
 }
 
 func TestBuildOracleDeclarationProfileV2_FallsBackWhenUnoptedIn(t *testing.T) {
-	// A rule with nil OracleDeclarationNeeds forces full profile.
+	// A rule that declares the legacy umbrella NeedsOracle forces the
+	// full profile because we cannot tell which fields it reads.
 	rules := []*api.Rule{
-		{ID: "Narrow", Needs: api.NeedsTypeInfo,
+		{ID: "Narrow", Needs: api.NeedsTypeInfo | api.NeedsOracleSupertypes,
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true}},
-		{ID: "NotOptedIn", Needs: api.NeedsOracle}, // nil → conservative
+		{ID: "NotOptedIn", Needs: api.NeedsOracle}, // umbrella → conservative
 	}
 	got := BuildOracleDeclarationProfileV2(rules)
 	if got.Fingerprint != "" {
@@ -227,11 +230,11 @@ func TestBuildOracleDeclarationProfileV2_FallsBackWhenUnoptedIn(t *testing.T) {
 func TestBuildOracleDeclarationProfileV2_UnionWhenAllOptedIn(t *testing.T) {
 	// All rules opted in — profile is the union of declared needs.
 	rules := []*api.Rule{
-		{ID: "ExprOnly", Needs: api.NeedsTypeInfo,
+		{ID: "ExprOnly", Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{}},
-		{ID: "NeedsSupertypes", Needs: api.NeedsTypeInfo,
+		{ID: "NeedsSupertypes", Needs: api.NeedsTypeInfo | api.NeedsOracleSupertypes,
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true, Supertypes: true}},
-		{ID: "NeedsAnnotations", Needs: api.NeedsTypeInfo,
+		{ID: "NeedsAnnotations", Needs: api.NeedsTypeInfo | api.NeedsOracleMembers | api.NeedsOracleMemberAnnotations,
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{Members: true, MemberAnnotations: true}},
 	}
 	got := BuildOracleDeclarationProfileV2(rules)
@@ -251,7 +254,7 @@ func TestBuildOracleDeclarationProfileV2_SkipsNonOracleRules(t *testing.T) {
 	// Non-oracle rules (NeedsResolver only) are ignored even with nil declaration needs.
 	rules := []*api.Rule{
 		{ID: "ResolverOnly", Needs: api.NeedsResolver}, // no NeedsOracle → ignored
-		{ID: "OracleRule", Needs: api.NeedsTypeInfo,
+		{ID: "OracleRule", Needs: api.NeedsTypeInfo | api.NeedsOracleSupertypes,
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true}},
 	}
 	got := BuildOracleDeclarationProfileV2(rules)

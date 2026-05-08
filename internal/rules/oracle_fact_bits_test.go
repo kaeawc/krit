@@ -58,55 +58,48 @@ func TestOracleFactUnion_LegacyMetadataLifted(t *testing.T) {
 		wantNone api.Capabilities
 	}{
 		{
-			name: "OracleCallTargets implies NeedsOracleCallTargets",
+			name: "Narrow CallTargets bit on Needs",
 			rule: &api.Rule{
 				ID:                "T",
+				Needs:             api.NeedsOracleCallTargets,
 				OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{"x"}},
 			},
 			wantAny:  api.NeedsOracleCallTargets,
 			wantNone: api.NeedsOracleDiagnostics | api.NeedsOracleLibraryClasses | api.NeedsOracleMembers,
 		},
 		{
-			name: "OracleDeclarationNeeds.Supertypes lifts to bit",
+			name: "Supertypes bit on Needs",
 			rule: &api.Rule{
-				ID:                     "T",
-				OracleDeclarationNeeds: &api.OracleDeclarationProfile{Supertypes: true},
+				ID:    "T",
+				Needs: api.NeedsOracleSupertypes,
 			},
 			wantAny:  api.NeedsOracleSupertypes,
 			wantNone: api.NeedsOracleMembers | api.NeedsOracleDiagnostics,
 		},
 		{
-			name: "OracleDeclarationNeeds.MemberAnnotations implies Members + MemberAnnotations",
+			name: "MemberAnnotations bit",
 			rule: &api.Rule{
-				ID:                     "T",
-				OracleDeclarationNeeds: &api.OracleDeclarationProfile{MemberAnnotations: true},
+				ID:    "T",
+				Needs: api.NeedsOracleMembers | api.NeedsOracleMemberAnnotations,
 			},
 			wantAny:  api.NeedsOracleMembers | api.NeedsOracleMemberAnnotations,
 			wantNone: api.NeedsOracleDiagnostics,
 		},
 		{
-			name: "OracleDeclarationNeeds.SourceDependencyClosure lifts to LibraryClasses",
+			name: "LibraryClasses bit",
 			rule: &api.Rule{
-				ID:                     "T",
-				OracleDeclarationNeeds: &api.OracleDeclarationProfile{SourceDependencyClosure: true},
+				ID:    "T",
+				Needs: api.NeedsOracleLibraryClasses,
 			},
 			wantAny: api.NeedsOracleLibraryClasses,
 		},
 		{
-			name: "Empty OracleDeclarationNeeds contributes no bits",
-			rule: &api.Rule{
-				ID:                     "T",
-				OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
-			},
-			wantNone: api.NeedsOracle,
-		},
-		{
-			name: "Bare Oracle filter falls back to umbrella",
+			name: "Bare Oracle filter without bits contributes nothing",
 			rule: &api.Rule{
 				ID:     "T",
 				Oracle: &api.OracleFilter{Identifiers: []string{"suspend"}},
 			},
-			wantAny: api.NeedsOracle,
+			wantNone: api.NeedsOracle,
 		},
 	}
 	for _, tc := range cases {
@@ -122,12 +115,15 @@ func TestOracleFactUnion_LegacyMetadataLifted(t *testing.T) {
 	}
 }
 
-func TestOracleFactUnion_DiagnosticRuleIDsLiftToBit(t *testing.T) {
+// TestOracleFactUnion_NoLegacyIDLift documents that the rule-ID switch
+// for diagnostic-consuming rules has been removed. The matching rules
+// must declare NeedsOracleDiagnostics on Needs to opt in.
+func TestOracleFactUnion_NoLegacyIDLift(t *testing.T) {
 	for _, id := range []string{"UnsafeCast", "UnreachableCode"} {
 		r := &api.Rule{ID: id}
 		got := OracleFactUnion([]*api.Rule{r})
-		if !got.HasAny(api.NeedsOracleDiagnostics) {
-			t.Errorf("rule %q: expected NeedsOracleDiagnostics in union, got %b", id, got)
+		if got.HasAny(api.NeedsOracleDiagnostics) {
+			t.Errorf("rule %q without bits should not contribute diagnostics, got %b", id, got)
 		}
 	}
 }
@@ -177,7 +173,6 @@ func TestNeedsOracleLibraryClasses_DrivenByBit(t *testing.T) {
 	}{
 		{"narrow lib bit", &api.Rule{ID: "X", Needs: api.NeedsOracleLibraryClasses}, true},
 		{"umbrella", &api.Rule{ID: "X", Needs: api.NeedsOracle}, true},
-		{"legacy SourceDependencyClosure", &api.Rule{ID: "X", OracleDeclarationNeeds: &api.OracleDeclarationProfile{SourceDependencyClosure: true}}, true},
 		{"call-targets only", &api.Rule{ID: "X", Needs: api.NeedsOracleCallTargets}, false},
 		{"no oracle", &api.Rule{ID: "X"}, false},
 	}
@@ -205,7 +200,6 @@ func TestNeedsOracleDeclarationWalk_DrivenByBit(t *testing.T) {
 		{"call-targets only", &api.Rule{ID: "X", Needs: api.NeedsOracleCallTargets}, false},
 		{"diagnostics only", &api.Rule{ID: "X", Needs: api.NeedsOracleDiagnostics}, false},
 		{"library only", &api.Rule{ID: "X", Needs: api.NeedsOracleLibraryClasses}, false},
-		{"legacy decl needs", &api.Rule{ID: "X", OracleDeclarationNeeds: &api.OracleDeclarationProfile{Members: true}}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -407,23 +401,69 @@ func TestOracleNarrowing_EndToEnd(t *testing.T) {
 	})
 }
 
-// TestRuleNeedsKotlinOracle_LiveRegistry surfaces rules the bridge
-// considers oracle-needing but that contribute zero fact bits — i.e.
-// rules whose only oracle metadata is an empty OracleDeclarationProfile
-// with no narrowing. These are migration leftovers; the non-empty list
-// is logged so Phase 3 can clean them up. The test is intentionally
-// non-fatal during the migration window.
-func TestRuleNeedsKotlinOracle_LiveRegistry(t *testing.T) {
-	var emptyMarkerOnly []string
+// TestOracleBitsMatchMetadata fails if any registered rule has oracle
+// metadata (OracleCallTargets or non-empty OracleDeclarationNeeds) but
+// has not declared the matching NeedsOracle* bits. The bits are now
+// the single source of truth for the JVM workload union — leaving
+// metadata without bits silently downgrades the rule.
+func TestOracleBitsMatchMetadata(t *testing.T) {
 	for _, r := range api.Registry {
-		if !RuleNeedsKotlinOracle(r) {
+		if r == nil {
 			continue
 		}
-		if ruleOracleFactBits(r) == 0 {
-			emptyMarkerOnly = append(emptyMarkerOnly, r.ID)
+		want := bitsImpliedByMetadata(r)
+		got := r.Needs & api.NeedsOracle
+		if missing := want & ^got; missing != 0 {
+			t.Errorf("rule %q has oracle metadata implying %b but declared %b — missing bits %b", r.ID, want, got, missing)
 		}
 	}
-	if len(emptyMarkerOnly) > 0 {
-		t.Logf("rules with empty OracleDeclarationNeeds and no other oracle interest (Phase 3 cleanup target): %v", emptyMarkerOnly)
+}
+
+// bitsImpliedByMetadata derives the oracle bits a rule's legacy
+// metadata semantically asserts. Used by the live-registry guard to
+// catch rules whose Needs declaration drifted from their metadata.
+func bitsImpliedByMetadata(r *api.Rule) api.Capabilities {
+	if r == nil {
+		return 0
+	}
+	var bits api.Capabilities
+	if r.OracleCallTargets != nil {
+		bits |= api.NeedsOracleCallTargets
+	}
+	if n := r.OracleDeclarationNeeds; n != nil {
+		if n.Supertypes {
+			bits |= api.NeedsOracleSupertypes
+		}
+		if n.ClassAnnotations {
+			bits |= api.NeedsOracleClassAnnotations
+		}
+		if n.Members {
+			bits |= api.NeedsOracleMembers
+		}
+		if n.MemberSignatures {
+			bits |= api.NeedsOracleMembers | api.NeedsOracleMemberSignatures
+		}
+		if n.MemberAnnotations {
+			bits |= api.NeedsOracleMembers | api.NeedsOracleMemberAnnotations
+		}
+		if n.SourceDependencyClosure {
+			bits |= api.NeedsOracleLibraryClasses
+		}
+	}
+	return bits
+}
+
+// TestNoUmbrellaInLiveRegistry asserts no registered rule declares the
+// legacy NeedsOracle umbrella (i.e. every narrow bit at once). New
+// rules must declare narrow bits matching the facts their Check
+// function actually consumes.
+func TestNoUmbrellaInLiveRegistry(t *testing.T) {
+	for _, r := range api.Registry {
+		if r == nil {
+			continue
+		}
+		if r.Needs.Has(api.NeedsOracle) {
+			t.Errorf("rule %q declares the umbrella NeedsOracle — declare narrow NeedsOracle* bits matching the rule's actual KAA fact consumption", r.ID)
+		}
 	}
 }

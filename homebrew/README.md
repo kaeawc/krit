@@ -32,22 +32,12 @@ shasum -a 256 krit_0.1.0_darwin_arm64.tar.gz
 
 ## GoReleaser Integration
 
-GoReleaser can auto-update this formula on each release. Add to `.goreleaser.yaml`:
-```yaml
-brews:
-  - repository:
-      owner: kaeawc
-      name: homebrew-tap
-    folder: Formula
-    homepage: "https://github.com/kaeawc/krit"
-    description: "Go-first static analysis for Kotlin, Java, and Android"
-    license: "MIT"
-    install: |
-      bin.install "krit"
-      bin.install "krit-lsp"
-      bin.install "krit-mcp"
-    test: |
-      system "#{bin}/krit", "--version"
-```
+GoReleaser auto-publishes the formula to `kaeawc/homebrew-tap` on every
+tagged release — see the `brews:` block in `.goreleaser.yml` at the repo
+root. The manual formula in this directory is only a fallback template for
+the first release or for emergency manual publishes; under normal operation
+GoReleaser overwrites `Formula/krit.rb` in the tap repo with the correct
+URLs and SHAs.
 
-With this configuration, GoReleaser will automatically push updated formulas to the tap repository on every release.
+The release workflow needs a `HOMEBREW_TAP_TOKEN` secret with write access
+to `kaeawc/homebrew-tap`.

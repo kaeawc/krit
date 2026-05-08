@@ -31,6 +31,6 @@ class Krit < Formula
   end
 
   test do
-    system "#{bin}/krit", "--version"
+    system bin/"krit", "--version"
   end
 end

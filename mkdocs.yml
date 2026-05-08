@@ -57,4 +57,5 @@ nav:
   - Quickstart: quickstart.md
   - Configuration: configuration.md
   - Rules: rules.md
+  - Rule Scope: rule-scope.md
   - Integrations: integrations.md

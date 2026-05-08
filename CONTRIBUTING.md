@@ -28,6 +28,11 @@ make watch          # Re-run tests on file changes (requires fswatch)
 
 ## Adding a New Rule
 
+Before implementing, confirm the rule belongs in the built-in registry: see
+[`docs/rule-scope.md`](docs/rule-scope.md) for the qualification checklist
+and the rules that should live as opt-in / experimental / project-local
+instead.
+
 1. Create the rule struct in the appropriate `internal/rules/*.go` file.
 2. Embed the appropriate base (`FlatDispatchBase`, `LineBase`, `ManifestBase`,
    `ResourceBase`, `GradleBase`, or a resource-specific base).

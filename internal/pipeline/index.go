@@ -604,6 +604,21 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 
 	callFilterPtr := buildOracleCallTargetFilterForInvocation(oracleRules, loadOracleFilterFiles, jvmTracker, in.Reporter)
 	declarationProfileSummary := rules.BuildOracleDeclarationProfileV2(oracleRules)
+	factUnion := rules.OracleFactUnion(oracleRules)
+	perf.AddEntryDetails(jvmTracker, "oracleFactUnion", 0, map[string]int64{
+		"callTargets":       boolMetric(factUnion.HasAny(api.NeedsOracleCallTargets)),
+		"suspendMarkers":    boolMetric(factUnion.HasAny(api.NeedsOracleSuspendMarkers)),
+		"exprType":          boolMetric(factUnion.HasAny(api.NeedsOracleExprType)),
+		"exprAnnotations":   boolMetric(factUnion.HasAny(api.NeedsOracleExprAnnotations)),
+		"supertypes":        boolMetric(factUnion.HasAny(api.NeedsOracleSupertypes)),
+		"members":           boolMetric(factUnion.HasAny(api.NeedsOracleMembers)),
+		"memberSignatures":  boolMetric(factUnion.HasAny(api.NeedsOracleMemberSignatures)),
+		"classAnnotations":  boolMetric(factUnion.HasAny(api.NeedsOracleClassAnnotations)),
+		"memberAnnotations": boolMetric(factUnion.HasAny(api.NeedsOracleMemberAnnotations)),
+		"diagnostics":       boolMetric(factUnion.HasAny(api.NeedsOracleDiagnostics)),
+		"libraryClasses":    boolMetric(factUnion.HasAny(api.NeedsOracleLibraryClasses)),
+		"oracleRulesCount":  int64(len(oracleRules)),
+	}, nil)
 	invokeOpts := oracle.InvocationOptions{
 		Tracker:            jvmTracker,
 		CacheWriter:        in.OracleCacheWriter,
@@ -941,6 +956,16 @@ func maxIntLocal(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// boolMetric maps a bool to the 0/1 int64 metric form perf.AddEntryDetails
+// expects. Used by the oracleFactUnion telemetry to record which fact
+// categories the active rule set requested.
+func boolMetric(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func buildOracleCallTargetFilterForInvocation(activeRules []*api.Rule, loadFiles func() []*scanner.File, tracker perf.Tracker, reporter *diag.Reporter) *oracle.CallTargetFilterSummary {

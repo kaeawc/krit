@@ -15,7 +15,9 @@ func registerPotentialbugsNullsafetyCastsRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"as_expression"}, Confidence: 0.95, Fix: api.FixSemantic,
-			Needs:  api.NeedsTypeInfo,
+			Needs: api.NeedsTypeInfo |
+				api.NeedsOracleCallTargets |
+				api.NeedsOracleDiagnostics,
 			Oracle: &api.OracleFilter{Identifiers: []string{" as ", " as?"}},
 			OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{
 				"findFragmentById",

@@ -44,7 +44,9 @@ func registerAndroidRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: api.NeedsTypeInfo, Confidence: 0.75, Implementation: r,
+			NodeTypes:  []string{"call_expression"},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Confidence: 0.75, Implementation: r,
 			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"preferredWidth", "preferredHeight", "preferredSize"}},
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
@@ -134,7 +136,9 @@ func registerAndroidRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: api.NeedsTypeInfo, Confidence: 0.75, Implementation: r,
+			NodeTypes:  []string{"call_expression"},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Confidence: 0.75, Implementation: r,
 			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"v", "d", "i", "println", "isLoggable"}},
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
@@ -186,7 +190,9 @@ func registerAndroidRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: api.NeedsTypeInfo, Confidence: 0.75, Implementation: r,
+			NodeTypes:  []string{"call_expression"},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Confidence: 0.75, Implementation: r,
 			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"acquire", "release"}},
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
@@ -227,7 +233,8 @@ func registerAndroidRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "method_invocation", "assignment"}, Needs: api.NeedsTypeInfo,
+			NodeTypes: []string{"call_expression", "method_invocation", "assignment"},
+			Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.9, Implementation: r,
 			JavaFacts:              &api.JavaFactProfile{ReceiverTypesForCallees: []string{"setJavaScriptEnabled"}},
 			NeedsLibraryFacts:      true,

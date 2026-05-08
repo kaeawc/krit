@@ -94,8 +94,10 @@ func registerAndroidSourceExtraRules() {
 		r := &ViewTagRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ViewTag", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ViewTag", Brief: "Tagged object may leak", Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes:  []string{"call_expression"},
-			Needs:      api.NeedsTypeInfo,
+			NodeTypes: []string{"call_expression"},
+			Needs: api.NeedsTypeInfo |
+				api.NeedsOracleCallTargets |
+				api.NeedsOracleSupertypes,
 			Confidence: r.Confidence(), Implementation: r,
 			Oracle:            &api.OracleFilter{Identifiers: []string{"setTag"}},
 			OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{"setTag"}},
@@ -117,7 +119,9 @@ func registerAndroidSourceExtraRules() {
 		r := &MissingPermissionRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "MissingPermission", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "MissingPermission", Brief: "Missing permission check before API call", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 9, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: api.NeedsTypeInfo, Confidence: r.Confidence(), Implementation: r,
+			NodeTypes:  []string{"call_expression"},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Confidence: r.Confidence(), Implementation: r,
 			Oracle: &api.OracleFilter{Identifiers: missingPermissionOracleIdentifiers()},
 			OracleCallTargets: &api.OracleCallTargetFilter{
 				CalleeNames:          missingPermissionCandidateCalleeNames(),
@@ -133,8 +137,9 @@ func registerAndroidSourceExtraRules() {
 		r := &WrongConstantRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "WrongConstant", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "WrongConstant", Brief: "Wrong constant passed to API", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Needs: api.NeedsTypeInfo,
-			Oracle: &api.OracleFilter{Identifiers: []string{"setVisibility", "setLayoutDirection", "setImportantForAccessibility", "setGravity", "setOrientation"}},
+			NodeTypes: []string{"call_expression"},
+			Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Oracle:    &api.OracleFilter{Identifiers: []string{"setVisibility", "setLayoutDirection", "setImportantForAccessibility", "setGravity", "setOrientation"}},
 			OracleCallTargets: &api.OracleCallTargetFilter{
 				CalleeNames: []string{"setVisibility", "setLayoutDirection", "setImportantForAccessibility", "setGravity", "setOrientation"},
 			},

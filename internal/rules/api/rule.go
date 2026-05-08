@@ -65,12 +65,10 @@ const (
 	// (Collect per node, Finalize per file, Reset between files).
 	// (Scope.)
 	NeedsAggregate
-	// NeedsOracle marks this rule as requiring the JVM oracle
-	// (krit-types) for accurate analysis. Use this only for KAA-only
-	// facts such as resolved call targets, dependency annotations,
-	// compiler diagnostics, suspend-call identity, or declaration data.
-	// Source-level type facts should use NeedsResolver instead. (Aspect.)
-	NeedsOracle
+	// (reserved bit slot — formerly the single NeedsOracle umbrella. The
+	// narrow NeedsOracle* bits below replaced it; NeedsOracle is now an
+	// OR-alias of the narrow bits.)
+	_
 	// NeedsConcurrent marks this rule as safe to execute in parallel
 	// across worker goroutines at a phase boundary. The dispatcher
 	// hands each concurrent rule its own Context carrying a worker-
@@ -84,7 +82,70 @@ const (
 	// owner after the merge (SortByFileLine), so worker interleavings
 	// do not affect JSON / SARIF output. (Aspect.)
 	NeedsConcurrent
+
+	// Oracle fact-category bits. Each names a single class of KAA fact
+	// the rule consumes. Declaring narrow bits lets the bridge skip JVM
+	// extraction work no rule asked for: declaration walk, JAR closure,
+	// compiler diagnostics, etc. Use the umbrella NeedsOracle only as a
+	// transitional declaration when migrating off the legacy bit.
+
+	// NeedsOracleCallTargets requests resolved overload FQN / receiver
+	// type for call expressions selected by OracleCallTargetFilter.
+	// Pair with a non-nil OracleCallTargets to narrow the JVM-side scan.
+	NeedsOracleCallTargets
+	// NeedsOracleSuspendMarkers requests the suspend / inline / operator
+	// properties on the resolved callable. Independent of declaration
+	// extraction.
+	NeedsOracleSuspendMarkers
+	// NeedsOracleExprType requests expression type / nullability at
+	// selected positions (LookupExpression / ExprPositions).
+	NeedsOracleExprType
+	// NeedsOracleExprAnnotations requests annotation FQNs at expression
+	// positions (e.g. @CheckResult on the resolved callable).
+	NeedsOracleExprAnnotations
+	// NeedsOracleSupertypes requests the supertype walk for declaration
+	// symbols. Implies ClassShell when projected onto the declaration
+	// profile.
+	NeedsOracleSupertypes
+	// NeedsOracleMembers requests the member list for declaration
+	// symbols. Implied by NeedsOracleMemberSignatures and
+	// NeedsOracleMemberAnnotations.
+	NeedsOracleMembers
+	// NeedsOracleMemberSignatures requests parameter / return-type
+	// rendering for members. Implies NeedsOracleMembers when projected.
+	NeedsOracleMemberSignatures
+	// NeedsOracleClassAnnotations requests class-level annotation FQNs.
+	NeedsOracleClassAnnotations
+	// NeedsOracleMemberAnnotations requests member-level annotation
+	// FQNs. Implies NeedsOracleMembers when projected.
+	NeedsOracleMemberAnnotations
+	// NeedsOracleDiagnostics requests KAA compiler diagnostics
+	// (UNREACHABLE_CODE, USELESS_ELVIS, etc.). Skipped JVM-side when no
+	// active rule declares this bit.
+	NeedsOracleDiagnostics
+	// NeedsOracleLibraryClasses requests the JAR / library closure
+	// (Dependencies map) — required for resolving against types that
+	// do not appear in source. Skipped JVM-side when no active rule
+	// declares this bit.
+	NeedsOracleLibraryClasses
 )
+
+// NeedsOracle is the back-compat umbrella: the OR of every narrow
+// oracle fact bit. Rules that declare it consent to the broadest JVM
+// workload. New rules should declare only the narrow bits they read in
+// their Check function so the bridge can compute a tight union across
+// the active rule set.
+const NeedsOracle Capabilities = NeedsOracleCallTargets |
+	NeedsOracleSuspendMarkers |
+	NeedsOracleExprType |
+	NeedsOracleExprAnnotations |
+	NeedsOracleSupertypes |
+	NeedsOracleMembers |
+	NeedsOracleMemberSignatures |
+	NeedsOracleClassAnnotations |
+	NeedsOracleMemberAnnotations |
+	NeedsOracleDiagnostics |
+	NeedsOracleLibraryClasses
 
 // Scope is the typed enumeration of the dispatcher buckets a rule can
 // land in. Exactly one Scope applies to each rule; the dispatcher's
@@ -254,6 +315,13 @@ type JavaFactProfile struct {
 // Has reports whether c includes all bits in flag.
 func (c Capabilities) Has(flag Capabilities) bool {
 	return c&flag == flag
+}
+
+// HasAny reports whether c includes any bit in flag. Useful for
+// umbrella unions like NeedsOracle, where Has would require every
+// constituent bit and miss rules that declared only narrow bits.
+func (c Capabilities) HasAny(flag Capabilities) bool {
+	return c&flag != 0
 }
 
 // IsPerFile reports whether this rule runs per-file (dispatch or line pass).

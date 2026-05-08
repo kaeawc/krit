@@ -76,7 +76,7 @@ func registerPotentialbugsExceptionsRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"statements"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
-			Needs: api.NeedsTypeInfo,
+			Needs: api.NeedsTypeInfo | api.NeedsOracleDiagnostics,
 			// Narrow by the four jump keywords the rule actually dispatches
 			// on. Without any jump keyword a file cannot produce an
 			// UNREACHABLE_CODE finding; USELESS_ELVIS diagnostics in files

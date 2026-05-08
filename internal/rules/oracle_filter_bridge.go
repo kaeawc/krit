@@ -6,18 +6,57 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// RuleNeedsKotlinOracle reports whether a rule is an actual KAA consumer.
-// NeedsTypeInfo is intentionally not enough: it is resolver-only source type
-// information. Oracle participation must come from the explicit NeedsOracle
-// bit or rule metadata that the pipeline passes to krit-types.
+// RuleNeedsKotlinOracle reports whether a rule is an actual KAA
+// consumer. The narrow NeedsOracle* bits (or the umbrella alias) are
+// the single source of truth — rules must declare the fact categories
+// they consume so the bridge can compute a tight workload union.
+//
+// NeedsTypeInfo is intentionally not enough: it is resolver-only
+// source type information. A rule with OracleCallTargets or
+// OracleDeclarationNeeds but no NeedsOracle* bit is a registration
+// error caught by TestOracleBitsMatchMetadata.
 func RuleNeedsKotlinOracle(r *api.Rule) bool {
 	if r == nil {
 		return false
 	}
-	if r.Needs.Has(api.NeedsOracle) || r.Oracle != nil || r.OracleCallTargets != nil || r.OracleDeclarationNeeds != nil {
-		return true
+	return r.Needs.HasAny(api.NeedsOracle)
+}
+
+// OracleFactUnion returns the OR of NeedsOracle* bits across the
+// active rule set. This is the single place rule descriptors are
+// translated into the JVM workload mask consumed by InvocationOptions:
+// rules opt into specific KAA fact categories (call targets, suspend
+// markers, supertypes, members, diagnostics, library closure) and the
+// pipeline's --no-diagnostics / --declaration-profile flags follow.
+func OracleFactUnion(enabled []*api.Rule) api.Capabilities {
+	var union api.Capabilities
+	for _, r := range enabled {
+		if r == nil {
+			continue
+		}
+		union |= r.Needs & api.NeedsOracle
 	}
-	return ruleNeedsOracleDiagnostics(r)
+	return union
+}
+
+// NeedsOracleDeclarationWalk reports whether any active rule consumes a
+// fact that requires the JVM-side declaration walk (members, signatures,
+// supertypes, class/member annotations). When false, krit-types can
+// skip declaration extraction entirely.
+func NeedsOracleDeclarationWalk(enabled []*api.Rule) bool {
+	declarationBits := api.NeedsOracleSupertypes |
+		api.NeedsOracleMembers |
+		api.NeedsOracleMemberSignatures |
+		api.NeedsOracleClassAnnotations |
+		api.NeedsOracleMemberAnnotations
+	return OracleFactUnion(enabled).HasAny(declarationBits)
+}
+
+// NeedsOracleLibraryClasses reports whether any active rule needs the
+// JAR / library closure (Dependencies map). When false, krit-types can
+// skip the library walk.
+func NeedsOracleLibraryClasses(enabled []*api.Rule) bool {
+	return OracleFactUnion(enabled).HasAny(api.NeedsOracleLibraryClasses)
 }
 
 // KotlinOracleRulesV2 returns the active subset that should contribute to KAA
@@ -65,41 +104,43 @@ func BuildOracleFilterRulesV2(enabled []*api.Rule) []oracle.FilterRule {
 }
 
 // BuildOracleDeclarationProfileV2 derives the declaration-export profile
-// for a set of active rules. The result is the union of every oracle-needing
-// rule's OracleDeclarationNeeds declaration.
+// for a set of active rules. The result is the union of every
+// oracle-needing rule's OracleDeclarationNeeds declaration combined
+// with the implications of its narrow NeedsOracle* bits.
 //
-// Conservative semantics: if any active oracle rule has a nil
-// OracleDeclarationNeeds (has not opted into narrowing), the union is
-// promoted to FullDeclarationProfile — we cannot skip fields that an
-// un-annotated rule might silently consume. Once every oracle rule has
-// declared its needs (even an empty &api.OracleDeclarationProfile{} for rules
-// that only use expression-level APIs), the union may be strictly narrower
-// than full and krit-types skips the unflagged extraction steps.
+// A rule that declares the umbrella NeedsOracle (every narrow bit)
+// forces the full profile — we cannot tell which declaration fields it
+// reads. Rules that declare narrow bits contribute only the
+// declaration fields those bits imply.
 func BuildOracleDeclarationProfileV2(enabled []*api.Rule) oracle.DeclarationProfileSummary {
-	// First pass: check whether every oracle-needing rule has opted in.
-	// A single nil OracleDeclarationNeeds forces the full profile.
-	allOptedIn := true
 	for _, r := range enabled {
 		if !RuleNeedsKotlinOracle(r) {
 			continue
 		}
-		if r.OracleDeclarationNeeds == nil {
-			allOptedIn = false
-			break
+		if r.Needs.Has(api.NeedsOracle) {
+			return oracle.FinalizeDeclarationProfile(oracle.FullDeclarationProfile())
 		}
 	}
-	if !allOptedIn {
-		return oracle.FinalizeDeclarationProfile(oracle.FullDeclarationProfile())
-	}
-
-	// Second pass: union the declared profiles.
 	var union oracle.DeclarationProfile
 	for _, r := range enabled {
 		if !RuleNeedsKotlinOracle(r) {
 			continue
 		}
-		n := r.OracleDeclarationNeeds
-		union = oracle.MergeDeclarationProfiles(union, oracle.DeclarationProfile{
+		union = oracle.MergeDeclarationProfiles(union, ruleDeclarationProfile(r))
+	}
+	return oracle.FinalizeDeclarationProfile(union)
+}
+
+// ruleDeclarationProfile derives the declaration profile a rule
+// contributes, combining explicit OracleDeclarationNeeds with the
+// implications of its narrow NeedsOracle* bits.
+func ruleDeclarationProfile(r *api.Rule) oracle.DeclarationProfile {
+	if r == nil {
+		return oracle.DeclarationProfile{}
+	}
+	var p oracle.DeclarationProfile
+	if n := r.OracleDeclarationNeeds; n != nil {
+		p = oracle.DeclarationProfile{
 			ClassShell:              n.ClassShell,
 			Supertypes:              n.Supertypes,
 			ClassAnnotations:        n.ClassAnnotations,
@@ -107,31 +148,43 @@ func BuildOracleDeclarationProfileV2(enabled []*api.Rule) oracle.DeclarationProf
 			MemberSignatures:        n.MemberSignatures,
 			MemberAnnotations:       n.MemberAnnotations,
 			SourceDependencyClosure: n.SourceDependencyClosure,
-		})
-	}
-	return oracle.FinalizeDeclarationProfile(union)
-}
-
-// NeedsOracleDiagnostics reports whether active rules should request expensive
-// compiler diagnostics from krit-types.
-func NeedsOracleDiagnostics(enabled []*api.Rule) bool {
-	for _, r := range enabled {
-		if ruleNeedsOracleDiagnostics(r) {
-			return true
 		}
 	}
-	return false
+	bits := r.Needs
+	if bits.HasAny(api.NeedsOracleSupertypes) {
+		p.ClassShell = true
+		p.Supertypes = true
+	}
+	if bits.HasAny(api.NeedsOracleClassAnnotations) {
+		p.ClassShell = true
+		p.ClassAnnotations = true
+	}
+	if bits.HasAny(api.NeedsOracleMembers) {
+		p.ClassShell = true
+		p.Members = true
+	}
+	if bits.HasAny(api.NeedsOracleMemberSignatures) {
+		p.ClassShell = true
+		p.Members = true
+		p.MemberSignatures = true
+	}
+	if bits.HasAny(api.NeedsOracleMemberAnnotations) {
+		p.ClassShell = true
+		p.Members = true
+		p.MemberAnnotations = true
+	}
+	if bits.HasAny(api.NeedsOracleLibraryClasses) {
+		p.SourceDependencyClosure = true
+	}
+	return p
 }
 
-func ruleNeedsOracleDiagnostics(r *api.Rule) bool {
-	if r == nil {
-		return false
-	}
-	switch r.ID {
-	case "UnsafeCast", "UnreachableCode":
-		return true
-	}
-	return false
+// NeedsOracleDiagnostics reports whether active rules should request
+// expensive compiler diagnostics from krit-types. Driven by the
+// OracleFactUnion: a rule must declare NeedsOracleDiagnostics (or the
+// umbrella NeedsOracle) to opt in.
+func NeedsOracleDiagnostics(enabled []*api.Rule) bool {
+	return OracleFactUnion(enabled).HasAny(api.NeedsOracleDiagnostics)
 }
 
 // BuildOracleCallTargetFilterV2 unions the call-target interest declared by

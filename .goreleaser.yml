@@ -30,11 +30,20 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
     goos: [linux]
-    goarch: [amd64]
-    # arm64-linux is disabled — aarch64-linux-gnu-gcc + cgo on
-    # ubuntu-24.04 picks up the host's /usr/include instead of the
-    # arm64 sysroot and fails on bits/libc-header-start.h. Tracked as
-    # a follow-up; needs sysroot configuration or zig-cc.
+    goarch: [amd64, arm64]
+    overrides:
+      - goos: linux
+        goarch: arm64
+        # ubuntu-24.04 ships gcc-aarch64-linux-gnu (apt-installed by
+        # release.yml). Without an explicit sysroot, cgo's
+        # _cgo_export.c falls through to /usr/include (host glibc),
+        # which fails on bits/libc-header-start.h. The sysroot points
+        # the cross-compiler at the arm64 dev headers instead.
+        env:
+          - CGO_ENABLED=1
+          - CC=aarch64-linux-gnu-gcc
+          - CGO_CFLAGS=--sysroot=/usr/aarch64-linux-gnu
+          - CGO_LDFLAGS=--sysroot=/usr/aarch64-linux-gnu
   - id: krit-lsp-linux
     main: ./cmd/krit-lsp
     binary: krit-lsp
@@ -42,11 +51,20 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
     goos: [linux]
-    goarch: [amd64]
-    # arm64-linux is disabled — aarch64-linux-gnu-gcc + cgo on
-    # ubuntu-24.04 picks up the host's /usr/include instead of the
-    # arm64 sysroot and fails on bits/libc-header-start.h. Tracked as
-    # a follow-up; needs sysroot configuration or zig-cc.
+    goarch: [amd64, arm64]
+    overrides:
+      - goos: linux
+        goarch: arm64
+        # ubuntu-24.04 ships gcc-aarch64-linux-gnu (apt-installed by
+        # release.yml). Without an explicit sysroot, cgo's
+        # _cgo_export.c falls through to /usr/include (host glibc),
+        # which fails on bits/libc-header-start.h. The sysroot points
+        # the cross-compiler at the arm64 dev headers instead.
+        env:
+          - CGO_ENABLED=1
+          - CC=aarch64-linux-gnu-gcc
+          - CGO_CFLAGS=--sysroot=/usr/aarch64-linux-gnu
+          - CGO_LDFLAGS=--sysroot=/usr/aarch64-linux-gnu
   - id: krit-mcp-linux
     main: ./cmd/krit-mcp
     binary: krit-mcp
@@ -54,11 +72,20 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
     goos: [linux]
-    goarch: [amd64]
-    # arm64-linux is disabled — aarch64-linux-gnu-gcc + cgo on
-    # ubuntu-24.04 picks up the host's /usr/include instead of the
-    # arm64 sysroot and fails on bits/libc-header-start.h. Tracked as
-    # a follow-up; needs sysroot configuration or zig-cc.
+    goarch: [amd64, arm64]
+    overrides:
+      - goos: linux
+        goarch: arm64
+        # ubuntu-24.04 ships gcc-aarch64-linux-gnu (apt-installed by
+        # release.yml). Without an explicit sysroot, cgo's
+        # _cgo_export.c falls through to /usr/include (host glibc),
+        # which fails on bits/libc-header-start.h. The sysroot points
+        # the cross-compiler at the arm64 dev headers instead.
+        env:
+          - CGO_ENABLED=1
+          - CC=aarch64-linux-gnu-gcc
+          - CGO_CFLAGS=--sysroot=/usr/aarch64-linux-gnu
+          - CGO_LDFLAGS=--sysroot=/usr/aarch64-linux-gnu
 
   # --- Linux / musl ----------------------------------------------------------
   # Disabled for now: ubuntu-24.04's musl-tools wrapper falls back to

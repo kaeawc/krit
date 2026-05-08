@@ -88,10 +88,10 @@ if [ "$goos" = linux ] && ldd /bin/ls 2>&1 | grep -qi musl; then
 fi
 
 # Currently published archives:
-#   linux/amd64, darwin/amd64, darwin/arm64, windows/amd64
+#   linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64
 # Anything else is a follow-up; bail with a build-from-source pointer.
 case "${goos}/${goarch}" in
-  linux/amd64|darwin/amd64|darwin/arm64|windows/amd64) ;;
+  linux/amd64|linux/arm64|darwin/amd64|darwin/arm64|windows/amd64) ;;
   *)
     err "${goos}/${goarch} archives are not currently published; build from source with 'go install github.com/kaeawc/krit/cmd/krit@latest'"
     ;;

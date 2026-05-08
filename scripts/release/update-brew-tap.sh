@@ -33,6 +33,7 @@ sha_for() {
 # uses a relative dist/ path). Only the archives we currently publish.
 DARWIN_ARM64=$(sha_for "krit_${VERSION}_darwin_arm64.tar.gz")
 DARWIN_AMD64=$(sha_for "krit_${VERSION}_darwin_amd64.tar.gz")
+LINUX_ARM64=$(sha_for "krit_${VERSION}_linux_arm64.tar.gz")
 LINUX_AMD64=$(sha_for "krit_${VERSION}_linux_amd64.tar.gz")
 
 URL_BASE="https://github.com/${REPO}/releases/download/${TAG}"
@@ -63,12 +64,14 @@ cask "krit" do
   end
 
   on_linux do
+    on_arm do
+      url "${URL_BASE}/krit_#{version}_linux_arm64.tar.gz"
+      sha256 "${LINUX_ARM64}"
+    end
     on_intel do
       url "${URL_BASE}/krit_#{version}_linux_amd64.tar.gz"
       sha256 "${LINUX_AMD64}"
     end
-    # Linux arm64 archive is a follow-up; the cross-toolchain on
-    # ubuntu-24.04 needs sysroot fixes to build cgo cleanly.
   end
 
   name "krit"

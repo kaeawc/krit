@@ -8,7 +8,7 @@ fun example(): Int {
 }
 
 fun doubleParens() {
-    val a = (42)
+    val a = 42
 }
 
 fun assignmentParens() {

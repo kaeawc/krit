@@ -253,13 +253,19 @@ func registerStyleUnnecessaryParentheses() {
 			if parentType == "delegation_specifier" || parentType == "delegated_super_type" {
 				return
 			}
+			// For nested parens like ((x)), only flag the outermost. The
+			// outermost's fix descends through the chain in one pass; if
+			// we also flagged the inner, the two byte-range fixes would
+			// overlap and the conflict resolver would drop the outer,
+			// leaving (x) and forcing a second pass. See
+			// TestFixableFixturesIdempotent in fix_idempotency_test.go.
+			if parentType == "parenthesized_expression" {
+				return
+			}
 			redundant := false
 			switch parentType {
 			case "jump_expression":
 				// return (x), throw (x) — parens always unnecessary.
-				redundant = true
-			case "parenthesized_expression":
-				// Double parens: ((x)) — inner parens always unnecessary.
 				redundant = true
 			case "property_declaration", "variable_declaration":
 				// val x = (expr) — parens unnecessary around entire RHS.
@@ -306,7 +312,28 @@ func registerStyleUnnecessaryParentheses() {
 			if r.AllowForUnclearPrecedence && unnParensClarifyPrecedenceFlat(file, idx, inner) {
 				return
 			}
-			innerText := file.FlatNodeText(inner)
+			// For the replacement, descend through any nested
+			// parenthesized_expression chain to the deepest non-paren
+			// expression. This makes ((x)) -> x converge in one pass.
+			// Redundancy/lambda checks above still use the immediate
+			// child so that, e.g., f((lambda)) preserves today's
+			// semantics around lambdas in value_argument context.
+			replacementNode := inner
+			for file.FlatType(replacementNode) == "parenthesized_expression" {
+				var next uint32
+				for i := 0; i < file.FlatNamedChildCount(replacementNode); i++ {
+					c := file.FlatNamedChild(replacementNode, i)
+					if c != 0 {
+						next = c
+						break
+					}
+				}
+				if next == 0 {
+					break
+				}
+				replacementNode = next
+			}
+			innerText := file.FlatNodeText(replacementNode)
 			nodeText := file.FlatNodeText(idx)
 			msg := fmt.Sprintf("Unnecessary parentheses in %s. Can be replaced with: %s", nodeText, innerText)
 			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)

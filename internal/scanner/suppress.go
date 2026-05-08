@@ -27,6 +27,30 @@ type SuppressionFilter struct {
 	inline        map[int]map[string]bool // line (1-based) → suppressed rule IDs; "" key means all
 	baseline      *Baseline
 	basePath      string
+	// ruleAliases maps a canonical rule ID to its legacy/alternate IDs.
+	// Populated lazily by callers via WithRuleAliases. When set, an
+	// @Suppress / inline-ignore listing any alias silences findings
+	// emitted under the canonical ID. nil disables alias matching.
+	ruleAliases map[string][]string
+}
+
+// WithRuleAliases attaches an alias index to the filter and returns it
+// for chaining. Map key is a canonical rule ID; value is the list of
+// alternate IDs (legacy names, renames) that should also suppress the
+// canonical rule when written in @Suppress / krit:ignore.
+//
+// Safe on a nil receiver (returns nil). Callers without alias data
+// simply omit the call — alias matching is purely additive.
+func (f *SuppressionFilter) WithRuleAliases(aliases map[string][]string) *SuppressionFilter {
+	if f == nil {
+		return nil
+	}
+	if len(aliases) == 0 {
+		f.ruleAliases = nil
+		return f
+	}
+	f.ruleAliases = aliases
+	return f
 }
 
 // BuildSuppressionFilter collects every per-file suppression source for
@@ -82,6 +106,7 @@ func (f *SuppressionFilter) IsSuppressed(ruleID, ruleSet string, line int) bool 
 	if f.excludedRules[ruleID] {
 		return true
 	}
+	aliases := f.ruleAliases[ruleID]
 	if suppressed := f.inline[line]; suppressed != nil {
 		if suppressed[""] || suppressed[ruleID] {
 			return true
@@ -89,13 +114,21 @@ func (f *SuppressionFilter) IsSuppressed(ruleID, ruleSet string, line int) bool 
 		if ruleSet != "" && (suppressed[ruleSet+"."+ruleID] || suppressed[ruleSet+":"+ruleID]) {
 			return true
 		}
+		for _, alias := range aliases {
+			if suppressed[alias] {
+				return true
+			}
+			if ruleSet != "" && (suppressed[ruleSet+"."+alias] || suppressed[ruleSet+":"+alias]) {
+				return true
+			}
+		}
 	}
 	if f.annotations != nil && f.file != nil {
 		byteOffset := 0
 		if line > 0 {
 			byteOffset = f.file.LineOffset(line - 1)
 		}
-		if f.annotations.IsSuppressed(byteOffset, ruleID, ruleSet) {
+		if f.annotations.isSuppressedWithAliases(byteOffset, ruleID, ruleSet, aliases) {
 			return true
 		}
 	}
@@ -273,6 +306,10 @@ func BuildSuppressionIndexFlat(tree *FlatTree, content []byte) *SuppressionIndex
 
 // IsSuppressed checks if a finding at the given byte offset is suppressed for the given rule.
 func (idx *SuppressionIndex) IsSuppressed(byteOffset int, ruleName string, ruleSetName string) bool {
+	return idx.isSuppressedWithAliases(byteOffset, ruleName, ruleSetName, nil)
+}
+
+func (idx *SuppressionIndex) isSuppressedWithAliases(byteOffset int, ruleName, ruleSetName string, aliases []string) bool {
 	if len(idx.suppressions) == 0 {
 		return false
 	}
@@ -291,6 +328,11 @@ func (idx *SuppressionIndex) IsSuppressed(byteOffset int, ruleName string, ruleS
 		if byteOffset >= s.StartByte && byteOffset <= s.EndByte {
 			if suppressionMatches(s.Rules, ruleName, ruleSetName) {
 				return true
+			}
+			for _, alias := range aliases {
+				if suppressionMatches(s.Rules, alias, ruleSetName) {
+					return true
+				}
 			}
 		}
 	}

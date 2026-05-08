@@ -378,6 +378,13 @@ type Rule struct {
 	Description string
 	Sev         Severity
 
+	// Aliases are legacy or alternate IDs for this rule. They do NOT
+	// appear in the registry as separate rules; they only affect
+	// suppression: @Suppress("<alias>") (and inline `// krit:ignore[<alias>]`)
+	// silences findings emitted under the canonical ID. Use when
+	// renaming a rule so existing user suppressions keep working.
+	Aliases []string
+
 	// Dispatch routing.
 	//
 	// Scope, when set, declares the rule's primary dispatcher bucket

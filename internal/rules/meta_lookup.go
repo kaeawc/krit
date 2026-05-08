@@ -75,6 +75,11 @@ func mergeRuleDescriptor(r *api.Rule, extra api.RuleDescriptor) api.RuleDescript
 	if out.FixLevel == "" && r.Fix != api.FixNone {
 		out.FixLevel = r.Fix.String()
 	}
+	if len(r.Aliases) > 0 {
+		out.Aliases = r.Aliases
+	} else {
+		out.Aliases = extra.Aliases
+	}
 	return out
 }
 

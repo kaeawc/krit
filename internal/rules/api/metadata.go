@@ -160,6 +160,12 @@ type RuleDescriptor struct {
 	// ID is the stable rule identifier (matches the rule's Name()).
 	ID string
 
+	// Aliases are legacy or alternate IDs honored by suppression. See
+	// Rule.Aliases for the full contract; the descriptor field exists so
+	// rules implementing MetaProvider can publish aliases the same way
+	// they publish other metadata.
+	Aliases []string
+
 	// RuleSet is the configuration group this rule belongs to
 	// (e.g. "complexity", "naming", "performance").
 	RuleSet string

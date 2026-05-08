@@ -98,6 +98,92 @@ func TestSuppressionFilter_ExcludeGlob(t *testing.T) {
 	}
 }
 
+func TestSuppressionFilter_AliasAnnotation(t *testing.T) {
+	src := "@Suppress(\"LegacyName\")\nclass X {\n    val y = 42\n}\n"
+	f := parsedFileForFilter(t, "X.kt", src)
+	sf := BuildSuppressionFilter(f, nil, nil, "").WithRuleAliases(map[string][]string{
+		"NewName": {"LegacyName"},
+	})
+
+	if !sf.IsSuppressed("NewName", "style", 3) {
+		t.Error("@Suppress(LegacyName) should suppress canonical NewName when alias is registered")
+	}
+	if sf.IsSuppressed("Unrelated", "style", 3) {
+		t.Error("alias must not bleed to unrelated rules")
+	}
+}
+
+func TestSuppressionFilter_AliasInline(t *testing.T) {
+	src := "class A\nval x = 1 // krit:ignore[LegacyName]\nval y = 2\n"
+	f := parsedFileForFilter(t, "A.kt", src)
+	sf := BuildSuppressionFilter(f, nil, nil, "").WithRuleAliases(map[string][]string{
+		"NewName": {"LegacyName"},
+	})
+
+	if !sf.IsSuppressed("NewName", "style", 2) {
+		t.Error("inline ignore listing alias should suppress canonical rule")
+	}
+	if sf.IsSuppressed("NewName", "style", 3) {
+		t.Error("inline alias suppression should not bleed to other lines")
+	}
+}
+
+func TestSuppressionFilter_AliasWithRulesetPrefix(t *testing.T) {
+	src := "@Suppress(\"style.LegacyName\")\nclass X {\n    val y = 42\n}\n"
+	f := parsedFileForFilter(t, "X.kt", src)
+	sf := BuildSuppressionFilter(f, nil, nil, "").WithRuleAliases(map[string][]string{
+		"NewName": {"LegacyName"},
+	})
+
+	if !sf.IsSuppressed("NewName", "style", 3) {
+		t.Error("ruleset-qualified alias (style.LegacyName) should suppress canonical NewName")
+	}
+}
+
+func TestSuppressionFilter_AliasInlineWithRulesetPrefix(t *testing.T) {
+	src := "val x = 1 // krit:ignore[style.LegacyName]\n"
+	f := parsedFileForFilter(t, "x.kt", src)
+	sf := BuildSuppressionFilter(f, nil, nil, "").WithRuleAliases(map[string][]string{
+		"NewName": {"LegacyName"},
+	})
+
+	if !sf.IsSuppressed("NewName", "style", 1) {
+		t.Error("inline ruleset-qualified alias should suppress canonical rule")
+	}
+}
+
+func TestSuppressionFilter_AliasMissing(t *testing.T) {
+	src := "@Suppress(\"LegacyName\")\nclass X {\n    val y = 42\n}\n"
+	f := parsedFileForFilter(t, "X.kt", src)
+	sf := BuildSuppressionFilter(f, nil, nil, "")
+
+	if sf.IsSuppressed("NewName", "style", 3) {
+		t.Error("without WithRuleAliases the legacy name must not silence canonical rule")
+	}
+	if !sf.IsSuppressed("LegacyName", "style", 3) {
+		t.Error("the literal suppressed name still works as before")
+	}
+}
+
+func TestSuppressionFilter_WithRuleAliasesEmpty(t *testing.T) {
+	src := "@Suppress(\"NewName\")\nclass X {\n}\n"
+	f := parsedFileForFilter(t, "X.kt", src)
+	sf := BuildSuppressionFilter(f, nil, nil, "").
+		WithRuleAliases(map[string][]string{"NewName": {"Old"}}).
+		WithRuleAliases(nil)
+
+	if !sf.IsSuppressed("NewName", "", 3) {
+		t.Error("clearing aliases must not break canonical-name suppression")
+	}
+}
+
+func TestSuppressionFilter_WithRuleAliasesNilReceiver(t *testing.T) {
+	var sf *SuppressionFilter
+	if got := sf.WithRuleAliases(map[string][]string{"X": {"Y"}}); got != nil {
+		t.Error("WithRuleAliases on nil receiver must return nil")
+	}
+}
+
 func TestSuppressionFilter_NilSafe(t *testing.T) {
 	var sf *SuppressionFilter
 	if sf.IsSuppressed("X", "", 1) {

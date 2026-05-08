@@ -385,7 +385,7 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 	start := time.Now()
 	filter := file.Suppression
 	if filter == nil {
-		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "")
+		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "").WithRuleAliases(AllSuppressionAliases())
 		file.Suppression = filter
 		file.SuppressionIdx = filter.Annotations()
 	}
@@ -822,7 +822,7 @@ func (d *Dispatcher) RunResourceSource(file *scanner.File, idx *android.Resource
 
 	filter := file.Suppression
 	if filter == nil {
-		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "")
+		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "").WithRuleAliases(AllSuppressionAliases())
 		file.Suppression = filter
 		file.SuppressionIdx = filter.Annotations()
 	}

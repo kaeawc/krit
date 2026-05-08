@@ -471,6 +471,21 @@ type Rule struct {
 	// default-inactive; see the Maturity type docs for the full contract.
 	Maturity Maturity
 
+	// RunAfter declares rule IDs that must run before this rule within
+	// the dispatcher. The dispatcher topologically sorts active rules by
+	// these constraints once at construction; rules that name a non-active
+	// dependency are unconstrained (the missing dependency is silently
+	// ignored). Cycles among active rules are a programmer error and
+	// cause NewDispatcher to panic with the offending rule IDs.
+	//
+	// Use cases:
+	//   - A fixable rule whose autofix output another rule reads.
+	//   - Two rules emitting findings on the same node where downstream
+	//     tooling expects a stable ordering.
+	//
+	// Most rules do not need RunAfter and should leave it nil.
+	RunAfter []string
+
 	// Fix metadata
 	Fix FixLevel // FixNone → not fixable
 

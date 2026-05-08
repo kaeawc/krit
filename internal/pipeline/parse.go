@@ -102,8 +102,9 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 	// LSP/MCP callers that construct files directly still get nil
 	// fields here and fall through to the dispatcher's lazy build.
 	ruleExcludes := rules.GetAllRuleExcludes()
+	ruleAliases := rules.AllSuppressionAliases()
 	for _, f := range kotlinFiles {
-		installSourceSuppression(f, ruleExcludes)
+		installSourceSuppression(f, ruleExcludes, ruleAliases)
 	}
 
 	caps := unionNeeds(in.ActiveRules)
@@ -131,7 +132,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 				javaFiles, _ = filterGeneratedSourceFiles(javaFiles)
 			}
 			for _, f := range javaFiles {
-				installSourceSuppression(f, ruleExcludes)
+				installSourceSuppression(f, ruleExcludes, ruleAliases)
 			}
 		}
 	}
@@ -160,11 +161,11 @@ func filterGeneratedSourceFiles(files []*scanner.File) ([]*scanner.File, int) {
 	return filtered, droppedGenerated
 }
 
-func installSourceSuppression(f *scanner.File, ruleExcludes map[string][]string) {
+func installSourceSuppression(f *scanner.File, ruleExcludes map[string][]string, ruleAliases map[string][]string) {
 	if f == nil || f.FlatTree == nil {
 		return
 	}
-	f.Suppression = scanner.BuildSuppressionFilter(f, nil, ruleExcludes, "")
+	f.Suppression = scanner.BuildSuppressionFilter(f, nil, ruleExcludes, "").WithRuleAliases(ruleAliases)
 	f.SuppressionIdx = f.Suppression.Annotations()
 }
 

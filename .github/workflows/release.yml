@@ -51,15 +51,23 @@ jobs:
       # `goreleaser release` doesn't accept --id filters (build-only flag),
       # so we filter the config down to this matrix entry's ids before
       # invoking it. See scripts/release/filter-goreleaser-config.py.
+      # actions/setup-python provides an isolated Python without
+      # PEP 668's externally-managed-environment guard.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.x'
+      # Write the filtered config to RUNNER_TEMP rather than the repo
+      # working tree — goreleaser refuses to release with untracked
+      # files present.
       - name: Filter goreleaser config to current OS
         shell: bash
         run: |
-          python3 -m pip install --user --quiet pyyaml
-          python3 scripts/release/filter-goreleaser-config.py "${{ matrix.ids }}" > .goreleaser-${{ matrix.goos }}.yml
+          python3 -m pip install --quiet pyyaml
+          python3 scripts/release/filter-goreleaser-config.py "${{ matrix.ids }}" > "$RUNNER_TEMP/goreleaser-${{ matrix.goos }}.yml"
       - uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7.2.1
         with:
           version: '~> v2'
-          args: release --config .goreleaser-${{ matrix.goos }}.yml --clean --skip=publish --skip=announce
+          args: release --config ${{ runner.temp }}/goreleaser-${{ matrix.goos }}.yml --clean --skip=publish --skip=announce
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ secrets.GPG_FINGERPRINT }}

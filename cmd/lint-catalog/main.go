@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -43,8 +44,8 @@ type CheckInfo struct {
 // Catalog is the top-level structure written to catalog.json.
 type Catalog struct {
 	Source    string      `json:"source"`
-	FetchedAt string     `json:"fetchedAt"`
-	Checks   []CheckInfo `json:"checks"`
+	FetchedAt string      `json:"fetchedAt"`
+	Checks    []CheckInfo `json:"checks"`
 }
 
 func main() {
@@ -124,7 +125,7 @@ func run() error {
 	catalog := Catalog{
 		Source:    sourceURL,
 		FetchedAt: time.Now().UTC().Format(time.RFC3339),
-		Checks:   checks,
+		Checks:    checks,
 	}
 
 	catalogJSON, err := json.MarshalIndent(catalog, "", "  ")
@@ -142,7 +143,13 @@ func run() error {
 }
 
 func httpGet(url string) (string, error) {
-	resp, err := http.Get(url)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil) // #nosec G107 -- catalog fetcher: URL is supplied by the operator, not external input
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", err
 	}

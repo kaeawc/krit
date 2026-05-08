@@ -11,10 +11,6 @@ type customPreviewConfig struct {
 	Prefixes []string
 }
 
-func defaultCustomPreviewConfig() customPreviewConfig {
-	return customPreviewConfig{Wildcard: true}
-}
-
 func customPreviewConfigFromFields(wildcard bool, prefixes []string) customPreviewConfig {
 	return customPreviewConfig{Wildcard: wildcard, Prefixes: prefixes}
 }

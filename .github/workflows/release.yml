@@ -106,7 +106,7 @@ jobs:
           fingerprint: ${{ secrets.GPG_FINGERPRINT }}
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@cf48c45f2e2b89d7b58dc4c80f7b01640d0e26c4 # v5.0.0
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           path: staging
           pattern: dist-*

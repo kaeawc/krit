@@ -87,10 +87,15 @@ if [ "$goos" = linux ] && ldd /bin/ls 2>&1 | grep -qi musl; then
   log "musl libc detected; krit currently only ships glibc archives. The downloaded binary may not run on this system. Build from source via 'go install github.com/kaeawc/krit/cmd/krit@latest' or wait for musl support to land."
 fi
 
-# Windows arm64 isn't built (see .goreleaser.yml).
-if [ "$goos" = windows ] && [ "$goarch" = arm64 ]; then
-  err "windows/arm64 builds are not published; build from source with 'go install'"
-fi
+# Currently published archives:
+#   linux/amd64, darwin/amd64, darwin/arm64, windows/amd64
+# Anything else is a follow-up; bail with a build-from-source pointer.
+case "${goos}/${goarch}" in
+  linux/amd64|darwin/amd64|darwin/arm64|windows/amd64) ;;
+  *)
+    err "${goos}/${goarch} archives are not currently published; build from source with 'go install github.com/kaeawc/krit/cmd/krit@latest'"
+    ;;
+esac
 
 # --- Resolve version ---------------------------------------------------------
 

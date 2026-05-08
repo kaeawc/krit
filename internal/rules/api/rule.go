@@ -385,6 +385,20 @@ type Rule struct {
 	// renaming a rule so existing user suppressions keep working.
 	Aliases []string
 
+	// EnabledByDefaultSince records the krit version in which this rule
+	// became default-active (DefaultActive transitioned from false to
+	// true). Empty string means the rule has been default-active since
+	// inception, or the version was not recorded. Used by docs and
+	// release-note generation; the runtime does not key behavior on it.
+	EnabledByDefaultSince string
+
+	// Deprecated, when non-nil, marks the rule as scheduled for removal.
+	// Consumers (docs, output formatters, CI gates) read this to surface
+	// migration guidance. The dispatcher does NOT skip deprecated rules
+	// — they continue to fire so existing baselines stay valid until the
+	// user migrates.
+	Deprecated *Deprecation
+
 	// Dispatch routing.
 	//
 	// Scope, when set, declares the rule's primary dispatcher bucket

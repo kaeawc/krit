@@ -24,12 +24,7 @@ import (
 // a fixed point of the rule, OR (if applying the fix to convergence
 // is the intended behavior) re-run the fixable-fixtures test with
 // UPDATE_FIXABLE_EXPECTED=1 after iterating fixes to a fixed point.
-var knownNonIdempotentFixableRules = map[string]string{
-	// Strips one layer of parens per pass: ((42)) -> (42), then (42) ->
-	// 42 on a second run. The fix should walk inward and strip every
-	// redundant layer in one pass; remove this entry once it does.
-	"UnnecessaryParentheses": "single-pass fix only strips outer paren of nested ((expr))",
-}
+var knownNonIdempotentFixableRules = map[string]string{}
 
 // TestFixableFixturesIdempotent re-runs fixable rules over their
 // .expected files and asserts that no fixable findings remain. This

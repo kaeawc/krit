@@ -83,8 +83,10 @@ jobs:
         shell: bash
         run: |
           mkdir staged
-          # Copy archives, sboms, and binaries (in case provenance step needs them)
-          for pat in '*.tar.gz' '*.zip' '*.sbom' '*.json'; do
+          # Goreleaser names SBOMs as <archive>.sbom.json. Glob both
+          # explicitly so we don't pick up goreleaser's internal
+          # metadata.json / artifacts.json by accident.
+          for pat in '*.tar.gz' '*.zip' '*.sbom.json'; do
             cp dist/$pat staged/ 2>/dev/null || true
           done
       - uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
@@ -124,7 +126,7 @@ jobs:
           set -euxo pipefail
           mkdir -p dist
           cp staging/*.tar.gz staging/*.zip dist/ 2>/dev/null || true
-          cp staging/*.sbom dist/ 2>/dev/null || true
+          cp staging/*.sbom.json dist/ 2>/dev/null || true
           ls -la dist/
 
       - name: Generate combined checksums.txt
@@ -164,7 +166,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG" \
             --generate-notes \
-            $(ls *.tar.gz *.zip *.sbom checksums.txt checksums.txt.sig 2>/dev/null)
+            $(ls *.tar.gz *.zip *.sbom.json checksums.txt checksums.txt.sig 2>/dev/null)
 
       - name: Publish Homebrew cask
         env:

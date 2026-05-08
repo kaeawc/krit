@@ -319,7 +319,8 @@ func (r *runner) filterRules() (handled bool, code int) {
 	r.tracker.TrackVoid("filterRules", func() {
 		disabledSet := parseRuleNameSet(*r.f.DisableRules)
 		enabledSet := parseRuleNameSet(*r.f.EnableRules)
-		r.activeRules = rules.ActiveRulesV2(disabledSet, enabledSet, *r.f.AllRules)
+		experimental := *r.f.Experimental || r.cfg.GetTopLevelBool("experimental", false)
+		r.activeRules = rules.ActiveRulesV2(disabledSet, enabledSet, *r.f.AllRules, experimental)
 		if rulesNeedProjectModel(r.activeRules) {
 			r.ensureProjectModel()
 		}

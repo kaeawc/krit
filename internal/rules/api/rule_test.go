@@ -64,6 +64,37 @@ func TestRule_Name(t *testing.T) {
 	}
 }
 
+func TestMaturity_String(t *testing.T) {
+	tests := []struct {
+		m    Maturity
+		want string
+	}{
+		{MaturityStable, "stable"},
+		{MaturityExperimental, "experimental"},
+		{MaturityDeprecated, "deprecated"},
+		{Maturity(255), "stable"}, // unknown values fall back to stable
+	}
+	for _, tt := range tests {
+		if got := tt.m.String(); got != tt.want {
+			t.Errorf("Maturity(%d).String() = %q, want %q", tt.m, got, tt.want)
+		}
+	}
+}
+
+func TestRule_MaturityZeroValueIsStable(t *testing.T) {
+	r := &Rule{ID: "x"}
+	if r.Maturity != MaturityStable {
+		t.Errorf("zero-value Rule.Maturity = %v, want MaturityStable", r.Maturity)
+	}
+}
+
+func TestFakeRule_WithMaturity(t *testing.T) {
+	r := FakeRule("exp", WithMaturity(MaturityExperimental))
+	if r.Maturity != MaturityExperimental {
+		t.Errorf("Maturity = %v, want MaturityExperimental", r.Maturity)
+	}
+}
+
 func TestFixLevel_String(t *testing.T) {
 	tests := []struct {
 		level FixLevel

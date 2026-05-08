@@ -290,3 +290,140 @@ func TestCapabilities_HasAny(t *testing.T) {
 		t.Errorf("HasAny must return false when bit is absent")
 	}
 }
+
+// TestOracleNarrowing_EndToEnd pins the proposal's headline workload
+// shrinkage: when only narrow oracle rules are active, the resulting
+// invocation gates (declaration profile, diagnostics, library walk)
+// must all narrow to "skip what no rule asked for".
+func TestOracleNarrowing_EndToEnd(t *testing.T) {
+	// Suspend-only rule (RedundantSuspendModifier shape).
+	suspendOnly := &api.Rule{
+		ID:    "SuspendOnly",
+		Needs: api.NeedsOracleCallTargets | api.NeedsOracleSuspendMarkers,
+		OracleCallTargets: &api.OracleCallTargetFilter{
+			CalleeNames: []string{"delay", "yield"},
+		},
+		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
+	}
+
+	// Cast rule (WrongViewCast shape) needs supertypes.
+	castRule := &api.Rule{
+		ID: "ViewCast",
+		Needs: api.NeedsOracleCallTargets |
+			api.NeedsOracleSupertypes |
+			api.NeedsOracleLibraryClasses,
+		OracleCallTargets: &api.OracleCallTargetFilter{
+			CalleeNames: []string{"findViewById"},
+		},
+		OracleDeclarationNeeds: &api.OracleDeclarationProfile{
+			ClassShell: true,
+			Supertypes: true,
+		},
+	}
+
+	// Diagnostic-only rule.
+	diagOnly := &api.Rule{
+		ID:    "UnreachableCode",
+		Needs: api.NeedsOracleDiagnostics,
+	}
+
+	t.Run("suspend-only narrows everything", func(t *testing.T) {
+		rules := []*api.Rule{suspendOnly}
+		profile := BuildOracleDeclarationProfileV2(rules)
+		if profile.Profile.IsFull() {
+			t.Errorf("suspend-only rule must not force full profile, got %+v", profile.Profile)
+		}
+		if profile.Profile.Members || profile.Profile.Supertypes ||
+			profile.Profile.MemberAnnotations || profile.Profile.ClassAnnotations ||
+			profile.Profile.MemberSignatures || profile.Profile.SourceDependencyClosure {
+			t.Errorf("suspend-only rule contributes no declaration fields, got %+v", profile.Profile)
+		}
+		if NeedsOracleDiagnostics(rules) {
+			t.Errorf("suspend-only must not request diagnostics")
+		}
+		if NeedsOracleLibraryClasses(rules) {
+			t.Errorf("suspend-only must not request library classes")
+		}
+		if NeedsOracleDeclarationWalk(rules) {
+			t.Errorf("suspend-only must not request declaration walk")
+		}
+	})
+
+	t.Run("cast rule walks supertypes + JAR but not members", func(t *testing.T) {
+		rules := []*api.Rule{castRule}
+		profile := BuildOracleDeclarationProfileV2(rules).Profile
+		if !profile.Supertypes {
+			t.Errorf("cast rule wants supertypes")
+		}
+		if !profile.SourceDependencyClosure {
+			t.Errorf("cast rule wants library closure (JAR walk)")
+		}
+		if profile.Members || profile.MemberAnnotations || profile.MemberSignatures {
+			t.Errorf("cast rule must not request member walks, got %+v", profile)
+		}
+		if NeedsOracleDiagnostics(rules) {
+			t.Errorf("cast rule must not request diagnostics")
+		}
+		if !NeedsOracleLibraryClasses(rules) {
+			t.Errorf("cast rule must request library classes")
+		}
+	})
+
+	t.Run("diagnostic-only rule narrows declarations to none", func(t *testing.T) {
+		rules := []*api.Rule{diagOnly}
+		profile := BuildOracleDeclarationProfileV2(rules).Profile
+		if profile.IsFull() {
+			t.Errorf("diagnostic-only rule must not force full profile")
+		}
+		if profile.Members || profile.Supertypes || profile.SourceDependencyClosure {
+			t.Errorf("diagnostic-only rule must not request declaration fields, got %+v", profile)
+		}
+		if !NeedsOracleDiagnostics(rules) {
+			t.Errorf("diagnostic-only rule must request diagnostics")
+		}
+		if NeedsOracleLibraryClasses(rules) {
+			t.Errorf("diagnostic-only rule must not request library classes")
+		}
+		if NeedsOracleDeclarationWalk(rules) {
+			t.Errorf("diagnostic-only rule must not request declaration walk")
+		}
+	})
+
+	t.Run("mixed set unions correctly", func(t *testing.T) {
+		rules := []*api.Rule{suspendOnly, castRule, diagOnly}
+		profile := BuildOracleDeclarationProfileV2(rules).Profile
+		if !profile.Supertypes {
+			t.Errorf("mixed set inherits supertypes from cast rule")
+		}
+		if profile.Members || profile.MemberAnnotations {
+			t.Errorf("mixed set still skips member walks, got %+v", profile)
+		}
+		if !NeedsOracleDiagnostics(rules) {
+			t.Errorf("mixed set requests diagnostics from diag rule")
+		}
+		if !NeedsOracleLibraryClasses(rules) {
+			t.Errorf("mixed set requests library walk from cast rule")
+		}
+	})
+}
+
+// TestRuleNeedsKotlinOracle_LiveRegistry surfaces rules the bridge
+// considers oracle-needing but that contribute zero fact bits — i.e.
+// rules whose only oracle metadata is an empty OracleDeclarationProfile
+// with no narrowing. These are migration leftovers; the non-empty list
+// is logged so Phase 3 can clean them up. The test is intentionally
+// non-fatal during the migration window.
+func TestRuleNeedsKotlinOracle_LiveRegistry(t *testing.T) {
+	var emptyMarkerOnly []string
+	for _, r := range api.Registry {
+		if !RuleNeedsKotlinOracle(r) {
+			continue
+		}
+		if ruleOracleFactBits(r) == 0 {
+			emptyMarkerOnly = append(emptyMarkerOnly, r.ID)
+		}
+	}
+	if len(emptyMarkerOnly) > 0 {
+		t.Logf("rules with empty OracleDeclarationNeeds and no other oracle interest (Phase 3 cleanup target): %v", emptyMarkerOnly)
+	}
+}

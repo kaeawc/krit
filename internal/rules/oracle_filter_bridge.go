@@ -8,16 +8,112 @@ import (
 
 // RuleNeedsKotlinOracle reports whether a rule is an actual KAA consumer.
 // NeedsTypeInfo is intentionally not enough: it is resolver-only source type
-// information. Oracle participation must come from the explicit NeedsOracle
-// bit or rule metadata that the pipeline passes to krit-types.
+// information. Oracle participation must come from any narrow NeedsOracle*
+// bit, the legacy NeedsOracle umbrella, or the explicit rule metadata
+// (Oracle / OracleCallTargets / OracleDeclarationNeeds) that the pipeline
+// passes to krit-types.
 func RuleNeedsKotlinOracle(r *api.Rule) bool {
 	if r == nil {
 		return false
 	}
-	if r.Needs.Has(api.NeedsOracle) || r.Oracle != nil || r.OracleCallTargets != nil || r.OracleDeclarationNeeds != nil {
+	if r.Needs.HasAny(api.NeedsOracle) {
+		return true
+	}
+	if r.Oracle != nil || r.OracleCallTargets != nil || r.OracleDeclarationNeeds != nil {
 		return true
 	}
 	return ruleNeedsOracleDiagnostics(r)
+}
+
+// OracleFactUnion returns the OR of fact-category bits across the
+// active rule set, lifting legacy metadata (Oracle / OracleCallTargets /
+// OracleDeclarationNeeds / hardcoded diagnostic rule IDs) into the
+// matching narrow bits. This is the single place rule descriptors are
+// translated into the JVM workload mask consumed by InvocationOptions.
+//
+// Rules with NeedsOracle (umbrella) contribute every narrow bit. Rules
+// with only legacy metadata contribute the bits implied by that
+// metadata; rules that declared narrow bits contribute exactly those.
+// Active rules without any oracle interest contribute zero.
+func OracleFactUnion(enabled []*api.Rule) api.Capabilities {
+	var union api.Capabilities
+	for _, r := range enabled {
+		union |= ruleOracleFactBits(r)
+	}
+	return union
+}
+
+// ruleOracleFactBits returns the fact-category bits one rule
+// contributes, including the back-compat shim that lifts legacy
+// metadata into bits.
+func ruleOracleFactBits(r *api.Rule) api.Capabilities {
+	if r == nil {
+		return 0
+	}
+	bits := r.Needs & api.NeedsOracle
+
+	// Legacy: any non-bit oracle metadata implies the umbrella unless
+	// the rule has narrowed via OracleDeclarationNeeds. We expand
+	// metadata into the bits the metadata semantically asserts; any
+	// remaining ambiguity (Oracle filter only, no narrowing) is treated
+	// conservatively as the umbrella so behavior is preserved during
+	// the migration.
+	if r.OracleCallTargets != nil {
+		bits |= api.NeedsOracleCallTargets
+	}
+	if r.OracleDeclarationNeeds != nil {
+		n := r.OracleDeclarationNeeds
+		if n.Supertypes {
+			bits |= api.NeedsOracleSupertypes
+		}
+		if n.ClassAnnotations {
+			bits |= api.NeedsOracleClassAnnotations
+		}
+		if n.Members {
+			bits |= api.NeedsOracleMembers
+		}
+		if n.MemberSignatures {
+			bits |= api.NeedsOracleMembers | api.NeedsOracleMemberSignatures
+		}
+		if n.MemberAnnotations {
+			bits |= api.NeedsOracleMembers | api.NeedsOracleMemberAnnotations
+		}
+		if n.SourceDependencyClosure {
+			bits |= api.NeedsOracleLibraryClasses
+		}
+	}
+	// Oracle: the legacy file-selection filter does not by itself imply
+	// any narrow fact category (it gates which files are sent to KAA,
+	// not what is extracted). When it appears alongside no other
+	// metadata or bits, conservatively expand to the umbrella so we do
+	// not silently downgrade an unmigrated rule.
+	if r.Oracle != nil && bits == 0 {
+		bits |= api.NeedsOracle
+	}
+	if ruleNeedsOracleDiagnostics(r) {
+		bits |= api.NeedsOracleDiagnostics
+	}
+	return bits
+}
+
+// NeedsOracleDeclarationWalk reports whether any active rule consumes a
+// fact that requires the JVM-side declaration walk (members, signatures,
+// supertypes, class/member annotations). When false, krit-types can
+// skip declaration extraction entirely.
+func NeedsOracleDeclarationWalk(enabled []*api.Rule) bool {
+	declarationBits := api.NeedsOracleSupertypes |
+		api.NeedsOracleMembers |
+		api.NeedsOracleMemberSignatures |
+		api.NeedsOracleClassAnnotations |
+		api.NeedsOracleMemberAnnotations
+	return OracleFactUnion(enabled).HasAny(declarationBits)
+}
+
+// NeedsOracleLibraryClasses reports whether any active rule needs the
+// JAR / library closure (Dependencies map). When false, krit-types can
+// skip the library walk.
+func NeedsOracleLibraryClasses(enabled []*api.Rule) bool {
+	return OracleFactUnion(enabled).HasAny(api.NeedsOracleLibraryClasses)
 }
 
 // KotlinOracleRulesV2 returns the active subset that should contribute to KAA
@@ -66,40 +162,90 @@ func BuildOracleFilterRulesV2(enabled []*api.Rule) []oracle.FilterRule {
 
 // BuildOracleDeclarationProfileV2 derives the declaration-export profile
 // for a set of active rules. The result is the union of every oracle-needing
-// rule's OracleDeclarationNeeds declaration.
+// rule's OracleDeclarationNeeds declaration combined with the implications
+// of narrow NeedsOracle* bits.
 //
 // Conservative semantics: if any active oracle rule has a nil
-// OracleDeclarationNeeds (has not opted into narrowing), the union is
-// promoted to FullDeclarationProfile — we cannot skip fields that an
-// un-annotated rule might silently consume. Once every oracle rule has
-// declared its needs (even an empty &api.OracleDeclarationProfile{} for rules
-// that only use expression-level APIs), the union may be strictly narrower
-// than full and krit-types skips the unflagged extraction steps.
+// OracleDeclarationNeeds AND has not narrowed via bits (i.e. it still
+// declares the legacy NeedsOracle umbrella or only an Oracle file
+// filter), the union is promoted to FullDeclarationProfile — we cannot
+// skip fields that an un-annotated rule might silently consume.
+//
+// A rule that declares narrow bits (e.g. NeedsOracleCallTargets) and
+// has nil OracleDeclarationNeeds contributes only the declaration
+// fields its bits imply, NOT the full profile. That is what makes the
+// bit split tighter than the legacy "any nil → full" semantic.
 func BuildOracleDeclarationProfileV2(enabled []*api.Rule) oracle.DeclarationProfileSummary {
-	// First pass: check whether every oracle-needing rule has opted in.
-	// A single nil OracleDeclarationNeeds forces the full profile.
-	allOptedIn := true
+	// First pass: check whether any oracle rule still relies on the
+	// umbrella (legacy NeedsOracle, or an Oracle file filter without
+	// any narrowing). Those rules force the full profile because we
+	// cannot tell what they read.
 	for _, r := range enabled {
 		if !RuleNeedsKotlinOracle(r) {
 			continue
 		}
-		if r.OracleDeclarationNeeds == nil {
-			allOptedIn = false
-			break
+		if ruleForcesFullDeclarationProfile(r) {
+			return oracle.FinalizeDeclarationProfile(oracle.FullDeclarationProfile())
 		}
 	}
-	if !allOptedIn {
-		return oracle.FinalizeDeclarationProfile(oracle.FullDeclarationProfile())
-	}
 
-	// Second pass: union the declared profiles.
+	// Second pass: union the declared profiles + bit implications.
 	var union oracle.DeclarationProfile
 	for _, r := range enabled {
 		if !RuleNeedsKotlinOracle(r) {
 			continue
 		}
-		n := r.OracleDeclarationNeeds
-		union = oracle.MergeDeclarationProfiles(union, oracle.DeclarationProfile{
+		union = oracle.MergeDeclarationProfiles(union, ruleDeclarationProfile(r))
+	}
+	return oracle.FinalizeDeclarationProfile(union)
+}
+
+// ruleForcesFullDeclarationProfile reports whether a rule has opted out
+// of declaration narrowing — either by declaring the legacy umbrella
+// NeedsOracle, or by attaching an Oracle file filter without any
+// accompanying bit / OracleDeclarationNeeds narrowing.
+func ruleForcesFullDeclarationProfile(r *api.Rule) bool {
+	if r == nil {
+		return false
+	}
+	if r.Needs.Has(api.NeedsOracle) {
+		return true
+	}
+	if r.OracleDeclarationNeeds != nil {
+		return false
+	}
+	if r.Needs.HasAny(api.NeedsOracle) {
+		// Rule declared narrow bits (subset of NeedsOracle) — bits drive
+		// the profile, no full fallback needed.
+		return false
+	}
+	if r.OracleCallTargets != nil {
+		// Call-target-only rules never need declaration data unless
+		// they say so via OracleDeclarationNeeds.
+		return false
+	}
+	if ruleNeedsOracleDiagnostics(r) {
+		// Diagnostics-only rules never need declaration data.
+		return false
+	}
+	if r.Oracle != nil {
+		// Legacy: opaque oracle interest, no narrowing. Conservative
+		// fallback.
+		return true
+	}
+	return false
+}
+
+// ruleDeclarationProfile derives the declaration profile a rule
+// contributes, combining explicit OracleDeclarationNeeds with the
+// implications of its narrow NeedsOracle* bits.
+func ruleDeclarationProfile(r *api.Rule) oracle.DeclarationProfile {
+	if r == nil {
+		return oracle.DeclarationProfile{}
+	}
+	var p oracle.DeclarationProfile
+	if n := r.OracleDeclarationNeeds; n != nil {
+		p = oracle.DeclarationProfile{
 			ClassShell:              n.ClassShell,
 			Supertypes:              n.Supertypes,
 			ClassAnnotations:        n.ClassAnnotations,
@@ -107,25 +253,57 @@ func BuildOracleDeclarationProfileV2(enabled []*api.Rule) oracle.DeclarationProf
 			MemberSignatures:        n.MemberSignatures,
 			MemberAnnotations:       n.MemberAnnotations,
 			SourceDependencyClosure: n.SourceDependencyClosure,
-		})
+		}
 	}
-	return oracle.FinalizeDeclarationProfile(union)
+	bits := r.Needs
+	if bits.HasAny(api.NeedsOracleSupertypes) {
+		p.ClassShell = true
+		p.Supertypes = true
+	}
+	if bits.HasAny(api.NeedsOracleClassAnnotations) {
+		p.ClassShell = true
+		p.ClassAnnotations = true
+	}
+	if bits.HasAny(api.NeedsOracleMembers) {
+		p.ClassShell = true
+		p.Members = true
+	}
+	if bits.HasAny(api.NeedsOracleMemberSignatures) {
+		p.ClassShell = true
+		p.Members = true
+		p.MemberSignatures = true
+	}
+	if bits.HasAny(api.NeedsOracleMemberAnnotations) {
+		p.ClassShell = true
+		p.Members = true
+		p.MemberAnnotations = true
+	}
+	if bits.HasAny(api.NeedsOracleLibraryClasses) {
+		p.SourceDependencyClosure = true
+	}
+	return p
 }
 
 // NeedsOracleDiagnostics reports whether active rules should request expensive
-// compiler diagnostics from krit-types.
+// compiler diagnostics from krit-types. Driven by the OracleFactUnion so a
+// rule contributes by declaring NeedsOracleDiagnostics (or the umbrella
+// NeedsOracle) — the legacy hardcoded rule-ID list is preserved here as a
+// transition shim for un-migrated rules.
 func NeedsOracleDiagnostics(enabled []*api.Rule) bool {
-	for _, r := range enabled {
-		if ruleNeedsOracleDiagnostics(r) {
-			return true
-		}
-	}
-	return false
+	return OracleFactUnion(enabled).HasAny(api.NeedsOracleDiagnostics)
 }
 
+// ruleNeedsOracleDiagnostics is the legacy rule-ID shim that lifts known
+// diagnostic-consuming rules into the NeedsOracleDiagnostics fact bit
+// during the migration window. Once every rule in this list has been
+// re-tagged with the bit, this function (and the call site in
+// ruleOracleFactBits) can be removed.
 func ruleNeedsOracleDiagnostics(r *api.Rule) bool {
 	if r == nil {
 		return false
+	}
+	if r.Needs.HasAny(api.NeedsOracleDiagnostics) {
+		return true
 	}
 	switch r.ID {
 	case "UnsafeCast", "UnreachableCode":

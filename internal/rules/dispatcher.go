@@ -752,7 +752,7 @@ func (d *Dispatcher) ReportMissingCapabilities(oracleAvailable bool, logger func
 			}
 			if missingOracle && RuleNeedsKotlinOracle(r) {
 				reason := "oracle metadata declared"
-				if r.Needs.Has(api.NeedsOracle) {
+				if r.Needs.HasAny(api.NeedsOracle) {
 					reason = "NeedsOracle declared"
 				}
 				logger("verbose: skipped rule %s: %s but no oracle configured\n", r.ID, reason)

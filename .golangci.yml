@@ -48,6 +48,7 @@ linters:
     gosec:
       excludes:
         - G104  # best-effort cleanup is intentional
+        - G107  # caller-supplied URLs are by-design (lint-catalog, httpx)
         - G115  # integer-overflow conversions are bounded by upstream invariants
         - G204  # Krit shells out to git/gradle/javac/etc. by design
         - G301  # directory permissions intentional for project dirs

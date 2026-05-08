@@ -736,10 +736,6 @@ func composeFileHasRuntimeComposableEvidence(file *scanner.File) bool {
 		bytes.Contains(file.Content, []byte("@androidx.compose.runtime.Composable"))
 }
 
-func composeFunctionHasPreviewAnnotation(file *scanner.File, fn uint32) bool {
-	return composeFunctionHasPreviewAnnotationWithConfig(file, fn, defaultCustomPreviewConfig())
-}
-
 func composeFunctionHasPreviewAnnotationWithConfig(file *scanner.File, fn uint32, cfg customPreviewConfig) bool {
 	if flatHasCustomPreviewAnnotation(file, fn, cfg) {
 		return true

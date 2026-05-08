@@ -1,64 +1,194 @@
 version: 2
 project_name: krit
+
+# Releases are built via the matrix-funnel workflow in
+# .github/workflows/release.yml: each goos's matrix runner invokes
+# `goreleaser release --skip=publish,announce --id <ids-for-its-goos>`,
+# producing per-target archives, checksums, and signatures. The funnel
+# job downloads all dist/ outputs, merges checksums, re-signs the
+# combined checksum file, and hand-rolls the GitHub release create plus
+# the brew cask and scoop manifest commits to their respective tap repos.
+# That's why this config has neither a homebrew_casks nor scoops block,
+# and skips a release.github block — those publishers are driven by the
+# workflow rather than goreleaser.
+
 before:
   hooks:
     - go mod tidy
     - go vet ./...
+
+# Build ids are split by goos so the matrix can filter via --id flags.
 builds:
-  - id: krit
+  # --- Linux / glibc ---------------------------------------------------------
+  # arm64 cross-compilation needs gcc-aarch64-linux-gnu installed on the
+  # ubuntu runner; the workflow does that. The amd64 build uses the
+  # default gcc.
+  - id: krit-linux
     main: ./cmd/krit
     binary: krit
     env: [CGO_ENABLED=1]
     ldflags:
       - -s -w -X main.version={{.Version}}
-    goos: [linux, darwin, windows]
+    goos: [linux]
     goarch: [amd64, arm64]
-    ignore:
-      - goos: windows
+    overrides:
+      - goos: linux
         goarch: arm64
-  - id: krit-lsp
+        env: [CGO_ENABLED=1, CC=aarch64-linux-gnu-gcc]
+  - id: krit-lsp-linux
     main: ./cmd/krit-lsp
     binary: krit-lsp
     env: [CGO_ENABLED=1]
     ldflags:
       - -s -w -X main.version={{.Version}}
-    goos: [linux, darwin, windows]
+    goos: [linux]
     goarch: [amd64, arm64]
-    ignore:
-      - goos: windows
+    overrides:
+      - goos: linux
         goarch: arm64
-  - id: krit-mcp
+        env: [CGO_ENABLED=1, CC=aarch64-linux-gnu-gcc]
+  - id: krit-mcp-linux
     main: ./cmd/krit-mcp
     binary: krit-mcp
     env: [CGO_ENABLED=1]
     ldflags:
       - -s -w -X main.version={{.Version}}
-    goos: [linux, darwin, windows]
+    goos: [linux]
     goarch: [amd64, arm64]
-    ignore:
-      - goos: windows
+    overrides:
+      - goos: linux
         goarch: arm64
+        env: [CGO_ENABLED=1, CC=aarch64-linux-gnu-gcc]
+
+  # --- Linux / musl ----------------------------------------------------------
+  # amd64 only for now; arm64-musl needs a cross toolchain (e.g. from
+  # musl-cross-make) that ubuntu-latest doesn't ship. Add when there's demand.
+  - id: krit-linux-musl
+    main: ./cmd/krit
+    binary: krit
+    env: [CGO_ENABLED=1, CC=musl-gcc]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+      - -linkmode=external -extldflags=-static
+    goos: [linux]
+    goarch: [amd64]
+  - id: krit-lsp-linux-musl
+    main: ./cmd/krit-lsp
+    binary: krit-lsp
+    env: [CGO_ENABLED=1, CC=musl-gcc]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+      - -linkmode=external -extldflags=-static
+    goos: [linux]
+    goarch: [amd64]
+  - id: krit-mcp-linux-musl
+    main: ./cmd/krit-mcp
+    binary: krit-mcp
+    env: [CGO_ENABLED=1, CC=musl-gcc]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+      - -linkmode=external -extldflags=-static
+    goos: [linux]
+    goarch: [amd64]
+
+  # --- Darwin ----------------------------------------------------------------
+  # Built on a macos-latest runner (Apple Silicon / arm64). Cross-compiles
+  # to amd64 via Apple clang's `-arch x86_64`; both SDKs ship in Xcode.
+  - id: krit-darwin
+    main: ./cmd/krit
+    binary: krit
+    env: [CGO_ENABLED=1]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos: [darwin]
+    goarch: [amd64, arm64]
+  - id: krit-lsp-darwin
+    main: ./cmd/krit-lsp
+    binary: krit-lsp
+    env: [CGO_ENABLED=1]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos: [darwin]
+    goarch: [amd64, arm64]
+  - id: krit-mcp-darwin
+    main: ./cmd/krit-mcp
+    binary: krit-mcp
+    env: [CGO_ENABLED=1]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos: [darwin]
+    goarch: [amd64, arm64]
+
+  # --- Windows ---------------------------------------------------------------
+  # amd64 only; arm64 windows builds aren't shipped (uncommon target,
+  # would need additional toolchain).
+  - id: krit-windows
+    main: ./cmd/krit
+    binary: krit
+    env: [CGO_ENABLED=1]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos: [windows]
+    goarch: [amd64]
+  - id: krit-lsp-windows
+    main: ./cmd/krit-lsp
+    binary: krit-lsp
+    env: [CGO_ENABLED=1]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos: [windows]
+    goarch: [amd64]
+  - id: krit-mcp-windows
+    main: ./cmd/krit-mcp
+    binary: krit-mcp
+    env: [CGO_ENABLED=1]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos: [windows]
+    goarch: [amd64]
+
 archives:
   - id: default
-    ids: [krit, krit-lsp, krit-mcp]
+    ids:
+      - krit-linux
+      - krit-lsp-linux
+      - krit-mcp-linux
+      - krit-darwin
+      - krit-lsp-darwin
+      - krit-mcp-darwin
+      - krit-windows
+      - krit-lsp-windows
+      - krit-mcp-windows
     format_overrides:
       - goos: windows
         formats: [zip]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: linux-musl
+    ids:
+      - krit-linux-musl
+      - krit-lsp-linux-musl
+      - krit-mcp-linux-musl
+    name_template: "{{ .ProjectName }}_{{ .Version }}_linux_musl_{{ .Arch }}"
+
 checksum:
   name_template: 'checksums.txt'
+
 signs:
   - artifacts: checksum
     args:
       - "--batch"
+      - "--pinentry-mode=loopback"
+      - "--passphrase"
+      - "{{ .Env.GPG_PASSPHRASE }}"
       - "--local-user"
       - "{{ .Env.GPG_FINGERPRINT }}"
       - "--output"
       - "${signature}"
       - "--detach-sign"
       - "${artifact}"
+
 sboms:
   - artifacts: archive
+
 changelog:
   sort: asc
   filters:
@@ -66,27 +196,3 @@ changelog:
       - '^docs:'
       - '^test:'
       - '^chore:'
-homebrew_casks:
-  - repository:
-      owner: kaeawc
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    homepage: "https://github.com/kaeawc/krit"
-    description: "Fast Kotlin static analysis powered by tree-sitter"
-    license: "MIT"
-    binaries:
-      - krit
-      - krit-lsp
-      - krit-mcp
-scoops:
-  - repository:
-      owner: kaeawc
-      name: scoop-krit
-      token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
-    homepage: "https://github.com/kaeawc/krit"
-    description: "Fast Kotlin static analysis powered by tree-sitter"
-    license: "MIT"
-release:
-  github:
-    owner: kaeawc
-    name: krit

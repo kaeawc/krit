@@ -6,33 +6,160 @@ permissions:
   contents: write
   id-token: write
   attestations: write
+
 jobs:
-  release:
+  # Per-goos matrix: each runner natively builds its OS's targets via
+  # goreleaser, producing dist/ with archives + checksums + signatures.
+  # We --skip=publish here; the funnel job handles GitHub release create,
+  # the brew cask, and the scoop manifest.
+  build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             goos: linux
+            ids: --id=krit-linux --id=krit-lsp-linux --id=krit-mcp-linux --id=krit-linux-musl --id=krit-lsp-linux-musl --id=krit-mcp-linux-musl
           - os: macos-latest
             goos: darwin
+            ids: --id=krit-darwin --id=krit-lsp-darwin --id=krit-mcp-darwin
           - os: windows-latest
             goos: windows
+            ids: --id=krit-windows --id=krit-lsp-windows --id=krit-mcp-windows
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with: { fetch-depth: 0 }
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with: { go-version-file: go.mod }
+
+      # Linux runner builds glibc/amd64 + glibc/arm64 (cross) + musl/amd64.
+      # musl-tools provides musl-gcc; gcc-aarch64-linux-gnu provides the
+      # cross-compiler the .goreleaser.yml override expects.
+      - if: matrix.goos == 'linux'
+        name: Install Linux cross toolchains
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools gcc-aarch64-linux-gnu
+
+      # Import the release signing subkey for goreleaser's signs: block.
+      - name: Import GPG signing key
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          fingerprint: ${{ secrets.GPG_FINGERPRINT }}
+
       - uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7.2.1
-        id: goreleaser
         with:
           version: '~> v2'
-          args: release --clean
+          args: release --clean --skip=publish --skip=announce ${{ matrix.ids }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ secrets.GPG_FINGERPRINT }}
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+      # Upload everything except the per-goos checksums/sigs — the
+      # funnel produces a unified set covering all platforms.
+      - name: Stage uploadable artifacts
+        shell: bash
+        run: |
+          mkdir staged
+          # Copy archives, sboms, and binaries (in case provenance step needs them)
+          for pat in '*.tar.gz' '*.zip' '*.sbom' '*.json'; do
+            cp dist/$pat staged/ 2>/dev/null || true
+          done
+      - uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
+        with:
+          name: dist-${{ matrix.goos }}
+          path: staged/
+          retention-days: 1
+          if-no-files-found: error
+
+  # Funnel: gather every matrix runner's archives, generate one combined
+  # checksums.txt covering all platforms, sign it, create the GitHub
+  # release, and push the brew cask + scoop manifest to their tap repos.
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: { fetch-depth: 0 }
+
+      - name: Import GPG signing key
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          fingerprint: ${{ secrets.GPG_FINGERPRINT }}
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@cf48c45f2e2b89d7b58dc4c80f7b01640d0e26c4 # v5.0.0
+        with:
+          path: staging
+          pattern: dist-*
+          merge-multiple: true
+
+      - name: Assemble dist/
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          cp staging/*.tar.gz staging/*.zip dist/ 2>/dev/null || true
+          cp staging/*.sbom dist/ 2>/dev/null || true
+          ls -la dist/
+
+      - name: Generate combined checksums.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          : > checksums.txt
+          for f in *.tar.gz *.zip; do
+            [ -f "$f" ] || continue
+            sha256sum "$f" >> checksums.txt
+          done
+          sort -k2 checksums.txt -o checksums.txt
+          cat checksums.txt
+
+      - name: Sign combined checksums.txt
+        shell: bash
+        env:
+          GPG_FINGERPRINT: ${{ secrets.GPG_FINGERPRINT }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          cd dist
+          echo "$GPG_PASSPHRASE" | gpg --batch --pinentry-mode=loopback \
+            --passphrase-fd 0 --local-user "$GPG_FINGERPRINT" \
+            --output checksums.txt.sig --detach-sign checksums.txt
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd dist
+          # shellcheck disable=SC2046
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --generate-notes \
+            $(ls *.tar.gz *.zip *.sbom checksums.txt checksums.txt.sig 2>/dev/null)
+
+      - name: Publish Homebrew cask
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: bash scripts/release/update-brew-tap.sh
+
+      - name: Publish Scoop manifest
+        env:
+          GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: bash scripts/release/update-scoop-bucket.sh
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:

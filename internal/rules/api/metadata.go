@@ -166,6 +166,16 @@ type RuleDescriptor struct {
 	// they publish other metadata.
 	Aliases []string
 
+	// EnabledByDefaultSince mirrors Rule.EnabledByDefaultSince — the
+	// krit version in which this rule became default-active. Empty
+	// string means inception or unrecorded.
+	EnabledByDefaultSince string
+
+	// Deprecated mirrors Rule.Deprecated. Non-nil means the rule is
+	// scheduled for removal; consumers should surface migration
+	// guidance via ReplacedBy / Reason.
+	Deprecated *Deprecation
+
 	// RuleSet is the configuration group this rule belongs to
 	// (e.g. "complexity", "naming", "performance").
 	RuleSet string
@@ -208,6 +218,26 @@ type RuleDescriptor struct {
 	// implementation (e.g. the real ConfigAdapter) and no-op on the fake
 	// sources used by unit tests.
 	CustomApply func(target interface{}, cfg ConfigSource)
+}
+
+// Deprecation marks a rule as scheduled for removal and points users
+// at a migration target.
+//
+// Treat the struct as immutable after construction so descriptors stay
+// safe to copy and share.
+type Deprecation struct {
+	// Since is the krit version in which this rule was deprecated.
+	// Empty string means the deprecation predates version tracking.
+	Since string
+
+	// ReplacedBy is the canonical ID of the rule users should migrate
+	// to. Empty string means the rule was retired without a direct
+	// replacement (the user should remove their suppression entirely).
+	ReplacedBy string
+
+	// Reason is a one-line explanation surfaced to users alongside the
+	// deprecation. Keep terse — not a full migration guide.
+	Reason string
 }
 
 // LanguageSupportStatus is the stable support classification for a rule or

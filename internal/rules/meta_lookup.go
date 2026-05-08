@@ -80,6 +80,16 @@ func mergeRuleDescriptor(r *api.Rule, extra api.RuleDescriptor) api.RuleDescript
 	} else {
 		out.Aliases = extra.Aliases
 	}
+	if r.EnabledByDefaultSince != "" {
+		out.EnabledByDefaultSince = r.EnabledByDefaultSince
+	} else {
+		out.EnabledByDefaultSince = extra.EnabledByDefaultSince
+	}
+	if r.Deprecated != nil {
+		out.Deprecated = r.Deprecated
+	} else {
+		out.Deprecated = extra.Deprecated
+	}
 	return out
 }
 

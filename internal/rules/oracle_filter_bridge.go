@@ -84,10 +84,13 @@ func ruleOracleFactBits(r *api.Rule) api.Capabilities {
 	}
 	// Oracle: the legacy file-selection filter does not by itself imply
 	// any narrow fact category (it gates which files are sent to KAA,
-	// not what is extracted). When it appears alongside no other
-	// metadata or bits, conservatively expand to the umbrella so we do
-	// not silently downgrade an unmigrated rule.
-	if r.Oracle != nil && bits == 0 {
+	// not what is extracted). When it appears alongside no narrowing
+	// metadata at all, conservatively expand to the umbrella so we do
+	// not silently downgrade an unmigrated rule. A non-nil
+	// OracleDeclarationNeeds (even empty) counts as explicit narrowing.
+	if r.Oracle != nil && bits == 0 &&
+		r.OracleCallTargets == nil &&
+		r.OracleDeclarationNeeds == nil {
 		bits |= api.NeedsOracle
 	}
 	if ruleNeedsOracleDiagnostics(r) {

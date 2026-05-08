@@ -130,7 +130,7 @@ func registerPerformanceRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
-			Needs:                  api.NeedsTypeInfo,
+			Needs:                  api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Oracle:                 &api.OracleFilter{Identifiers: sequenceCollectionOperationNames()},
 			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: sequenceCollectionOperationNames()},
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},

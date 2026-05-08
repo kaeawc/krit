@@ -257,7 +257,7 @@ func registerResourceCostRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes:              []string{"class_declaration"},
-			Needs:                  api.NeedsTypeInfo,
+			Needs:                  api.NeedsTypeInfo | api.NeedsOracleSupertypes,
 			Languages:              []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
 			Confidence:             0.75, Implementation: r,
@@ -288,7 +288,7 @@ func registerResourceCostRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes:              []string{"class_declaration"},
-			Needs:                  api.NeedsTypeInfo,
+			Needs:                  api.NeedsTypeInfo | api.NeedsOracleSupertypes,
 			Languages:              []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
 			Confidence:             0.75, Implementation: r,
@@ -384,7 +384,7 @@ func registerResourceCostRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes:              []string{"call_expression"},
-			Needs:                  api.NeedsTypeInfo,
+			Needs:                  api.NeedsTypeInfo | api.NeedsOracleSupertypes,
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{ClassShell: true, Supertypes: true},
 			Confidence:             0.75, Implementation: r,
 			Check: func(ctx *api.Context) {

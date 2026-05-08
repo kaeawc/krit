@@ -19,7 +19,9 @@ func registerAndroidUsabilityRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "simple_identifier", "user_type", "navigation_expression"}, Needs: api.NeedsTypeInfo, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression", "simple_identifier", "user_type", "navigation_expression"},
+			Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Confidence: 0.75, Implementation: r,
 			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"setElevation", "getSystemService", "setDecorFitsSystemWindows", "requestPermissions", "checkSelfPermission", "getColor", "getDrawable", "setTranslationZ", "setClipToOutline", "createNotificationChannel"}},
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
@@ -56,7 +58,6 @@ func registerAndroidUsabilityRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"simple_identifier", "navigation_expression"}, Needs: api.NeedsTypeInfo, Confidence: 0.75, Implementation: r,
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				line := file.FlatRow(idx)

@@ -354,7 +354,7 @@ func registerReleaseEngineeringRules() {
 		r := &TimberTreeNotPlantedRule{BaseRule: BaseRule{RuleName: "TimberTreeNotPlanted", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects Timber logging usage without any Timber.plant() call in the project."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			Needs: api.NeedsCrossFile | api.NeedsTypeInfo,
+			Needs: api.NeedsCrossFile | api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			OracleCallTargets: &api.OracleCallTargetFilter{
 				CalleeNames: []string{"v", "d", "i", "w", "e", "wtf", "plant"},
 				LexicalHintsByCallee: map[string][]string{

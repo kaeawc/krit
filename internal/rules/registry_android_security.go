@@ -30,7 +30,10 @@ func registerAndroidSecurityRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "method_invocation"}, Needs: api.NeedsTypeInfo,
+			NodeTypes: []string{"call_expression", "method_invocation"},
+			Needs: api.NeedsTypeInfo |
+				api.NeedsOracleCallTargets |
+				api.NeedsOracleSupertypes,
 			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Implementation: r,
 			Oracle:            &api.OracleFilter{Identifiers: []string{"addJavascriptInterface"}},
 			OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{"addJavascriptInterface"}},
@@ -351,7 +354,8 @@ func registerAndroidSecurityRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "method_invocation"}, Needs: api.NeedsTypeInfo,
+			NodeTypes: []string{"call_expression", "method_invocation"},
+			Needs:     api.NeedsTypeInfo | api.NeedsOracleSupertypes,
 			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 			Confidence: r.Confidence(), Implementation: r,
 			// Traverses the class hierarchy to confirm the receiver is a Context subtype;

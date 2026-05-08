@@ -73,12 +73,38 @@ builds:
         env: [CGO_ENABLED=1, CC=zigcc-glibc-arm64]
 
   # --- Linux / musl ----------------------------------------------------------
-  # Disabled for now: ubuntu-24.04's musl-tools wrapper falls back to
-  # glibc headers when cgo invokes it through go build, producing
-  # `fatal error: bits/libc-header-start.h` from /usr/include/stdlib.h.
-  # Fix is to install a proper musl-cross toolchain (musl-cross-make,
-  # `apk add` style) on the runner and pass through CC properly. Tracked
-  # as a follow-up.
+  # ubuntu-24.04's musl-tools wrapper falls back to glibc headers when
+  # invoked through cgo. Use zig as the CC instead — it bundles musl
+  # libc + a working sysroot. The release.yml workflow installs zig and
+  # creates a /usr/local/bin/zigcc-musl-amd64 wrapper that fixes the
+  # target. Fully static-linked.
+  - id: krit-linux-musl
+    main: ./cmd/krit
+    binary: krit
+    env: [CGO_ENABLED=1, CC=zigcc-musl-amd64]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+      - -linkmode=external -extldflags=-static
+    goos: [linux]
+    goarch: [amd64]
+  - id: krit-lsp-linux-musl
+    main: ./cmd/krit-lsp
+    binary: krit-lsp
+    env: [CGO_ENABLED=1, CC=zigcc-musl-amd64]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+      - -linkmode=external -extldflags=-static
+    goos: [linux]
+    goarch: [amd64]
+  - id: krit-mcp-linux-musl
+    main: ./cmd/krit-mcp
+    binary: krit-mcp
+    env: [CGO_ENABLED=1, CC=zigcc-musl-amd64]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+      - -linkmode=external -extldflags=-static
+    goos: [linux]
+    goarch: [amd64]
 
   # --- Darwin ----------------------------------------------------------------
   # Built on a macos-latest runner (Apple Silicon / arm64). Cross-compiles
@@ -151,6 +177,13 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
+  - id: linux-musl
+    ids:
+      - krit-linux-musl
+      - krit-lsp-linux-musl
+      - krit-mcp-linux-musl
+    name_template: "{{ .ProjectName }}_{{ .Version }}_linux_musl_{{ .Arch }}"
+
 checksum:
   name_template: 'checksums.txt'
 

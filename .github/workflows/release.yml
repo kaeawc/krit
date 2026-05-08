@@ -19,7 +19,7 @@ jobs:
         include:
           - os: ubuntu-latest
             goos: linux
-            ids: krit-linux,krit-lsp-linux,krit-mcp-linux
+            ids: krit-linux,krit-lsp-linux,krit-mcp-linux,krit-linux-musl,krit-lsp-linux-musl,krit-mcp-linux-musl
           - os: macos-latest
             goos: darwin
             ids: krit-darwin,krit-lsp-darwin,krit-mcp-darwin
@@ -33,18 +33,11 @@ jobs:
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with: { go-version-file: go.mod }
 
-      # Linux runner builds amd64 natively and arm64 via the
-      # gcc-aarch64-linux-gnu cross-toolchain. .goreleaser.yml's arm64
-      # override points CGO_CFLAGS / CGO_LDFLAGS at the arm64 sysroot
-      # so cgo finds the right headers. libc6-dev-arm64-cross is
-      # pulled in as a dependency of gcc-aarch64-linux-gnu.
-      # Linux cross-compilation uses zig cc for both arm64 and musl
-      # targets. Ubuntu's gcc-aarch64-linux-gnu + libc6-dev-arm64-cross
-      # combo has flaky sysroot/lib paths (linker can't find
-      # /usr/aarch64-linux-gnu/lib/libc.so.6 because the cross packages
-      # use a multiarch layout the --sysroot flag doesn't follow). zig
-      # bundles glibc + musl + sysroots in one binary and is the
-      # standard escape hatch. We install it once and write per-target
+      # Linux cross-compilation uses zig cc for both arm64-glibc and
+      # amd64-musl targets. Ubuntu's gcc-aarch64-linux-gnu and
+      # musl-tools have well-known sysroot/library issues with cgo;
+      # zig bundles glibc + musl + sysroots in one binary and is the
+      # standard escape hatch. Install once and write per-target
       # wrapper scripts on PATH so .goreleaser.yml can reference plain
       # CC values.
       - if: matrix.goos == 'linux'
@@ -55,7 +48,7 @@ jobs:
           curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz" \
             | sudo tar -xJ -C /opt
           sudo ln -sf "/opt/zig-linux-x86_64-${ZIG_VERSION}/zig" /usr/local/bin/zig
-          for target in glibc-arm64:aarch64-linux-gnu; do
+          for target in glibc-arm64:aarch64-linux-gnu musl-amd64:x86_64-linux-musl; do
             name="${target%:*}"
             zig_target="${target##*:}"
             sudo tee "/usr/local/bin/zigcc-${name}" > /dev/null <<EOF
@@ -66,6 +59,7 @@ jobs:
           done
           zig version
           zigcc-glibc-arm64 --version | head -1
+          zigcc-musl-amd64 --version | head -1
 
       # Import the release signing subkey for goreleaser's signs: block.
       - name: Import GPG signing key

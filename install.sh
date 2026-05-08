@@ -79,16 +79,22 @@ case "$arch" in
   *) err "unsupported architecture: $arch (amd64 and arm64 are supported)" ;;
 esac
 
-# musl-libc Linux distros (Alpine, etc.) aren't currently shipped as
-# separate archives — the published linux archives are glibc-linked.
-# `ldd /bin/ls` is the canonical detector if we re-enable musl builds.
+# Detect musl libc on Linux (Alpine, Void, etc.) so we fetch the
+# static-linked musl archive instead of the glibc one. arm64-musl
+# isn't shipped yet — fall back to glibc with a warning since it's
+# unlikely to run.
 libc=glibc
 if [ "$goos" = linux ] && ldd /bin/ls 2>&1 | grep -qi musl; then
-  log "musl libc detected; krit currently only ships glibc archives. The downloaded binary may not run on this system. Build from source via 'go install github.com/kaeawc/krit/cmd/krit@latest' or wait for musl support to land."
+  if [ "$goarch" = amd64 ]; then
+    libc=musl
+  else
+    log "musl libc detected on $goarch but only linux/musl/amd64 builds are published; falling back to glibc archive (may not run)"
+  fi
 fi
 
 # Currently published archives:
-#   linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64
+#   linux/amd64, linux/arm64, linux/musl/amd64,
+#   darwin/amd64, darwin/arm64, windows/amd64
 # Anything else is a follow-up; bail with a build-from-source pointer.
 case "${goos}/${goarch}" in
   linux/amd64|linux/arm64|darwin/amd64|darwin/arm64|windows/amd64) ;;
@@ -115,6 +121,8 @@ ver="${KRIT_VERSION#v}"
 
 if [ "$goos" = windows ]; then
   archive="krit_${ver}_${goos}_${goarch}.zip"
+elif [ "$goos" = linux ] && [ "$libc" = musl ]; then
+  archive="krit_${ver}_linux_musl_${goarch}.tar.gz"
 else
   archive="krit_${ver}_${goos}_${goarch}.tar.gz"
 fi

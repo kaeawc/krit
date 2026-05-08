@@ -125,6 +125,11 @@ func NewDispatcher(rules []*api.Rule, resolver ...typeinfer.TypeResolver) *Dispa
 		d.typeResolver = resolver[0]
 	}
 
+	// Apply RunAfter ordering so any rule that declares a dependency
+	// runs after the rule(s) it depends on across every per-file scope
+	// bucket. Rules without RunAfter keep their original relative order.
+	rules = SortByRunAfter(rules)
+
 	// Classify each rule by its Scope (set explicitly on the rule, or
 	// derived from Needs + NodeTypes via RuleScope).
 	for _, r := range rules {

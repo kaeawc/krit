@@ -1,0 +1,1894 @@
+package rules_test
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/module"
+	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/rules"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
+)
+
+func TestBuildConfigDebugInLibrary(t *testing.T) {
+	rule := buildRuleIndex()["BuildConfigDebugInLibrary"]
+	if rule == nil {
+		t.Fatal("BuildConfigDebugInLibrary rule not registered")
+	}
+
+	t.Run("library module triggers", func(t *testing.T) {
+		moduleDir := filepath.Join(t.TempDir(), "lib")
+		sourcePath := filepath.Join(moduleDir, "src", "main", "java", "com", "example", "BuildConfigDebugInLibrary.kt")
+		writeModuleFile(t, filepath.Join(moduleDir, "build.gradle.kts"), `plugins {
+    id("com.android.library")
+    id("org.jetbrains.kotlin.android")
+}`)
+		writeModuleFile(t, sourcePath, `package com.example
+
+fun logOnlyInDebug() {
+    if (BuildConfig.DEBUG) {
+        println("debug")
+    }
+}
+`)
+
+		file, err := scanner.ParseFile(sourcePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", sourcePath, err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("application module is clean", func(t *testing.T) {
+		moduleDir := filepath.Join(t.TempDir(), "app")
+		sourcePath := filepath.Join(moduleDir, "src", "main", "java", "com", "example", "BuildConfigDebugInLibrary.kt")
+		writeModuleFile(t, filepath.Join(moduleDir, "build.gradle.kts"), `plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+
+android {
+    defaultConfig {
+        applicationId = "com.example.app"
+    }
+}`)
+		writeModuleFile(t, sourcePath, `package com.example
+
+fun logOnlyInDebug() {
+    if (BuildConfig.DEBUG) {
+        println("debug")
+    }
+}
+`)
+
+		file, err := scanner.ParseFile(sourcePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", sourcePath, err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func TestBuildConfigDebugInverted(t *testing.T) {
+	rule := buildRuleIndex()["BuildConfigDebugInverted"]
+	if rule == nil {
+		t.Fatal("BuildConfigDebugInverted rule not registered")
+	}
+
+	root := fixtureRoot(t)
+	positivePath := filepath.Join(root, "positive", "release-engineering", "BuildConfigDebugInverted.kt")
+	negativePath := filepath.Join(root, "negative", "release-engineering", "BuildConfigDebugInverted.kt")
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(positivePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", positivePath, err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(negativePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", negativePath, err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func TestAllProjectsBlock(t *testing.T) {
+	rule := buildRuleIndex()["AllProjectsBlock"]
+	if rule == nil {
+		t.Fatal("AllProjectsBlock rule not registered")
+	}
+
+	root := fixtureRoot(t)
+	positivePath := filepath.Join(root, "positive", "release-engineering", "all-projects-block", "build.gradle.kts")
+	negativePath := filepath.Join(root, "negative", "release-engineering", "all-projects-block", "build.gradle.kts")
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(positivePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", positivePath, err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(negativePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", negativePath, err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func TestHardcodedEnvironmentName(t *testing.T) {
+	rule := buildRuleIndex()["HardcodedEnvironmentName"]
+	if rule == nil {
+		t.Fatal("HardcodedEnvironmentName rule not registered")
+	}
+
+	root := fixtureRoot(t)
+	positivePath := filepath.Join(root, "positive", "release-engineering", "HardcodedEnvironmentName.kt")
+	negativePath := filepath.Join(root, "negative", "release-engineering", "HardcodedEnvironmentName.kt")
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(positivePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", positivePath, err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(negativePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", negativePath, err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func TestConventionPluginDeadCode(t *testing.T) {
+	registered := buildRuleIndex()["ConventionPluginDeadCode"]
+	if registered == nil {
+		t.Fatal("ConventionPluginDeadCode rule not registered")
+	}
+
+	root := fixtureRoot(t)
+	positiveDir := filepath.Join(root, "positive", "release-engineering", "convention-plugin-dead-code")
+	negativeDir := filepath.Join(root, "negative", "release-engineering", "convention-plugin-dead-code")
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		findings := runConventionPluginDeadCodeRule(t, positiveDir)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if !strings.Contains(findings[0].Message, "kotlin-library-conventions") {
+			t.Fatalf("expected finding to mention plugin id, got %q", findings[0].Message)
+		}
+		if !strings.HasSuffix(filepath.ToSlash(findings[0].File), "/build-logic/src/main/kotlin/kotlin-library-conventions.gradle.kts") {
+			t.Fatalf("expected finding to point at convention plugin file, got %q", findings[0].File)
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		findings := runConventionPluginDeadCodeRule(t, negativeDir)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func TestVisibleForTestingCallerInNonTest(t *testing.T) {
+	t.Run("same owner call is clean", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+class Feature {
+    @VisibleForTesting
+    fun rebuildForTests() = Unit
+
+    fun render() {
+        rebuildForTests()
+    }
+}
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("qualified owner call triggers across files", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/TestHooks.kt": `package com.example
+
+object TestHooks {
+    @VisibleForTesting
+    fun resetForTests() = Unit
+}
+`,
+			"app/src/main/java/com/example/Production.kt": `package com.example
+
+fun production() {
+    TestHooks.resetForTests()
+}
+`,
+		})
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("unqualified cross-file call is skipped as unresolved", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/TestHooks.kt": `package com.example
+
+@VisibleForTesting
+fun resetForTests() = Unit
+`,
+			"app/src/main/java/com/example/Production.kt": `package com.example
+
+fun production() {
+    resetForTests()
+}
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("strings and comments do not trigger", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+class Feature {
+    @VisibleForTesting
+    fun rebuildForTests() = Unit
+
+    fun render() {
+        val text = "rebuildForTests()"
+        // rebuildForTests()
+        println(text)
+    }
+}
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("overload with incompatible arity is skipped", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+class Feature {
+    fun deleteMessage(id: Long): Boolean = deleteMessage(id)
+
+    @VisibleForTesting
+    fun deleteMessage(id: Long, threadId: Long, notify: Boolean = true): Boolean = true
+}
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("different same-file owner is skipped", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+class TestHooks {
+    @VisibleForTesting
+    fun reset() = Unit
+}
+
+class Production {
+    fun reset() = Unit
+
+    fun run() {
+        reset()
+    }
+}
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("top-level same-file call is clean", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+@VisibleForTesting
+fun resetForTests() = Unit
+
+fun production() {
+    resetForTests()
+}
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("test sources are skipped", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/TestHooks.kt": `package com.example
+
+object TestHooks {
+    @VisibleForTesting
+    fun resetForTests() = Unit
+}
+`,
+			"app/src/test/java/com/example/ProductionTest.kt": `package com.example
+
+fun productionTest() {
+    TestHooks.resetForTests()
+}
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func runVisibleForTestingCallerRule(t *testing.T, files map[string]string) []scanner.Finding {
+	t.Helper()
+	registered := buildRuleIndex()["VisibleForTestingCallerInNonTest"]
+	if registered == nil {
+		t.Fatal("VisibleForTestingCallerInNonTest rule not registered")
+	}
+
+	root := t.TempDir()
+	parsed := make([]*scanner.File, 0, len(files))
+	for rel, content := range files {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		writeModuleFile(t, path, content)
+		file, err := scanner.ParseFile(path)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", path, err)
+		}
+		parsed = append(parsed, file)
+	}
+
+	index := scanner.BuildIndex(parsed, 1)
+	ctx := &api.Context{
+		Rule:      registered,
+		CodeIndex: index,
+		Collector: scanner.NewFindingCollector(0),
+	}
+	registered.Check(ctx)
+	return api.ContextFindings(ctx)
+}
+
+func TestTimberTreeNotPlanted(t *testing.T) {
+	t.Run("flags first production Timber usage when no startup plant exists", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+import timber.log.Timber
+
+fun logIt() {
+    Timber.d("hello")
+}
+`,
+		}, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Line != 6 {
+			t.Fatalf("finding line = %d, want first Timber call line 6", findings[0].Line)
+		}
+	})
+
+	t.Run("accepts Application onCreate planting", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/App.kt": `package com.example
+
+import android.app.Application
+import timber.log.Timber
+
+class App : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        Timber.plant(Timber.DebugTree())
+    }
+}
+`,
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+import timber.log.Timber
+
+fun logIt() {
+    Timber.e("hello")
+}
+`,
+		}, nil)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("supports multiline qualified Timber calls", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+import timber.log.Timber
+
+fun logIt() {
+    Timber
+        .d("hello")
+}
+`,
+		}, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("supports fully qualified Timber receiver", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+fun logIt() {
+    timber.log.Timber.d("hello")
+}
+`,
+		}, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("skips unimported unresolved Timber receiver", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+fun logIt() {
+    Timber.d("ambiguous")
+}
+`,
+		}, nil)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("ignores local Timber object", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+object Timber {
+    fun d(msg: String) = Unit
+    fun plant(tree: Any) = Unit
+}
+
+fun logIt() {
+    Timber.d("not timber.log.Timber")
+}
+`,
+		}, nil)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("ignores comments strings and unrelated methods", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+class Logger {
+    fun d(msg: String) = Unit
+}
+
+fun logIt(logger: Logger) {
+    val text = "Timber.d(\"hello\")"
+    // Timber.e("hello")
+    logger.d(text)
+}
+`,
+		}, nil)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("non Application plant does not satisfy production usage", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+import timber.log.Timber
+
+class Feature {
+    fun start() {
+        Timber.plant(Timber.DebugTree())
+        Timber.i("hello")
+    }
+}
+`,
+		}, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("test source plant does not satisfy production usage", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/test/java/com/example/TestApp.kt": `package com.example
+
+import android.app.Application
+import timber.log.Timber
+
+class TestApp : Application() {
+    override fun onCreate() {
+        Timber.plant(Timber.DebugTree())
+    }
+}
+`,
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+import timber.log.Timber
+
+fun logIt() {
+    Timber.w("hello")
+}
+`,
+		}, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("supports alias and member imports", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Alias.kt": `package com.example
+
+import timber.log.Timber as T
+
+fun aliasLog() {
+    T.w("hello")
+}
+`,
+			"app/src/main/java/com/example/Member.kt": `package com.example
+
+import timber.log.Timber.d
+
+fun memberLog() {
+    d("hello")
+}
+`,
+		}, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected one project-level finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("resolved unrelated Timber target is skipped", func(t *testing.T) {
+		findings := runTimberTreeNotPlantedRule(t, map[string]string{
+			"app/src/main/java/com/example/Feature.kt": `package com.example
+
+import timber.log.Timber
+
+fun logIt() {
+    Timber.d("hello")
+}
+`,
+		}, map[string]map[string]string{
+			"app/src/main/java/com/example/Feature.kt": {
+				"Timber.d": "com.example.Timber.d",
+			},
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func runTimberTreeNotPlantedRule(t *testing.T, files map[string]string, fakeTargets map[string]map[string]string) []scanner.Finding {
+	t.Helper()
+	registered := buildRuleIndex()["TimberTreeNotPlanted"]
+	if registered == nil {
+		t.Fatal("TimberTreeNotPlanted rule not registered")
+	}
+
+	root := t.TempDir()
+	parsed := make([]*scanner.File, 0, len(files))
+	for rel, content := range files {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		writeModuleFile(t, path, content)
+		file, err := scanner.ParseFile(path)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", path, err)
+		}
+		parsed = append(parsed, file)
+	}
+
+	index := scanner.BuildIndex(parsed, 1)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel(parsed, 1)
+	var typedResolver typeinfer.TypeResolver = resolver
+	if fakeTargets != nil {
+		fake := oracle.NewFakeOracle()
+		for _, file := range parsed {
+			targets := fakeTargets[relativeToRoot(t, root, file.Path)]
+			if len(targets) == 0 {
+				continue
+			}
+			fake.CallTargets[file.Path] = make(map[string]string)
+			file.FlatWalkNodes(0, "call_expression", func(call uint32) {
+				text := file.FlatNodeText(call)
+				for needle, target := range targets {
+					if strings.Contains(text, needle) {
+						key := fmt.Sprintf("%d:%d", file.FlatRow(call)+1, file.FlatCol(call)+1)
+						fake.CallTargets[file.Path][key] = target
+					}
+				}
+			})
+		}
+		typedResolver = oracle.NewCompositeResolver(fake, resolver)
+	}
+
+	ctx := &api.Context{
+		Rule:      registered,
+		CodeIndex: index,
+		Resolver:  typedResolver,
+		Collector: scanner.NewFindingCollector(0),
+	}
+	registered.Check(ctx)
+	return api.ContextFindings(ctx)
+}
+
+func relativeToRoot(t *testing.T, root, path string) string {
+	t.Helper()
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		t.Fatalf("filepath.Rel(%s, %s): %v", root, path, err)
+	}
+	return filepath.ToSlash(rel)
+}
+
+func TestOpenForTestingCallerInNonTest(t *testing.T) {
+	root := fixtureRoot(t)
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		findings := runOpenForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/OpenForTestingCallerInNonTest.kt": mustReadFixture(t, filepath.Join(root, "positive", "release-engineering", "OpenForTestingCallerInNonTest.kt")),
+		})
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		findings := runOpenForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/OpenForTestingCallerInNonTest.kt": mustReadFixture(t, filepath.Join(root, "negative", "release-engineering", "OpenForTestingCallerInNonTest.kt")),
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("cross file explicit import triggers", func(t *testing.T) {
+		findings := runOpenForTestingCallerRule(t, map[string]string{
+			"core/src/main/java/com/example/testing/BaseForTests.kt": `package com.example.testing
+
+@OpenForTesting
+open class BaseForTests
+`,
+			"app/src/main/java/com/example/app/ProductionSubclass.kt": `package com.example.app
+
+import com.example.testing.BaseForTests
+
+class ProductionSubclass : BaseForTests()
+`,
+		})
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Line != 5 {
+			t.Fatalf("expected finding on supertype line 5, got %d", findings[0].Line)
+		}
+	})
+
+	t.Run("cross file same package without import triggers", func(t *testing.T) {
+		findings := runOpenForTestingCallerRule(t, map[string]string{
+			"core/src/main/java/com/example/BaseForTests.kt": `package com.example
+
+@OpenForTesting
+open class BaseForTests
+`,
+			"app/src/main/java/com/example/ProductionSubclass.kt": `package com.example
+
+class ProductionSubclass : BaseForTests()
+`,
+		})
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("import alias to nested class triggers", func(t *testing.T) {
+		findings := runOpenForTestingCallerRule(t, map[string]string{
+			"core/src/main/java/com/example/testing/Outer.kt": `package com.example.testing
+
+class Outer {
+    @OpenForTesting
+    open class NestedBase
+}
+`,
+			"app/src/main/java/com/example/app/ProductionSubclass.kt": `package com.example.app
+
+import com.example.testing.Outer.NestedBase as TestBase
+
+class ProductionSubclass : TestBase()
+`,
+		})
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("test sources are skipped", func(t *testing.T) {
+		findings := runOpenForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/BaseForTests.kt": `package com.example
+
+@OpenForTesting
+open class BaseForTests
+`,
+			"app/src/test/java/com/example/ProductionSubclassTest.kt": `package com.example
+
+import com.example.BaseForTests
+
+class ProductionSubclassTest : BaseForTests()
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("unrelated same simple name is skipped", func(t *testing.T) {
+		findings := runOpenForTestingCallerRule(t, map[string]string{
+			"core/src/main/java/com/example/testing/BaseForTests.kt": `package com.example.testing
+
+@OpenForTesting
+open class BaseForTests
+`,
+			"app/src/main/java/com/example/app/BaseForTests.kt": `package com.example.app
+
+open class BaseForTests
+`,
+			"app/src/main/java/com/example/app/ProductionSubclass.kt": `package com.example.app
+
+class ProductionSubclass : BaseForTests()
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func runOpenForTestingCallerRule(t *testing.T, files map[string]string) []scanner.Finding {
+	t.Helper()
+	registered := buildRuleIndex()["OpenForTestingCallerInNonTest"]
+	if registered == nil {
+		t.Fatal("OpenForTestingCallerInNonTest rule not registered")
+	}
+
+	root := t.TempDir()
+	parsed := make([]*scanner.File, 0, len(files))
+	for rel, content := range files {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		writeModuleFile(t, path, content)
+		file, err := scanner.ParseFile(path)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", path, err)
+		}
+		parsed = append(parsed, file)
+	}
+
+	index := scanner.BuildIndex(parsed, 1)
+	ctx := &api.Context{
+		Rule:      registered,
+		CodeIndex: index,
+		Collector: scanner.NewFindingCollector(0),
+	}
+	registered.Check(ctx)
+	return api.ContextFindings(ctx)
+}
+
+func mustReadFixture(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", path, err)
+	}
+	return string(content)
+}
+
+func TestTestFixtureAccessedFromProduction(t *testing.T) {
+	registered := buildRuleIndex()["TestFixtureAccessedFromProduction"]
+	if registered == nil {
+		t.Fatal("TestFixtureAccessedFromProduction rule not registered")
+	}
+
+	root := fixtureRoot(t)
+	positiveDir := filepath.Join(root, "positive", "release-engineering", "test-fixture-accessed-from-production")
+	negativeDir := filepath.Join(root, "negative", "release-engineering", "test-fixture-accessed-from-production")
+
+	t.Run("positive fixture triggers on imports and references", func(t *testing.T) {
+		findings := runTestFixtureAccessedFromProductionRule(t, registered, positiveDir)
+		if len(findings) < 5 {
+			t.Fatalf("expected at least 5 findings, got %d: %#v", len(findings), findings)
+		}
+		if !hasFindingAtPathSuffix(findings, "app/src/main/kotlin/com/example/prod/Prod.kt", 3) {
+			t.Fatalf("expected import finding in Prod.kt, got %#v", findings)
+		}
+		if !hasFindingAtPathSuffix(findings, "app/src/main/java/com/example/prod/JavaProd.java", 3) {
+			t.Fatalf("expected Java import finding in JavaProd.java, got %#v", findings)
+		}
+		if !hasFindingAtPathSuffix(findings, "app/src/main/kotlin/com/example/SamePackageProd.kt", 4) {
+			t.Fatalf("expected same-package reference finding, got %#v", findings)
+		}
+		var sawExact, sawFallback bool
+		for _, finding := range findings {
+			if finding.Confidence >= 0.95 {
+				sawExact = true
+			}
+			if finding.Confidence == 0.80 {
+				sawFallback = true
+			}
+		}
+		if !sawExact || !sawFallback {
+			t.Fatalf("expected exact and package fallback confidence findings, got %#v", findings)
+		}
+	})
+
+	t.Run("negative fixture avoids comments strings tests aliases generated and unresolved names", func(t *testing.T) {
+		findings := runTestFixtureAccessedFromProductionRule(t, registered, negativeDir)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %#v", len(findings), findings)
+		}
+	})
+}
+
+func runTestFixtureAccessedFromProductionRule(t *testing.T, registered *api.Rule, projectDir string) []scanner.Finding {
+	t.Helper()
+	var kotlinFiles []*scanner.File
+	var javaFiles []*scanner.File
+	var parsedFiles []*scanner.File
+
+	err := filepath.Walk(projectDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return err
+		}
+		switch {
+		case strings.HasSuffix(path, ".kt"), strings.HasSuffix(path, ".kts"):
+			file, parseErr := scanner.ParseFile(path)
+			if parseErr != nil {
+				return parseErr
+			}
+			kotlinFiles = append(kotlinFiles, file)
+			parsedFiles = append(parsedFiles, file)
+		case strings.HasSuffix(path, ".java"):
+			file, parseErr := scanner.ParseJavaFile(path)
+			if parseErr != nil {
+				return parseErr
+			}
+			javaFiles = append(javaFiles, file)
+			parsedFiles = append(parsedFiles, file)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", projectDir, err)
+	}
+
+	index := scanner.BuildIndex(kotlinFiles, 1, javaFiles...)
+	ctx := &api.Context{
+		Rule:        registered,
+		CodeIndex:   index,
+		ParsedFiles: parsedFiles,
+		Collector:   scanner.NewFindingCollector(0),
+	}
+	registered.Check(ctx)
+	return api.ContextFindings(ctx)
+}
+
+func hasFindingAtPathSuffix(findings []scanner.Finding, suffix string, line int) bool {
+	for _, finding := range findings {
+		if strings.HasSuffix(filepath.ToSlash(finding.File), suffix) && finding.Line == line {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCommentedOutCodeBlock(t *testing.T) {
+	rule := buildRuleIndex()["CommentedOutCodeBlock"]
+	if rule == nil {
+		t.Fatal("CommentedOutCodeBlock rule not registered")
+	}
+
+	root := fixtureRoot(t)
+	positivePath := filepath.Join(root, "positive", "release-engineering", "CommentedOutCodeBlock.kt")
+	negativePath := filepath.Join(root, "negative", "release-engineering", "CommentedOutCodeBlock.kt")
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(positivePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", positivePath, err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(negativePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", negativePath, err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func TestGradleBuildContainsTodo(t *testing.T) {
+	rule := buildRuleIndex()["GradleBuildContainsTodo"]
+	if rule == nil {
+		t.Fatal("GradleBuildContainsTodo rule not registered")
+	}
+
+	root := fixtureRoot(t)
+	positivePath := filepath.Join(root, "positive", "release-engineering", "gradle-build-contains-todo", "build.gradle.kts")
+	negativePath := filepath.Join(root, "negative", "release-engineering", "gradle-build-contains-todo", "build.gradle.kts")
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(positivePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", positivePath, err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(negativePath)
+		if err != nil {
+			t.Fatalf("ParseFile(%s): %v", negativePath, err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func runConventionPluginDeadCodeRule(t *testing.T, projectDir string) []scanner.Finding {
+	t.Helper()
+
+	graph, err := module.DiscoverModules(projectDir)
+	if err != nil {
+		t.Fatalf("DiscoverModules(%s): %v", projectDir, err)
+	}
+	if graph == nil {
+		t.Fatalf("expected modules to be discovered in %s", projectDir)
+	}
+
+	registered := buildRuleIndex()["ConventionPluginDeadCode"]
+	if registered == nil {
+		t.Fatal("ConventionPluginDeadCode rule not registered")
+	}
+	pmi := &module.PerModuleIndex{Graph: graph}
+	ctx := &api.Context{ModuleIndex: pmi, Collector: scanner.NewFindingCollector(0)}
+	registered.Check(ctx)
+	_ = rules.ConventionPluginDeadCodeRule{} // keep import used
+	return api.ContextFindings(ctx)
+}
+
+func TestModuleTemplateConformance(t *testing.T) {
+	t.Run("missing submodule and plugin trigger", func(t *testing.T) {
+		root := t.TempDir()
+		writeModuleFile(t, filepath.Join(root, "settings.gradle.kts"), `include(
+    ":feature:payments",
+    ":feature:payments:ui",
+    ":feature:payments:domain",
+)`)
+		writeModuleFile(t, filepath.Join(root, "feature", "payments", "build.gradle.kts"), `plugins {
+    id("org.jetbrains.kotlin.android")
+}`)
+
+		findings := runModuleTemplateConformanceRule(t, root, configTemplate())
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 findings, got %d: %#v", len(findings), findings)
+		}
+		if !strings.Contains(findings[0].Message, "required Gradle plugin") &&
+			!strings.Contains(findings[1].Message, "required Gradle plugin") {
+			t.Fatalf("expected missing plugin finding, got %#v", findings)
+		}
+		if !strings.Contains(findings[0].Message, ":feature:payments:data") &&
+			!strings.Contains(findings[1].Message, ":feature:payments:data") {
+			t.Fatalf("expected missing data submodule finding, got %#v", findings)
+		}
+	})
+
+	t.Run("conformant and nonmatching modules are clean", func(t *testing.T) {
+		root := t.TempDir()
+		writeModuleFile(t, filepath.Join(root, "settings.gradle.kts"), `include(
+    ":feature:payments",
+    ":feature:payments:ui",
+    ":feature:payments:data",
+    ":feature:payments:domain",
+    ":core:network",
+)`)
+		writeModuleFile(t, filepath.Join(root, "feature", "payments", "build.gradle.kts"), `plugins {
+    id("com.android.library")
+    id("org.jetbrains.kotlin.android")
+}`)
+		writeModuleFile(t, filepath.Join(root, "core", "network", "build.gradle.kts"), ``)
+
+		findings := runModuleTemplateConformanceRule(t, root, configTemplate())
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %#v", len(findings), findings)
+		}
+	})
+}
+
+func configTemplate() config.ModuleTemplateConfig {
+	return config.ModuleTemplateConfig{
+		FeatureRoot:        "feature:*",
+		RequiredSubmodules: []string{"ui", "data", "domain"},
+		RequiredPlugins:    []string{"com.android.library", "org.jetbrains.kotlin.android"},
+	}
+}
+
+func runModuleTemplateConformanceRule(t *testing.T, projectDir string, tmpl config.ModuleTemplateConfig) []scanner.Finding {
+	t.Helper()
+
+	graph, err := module.DiscoverModules(projectDir)
+	if err != nil {
+		t.Fatalf("DiscoverModules(%s): %v", projectDir, err)
+	}
+	if graph == nil {
+		t.Fatalf("expected modules to be discovered in %s", projectDir)
+	}
+
+	registered := buildRuleIndex()["ModuleTemplateConformance"]
+	if registered == nil {
+		t.Fatal("ModuleTemplateConformance rule not registered")
+	}
+	rule, ok := registered.Implementation.(*rules.ModuleTemplateConformanceRule)
+	if !ok {
+		t.Fatalf("unexpected implementation %T", registered.Implementation)
+	}
+	previous := rule.Template
+	rule.Template = tmpl
+	defer func() { rule.Template = previous }()
+
+	pmi := &module.PerModuleIndex{Graph: graph}
+	ctx := &api.Context{ModuleIndex: pmi, Collector: scanner.NewFindingCollector(0)}
+	registered.Check(ctx)
+	return api.ContextFindings(ctx)
+}
+
+func writeModuleFile(t *testing.T, path string, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("MkdirAll(%s): %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile(%s): %v", path, err)
+	}
+}
+
+func TestCommentedOutImport(t *testing.T) {
+	rule := buildRuleIndex()["CommentedOutImport"]
+	if rule == nil {
+		t.Fatal("CommentedOutImport rule not registered")
+	}
+
+	root := fixtureRoot(t)
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "CommentedOutImport.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "CommentedOutImport.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func TestDebugToastInProduction(t *testing.T) {
+	rule := buildRuleIndex()["DebugToastInProduction"]
+	if rule == nil {
+		t.Fatal("DebugToastInProduction rule not registered")
+	}
+
+	root := fixtureRoot(t)
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "DebugToastInProduction.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "DebugToastInProduction.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func TestMergeConflictMarkerLeftover(t *testing.T) {
+	rule := buildRuleIndex()["MergeConflictMarkerLeftover"]
+	if rule == nil {
+		t.Fatal("MergeConflictMarkerLeftover rule not registered")
+	}
+
+	root := fixtureRoot(t)
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "MergeConflictMarkerLeftover.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) < 1 {
+			t.Fatalf("expected at least 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "MergeConflictMarkerLeftover.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	// Regression: marker tokens inside string literals, line comments, raw
+	// string bodies, or block comments must not be flagged.
+	cases := []struct {
+		name string
+		code string
+	}{
+		{
+			name: "marker text inside a string literal",
+			code: "package p\nval s = \"<<<<<<< HEAD\"\nval t = \"=======\"\nval u = \">>>>>>> feature\"\n",
+		},
+		{
+			name: "indented marker inside line comment",
+			code: "package p\nfun f() {\n    // <<<<<<< HEAD\n    // =======\n    // >>>>>>> feature\n}\n",
+		},
+		{
+			name: "marker inside raw string body",
+			code: "package p\nval doc = \"\"\"\n<<<<<<< HEAD\n=======\n>>>>>>> feature\n\"\"\"\n",
+		},
+		{
+			name: "marker inside block comment body",
+			code: "package p\n/*\n<<<<<<< HEAD\n=======\n>>>>>>> feature\n*/\nval x = 1\n",
+		},
+		{
+			name: "long line of equals signs is not a separator",
+			code: "package p\nval bar = \"===========\"\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "MergeConflictMarkerLeftover", tc.code)
+			if len(findings) != 0 {
+				t.Fatalf("expected 0 findings, got %d: %+v", len(findings), findings)
+			}
+		})
+	}
+
+	// Regression: real markers at column 0 (any of the three) must trigger.
+	triggers := []struct {
+		name string
+		code string
+	}{
+		{name: "start marker", code: "package p\n<<<<<<< HEAD\nval x = 1\n"},
+		{name: "separator marker", code: "package p\nval x = 1\n=======\nval y = 2\n"},
+		{name: "end marker", code: "package p\nval x = 1\n>>>>>>> branch\n"},
+	}
+	for _, tc := range triggers {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "MergeConflictMarkerLeftover", tc.code)
+			if len(findings) == 0 {
+				t.Fatalf("expected at least 1 finding, got 0")
+			}
+		})
+	}
+}
+
+func TestPrintlnInProduction(t *testing.T) {
+	rule := buildRuleIndex()["PrintlnInProduction"]
+	if rule == nil {
+		t.Fatal("PrintlnInProduction rule not registered")
+	}
+
+	root := fixtureRoot(t)
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "PrintlnInProduction.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "PrintlnInProduction.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func TestPrintlnInProduction_IgnoresGradleAndCustomReceivers(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+		code string
+	}{
+		{
+			name: "gradle build script",
+			path: "build.gradle.kts",
+			code: `
+plugins { id("com.android.application") }
+
+println("Using custom lint config")
+`,
+		},
+		{
+			name: "kotlin script",
+			path: "scripts/report.main.kts",
+			code: `
+println("Writing report")
+`,
+		},
+		{
+			name: "demo source",
+			path: "features/example/demo/src/main/kotlin/Demo.kt",
+			code: `
+package test
+
+fun showOutput() {
+    println("demo")
+}
+`,
+		},
+		{
+			name: "gradle task action",
+			path: "build-logic/convention-plugins/src/main/kotlin/GenerateTask.kt",
+			code: `
+package test
+
+import org.gradle.api.DefaultTask
+import org.gradle.api.tasks.TaskAction
+
+abstract class GenerateTask : DefaultTask() {
+    @TaskAction
+    fun execute() {
+        println("generated")
+    }
+}
+`,
+		},
+		{
+			name: "receiver qualified println",
+			path: "src/main/kotlin/Report.kt",
+			code: `
+package test
+
+class StyledOutput {
+    fun style(): StyledOutput = this
+    fun println(message: String) {}
+}
+
+fun report(out: StyledOutput) {
+    out.style().println("done")
+}
+`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByNameOnPath(t, "PrintlnInProduction", tc.path, tc.code)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings, got %d", len(findings))
+			}
+		})
+	}
+}
+
+func TestPrintlnInProduction_FlagsBareAndSystemPrints(t *testing.T) {
+	findings := runRuleByName(t, "PrintlnInProduction", `
+package test
+
+fun logDebug() {
+    println("debug")
+    System.err.println("debug")
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(findings))
+	}
+}
+
+func TestPrintlnInProduction_StructuralReceiver(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		code string
+		want int
+	}{
+		{
+			name: "system out with line breaks across navigation",
+			code: `
+package test
+
+fun logIt() {
+    System
+        .out
+        .println("hi")
+}
+`,
+			want: 1,
+		},
+		{
+			name: "system err with line breaks across navigation",
+			code: `
+package test
+
+fun logIt() {
+    System
+        .err
+        .println("hi")
+}
+`,
+			want: 1,
+		},
+		{
+			name: "non-bare receiver chain ending in out.println does not trigger",
+			code: `
+package test
+
+class Holder {
+    val out: Holder = this
+    fun println(message: String) {}
+}
+
+fun report(h: Holder) {
+    h.foo().out.println("done")
+}
+
+fun Holder.foo(): Holder = this
+`,
+			want: 0,
+		},
+		{
+			name: "longer chain past System.out is not the println form",
+			code: `
+package test
+
+object System {
+    object out {
+        object nested {
+            fun println(message: String) {}
+        }
+    }
+}
+
+fun logIt() {
+    System.out.nested.println("nope")
+}
+`,
+			want: 0,
+		},
+		{
+			name: "System.outBoundary.println is not System.out.println",
+			code: `
+package test
+
+object System {
+    object outBoundary {
+        fun println(message: String) {}
+    }
+}
+
+fun logIt() {
+    System.outBoundary.println("nope")
+}
+`,
+			want: 0,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "PrintlnInProduction", tc.code)
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d", tc.want, len(findings))
+			}
+		})
+	}
+}
+
+func TestPrintStackTraceInProduction(t *testing.T) {
+	rule := buildRuleIndex()["PrintStackTraceInProduction"]
+	if rule == nil {
+		t.Fatal("PrintStackTraceInProduction rule not registered")
+	}
+
+	root := fixtureRoot(t)
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "PrintStackTraceInProduction.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "PrintStackTraceInProduction.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func TestPrintStackTraceInProduction_LoggingImportCommentForms(t *testing.T) {
+	cases := []struct {
+		name string
+		code string
+		want int
+	}{
+		{
+			name: "import after multi-line block comment",
+			code: `package com.example
+
+/*
+ Copyright header
+ with multiple lines
+ and no leading stars
+*/
+import timber.log.Timber
+
+class Foo {
+    fun bar(e: Exception) {
+        e.printStackTrace()
+    }
+}
+`,
+			want: 1,
+		},
+		{
+			name: "import after KDoc-style block comment",
+			code: `package com.example
+
+/**
+ * File header.
+ */
+import timber.log.Timber
+
+class Foo {
+    fun bar(e: Exception) {
+        e.printStackTrace()
+    }
+}
+`,
+			want: 1,
+		},
+		{
+			name: "import with trailing inline block comment",
+			code: `package com.example
+
+import timber.log.Timber /* logger */
+
+class Foo {
+    fun bar(e: Exception) {
+        e.printStackTrace()
+    }
+}
+`,
+			want: 1,
+		},
+		{
+			name: "block comment hides only logging import",
+			code: `package com.example
+
+/*
+import timber.log.Timber
+*/
+import kotlin.collections.List
+
+class Foo {
+    fun bar(e: Exception) {
+        e.printStackTrace()
+    }
+}
+`,
+			want: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "PrintStackTraceInProduction", tc.code)
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d: %+v", tc.want, len(findings), findings)
+			}
+		})
+	}
+}
+
+func TestHardcodedLocalhostUrl(t *testing.T) {
+	rule := buildRuleIndex()["HardcodedLocalhostUrl"]
+	if rule == nil {
+		t.Fatal("HardcodedLocalhostUrl rule not registered")
+	}
+
+	root := fixtureRoot(t)
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "HardcodedLocalhostUrl.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "HardcodedLocalhostUrl.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("positive Java fixture triggers", func(t *testing.T) {
+		path := filepath.Join(root, "positive", "release-engineering", "HardcodedLocalhostUrl.java")
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		findings := runRuleByNameOnJava(t, "HardcodedLocalhostUrl", string(content))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 Java finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative Java fixture is clean", func(t *testing.T) {
+		path := filepath.Join(root, "negative", "release-engineering", "HardcodedLocalhostUrl.java")
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		findings := runRuleByNameOnJava(t, "HardcodedLocalhostUrl", string(content))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 Java findings, got %d", len(findings))
+		}
+	})
+}
+
+func TestTestOnlyImportInProduction(t *testing.T) {
+	rule := buildRuleIndex()["TestOnlyImportInProduction"]
+	if rule == nil {
+		t.Fatal("TestOnlyImportInProduction rule not registered")
+	}
+
+	root := fixtureRoot(t)
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "TestOnlyImportInProduction.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "TestOnlyImportInProduction.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("android test artifact main sources are clean", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			path string
+			code string
+		}{
+			{
+				name: "maestro runner",
+				path: "/repo/maestro-runner/src/main/kotlin/com/example/MaestroRunner.kt",
+				code: `package com.example
+
+import androidx.test.ext.junit.runners.AndroidJUnit4
+
+class MaestroRunner`,
+			},
+			{
+				name: "idling resources",
+				path: "/repo/idling-resources/src/main/kotlin/com/example/AppIdlingResource.kt",
+				code: `package com.example
+
+import androidx.test.espresso.IdlingResource
+
+class AppIdlingResource`,
+			},
+			{
+				name: "testing support module",
+				path: "/repo/libraries/testing/support/src/main/kotlin/com/example/TestSupport.kt",
+				code: `package com.example
+
+import androidx.test.core.app.ApplicationProvider
+
+class TestSupport`,
+			},
+			{
+				name: "testing ui support module",
+				path: "/repo/libraries/testing-ui/src/main/kotlin/com/example/UiTestSupport.kt",
+				code: `package com.example
+
+import androidx.test.ext.junit.runners.AndroidJUnit4
+
+class UiTestSupport`,
+			},
+			{
+				name: "ui testing support module",
+				path: "/repo/libraries/ui-testing/src/main/kotlin/com/example/UiTestSupport.kt",
+				code: `package com.example
+
+import org.junit.runner.RunWith
+
+class UiTestSupport`,
+			},
+			{
+				name: "test fixtures module",
+				path: "/repo/libraries/test-fixtures/src/main/kotlin/com/example/Fixture.kt",
+				code: `package com.example
+
+import org.junit.rules.TestRule
+
+class Fixture`,
+			},
+			{
+				name: "instrumentation runner module",
+				path: "/repo/libraries/instrumentation-tests/runner/src/main/kotlin/com/example/Runner.kt",
+				code: `package com.example
+
+import androidx.test.runner.AndroidJUnitRunner
+
+class Runner`,
+			},
+			{
+				name: "shared instrumentation utilities",
+				path: "/repo/libraries/shared-instrumentation/src/main/kotlin/com/example/SharedInstrumentation.kt",
+				code: `package com.example
+
+import androidx.test.core.app.ApplicationProvider
+
+class SharedInstrumentation`,
+			},
+			{
+				name: "testInternal source set",
+				path: "/repo/app/src/testInternal/kotlin/com/example/InternalTestHelper.kt",
+				code: `package com.example
+
+import org.junit.rules.TestRule
+
+class InternalTestHelper`,
+			},
+			{
+				name: "testDebug source set",
+				path: "/repo/app/src/testDebug/kotlin/com/example/DebugTestHelper.kt",
+				code: `package com.example
+
+import androidx.test.core.app.ApplicationProvider
+
+class DebugTestHelper`,
+			},
+			{
+				name: "bazel testwrapper module",
+				path: "/repo/bazel/testwrapper/src/main/kotlin/com/example/TestWrapper.kt",
+				code: `package com.example
+
+import org.junit.runner.RunWith
+
+class TestWrapper`,
+			},
+			{
+				name: "espresso module",
+				path: "/repo/app/src/main/kotlin/com/example/EspressoModule.kt",
+				code: `package com.example
+
+import androidx.test.espresso.IdlingRegistry
+
+class EspressoModule`,
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				file := parseInline(t, tc.code)
+				file.Path = tc.path
+				findings := runRule(t, rule, file)
+				if len(findings) != 0 {
+					t.Fatalf("expected 0 findings, got %d", len(findings))
+				}
+			})
+		}
+	})
+
+	t.Run("github runner workspace does not suppress production source", func(t *testing.T) {
+		file := parseInline(t, `package com.example
+
+import org.junit.Test
+
+class Prod`)
+		file.Path = "/home/runner/work/app/app/src/main/kotlin/com/example/Prod.kt"
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+}
+
+func TestNonAsciiIdentifier(t *testing.T) {
+	rule := buildRuleIndex()["NonAsciiIdentifier"]
+	if rule == nil {
+		t.Fatal("NonAsciiIdentifier rule not registered")
+	}
+
+	root := fixtureRoot(t)
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "NonAsciiIdentifier.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "NonAsciiIdentifier.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func TestHardcodedLogTag(t *testing.T) {
+	rule := buildRuleIndex()["HardcodedLogTag"]
+	if rule == nil {
+		t.Fatal("HardcodedLogTag rule not registered")
+	}
+
+	root := fixtureRoot(t)
+
+	t.Run("positive fixture triggers", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "positive", "release-engineering", "HardcodedLogTag.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative fixture is clean", func(t *testing.T) {
+		file, err := scanner.ParseFile(filepath.Join(root, "negative", "release-engineering", "HardcodedLogTag.kt"))
+		if err != nil {
+			t.Fatalf("ParseFile: %v", err)
+		}
+		findings := runRule(t, rule, file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}

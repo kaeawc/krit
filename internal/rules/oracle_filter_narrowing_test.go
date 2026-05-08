@@ -1,0 +1,254 @@
+package rules
+
+import (
+	"slices"
+	"testing"
+
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+// TestOracleFilterNarrowingForAuditedRules locks in the oracle filters
+// for rules migrated from AllFiles: true to identifier-based
+// narrowing. A regression to AllFiles: true (or to an
+// unexpected identifier set) would silently re-expand the oracle input
+// corpus; this test guards against that.
+func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
+	cases := []struct {
+		id          string
+		identifiers []string
+		callTargets []string
+	}{
+		{"Deprecation", []string{"Deprecated"}, []string{"Deprecated"}},
+		{"IgnoredReturnValue", []string{"Sequence", "Flow", "Stream", "Function", "->", "CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}, []string{"CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}},
+		{"NullableToStringCall", []string{"toString", "$"}, []string{"toString"}},
+		{"ObjectAnimatorBinding", []string{"ObjectAnimator", "ofFloat", "ofInt", "ofObject"}, nil},
+		{"UnreachableCode", []string{"return", "throw", "break", "continue"}, nil},
+		{"UseIsNullOrEmpty", []string{"isEmpty", "count", ".size", ".length", "\"\""}, nil},
+		{"UnsafeCast", []string{" as ", " as?"}, nil},
+	}
+
+	byID := map[string]*api.Rule{}
+	for _, r := range api.Registry {
+		byID[r.ID] = r
+	}
+
+	for _, tc := range cases {
+		r, ok := byID[tc.id]
+		if !ok {
+			t.Errorf("%s: rule not found in api.Registry", tc.id)
+			continue
+		}
+		if !RuleNeedsKotlinOracle(r) {
+			t.Errorf("%s: expected oracle consumer, got Needs=%b", tc.id, r.Needs)
+		}
+		if r.Oracle == nil {
+			t.Errorf("%s: Oracle filter is nil (would default to AllFiles); expected identifier-based narrowing", tc.id)
+			continue
+		}
+		if r.Oracle.AllFiles {
+			t.Errorf("%s: Oracle.AllFiles=true; expected identifier-based narrowing", tc.id)
+		}
+		if !slices.Equal(r.Oracle.Identifiers, tc.identifiers) {
+			t.Errorf("%s: Oracle.Identifiers = %v, want %v", tc.id, r.Oracle.Identifiers, tc.identifiers)
+		}
+		if len(tc.callTargets) > 0 {
+			if r.OracleCallTargets == nil {
+				t.Errorf("%s: OracleCallTargets is nil; expected call-target narrowing", tc.id)
+			} else if r.OracleCallTargets.AllCalls {
+				t.Errorf("%s: OracleCallTargets.AllCalls=true; expected call-target narrowing", tc.id)
+			} else if !slices.Equal(oracleCallTargetIdentifiers(r.OracleCallTargets), tc.callTargets) {
+				t.Errorf("%s: OracleCallTargets identifiers = %v, want %v", tc.id, oracleCallTargetIdentifiers(r.OracleCallTargets), tc.callTargets)
+			}
+		}
+	}
+}
+
+func oracleCallTargetIdentifiers(filter *api.OracleCallTargetFilter) []string {
+	if len(filter.AnnotatedIdentifiers) > 0 {
+		return filter.AnnotatedIdentifiers
+	}
+	return filter.CalleeNames
+}
+
+func TestMissingPermissionOracleFiltersAreNarrowed(t *testing.T) {
+	var rule *api.Rule
+	for _, r := range api.Registry {
+		if r.ID == "MissingPermission" {
+			rule = r
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("MissingPermission rule not found in api.Registry")
+	}
+	if rule.Oracle == nil || rule.Oracle.AllFiles {
+		t.Fatalf("MissingPermission Oracle filter = %+v, want identifier narrowing", rule.Oracle)
+	}
+	wantIdentifiers := []string{"RequiresPermission", "getCellLocation", "getLastKnownLocation", "open", "requestLocationUpdates", "setAudioSource"}
+	if !slices.Equal(rule.Oracle.Identifiers, wantIdentifiers) {
+		t.Fatalf("MissingPermission Oracle.Identifiers = %v, want %v", rule.Oracle.Identifiers, wantIdentifiers)
+	}
+	if rule.OracleCallTargets == nil || rule.OracleCallTargets.AllCalls {
+		t.Fatalf("MissingPermission OracleCallTargets = %+v, want bounded call filtering", rule.OracleCallTargets)
+	}
+	wantCallees := []string{"getCellLocation", "getLastKnownLocation", "open", "requestLocationUpdates", "setAudioSource"}
+	if !slices.Equal(rule.OracleCallTargets.CalleeNames, wantCallees) {
+		t.Fatalf("MissingPermission OracleCallTargets.CalleeNames = %v, want %v", rule.OracleCallTargets.CalleeNames, wantCallees)
+	}
+	if !slices.Equal(rule.OracleCallTargets.AnnotatedIdentifiers, []string{"RequiresPermission"}) {
+		t.Fatalf("MissingPermission OracleCallTargets.AnnotatedIdentifiers = %v, want [RequiresPermission]", rule.OracleCallTargets.AnnotatedIdentifiers)
+	}
+}
+
+func TestOracleCallTargetFilterDefaultRulesEnabled(t *testing.T) {
+	var active []*api.Rule
+	for _, r := range api.Registry {
+		if IsDefaultActive(r.ID) {
+			active = append(active, r)
+		}
+	}
+
+	summary := BuildOracleCallTargetFilterV2ForFiles(active, []*scanner.File{{
+		Path:    "Empty.kt",
+		Content: []byte("package test\nclass Empty\n"),
+	}})
+	if slices.Contains(summary.DisabledBy, "IgnoredReturnValue") {
+		t.Fatalf("IgnoredReturnValue should not disable default call filtering: %+v", summary)
+	}
+	for range summary.DisabledBy {
+		t.Fatalf("unexpected default rule disabled oracle call filtering: disabledBy=%v", summary.DisabledBy)
+	}
+}
+
+func TestResolverOnlyRulesDoNotContributeToOracle(t *testing.T) {
+	for _, id := range []string{
+		"CastNullableToNonNullableType",
+		"ComposeClickableWithoutMinTouchTarget",
+		"InjectDispatcher",
+		"LogOfSharedPreferenceRead",
+		"PlainFileWriteOfSensitive",
+		"SharedPreferencesForSensitiveKey",
+		"SpreadOperator",
+		"SwallowedException",
+		"UnnecessaryNotNullOperator",
+	} {
+		rule := findRegisteredRule(t, id)
+		if RuleNeedsKotlinOracle(rule) {
+			t.Fatalf("%s should be resolver-only, got Needs=%b Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+				id, rule.Needs, rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+		}
+	}
+}
+
+func TestUnsafeCallOnNullableTypeStaysLocalASTOnly(t *testing.T) {
+	rule := findRegisteredRule(t, "UnsafeCallOnNullableType")
+	if rule.Needs != 0 {
+		t.Fatalf("UnsafeCallOnNullableType should not require resolver, type info, parsed files, or project indexes; got Needs=%b", rule.Needs)
+	}
+	if rule.Oracle != nil || rule.OracleCallTargets != nil || rule.OracleDeclarationNeeds != nil {
+		t.Fatalf("UnsafeCallOnNullableType should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+	}
+}
+
+func TestComposeIconButtonMissingContentDescriptionStaysLocalASTOnly(t *testing.T) {
+	rule := findRegisteredRule(t, "ComposeIconButtonMissingContentDescription")
+	if rule.Needs != 0 {
+		t.Fatalf("ComposeIconButtonMissingContentDescription should not require resolver, type info, parsed files, or project indexes; got Needs=%b", rule.Needs)
+	}
+	if RuleNeedsKotlinOracle(rule) {
+		t.Fatalf("ComposeIconButtonMissingContentDescription should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+	}
+}
+
+func TestDoubleMutabilityForCollectionStaysLocalASTOnly(t *testing.T) {
+	rule := findRegisteredRule(t, "DoubleMutabilityForCollection")
+	if rule.Needs != 0 {
+		t.Fatalf("DoubleMutabilityForCollection should not require resolver, type info, parsed files, or project indexes; got Needs=%b", rule.Needs)
+	}
+	if RuleNeedsKotlinOracle(rule) {
+		t.Fatalf("DoubleMutabilityForCollection should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+	}
+}
+
+func TestImplicitUnitReturnTypeStaysLocalASTOnly(t *testing.T) {
+	rule := findRegisteredRule(t, "ImplicitUnitReturnType")
+	if rule.Needs != 0 {
+		t.Fatalf("ImplicitUnitReturnType should not require resolver, type info, parsed files, or project indexes; got Needs=%b", rule.Needs)
+	}
+	if RuleNeedsKotlinOracle(rule) {
+		t.Fatalf("ImplicitUnitReturnType should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+	}
+}
+
+func TestVettedStyleAndNamingRulesStayOffKAA(t *testing.T) {
+	cases := []struct {
+		id        string
+		wantNeeds api.Capabilities
+	}{
+		{"BooleanPropertyNaming", 0},
+		{"BracesOnIfStatements", 0},
+		{"BracesOnWhenStatements", 0},
+		{"EndOfSentenceFormat", 0},
+		{"ExpressionBodySyntax", 0},
+		{"ForbiddenComment", 0},
+		{"FunctionNameMinLength", 0},
+		{"LongMethod", 0},
+		{"MaxChainedCallsOnSameLine", api.NeedsLinePass},
+		{"MultilineLambdaItParameter", 0},
+		{"NamedArguments", 0},
+		{"NoNameShadowing", 0},
+		{"UnnamedParameterUse", 0},
+		{"UnusedParameter", 0},
+		{"VariableNaming", 0},
+	}
+	for _, tc := range cases {
+		rule := findRegisteredRule(t, tc.id)
+		if rule.Needs != tc.wantNeeds {
+			t.Fatalf("%s Needs=%b, want %b", tc.id, rule.Needs, tc.wantNeeds)
+		}
+		if RuleNeedsKotlinOracle(rule) {
+			t.Fatalf("%s should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+				tc.id, rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+		}
+	}
+}
+
+func TestTooGenericExceptionThrownStaysResolverOnly(t *testing.T) {
+	rule := findRegisteredRule(t, "TooGenericExceptionThrown")
+	if rule.Needs != api.NeedsResolver {
+		t.Fatalf("TooGenericExceptionThrown Needs=%b, want resolver only", rule.Needs)
+	}
+	if RuleNeedsKotlinOracle(rule) {
+		t.Fatalf("TooGenericExceptionThrown should not contribute to KAA, got Oracle=%+v OracleCallTargets=%+v OracleDeclarationNeeds=%+v",
+			rule.Oracle, rule.OracleCallTargets, rule.OracleDeclarationNeeds)
+	}
+}
+
+func TestTimberTreeNotPlantedUsesLexicalHintsForLoggerCallees(t *testing.T) {
+	rule := findRegisteredRule(t, "TimberTreeNotPlanted")
+	if rule.OracleCallTargets == nil {
+		t.Fatal("TimberTreeNotPlanted OracleCallTargets is nil")
+	}
+	for _, callee := range []string{"v", "d", "i", "w", "e", "wtf", "plant"} {
+		hints := rule.OracleCallTargets.LexicalHintsByCallee[callee]
+		if !slices.Contains(hints, "timber.log.Timber") || !slices.Contains(hints, "Timber") {
+			t.Fatalf("TimberTreeNotPlanted hints for %q = %v, want Timber hints", callee, hints)
+		}
+	}
+}
+
+func findRegisteredRule(t *testing.T, id string) *api.Rule {
+	t.Helper()
+	for _, r := range api.Registry {
+		if r.ID == id {
+			return r
+		}
+	}
+	t.Fatalf("%s rule not found in api.Registry", id)
+	return nil
+}

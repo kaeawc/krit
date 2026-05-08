@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  actions: read
+  contents: read
+  checks: write
+  security-events: write
+
+jobs:
+  build-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+      - name: Build all binaries
+        run: make build
+      - name: Vet
+        run: make vet
+      - name: Lint rules (capability-declaration gate)
+        run: make lint-rules
+      - name: Oracle filter fingerprint gate
+        run: go run ./internal/devtools/oraclefpcheck
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+      - name: Run tests
+        run: gotestsum --junitfile junit-report.xml --format standard-quiet -- -count=1 ./...
+      - name: Check JUnit report exists
+        id: junit-exists
+        if: always()
+        uses: andstor/file-existence-action@v3
+        with:
+          files: junit-report.xml
+      - name: Publish test report
+        if: always() && steps.junit-exists.outputs.files_exists == 'true'
+        uses: mikepenz/action-junit-report@v6
+        with:
+          report_paths: junit-report.xml
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+      - name: Integration tests
+        run: make integration
+
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+      - name: Regression check
+        run: make regression
+
+  golangci-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+      - name: Install golangci-lint v2
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+      - name: Run golangci-lint
+        run: golangci-lint run ./...
+      - name: Run gosec
+        # Excluded rules:
+        #   G103 — unsafe.Pointer is used intentionally (audited) for intern-table perf
+        #   G104 — best-effort cleanup (os.Remove etc.) is documented and intentional
+        #   G115 — integer-overflow conversions are bounded by upstream invariants
+        #   G122 — filepath.Walk callbacks scan trusted local project trees
+        #   G204 — Krit shells out to git/gradle/javac/etc. by design
+        #   G301/G302/G306 — caches, scratch dirs, and reports are user-readable by design
+        #   G304 — vfs/fsutil/cacheutil take filesystem paths as input by design
+        #   G404 — non-cryptographic randomness is used for sampling/jitter only
+        #   G602 — false positive on byte conversion of UintN(256)
+        #   G703 — same path-as-input rationale as G304
+        #   G704 — HTTP clients accept caller-supplied URLs by design
+        run: gosec -exclude=G103,G104,G115,G122,G204,G301,G302,G304,G306,G404,G602,G703,G704 -fmt=junit-xml -out=gosec-report.xml -stdout ./...
+      - name: Check gosec report exists
+        id: gosec-exists
+        if: always()
+        uses: andstor/file-existence-action@v3
+        with:
+          files: gosec-report.xml
+      - name: Publish security report
+        if: always() && steps.gosec-exists.outputs.files_exists == 'true'
+        uses: mikepenz/action-junit-report@v6
+        with:
+          report_paths: gosec-report.xml
+
+  krit-lint-sarif:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+      - name: Build and self-lint
+        run: bash scripts/self-lint.sh
+      - name: Upload SARIF
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4
+        with:
+          sarif_file: results.sarif
+          category: krit-self-lint

@@ -1,0 +1,79 @@
+# Go binaries (built artifacts, not source)
+/krit
+/krit-lsp
+/krit-mcp
+cmd/profile/
+cmd/debug-index/
+
+# OS
+.DS_Store
+
+# Python cache (from scripts/)
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+*.iml
+
+# Build artifacts
+.gradle/
+.kotlin/
+*.test
+*.out
+site/
+/build/
+**/build/
+/dist/
+coverage/
+*.coverprofile
+*.prof
+*.pprof
+
+# Node / VS Code extension
+node_modules/
+editors/vscode/out/
+*.vsix
+
+# Temp
+*.new
+*.log
+.env
+.env.*
+!.env.example
+
+# Local benchmark/debug artifacts
+/debug*.txt
+/krit*.json
+/krit*.txt
+benchmarks/
+
+# Krit cache (generated during analysis)
+.krit-cache
+.krit-types
+.krit/
+# Keep the checked-in CI oracle fingerprint baseline.
+!/.krit/
+/.krit/*
+!/.krit/oracle-fingerprints.json
+
+# Android lint catalog (fetched, not committed)
+android-lint-checks/
+/lint-catalog
+/debug
+
+# Claude sub-agent worktrees (isolated per-task copies)
+.claude/worktrees/
+
+# Claire agent scratch directory (worktrees, per-task state)
+.claire/
+
+# Local roadmap scratch notes
+/roadmap/[0-9][0-9]-*.md
+
+# /loop cron state (per-iteration runtime state, not source)
+roadmap/clusters/.loop/
+
+# Local analysis scratch
+/.plans/scratch/
+/scratch/

@@ -1,0 +1,15 @@
+style:
+  ForbiddenComment:
+    active: true
+  WildcardImport:
+    active: true
+
+naming:
+  FunctionNaming:
+    active: true
+
+slos:
+  - module: ":core"
+    max_warnings_per_kloc: 50
+  - module: ":ui"
+    max_warnings_per_kloc: 50

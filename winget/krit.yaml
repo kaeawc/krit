@@ -1,0 +1,13 @@
+PackageIdentifier: kaeawc.krit
+PackageVersion: 0.1.0
+PackageName: Krit
+Publisher: kaeawc
+License: MIT
+ShortDescription: Go-first static analysis for Kotlin, Java, and Android
+InstallerType: zip
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/kaeawc/krit/releases/download/v0.1.0/krit_0.1.0_windows_amd64.zip
+    InstallerSha256: PLACEHOLDER
+ManifestType: singleton
+ManifestVersion: 1.6.0

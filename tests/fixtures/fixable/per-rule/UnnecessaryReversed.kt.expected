@@ -1,0 +1,11 @@
+package style
+
+fun example() {
+    val list = listOf(3, 1, 2)
+    val a = list.sortedDescending()
+    val b = list.sortedDescending()
+    val c = list.sorted()
+    val d = list.sortedByDescending{ it }
+    val e = list.sortedBy{ it }
+    val f = list.sortedDescending()
+}

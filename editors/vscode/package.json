@@ -1,0 +1,55 @@
+{
+  "name": "krit-lint",
+  "displayName": "Krit Lint",
+  "description": "Krit static analysis for Kotlin, Java, and Android",
+  "version": "0.1.0",
+  "publisher": "kaeawc",
+  "repository": { "type": "git", "url": "https://github.com/kaeawc/krit.git", "directory": "editors/vscode" },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Linters", "Programming Languages"],
+  "activationEvents": ["onLanguage:kotlin", "onUri"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Krit",
+      "properties": {
+        "krit.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable krit linting"
+        },
+        "krit.configPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to krit.yml config file"
+        },
+        "krit.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to krit-lsp binary (auto-detected if empty)"
+        },
+        "krit.version": {
+          "type": "string",
+          "default": "latest",
+          "description": "Version of krit-lsp to download (e.g. 'v0.1.0' or 'latest')"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./ --noEmit",
+    "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --minify",
+    "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap --watch",
+    "package": "npm run compile && npm run bundle && vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.2",
+    "@types/vscode": "^1.118.0",
+    "@vscode/vsce": "^3.9.1",
+    "esbuild": "^0.28.0",
+    "typescript": "^6.0.3"
+  }
+}

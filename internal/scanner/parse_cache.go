@@ -1,0 +1,1082 @@
+package scanner
+
+// On-disk cache of tree-sitter FlatTree results keyed by
+// hashutil(file_content). Invalidation is implicit: the content hash
+// changes with any byte of the file, and per-language grammar-version
+// sidecars make a tree-sitter grammar bump nuke every entry it ever
+// wrote. Kotlin and Java live in sibling per-language subdirs so a
+// tree-sitter-java bump doesn't evict cached Kotlin trees (and vice
+// versa). The zstd-wrapped gob payload is language-agnostic — FlatNode
+// is the same shape for every tree-sitter grammar.
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime/debug"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/smacker/go-tree-sitter/java"
+	"github.com/smacker/go-tree-sitter/kotlin"
+
+	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/perf"
+)
+
+const (
+	parseCacheVersion    uint32 = 5
+	parseCacheVersionStr        = "5"
+
+	// Files below this threshold parse in under a millisecond; the gob
+	// serialization + filesystem round-trip dominates the savings.
+	// 1024 B is the knee where caching amortizes quickly; lower thresholds
+	// take many more runs to pay back the fsync cost.
+	parseCacheMinFileSize = 1024
+
+	parseCacheDirName   = "parse-cache"
+	parseCacheEntries   = "entries"
+	parseCacheExt       = ".gob"
+	parseCacheKotlinDir = "kotlin"
+	parseCacheJavaDir   = "java"
+	parseCacheLRUIndex  = "lru-index.gob"
+	parseCacheLRULock   = "lru.lock"
+)
+
+// parseCacheEntry is the compressed on-disk gob payload. NodeTypeTable maps the
+// entry's local FlatNode.Type indices back to node-type strings so a
+// reader can re-intern them into its own global NodeTypeTable — crucial
+// because the type table grows lazily and a fresh process's global
+// indices won't match the writer's. Version, grammar, content hash, and
+// language live in the owning sidecar/path rather than being duplicated
+// in every entry.
+type parseCacheEntry struct {
+	NodeTypeTable []string
+	Nodes         []FlatNode
+}
+
+// ParseCache persists FlatTree parse results keyed by content hash.
+// A nil *ParseCache is a valid disabled cache — every method is a
+// safe no-op.
+//
+// Each language holds its own LRU size cap; when a langCache's on-disk
+// total exceeds its CapBytes, Save evicts the least-recently-accessed
+// entries down to LowWaterFrac (80%) of the cap. Caps are per-language
+// so a huge Kotlin corpus doesn't starve the Java cache and vice versa.
+type ParseCache struct {
+	root   string
+	kotlin *langCache
+	java   *langCache
+	writer *cacheutil.AsyncWriter
+}
+
+// langCache is one per-language on-disk cache. Each language has its
+// own grammar-version sidecar so a tree-sitter-java upgrade does not
+// invalidate cached Kotlin trees and vice versa.
+type langCache struct {
+	dir        string // {root}/{lang}
+	grammarVer string
+	language   Language
+	lru        *cacheutil.SizeCapLRU
+	pack       *parsePackStore
+	pendingMu  sync.Mutex
+	pending    []parseEncodedEntryWrite
+
+	// Hot-path counters maintained with atomic ops so Stats() is
+	// lock-free. Drift across process restarts is deliberately
+	// ignored — these measure this run only.
+	hits         atomic.Int64
+	misses       atomic.Int64
+	evictions    atomic.Int64
+	lastWriteSec atomic.Int64
+
+	asyncQueued    atomic.Int64
+	asyncCompleted atomic.Int64
+	asyncFailed    atomic.Int64
+	asyncBytes     atomic.Int64
+	encodeNs       atomic.Int64
+	packWriteNs    atomic.Int64
+	flushPendingNs atomic.Int64
+	flushPendingN  atomic.Int64
+	flushPendingB  atomic.Int64
+	lruUpdateNs    atomic.Int64
+	lruCloseNs     atomic.Int64
+	lruCloseN      atomic.Int64
+	packWrites     atomic.Int64
+}
+
+var (
+	tsDepVersionOnce sync.Once
+	tsDepVersion     string
+
+	kotlinGrammarVerOnce sync.Once
+	kotlinGrammarVer     string
+
+	javaGrammarVerOnce sync.Once
+	javaGrammarVer     string
+)
+
+// tsDepVersion returns the smacker/go-tree-sitter module version string,
+// or "unknown" when build info is unavailable. Shared across all
+// per-language grammar version keys so a dep bump nukes every entry.
+func treeSitterDepVersion() string {
+	tsDepVersionOnce.Do(func() {
+		if info, ok := debug.ReadBuildInfo(); ok {
+			for _, dep := range info.Deps {
+				if dep.Path == "github.com/smacker/go-tree-sitter" {
+					tsDepVersion = dep.Version
+					return
+				}
+			}
+		}
+		tsDepVersion = "unknown"
+	})
+	return tsDepVersion
+}
+
+// GrammarVersion returns the Kotlin grammar identifier. Kept for
+// back-compat with callers that pre-date per-language keys; new code
+// should prefer KotlinGrammarVersion / JavaGrammarVersion so the
+// intent is explicit.
+func GrammarVersion() string {
+	return KotlinGrammarVersion()
+}
+
+// KotlinGrammarVersion returns a stable identifier for the tree-sitter
+// Kotlin grammar binding in use. The SymbolCount is appended so a
+// regenerated-but-same-dep-version grammar (rare but possible) still
+// invalidates cached entries.
+func KotlinGrammarVersion() string {
+	kotlinGrammarVerOnce.Do(func() {
+		kotlinGrammarVer = fmt.Sprintf("smacker/go-tree-sitter@%s#kotlin:%d",
+			treeSitterDepVersion(), kotlin.GetLanguage().SymbolCount())
+	})
+	return kotlinGrammarVer
+}
+
+// JavaGrammarVersion returns a stable identifier for the tree-sitter
+// Java grammar binding in use. Keyed independently of Kotlin so a
+// tree-sitter-java bump evicts only Java cache entries.
+func JavaGrammarVersion() string {
+	javaGrammarVerOnce.Do(func() {
+		javaGrammarVer = fmt.Sprintf("smacker/go-tree-sitter@%s#java:%d",
+			treeSitterDepVersion(), java.GetLanguage().SymbolCount())
+	})
+	return javaGrammarVer
+}
+
+// NewParseCache returns a ParseCache rooted at repoDir/.krit/parse-cache.
+// A schema-version, hash-algo, or grammar-version mismatch in the
+// existing metadata clears the affected language's entries subtree.
+// Kotlin and Java are versioned independently. The default per-language
+// size cap (cacheutil.DefaultParseCacheCapBytes) is applied.
+func NewParseCache(repoDir string) (*ParseCache, error) {
+	return NewParseCacheWithCap(repoDir, cacheutil.DefaultParseCacheCapBytes)
+}
+
+// NewParseCacheWithCap is NewParseCache with an explicit per-language
+// byte cap. capBytes <= 0 disables the cap (no eviction). The cap
+// applies to each language's subtree independently so a Kotlin-heavy
+// repo doesn't starve Java cached entries.
+func NewParseCacheWithCap(repoDir string, capBytes int64) (*ParseCache, error) {
+	if repoDir == "" {
+		return nil, errors.New("scanner: NewParseCache requires a non-empty repoDir")
+	}
+	root := filepath.Join(repoDir, ".krit", parseCacheDirName)
+
+	// One-time migration: older krit versions wrote directly to
+	// {root}/entries/; drop that layout so stale payloads don't linger
+	// alongside the new per-language subdirs. Best-effort; not fatal.
+	legacyEntries := filepath.Join(root, parseCacheEntries)
+	if fi, err := os.Stat(legacyEntries); err == nil && fi.IsDir() {
+		_ = os.RemoveAll(legacyEntries)
+	}
+
+	kc, err := newLangCache(root, parseCacheKotlinDir, KotlinGrammarVersion(), LangKotlin, capBytes)
+	if err != nil {
+		return nil, err
+	}
+	jc, err := newLangCache(root, parseCacheJavaDir, JavaGrammarVersion(), LangJava, capBytes)
+	if err != nil {
+		return nil, err
+	}
+	pc := &ParseCache{root: root, kotlin: kc, java: jc}
+	activeParseCache.Store(pc)
+	return pc, nil
+}
+
+func newLangCache(root, sub, grammarVer string, lang Language, capBytes int64) (*langCache, error) {
+	dir := filepath.Join(root, sub)
+	vd := cacheutil.VersionedDir{
+		Root:       dir,
+		EntriesDir: parseCacheEntries,
+		ExtraDirs:  []string{parsePackSubdir},
+		ExtraFiles: []string{parseCacheLRUIndex},
+		Tokens: []cacheutil.SchemaToken{
+			{Name: "version", Value: parseCacheVersionStr},
+			{Name: "grammar-version", Value: grammarVer},
+			{Name: "hash", Value: hashutil.HasherName()},
+		},
+	}
+	entriesDir, err := vd.Open()
+	if err != nil {
+		return nil, fmt.Errorf("create parse cache dir (%s): %w", sub, err)
+	}
+	lc := &langCache{dir: dir, grammarVer: grammarVer, language: lang, pack: newParsePackStore(dir)}
+	lru := &cacheutil.SizeCapLRU{
+		EntriesRoot: entriesDir,
+		IndexPath:   filepath.Join(dir, parseCacheLRUIndex),
+		LockPath:    filepath.Join(dir, parseCacheLRULock),
+		Ext:         parseCacheExt,
+		CapBytes:    capBytes,
+		Remove:      lc.removeEntry,
+		RemoveBatch: lc.removeEntries,
+		TrustIndex:  true,
+	}
+	lc.lru = lru
+	if err := lru.Open(); err != nil {
+		return nil, fmt.Errorf("open parse cache lru (%s): %w", sub, err)
+	}
+	// Defer eviction off the hot write path: a typical run queues
+	// thousands of cache writes, and per-batch MaybeEvict() sorts the
+	// entire LRU on each call. We evict once on Close.
+	lru.SetDeferEvictions(true)
+	if err := lc.rebuildPackLRUIfEmpty(); err != nil {
+		return nil, fmt.Errorf("rebuild parse cache pack lru (%s): %w", sub, err)
+	}
+	return lc, nil
+}
+
+// Dir returns the Kotlin subtree root for the on-disk cache. Kept
+// pointing at the Kotlin dir (not the parse-cache parent) so existing
+// tests that check for cached Kotlin entries under {Dir}/entries keep
+// working. Use Root to get the parent directory containing both
+// languages.
+func (pc *ParseCache) Dir() string {
+	if pc == nil || pc.kotlin == nil {
+		return ""
+	}
+	return pc.kotlin.dir
+}
+
+// Root returns the parent directory that contains both language
+// subtrees. Exposed for diagnostics; callers that want to target a
+// specific language should use the language-specific Load/Save
+// entrypoints.
+func (pc *ParseCache) Root() string {
+	if pc == nil {
+		return ""
+	}
+	return pc.root
+}
+
+// JavaDir returns the Java subtree root for the on-disk cache. Empty
+// when pc is nil.
+func (pc *ParseCache) JavaDir() string {
+	if pc == nil || pc.java == nil {
+		return ""
+	}
+	return pc.java.dir
+}
+
+// SetAsyncWriter enables bounded background persistence for SaveAsync
+// and SaveJavaAsync. Passing nil restores synchronous behavior.
+func (pc *ParseCache) SetAsyncWriter(w *cacheutil.AsyncWriter) {
+	if pc == nil {
+		return
+	}
+	pc.writer = w
+}
+
+// AsyncStats returns the background writer counters when async
+// persistence is enabled.
+func (pc *ParseCache) AsyncStats() cacheutil.AsyncWriterStats {
+	if pc == nil || pc.writer == nil {
+		return cacheutil.AsyncWriterStats{}
+	}
+	return pc.writer.Stats()
+}
+
+func (lc *langCache) entryPath(hash string) string {
+	return cacheutil.ShardedEntryPath(filepath.Join(lc.dir, parseCacheEntries), hash, parseCacheExt)
+}
+
+// Load tries to load a cached Kotlin FlatTree for the given content.
+// Returns (tree, true) on hit, (nil, false) on miss, small file, or any
+// read/decode error. A nil ParseCache is always a miss. When path is
+// non-empty, the content hash is also recorded in the shared
+// hashutil.Memo so downstream subsystems (cross-file index, oracle,
+// incremental cache) reuse it without re-reading or re-hashing.
+func (pc *ParseCache) Load(path string, content []byte) (*FlatTree, bool) {
+	if pc == nil {
+		return nil, false
+	}
+	return pc.kotlin.load(path, content)
+}
+
+// LoadJava is the Java-language equivalent of Load.
+func (pc *ParseCache) LoadJava(path string, content []byte) (*FlatTree, bool) {
+	if pc == nil {
+		return nil, false
+	}
+	return pc.java.load(path, content)
+}
+
+func (lc *langCache) load(path string, content []byte) (*FlatTree, bool) {
+	if lc == nil {
+		return nil, false
+	}
+	if len(content) < parseCacheMinFileSize {
+		return nil, false
+	}
+	hash := hashutil.Default().HashContent(path, content)
+	return lc.loadByHash(hash)
+}
+
+func (pc *ParseCache) loadByHash(hash string) (*FlatTree, bool) {
+	return pc.kotlin.loadByHash(hash)
+}
+
+func (lc *langCache) loadByHash(hash string) (*FlatTree, bool) {
+	if entry, ok := lc.loadPackedEntry(hash); ok {
+		if lc.lru != nil {
+			lc.lru.Touch(hash)
+		}
+		remapEntryNodes(entry.Nodes, entry.NodeTypeTable)
+		lc.hits.Add(1)
+		return &FlatTree{Nodes: entry.Nodes}, true
+	}
+	if entry, ok := lc.loadLegacyEntry(hash); ok {
+		if lc.lru != nil {
+			lc.lru.Touch(hash)
+		}
+		remapEntryNodes(entry.Nodes, entry.NodeTypeTable)
+		lc.hits.Add(1)
+		return &FlatTree{Nodes: entry.Nodes}, true
+	}
+	if lc.lru != nil {
+		lc.lru.Forget(hash)
+	}
+	lc.misses.Add(1)
+	return nil, false
+}
+
+func (lc *langCache) loadPackedEntry(hash string) (*parseCacheEntry, bool) {
+	if lc == nil || lc.pack == nil {
+		return nil, false
+	}
+	entry, err := lc.pack.LoadEntry(hash)
+	if err != nil || entry == nil {
+		return nil, false
+	}
+	return entry, true
+}
+
+func (lc *langCache) loadLegacyEntry(hash string) (*parseCacheEntry, bool) {
+	path := lc.entryPath(hash)
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+
+	var entry parseCacheEntry
+	if err := cacheutil.DecodeZstdGob(f, &entry); err != nil {
+		// Corrupt entry: drop it so we don't keep re-reading a doomed
+		// payload on every run.
+		_ = os.Remove(path)
+		if lc.lru != nil {
+			lc.lru.Forget(hash)
+		}
+		lc.evictions.Add(1)
+		return nil, false
+	}
+
+	return &entry, true
+}
+
+// remapEntryNodes rewrites each node's Type from the entry's local
+// index (into localTable) to the current process's global NodeTypeTable
+// index. Done in place on the node slice returned in the entry.
+func remapEntryNodes(nodes []FlatNode, localTable []string) {
+	if len(localTable) == 0 {
+		return
+	}
+	remap := make([]uint16, len(localTable))
+	for i, name := range localTable {
+		remap[i] = internNodeType(name)
+	}
+	for i := range nodes {
+		if int(nodes[i].Type) < len(remap) {
+			nodes[i].Type = remap[nodes[i].Type]
+		}
+	}
+}
+
+// Save persists the Kotlin parse result for content under its content
+// hash. Small files are skipped. A returned error means the write
+// failed and the next run will miss; callers typically discard it.
+func (pc *ParseCache) Save(path string, content []byte, tree *FlatTree) error {
+	if pc == nil || tree == nil {
+		return nil
+	}
+	return pc.kotlin.save(path, content, tree)
+}
+
+// SaveAsync persists the Kotlin parse result using the configured
+// background writer when present. The content hash and FlatTree node
+// snapshot are captured before Submit returns so downstream cache users
+// still benefit from the shared hash memo and the job does not retain a
+// mutable caller-owned slice.
+func (pc *ParseCache) SaveAsync(path string, content []byte, tree *FlatTree) error {
+	if pc == nil || tree == nil {
+		return nil
+	}
+	return pc.kotlin.saveAsync(path, content, tree, pc.writer)
+}
+
+// SaveJava is the Java-language equivalent of Save.
+func (pc *ParseCache) SaveJava(path string, content []byte, tree *FlatTree) error {
+	if pc == nil || tree == nil {
+		return nil
+	}
+	return pc.java.save(path, content, tree)
+}
+
+// SaveJavaAsync is the Java-language equivalent of SaveAsync.
+func (pc *ParseCache) SaveJavaAsync(path string, content []byte, tree *FlatTree) error {
+	if pc == nil || tree == nil {
+		return nil
+	}
+	return pc.java.saveAsync(path, content, tree, pc.writer)
+}
+
+func (lc *langCache) save(path string, content []byte, tree *FlatTree) error {
+	if lc == nil {
+		return nil
+	}
+	if len(content) < parseCacheMinFileSize {
+		return nil
+	}
+	return lc.saveEntry(hashutil.Default().HashContent(path, content), tree)
+}
+
+func (lc *langCache) saveAsync(path string, content []byte, tree *FlatTree, writer *cacheutil.AsyncWriter) error {
+	if lc == nil || tree == nil {
+		return nil
+	}
+	if len(content) < parseCacheMinFileSize {
+		return nil
+	}
+	hash := hashutil.Default().HashContent(path, content)
+	if writer == nil {
+		return lc.saveEntry(hash, tree)
+	}
+	nodes := append([]FlatNode(nil), tree.Nodes...)
+	lc.asyncQueued.Add(1)
+	if writer.Submit(func() (int64, error) {
+		n, err := lc.encodePendingEntryFromOwnedNodes(hash, nodes)
+		if err != nil {
+			lc.asyncFailed.Add(1)
+			return 0, err
+		}
+		lc.asyncCompleted.Add(1)
+		lc.asyncBytes.Add(n)
+		return n, nil
+	}) {
+		return nil
+	}
+	n, err := lc.saveEntryFromOwnedNodes(hash, nodes)
+	if err != nil {
+		lc.asyncFailed.Add(1)
+		return err
+	}
+	lc.asyncCompleted.Add(1)
+	lc.asyncBytes.Add(n)
+	return err
+}
+
+func (lc *langCache) removeEntry(hash string) error {
+	if lc == nil {
+		return nil
+	}
+	var errs []error
+	if lc.pack != nil {
+		if err := lc.pack.RemoveEntries([]string{hash}); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	path := lc.entryPath(hash)
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+func (lc *langCache) removeEntries(hashes []string) error {
+	if lc == nil || len(hashes) == 0 {
+		return nil
+	}
+	var errs []error
+	if lc.pack != nil {
+		if err := lc.pack.RemoveEntries(hashes); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	for _, hash := range hashes {
+		path := lc.entryPath(hash)
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (lc *langCache) rebuildPackLRUIfEmpty() error {
+	if lc == nil || lc.lru == nil || lc.pack == nil {
+		return nil
+	}
+	if lc.lru.Stats().Entries != 0 {
+		return nil
+	}
+	records, err := lc.pack.ScanEntries()
+	if err != nil {
+		return err
+	}
+	for _, r := range records {
+		lc.lru.Record(r.hash, r.size)
+	}
+	return nil
+}
+
+func (pc *ParseCache) saveEntry(hash string, tree *FlatTree) error {
+	return pc.kotlin.saveEntry(hash, tree)
+}
+
+func (lc *langCache) saveEntry(hash string, tree *FlatTree) error {
+	local, cloned := buildLocalTableAndNodes(tree.Nodes)
+	_, err := lc.writeEntry(hash, local, cloned)
+	return err
+}
+
+func (lc *langCache) saveEntryFromOwnedNodes(hash string, nodes []FlatNode) (int64, error) {
+	local := rewriteNodesToLocalTypes(nodes)
+	return lc.writeEntry(hash, local, nodes)
+}
+
+func (lc *langCache) encodePendingEntryFromOwnedNodes(hash string, nodes []FlatNode) (int64, error) {
+	local := rewriteNodesToLocalTypes(nodes)
+	blob, err := lc.encodeEntry(local, nodes)
+	if err != nil {
+		return 0, err
+	}
+	lc.queueEncodedEntry(parseEncodedEntryWrite{hash: hash, data: blob})
+	return int64(len(blob)), nil
+}
+
+func (lc *langCache) writeEntry(hash string, local []string, nodes []FlatNode) (int64, error) {
+	blob, err := lc.encodeEntry(local, nodes)
+	if err != nil {
+		return 0, fmt.Errorf("encode cache entry: %w", err)
+	}
+	size := int64(len(blob))
+	if err := lc.writeEncodedEntries([]parseEncodedEntryWrite{{hash: hash, data: blob}}); err != nil {
+		return 0, err
+	}
+	return size, nil
+}
+
+func (lc *langCache) encodeEntry(local []string, nodes []FlatNode) ([]byte, error) {
+	entry := parseCacheEntry{
+		NodeTypeTable: local,
+		Nodes:         nodes,
+	}
+	start := time.Now()
+	blob, err := cacheutil.EncodeZstdGob(entry)
+	lc.encodeNs.Add(time.Since(start).Nanoseconds())
+	if err != nil {
+		return nil, err
+	}
+	return blob, nil
+}
+
+func (lc *langCache) queueEncodedEntry(write parseEncodedEntryWrite) {
+	lc.pendingMu.Lock()
+	lc.pending = append(lc.pending, write)
+	lc.pendingMu.Unlock()
+}
+
+func (lc *langCache) flushPending() error {
+	if lc == nil {
+		return nil
+	}
+	lc.pendingMu.Lock()
+	writes := lc.pending
+	lc.pending = nil
+	lc.pendingMu.Unlock()
+	if len(writes) == 0 {
+		return nil
+	}
+	var bytes int64
+	for _, w := range writes {
+		bytes += int64(len(w.data))
+	}
+	start := time.Now()
+	if err := lc.writeEncodedEntries(writes); err != nil {
+		lc.flushPendingNs.Add(time.Since(start).Nanoseconds())
+		lc.flushPendingN.Add(int64(len(writes)))
+		lc.flushPendingB.Add(bytes)
+		lc.asyncFailed.Add(int64(len(writes)))
+		return err
+	}
+	lc.flushPendingNs.Add(time.Since(start).Nanoseconds())
+	lc.flushPendingN.Add(int64(len(writes)))
+	lc.flushPendingB.Add(bytes)
+	return nil
+}
+
+func (lc *langCache) writeEncodedEntries(writes []parseEncodedEntryWrite) error {
+	if lc == nil || len(writes) == 0 {
+		return nil
+	}
+	start := time.Now()
+	packs, err := lc.pack.SaveEncodedEntries(writes)
+	lc.packWriteNs.Add(time.Since(start).Nanoseconds())
+	if err != nil {
+		return err
+	}
+	lc.packWrites.Add(int64(packs))
+	lc.lastWriteSec.Store(time.Now().Unix())
+	if lc.lru != nil {
+		lruStart := time.Now()
+		for _, w := range writes {
+			lc.lru.Record(w.hash, int64(len(w.data)))
+		}
+		if removed, err := lc.lru.MaybeEvict(); err != nil {
+			// Eviction failure is non-fatal: the entry was written,
+			// the cap is just overshooting. Next run will retry.
+			lc.lruUpdateNs.Add(time.Since(lruStart).Nanoseconds())
+			return nil //nolint:nilerr // eviction failure is non-fatal: write succeeded, cap just overshoots until next run
+		} else if removed > 0 {
+			lc.evictions.Add(int64(removed))
+		}
+		lc.lruUpdateNs.Add(time.Since(lruStart).Nanoseconds())
+	}
+	return nil
+}
+
+// buildLocalTableAndNodes walks nodes, collects the set of global Type
+// IDs actually used, and produces a parallel array of their string names
+// plus a clone of the node slice with Type rewritten to indices into
+// that local table.
+func buildLocalTableAndNodes(nodes []FlatNode) ([]string, []FlatNode) {
+	cloned := make([]FlatNode, len(nodes))
+	copy(cloned, nodes)
+	return rewriteNodesToLocalTypes(cloned), cloned
+}
+
+func rewriteNodesToLocalTypes(nodes []FlatNode) []string {
+	var maxType uint16
+	for _, n := range nodes {
+		if n.Type > maxType {
+			maxType = n.Type
+		}
+	}
+	// Dense lookup: globalToLocal[g] == 0 is the "unseen" sentinel, so
+	// stored slots are offset by 1 and subtracted on read.
+	globalToLocal := make([]uint16, int(maxType)+1)
+	local := make([]string, 0, 32)
+	for i := range nodes {
+		g := nodes[i].Type
+		slot := globalToLocal[g]
+		if slot == 0 {
+			local = append(local, nodeTypeName(g))
+			slot = uint16(len(local))
+			globalToLocal[g] = slot
+		}
+		nodes[i].Type = slot - 1
+	}
+	return local
+}
+
+// Clear removes every cache entry across both languages. The version /
+// grammar-version metadata files are left in place so a subsequent
+// NewParseCache call does not see a schema mismatch.
+func (pc *ParseCache) Clear() error {
+	if pc == nil {
+		return nil
+	}
+	if err := pc.kotlin.clear(); err != nil {
+		return err
+	}
+	if err := pc.java.clear(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (lc *langCache) clear() error {
+	if lc == nil {
+		return nil
+	}
+	entries := filepath.Join(lc.dir, parseCacheEntries)
+	if err := os.RemoveAll(entries); err != nil {
+		return fmt.Errorf("clear parse cache: %w", err)
+	}
+	if err := os.RemoveAll(filepath.Join(lc.dir, parsePackSubdir)); err != nil {
+		return fmt.Errorf("clear parse cache packs: %w", err)
+	}
+	if err := os.MkdirAll(entries, 0o755); err != nil {
+		return err
+	}
+	// Drop the sidecar index so it doesn't retain phantom entries.
+	_ = os.Remove(filepath.Join(lc.dir, parseCacheLRUIndex))
+	if lc.lru != nil {
+		capBytes := lc.lru.CapBytes
+		lc.lru = &cacheutil.SizeCapLRU{
+			EntriesRoot: entries,
+			IndexPath:   filepath.Join(lc.dir, parseCacheLRUIndex),
+			LockPath:    filepath.Join(lc.dir, parseCacheLRULock),
+			Ext:         parseCacheExt,
+			CapBytes:    capBytes,
+			Remove:      lc.removeEntry,
+			RemoveBatch: lc.removeEntries,
+			TrustIndex:  true,
+		}
+		_ = lc.lru.Open()
+	}
+	lc.pack = newParsePackStore(lc.dir)
+	return nil
+}
+
+// Flush waits for all accepted async write jobs to finish. Synchronous
+// caches have nothing to drain.
+func (pc *ParseCache) Flush() error {
+	if pc == nil {
+		return nil
+	}
+	var errs []error
+	if pc.writer != nil {
+		if err := pc.writer.Flush(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if pc.kotlin != nil {
+		if err := pc.kotlin.flushPending(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if pc.java != nil {
+		if err := pc.java.flushPending(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// Close flushes any async writes and the per-language LRU sidecars.
+// Safe to call multiple times; a nil ParseCache Close is a no-op so
+// callers can always invoke it.
+func (pc *ParseCache) Close() error {
+	if pc == nil {
+		return nil
+	}
+	var errs []error
+	if pc.writer != nil {
+		if err := pc.writer.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if pc.kotlin != nil {
+		if err := pc.kotlin.flushPending(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if pc.java != nil {
+		if err := pc.java.flushPending(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if pc.kotlin != nil && pc.kotlin.lru != nil {
+		if err := pc.kotlin.evictLRU(); err != nil {
+			errs = append(errs, err)
+		}
+		if err := pc.kotlin.lru.Flush(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if pc.java != nil && pc.java.lru != nil {
+		if err := pc.java.evictLRU(); err != nil {
+			errs = append(errs, err)
+		}
+		if err := pc.java.lru.Flush(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// CloseIdle shuts down background workers without flushing LRU metadata or
+// applying eviction. Use it for read-only runs: cache hits may dirty access
+// times, but persisting those touches is not worth blocking process exit.
+func (pc *ParseCache) CloseIdle() error {
+	if pc == nil || pc.writer == nil {
+		return nil
+	}
+	return pc.writer.Close()
+}
+
+// HasWrites reports whether this process queued or performed parse-cache
+// writes. Cache-hit LRU touches are intentionally excluded so callers can
+// choose a read-only close path.
+func (pc *ParseCache) HasWrites() bool {
+	if pc == nil {
+		return false
+	}
+	for _, lc := range []*langCache{pc.kotlin, pc.java} {
+		if lc == nil {
+			continue
+		}
+		if lc.asyncQueued.Load() > 0 ||
+			lc.asyncCompleted.Load() > 0 ||
+			lc.packWrites.Load() > 0 ||
+			lc.flushPendingN.Load() > 0 ||
+			lc.lastWriteSec.Load() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// Evict forces a cap eviction pass on both per-language LRUs. The hot
+// write path defers eviction (it would otherwise sort+delete on every
+// batch); production callers run eviction once at Close. Tests that
+// want to observe eviction without going through Close call this.
+func (pc *ParseCache) Evict() {
+	if pc == nil {
+		return
+	}
+	if pc.kotlin != nil && pc.kotlin.lru != nil {
+		_ = pc.kotlin.evictLRU()
+	}
+	if pc.java != nil && pc.java.lru != nil {
+		_ = pc.java.evictLRU()
+	}
+}
+
+func (lc *langCache) evictLRU() error {
+	if lc == nil || lc.lru == nil {
+		return nil
+	}
+	start := time.Now()
+	removed, err := lc.lru.Evict()
+	lc.lruCloseNs.Add(time.Since(start).Nanoseconds())
+	if removed > 0 {
+		lc.evictions.Add(int64(removed))
+		lc.lruCloseN.Add(int64(removed))
+	}
+	return err
+}
+
+// LRUStats returns a combined LRU snapshot across both languages.
+// Entries and Bytes are summed; Cap reflects the per-language cap
+// (both languages share the same configured cap).
+func (pc *ParseCache) LRUStats() cacheutil.LRUStats {
+	if pc == nil {
+		return cacheutil.LRUStats{}
+	}
+	var out cacheutil.LRUStats
+	if pc.kotlin != nil && pc.kotlin.lru != nil {
+		s := pc.kotlin.lru.Stats()
+		out.Entries += s.Entries
+		out.Bytes += s.Bytes
+		out.Cap = s.Cap
+	}
+	if pc.java != nil && pc.java.lru != nil {
+		s := pc.java.lru.Stats()
+		out.Entries += s.Entries
+		out.Bytes += s.Bytes
+		if out.Cap == 0 {
+			out.Cap = s.Cap
+		}
+	}
+	return out
+}
+
+// Stats returns a unified snapshot summed across both languages.
+// Counter fields are running totals for the current process; Entries
+// and Bytes come from the LRU sidecars (which themselves reflect disk
+// state at open time).
+func (pc *ParseCache) Stats() cacheutil.CacheStats {
+	if pc == nil {
+		return cacheutil.CacheStats{}
+	}
+	var out cacheutil.CacheStats
+	for _, lc := range []*langCache{pc.kotlin, pc.java} {
+		if lc == nil {
+			continue
+		}
+		if lc.lru != nil {
+			s := lc.lru.Stats()
+			out.Entries += s.Entries
+			out.Bytes += s.Bytes
+		}
+		out.Hits += lc.hits.Load()
+		out.Misses += lc.misses.Load()
+		out.Evictions += lc.evictions.Load()
+		if lw := lc.lastWriteSec.Load(); lw > out.LastWriteUnix {
+			out.LastWriteUnix = lw
+		}
+		out.AsyncQueued += lc.asyncQueued.Load()
+		out.AsyncCompleted += lc.asyncCompleted.Load()
+		out.AsyncFailed += lc.asyncFailed.Load()
+		out.AsyncBytes += lc.asyncBytes.Load()
+	}
+	return out
+}
+
+// ParseCacheWriterStats is a point-in-time snapshot of parse-cache async
+// persistence. Encode/pack durations are aggregate worker time; close-time
+// LRU eviction is measured as wall-clock time.
+type ParseCacheWriterStats struct {
+	Queued          int64
+	Completed       int64
+	Failed          int64
+	Bytes           int64
+	KotlinEntries   int64
+	JavaEntries     int64
+	KotlinBytes     int64
+	JavaBytes       int64
+	EncodeDuration  time.Duration
+	PackWriteTime   time.Duration
+	FlushWriteTime  time.Duration
+	FlushEntries    int64
+	FlushBytes      int64
+	LRUUpdateTime   time.Duration
+	LRUCloseTime    time.Duration
+	LRUCloseEntries int64
+	PackWrites      int64
+}
+
+func (pc *ParseCache) WriterStats() ParseCacheWriterStats {
+	if pc == nil {
+		return ParseCacheWriterStats{}
+	}
+	var out ParseCacheWriterStats
+	for _, lc := range []*langCache{pc.kotlin, pc.java} {
+		if lc == nil {
+			continue
+		}
+		queued := lc.asyncQueued.Load()
+		completed := lc.asyncCompleted.Load()
+		failed := lc.asyncFailed.Load()
+		bytes := lc.asyncBytes.Load()
+		out.Queued += queued
+		out.Completed += completed
+		out.Failed += failed
+		out.Bytes += bytes
+		if lc.language == LangJava {
+			out.JavaEntries += completed
+			out.JavaBytes += bytes
+		} else {
+			out.KotlinEntries += completed
+			out.KotlinBytes += bytes
+		}
+		out.EncodeDuration += time.Duration(lc.encodeNs.Load())
+		out.PackWriteTime += time.Duration(lc.packWriteNs.Load())
+		out.FlushWriteTime += time.Duration(lc.flushPendingNs.Load())
+		out.FlushEntries += lc.flushPendingN.Load()
+		out.FlushBytes += lc.flushPendingB.Load()
+		out.LRUUpdateTime += time.Duration(lc.lruUpdateNs.Load())
+		out.LRUCloseTime += time.Duration(lc.lruCloseNs.Load())
+		out.LRUCloseEntries += lc.lruCloseN.Load()
+		out.PackWrites += lc.packWrites.Load()
+	}
+	return out
+}
+
+func (pc *ParseCache) AddPerfEntries(t perf.Tracker) {
+	if pc == nil || t == nil || !t.IsEnabled() {
+		return
+	}
+	stats := pc.WriterStats()
+	if pc.kotlin != nil {
+		perf.AddEntryDetails(t, "kotlinEncodeZstdGob", time.Duration(pc.kotlin.encodeNs.Load()), map[string]int64{
+			"entries": pc.kotlin.asyncCompleted.Load(),
+			"bytes":   pc.kotlin.asyncBytes.Load(),
+		}, nil)
+		perf.AddEntryDetails(t, "kotlinPackWrite", time.Duration(pc.kotlin.packWriteNs.Load()), map[string]int64{
+			"entries": pc.kotlin.asyncCompleted.Load(),
+			"bytes":   pc.kotlin.asyncBytes.Load(),
+			"packs":   pc.kotlin.packWrites.Load(),
+		}, nil)
+		perf.AddEntryDetails(t, "kotlinFlushPendingWrite", time.Duration(pc.kotlin.flushPendingNs.Load()), map[string]int64{
+			"entries": pc.kotlin.flushPendingN.Load(),
+			"bytes":   pc.kotlin.flushPendingB.Load(),
+		}, nil)
+	}
+	if pc.java != nil {
+		perf.AddEntryDetails(t, "javaEncodeZstdGob", time.Duration(pc.java.encodeNs.Load()), map[string]int64{
+			"entries": pc.java.asyncCompleted.Load(),
+			"bytes":   pc.java.asyncBytes.Load(),
+		}, nil)
+		perf.AddEntryDetails(t, "javaPackWrite", time.Duration(pc.java.packWriteNs.Load()), map[string]int64{
+			"entries": pc.java.asyncCompleted.Load(),
+			"bytes":   pc.java.asyncBytes.Load(),
+			"packs":   pc.java.packWrites.Load(),
+		}, nil)
+		perf.AddEntryDetails(t, "javaFlushPendingWrite", time.Duration(pc.java.flushPendingNs.Load()), map[string]int64{
+			"entries": pc.java.flushPendingN.Load(),
+			"bytes":   pc.java.flushPendingB.Load(),
+		}, nil)
+	}
+	perf.AddEntryDetails(t, "lruUpdate", stats.LRUUpdateTime, map[string]int64{"entries": stats.Completed}, nil)
+	perf.AddEntryDetails(t, "lruCloseEvict", stats.LRUCloseTime, map[string]int64{"entries": stats.LRUCloseEntries}, nil)
+	perf.AddEntryDetails(t, "parseCacheWriterSummary", 0, map[string]int64{
+		"queued":        stats.Queued,
+		"completed":     stats.Completed,
+		"failed":        stats.Failed,
+		"bytes":         stats.Bytes,
+		"kotlinEntries": stats.KotlinEntries,
+		"javaEntries":   stats.JavaEntries,
+		"packWrites":    stats.PackWrites,
+	}, nil)
+}
+
+// activeParseCache is the most-recently-constructed ParseCache, so
+// the cacheutil.Registered stub can surface Stats() without plumbing
+// a handle through the CLI. Idempotent-by-Name replacement in the
+// registry takes care of the cold-start case.
+var activeParseCache atomic.Pointer[ParseCache]
+
+func init() {
+	cacheutil.Register(parseCacheRegistered{})
+}
+
+type parseCacheRegistered struct{}
+
+func (parseCacheRegistered) Name() string { return parseCacheDirName }
+func (parseCacheRegistered) Clear(ctx cacheutil.ClearContext) error {
+	return ClearParseCache(ctx.RepoDir)
+}
+func (parseCacheRegistered) Stats() cacheutil.CacheStats {
+	return activeParseCache.Load().Stats()
+}
+
+// ClearParseCache removes the parse-cache directory under repoDir.
+// Used by --clear-cache at the CLI boundary; a no-op when the cache
+// directory does not exist.
+func ClearParseCache(repoDir string) error {
+	if repoDir == "" {
+		return nil
+	}
+	dir := filepath.Join(repoDir, ".krit", parseCacheDirName)
+	err := os.RemoveAll(dir)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("clear parse cache: %w", err)
+	}
+	return nil
+}

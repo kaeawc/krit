@@ -1,0 +1,29 @@
+package fixtures.positive.performance
+
+fun printNumbers() {
+    for (i in 1..10) { println(it) }
+}
+
+fun printUntil() {
+    for (i in 1 until 10) { println(it) }
+}
+
+fun printDownTo() {
+    for (i in 10 downTo 1) { println(it) }
+}
+
+fun printReversed() {
+    (1..10).reversed().forEach { println(it) }
+}
+
+fun printStep() {
+    for (i in 10 downTo 1 step 2) { println(it) }
+}
+
+fun printLong() {
+    for (i in 1L..10L) { println(it) }
+}
+
+fun printChar() {
+    for (i in 'a'..'z') { println(it) }
+}

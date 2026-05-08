@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "docs",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "lsof -tiTCP:${PORT:-8000} -sTCP:LISTEN | xargs -r kill -9; exec python3 scripts/github/deploy_pages.py serve"
+      ],
+      "port": 8000
+    }
+  ]
+}

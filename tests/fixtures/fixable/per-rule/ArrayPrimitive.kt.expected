@@ -1,0 +1,6 @@
+package fixtures.positive.performance
+
+fun createArray(): IntArray {
+    val arr = Array<Int>(5) { it }
+    return arr
+}

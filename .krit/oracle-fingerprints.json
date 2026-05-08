@@ -1,0 +1,37 @@
+{
+  "_comment": "Oracle filter input-set fingerprints per (repo, rule-set). Regenerate via `go run ./internal/devtools/oraclefpcheck --update`.",
+  "entries": [
+    {
+      "repo": "playground/kotlin-webservice",
+      "ruleSet": "default",
+      "fingerprint": "99aa06d3014798d8",
+      "markedFiles": 9,
+      "totalFiles": 9,
+      "allFiles": true
+    },
+    {
+      "repo": "playground/kotlin-webservice",
+      "ruleSet": "all-rules",
+      "fingerprint": "99aa06d3014798d8",
+      "markedFiles": 9,
+      "totalFiles": 9,
+      "allFiles": true
+    },
+    {
+      "repo": "playground/android-app",
+      "ruleSet": "default",
+      "fingerprint": "99aa06d3014798d8",
+      "markedFiles": 8,
+      "totalFiles": 8,
+      "allFiles": true
+    },
+    {
+      "repo": "playground/android-app",
+      "ruleSet": "all-rules",
+      "fingerprint": "99aa06d3014798d8",
+      "markedFiles": 8,
+      "totalFiles": 8,
+      "allFiles": true
+    }
+  ]
+}

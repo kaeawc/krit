@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Pre-commit hook: run krit on staged .kt files
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep '\.kt$' || true)
+if [ -z "$STAGED" ]; then
+    exit 0
+fi
+
+echo "Running krit on staged Kotlin files..."
+if command -v krit &>/dev/null; then
+    echo "$STAGED" | xargs krit -q -no-type-inference -no-type-oracle
+    exit $?
+else
+    echo "krit not found — skipping lint (install: go install github.com/kaeawc/krit/cmd/krit@latest)"
+    exit 0
+fi

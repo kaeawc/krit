@@ -1,0 +1,7 @@
+reviews:
+  path_filters:
+    # These fixtures intentionally contain code shapes that automated review may
+    # flag, so exclude them from AI PR review noise. Positive fixtures remain in
+    # scope because they are useful evidence for new rule behavior.
+    - "!tests/fixtures/negative/**"
+    - "!tests/fixtures/fixable/**"

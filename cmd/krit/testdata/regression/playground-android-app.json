@@ -1,0 +1,582 @@
+{
+  "project": "../../playground/android-app/",
+  "findings_count": 72,
+  "findings": [
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "build.gradle.kts",
+      "line": 8,
+      "col": 0,
+      "message": "Magic number '36'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "build.gradle.kts",
+      "line": 12,
+      "col": 0,
+      "message": "Magic number '23'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "build.gradle.kts",
+      "line": 13,
+      "col": 0,
+      "message": "Magic number '36'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "DependenciesInRootProject",
+      "ruleSet": "supply-chain",
+      "file": "build.gradle.kts",
+      "line": 30,
+      "col": 0,
+      "message": "Root project dependencies block declares implementation. Move project dependencies into an owning module or add legitimate root tooling configurations to allowedConfigurations."
+    },
+    {
+      "rule": "GoogleAppIndexingWarningManifest",
+      "ruleSet": "android-lint",
+      "file": "src/main/AndroidManifest.xml",
+      "line": 1,
+      "col": 0,
+      "message": "No activity with a VIEW intent filter and http/https data scheme found. Add deep link support to enable Google App Indexing. https://developer.android.com/training/app-indexing"
+    },
+    {
+      "rule": "PermissionImpliesUnsupportedHardwareManifest",
+      "ruleSet": "android-lint",
+      "file": "src/main/AndroidManifest.xml",
+      "line": 1,
+      "col": 0,
+      "message": "Permissions imply hardware features that are not declared as optional: `android.permission.ACCESS_FINE_LOCATION` -\u003e `android.hardware.location.gps`, `android.permission.CAMERA` -\u003e `android.hardware.camera`. Declare each with `\u003cuses-feature android:name=\"…\" android:required=\"false\" /\u003e` to allow installation on devices without this hardware."
+    },
+    {
+      "rule": "AllowBackupManifest",
+      "ruleSet": "android-lint",
+      "file": "src/main/AndroidManifest.xml",
+      "line": 11,
+      "col": 0,
+      "message": "`android:allowBackup=\"true\"` allows app data to be backed up via adb. Set to false if your app handles sensitive data. http://developer.android.com/reference/android/R.attr.html#allowBackup"
+    },
+    {
+      "rule": "DebuggableManifest",
+      "ruleSet": "android-lint",
+      "file": "src/main/AndroidManifest.xml",
+      "line": 11,
+      "col": 0,
+      "message": "`android:debuggable=\"true\"` is set in the manifest. This should be controlled by the build system (debug vs release build type). Remove the debuggable attribute from the manifest."
+    },
+    {
+      "rule": "InsecureBaseConfigurationManifest",
+      "ruleSet": "android-lint",
+      "file": "src/main/AndroidManifest.xml",
+      "line": 11,
+      "col": 0,
+      "message": "Missing `android:networkSecurityConfig` on \u003capplication\u003e with targetSdkVersion \u003e= 28. Add a Network Security Configuration to explicitly control network security behavior. https://developer.android.com/training/articles/security-config"
+    },
+    {
+      "rule": "RtlEnabledManifest",
+      "ruleSet": "android-lint",
+      "file": "src/main/AndroidManifest.xml",
+      "line": 11,
+      "col": 0,
+      "message": "Missing `android:supportsRtl=\"true\"` on \u003capplication\u003e. Add RTL support to ensure proper layout mirroring for RTL languages."
+    },
+    {
+      "rule": "ExportedWithoutPermission",
+      "ruleSet": "android-lint",
+      "file": "src/main/AndroidManifest.xml",
+      "line": 30,
+      "col": 0,
+      "message": "Exported receiver `.receivers.BootReceiver` does not require a permission. Add android:permission to restrict access."
+    },
+    {
+      "rule": "UnsafeProtectedBroadcastReceiverManifest",
+      "ruleSet": "android-lint",
+      "file": "src/main/AndroidManifest.xml",
+      "line": 30,
+      "col": 0,
+      "message": "Receiver `.receivers.BootReceiver` listens for protected broadcast `android.intent.action.BOOT_COMPLETED` and is exported without a permission. Add android:permission to prevent unauthorized broadcasts."
+    },
+    {
+      "rule": "ExportedWithoutPermission",
+      "ruleSet": "android-lint",
+      "file": "src/main/AndroidManifest.xml",
+      "line": 39,
+      "col": 0,
+      "message": "Exported provider `.providers.DataProvider` does not require a permission. Add android:permission to restrict access."
+    },
+    {
+      "rule": "ShowToast",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 22,
+      "col": 0,
+      "message": "Toast.makeText() called without .show(). The toast will not be displayed."
+    },
+    {
+      "rule": "SimpleDateFormat",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 25,
+      "col": 0,
+      "message": "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 39,
+      "col": 0,
+      "message": "Magic number '1000'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 45,
+      "col": 0,
+      "message": "Magic number '2000L'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 45,
+      "col": 0,
+      "message": "Magic number '500'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "EmptyFunctionBlock",
+      "ruleSet": "empty-blocks",
+      "file": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 49,
+      "col": 0,
+      "message": "Empty function body detected."
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 53,
+      "col": 0,
+      "message": "Parameter 'verbose' is unused."
+    },
+    {
+      "rule": "SimpleDateFormat",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/MainActivity.kt",
+      "line": 54,
+      "col": 0,
+      "message": "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs."
+    },
+    {
+      "rule": "RecyclerAdapterWithoutDiffUtil",
+      "ruleSet": "resource-cost",
+      "file": "src/main/kotlin/com/example/app/adapters/UserAdapter.kt",
+      "line": 12,
+      "col": 0,
+      "message": "'UserAdapter' uses notifyDataSetChanged() without DiffUtil; use ListAdapter or DiffUtil.calculateDiff() for efficient updates."
+    },
+    {
+      "rule": "SwallowedException",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/app/adapters/UserAdapter.kt",
+      "line": 48,
+      "col": 0,
+      "message": "Exception 'e' is caught but never used. Either log/handle it or rethrow."
+    },
+    {
+      "rule": "TooGenericExceptionCaught",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/app/adapters/UserAdapter.kt",
+      "line": 48,
+      "col": 0,
+      "message": "Caught too-generic exception type 'IndexOutOfBoundsException'."
+    },
+    {
+      "rule": "FragmentConstructor",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 12,
+      "col": 0,
+      "message": "Fragment subclass must have a default (no-arg) constructor for framework re-instantiation."
+    },
+    {
+      "rule": "LongParameterList",
+      "ruleSet": "complexity",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 33,
+      "col": 0,
+      "message": "Function 'updateContent' has 7 parameters (allowed: 6)."
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 35,
+      "col": 0,
+      "message": "Parameter 'subtitle' is unused."
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 36,
+      "col": 0,
+      "message": "Parameter 'description' is unused."
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 37,
+      "col": 0,
+      "message": "Parameter 'imageUrl' is unused."
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 38,
+      "col": 0,
+      "message": "Parameter 'category' is unused."
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 39,
+      "col": 0,
+      "message": "Parameter 'tags' is unused."
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 40,
+      "col": 0,
+      "message": "Parameter 'isPublished' is unused."
+    },
+    {
+      "rule": "EmptyCatchBlock",
+      "ruleSet": "empty-blocks",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 50,
+      "col": 0,
+      "message": "Empty catch block detected. Empty catch blocks should be avoided."
+    },
+    {
+      "rule": "SwallowedException",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 50,
+      "col": 0,
+      "message": "Exception 'e' is caught but never used. Either log/handle it or rethrow."
+    },
+    {
+      "rule": "ForbiddenComment",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 55,
+      "col": 0,
+      "message": "Forbidden comment marker 'TODO:' found."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/fragments/SettingsFragment.kt",
+      "line": 15,
+      "col": 0,
+      "message": "Magic number '1024'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/fragments/SettingsFragment.kt",
+      "line": 15,
+      "col": 0,
+      "message": "Magic number '1024'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/fragments/SettingsFragment.kt",
+      "line": 15,
+      "col": 0,
+      "message": "Magic number '50'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "FunctionOnlyReturningConstant",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/fragments/SettingsFragment.kt",
+      "line": 19,
+      "col": 0,
+      "message": "Function 'getRetryInterval' only returns a constant. Consider replacing with a const val."
+    },
+    {
+      "rule": "RoomSelectStarWithoutLimit",
+      "ruleSet": "database",
+      "file": "src/main/kotlin/com/example/app/libraries/LibraryCoverage.kt",
+      "line": 66,
+      "col": 0,
+      "message": "@Query on 'getAll' uses 'SELECT *' without a LIMIT and returns a materialised type; add a LIMIT or return Flow/PagingSource to avoid unbounded loads."
+    },
+    {
+      "rule": "RoomFallbackToDestructiveMigration",
+      "ruleSet": "database",
+      "file": "src/main/kotlin/com/example/app/libraries/LibraryCoverage.kt",
+      "line": 77,
+      "col": 0,
+      "message": "Room.fallbackToDestructiveMigration() drops all user data on a schema version bump; provide a Migration or restrict the call to debug builds."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 54,
+      "col": 0,
+      "message": "Magic number '100'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "SwallowedException",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 55,
+      "col": 0,
+      "message": "Exception 'e' is caught but never used. Either log/handle it or rethrow."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 63,
+      "col": 0,
+      "message": "Magic number '5000'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 67,
+      "col": 0,
+      "message": "Magic number '200'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "SimpleDateFormat",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 71,
+      "col": 0,
+      "message": "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs."
+    },
+    {
+      "rule": "UnusedVariable",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 75,
+      "col": 0,
+      "message": "Local variable 'retryCount' is never used."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 76,
+      "col": 0,
+      "message": "Magic number '3'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 77,
+      "col": 0,
+      "message": "Magic number '1000L'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 79,
+      "col": 0,
+      "message": "Magic number '200'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "Wakelock",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 93,
+      "col": 0,
+      "message": "WakeLock acquired without release. Ensure WakeLock.release() is called."
+    },
+    {
+      "rule": "SetJavaScriptEnabled",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 19,
+      "col": 0,
+      "message": "Using setJavaScriptEnabled(true). Review for XSS vulnerabilities."
+    },
+    {
+      "rule": "AddJavascriptInterface",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 20,
+      "col": 0,
+      "message": "Injected JavaScript interface has no @JavascriptInterface-annotated methods for targetSdk 17 or higher."
+    },
+    {
+      "rule": "TrustedServer",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 25,
+      "col": 0,
+      "message": "Trust manager overrides checkClientTrusted/checkServerTrusted with an empty body. Perform real certificate validation."
+    },
+    {
+      "rule": "EmptyFunctionBlock",
+      "ruleSet": "empty-blocks",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 26,
+      "col": 0,
+      "message": "Empty function body detected."
+    },
+    {
+      "rule": "InsecureTrustManager",
+      "ruleSet": "security",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 26,
+      "col": 0,
+      "message": "Trust manager check method accepts certificates without validation. Perform certificate validation or remove the trust-all manager."
+    },
+    {
+      "rule": "EmptyFunctionBlock",
+      "ruleSet": "empty-blocks",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 27,
+      "col": 0,
+      "message": "Empty function body detected."
+    },
+    {
+      "rule": "InsecureTrustManager",
+      "ruleSet": "security",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 27,
+      "col": 0,
+      "message": "Trust manager check method accepts certificates without validation. Perform certificate validation or remove the trust-all manager."
+    },
+    {
+      "rule": "UseEmptyCounterpart",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 28,
+      "col": 0,
+      "message": "Use 'emptyArray()' instead of 'arrayOf()'."
+    },
+    {
+      "rule": "FunctionOnlyReturningConstant",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 40,
+      "col": 0,
+      "message": "Function 'getCachePath' only returns a constant. Consider replacing with a const val."
+    },
+    {
+      "rule": "SdCardPath",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 41,
+      "col": 0,
+      "message": "Hardcoded /sdcard path. Use Environment.getExternalStorageDirectory() instead."
+    },
+    {
+      "rule": "SdCardPath",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 46,
+      "col": 0,
+      "message": "Hardcoded /data/ path. Use Context.getFilesDir() instead; the per-user data directory can vary."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 55,
+      "col": 0,
+      "message": "Magic number '5000'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 56,
+      "col": 0,
+      "message": "Magic number '10000'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "MagicNumber",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 61,
+      "col": 0,
+      "message": "Magic number '200'. Consider extracting it to a named constant."
+    },
+    {
+      "rule": "SetJavaScriptEnabled",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 73,
+      "col": 0,
+      "message": "Using setJavaScriptEnabled(true). Review for XSS vulnerabilities."
+    },
+    {
+      "rule": "WebViewAllowFileAccess",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 74,
+      "col": 0,
+      "message": "Avoid enabling WebSettings.allowFileAccess; file URL access is disabled by default since API 30 and enabling it allows javascript-served file:// URLs to read other local files."
+    },
+    {
+      "rule": "WebViewAllowContentAccess",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 75,
+      "col": 0,
+      "message": "Avoid enabling WebSettings.allowContentAccess; the content:// URI scheme grants the WebView access to content providers and is rarely required on modern Android."
+    },
+    {
+      "rule": "EmptyFunctionBlock",
+      "ruleSet": "empty-blocks",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 79,
+      "col": 0,
+      "message": "Empty function body detected."
+    },
+    {
+      "rule": "UnusedParameter",
+      "ruleSet": "style",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 83,
+      "col": 0,
+      "message": "Parameter 'message' is unused."
+    },
+    {
+      "rule": "DisableBaselineAlignmentResource",
+      "ruleSet": "android-lint",
+      "file": "src/main/res/layout/item_user.xml",
+      "line": 2,
+      "col": 0,
+      "message": "`LinearLayout` with weighted children should set `android:baselineAligned=\"false\"` for better performance."
+    },
+    {
+      "rule": "StringNotLocalizableResource",
+      "ruleSet": "android-lint",
+      "file": "src/main/res/values/strings.xml",
+      "line": 15,
+      "col": 0,
+      "message": "String `btn_ok` appears to be a technical identifier (`OK`). Consider marking as `translatable=\"false\"`."
+    }
+  ]
+}

@@ -1,0 +1,693 @@
+package scanner
+
+import (
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/perf"
+)
+
+// largeSource returns a Kotlin source blob guaranteed to exceed
+// parseCacheMinFileSize so the cache actually engages.
+func largeSource() string {
+	var b strings.Builder
+	b.WriteString("package a\n")
+	for i := 0; i < 200; i++ {
+		b.WriteString("fun f")
+		b.WriteString(strconv.Itoa(i))
+		b.WriteString("(): Int = ")
+		b.WriteString(strconv.Itoa(i))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func writeKotlin(t *testing.T, dir, name, src string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	return path
+}
+
+func findParseCacheTiming(entries []perf.TimingEntry, name string) (perf.TimingEntry, bool) {
+	for _, entry := range entries {
+		if entry.Name == name {
+			return entry, true
+		}
+		if found, ok := findParseCacheTiming(entry.Children, name); ok {
+			return found, true
+		}
+	}
+	return perf.TimingEntry{}, false
+}
+
+func packedBlobForHash(t *testing.T, lc *langCache, hash string) ([]byte, string) {
+	t.Helper()
+	h, err := lc.pack.packForHash(hash)
+	if err != nil {
+		t.Fatalf("packForHash: %v", err)
+	}
+	if err := h.ensureLoaded(); err != nil {
+		t.Fatalf("ensureLoaded: %v", err)
+	}
+	blob, ok := h.get(hash)
+	if !ok {
+		t.Fatalf("packed blob for %s not found", hash)
+	}
+	return blob, h.path
+}
+
+func TestParseCache_RoundTrip(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache: %v", err)
+	}
+
+	src := largeSource()
+	path := writeKotlin(t, repo, "Round.kt", src)
+
+	miss, err := ParseKotlinFileCached(path, pc)
+	if err != nil {
+		t.Fatalf("parse (miss): %v", err)
+	}
+	if miss.FlatTree == nil {
+		t.Fatal("expected FlatTree on miss")
+	}
+
+	hit, err := ParseKotlinFileCached(path, pc)
+	if err != nil {
+		t.Fatalf("parse (hit): %v", err)
+	}
+	if hit.FlatTree == nil {
+		t.Fatal("expected FlatTree on hit")
+	}
+
+	if len(hit.FlatTree.Nodes) != len(miss.FlatTree.Nodes) {
+		t.Fatalf("node count differs: miss=%d hit=%d",
+			len(miss.FlatTree.Nodes), len(hit.FlatTree.Nodes))
+	}
+	for i := range miss.FlatTree.Nodes {
+		m := miss.FlatTree.Nodes[i]
+		h := hit.FlatTree.Nodes[i]
+		if m != h {
+			t.Fatalf("node %d differs after round-trip:\n  miss=%+v\n  hit =%+v", i, m, h)
+		}
+	}
+}
+
+// TestParseCache_HitInFreshProcess simulates a second process that has
+// never seen the file by starting with an empty-ish NodeTypeTable via a
+// fresh *ParseCache pointer. The cache payload encodes its own local
+// type table so the remap path must reconstruct global indices without
+// re-parsing.
+func TestParseCache_HitAfterRestart(t *testing.T) {
+	repo := t.TempDir()
+	src := largeSource()
+	path := writeKotlin(t, repo, "Restart.kt", src)
+
+	// Run 1: populate cache.
+	pc1, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache run1: %v", err)
+	}
+	f1, err := ParseKotlinFileCached(path, pc1)
+	if err != nil {
+		t.Fatalf("parse run1: %v", err)
+	}
+
+	// Run 2: a fresh *ParseCache pointer reads what run 1 wrote. Even
+	// though the global NodeTypeTable is already populated in this
+	// process, the Load path still has to remap entry-local indices
+	// through it — verify the node count and types match run 1.
+	pc2, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache run2: %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	tree, ok := pc2.Load("", content)
+	if !ok {
+		t.Fatal("expected cache hit on run 2")
+	}
+	if len(tree.Nodes) != len(f1.FlatTree.Nodes) {
+		t.Fatalf("node count diverged: want %d got %d",
+			len(f1.FlatTree.Nodes), len(tree.Nodes))
+	}
+	for i := range tree.Nodes {
+		if tree.Nodes[i].TypeName() != f1.FlatTree.Nodes[i].TypeName() {
+			t.Fatalf("node %d type name differs: want %q got %q",
+				i, f1.FlatTree.Nodes[i].TypeName(), tree.Nodes[i].TypeName())
+		}
+	}
+}
+
+func TestParseCache_AsyncSaveFlushVisibleAfterRestart(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache: %v", err)
+	}
+	pc.SetAsyncWriter(cacheutil.NewAsyncWriter(1, 8))
+
+	ktPath := writeKotlin(t, repo, "Async.kt", largeSource())
+	javaPath := writeJava(t, repo, "Async.java", largeJavaSource())
+
+	if _, err := ParseKotlinFileCached(ktPath, pc); err != nil {
+		t.Fatalf("parse kotlin: %v", err)
+	}
+	if _, err := ParseJavaFileCached(javaPath, pc); err != nil {
+		t.Fatalf("parse java: %v", err)
+	}
+	if err := pc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	fresh, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache fresh: %v", err)
+	}
+	defer fresh.Close()
+
+	ktContent, err := os.ReadFile(ktPath)
+	if err != nil {
+		t.Fatalf("read kotlin: %v", err)
+	}
+	if _, ok := fresh.Load(ktPath, ktContent); !ok {
+		t.Fatal("expected async Kotlin save to hit after flush")
+	}
+
+	javaContent, err := os.ReadFile(javaPath)
+	if err != nil {
+		t.Fatalf("read java: %v", err)
+	}
+	if _, ok := fresh.LoadJava(javaPath, javaContent); !ok {
+		t.Fatal("expected async Java save to hit after flush")
+	}
+}
+
+func TestParseCache_HasWritesExcludesReadHits(t *testing.T) {
+	repo := t.TempDir()
+	src := largeSource()
+	path := writeKotlin(t, repo, "ReadOnly.kt", src)
+
+	pc, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache: %v", err)
+	}
+	if _, err := ParseKotlinFileCached(path, pc); err != nil {
+		t.Fatalf("parse prime: %v", err)
+	}
+	if !pc.HasWrites() {
+		t.Fatal("expected cold parse to record cache writes")
+	}
+	if err := pc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	fresh, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache fresh: %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if _, ok := fresh.Load(path, content); !ok {
+		t.Fatal("expected cache hit")
+	}
+	if fresh.HasWrites() {
+		t.Fatal("read-only cache hit should not require a full close flush")
+	}
+	if err := fresh.CloseIdle(); err != nil {
+		t.Fatalf("CloseIdle: %v", err)
+	}
+}
+
+func TestParseCache_AsyncConcurrentWritesSamePack(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache: %v", err)
+	}
+	pc.SetAsyncWriter(cacheutil.NewAsyncWriter(4, 64))
+
+	src := largeSource()
+	path := writeKotlin(t, repo, "AsyncSamePack.kt", src)
+	seed, err := ParseKotlinFileCached(path, nil)
+	if err != nil {
+		t.Fatalf("seed parse: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = pc.SaveAsync("", []byte(src), seed.FlatTree)
+		}()
+	}
+	wg.Wait()
+	if err := pc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if stats := pc.WriterStats(); stats.PackWrites != 1 {
+		t.Fatalf("expected one packed shard write, got %d", stats.PackWrites)
+	}
+
+	fresh, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache fresh: %v", err)
+	}
+	if _, ok := fresh.Load("", []byte(src)); !ok {
+		t.Fatal("expected hit after concurrent async writes")
+	}
+}
+
+func TestParseCache_AddPerfEntriesRecordsFlushPendingWrite(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache: %v", err)
+	}
+	pc.SetAsyncWriter(cacheutil.NewAsyncWriter(1, 8))
+
+	src := largeSource()
+	path := writeKotlin(t, repo, "FlushPending.kt", src)
+	seed, err := ParseKotlinFileCached(path, nil)
+	if err != nil {
+		t.Fatalf("seed parse: %v", err)
+	}
+	if err := pc.SaveAsync(path, []byte(src), seed.FlatTree); err != nil {
+		t.Fatalf("SaveAsync: %v", err)
+	}
+	if err := pc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	stats := pc.WriterStats()
+	if stats.FlushEntries == 0 {
+		t.Fatal("expected flush pending entries to be recorded")
+	}
+	if stats.FlushBytes == 0 {
+		t.Fatal("expected flush pending bytes to be recorded")
+	}
+
+	tracker := perf.New(true)
+	pc.AddPerfEntries(tracker)
+	entry, ok := findParseCacheTiming(tracker.GetTimings(), "kotlinFlushPendingWrite")
+	if !ok {
+		t.Fatalf("expected kotlinFlushPendingWrite timing, got %#v", tracker.GetTimings())
+	}
+	if entry.Metrics["entries"] == 0 || entry.Metrics["bytes"] == 0 {
+		t.Fatalf("expected flush pending metrics to include entries and bytes, got %#v", entry.Metrics)
+	}
+}
+
+func TestParseCache_SkipsUnchangedPackRewrite(t *testing.T) {
+	repo := t.TempDir()
+	src := largeSource()
+	path := writeKotlin(t, repo, "Unchanged.kt", src)
+	seed, err := ParseKotlinFileCached(path, nil)
+	if err != nil {
+		t.Fatalf("seed parse: %v", err)
+	}
+
+	first, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache first: %v", err)
+	}
+	first.SetAsyncWriter(cacheutil.NewAsyncWriter(1, 8))
+	if err := first.SaveAsync(path, []byte(src), seed.FlatTree); err != nil {
+		t.Fatalf("first SaveAsync: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	if got := first.WriterStats().PackWrites; got != 1 {
+		t.Fatalf("first write PackWrites=%d, want 1", got)
+	}
+
+	second, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache second: %v", err)
+	}
+	second.SetAsyncWriter(cacheutil.NewAsyncWriter(1, 8))
+	if err := second.SaveAsync(path, []byte(src), seed.FlatTree); err != nil {
+		t.Fatalf("second SaveAsync: %v", err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	if got := second.WriterStats().PackWrites; got != 0 {
+		t.Fatalf("unchanged rewrite PackWrites=%d, want 0", got)
+	}
+
+	fresh, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache fresh: %v", err)
+	}
+	if _, ok := fresh.Load(path, []byte(src)); !ok {
+		t.Fatal("expected unchanged skipped rewrite to preserve cache entry")
+	}
+}
+
+func TestParseCache_GrammarVersionMismatch(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache: %v", err)
+	}
+	src := largeSource()
+	if _, err := ParseKotlinFileCached(writeKotlin(t, repo, "GV.kt", src), pc); err != nil {
+		t.Fatalf("seed parse: %v", err)
+	}
+
+	// Mutate the grammar-version sidecar to simulate a tree-sitter bump.
+	// Re-opening the cache should nuke stale entries before any load path
+	// can serve them.
+	hash := hashutil.HashHex([]byte(src))
+	data, packPath := packedBlobForHash(t, pc.kotlin, hash)
+	if !cacheutil.IsZstdFrame(data) {
+		t.Fatalf("parse cache entry is not zstd-framed: %x", data[:min(4, len(data))])
+	}
+	if err := os.WriteFile(filepath.Join(pc.Dir(), "grammar-version"), []byte("smacker/go-tree-sitter@BOGUS"), 0o644); err != nil {
+		t.Fatalf("rewrite grammar-version sidecar: %v", err)
+	}
+
+	pc2, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache after sidecar edit: %v", err)
+	}
+	if _, ok := pc2.Load("", []byte(src)); ok {
+		t.Fatal("expected miss after grammar-version mismatch")
+	}
+	if _, err := os.Stat(packPath); !os.IsNotExist(err) {
+		t.Fatalf("expected stale pack removed after sidecar mismatch, stat err=%v", err)
+	}
+}
+
+func TestParseCache_ContentChangeMisses(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache: %v", err)
+	}
+	src := largeSource()
+	if _, err := ParseKotlinFileCached(writeKotlin(t, repo, "CC.kt", src), pc); err != nil {
+		t.Fatalf("seed parse: %v", err)
+	}
+
+	mutated := src + " // one byte change\n"
+	if _, ok := pc.Load("", []byte(mutated)); ok {
+		t.Fatal("expected miss for mutated content")
+	}
+	if _, ok := pc.Load("", []byte(src)); !ok {
+		t.Fatal("expected hit for original content")
+	}
+}
+
+func TestParseCache_CorruptEntryTreatedAsMiss(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache: %v", err)
+	}
+	src := largeSource()
+	if _, err := ParseKotlinFileCached(writeKotlin(t, repo, "Bad.kt", src), pc); err != nil {
+		t.Fatalf("seed parse: %v", err)
+	}
+	hash := hashutil.HashHex([]byte(src))
+	_, packPath := packedBlobForHash(t, pc.kotlin, hash)
+	if err := os.WriteFile(packPath, []byte("not-a-pack-payload"), 0o644); err != nil {
+		t.Fatalf("corrupt pack: %v", err)
+	}
+	pc.kotlin.pack = newParsePackStore(pc.kotlin.dir)
+	if _, ok := pc.Load("", []byte(src)); ok {
+		t.Fatal("expected miss on corrupt pack")
+	}
+}
+
+func TestParseCache_SmallFileSkipsCache(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache: %v", err)
+	}
+	tiny := "fun x() = 1\n"
+	if len(tiny) >= parseCacheMinFileSize {
+		t.Fatalf("test assumes tiny source < threshold, got %d", len(tiny))
+	}
+	path := writeKotlin(t, repo, "Tiny.kt", tiny)
+	if _, err := ParseKotlinFileCached(path, pc); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	entries := filepath.Join(pc.Dir(), "entries")
+	// Walk the shard dir: expect no .gob files.
+	_ = filepath.Walk(entries, func(p string, info os.FileInfo, werr error) error {
+		if werr != nil || info == nil || info.IsDir() {
+			return nil //nolint:nilerr // Walk callback skip-and-continue: per-entry error means skip this entry
+		}
+		if filepath.Ext(p) == ".gob" {
+			t.Fatalf("unexpected cache entry written for small file: %s", p)
+		}
+		return nil
+	})
+}
+
+func TestParseCache_ConcurrentWritesSameHash(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache: %v", err)
+	}
+	src := largeSource()
+	path := writeKotlin(t, repo, "Conc.kt", src)
+	// Seed so we have a real FlatTree to write.
+	seed, err := ParseKotlinFileCached(path, nil)
+	if err != nil {
+		t.Fatalf("seed parse: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = pc.Save("", []byte(src), seed.FlatTree)
+		}()
+	}
+	wg.Wait()
+
+	tree, ok := pc.Load("", []byte(src))
+	if !ok {
+		t.Fatal("expected hit after concurrent writes")
+	}
+	if len(tree.Nodes) != len(seed.FlatTree.Nodes) {
+		t.Fatalf("node count mismatch: want %d got %d",
+			len(seed.FlatTree.Nodes), len(tree.Nodes))
+	}
+}
+
+func TestParseCache_NilIsSafe(t *testing.T) {
+	// Belt-and-braces: the nil receiver is documented as a disabled
+	// cache. Exercise the public methods so a future edit that adds an
+	// unconditional deref gets caught by CI.
+	var pc *ParseCache
+	if tree, ok := pc.Load("", []byte("anything")); ok || tree != nil {
+		t.Fatal("nil Load should be a miss")
+	}
+	if err := pc.Save("", []byte("anything"), &FlatTree{}); err != nil {
+		t.Fatalf("nil Save: %v", err)
+	}
+	if err := pc.Clear(); err != nil {
+		t.Fatalf("nil Clear: %v", err)
+	}
+	if pc.Dir() != "" {
+		t.Fatalf("nil Dir should be empty")
+	}
+}
+
+// measureEntrySize populates a temp cache with one entry from src and
+// returns its serialized gob size on disk.
+func measureEntrySize(t *testing.T, src string) int64 {
+	t.Helper()
+	repo := t.TempDir()
+	pc, err := NewParseCacheWithCap(repo, -1)
+	if err != nil {
+		t.Fatalf("measure NewParseCacheWithCap: %v", err)
+	}
+	p := writeKotlin(t, repo, "M.kt", src)
+	if _, err := ParseKotlinFileCached(p, pc); err != nil {
+		t.Fatalf("measure parse: %v", err)
+	}
+	return pc.Stats().Bytes
+}
+
+// TestParseCache_LRUEvictsUnderCap exercises the end-to-end flow:
+// a cap sized to hold roughly 2 entries forces eviction after the
+// third Save. The oldest entry must be removed; the newest must hit.
+func TestParseCache_LRUEvictsUnderCap(t *testing.T) {
+	entrySize := measureEntrySize(t, largeSource())
+	// Cap so that 2 entries fit but 3 do not; low-water at 0.80*cap
+	// drops the oldest entry when the third arrives.
+	// Target: ~2.7× entry size. Low-water (0.80 * cap) lands at ~2.16e
+	// so exactly one entry evicts when a third is written — avoiding
+	// the double-evict that happens when target falls below 2e.
+	capBytes := entrySize * 27 / 10
+
+	repo := t.TempDir()
+	pc, err := NewParseCacheWithCap(repo, capBytes)
+	if err != nil {
+		t.Fatalf("NewParseCacheWithCap: %v", err)
+	}
+
+	srcA := largeSource()
+	srcB := largeSource() + "\nfun extra() = 1\n"
+	srcC := largeSource() + "\nfun extra2() = 2\n"
+	pathA := writeKotlin(t, repo, "A.kt", srcA)
+	pathB := writeKotlin(t, repo, "B.kt", srcB)
+	pathC := writeKotlin(t, repo, "C.kt", srcC)
+
+	if _, err := ParseKotlinFileCached(pathA, pc); err != nil {
+		t.Fatalf("parse A: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, err := ParseKotlinFileCached(pathB, pc); err != nil {
+		t.Fatalf("parse B: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, err := ParseKotlinFileCached(pathC, pc); err != nil {
+		t.Fatalf("parse C: %v", err)
+	}
+
+	if err := pc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	stats := pc.LRUStats()
+	if stats.Bytes > stats.Cap {
+		t.Fatalf("post-evict total %d exceeds cap %d", stats.Bytes, stats.Cap)
+	}
+	writerStats := pc.WriterStats()
+	if writerStats.LRUCloseEntries == 0 {
+		t.Fatal("expected close-time LRU eviction count to be recorded")
+	}
+	tracker := perf.New(true)
+	pc.AddPerfEntries(tracker)
+	entry, ok := findParseCacheTiming(tracker.GetTimings(), "lruCloseEvict")
+	if !ok {
+		t.Fatalf("expected lruCloseEvict timing, got %#v", tracker.GetTimings())
+	}
+	if entry.Metrics["entries"] == 0 {
+		t.Fatalf("expected lruCloseEvict metrics to include entries, got %#v", entry.Metrics)
+	}
+
+	// A (oldest, never re-touched) should be a miss; C (newest) a hit.
+	if _, ok := pc.Load("", []byte(srcA)); ok {
+		t.Fatal("expected evicted entry A to be a cache miss")
+	}
+	if _, ok := pc.Load("", []byte(srcC)); !ok {
+		t.Fatal("expected newest entry C to still hit")
+	}
+}
+
+// TestParseCache_LRUHotEntrySurvivesEviction touches the first entry
+// before writing the third to ensure recency, not insertion order,
+// drives eviction.
+func TestParseCache_LRUHotEntrySurvivesEviction(t *testing.T) {
+	entrySize := measureEntrySize(t, largeSource())
+	// Target: ~2.7× entry size. Low-water (0.80 * cap) lands at ~2.16e
+	// so exactly one entry evicts when a third is written — avoiding
+	// the double-evict that happens when target falls below 2e.
+	capBytes := entrySize * 27 / 10
+
+	repo := t.TempDir()
+	pc, err := NewParseCacheWithCap(repo, capBytes)
+	if err != nil {
+		t.Fatalf("NewParseCacheWithCap: %v", err)
+	}
+	srcA := largeSource()
+	srcB := largeSource() + "\nfun extra() = 1\n"
+	srcC := largeSource() + "\nfun extra2() = 2\n"
+	pathA := writeKotlin(t, repo, "A.kt", srcA)
+	pathB := writeKotlin(t, repo, "B.kt", srcB)
+	pathC := writeKotlin(t, repo, "C.kt", srcC)
+
+	if _, err := ParseKotlinFileCached(pathA, pc); err != nil {
+		t.Fatalf("parse A: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, err := ParseKotlinFileCached(pathB, pc); err != nil {
+		t.Fatalf("parse B: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+
+	// Touch A so it becomes the most-recently-accessed entry.
+	if _, ok := pc.Load("", []byte(srcA)); !ok {
+		t.Fatal("expected A to hit after recent write")
+	}
+	time.Sleep(5 * time.Millisecond)
+
+	if _, err := ParseKotlinFileCached(pathC, pc); err != nil {
+		t.Fatalf("parse C: %v", err)
+	}
+	pc.Evict()
+
+	// A was touched most recently → survives. B (untouched since
+	// initial Save) is the coldest and gets evicted first.
+	if _, ok := pc.Load("", []byte(srcA)); !ok {
+		t.Fatal("hot entry A should have survived eviction")
+	}
+	if _, ok := pc.Load("", []byte(srcB)); ok {
+		t.Fatal("coldest entry B should have been evicted")
+	}
+}
+
+func TestParseCache_UnlimitedCapNeverEvicts(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCacheWithCap(repo, -1) // disabled cap
+	if err != nil {
+		t.Fatalf("NewParseCacheWithCap: %v", err)
+	}
+	for i := 0; i < 10; i++ {
+		src := largeSource() + "\n// variant " + strconv.Itoa(i) + "\n"
+		path := writeKotlin(t, repo, "V"+strconv.Itoa(i)+".kt", src)
+		if _, err := ParseKotlinFileCached(path, pc); err != nil {
+			t.Fatalf("parse v%d: %v", i, err)
+		}
+	}
+	stats := pc.Stats()
+	if stats.Entries != 10 {
+		t.Fatalf("expected 10 entries with cap disabled, got %d", stats.Entries)
+	}
+}
+
+func TestClearParseCache_Removes(t *testing.T) {
+	repo := t.TempDir()
+	pc, err := NewParseCache(repo)
+	if err != nil {
+		t.Fatalf("NewParseCache: %v", err)
+	}
+	src := largeSource()
+	if _, err := ParseKotlinFileCached(writeKotlin(t, repo, "Clr.kt", src), pc); err != nil {
+		t.Fatalf("seed parse: %v", err)
+	}
+	if err := ClearParseCache(repo); err != nil {
+		t.Fatalf("ClearParseCache: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".krit", parseCacheDirName)); !os.IsNotExist(err) {
+		t.Fatalf("parse cache dir still exists after clear: err=%v", err)
+	}
+}

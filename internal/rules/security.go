@@ -1,0 +1,1406 @@
+package rules
+
+import (
+	"regexp"
+	"strconv"
+	"strings"
+
+	"github.com/kaeawc/krit/internal/rules/api/evidence"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+// ContentProviderQueryWithSelectionInterpolationRule detects interpolated
+// selection strings passed to ContentResolver.query(...).
+type ContentProviderQueryWithSelectionInterpolationRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// SQLInjectionRawQueryRule detects SQLiteDatabase SQL arguments built from
+// interpolation or non-static concatenation.
+type SQLInjectionRawQueryRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// RuntimeExecUnsafeShapeRule detects Runtime.getRuntime().exec(String) calls
+// whose single command string is computed from non-static data.
+type RuntimeExecUnsafeShapeRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// RoomRawQueryStringConcatRule detects Room SimpleSQLiteQuery SQL strings
+// built from interpolation or non-static concatenation without bind args.
+type RoomRawQueryStringConcatRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// ProcessBuilderShellArgRule detects shell ProcessBuilder invocations whose
+// script argument is computed from non-static data.
+type ProcessBuilderShellArgRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// LogPiiRule detects logger calls that interpolate or concatenate sensitive
+// variable names into log messages.
+type LogPiiRule struct {
+	FlatDispatchBase
+	BaseRule
+	PiiNamePattern *regexp.Regexp
+}
+
+// JdbcStatementExecuteRule detects java.sql.Statement execution calls whose
+// SQL argument is computed from non-static data.
+type JdbcStatementExecuteRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// XMLExternalEntityRule detects XML parser factories created without obvious
+// XXE-disabling hardening in the same callable scope.
+type XMLExternalEntityRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// JavaObjectInputStreamRule detects direct Java serialization input streams in
+// production source.
+type JavaObjectInputStreamRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// JacksonDefaultTypingRule detects Jackson default typing APIs that can enable
+// polymorphic deserialization gadget attacks.
+type JacksonDefaultTypingRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// GsonPolymorphicFromJSONRule detects Gson deserialization into Object/Any.
+type GsonPolymorphicFromJSONRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Security rule. Detection pattern-matches known-insecure API shapes and
+// argument literals without confirming the receiver type. Classified per
+// roadmap/17.
+func (r *ContentProviderQueryWithSelectionInterpolationRule) Confidence() float64 { return 0.75 }
+
+func (r *SQLInjectionRawQueryRule) Confidence() float64 { return 0.75 }
+
+func (r *RuntimeExecUnsafeShapeRule) Confidence() float64 { return 0.75 }
+
+func (r *RoomRawQueryStringConcatRule) Confidence() float64 { return 0.75 }
+
+func (r *ProcessBuilderShellArgRule) Confidence() float64 { return 0.75 }
+
+func (r *LogPiiRule) Confidence() float64 { return 0.75 }
+
+func (r *JdbcStatementExecuteRule) Confidence() float64 { return 0.75 }
+
+func (r *XMLExternalEntityRule) Confidence() float64 { return 0.75 }
+
+func (r *JavaObjectInputStreamRule) Confidence() float64 { return 0.8 }
+
+func (r *JacksonDefaultTypingRule) Confidence() float64 { return 0.8 }
+
+func (r *GsonPolymorphicFromJSONRule) Confidence() float64 { return 0.8 }
+
+var defaultLogPiiNamePattern = regexp.MustCompile(`(?i)(password|passwd|token|secret|apiKey|api_key|authHeader|authorization|ssn|pan|cvv|jwt|sessionId|cookie)`)
+
+type sqlArgumentShape int
+
+const (
+	sqlArgumentStatic sqlArgumentShape = iota
+	sqlArgumentInterpolated
+	sqlArgumentComputed
+)
+
+func argumentIsUntrustedShape(file *scanner.File, expr uint32) sqlArgumentShape {
+	if file == nil || expr == 0 {
+		return sqlArgumentStatic
+	}
+	expr = flatUnwrapParenExpr(file, expr)
+	text := strings.TrimSpace(file.FlatNodeText(expr))
+	if text == "" || text == "null" {
+		return sqlArgumentStatic
+	}
+	if flatContainsStringInterpolation(file, expr) {
+		if sqlInterpolationUsesOnlyStaticSchemaConstants(text) {
+			return sqlArgumentStatic
+		}
+		return sqlArgumentInterpolated
+	}
+	if operands := splitSQLConcatOperands(text); len(operands) > 1 {
+		for _, operand := range operands {
+			if !sqlStaticOperand(operand) {
+				return sqlArgumentComputed
+			}
+		}
+		return sqlArgumentStatic
+	}
+	if sqlStaticOperand(text) {
+		return sqlArgumentStatic
+	}
+	return sqlArgumentComputed
+}
+
+func sqlStaticOperand(text string) bool {
+	text = strings.TrimSpace(text)
+	for strings.HasPrefix(text, "(") && strings.HasSuffix(text, ")") {
+		inner := strings.TrimSpace(text[1 : len(text)-1])
+		if inner == "" {
+			break
+		}
+		text = inner
+	}
+	if text == "null" {
+		return true
+	}
+	if isStringLiteralExpr(text) {
+		return !strings.Contains(text, "$")
+	}
+	return sqlSchemaConstantName(sqlLastIdentifierSegment(text))
+}
+
+func splitSQLConcatOperands(text string) []string {
+	var out []string
+	start := 0
+	depth := 0
+	inString := false
+	rawQuoteCount := 0
+	escaped := false
+	for i := 0; i < len(text); i++ {
+		ch := text[i]
+		if inString {
+			if rawQuoteCount == 3 {
+				if i+2 < len(text) && text[i:i+3] == `"""` {
+					inString = false
+					rawQuoteCount = 0
+					i += 2
+				}
+				continue
+			}
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			if i+2 < len(text) && text[i:i+3] == `"""` {
+				inString = true
+				rawQuoteCount = 3
+				i += 2
+			} else {
+				inString = true
+			}
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case '+':
+			if depth == 0 {
+				out = append(out, strings.TrimSpace(text[start:i]))
+				start = i + 1
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	out = append(out, strings.TrimSpace(text[start:]))
+	return out
+}
+
+var sqlInterpolationIdentifierPattern = regexp.MustCompile(`\$\{?\s*([A-Za-z_][A-Za-z0-9_.]*)`)
+
+func sqlInterpolationUsesOnlyStaticSchemaConstants(text string) bool {
+	matches := sqlInterpolationIdentifierPattern.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return false
+	}
+	for _, match := range matches {
+		if len(match) < 2 || !sqlSchemaConstantName(sqlLastIdentifierSegment(match[1])) {
+			return false
+		}
+	}
+	return true
+}
+
+func sqlLastIdentifierSegment(text string) string {
+	text = strings.TrimSpace(text)
+	text = strings.TrimSuffix(text, ")")
+	if dot := strings.LastIndex(text, "."); dot >= 0 {
+		text = text[dot+1:]
+	}
+	return strings.Trim(text, "` ")
+}
+
+func sqlSchemaConstantName(name string) bool {
+	if name == "" {
+		return false
+	}
+	if strings.HasPrefix(name, "TABLE_") || strings.HasPrefix(name, "COLUMN_") {
+		return true
+	}
+	if strings.HasSuffix(name, "_TABLE") || strings.HasSuffix(name, "_COLUMN") || strings.HasSuffix(name, "_KEY") {
+		return true
+	}
+	return strings.ToUpper(name) == name && strings.ContainsAny(name, "_")
+}
+
+func sqlInjectionCallName(file *scanner.File, call uint32) string {
+	switch file.FlatType(call) {
+	case "call_expression":
+		return flatCallExpressionName(file, call)
+	case "method_invocation":
+		return javaMethodInvocationName(file, call)
+	default:
+		return ""
+	}
+}
+
+func sqlInjectionSQLArgument(file *scanner.File, call uint32, name string) uint32 {
+	switch file.FlatType(call) {
+	case "call_expression":
+		_, args := flatCallExpressionParts(file, call)
+		if args == 0 {
+			return 0
+		}
+		if name == "query" {
+			if arg := flatNamedValueArgument(file, args, "selection"); arg != 0 {
+				return flatValueArgumentExpression(file, arg)
+			}
+			return flatValueArgumentExpression(file, flatPositionalValueArgument(file, args, 2))
+		}
+		if arg := flatNamedValueArgument(file, args, "sql"); arg != 0 {
+			return flatValueArgumentExpression(file, arg)
+		}
+		return flatValueArgumentExpression(file, flatPositionalValueArgument(file, args, 0))
+	case "method_invocation":
+		args, ok := file.FlatFindChild(call, "argument_list")
+		if !ok {
+			return 0
+		}
+		index := 0
+		if name == "query" {
+			index = 2
+		}
+		current := 0
+		for child := file.FlatFirstChild(args); child != 0; child = file.FlatNextSib(child) {
+			if !file.FlatIsNamed(child) {
+				continue
+			}
+			if current == index {
+				return child
+			}
+			current++
+		}
+	}
+	return 0
+}
+
+// isSQLiteDatabaseFQN reports whether fqn names the SQLite database type
+// (or its androidx Support variant) by FQN equality. Receiver-typing in
+// SqlInjectionRawQuery and friends goes through evidence.ResolveOwner →
+// FQN compare instead of substring-matching the receiver text.
+func isSQLiteDatabaseFQN(fqn string) bool {
+	switch fqn {
+	case "android.database.sqlite.SQLiteDatabase",
+		"androidx.sqlite.db.SupportSQLiteDatabase":
+		return true
+	}
+	return false
+}
+
+func runtimeExecSingleArgument(file *scanner.File, call uint32) uint32 {
+	switch file.FlatType(call) {
+	case "call_expression":
+		_, args := flatCallExpressionParts(file, call)
+		if args == 0 {
+			return 0
+		}
+		arg := flatPositionalValueArgument(file, args, 0)
+		if arg == 0 || flatPositionalValueArgument(file, args, 1) != 0 {
+			return 0
+		}
+		expr := flatValueArgumentExpression(file, arg)
+		if !runtimeExecArgumentLooksStringCommand(file, expr) {
+			return 0
+		}
+		return expr
+	case "method_invocation":
+		args, ok := file.FlatFindChild(call, "argument_list")
+		if !ok || file.FlatNamedChildCount(args) != 1 {
+			return 0
+		}
+		expr := file.FlatNamedChild(args, 0)
+		if !runtimeExecArgumentLooksStringCommand(file, expr) {
+			return 0
+		}
+		return expr
+	default:
+		return 0
+	}
+}
+
+func runtimeExecArgumentLooksStringCommand(file *scanner.File, expr uint32) bool {
+	if file == nil || expr == 0 {
+		return false
+	}
+	expr = flatUnwrapParenExpr(file, expr)
+	text := strings.TrimSpace(file.FlatNodeText(expr))
+	if text == "" {
+		return false
+	}
+	if strings.HasPrefix(text, "arrayOf(") || strings.HasPrefix(text, "new String[]") || strings.HasPrefix(text, "String[]") {
+		return false
+	}
+	return isStringLiteralExpr(text) || flatContainsStringInterpolation(file, expr) || len(splitSQLConcatOperands(text)) > 1
+}
+
+// roomRawQuerySQLArgWithoutBindArgs returns the first positional SQL
+// argument of a SimpleSQLiteQuery call ONLY when the call has no
+// bind-args (no second positional argument). Receiver-typing has already
+// been validated by the caller via evidence.ResolveCalleeFQN.
+func roomRawQuerySQLArgWithoutBindArgs(file *scanner.File, call uint32) uint32 {
+	if file == nil || call == 0 {
+		return 0
+	}
+	_, args := flatCallExpressionParts(file, call)
+	if args == 0 || flatPositionalValueArgument(file, args, 1) != 0 {
+		return 0
+	}
+	first := flatPositionalValueArgument(file, args, 0)
+	return flatValueArgumentExpression(file, first)
+}
+
+// processBuilderShellScriptArgument returns the third argument of a
+// ProcessBuilder constructor call when the first two arguments form a
+// shell + "-c" pair (e.g. ("sh", "-c", "<script>")). Receiver-typing
+// is validated by the caller via evidence.ResolveCalleeFQN — this
+// helper assumes the call has already been confirmed to construct
+// java.lang.ProcessBuilder.
+func processBuilderShellScriptArgument(file *scanner.File, idx uint32) uint32 {
+	args := processBuilderArgumentExpressions(file, idx)
+	if len(args) == 1 && file.FlatType(args[0]) == "call_expression" {
+		name := flatCallExpressionName(file, args[0])
+		if name == "listOf" || name == "arrayOf" {
+			args = processBuilderArgumentExpressions(file, args[0])
+		}
+	}
+	if len(args) < 3 {
+		return 0
+	}
+	if !processBuilderLiteralIsShell(file, args[0]) || processBuilderLiteral(file, args[1]) != "-c" {
+		return 0
+	}
+	return args[2]
+}
+
+func processBuilderArgumentExpressions(file *scanner.File, idx uint32) []uint32 {
+	switch file.FlatType(idx) {
+	case "call_expression":
+		_, args := flatCallExpressionParts(file, idx)
+		if args == 0 {
+			return nil
+		}
+		var out []uint32
+		for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+			if file.FlatType(arg) != "value_argument" || flatHasValueArgumentLabel(file, arg) {
+				continue
+			}
+			if expr := flatValueArgumentExpression(file, arg); expr != 0 {
+				out = append(out, expr)
+			}
+		}
+		return out
+	case "object_creation_expression":
+		args, ok := file.FlatFindChild(idx, "argument_list")
+		if !ok {
+			return nil
+		}
+		var out []uint32
+		for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+			if file.FlatIsNamed(arg) {
+				out = append(out, arg)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func processBuilderLiteralIsShell(file *scanner.File, idx uint32) bool {
+	switch processBuilderLiteral(file, idx) {
+	case "sh", "bash", "zsh", "/bin/sh", "/bin/bash", "/bin/zsh":
+		return true
+	default:
+		return false
+	}
+}
+
+func processBuilderLiteral(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 {
+		return ""
+	}
+	idx = flatUnwrapParenExpr(file, idx)
+	if file.FlatType(idx) != "string_literal" || flatContainsStringInterpolation(file, idx) {
+		return ""
+	}
+	return stringLiteralContent(file, idx)
+}
+
+func logPiiEffectivePattern(r *LogPiiRule) *regexp.Regexp {
+	if r != nil && r.PiiNamePattern != nil {
+		return r.PiiNamePattern
+	}
+	return defaultLogPiiNamePattern
+}
+
+var androidLogMethods = map[string]bool{"v": true, "d": true, "i": true, "w": true, "e": true, "wtf": true}
+
+func logPiiIsLoggerCall(file *scanner.File, call uint32) bool {
+	name := javaAwareCallName(file, call)
+	if name == "println" {
+		return true
+	}
+	text := file.FlatNodeText(call)
+	receiver := databaseCallReceiverName(file, call)
+	if androidLogMethods[name] {
+		if receiver == "Log" || strings.HasSuffix(receiver, ".Log") {
+			return !logPiiHasLocalType(file, "Log")
+		}
+		if receiver == "Timber" || strings.Contains(text, "Timber.") {
+			return !logPiiHasLocalType(file, "Timber")
+		}
+	}
+	if loggerLevelMethods[name] {
+		if file.FlatType(call) == "call_expression" {
+			return receiverIsKnownLoggerFlat(file, call, receiver)
+		}
+		return receiver == "logger" || receiver == "log" || receiver == "LOG" || receiver == "LOGGER" ||
+			strings.Contains(strings.ToLower(receiver), "logger")
+	}
+	return false
+}
+
+func logPiiHasLocalType(file *scanner.File, name string) bool {
+	found := false
+	for _, nodeType := range []string{"class_declaration", "object_declaration", "interface_declaration"} {
+		file.FlatWalkNodes(0, nodeType, func(idx uint32) {
+			if found {
+				return
+			}
+			if extractIdentifierFlat(file, idx) == name {
+				found = true
+			}
+		})
+	}
+	return found
+}
+
+func logPiiSensitiveArgument(file *scanner.File, call uint32, pattern *regexp.Regexp) uint32 {
+	for _, arg := range logPiiArgumentExpressions(file, call) {
+		if logPiiExpressionMentionsSensitiveIdentifier(file, arg, pattern) {
+			return arg
+		}
+	}
+	return 0
+}
+
+func logPiiArgumentExpressions(file *scanner.File, call uint32) []uint32 {
+	switch file.FlatType(call) {
+	case "call_expression":
+		_, args := flatCallExpressionParts(file, call)
+		if args == 0 {
+			return nil
+		}
+		var out []uint32
+		for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+			if file.FlatType(arg) != "value_argument" {
+				continue
+			}
+			if expr := flatValueArgumentExpression(file, arg); expr != 0 {
+				out = append(out, expr)
+			}
+		}
+		return out
+	case "method_invocation":
+		args, ok := file.FlatFindChild(call, "argument_list")
+		if !ok {
+			return nil
+		}
+		var out []uint32
+		for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+			if file.FlatIsNamed(arg) {
+				out = append(out, arg)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+var logPiiInterpolationNamePattern = regexp.MustCompile(`\$\{?\s*([A-Za-z_][A-Za-z0-9_]*)`)
+
+func logPiiExpressionMentionsSensitiveIdentifier(file *scanner.File, expr uint32, pattern *regexp.Regexp) bool {
+	if file == nil || expr == 0 || pattern == nil {
+		return false
+	}
+	text := file.FlatNodeText(expr)
+	if flatContainsStringInterpolation(file, expr) {
+		for _, match := range logPiiInterpolationNamePattern.FindAllStringSubmatch(text, -1) {
+			if len(match) > 1 && pattern.MatchString(match[1]) {
+				return true
+			}
+		}
+	}
+	if len(splitSQLConcatOperands(text)) > 1 {
+		return logPiiConcatMentionsSensitiveIdentifier(file, expr, pattern)
+	}
+	return false
+}
+
+func logPiiConcatMentionsSensitiveIdentifier(file *scanner.File, expr uint32, pattern *regexp.Regexp) bool {
+	found := false
+	file.FlatWalkAllNodes(expr, func(idx uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(idx) {
+		case "simple_identifier", "identifier":
+			name := file.FlatNodeText(idx)
+			if pattern.MatchString(name) {
+				found = true
+			}
+		}
+	})
+	return found
+}
+
+var jdbcStatementExecuteMethods = map[string]bool{
+	"execute":            true,
+	"executeQuery":       true,
+	"executeUpdate":      true,
+	"executeLargeUpdate": true,
+}
+
+// jdbcStatementMethodName returns the method name of a call_expression /
+// method_invocation, or "" if the node is neither.
+func jdbcStatementMethodName(file *scanner.File, call uint32) string {
+	switch file.FlatType(call) {
+	case "call_expression":
+		return flatCallExpressionName(file, call)
+	case "method_invocation":
+		return javaMethodInvocationName(file, call)
+	}
+	return ""
+}
+
+// jdbcStatementSQLArgumentExpr returns the first SQL argument expression
+// of a JDBC execute*() call. Receiver-typing has already been validated
+// by the caller — this is purely positional argument extraction.
+func jdbcStatementSQLArgumentExpr(file *scanner.File, call uint32) uint32 {
+	switch file.FlatType(call) {
+	case "call_expression":
+		_, args := flatCallExpressionParts(file, call)
+		return flatValueArgumentExpression(file, flatPositionalValueArgument(file, args, 0))
+	case "method_invocation":
+		args, ok := file.FlatFindChild(call, "argument_list")
+		if !ok || file.FlatNamedChildCount(args) == 0 {
+			return 0
+		}
+		return file.FlatNamedChild(args, 0)
+	}
+	return 0
+}
+
+// jdbcReceiverIsStatement reports whether the call's receiver is provably
+// a java.sql.Statement. Two cases:
+//
+//  1. Chained: connection.createStatement().execute(...) — call.ReceiverIdx
+//     points to the inner call_expression / method_invocation. We confirm
+//     the inner callee is `createStatement` and that its receiver resolves
+//     to java.sql.Connection.
+//  2. Named receiver: stmt.execute(...) — try ResolveOwner first (covers
+//     Java explicit `Statement stmt = ...` and any future case where the
+//     resolver knows the local's type). Fall back to an AST trace of the
+//     property/local initializer for Kotlin's `val stmt = conn.createStatement()`,
+//     which the in-process resolver cannot infer because Connection's
+//     return types are not stdlib facts.
+func jdbcReceiverIsStatement(file *scanner.File, ev *evidence.Evidence, call *evidence.Call) bool {
+	if call == nil {
+		return false
+	}
+	if call.ReceiverIdx != 0 {
+		switch file.FlatType(call.ReceiverIdx) {
+		case "call_expression", "method_invocation":
+			return jdbcCallProducesStatement(ev, call.ReceiverIdx)
+		}
+	}
+	if call.Receiver == "" || strings.Contains(call.Receiver, ".") {
+		return false
+	}
+	if fqn, src := ev.ResolveOwner(call); src != evidence.OwnerUnknown && fqn == "java.sql.Statement" {
+		return true
+	}
+	return jdbcReceiverBoundToCreateStatement(file, ev, call.Idx, call.Receiver)
+}
+
+// jdbcCallProducesStatement reports whether callIdx is a call to
+// `createStatement()` on a java.sql.Connection — the only Connection
+// method whose return type is exactly Statement (NOT PreparedStatement /
+// CallableStatement, which the rule deliberately ignores).
+func jdbcCallProducesStatement(ev *evidence.Evidence, callIdx uint32) bool {
+	inner := ev.Call(callIdx)
+	if inner == nil || inner.Callee != "createStatement" {
+		return false
+	}
+	fqn, src := ev.ResolveOwner(inner)
+	return src != evidence.OwnerUnknown && fqn == "java.sql.Connection"
+}
+
+// jdbcReceiverBoundToCreateStatement walks the enclosing callable for a
+// property/local declaration of `receiver` whose initializer is a
+// connection.createStatement() call. Used for the Kotlin val-stmt case
+// where the source resolver cannot infer the local's type from a non-
+// stdlib return.
+func jdbcReceiverBoundToCreateStatement(file *scanner.File, ev *evidence.Evidence, callIdx uint32, receiver string) bool {
+	fn, ok := flatEnclosingCallable(file, callIdx)
+	if !ok {
+		return false
+	}
+	targetRow := file.FlatRow(callIdx)
+	found := false
+	for _, nodeType := range []string{"property_declaration", "local_variable_declaration"} {
+		file.FlatWalkNodes(fn, nodeType, func(decl uint32) {
+			if found || file.FlatRow(decl) > targetRow {
+				return
+			}
+			if !jdbcDeclarationDeclaresName(file, decl, receiver) {
+				return
+			}
+			initCall := jdbcDeclarationInitializerCall(file, decl)
+			if initCall != 0 && jdbcCallProducesStatement(ev, initCall) {
+				found = true
+			}
+		})
+	}
+	return found
+}
+
+// jdbcDeclarationDeclaresName checks whether a property_declaration
+// (Kotlin) or local_variable_declaration (Java) declares `name`.
+func jdbcDeclarationDeclaresName(file *scanner.File, decl uint32, name string) bool {
+	if vd, ok := file.FlatFindChild(decl, "variable_declaration"); ok {
+		for c := file.FlatFirstChild(vd); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) == "simple_identifier" && file.FlatNodeText(c) == name {
+				return true
+			}
+		}
+	}
+	for c := file.FlatFirstChild(decl); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "variable_declarator" {
+			for vc := file.FlatFirstChild(c); vc != 0; vc = file.FlatNextSib(vc) {
+				if file.FlatType(vc) == "identifier" && file.FlatNodeText(vc) == name {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// jdbcDeclarationInitializerCall returns the flat node of the first
+// call_expression / method_invocation initializer of decl, or 0.
+func jdbcDeclarationInitializerCall(file *scanner.File, decl uint32) uint32 {
+	for c := file.FlatFirstChild(decl); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "call_expression", "method_invocation":
+			return c
+		case "variable_declarator":
+			for vc := file.FlatFirstChild(c); vc != 0; vc = file.FlatNextSib(vc) {
+				switch file.FlatType(vc) {
+				case "call_expression", "method_invocation":
+					return vc
+				}
+			}
+		}
+	}
+	return 0
+}
+
+var xxeFactoryReceivers = map[string]bool{
+	"DocumentBuilderFactory": true,
+	"SAXParserFactory":       true,
+	"XMLInputFactory":        true,
+	"TransformerFactory":     true,
+	"SchemaFactory":          true,
+}
+
+func xmlExternalEntityFactoryCall(file *scanner.File, call uint32) bool {
+	if file == nil || call == 0 || javaAwareCallName(file, call) != "newInstance" {
+		return false
+	}
+	receiver := databaseCallReceiverName(file, call)
+	if dot := strings.LastIndex(receiver, "."); dot >= 0 {
+		receiver = receiver[dot+1:]
+	}
+	if !xxeFactoryReceivers[receiver] {
+		return false
+	}
+	return sourceImportsOrMentions(file, receiver)
+}
+
+func xmlExternalEntityHasHardeningAfter(file *scanner.File, call uint32) bool {
+	scope, ok := flatEnclosingCallable(file, call)
+	if !ok {
+		return false
+	}
+	text := file.FlatNodeText(scope)
+	callText := file.FlatNodeText(call)
+	pos := strings.Index(text, callText)
+	if pos >= 0 {
+		text = text[pos+len(callText):]
+	}
+	if strings.Contains(text, `setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)`) ||
+		strings.Contains(text, `setFeature("http://xml.org/sax/features/external-general-entities", false)`) ||
+		strings.Contains(text, `setFeature("http://xml.org/sax/features/external-parameter-entities", false)`) ||
+		strings.Contains(text, `setProperty(XMLInputFactory.SUPPORT_DTD, false)`) ||
+		strings.Contains(text, `setProperty(javax.xml.stream.XMLInputFactory.SUPPORT_DTD, false)`) {
+		return true
+	}
+	return strings.Contains(text, "isXIncludeAware = false") &&
+		strings.Contains(text, "isExpandEntityReferences = false")
+}
+
+func javaObjectInputStreamConstructor(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || scanner.IsTestFile(file.Path) {
+		return false
+	}
+	if !sourceImportsOrMentions(file, "java.io.ObjectInputStream") {
+		return false
+	}
+	if javaObjectInputStreamDuplicateNestedCall(file, idx) {
+		return false
+	}
+	if javaObjectInputStreamSafeSubclassScope(file, idx) {
+		return false
+	}
+	return javaObjectInputStreamCallShape(file, idx)
+}
+
+func javaObjectInputStreamCallShape(file *scanner.File, idx uint32) bool {
+	compact := strings.Join(strings.Fields(file.FlatNodeText(idx)), "")
+	switch file.FlatType(idx) {
+	case "call_expression":
+		return flatCallExpressionName(file, idx) == "ObjectInputStream" ||
+			strings.Contains(compact, "java.io.ObjectInputStream(")
+	case "object_creation_expression":
+		return strings.Contains(compact, "newObjectInputStream(") ||
+			strings.Contains(compact, "newjava.io.ObjectInputStream(")
+	default:
+		return false
+	}
+}
+
+func javaObjectInputStreamDuplicateNestedCall(file *scanner.File, idx uint32) bool {
+	if file.FlatType(idx) != "call_expression" {
+		return false
+	}
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "call_expression":
+			return file.FlatRow(parent) == file.FlatRow(idx) &&
+				file.FlatCol(parent) == file.FlatCol(idx) &&
+				javaObjectInputStreamCallShape(file, parent)
+		case "function_declaration", "method_declaration", "class_declaration", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+func javaObjectInputStreamSafeSubclassScope(file *scanner.File, idx uint32) bool {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "class_declaration":
+			text := file.FlatNodeText(cur)
+			if strings.Contains(text, "ObjectInputStream") && strings.Contains(text, "resolveClass") {
+				return true
+			}
+			return false
+		case "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+func jacksonDefaultTypingCall(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	name := javaAwareCallName(file, idx)
+	if name != "enableDefaultTyping" && name != "activateDefaultTyping" {
+		return false
+	}
+	if !jacksonFileImportsDatabind(file) {
+		return false
+	}
+	return jacksonDefaultTypingReceiverLooksMapper(file, idx)
+}
+
+func jacksonFileImportsDatabind(file *scanner.File) bool {
+	if file == nil {
+		return false
+	}
+	text := string(file.Content)
+	return strings.Contains(text, "com.fasterxml.jackson.databind") ||
+		strings.Contains(text, "com.fasterxml.jackson.dataformat.xml.XmlMapper")
+}
+
+func jacksonDefaultTypingReceiverLooksMapper(file *scanner.File, idx uint32) bool {
+	text := strings.Join(strings.Fields(file.FlatNodeText(idx)), "")
+	if strings.Contains(text, "ObjectMapper().") ||
+		strings.Contains(text, "XmlMapper().") ||
+		strings.Contains(text, "JsonMapper.builder()") ||
+		strings.Contains(text, "newObjectMapper().") ||
+		strings.Contains(text, "newXmlMapper().") ||
+		strings.Contains(text, "newJsonMapper") ||
+		strings.Contains(text, "com.fasterxml.jackson.databind.ObjectMapper(") {
+		return true
+	}
+	receiver := databaseCallReceiverName(file, idx)
+	if receiver == "" {
+		return false
+	}
+	if strings.Contains(receiver, "ObjectMapper") || strings.Contains(receiver, "XmlMapper") || strings.Contains(receiver, "JsonMapper") {
+		return true
+	}
+	return receiverDeclaredFromCall(file, idx, "ObjectMapper") ||
+		receiverDeclaredFromCall(file, idx, "XmlMapper") ||
+		receiverDeclaredFromCall(file, idx, "JsonMapper") ||
+		jacksonReceiverDeclaredAsMapper(file, idx, receiver)
+}
+
+func jacksonReceiverDeclaredAsMapper(file *scanner.File, call uint32, receiver string) bool {
+	scope, ok := flatEnclosingCallable(file, call)
+	if !ok {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(scope, func(n uint32) {
+		if found || file.FlatStartByte(n) >= file.FlatStartByte(call) {
+			return
+		}
+		typ := file.FlatType(n)
+		if typ != "property_declaration" && typ != "variable_declaration" && typ != "local_variable_declaration" {
+			return
+		}
+		text := file.FlatNodeText(n)
+		if !strings.Contains(text, receiver) {
+			return
+		}
+		compact := strings.Join(strings.Fields(text), "")
+		if strings.Contains(compact, "ObjectMapper") || strings.Contains(compact, "XmlMapper") || strings.Contains(compact, "JsonMapper") {
+			found = true
+		}
+	})
+	return found
+}
+
+func gsonPolymorphicFromJSONCall(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 || javaAwareCallName(file, idx) != "fromJson" {
+		return false
+	}
+	if !gsonFileImportsGson(file) || !gsonFromJSONReceiverLooksGson(file, idx) {
+		return false
+	}
+	arg, ok := gsonFromJSONTypeArg(file, idx)
+	return ok && gsonFromJSONPolymorphicTypeArg(file.FlatNodeText(arg))
+}
+
+func gsonFileImportsGson(file *scanner.File) bool {
+	if file == nil {
+		return false
+	}
+	text := string(file.Content)
+	return strings.Contains(text, "com.google.gson.Gson") ||
+		strings.Contains(text, "com.google.gson.GsonBuilder") ||
+		strings.Contains(text, "com.google.gson.*")
+}
+
+func gsonFromJSONReceiverLooksGson(file *scanner.File, idx uint32) bool {
+	text := strings.Join(strings.Fields(file.FlatNodeText(idx)), "")
+	if strings.Contains(text, "com.google.gson.Gson(") ||
+		strings.Contains(text, "Gson().fromJson(") ||
+		strings.Contains(text, "newGson().fromJson(") ||
+		strings.Contains(text, "com.google.gson.GsonBuilder(") ||
+		strings.Contains(text, "GsonBuilder().create().fromJson(") ||
+		strings.Contains(text, "newGsonBuilder().create().fromJson(") {
+		return true
+	}
+	receiver := databaseCallReceiverName(file, idx)
+	if receiver == "" {
+		return false
+	}
+	if strings.Contains(receiver, "Gson") {
+		return true
+	}
+	if staticIvFileDeclaresType(file, "Gson") || staticIvFileDeclaresType(file, "GsonBuilder") {
+		return false
+	}
+	return receiverDeclaredFromCall(file, idx, "Gson") ||
+		receiverDeclaredFromCall(file, idx, "GsonBuilder") ||
+		gsonReceiverDeclaredAsGson(file, idx, receiver)
+}
+
+func gsonReceiverDeclaredAsGson(file *scanner.File, call uint32, receiver string) bool {
+	scope, ok := flatEnclosingCallable(file, call)
+	if !ok {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(scope, func(n uint32) {
+		if found || file.FlatStartByte(n) >= file.FlatStartByte(call) {
+			return
+		}
+		typ := file.FlatType(n)
+		if typ != "property_declaration" && typ != "variable_declaration" && typ != "local_variable_declaration" {
+			return
+		}
+		text := file.FlatNodeText(n)
+		if !strings.Contains(text, receiver) {
+			return
+		}
+		compact := strings.Join(strings.Fields(text), "")
+		if strings.Contains(compact, "Gson()") || strings.Contains(compact, "newGson()") ||
+			strings.Contains(compact, "GsonBuilder().create()") || strings.Contains(compact, "newGsonBuilder().create()") ||
+			strings.Contains(compact, "Gson"+receiver+"=") || strings.Contains(compact, "Gson"+receiver+";") {
+			found = true
+		}
+	})
+	return found
+}
+
+func gsonFromJSONTypeArg(file *scanner.File, idx uint32) (uint32, bool) {
+	switch file.FlatType(idx) {
+	case "call_expression":
+		_, args := flatCallExpressionParts(file, idx)
+		arg := flatPositionalValueArgument(file, args, 1)
+		if arg == 0 {
+			return 0, false
+		}
+		expr := flatValueArgumentExpression(file, arg)
+		return expr, expr != 0
+	case "method_invocation":
+		args, ok := file.FlatFindChild(idx, "argument_list")
+		if !ok || file.FlatNamedChildCount(args) < 2 {
+			return 0, false
+		}
+		return file.FlatNamedChild(args, 1), true
+	default:
+		return 0, false
+	}
+}
+
+func gsonFromJSONPolymorphicTypeArg(text string) bool {
+	compact := strings.Join(strings.Fields(text), "")
+	switch compact {
+	case "Any::class.java", "kotlin.Any::class.java", "Object::class.java", "java.lang.Object::class.java",
+		"Any::class", "kotlin.Any::class", "Object::class", "java.lang.Object::class",
+		"Object.class", "java.lang.Object.class":
+		return true
+	default:
+		return false
+	}
+}
+
+// HardcodedBearerTokenRule detects bearer authorization strings that embed a
+// long token literal directly in source.
+type HardcodedBearerTokenRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// HardcodedGcpServiceAccountRule detects embedded GCP service-account JSON and
+// private keys committed into source files.
+type HardcodedGcpServiceAccountRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Security rule. Detection pattern-matches known-insecure API shapes and
+// argument literals without confirming the receiver type. Classified per
+// roadmap/17.
+func (r *HardcodedGcpServiceAccountRule) Confidence() float64 { return 0.75 }
+
+// Confidence reports a tier-2 (medium) base confidence. Security rule. Detection pattern-matches known-insecure API shapes and
+// argument literals without confirming the receiver type. Classified per
+// roadmap/17.
+func (r *HardcodedBearerTokenRule) Confidence() float64 { return 0.75 }
+
+func extractHardcodedBearerToken(text string) (string, bool) {
+	body, ok := kotlinStringLiteralBody(text)
+	if !ok || !strings.HasPrefix(body, "Bearer ") {
+		return "", false
+	}
+
+	rest := strings.TrimSpace(strings.TrimPrefix(body, "Bearer "))
+	if rest == "" {
+		return "", false
+	}
+
+	var token string
+	switch {
+	case strings.HasPrefix(rest, "${") && strings.HasSuffix(rest, "}"):
+		inner := strings.TrimSpace(rest[2 : len(rest)-1])
+		var literal bool
+		token, literal = kotlinStringLiteralBody(inner)
+		if !literal {
+			return "", false
+		}
+	case strings.Contains(rest, "${") || strings.Contains(rest, "$"):
+		return "", false
+	case strings.ContainsAny(rest, " \t\r\n"):
+		return "", false
+	default:
+		token = rest
+	}
+
+	if !looksLikeHardcodedBearerToken(token) {
+		return "", false
+	}
+
+	return token, true
+}
+
+func kotlinStringLiteralBody(text string) (string, bool) {
+	text = strings.TrimSpace(text)
+	switch {
+	case len(text) >= 6 && strings.HasPrefix(text, `"""`) && strings.HasSuffix(text, `"""`):
+		return text[3 : len(text)-3], true
+	case len(text) >= 2 && strings.HasPrefix(text, `"`) && strings.HasSuffix(text, `"`):
+		unquoted, err := strconv.Unquote(text)
+		if err == nil {
+			return unquoted, true
+		}
+		return text[1 : len(text)-1], true
+	default:
+		return "", false
+	}
+}
+
+func looksLikeHardcodedBearerToken(token string) bool {
+	token = strings.TrimSpace(token)
+	if len(token) < 16 {
+		return false
+	}
+	return !secretLooksLikePlaceholder(token)
+}
+
+func looksLikeHardcodedGcpServiceAccount(body string) bool {
+	trimmed := strings.TrimSpace(body)
+	return strings.Contains(body, `"type": "service_account"`) ||
+		strings.HasPrefix(trimmed, "-----BEGIN PRIVATE KEY-----")
+}
+
+// FileFromUntrustedPathRule detects File(parent, child) construction inside
+// extract/upload/download-style functions where child is either a literal with
+// parent traversal (`..`) or a non-literal path segment without an obvious
+// canonical-path containment check.
+type FileFromUntrustedPathRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// TempFileWorldReadableRule detects setReadable/setWritable/setExecutable(true,
+// false) on a File that came from File.createTempFile or
+// Files.createTempFile, which makes the temporary file world-accessible.
+type TempFileWorldReadableRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *TempFileWorldReadableRule) Confidence() float64 { return 0.75 }
+
+var tempFilePermissionSetterNames = map[string]bool{
+	"setReadable":   true,
+	"setWritable":   true,
+	"setExecutable": true,
+}
+
+func tempFileSetterAndReceiver(file *scanner.File, call uint32) (string, uint32, bool) {
+	switch file.FlatType(call) {
+	case "call_expression":
+		if !tempFilePermissionSetterNames[flatCallExpressionName(file, call)] {
+			return "", 0, false
+		}
+		_, args := flatCallExpressionParts(file, call)
+		if args == 0 {
+			return "", 0, false
+		}
+		receiver := flatReceiverNameFromCall(file, call)
+		if receiver == "" {
+			return "", 0, false
+		}
+		return receiver, args, true
+	case "method_invocation":
+		if !tempFilePermissionSetterNames[javaMethodInvocationName(file, call)] {
+			return "", 0, false
+		}
+		args, ok := file.FlatFindChild(call, "argument_list")
+		if !ok {
+			return "", 0, false
+		}
+		receiver := javaMethodReceiverText(file, call)
+		// Only accept a bare identifier receiver — chained receivers like
+		// File.createTempFile(...).setReadable(...) wouldn't have a binding
+		// to look up anyway, and we'd risk matching unrelated setReadable.
+		if receiver == "" || strings.Contains(receiver, ".") {
+			return "", 0, false
+		}
+		return receiver, args, true
+	}
+	return "", 0, false
+}
+
+func tempFileSetterArgIsLiteral(file *scanner.File, args uint32, index int, want string) bool {
+	if args == 0 {
+		return false
+	}
+	switch file.FlatType(args) {
+	case "value_arguments":
+		arg := flatPositionalValueArgument(file, args, index)
+		if arg == 0 {
+			return false
+		}
+		inner := arg
+		if c := file.FlatNamedChild(arg, 0); c != 0 {
+			inner = c
+		}
+		inner = flatUnwrapParenExpr(file, inner)
+		return strings.TrimSpace(file.FlatNodeText(inner)) == want
+	case "argument_list":
+		var current int
+		for child := file.FlatFirstChild(args); child != 0; child = file.FlatNextSib(child) {
+			if !file.FlatIsNamed(child) {
+				continue
+			}
+			if current == index {
+				return strings.TrimSpace(file.FlatNodeText(child)) == want
+			}
+			current++
+		}
+	}
+	return false
+}
+
+func receiverBoundToCreateTempFile(file *scanner.File, call uint32, receiver string) bool {
+	fn, ok := flatEnclosingCallable(file, call)
+	if !ok {
+		return false
+	}
+	targetRow := file.FlatRow(call)
+	declType, identExtractor := "", (func(uint32) string)(nil)
+	switch file.FlatType(fn) {
+	case "function_declaration":
+		declType = "property_declaration"
+		identExtractor = func(decl uint32) string { return propertyDeclarationName(file, decl) }
+	case "method_declaration":
+		declType = "local_variable_declaration"
+		identExtractor = func(decl uint32) string { return javaLocalDeclaratorName(file, decl) }
+	default:
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(fn, declType, func(decl uint32) {
+		if found || file.FlatRow(decl) > targetRow {
+			return
+		}
+		if identExtractor(decl) != receiver {
+			return
+		}
+		if expressionContainsCreateTempFileCall(file, decl) {
+			found = true
+		}
+	})
+	return found
+}
+
+func javaLocalDeclaratorName(file *scanner.File, decl uint32) string {
+	for child := file.FlatFirstChild(decl); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "variable_declarator" {
+			continue
+		}
+		if ident, ok := file.FlatFindChild(child, "identifier"); ok {
+			return file.FlatNodeText(ident)
+		}
+	}
+	return ""
+}
+
+func expressionContainsCreateTempFileCall(file *scanner.File, root uint32) bool {
+	if root == 0 {
+		return false
+	}
+	for _, nodeType := range [2]string{"call_expression", "method_invocation"} {
+		found := false
+		file.FlatWalkNodes(root, nodeType, func(call uint32) {
+			if found {
+				return
+			}
+			if isCreateTempFileCall(file, call) {
+				found = true
+			}
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+func isCreateTempFileCall(file *scanner.File, call uint32) bool {
+	switch file.FlatType(call) {
+	case "call_expression":
+		if flatCallExpressionName(file, call) != "createTempFile" {
+			return false
+		}
+		receiver := flatReceiverNameFromCall(file, call)
+		return receiver == "File" || receiver == "Files"
+	case "method_invocation":
+		if javaMethodInvocationName(file, call) != "createTempFile" {
+			return false
+		}
+		receiver := javaMethodReceiverText(file, call)
+		return receiver == "File" || receiver == "Files"
+	}
+	return false
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Security rule. Detection pattern-matches known-insecure API shapes and
+// argument literals without confirming the receiver type. Classified per
+// roadmap/17.
+func (r *FileFromUntrustedPathRule) Confidence() float64 { return 0.75 }
+
+// ZipSlipUncheckedRule detects classic Zip-slip vulnerabilities where a zip
+// extraction loop builds a destination File from a zip entry name without a
+// subsequent canonical-path containment check.
+type ZipSlipUncheckedRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Security rule. Detection pattern-matches known-insecure API shapes and
+// argument literals without confirming the receiver type. Classified per
+// roadmap/17.
+func (r *ZipSlipUncheckedRule) Confidence() float64 { return 0.75 }
+
+var zipSlipAPIMarkers = []string{
+	"ZipInputStream",
+	"ZipFile",
+	"JarFile",
+	"JarInputStream",
+	"ZipEntry",
+}
+
+func zipSlipChildArgIsEntryName(text string) bool {
+	text = strings.TrimSpace(text)
+	if idx := strings.Index(text, "="); idx >= 0 {
+		text = strings.TrimSpace(text[idx+1:])
+	}
+	return strings.HasSuffix(text, ".name")
+}
+
+func zipSlipFunctionMentionsZipAPI(file *scanner.File, fn uint32) bool {
+	text := file.FlatNodeText(fn)
+	for _, marker := range zipSlipAPIMarkers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func zipSlipFunctionHasGuard(file *scanner.File, fn uint32) bool {
+	text := file.FlatNodeText(fn)
+	if strings.Contains(text, "canonicalPath.startsWith(") {
+		return true
+	}
+	if strings.Contains(text, ".normalize()") && strings.Contains(text, ".startsWith(") {
+		return true
+	}
+	if strings.Contains(text, ".toRealPath(") && strings.Contains(text, ".startsWith(") {
+		return true
+	}
+	return false
+}
+
+func zipSlipInsideExtractionLoop(file *scanner.File, idx uint32) bool {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "while_statement", "for_statement", "do_while_statement":
+			return true
+		case "lambda_literal":
+			if call, found := flatEnclosingAncestor(file, cur, "call_expression"); found {
+				switch flatCallExpressionName(file, call) {
+				case "use", "forEach", "forEachIndexed", "onEach":
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func isRiskyFileFromPathFunction(name string) bool {
+	for _, fragment := range []string{"upload", "extract", "unzip", "download"} {
+		if strings.Contains(name, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func valueArgumentExpressionTextFlat(file *scanner.File, arg uint32) string {
+	text := strings.TrimSpace(file.FlatNodeText(arg))
+	if idx := strings.Index(text, "="); idx >= 0 {
+		return strings.TrimSpace(text[idx+1:])
+	}
+	return text
+}
+
+func isStringLiteralExpr(text string) bool {
+	return strings.HasPrefix(text, "\"") || strings.HasPrefix(text, "\"\"\"")
+}
+
+func hasCanonicalPathContainmentGuardFlat(file *scanner.File, fn uint32, parentExpr string) bool {
+	if file == nil || parentExpr == "" {
+		return false
+	}
+	fnText := file.FlatNodeText(fn)
+	return strings.Contains(fnText, ".canonicalPath.startsWith(") &&
+		strings.Contains(fnText, parentExpr+".canonicalPath") &&
+		strings.Contains(fnText, "File.separator")
+}

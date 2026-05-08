@@ -1,0 +1,31 @@
+package fixtures.positive.style
+
+fun checkName(name: String?) {
+    if (name.isNullOrEmpty()) {
+        println("missing name")
+    }
+}
+
+fun checkScores(scores: List<Int>?) {
+    if (scores.isNullOrEmpty()) {
+        println("missing scores")
+    }
+}
+
+fun checkIds(ids: List<Int>?) {
+    if (ids.isNullOrEmpty()) {
+        println("missing ids")
+    }
+}
+
+fun checkLabel(label: String?) {
+    if (label.isNullOrEmpty()) {
+        println("missing label")
+    }
+}
+
+fun checkToken(token: String?) {
+    if (token.isNullOrEmpty()) {
+        println("missing token")
+    }
+}

@@ -1,0 +1,7 @@
+package style
+
+fun computeValue()
+    = 42
+
+fun anotherFun(): Int
+    = 100

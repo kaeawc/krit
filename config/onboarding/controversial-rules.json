@@ -1,0 +1,316 @@
+{
+  "schemaVersion": 1,
+  "description": "Controversial rule questionnaire consumed by the gum onboarding script and the bubbletea TUI. Each question maps to one or more rules and a per-profile default answer. Parent questions cascade to children via the cascade_from field; when a parent is answered, cascaded children are skipped in the user-facing flow and their answers are derived from the parent.",
+  "questions": [
+    {
+      "id": "strict-null-safety",
+      "question": "Enforce strict null safety?",
+      "rationale": "Bans the !! operator and flags every unsafe cast. Chooses a hard stance on nullability at the cost of some idiomatic patterns like requireNotNull()!! chains.",
+      "rules": [],
+      "cascade_from": null,
+      "cascades_to": ["allow-bang-operator", "flag-unsafe-cast"],
+      "defaults": {
+        "strict": true,
+        "balanced": false,
+        "relaxed": false,
+        "detekt-compat": false
+      },
+      "positive_fixture": null,
+      "negative_fixture": null,
+      "kind": "parent"
+    },
+    {
+      "id": "allow-bang-operator",
+      "question": "Allow the !! (not-null assertion) operator?",
+      "rationale": "!! throws NPE on null. Some teams ban it entirely; others consider it idiomatic for known-nonnull patterns.",
+      "rules": [
+        "UnsafeCallOnNullableType",
+        "MapGetWithNotNullAssertionOperator"
+      ],
+      "cascade_from": "strict-null-safety",
+      "cascades_to": [],
+      "defaults": {
+        "strict": false,
+        "balanced": true,
+        "relaxed": true,
+        "detekt-compat": true
+      },
+      "positive_fixture": "tests/fixtures/positive/potential-bugs/UnsafeCallOnNullableType.kt",
+      "negative_fixture": "tests/fixtures/negative/potential-bugs/UnsafeCallOnNullableType.kt",
+      "kind": "rule"
+    },
+    {
+      "id": "flag-unsafe-cast",
+      "question": "Flag unsafe casts (as T)?",
+      "rationale": "`as T` throws ClassCastException on mismatch. Teams that prefer `as?` + explicit null handling want this flagged.",
+      "rules": [
+        "UnsafeCast",
+        "CastNullableToNonNullableType"
+      ],
+      "cascade_from": "strict-null-safety",
+      "cascades_to": [],
+      "defaults": {
+        "strict": true,
+        "balanced": true,
+        "relaxed": false,
+        "detekt-compat": true
+      },
+      "positive_fixture": "tests/fixtures/positive/potential-bugs/UnsafeCast.kt",
+      "negative_fixture": "tests/fixtures/negative/potential-bugs/UnsafeCast.kt",
+      "kind": "rule"
+    },
+    {
+      "id": "flag-magic-numbers",
+      "question": "Flag magic numbers?",
+      "rationale": "MagicNumber is the highest-volume style rule in most codebases. Teams that heavily use Compose / resource IDs / scaling factors often find this churn rather than signal.",
+      "rules": [
+        "MagicNumber"
+      ],
+      "cascade_from": null,
+      "cascades_to": [],
+      "defaults": {
+        "strict": true,
+        "balanced": true,
+        "relaxed": false,
+        "detekt-compat": true
+      },
+      "positive_fixture": "tests/fixtures/positive/style/MagicNumber.kt",
+      "negative_fixture": "tests/fixtures/negative/style/MagicNumber.kt",
+      "kind": "rule"
+    },
+    {
+      "id": "forbidden-comments",
+      "question": "Flag TODO / FIXME / STOPSHIP comments?",
+      "rationale": "Some teams treat TODOs as tickets-in-code and want CI to fail on them. Others use them as permanent documentation of known limitations.",
+      "rules": [
+        "ForbiddenComment"
+      ],
+      "cascade_from": null,
+      "cascades_to": [],
+      "defaults": {
+        "strict": true,
+        "balanced": true,
+        "relaxed": false,
+        "detekt-compat": true
+      },
+      "positive_fixture": "tests/fixtures/positive/style/ForbiddenComment.kt",
+      "negative_fixture": "tests/fixtures/negative/style/ForbiddenComment.kt",
+      "kind": "rule"
+    },
+    {
+      "id": "flag-wildcard-imports",
+      "question": "Flag wildcard imports (import foo.*)?",
+      "rationale": "Wildcard imports hide what the file actually depends on. IntelliJ auto-collapses imports beyond a threshold, so large files can end up with wildcards even when the team wants explicit imports.",
+      "rules": [
+        "WildcardImport"
+      ],
+      "cascade_from": null,
+      "cascades_to": [],
+      "defaults": {
+        "strict": true,
+        "balanced": true,
+        "relaxed": false,
+        "detekt-compat": true
+      },
+      "positive_fixture": "tests/fixtures/positive/style/WildcardImport.kt",
+      "negative_fixture": "tests/fixtures/negative/style/WildcardImport.kt",
+      "kind": "rule"
+    },
+    {
+      "id": "flag-unused-parameters",
+      "question": "Flag unused parameters and private properties?",
+      "rationale": "Helps find dead code. Noisy on interface implementations and Compose preview parameters — the rule respects `ignored|expected` naming but still fires on other unused params.",
+      "rules": [
+        "UnusedParameter",
+        "UnusedPrivateProperty"
+      ],
+      "cascade_from": null,
+      "cascades_to": [],
+      "defaults": {
+        "strict": true,
+        "balanced": true,
+        "relaxed": false,
+        "detekt-compat": true
+      },
+      "positive_fixture": "tests/fixtures/positive/style/UnusedParameter.kt",
+      "negative_fixture": "tests/fixtures/negative/style/UnusedParameter.kt",
+      "kind": "rule"
+    },
+    {
+      "id": "flag-name-shadowing",
+      "question": "Flag variable name shadowing?",
+      "rationale": "Shadowing `val x` inside a `let { x -> ... }` block is legal but error-prone. Common in DSLs and builders, where teams may want it allowed.",
+      "rules": [
+        "NoNameShadowing"
+      ],
+      "cascade_from": null,
+      "cascades_to": [],
+      "defaults": {
+        "strict": true,
+        "balanced": true,
+        "relaxed": false,
+        "detekt-compat": true
+      },
+      "positive_fixture": "tests/fixtures/positive/naming/NoNameShadowing.kt",
+      "negative_fixture": "tests/fixtures/negative/naming/NoNameShadowing.kt",
+      "kind": "rule"
+    },
+    {
+      "id": "flag-spread-operator",
+      "question": "Flag the spread operator (*args)?",
+      "rationale": "The spread operator allocates a new array on every call. Hot paths prefer explicit varargs; tests prefer the convenience.",
+      "rules": [
+        "SpreadOperator"
+      ],
+      "cascade_from": null,
+      "cascades_to": [],
+      "defaults": {
+        "strict": true,
+        "balanced": true,
+        "relaxed": false,
+        "detekt-compat": true
+      },
+      "positive_fixture": "tests/fixtures/positive/performance/SpreadOperator.kt",
+      "negative_fixture": "tests/fixtures/negative/performance/SpreadOperator.kt",
+      "kind": "rule"
+    },
+    {
+      "id": "enforce-compose-stability",
+      "question": "Enforce Compose stability?",
+      "rationale": "Flag @Composable functions with unstable parameters (List, Map, Set without @Immutable). Catches unnecessary recomposition but requires kotlinx.collections.immutable to be adopted across the codebase first, otherwise every function fires.",
+      "rules": [],
+      "cascade_from": null,
+      "cascades_to": [
+        "flag-unstable-compose-params",
+        "flag-compose-lambda-captures",
+        "flag-compose-mutable-default"
+      ],
+      "defaults": {
+        "strict": true,
+        "balanced": false,
+        "relaxed": false,
+        "detekt-compat": false
+      },
+      "positive_fixture": null,
+      "negative_fixture": null,
+      "kind": "parent"
+    },
+    {
+      "id": "flag-unstable-compose-params",
+      "question": "Flag unstable @Composable parameters?",
+      "rationale": "Flags `List<T>` / `Map<K,V>` / `Set<T>` parameters that force recomposition. Use kotlinx.collections.immutable's `ImmutableList` etc. to fix.",
+      "rules": [
+        "ComposeUnstableParameter"
+      ],
+      "cascade_from": "enforce-compose-stability",
+      "cascades_to": [],
+      "defaults": {
+        "strict": true,
+        "balanced": false,
+        "relaxed": false,
+        "detekt-compat": false
+      },
+      "positive_fixture": "tests/fixtures/positive/compose/ComposeUnstableParameter.kt",
+      "negative_fixture": "tests/fixtures/negative/compose/ComposeUnstableParameter.kt",
+      "kind": "rule"
+    },
+    {
+      "id": "flag-compose-lambda-captures",
+      "question": "Flag lambdas capturing unstable state in composition?",
+      "rationale": "Lambdas that capture MutableState or unstable types cause recomposition. Usually paired with flag-unstable-compose-params as a set of Compose stability rules.",
+      "rules": [
+        "ComposeLambdaCapturesUnstableState"
+      ],
+      "cascade_from": "enforce-compose-stability",
+      "cascades_to": [],
+      "defaults": {
+        "strict": true,
+        "balanced": false,
+        "relaxed": false,
+        "detekt-compat": false
+      },
+      "positive_fixture": "tests/fixtures/positive/compose/ComposeLambdaCapturesUnstableState.kt",
+      "negative_fixture": "tests/fixtures/negative/compose/ComposeLambdaCapturesUnstableState.kt",
+      "kind": "rule"
+    },
+    {
+      "id": "flag-compose-mutable-default",
+      "question": "Flag mutable default arguments in @Composable functions?",
+      "rationale": "A mutable default like `list: MutableList<T> = mutableListOf()` is shared across all call sites and causes state leaks.",
+      "rules": [
+        "ComposeMutableDefaultArgument"
+      ],
+      "cascade_from": "enforce-compose-stability",
+      "cascades_to": [],
+      "defaults": {
+        "strict": true,
+        "balanced": false,
+        "relaxed": false,
+        "detekt-compat": false
+      },
+      "positive_fixture": "tests/fixtures/positive/compose/ComposeMutableDefaultArgument.kt",
+      "negative_fixture": "tests/fixtures/negative/compose/ComposeMutableDefaultArgument.kt",
+      "kind": "rule"
+    },
+    {
+      "id": "enforce-dispatcher-injection",
+      "question": "Enforce dispatcher injection?",
+      "rationale": "Require tests to override dispatchers via DI rather than hard-coding Dispatchers.IO / Default / Unconfined. Also bans GlobalScope usage. Essential for deterministic coroutine tests.",
+      "rules": [
+        "InjectDispatcher"
+      ],
+      "cascade_from": null,
+      "cascades_to": ["flag-global-scope"],
+      "defaults": {
+        "strict": true,
+        "balanced": true,
+        "relaxed": false,
+        "detekt-compat": false
+      },
+      "positive_fixture": "tests/fixtures/positive/coroutines/InjectDispatcher.kt",
+      "negative_fixture": "tests/fixtures/negative/coroutines/InjectDispatcher.kt",
+      "kind": "parent"
+    },
+    {
+      "id": "flag-global-scope",
+      "question": "Flag GlobalScope.launch / GlobalScope.async?",
+      "rationale": "GlobalScope coroutines escape structured concurrency and leak across test boundaries. Teams without a coroutine test harness may still use it.",
+      "rules": [
+        "GlobalCoroutineUsage"
+      ],
+      "cascade_from": "enforce-dispatcher-injection",
+      "cascades_to": [],
+      "defaults": {
+        "strict": true,
+        "balanced": false,
+        "relaxed": false,
+        "detekt-compat": false
+      },
+      "positive_fixture": "tests/fixtures/positive/coroutines/GlobalCoroutineUsage.kt",
+      "negative_fixture": "tests/fixtures/negative/coroutines/GlobalCoroutineUsage.kt",
+      "kind": "rule"
+    },
+    {
+      "id": "enforce-di-scope-hygiene",
+      "question": "Enforce DI scope hygiene (Anvil / Hilt)?",
+      "rationale": "Catches common DI mistakes: Anvil @ContributesBinding without a scope, @MergeComponent with an empty scope list, @Binds with mismatched arity, @EntryPoint on a non-interface.",
+      "rules": [
+        "AnvilContributesBindingWithoutScope",
+        "AnvilMergeComponentEmptyScope",
+        "BindsMismatchedArity",
+        "HiltEntryPointOnNonInterface"
+      ],
+      "cascade_from": null,
+      "cascades_to": [],
+      "defaults": {
+        "strict": true,
+        "balanced": true,
+        "relaxed": true,
+        "detekt-compat": false
+      },
+      "positive_fixture": "tests/fixtures/positive/di-hygiene/AnvilContributesBindingWithoutScope.kt",
+      "negative_fixture": "tests/fixtures/negative/di-hygiene/AnvilContributesBindingWithoutScope.kt",
+      "kind": "rule"
+    }
+  ]
+}

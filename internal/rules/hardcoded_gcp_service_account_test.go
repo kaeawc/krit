@@ -1,0 +1,136 @@
+package rules_test
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/kaeawc/krit/internal/rules"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+func runRuleByNameOnPath(t *testing.T, ruleName, filename, code string) []scanner.Finding {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), filename)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(code), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	file, err := scanner.ParseFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, r := range api.Registry {
+		if r.ID == ruleName {
+			d := rules.NewDispatcher([]*api.Rule{r})
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+
+	t.Fatalf("rule %q not found in registry", ruleName)
+	return nil
+}
+
+func TestHardcodedGcpServiceAccount_PositiveServiceAccountJSON(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedGcpServiceAccount", `
+package test
+
+val serviceAccount = """
+    {"type": "service_account", "project_id": "my-proj"}
+""".trimIndent()
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+func TestHardcodedGcpServiceAccount_PositivePrivateKey(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedGcpServiceAccount", `
+package test
+
+val privateKey = """
+    -----BEGIN PRIVATE KEY-----
+    abc123
+    -----END PRIVATE KEY-----
+""".trimIndent()
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+func TestHardcodedGcpServiceAccount_NegativeFileRead(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedGcpServiceAccount", `
+package test
+
+import java.io.File
+
+val serviceAccount = File("service-account.json").readText()
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %d", len(findings))
+	}
+}
+
+func TestHardcodedGcpServiceAccount_IgnoresPemAndJSONPaths(t *testing.T) {
+	cases := []string{"service-account.json", "private-key.pem"}
+	code := `
+package test
+
+val secret = """
+    {"type": "service_account", "project_id": "my-proj"}
+    -----BEGIN PRIVATE KEY-----
+""".trimIndent()
+`
+
+	for _, filename := range cases {
+		t.Run(filename, func(t *testing.T) {
+			findings := runRuleByNameOnPath(t, "HardcodedGcpServiceAccount", filename, code)
+			if len(findings) != 0 {
+				t.Fatalf("expected 0 findings for %s, got %d", filename, len(findings))
+			}
+		})
+	}
+}
+
+func TestHardcodedGcpServiceAccount_JavaFixtures(t *testing.T) {
+	root := fixtureRoot(t)
+
+	t.Run("positive service account JSON", func(t *testing.T) {
+		file := parseJavaFixture(t, filepath.Join(root, "positive", "security", "HardcodedGcpServiceAccount.java"))
+		findings := runRuleByNameOnFile(t, "HardcodedGcpServiceAccount", file)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 Java finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("negative file read", func(t *testing.T) {
+		file := parseJavaFixture(t, filepath.Join(root, "negative", "security", "HardcodedGcpServiceAccount.java"))
+		findings := runRuleByNameOnFile(t, "HardcodedGcpServiceAccount", file)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 Java findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("ignores Java JSON and PEM paths", func(t *testing.T) {
+		code := `package test;
+
+class Credentials {
+  static final String SECRET = "{\"type\": \"service_account\", \"project_id\": \"my-proj\"}";
+}
+`
+		for _, filename := range []string{"service-account.json", "private-key.pem"} {
+			findings := runRuleByNameOnJavaPath(t, "HardcodedGcpServiceAccount", filename, code)
+			if len(findings) != 0 {
+				t.Fatalf("expected 0 findings for %s, got %d", filename, len(findings))
+			}
+		}
+	})
+}

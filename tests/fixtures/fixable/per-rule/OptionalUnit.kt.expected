@@ -1,0 +1,15 @@
+package style
+
+fun doSomething() {
+    println("hello")
+}
+
+fun doOther() = println("world")
+
+fun returnUnit() {
+    return
+}
+
+fun returnUnitExplicitly() {
+    return
+}

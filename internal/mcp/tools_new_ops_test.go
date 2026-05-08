@@ -1,0 +1,324 @@
+package mcp
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+// TestRulesSearch verifies rules.search returns hits for a known concept.
+func TestRulesSearch(t *testing.T) {
+	args, _ := json.Marshal(rulesArgs{Operation: "search", Query: "magic"})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "rules", Arguments: args}),
+	})
+	if len(responses) != 1 {
+		t.Fatalf("expected 1 response, got %d", len(responses))
+	}
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].Text)
+	}
+	if !strings.Contains(result.Content[0].Text, "MagicNumber") {
+		t.Errorf("expected MagicNumber in search hits, got: %s", result.Content[0].Text)
+	}
+}
+
+// TestRulesSearchMissingQuery verifies search requires a query.
+func TestRulesSearchMissingQuery(t *testing.T) {
+	args, _ := json.Marshal(rulesArgs{Operation: "search"})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "rules", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected error for missing query")
+	}
+}
+
+// TestRulesCategories verifies categories returns at least one category with rule counts.
+func TestRulesCategories(t *testing.T) {
+	args, _ := json.Marshal(rulesArgs{Operation: "categories"})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "rules", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].Text)
+	}
+
+	var parsed struct {
+		Total      int `json:"total"`
+		Categories []struct {
+			Name      string `json:"name"`
+			RuleCount int    `json:"ruleCount"`
+		} `json:"categories"`
+	}
+	if err := json.Unmarshal([]byte(result.Content[0].Text), &parsed); err != nil {
+		t.Fatalf("unmarshal categories: %v", err)
+	}
+	if parsed.Total == 0 {
+		t.Error("expected non-zero total categories")
+	}
+	if len(parsed.Categories) == 0 {
+		t.Error("expected at least one category")
+	}
+	if parsed.Categories[0].RuleCount == 0 {
+		t.Error("expected non-zero rule count in first category")
+	}
+}
+
+// TestRulesConfigure verifies configure produces krit.yml YAML.
+func TestRulesConfigure(t *testing.T) {
+	active := false
+	args, _ := json.Marshal(rulesArgs{
+		Operation: "configure",
+		Rule:      "MagicNumber",
+		Active:    &active,
+		Severity:  "warning",
+	})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "rules", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].Text)
+	}
+	if !strings.Contains(result.Content[0].Text, "MagicNumber") {
+		t.Error("expected MagicNumber in configure output")
+	}
+	if !strings.Contains(result.Content[0].Text, "active: false") {
+		t.Error("expected 'active: false' in configure YAML")
+	}
+	if !strings.Contains(result.Content[0].Text, "severity: warning") {
+		t.Error("expected 'severity: warning' in configure YAML")
+	}
+}
+
+// TestFixSuppress verifies suppress emits an @Suppress annotation.
+func TestFixSuppress(t *testing.T) {
+	args, _ := json.Marshal(fixArgs{
+		Operation: "suppress",
+		Rule:      "MagicNumber",
+		Line:      42,
+	})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "fix", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].Text)
+	}
+	if !strings.Contains(result.Content[0].Text, `@Suppress(\"MagicNumber\")`) {
+		t.Errorf("expected @Suppress annotation, got: %s", result.Content[0].Text)
+	}
+}
+
+// TestFixSuppressFileScope verifies file-scope suppression emits @file:Suppress.
+func TestFixSuppressFileScope(t *testing.T) {
+	args, _ := json.Marshal(fixArgs{
+		Operation: "suppress",
+		Rule:      "MagicNumber",
+		Scope:     "file",
+	})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "fix", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].Text)
+	}
+	if !strings.Contains(result.Content[0].Text, `@file:Suppress(\"MagicNumber\")`) {
+		t.Errorf("expected @file:Suppress annotation, got: %s", result.Content[0].Text)
+	}
+}
+
+// TestFixSuppressUnknownRule verifies suppress rejects unknown rules.
+func TestFixSuppressUnknownRule(t *testing.T) {
+	args, _ := json.Marshal(fixArgs{
+		Operation: "suppress",
+		Rule:      "DoesNotExist",
+	})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "fix", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected error for unknown rule")
+	}
+}
+
+// TestSymbolsOutline verifies outline returns declarations.
+func TestSymbolsOutline(t *testing.T) {
+	code := `package com.example
+
+class Foo {
+    fun bar(): Int = 1
+    private val baz = "hello"
+}
+
+fun topLevel() {}
+`
+	args, _ := json.Marshal(symbolsArgs{Operation: "outline", Code: code, Path: "Foo.kt"})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "symbols", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].Text)
+	}
+
+	var parsed struct {
+		Total   int `json:"total"`
+		Symbols []struct {
+			Name string `json:"name"`
+			Kind string `json:"kind"`
+		} `json:"symbols"`
+	}
+	if err := json.Unmarshal([]byte(result.Content[0].Text), &parsed); err != nil {
+		t.Fatalf("unmarshal outline: %v", err)
+	}
+	if parsed.Total == 0 {
+		t.Errorf("expected at least one symbol declared, got none. raw: %s", result.Content[0].Text)
+	}
+	// We expect to see Foo (class) somewhere in the symbol list.
+	foundFoo := false
+	for _, sym := range parsed.Symbols {
+		if sym.Name == "Foo" {
+			foundFoo = true
+			break
+		}
+	}
+	if !foundFoo {
+		t.Errorf("expected to find 'Foo' in outline, got: %s", result.Content[0].Text)
+	}
+}
+
+// TestAnalyzeImpactBuffer verifies impact mode runs against a code buffer.
+func TestAnalyzeImpactBuffer(t *testing.T) {
+	code := "fun main() {   \n    val x = 1\n}\n" // trailing whitespace triggers a rule
+	args, _ := json.Marshal(analyzeArgs{Mode: "impact", Code: code})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "analyze", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].Text)
+	}
+
+	var parsed struct {
+		TotalFindings int `json:"totalFindings"`
+		Rules         []struct {
+			Rule          string `json:"rule"`
+			Findings      int    `json:"findings"`
+			FilesAffected int    `json:"filesAffected"`
+		} `json:"rules"`
+	}
+	if err := json.Unmarshal([]byte(result.Content[0].Text), &parsed); err != nil {
+		t.Fatalf("unmarshal impact: %v", err)
+	}
+	if parsed.TotalFindings == 0 {
+		t.Error("expected non-zero total findings")
+	}
+}
+
+// TestAnalyzeImpactRequiresInput verifies impact rejects empty input.
+func TestAnalyzeImpactRequiresInput(t *testing.T) {
+	args, _ := json.Marshal(analyzeArgs{Mode: "impact"})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "analyze", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected error when neither code nor paths provided to impact mode")
+	}
+}
+
+// TestAnalyzeUnknownMode verifies analyze rejects unknown modes.
+func TestAnalyzeUnknownMode(t *testing.T) {
+	args, _ := json.Marshal(analyzeArgs{Mode: "bogus", Code: "fun x() {}"})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "analyze", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected error for unknown mode")
+	}
+}

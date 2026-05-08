@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "kotlinVersion": "2.1.0",
+  "files": {},
+  "dependencies": {
+    "com.example.Color": {
+      "fqn": "com.example.Color",
+      "kind": "enum",
+      "supertypes": ["kotlin.Enum"],
+      "isSealed": false,
+      "isData": false,
+      "isOpen": false,
+      "isAbstract": false,
+      "visibility": "public",
+      "members": [
+        {"name": "RED", "kind": "enum_entry", "returnType": "", "nullable": false, "visibility": "public"},
+        {"name": "GREEN", "kind": "enum_entry", "returnType": "", "nullable": false, "visibility": "public"},
+        {"name": "BLUE", "kind": "enum_entry", "returnType": "", "nullable": false, "visibility": "public"}
+      ]
+    }
+  }
+}

@@ -1,0 +1,5 @@
+<resources>
+    <string name="html_msg"><![CDATA[Click <a href="https://example.com">here</a>]]></string>
+    <string name="entity_msg">Click &lt;a href="https://example.com"&gt;here&lt;/a&gt;</string>
+    <string name="plain_msg">Hello world</string>
+</resources>

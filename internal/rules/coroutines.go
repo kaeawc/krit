@@ -1,0 +1,1133 @@
+package rules
+
+import (
+	"path/filepath"
+	"strings"
+
+	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/module"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/rules/coroutines"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
+)
+
+// CollectInOnCreateWithoutLifecycleRule detects Flow.collect calls in lifecycle
+// callbacks that are not wrapped by repeatOnLifecycle.
+type CollectInOnCreateWithoutLifecycleRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+var lifecycleCollectCallbacks = map[string]bool{
+	"onCreate":      true,
+	"onStart":       true,
+	"onViewCreated": true,
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Coroutines rule. Detection matches kotlinx.coroutines call shapes via
+// name lists and structural patterns; project wrappers can escape or
+// collide. Classified per roadmap/17.
+func (r *CollectInOnCreateWithoutLifecycleRule) Confidence() float64 { return 0.75 }
+
+func hasAncestorCallNamedFlat(file *scanner.File, idx uint32, name string) bool {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		if file.FlatType(p) == "function_declaration" {
+			return false
+		}
+		if file.FlatType(p) != "call_expression" {
+			continue
+		}
+		if flatCallNameAny(file, p) == name {
+			return true
+		}
+	}
+	return false
+}
+
+// GlobalCoroutineUsageRule detects GlobalScope.launch/async and direct GlobalScope references.
+type GlobalCoroutineUsageRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Description implements DescriptionProvider.
+func (*GlobalCoroutineUsageRule) Description() string {
+	return "Flags use of GlobalScope for launching coroutines. Coroutines in GlobalScope are not tied to any lifecycle and can leak if not cancelled. Prefer a structured CoroutineScope."
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Coroutines rule. Detection matches kotlinx.coroutines call shapes via
+// name lists and structural patterns; project wrappers can escape or
+// collide. Classified per roadmap/17.
+func (r *GlobalCoroutineUsageRule) Confidence() float64 { return 0.75 }
+
+// InjectDispatcherRule detects hardcoded Dispatchers.IO/Default/Unconfined in call expressions.
+type InjectDispatcherRule struct {
+	FlatDispatchBase
+	BaseRule
+	DispatcherNames []string
+}
+
+// Confidence reports a tier-2 (medium) base confidence. The rule
+// flags any call that passes Dispatchers.IO/Default/Unconfined as an
+// argument, with exclusions for idiomatic dispatcher hosts (e.g.
+// withContext, flowOn), `Main` (which can't be injected), and
+// object/@JvmStatic enclosing functions. It does NOT understand DI
+// annotations — a class that already accepts `@Inject` would still
+// trip the rule if the test-injected default happens to be a
+// Dispatchers constant. Medium confidence reflects the DI-awareness
+// gap noted in roadmap/17.
+func (r *InjectDispatcherRule) Confidence() float64 { return 0.75 }
+
+func directCallArgumentsFlat(file *scanner.File, idx uint32) uint32 {
+	for i := 0; i < file.FlatNamedChildCount(idx); i++ {
+		child := file.FlatNamedChild(idx, i)
+		if child == 0 || file.FlatType(child) != "call_suffix" {
+			continue
+		}
+		for j := 0; j < file.FlatNamedChildCount(child); j++ {
+			gc := file.FlatNamedChild(child, j)
+			if gc != 0 && file.FlatType(gc) == "value_arguments" {
+				return gc
+			}
+		}
+	}
+	return 0
+}
+
+func injectDispatcherNames(names []string) map[string]bool {
+	if len(names) == 0 {
+		return map[string]bool{"IO": true, "Default": true, "Unconfined": true, "Main": true}
+	}
+	out := make(map[string]bool, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			out[name] = true
+		}
+	}
+	return out
+}
+
+func findDirectDispatcherArgumentFlat(file *scanner.File, args uint32, names map[string]bool) (uint32, string) {
+	for i := 0; i < file.FlatNamedChildCount(args); i++ {
+		arg := file.FlatNamedChild(args, i)
+		if arg == 0 || file.FlatType(arg) != "value_argument" || file.FlatNamedChildCount(arg) == 0 {
+			continue
+		}
+		value := file.FlatNamedChild(arg, 0)
+		if value == 0 || file.FlatType(value) != "navigation_expression" {
+			continue
+		}
+		receiver := ""
+		if file.FlatNamedChildCount(value) > 0 {
+			first := file.FlatNamedChild(value, 0)
+			if file.FlatType(first) == "simple_identifier" {
+				receiver = file.FlatNodeText(first)
+			}
+		}
+		member := flatNavigationExpressionLastIdentifier(file, value)
+		if receiver == "Dispatchers" && names[member] {
+			return value, member
+		}
+	}
+	return 0, ""
+}
+
+func injectDispatcherReferenceConfirmed(file *scanner.File, idx uint32) bool {
+	if file == nil || idx == 0 {
+		return false
+	}
+	segments := flatNavigationChainIdentifiers(file, idx)
+	if len(segments) != 2 || segments[0] != "Dispatchers" {
+		return false
+	}
+	if fileDeclaresIdentifierNamed(file, idx, "Dispatchers") {
+		return false
+	}
+	return fileImportsFQN(file, "kotlinx.coroutines.Dispatchers")
+}
+
+func fileDeclaresIdentifierNamed(file *scanner.File, except uint32, name string) bool {
+	if file == nil || name == "" {
+		return false
+	}
+	targetStart := file.FlatStartByte(except)
+	for idx := file.FlatFirstChild(0); idx != 0; idx = file.FlatNextSib(idx) {
+		switch file.FlatType(idx) {
+		case "class_declaration", "object_declaration", "property_declaration":
+			if idx != except && extractIdentifierFlat(file, idx) == name {
+				return true
+			}
+		}
+	}
+	for p, ok := file.FlatParent(except); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "function_declaration":
+			if declarationSubtreeHasNameBefore(file, p, targetStart, name, map[string]bool{
+				"parameter":             true,
+				"property_declaration":  true,
+				"variable_declaration":  true,
+				"class_declaration":     true,
+				"object_declaration":    true,
+				"function_declaration":  false,
+				"anonymous_initializer": false,
+			}) {
+				return true
+			}
+		case "class_body":
+			if declarationSubtreeHasNameBefore(file, p, targetStart, name, map[string]bool{
+				"property_declaration": true,
+				"class_declaration":    true,
+				"object_declaration":   true,
+			}) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func declarationSubtreeHasNameBefore(file *scanner.File, root uint32, targetStart uint32, name string, types map[string]bool) bool {
+	found := false
+	file.FlatWalkAllNodes(root, func(idx uint32) {
+		if found || idx == root || file.FlatStartByte(idx) > targetStart {
+			return
+		}
+		if !types[file.FlatType(idx)] {
+			return
+		}
+		if extractIdentifierFlat(file, idx) == name {
+			found = true
+		}
+	})
+	return found
+}
+
+// RedundantSuspendModifierRule detects suspend functions with no suspend calls inside.
+// With type inference: uses ResolveNode on call expressions to check if the call
+// target is a suspend function, beyond the hardcoded known list.
+// With oracle: uses KAA call-target metadata to distinguish resolved suspend
+// calls from resolved non-suspend calls, with known FQN/name fallbacks for older
+// oracle payloads.
+type RedundantSuspendModifierRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence because this
+// rule uses a name-based allow-list (commonNonSuspendCallees) and a
+// call-target suspend metadata and the known-suspend-FQN set to decide whether a call is suspending. It
+// relies on the oracle for the accurate case; without it, any
+// identifier not in the allow-list is treated as potentially-suspend
+// and the rule suppresses the finding, so the remaining positives are
+// reliable but the rule may miss cases where the suspend modifier is
+// genuinely redundant.
+func (r *RedundantSuspendModifierRule) Confidence() float64 { return 0.75 }
+
+// Known suspend functions from the standard library / coroutines.
+var knownSuspendFunctions = map[string]bool{
+	"delay": true, "await": true, "withContext": true, "coroutineScope": true,
+	"supervisorScope": true, "yield": true, "withTimeout": true,
+	"withTimeoutOrNull": true, "awaitAll": true, "joinAll": true,
+	"suspendCoroutine": true, "suspendCancellableCoroutine": true,
+	"emit": true, "collect": true, "send": true, "receive": true,
+	"receiveCatching": true, "join": true, "cancelAndJoin": true,
+	"mutex": true, "acquire": true, "launch": true, "async": true,
+	"runBlocking": true,
+}
+
+// knownSuspendFQNs maps fully-qualified function names to true.
+// Used when the oracle resolves a call target to its FQN.
+var knownSuspendFQNs = map[string]bool{
+	"kotlinx.coroutines.delay":                                   true,
+	"kotlinx.coroutines.yield":                                   true,
+	"kotlinx.coroutines.withContext":                             true,
+	"kotlinx.coroutines.coroutineScope":                          true,
+	"kotlinx.coroutines.supervisorScope":                         true,
+	"kotlinx.coroutines.withTimeout":                             true,
+	"kotlinx.coroutines.withTimeoutOrNull":                       true,
+	"kotlinx.coroutines.awaitAll":                                true,
+	"kotlinx.coroutines.joinAll":                                 true,
+	"kotlinx.coroutines.launch":                                  true,
+	"kotlinx.coroutines.async":                                   true,
+	"kotlinx.coroutines.runBlocking":                             true,
+	"kotlinx.coroutines.suspendCancellableCoroutine":             true,
+	"kotlin.coroutines.suspendCoroutine":                         true,
+	"kotlinx.coroutines.flow.Flow.collect":                       true,
+	"kotlinx.coroutines.flow.Flow.emit":                          true,
+	"kotlinx.coroutines.flow.FlowCollector.emit":                 true,
+	"kotlinx.coroutines.channels.SendChannel.send":               true,
+	"kotlinx.coroutines.channels.ReceiveChannel.receive":         true,
+	"kotlinx.coroutines.channels.ReceiveChannel.receiveCatching": true,
+	"kotlinx.coroutines.Job.join":                                true,
+	"kotlinx.coroutines.Job.cancelAndJoin":                       true,
+	"kotlinx.coroutines.Deferred.await":                          true,
+	"kotlinx.coroutines.sync.Mutex.lock":                         true,
+}
+
+func redundantSuspendCallTargetCallees() []string {
+	return []string{
+		"acquire",
+		"async",
+		"await",
+		"awaitAll",
+		"cancelAndJoin",
+		"collect",
+		"coroutineScope",
+		"delay",
+		"emit",
+		"join",
+		"joinAll",
+		"launch",
+		"lock",
+		"mutex",
+		"receive",
+		"receiveCatching",
+		"runBlocking",
+		"send",
+		"supervisorScope",
+		"suspendCancellableCoroutine",
+		"suspendCoroutine",
+		"withContext",
+		"withTimeout",
+		"withTimeoutOrNull",
+		"yield",
+	}
+}
+
+func redundantSuspendCallTargetLexicalHints() map[string][]string {
+	hints := make(map[string][]string)
+	for _, callee := range redundantSuspendCallTargetCallees() {
+		hints[callee] = []string{"kotlinx.coroutines", "kotlin.coroutines"}
+	}
+	hints["collect"] = append(hints["collect"], "kotlinx.coroutines.flow", "Flow")
+	hints["emit"] = append(hints["emit"], "kotlinx.coroutines.flow", "FlowCollector")
+	hints["send"] = append(hints["send"], "kotlinx.coroutines.channels", "SendChannel")
+	hints["receive"] = append(hints["receive"], "kotlinx.coroutines.channels", "ReceiveChannel")
+	hints["receiveCatching"] = append(hints["receiveCatching"], "kotlinx.coroutines.channels", "ReceiveChannel")
+	hints["join"] = append(hints["join"], "Job")
+	hints["cancelAndJoin"] = append(hints["cancelAndJoin"], "Job")
+	hints["await"] = append(hints["await"], "Deferred")
+	hints["lock"] = append(hints["lock"], "Mutex", "kotlinx.coroutines.sync")
+	return hints
+}
+
+// suspendFQNPrefixes are package prefixes that indicate a call target is likely
+// a suspend function when no exact FQN match is found.
+var suspendFQNPrefixes = []string{
+	"kotlinx.coroutines.",
+}
+
+// commonNonSuspendCallees is a small allow-list of stdlib/common identifiers
+// that are definitely not suspend functions. Any other identifier is treated
+// as potentially-suspend and suppresses the RedundantSuspendModifier finding.
+var commonNonSuspendCallees = map[string]bool{
+	"println": true, "print": true,
+	"require": true, "check": true, "error": true,
+	"requireNotNull": true, "checkNotNull": true,
+	"listOf": true, "setOf": true, "mapOf": true, "arrayOf": true,
+	"mutableListOf": true, "mutableSetOf": true, "mutableMapOf": true,
+	"emptyList": true, "emptySet": true, "emptyMap": true,
+	"Pair": true, "Triple": true,
+	"String": true, "Int": true, "Long": true, "Float": true, "Double": true,
+}
+
+// SleepInsteadOfDelayRule detects Thread.sleep() usage inside suspend functions
+// and coroutine builder lambdas (launch, async, runBlocking, withContext, etc.).
+type SleepInsteadOfDelayRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// coroutineBuilders are functions whose trailing lambda runs in a suspend context.
+var coroutineBuilders = map[string]bool{
+	"launch": true, "async": true, "runBlocking": true,
+	"withContext": true, "coroutineScope": true, "supervisorScope": true,
+	"withTimeout": true, "withTimeoutOrNull": true,
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Coroutines rule. Detection matches kotlinx.coroutines call shapes via
+// name lists and structural patterns; project wrappers can escape or
+// collide. Classified per roadmap/17.
+func (r *SleepInsteadOfDelayRule) Confidence() float64 { return 0.75 }
+
+func isInsideSuspendContextFlat(file *scanner.File, idx uint32) bool {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "function_declaration":
+			return hasSuspendModifierFlat(file, p)
+		case "lambda_literal":
+			if isCoroutineBuilderLambdaFlat(file, p) {
+				return true
+			}
+			return false
+		}
+	}
+	return false
+}
+
+func isCoroutineBuilderLambdaFlat(file *scanner.File, lambdaNode uint32) bool {
+	parent, ok := file.FlatParent(lambdaNode)
+	if !ok {
+		return false
+	}
+	if file.FlatType(parent) == "annotated_lambda" {
+		parent, ok = file.FlatParent(parent)
+		if !ok {
+			return false
+		}
+	}
+	if file.FlatType(parent) != "call_suffix" {
+		return false
+	}
+	callExpr, ok := file.FlatParent(parent)
+	if !ok || file.FlatType(callExpr) != "call_expression" {
+		return false
+	}
+	calleeName := flatCallExpressionName(file, callExpr)
+	return coroutineBuilders[calleeName]
+}
+
+// SuspendFunWithFlowReturnTypeRule detects suspend fun returning Flow.
+// SuspendFunWithFlowReturnTypeRule has been moved to
+// internal/rules/coroutines as the first rule of the per-domain
+// subpackage migration. The alias keeps Meta() / IsFixable() and the
+// AllMetaProviders sample list working unchanged.
+type SuspendFunWithFlowReturnTypeRule = coroutines.SuspendFunWithFlowReturnTypeRule
+
+var flowTypeNames = map[string]bool{
+	"Flow": true, "StateFlow": true, "SharedFlow": true,
+	"MutableStateFlow": true, "MutableSharedFlow": true,
+}
+
+// CoroutineLaunchedInTestWithoutRunTestRule detects launch/async in @Test without runTest.
+type CoroutineLaunchedInTestWithoutRunTestRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Coroutines rule. Detection matches kotlinx.coroutines call shapes via
+// name lists and structural patterns; project wrappers can escape or
+// collide. Classified per roadmap/17.
+func (r *CoroutineLaunchedInTestWithoutRunTestRule) Confidence() float64 { return 0.75 }
+
+// SuspendFunInFinallySectionRule detects suspend calls in finally blocks.
+type SuspendFunInFinallySectionRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Coroutines rule. Detection matches kotlinx.coroutines call shapes via
+// name lists and structural patterns; project wrappers can escape or
+// collide. Classified per roadmap/17.
+func (r *SuspendFunInFinallySectionRule) Confidence() float64 { return 0.75 }
+
+// SuspendFunSwallowedCancellationRule detects catching CancellationException without rethrow.
+type SuspendFunSwallowedCancellationRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence — detecting which
+// catch blocks swallow CancellationException without rethrow is structural
+// but depends on the resolver to recognize aliases of
+// CancellationException. Classified per roadmap/17.
+func (r *SuspendFunSwallowedCancellationRule) Confidence() float64 { return 0.75 }
+
+func enclosingTryExpressionFlat(file *scanner.File, idx uint32) uint32 {
+	if file == nil || idx == 0 {
+		return 0
+	}
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		if file.FlatType(parent) == "try_expression" {
+			return parent
+		}
+		if file.FlatType(parent) == "function_declaration" {
+			return 0
+		}
+	}
+	return 0
+}
+
+func isInsideSuspendFunctionFlat(file *scanner.File, idx uint32) bool {
+	fn, ok := flatEnclosingAncestor(file, idx, "function_declaration")
+	return ok && hasSuspendModifierFlat(file, fn)
+}
+
+func tryBlockHasSuspendCallFlat(file *scanner.File, tryExpr uint32, resolver typeinfer.TypeResolver) bool {
+	body := tryBodyFlat(file, tryExpr)
+	if body == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(body, "call_expression", func(call uint32) {
+		if found {
+			return
+		}
+		if callInsideNestedFunctionFlat(file, body, call) {
+			return
+		}
+		if resolver != nil {
+			if provider, ok := resolver.(oracleLookupProvider); ok && provider.Oracle() != nil {
+				if isSuspend, ok := provider.Oracle().LookupCallTargetSuspend(file.Path, file.FlatRow(call)+1, file.FlatCol(call)+1); ok {
+					found = isSuspend
+					return
+				}
+			}
+		}
+		found = knownSuspendFunctions[flatCallExpressionName(file, call)]
+	})
+	return found
+}
+
+func tryBodyFlat(file *scanner.File, tryExpr uint32) uint32 {
+	if file == nil || tryExpr == 0 {
+		return 0
+	}
+	for child := file.FlatFirstChild(tryExpr); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "catch_block", "finally_block":
+			return 0
+		case "control_structure_body", "statements":
+			return child
+		}
+	}
+	return 0
+}
+
+func callInsideNestedFunctionFlat(file *scanner.File, root, call uint32) bool {
+	for parent, ok := file.FlatParent(call); ok && parent != root; parent, ok = file.FlatParent(parent) {
+		if file.FlatType(parent) == "function_declaration" || file.FlatType(parent) == "lambda_literal" {
+			return true
+		}
+	}
+	return false
+}
+
+// SuspendFunWithCoroutineScopeReceiverRule detects suspend fun CoroutineScope.x().
+type SuspendFunWithCoroutineScopeReceiverRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. Coroutines rule. Detection matches kotlinx.coroutines call shapes via
+// name lists and structural patterns; project wrappers can escape or
+// collide. Classified per roadmap/17.
+func (r *SuspendFunWithCoroutineScopeReceiverRule) Confidence() float64 { return 0.75 }
+
+func hasSuspendModifierFlat(file *scanner.File, idx uint32) bool {
+	return file.FlatHasModifier(idx, "suspend")
+}
+
+// hasAnnotation is defined in library.go
+
+// ---------------------------------------------------------------------------
+// Batch 1: rules with existing fixtures
+// ---------------------------------------------------------------------------
+
+// ChannelReceiveWithoutCloseRule detects Channel properties that are never closed.
+type ChannelReceiveWithoutCloseRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *ChannelReceiveWithoutCloseRule) Confidence() float64 { return 0.75 }
+
+// CollectionsSynchronizedListIterationRule detects iteration over synchronized wrappers without external sync.
+type CollectionsSynchronizedListIterationRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *CollectionsSynchronizedListIterationRule) Confidence() float64 { return 0.75 }
+
+var synchronizedCollectionFactories = map[string]bool{
+	"synchronizedList": true, "synchronizedSet": true, "synchronizedMap": true,
+}
+
+// ConcurrentModificationIterationRule detects collection mutation inside for loops.
+type ConcurrentModificationIterationRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *ConcurrentModificationIterationRule) Confidence() float64 { return 0.75 }
+
+var mutatingMethods = map[string]bool{
+	"remove": true, "add": true, "addAll": true, "removeAll": true, "clear": true,
+}
+
+// CoroutineScopeCreatedButNeverCancelledRule detects CoroutineScope properties without cancel().
+type CoroutineScopeCreatedButNeverCancelledRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *CoroutineScopeCreatedButNeverCancelledRule) Confidence() float64 { return 0.75 }
+
+// DeferredAwaitInFinallyRule detects .await() calls inside finally blocks.
+type DeferredAwaitInFinallyRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *DeferredAwaitInFinallyRule) Confidence() float64 { return 0.75 }
+
+// FlowWithoutFlowOnRule detects flow chains with collect but no flowOn.
+type FlowWithoutFlowOnRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *FlowWithoutFlowOnRule) Confidence() float64 { return 0.75 }
+
+var flowTerminalOps = map[string]bool{
+	"collect": true, "first": true, "toList": true, "toSet": true, "single": true,
+	"reduce": true, "fold": true, "count": true,
+}
+
+// ---------------------------------------------------------------------------
+// Batch 2: synchronized / JVM primitive rules
+// ---------------------------------------------------------------------------
+
+// SynchronizedOnStringRule detects synchronized() with a string literal lock.
+type SynchronizedOnStringRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *SynchronizedOnStringRule) Confidence() float64 { return 0.75 }
+
+// SynchronizedOnBoxedPrimitiveRule detects synchronized() on boxed primitives.
+type SynchronizedOnBoxedPrimitiveRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *SynchronizedOnBoxedPrimitiveRule) Confidence() float64 { return 0.75 }
+
+var boxedPrimitiveTypes = map[string]bool{
+	"Int": true, "Long": true, "Short": true, "Byte": true,
+	"Float": true, "Double": true, "Boolean": true, "Char": true,
+}
+
+func resolvePropertyTypeInScope(file *scanner.File, fromIdx uint32, varName string) string {
+	classDecl, ok := flatEnclosingAncestor(file, fromIdx, "class_declaration", "object_declaration")
+	if !ok {
+		return ""
+	}
+	var result string
+	file.FlatWalkNodes(classDecl, "property_declaration", func(propIdx uint32) {
+		if result != "" {
+			return
+		}
+		if extractIdentifierFlat(file, propIdx) != varName {
+			return
+		}
+		propText := file.FlatNodeText(propIdx)
+		if i := strings.Index(propText, ":"); i >= 0 {
+			afterColon := strings.TrimSpace(propText[i+1:])
+			if eq := strings.Index(afterColon, "="); eq >= 0 {
+				afterColon = strings.TrimSpace(afterColon[:eq])
+			}
+			afterColon = strings.TrimSuffix(afterColon, "?")
+			if gt := strings.Index(afterColon, "<"); gt >= 0 {
+				afterColon = afterColon[:gt]
+			}
+			result = strings.TrimSpace(afterColon)
+		}
+	})
+	return result
+}
+
+// SynchronizedOnNonFinalRule detects synchronized() on a var property.
+type SynchronizedOnNonFinalRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *SynchronizedOnNonFinalRule) Confidence() float64 { return 0.75 }
+
+func isVarPropertyInScope(file *scanner.File, fromIdx uint32, varName string) bool {
+	classDecl, ok := flatEnclosingAncestor(file, fromIdx, "class_declaration", "object_declaration")
+	if !ok {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(classDecl, "property_declaration", func(propIdx uint32) {
+		if found {
+			return
+		}
+		if extractIdentifierFlat(file, propIdx) != varName {
+			return
+		}
+		for child := file.FlatFirstChild(propIdx); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "var" || file.FlatNodeTextEquals(child, "var") {
+				found = true
+				return
+			}
+		}
+	})
+	return found
+}
+
+// VolatileMissingOnDclRule detects double-checked locking without @Volatile.
+type VolatileMissingOnDclRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *VolatileMissingOnDclRule) Confidence() float64 { return 0.75 }
+
+// countDclNullChecks counts `propName == null` (or `null == propName`)
+// equality expressions inside the class where the identifier resolves to the
+// class property — i.e. is not shadowed by a local declaration or parameter
+// in the enclosing function. This replaces a substring count that produced
+// false positives whenever a local variable happened to share the name.
+func countDclNullChecks(file *scanner.File, classDecl uint32, propName string) int {
+	if file == nil || classDecl == 0 || propName == "" {
+		return 0
+	}
+	count := 0
+	file.FlatWalkNodes(classDecl, "equality_expression", func(eqIdx uint32) {
+		operand, op, ok := flatNullComparisonOperand(file, eqIdx)
+		if !ok || op != "==" {
+			return
+		}
+		if file.FlatType(operand) != "simple_identifier" {
+			return
+		}
+		if !file.FlatNodeTextEquals(operand, propName) {
+			return
+		}
+		if dclIdentifierShadowed(file, operand, propName, classDecl) {
+			return
+		}
+		count++
+	})
+	return count
+}
+
+// dclIdentifierShadowed returns true when, between the comparison site and the
+// enclosing class, some local property_declaration or function parameter
+// declares the same name — meaning the simple_identifier may refer to a local,
+// not the class property.
+func dclIdentifierShadowed(file *scanner.File, idx uint32, name string, classDecl uint32) bool {
+	if file == nil || idx == 0 || name == "" {
+		return false
+	}
+	for current, ok := file.FlatParent(idx); ok && current != classDecl; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "function_declaration", "anonymous_function", "lambda_literal", "function_body", "control_structure_body", "statements":
+			if scopeDeclaresName(file, current, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func scopeDeclaresName(file *scanner.File, scope uint32, name string) bool {
+	if file == nil || scope == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(scope, "property_declaration", func(propIdx uint32) {
+		if found {
+			return
+		}
+		if extractIdentifierFlat(file, propIdx) == name {
+			found = true
+		}
+	})
+	if found {
+		return true
+	}
+	for _, paramType := range []string{"parameter", "function_value_parameter", "lambda_parameter", "class_parameter"} {
+		file.FlatWalkNodes(scope, paramType, func(p uint32) {
+			if found {
+				return
+			}
+			for ch := file.FlatFirstChild(p); ch != 0; ch = file.FlatNextSib(ch) {
+				if file.FlatType(ch) == "simple_identifier" && file.FlatNodeTextEquals(ch, name) {
+					found = true
+					return
+				}
+			}
+		})
+		if found {
+			return true
+		}
+	}
+	return found
+}
+
+// MutableStateInObjectRule detects var properties inside object declarations.
+type MutableStateInObjectRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *MutableStateInObjectRule) Confidence() float64 { return 0.75 }
+
+var threadSafeTypes = map[string]bool{
+	"AtomicInteger": true, "AtomicLong": true, "AtomicBoolean": true,
+	"AtomicReference": true, "ConcurrentHashMap": true, "CopyOnWriteArrayList": true,
+}
+
+func mutableStateInObjectShouldSkip(file *scanner.File, objectIdx, propIdx uint32, propText, propName string) bool {
+	if file == nil || objectIdx == 0 || propIdx == 0 {
+		return true
+	}
+	if scanner.IsTestFile(file.Path) {
+		return true
+	}
+	if propName == "" {
+		return true
+	}
+	if strings.Contains(propText, "@Volatile") || strings.Contains(propText, "Volatile") {
+		return true
+	}
+	for typeName := range threadSafeTypes {
+		if strings.Contains(propText, typeName) {
+			return true
+		}
+	}
+	if strings.Contains(propText, "private") && mutableObjectPropertyReferencesAreSynchronized(file, objectIdx, propIdx, propName) {
+		return true
+	}
+	return false
+}
+
+func mutableObjectPropertyReferencesAreSynchronized(file *scanner.File, objectIdx, propIdx uint32, propName string) bool {
+	if mutableObjectPropertyReferencesAreSynchronizedByText(file, objectIdx, propName) {
+		return true
+	}
+	seenReference := false
+	allSynchronized := true
+	file.FlatWalkNodes(objectIdx, "simple_identifier", func(candidate uint32) {
+		if !allSynchronized {
+			return
+		}
+		if candidate == 0 || !file.FlatNodeTextEquals(candidate, propName) {
+			return
+		}
+		if flatNodeHasAncestor(file, candidate, propIdx) {
+			return
+		}
+		seenReference = true
+		if !mutableStateReferenceIsSynchronized(file, objectIdx, candidate, map[uint32]bool{}) {
+			allSynchronized = false
+		}
+	})
+	return seenReference && allSynchronized
+}
+
+func mutableStateReferenceIsSynchronized(file *scanner.File, objectIdx, refIdx uint32, visiting map[uint32]bool) bool {
+	if flatNodeInsideCallNamed(file, refIdx, "synchronized") {
+		return true
+	}
+	fn, ok := flatEnclosingFunction(file, refIdx)
+	if !ok {
+		return false
+	}
+	return mutableStateFunctionIsSynchronized(file, objectIdx, fn, visiting)
+}
+
+func mutableStateFunctionIsSynchronized(file *scanner.File, objectIdx, fn uint32, visiting map[uint32]bool) bool {
+	if file == nil || fn == 0 {
+		return false
+	}
+	fnText := file.FlatNodeText(fn)
+	if strings.Contains(fnText, "@Synchronized") {
+		return true
+	}
+	if !strings.Contains(fnText, "private") {
+		return false
+	}
+	name := flatFunctionName(file, fn)
+	if name == "" {
+		return false
+	}
+	if visiting[fn] {
+		return false
+	}
+	visiting[fn] = true
+	defer delete(visiting, fn)
+
+	seenCall := false
+	allCallsSynchronized := true
+	file.FlatWalkNodes(objectIdx, "call_expression", func(call uint32) {
+		if !allCallsSynchronized || flatCallExpressionName(file, call) != name {
+			return
+		}
+		if flatNodeHasAncestor(file, call, fn) {
+			allCallsSynchronized = false
+			return
+		}
+		seenCall = true
+		if !mutableStateReferenceIsSynchronized(file, objectIdx, call, visiting) {
+			allCallsSynchronized = false
+		}
+	})
+	return seenCall && allCallsSynchronized
+}
+
+func mutableObjectPropertyReferencesAreSynchronizedByText(file *scanner.File, objectIdx uint32, propName string) bool {
+	objectText := file.FlatNodeText(objectIdx)
+	if objectText == "" || propName == "" || !strings.Contains(objectText, "synchronized") {
+		return false
+	}
+	lines := strings.Split(objectText, "\n")
+	syncDepth := 0
+	pendingSync := false
+	seenReference := false
+	for _, line := range lines {
+		lineHasSync := strings.Contains(line, "synchronized(")
+		lineSyncDepth := syncDepth
+		if pendingSync || lineHasSync {
+			lineSyncDepth = 1
+		}
+		if mutableStateLineReferencesProperty(line, propName) && !mutableStateLineDeclaresProperty(line, propName) {
+			seenReference = true
+			if lineSyncDepth == 0 {
+				return false
+			}
+		}
+		opens := strings.Count(line, "{")
+		closes := strings.Count(line, "}")
+		if lineHasSync {
+			pendingSync = true
+		}
+		if pendingSync && opens > 0 {
+			syncDepth += opens
+			pendingSync = false
+		} else if syncDepth > 0 {
+			syncDepth += opens
+		}
+		if syncDepth > 0 {
+			syncDepth -= closes
+			if syncDepth < 0 {
+				syncDepth = 0
+			}
+		}
+	}
+	return seenReference
+}
+
+func mutableStateLineReferencesProperty(line, propName string) bool {
+	return strings.Contains(line, propName)
+}
+
+func mutableStateLineDeclaresProperty(line, propName string) bool {
+	line = strings.TrimSpace(line)
+	return strings.Contains(line, "var "+propName) || strings.Contains(line, "var\t"+propName)
+}
+
+func flatNodeHasAncestor(file *scanner.File, idx, ancestor uint32) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		if parent == ancestor {
+			return true
+		}
+	}
+	return false
+}
+
+func flatNodeInsideCallNamed(file *scanner.File, idx uint32, name string) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		if file.FlatType(parent) == "call_expression" && flatCallExpressionName(file, parent) == name {
+			return true
+		}
+	}
+	return false
+}
+
+// ---------------------------------------------------------------------------
+// Batch 3: Flow / StateFlow rules
+// ---------------------------------------------------------------------------
+
+// StateFlowMutableLeakRule detects publicly exposed MutableStateFlow.
+type StateFlowMutableLeakRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *StateFlowMutableLeakRule) Confidence() float64 { return 0.75 }
+
+func stateFlowMutableLeakHasKotlinxEvidence(file *scanner.File, propText string) bool {
+	content := string(file.Content)
+	return strings.Contains(propText, "kotlinx.coroutines.flow.MutableStateFlow") ||
+		strings.Contains(content, "import kotlinx.coroutines.flow.MutableStateFlow") ||
+		strings.Contains(content, "import kotlinx.coroutines.flow.*")
+}
+
+// SharedFlowWithoutReplayRule detects MutableSharedFlow() with no buffer config.
+type SharedFlowWithoutReplayRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *SharedFlowWithoutReplayRule) Confidence() float64 { return 0.75 }
+
+// StateFlowCompareByReferenceRule detects .map{}.distinctUntilChanged() on StateFlow.
+type StateFlowCompareByReferenceRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *StateFlowCompareByReferenceRule) Confidence() float64 { return 0.75 }
+
+// ---------------------------------------------------------------------------
+// Batch 4: coroutine scope / context rules
+// ---------------------------------------------------------------------------
+
+// GlobalScopeLaunchInViewModelRule detects GlobalScope.launch in ViewModel/Presenter classes.
+type GlobalScopeLaunchInViewModelRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *GlobalScopeLaunchInViewModelRule) Confidence() float64 { return 0.75 }
+
+// SupervisorScopeInEventHandlerRule detects supervisorScope with a single child operation.
+type SupervisorScopeInEventHandlerRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *SupervisorScopeInEventHandlerRule) Confidence() float64 { return 0.75 }
+
+// WithContextInSuspendFunctionNoopRule detects nested withContext with the same dispatcher.
+type WithContextInSuspendFunctionNoopRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *WithContextInSuspendFunctionNoopRule) Confidence() float64 { return 0.75 }
+
+func extractWithContextDispatcher(ctx *api.Context, callIdx uint32) string {
+	if ctx.File == nil {
+		return ""
+	}
+	file := ctx.File
+	args := flatCallKeyArguments(file, callIdx)
+	if args == 0 {
+		return ""
+	}
+	firstArg := flatPositionalValueArgument(file, args, 0)
+	if firstArg == 0 {
+		return ""
+	}
+	expr := flatValueArgumentExpression(file, firstArg)
+	if expr == 0 || !injectDispatcherReferenceConfirmed(file, expr) {
+		return ""
+	}
+	segments := flatNavigationChainIdentifiers(file, expr)
+	if len(segments) == 2 {
+		return strings.Join(segments, ".")
+	}
+	return ""
+}
+
+// LaunchWithoutCoroutineExceptionHandlerRule detects launch{} with throw but no handler.
+type LaunchWithoutCoroutineExceptionHandlerRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *LaunchWithoutCoroutineExceptionHandlerRule) Confidence() float64 { return 0.75 }
+
+// ---------------------------------------------------------------------------
+// Batch 5: cross-module rule
+// ---------------------------------------------------------------------------
+
+// MainDispatcherInLibraryCodeRule detects Dispatchers.Main in library modules
+// without kotlinx-coroutines-android dependency.
+type MainDispatcherInLibraryCodeRule struct {
+	BaseRule
+}
+
+func (r *MainDispatcherInLibraryCodeRule) IsFixable() bool     { return false }
+func (r *MainDispatcherInLibraryCodeRule) Confidence() float64 { return 0.75 }
+
+func (r *MainDispatcherInLibraryCodeRule) check(ctx *api.Context) {
+	pmi := ctx.ModuleIndex
+	if pmi == nil || pmi.Graph == nil {
+		return
+	}
+
+	for modPath, mod := range pmi.Graph.Modules {
+		if !isAndroidLibraryModule(mod) {
+			continue
+		}
+		if hasCoroutinesAndroidDep(mod) {
+			continue
+		}
+		files := pmi.ModuleFiles[modPath]
+		for _, file := range files {
+			if file == nil || file.FlatTree == nil {
+				continue
+			}
+			localCtx := *ctx
+			localCtx.File = file
+			file.FlatWalkNodes(0, "navigation_expression", func(idx uint32) {
+				if mainDispatcherReferenceFlat(&localCtx, idx) {
+					ctx.Emit(scanner.Finding{
+						File:     file.Path,
+						Line:     file.FlatRow(idx) + 1,
+						Col:      file.FlatCol(idx) + 1,
+						RuleSet:  r.RuleSetName,
+						Rule:     r.RuleName,
+						Severity: r.Sev,
+						Message:  "Dispatchers.Main used in a library module without kotlinx-coroutines-android dependency.",
+					})
+				}
+			})
+		}
+	}
+}
+
+func (r *MainDispatcherInLibraryCodeRule) ModuleAwareNeeds() ModuleAwareNeeds {
+	return ModuleAwareNeeds{
+		NeedsFiles:        true,
+		NeedsDependencies: true,
+		NeedsIndex:        false,
+	}
+}
+
+func isAndroidLibraryModule(mod *module.Module) bool {
+	buildFile := filepath.Join(mod.Dir, "build.gradle.kts")
+	cfg, err := android.ParseBuildGradle(buildFile)
+	if err != nil {
+		buildFile = filepath.Join(mod.Dir, "build.gradle")
+		cfg, err = android.ParseBuildGradle(buildFile)
+		if err != nil {
+			return false
+		}
+	}
+	for _, plugin := range cfg.Plugins {
+		if plugin == "com.android.library" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasCoroutinesAndroidDep(mod *module.Module) bool {
+	buildFile := filepath.Join(mod.Dir, "build.gradle.kts")
+	cfg, err := android.ParseBuildGradle(buildFile)
+	if err != nil {
+		buildFile = filepath.Join(mod.Dir, "build.gradle")
+		cfg, err = android.ParseBuildGradle(buildFile)
+		if err != nil {
+			return false
+		}
+	}
+	for _, dep := range cfg.Dependencies {
+		if dep.Name == "kotlinx-coroutines-android" {
+			return true
+		}
+	}
+	return false
+}

@@ -1,0 +1,6 @@
+package style
+
+class Foo {
+    private val x = 1
+    private fun doWork() {}
+}

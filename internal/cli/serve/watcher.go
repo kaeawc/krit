@@ -1,0 +1,185 @@
+package serve
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+
+	"github.com/fsnotify/fsnotify"
+
+	"github.com/kaeawc/krit/internal/diag"
+	"github.com/kaeawc/krit/internal/pipeline"
+)
+
+// fileWatcher pushes filesystem-change events into a daemon's
+// WorkspaceState invalidation API. It watches the project root
+// recursively (one watch per directory, populated on creation) and
+// drops cache entries for any .kt / .kts file the OS reports
+// changed, removed, or renamed.
+//
+// The watcher is best-effort: a missed event causes a stale parse
+// at worst, which the next request's content-hash compare in
+// WorkspaceState catches. Errors are logged via a Reporter and never
+// crash the daemon.
+type fileWatcher struct {
+	w        *fsnotify.Watcher
+	root     string
+	state    *pipeline.WorkspaceState
+	reporter *diag.Reporter
+
+	closeOnce sync.Once
+	done      chan struct{}
+}
+
+// startFileWatcher returns a started watcher rooted at root. Callers
+// must call Stop to release the underlying fsnotify resources.
+// Returns nil + error when the watcher couldn't be created (e.g. on
+// platforms without inotify/kqueue or when the root doesn't exist).
+func startFileWatcher(ctx context.Context, root string, state *pipeline.WorkspaceState, reporter *diag.Reporter) (*fileWatcher, error) {
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, err
+	}
+	fw := &fileWatcher{
+		w:        w,
+		root:     root,
+		state:    state,
+		reporter: reporter,
+		done:     make(chan struct{}),
+	}
+	if err := fw.addRecursive(root); err != nil {
+		_ = w.Close()
+		return nil, err
+	}
+	go fw.run(ctx)
+	return fw, nil
+}
+
+// Stop releases the watcher. Safe to call multiple times.
+func (fw *fileWatcher) Stop() {
+	fw.closeOnce.Do(func() {
+		_ = fw.w.Close()
+		<-fw.done
+	})
+}
+
+// run is the event loop. It exits when the watcher closes or ctx is
+// cancelled.
+func (fw *fileWatcher) run(ctx context.Context) {
+	defer close(fw.done)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-fw.w.Events:
+			if !ok {
+				return
+			}
+			fw.handle(event)
+		case err, ok := <-fw.w.Errors:
+			if !ok {
+				return
+			}
+			fw.warn("watcher error: %v\n", err)
+		}
+	}
+}
+
+// handle dispatches a single fsnotify event. Newly created
+// directories get a fresh watch so additions in subtrees don't slip
+// past; .kt/.kts file events invalidate the per-file parse cache and
+// the cross-file CodeIndex; Gradle / version-catalog edits also
+// invalidate the cached LibraryFacts since they describe the
+// project's dependency closure.
+func (fw *fileWatcher) handle(ev fsnotify.Event) {
+	if ev.Op&fsnotify.Create != 0 {
+		if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
+			if err := fw.addRecursive(ev.Name); err != nil {
+				fw.warn("watch new dir %s: %v\n", ev.Name, err)
+			}
+			return
+		}
+	}
+	if ev.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename|fsnotify.Chmod) == 0 {
+		return
+	}
+	// Library-config paths come first — build.gradle.kts also matches
+	// isKotlinPath because of its extension, but it drives library
+	// facts, not the per-file parse cache.
+	switch {
+	case isLibraryConfigPath(ev.Name):
+		fw.state.InvalidateLibraryFacts()
+		fw.state.InvalidateCodeIndex()
+	case isKotlinPath(ev.Name):
+		fw.state.Invalidate(ev.Name)
+		// Any source-file change can shift cross-file lookups, so
+		// drop the cached CodeIndex; the next caller rebuilds.
+		fw.state.InvalidateCodeIndex()
+	}
+}
+
+// addRecursive walks dir and adds every directory to the watcher.
+// Pruned dirs (.git, build, .gradle) are skipped: the daemon never
+// analyses files under them, so receiving events for them just
+// burns descriptors and CPU.
+func (fw *fileWatcher) addRecursive(dir string) error {
+	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			// Skip unreadable entries — the daemon shouldn't crash
+			// because one subtree has bad permissions. Log so the
+			// operator can fix it.
+			fw.warn("walk %s: %v\n", path, err)
+			return nil
+		}
+		if !info.IsDir() {
+			return nil
+		}
+		base := filepath.Base(path)
+		if isPrunedDir(base) && path != dir {
+			return filepath.SkipDir
+		}
+		if err := fw.w.Add(path); err != nil {
+			fw.warn("watch %s: %v\n", path, err)
+		}
+		return nil
+	})
+}
+
+func (fw *fileWatcher) warn(format string, args ...any) {
+	if fw.reporter == nil {
+		return
+	}
+	fw.reporter.Warnf(format, args...)
+}
+
+// isKotlinPath reports whether the path's basename ends in .kt or
+// .kts. Mirrors the precommit/cli filter.
+func isKotlinPath(p string) bool {
+	return strings.HasSuffix(p, ".kt") || strings.HasSuffix(p, ".kts")
+}
+
+// isLibraryConfigPath reports whether the path is a Gradle build
+// script or a version catalog whose contents drive
+// librarymodel.Facts. Editing one of these flips the entire library
+// fingerprint, so the cached LibraryFacts must drop.
+func isLibraryConfigPath(p string) bool {
+	base := filepath.Base(p)
+	switch base {
+	case "build.gradle", "build.gradle.kts",
+		"settings.gradle", "settings.gradle.kts":
+		return true
+	}
+	return strings.HasSuffix(base, ".versions.toml")
+}
+
+// isPrunedDir lists directory basenames the watcher refuses to
+// recurse into. Keep aligned with internal/fileignore.DefaultPrunedDir.
+func isPrunedDir(name string) bool {
+	switch name {
+	case ".git", "build", ".gradle", "node_modules", ".idea", ".krit":
+		return true
+	}
+	return false
+}

@@ -1,0 +1,49 @@
+package fixtures.positive.style
+
+fun getItems(x: List<String>?): List<String> {
+    return x.orEmpty()
+}
+
+fun getSet(x: Set<Int>?): Set<Int> {
+    return x.orEmpty()
+}
+
+fun getMap(x: Map<String, Int>?): Map<String, Int> {
+    return x.orEmpty()
+}
+
+fun getArray(x: Array<Int>?): Array<Int> {
+    return x ?: emptyArray()
+}
+
+fun getSeq(x: Sequence<Int>?): Sequence<Int> {
+    return x.orEmpty()
+}
+
+fun getStr(x: String?): String {
+    return x.orEmpty()
+}
+
+fun getListOf(x: List<String>?): List<String> {
+    return x.orEmpty()
+}
+
+fun getSetOf(x: Set<Int>?): Set<Int> {
+    return x.orEmpty()
+}
+
+fun getMapOf(x: Map<String, Int>?): Map<String, Int> {
+    return x.orEmpty()
+}
+
+fun getArrayOf(x: Array<Int>?): Array<Int> {
+    return x.orEmpty()
+}
+
+fun getSeqOf(x: Sequence<Int>?): Sequence<Int> {
+    return x.orEmpty()
+}
+
+fun chainedCall(items: Map<String, List<Int>>?) {
+    val result = items?.get("key") ?: emptyList()
+}

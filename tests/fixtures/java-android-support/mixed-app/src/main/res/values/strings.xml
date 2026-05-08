@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Mixed Java Kotlin Fixture</string>
+    <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar" />
+</resources>

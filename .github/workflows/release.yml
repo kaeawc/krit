@@ -19,13 +19,13 @@ jobs:
         include:
           - os: ubuntu-latest
             goos: linux
-            ids: --id=krit-linux --id=krit-lsp-linux --id=krit-mcp-linux --id=krit-linux-musl --id=krit-lsp-linux-musl --id=krit-mcp-linux-musl
+            ids: krit-linux,krit-lsp-linux,krit-mcp-linux,krit-linux-musl,krit-lsp-linux-musl,krit-mcp-linux-musl
           - os: macos-latest
             goos: darwin
-            ids: --id=krit-darwin --id=krit-lsp-darwin --id=krit-mcp-darwin
+            ids: krit-darwin,krit-lsp-darwin,krit-mcp-darwin
           - os: windows-latest
             goos: windows
-            ids: --id=krit-windows --id=krit-lsp-windows --id=krit-mcp-windows
+            ids: krit-windows,krit-lsp-windows,krit-mcp-windows
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -48,10 +48,18 @@ jobs:
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
           fingerprint: ${{ secrets.GPG_FINGERPRINT }}
 
+      # `goreleaser release` doesn't accept --id filters (build-only flag),
+      # so we filter the config down to this matrix entry's ids before
+      # invoking it. See scripts/release/filter-goreleaser-config.py.
+      - name: Filter goreleaser config to current OS
+        shell: bash
+        run: |
+          python3 -m pip install --user --quiet pyyaml
+          python3 scripts/release/filter-goreleaser-config.py "${{ matrix.ids }}" > .goreleaser-${{ matrix.goos }}.yml
       - uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7.2.1
         with:
           version: '~> v2'
-          args: release --clean --skip=publish --skip=announce ${{ matrix.ids }}
+          args: release --config .goreleaser-${{ matrix.goos }}.yml --clean --skip=publish --skip=announce
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ secrets.GPG_FINGERPRINT }}

@@ -29,6 +29,16 @@ jobs:
       - if: matrix.goos == 'linux'
         name: Install musl-tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+      # Import the release signing subkey into the runner's gpg keyring.
+      # Required for goreleaser's `signs:` block to sign checksums.txt.
+      # The fingerprint, ASCII-armored private key, and passphrase are
+      # all stored as repo secrets.
+      - name: Import GPG signing key
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          fingerprint: ${{ secrets.GPG_FINGERPRINT }}
       - uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7.2.1
         id: goreleaser
         with:

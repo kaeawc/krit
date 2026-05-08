@@ -679,13 +679,9 @@ func callExpressionHasDurationUnitArg(file *scanner.File, callIdx uint32) bool {
 	return false
 }
 
-// isInsidePreviewOrSampleFunction returns true if the node is inside a
-// function whose name or annotation marks it as a preview / sample / fake
-// / mock / stub — UI tooling scaffolding rather than production code.
-func isInsidePreviewOrSampleFunctionFlat(file *scanner.File, idx uint32) bool {
-	return isInsidePreviewOrSampleFunctionFlatWithConfig(file, idx, defaultCustomPreviewConfig())
-}
-
+// isInsidePreviewOrSampleFunctionFlatWithConfig returns true if the node is
+// inside a function whose name or annotation marks it as a preview / sample /
+// fake / mock / stub — UI tooling scaffolding rather than production code.
 func isInsidePreviewOrSampleFunctionFlatWithConfig(file *scanner.File, idx uint32, cfg customPreviewConfig) bool {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		nodeType := file.FlatType(p)
@@ -715,10 +711,6 @@ func isInsidePreviewOrSampleFunctionFlatWithConfig(file *scanner.File, idx uint3
 		return false
 	}
 	return false
-}
-
-func previewOrSampleFunctionLikeText(text string) bool {
-	return previewOrSampleFunctionLikeTextWithConfig(text, defaultCustomPreviewConfig())
 }
 
 func previewOrSampleFunctionLikeTextWithConfig(text string, cfg customPreviewConfig) bool {

@@ -46,6 +46,12 @@ jobs:
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
           fingerprint: ${{ secrets.GPG_FINGERPRINT }}
 
+      # Install syft so goreleaser's sboms: block can run. None of the
+      # GitHub-hosted runners ship syft preinstalled. anchore/sbom-action
+      # downloads the right binary for the current OS/arch.
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+
       # `goreleaser release` doesn't accept --id filters (build-only flag),
       # so we filter the config down to this matrix entry's ids before
       # invoking it. See scripts/release/filter-goreleaser-config.py.

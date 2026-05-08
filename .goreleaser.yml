@@ -156,11 +156,11 @@ signs:
       - "--detach-sign"
       - "${artifact}"
 
-# SBOMs are disabled for the initial rc; goreleaser's `sboms:` invokes
-# `syft` which isn't preinstalled on runners. To re-enable: install via
-# `anchore/sbom-action` (or similar) in the workflow and uncomment.
-# sboms:
-#   - artifacts: archive
+# goreleaser invokes `syft` to catalog each archive into an SBOM.
+# The release workflow installs syft via anchore/sbom-action before
+# invoking goreleaser on each runner.
+sboms:
+  - artifacts: archive
 
 changelog:
   sort: asc

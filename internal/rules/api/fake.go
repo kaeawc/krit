@@ -73,6 +73,11 @@ func WithLibraryFacts() FakeOption {
 	return func(r *Rule) { r.NeedsLibraryFacts = true }
 }
 
+// WithMaturity sets the rule's lifecycle stage.
+func WithMaturity(m Maturity) FakeOption {
+	return func(r *Rule) { r.Maturity = m }
+}
+
 // FakeContext creates a minimal context for testing with the given file.
 // A FindingCollector is pre-allocated; use ContextFindings(ctx) to read results.
 func FakeContext(file *scanner.File) *Context {

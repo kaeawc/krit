@@ -22,6 +22,17 @@ import (
 // ApplyConfig mutates this map at runtime to reflect YAML overrides.
 var DefaultInactive = map[string]bool{}
 
+// experimentalRules lists rules whose Maturity is MaturityExperimental.
+// Populated by ensureDefaultInactive alongside DefaultInactive so that
+// ActiveRulesV2 can re-enable them when --experimental is set without
+// flipping deprecated rules at the same time.
+var experimentalRules = map[string]bool{}
+
+// deprecatedRules lists rules whose Maturity is MaturityDeprecated. These
+// are default-inactive and stay off even when --experimental is set; users
+// must name them explicitly via --enable-rules to run them.
+var deprecatedRules = map[string]bool{}
+
 var defaultInactiveOnce sync.Once
 
 // ensureDefaultInactive populates DefaultInactive from every registered
@@ -40,6 +51,14 @@ func ensureDefaultInactive() {
 		seen := make(map[string]struct{}, len(api.Registry))
 		for _, r := range api.Registry {
 			seen[r.ID] = struct{}{}
+			switch r.Maturity {
+			case api.MaturityExperimental:
+				experimentalRules[r.ID] = true
+				DefaultInactive[r.ID] = true
+			case api.MaturityDeprecated:
+				deprecatedRules[r.ID] = true
+				DefaultInactive[r.ID] = true
+			}
 			desc, ok := MetaForRule(r)
 			if !ok {
 				continue
@@ -108,16 +127,70 @@ func IsDefaultActive(name string) bool {
 	return !DefaultInactive[name]
 }
 
-// ActiveRulesV2 filters api.Registry using config-driven activation. Returns
-// rules that are enabled, not disabled, and either in enabledSet,
-// allRules=true, or IsDefaultActive.
-func ActiveRulesV2(disabledSet, enabledSet map[string]bool, allRules bool) []*api.Rule {
+// IsExperimental reports whether a rule's Maturity is MaturityExperimental.
+// Returns false for stable, deprecated, or unknown rule IDs.
+func IsExperimental(name string) bool {
+	ensureDefaultInactive()
+	return experimentalRules[name]
+}
+
+// IsDeprecated reports whether a rule's Maturity is MaturityDeprecated.
+// Returns false for stable, experimental, or unknown rule IDs.
+func IsDeprecated(name string) bool {
+	ensureDefaultInactive()
+	return deprecatedRules[name]
+}
+
+// ActiveRulesV2 filters api.Registry using config-driven activation.
+//
+// A rule is included when it is not in disabledSet AND either:
+//   - it is named in enabledSet (explicit user opt-in always wins);
+//   - allRules=true (--all-rules);
+//   - experimental=true and the rule's Maturity is MaturityExperimental; OR
+//   - it is default-active (IsDefaultActive).
+//
+// Deprecated rules are never included via allRules or experimental — the
+// only path that re-enables a deprecated rule is naming it explicitly in
+// enabledSet. This keeps deprecated rules from coming back to life when
+// users flip broad opt-in flags.
+func ActiveRulesV2(disabledSet, enabledSet map[string]bool, allRules, experimental bool) []*api.Rule {
+	ensureDefaultInactive()
+	return selectActiveRules(api.Registry, disabledSet, enabledSet, allRules, experimental, experimentalRules, deprecatedRules, DefaultInactive)
+}
+
+// selectActiveRules is the registry-agnostic core of ActiveRulesV2,
+// extracted so tests can supply a fake registry and fake maturity sets
+// without mutating the global api.Registry.
+//
+// defaultInactive carries the same semantics as the package-level
+// DefaultInactive map: presence means the rule is opt-in.
+func selectActiveRules(
+	reg []*api.Rule,
+	disabledSet, enabledSet map[string]bool,
+	allRules, experimental bool,
+	experimentalSet, deprecatedSet, defaultInactive map[string]bool,
+) []*api.Rule {
 	var out []*api.Rule
-	for _, r := range api.Registry {
+	for _, r := range reg {
 		if disabledSet[r.ID] {
 			continue
 		}
-		if enabledSet[r.ID] || allRules || IsDefaultActive(r.ID) {
+		if enabledSet[r.ID] {
+			out = append(out, r)
+			continue
+		}
+		if deprecatedSet[r.ID] {
+			continue
+		}
+		if allRules {
+			out = append(out, r)
+			continue
+		}
+		if experimental && experimentalSet[r.ID] {
+			out = append(out, r)
+			continue
+		}
+		if !defaultInactive[r.ID] {
 			out = append(out, r)
 		}
 	}

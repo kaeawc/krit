@@ -297,6 +297,46 @@ const (
 	SeverityInfo    Severity = "info"
 )
 
+// Maturity describes a rule's lifecycle stage. The default zero value is
+// MaturityStable so existing rule registrations remain unchanged.
+//
+// Experimental rules ship dark: they are filtered out of the default-active
+// set and only run when the user opts in via --experimental, the
+// `experimental: true` top-level config key, --all-rules, or by naming the
+// rule explicitly with --enable-rules.
+//
+// Deprecated rules are also default-inactive and never re-enabled by the
+// experimental flag — the only way to run them is to name them explicitly
+// with --enable-rules. This gives rule authors a one-release deprecation
+// window without surprising default users.
+type Maturity uint8
+
+const (
+	// MaturityStable is the zero value: the rule is part of the supported
+	// built-in rule set and runs by default unless DefaultActive=false.
+	MaturityStable Maturity = iota
+	// MaturityExperimental marks a rule that has not yet soaked under
+	// real-world usage. It is default-inactive and only runs when the
+	// user explicitly enables experimental rules.
+	MaturityExperimental
+	// MaturityDeprecated marks a rule that is on its way out. It is
+	// default-inactive and is NOT re-enabled by --experimental; users who
+	// still want it must pass --enable-rules <ID> or set it in config.
+	MaturityDeprecated
+)
+
+// String returns a human-readable label for the Maturity value.
+func (m Maturity) String() string {
+	switch m {
+	case MaturityExperimental:
+		return "experimental"
+	case MaturityDeprecated:
+		return "deprecated"
+	default:
+		return "stable"
+	}
+}
+
 // OracleFilter declares when a rule needs oracle type information.
 type OracleFilter struct {
 	Identifiers []string
@@ -425,6 +465,11 @@ type Rule struct {
 	// The dispatcher uses RuleLanguages() to skip rules whose language
 	// list does not include the current file's Language.
 	Languages []scanner.Language
+
+	// Maturity is the rule's lifecycle stage. The zero value is
+	// MaturityStable. Experimental and deprecated rules are
+	// default-inactive; see the Maturity type docs for the full contract.
+	Maturity Maturity
 
 	// Fix metadata
 	Fix FixLevel // FixNone → not fixable

@@ -606,18 +606,18 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 	declarationProfileSummary := rules.BuildOracleDeclarationProfileV2(oracleRules)
 	factUnion := rules.OracleFactUnion(oracleRules)
 	perf.AddEntryDetails(jvmTracker, "oracleFactUnion", 0, map[string]int64{
-		"callTargets":        boolMetric(factUnion.HasAny(api.NeedsOracleCallTargets)),
-		"suspendMarkers":     boolMetric(factUnion.HasAny(api.NeedsOracleSuspendMarkers)),
-		"exprType":           boolMetric(factUnion.HasAny(api.NeedsOracleExprType)),
-		"exprAnnotations":    boolMetric(factUnion.HasAny(api.NeedsOracleExprAnnotations)),
-		"supertypes":         boolMetric(factUnion.HasAny(api.NeedsOracleSupertypes)),
-		"members":            boolMetric(factUnion.HasAny(api.NeedsOracleMembers)),
-		"memberSignatures":   boolMetric(factUnion.HasAny(api.NeedsOracleMemberSignatures)),
-		"classAnnotations":   boolMetric(factUnion.HasAny(api.NeedsOracleClassAnnotations)),
-		"memberAnnotations":  boolMetric(factUnion.HasAny(api.NeedsOracleMemberAnnotations)),
-		"diagnostics":        boolMetric(factUnion.HasAny(api.NeedsOracleDiagnostics)),
-		"libraryClasses":     boolMetric(factUnion.HasAny(api.NeedsOracleLibraryClasses)),
-		"oracleRulesCount":   int64(len(oracleRules)),
+		"callTargets":       boolMetric(factUnion.HasAny(api.NeedsOracleCallTargets)),
+		"suspendMarkers":    boolMetric(factUnion.HasAny(api.NeedsOracleSuspendMarkers)),
+		"exprType":          boolMetric(factUnion.HasAny(api.NeedsOracleExprType)),
+		"exprAnnotations":   boolMetric(factUnion.HasAny(api.NeedsOracleExprAnnotations)),
+		"supertypes":        boolMetric(factUnion.HasAny(api.NeedsOracleSupertypes)),
+		"members":           boolMetric(factUnion.HasAny(api.NeedsOracleMembers)),
+		"memberSignatures":  boolMetric(factUnion.HasAny(api.NeedsOracleMemberSignatures)),
+		"classAnnotations":  boolMetric(factUnion.HasAny(api.NeedsOracleClassAnnotations)),
+		"memberAnnotations": boolMetric(factUnion.HasAny(api.NeedsOracleMemberAnnotations)),
+		"diagnostics":       boolMetric(factUnion.HasAny(api.NeedsOracleDiagnostics)),
+		"libraryClasses":    boolMetric(factUnion.HasAny(api.NeedsOracleLibraryClasses)),
+		"oracleRulesCount":  int64(len(oracleRules)),
 	}, nil)
 	invokeOpts := oracle.InvocationOptions{
 		Tracker:            jvmTracker,

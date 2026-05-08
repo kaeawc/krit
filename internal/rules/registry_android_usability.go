@@ -19,8 +19,8 @@ func registerAndroidUsabilityRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "simple_identifier", "user_type", "navigation_expression"},
-			Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			NodeTypes:  []string{"call_expression", "simple_identifier", "user_type", "navigation_expression"},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Confidence: 0.75, Implementation: r,
 			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"setElevation", "getSystemService", "setDecorFitsSystemWindows", "requestPermissions", "checkSelfPermission", "getColor", "getDrawable", "setTranslationZ", "setClipToOutline", "createNotificationChannel"}},
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},

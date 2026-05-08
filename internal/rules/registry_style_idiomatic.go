@@ -109,7 +109,7 @@ func registerStyleIdiomaticRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"disjunction_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic,
-			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Needs:  api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Oracle: &api.OracleFilter{Identifiers: []string{"isEmpty", "count", ".size", ".length", "\"\""}},
 			OracleCallTargets: &api.OracleCallTargetFilter{
 				CalleeNames: []string{"count", "isEmpty"},

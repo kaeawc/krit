@@ -224,8 +224,8 @@ func registerAndroidCorrectnessChecksRange() {
 	r := &RangeRule{AndroidRule: alcRule("Range", "Outside allowed range", ALSError, 6)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"},
-		Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+		NodeTypes:  []string{"call_expression"},
+		Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		Confidence: r.Confidence(), Implementation: r,
 		Oracle:            &api.OracleFilter{Identifiers: []string{"IntRange", "FloatRange", "Color", "setAlpha", "setProgress", "setRotation"}},
 		OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{"argb", "rgb", "setAlpha", "setProgress", "setRotation"}},

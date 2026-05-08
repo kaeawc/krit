@@ -1048,8 +1048,8 @@ func registerCoroutinesWithContextInSuspendFunctionNoop() {
 	r := &WithContextInSuspendFunctionNoopRule{BaseRule: BaseRule{RuleName: "WithContextInSuspendFunctionNoop", RuleSetName: "coroutines", Sev: "info", Desc: "Detects nested withContext calls using the same dispatcher as the parent, which is redundant."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"},
-		Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+		NodeTypes:  []string{"call_expression"},
+		Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		Confidence: 0.75, Implementation: r,
 		OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"withContext"}},
 		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
@@ -1134,7 +1134,7 @@ func registerCoroutinesMainDispatcherInLibraryCode() {
 	r := &MainDispatcherInLibraryCodeRule{BaseRule: BaseRule{RuleName: "MainDispatcherInLibraryCode", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Dispatchers.Main usage in library modules that lack the kotlinx-coroutines-android dependency."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		Needs: api.NeedsModuleIndex | api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+		Needs:      api.NeedsModuleIndex | api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 		Confidence: r.Confidence(), Implementation: r,
 		OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"Main"}},
 		OracleDeclarationNeeds: &api.OracleDeclarationProfile{},

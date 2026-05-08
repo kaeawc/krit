@@ -15,8 +15,8 @@ func registerAccessibilityRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "assignment"},
-			Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			NodeTypes:  []string{"call_expression", "assignment"},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Confidence: 0.75, Implementation: r,
 			OracleCallTargets: &api.OracleCallTargetFilter{CalleeNames: []string{
 				"ofArgb", "ofFloat", "ofInt", "ofObject", "setDuration",

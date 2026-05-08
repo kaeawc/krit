@@ -119,8 +119,8 @@ func registerAndroidSourceExtraRules() {
 		r := &MissingPermissionRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "MissingPermission", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "MissingPermission", Brief: "Missing permission check before API call", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 9, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"},
-			Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			NodeTypes:  []string{"call_expression"},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Confidence: r.Confidence(), Implementation: r,
 			Oracle: &api.OracleFilter{Identifiers: missingPermissionOracleIdentifiers()},
 			OracleCallTargets: &api.OracleCallTargetFilter{

@@ -44,8 +44,8 @@ func registerAndroidRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"},
-			Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			NodeTypes:  []string{"call_expression"},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Confidence: 0.75, Implementation: r,
 			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"preferredWidth", "preferredHeight", "preferredSize"}},
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
@@ -136,8 +136,8 @@ func registerAndroidRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"},
-			Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			NodeTypes:  []string{"call_expression"},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Confidence: 0.75, Implementation: r,
 			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"v", "d", "i", "println", "isLoggable"}},
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
@@ -190,8 +190,8 @@ func registerAndroidRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"},
-			Needs:     api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			NodeTypes:  []string{"call_expression"},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Confidence: 0.75, Implementation: r,
 			OracleCallTargets:      &api.OracleCallTargetFilter{CalleeNames: []string{"acquire", "release"}},
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},

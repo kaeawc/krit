@@ -61,35 +61,12 @@ builds:
         env: [CGO_ENABLED=1, CC=aarch64-linux-gnu-gcc]
 
   # --- Linux / musl ----------------------------------------------------------
-  # amd64 only for now; arm64-musl needs a cross toolchain (e.g. from
-  # musl-cross-make) that ubuntu-latest doesn't ship. Add when there's demand.
-  - id: krit-linux-musl
-    main: ./cmd/krit
-    binary: krit
-    env: [CGO_ENABLED=1, CC=musl-gcc]
-    ldflags:
-      - -s -w -X main.version={{.Version}}
-      - -linkmode=external -extldflags=-static
-    goos: [linux]
-    goarch: [amd64]
-  - id: krit-lsp-linux-musl
-    main: ./cmd/krit-lsp
-    binary: krit-lsp
-    env: [CGO_ENABLED=1, CC=musl-gcc]
-    ldflags:
-      - -s -w -X main.version={{.Version}}
-      - -linkmode=external -extldflags=-static
-    goos: [linux]
-    goarch: [amd64]
-  - id: krit-mcp-linux-musl
-    main: ./cmd/krit-mcp
-    binary: krit-mcp
-    env: [CGO_ENABLED=1, CC=musl-gcc]
-    ldflags:
-      - -s -w -X main.version={{.Version}}
-      - -linkmode=external -extldflags=-static
-    goos: [linux]
-    goarch: [amd64]
+  # Disabled for now: ubuntu-24.04's musl-tools wrapper falls back to
+  # glibc headers when cgo invokes it through go build, producing
+  # `fatal error: bits/libc-header-start.h` from /usr/include/stdlib.h.
+  # Fix is to install a proper musl-cross toolchain (musl-cross-make,
+  # `apk add` style) on the runner and pass through CC properly. Tracked
+  # as a follow-up.
 
   # --- Darwin ----------------------------------------------------------------
   # Built on a macos-latest runner (Apple Silicon / arm64). Cross-compiles
@@ -162,13 +139,6 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
-  - id: linux-musl
-    ids:
-      - krit-linux-musl
-      - krit-lsp-linux-musl
-      - krit-mcp-linux-musl
-    name_template: "{{ .ProjectName }}_{{ .Version }}_linux_musl_{{ .Arch }}"
-
 checksum:
   name_template: 'checksums.txt'
 
@@ -186,8 +156,11 @@ signs:
       - "--detach-sign"
       - "${artifact}"
 
-sboms:
-  - artifacts: archive
+# SBOMs are disabled for the initial rc; goreleaser's `sboms:` invokes
+# `syft` which isn't preinstalled on runners. To re-enable: install via
+# `anchore/sbom-action` (or similar) in the workflow and uncomment.
+# sboms:
+#   - artifacts: archive
 
 changelog:
   sort: asc

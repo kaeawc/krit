@@ -14,10 +14,9 @@ verifies its SHA256 against the signed `checksums.txt`, and installs
 `--dir <path>` to install elsewhere, or `--version v<tag>` to pin a
 specific release.
 
-The installer detects musl libc (Alpine, etc.) on `linux/amd64` and
-fetches the appropriate static-linked archive. `linux/arm64-musl` and
-`windows/arm64` are not currently published; build from source with
-`go install` on those platforms.
+`windows/arm64` and musl-libc Linux distros (Alpine, etc.) aren't
+currently published; build from source via `go install` on those
+platforms. Tracking musl support as a follow-up.
 
 ## Homebrew (macOS / Linux)
 

@@ -79,18 +79,12 @@ case "$arch" in
   *) err "unsupported architecture: $arch (amd64 and arm64 are supported)" ;;
 esac
 
-# Detect musl on Linux: ldd output mentions "musl" if we're on Alpine or
-# similar. arm64-musl isn't shipped yet, so fall back to glibc with a
-# warning if we detect musl on arm64.
+# musl-libc Linux distros (Alpine, etc.) aren't currently shipped as
+# separate archives — the published linux archives are glibc-linked.
+# `ldd /bin/ls` is the canonical detector if we re-enable musl builds.
 libc=glibc
-if [ "$goos" = linux ]; then
-  if ldd /bin/ls 2>&1 | grep -qi musl; then
-    if [ "$goarch" = amd64 ]; then
-      libc=musl
-    else
-      log "musl libc detected on $goarch but only linux/musl/amd64 builds are published; falling back to glibc archive (may not run)"
-    fi
-  fi
+if [ "$goos" = linux ] && ldd /bin/ls 2>&1 | grep -qi musl; then
+  log "musl libc detected; krit currently only ships glibc archives. The downloaded binary may not run on this system. Build from source via 'go install github.com/kaeawc/krit/cmd/krit@latest' or wait for musl support to land."
 fi
 
 # Windows arm64 isn't built (see .goreleaser.yml).
@@ -116,8 +110,6 @@ ver="${KRIT_VERSION#v}"
 
 if [ "$goos" = windows ]; then
   archive="krit_${ver}_${goos}_${goarch}.zip"
-elif [ "$goos" = linux ] && [ "$libc" = musl ]; then
-  archive="krit_${ver}_linux_musl_${goarch}.tar.gz"
 else
   archive="krit_${ver}_${goos}_${goarch}.tar.gz"
 fi

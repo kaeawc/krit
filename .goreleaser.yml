@@ -38,12 +38,48 @@ builds:
     ignore:
       - goos: windows
         goarch: arm64
+  # Separate Linux/musl amd64 builds for Alpine and other musl-libc
+  # distros. CGO is required (tree-sitter), and the default
+  # ubuntu-latest glibc-linked binaries don't run on musl. The release
+  # workflow installs musl-tools before invoking goreleaser. arm64-musl
+  # is a follow-up — it needs a cross toolchain that ubuntu-latest
+  # doesn't ship by default.
+  - id: krit-linux-musl
+    main: ./cmd/krit
+    binary: krit
+    env: [CGO_ENABLED=1, CC=musl-gcc]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+      - -linkmode=external -extldflags=-static
+    goos: [linux]
+    goarch: [amd64]
+  - id: krit-lsp-linux-musl
+    main: ./cmd/krit-lsp
+    binary: krit-lsp
+    env: [CGO_ENABLED=1, CC=musl-gcc]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+      - -linkmode=external -extldflags=-static
+    goos: [linux]
+    goarch: [amd64]
+  - id: krit-mcp-linux-musl
+    main: ./cmd/krit-mcp
+    binary: krit-mcp
+    env: [CGO_ENABLED=1, CC=musl-gcc]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+      - -linkmode=external -extldflags=-static
+    goos: [linux]
+    goarch: [amd64]
 archives:
   - id: default
     ids: [krit, krit-lsp, krit-mcp]
     format_overrides:
       - goos: windows
         formats: [zip]
+  - id: linux-musl
+    ids: [krit-linux-musl, krit-lsp-linux-musl, krit-mcp-linux-musl]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_linux_musl_{{ .Arch }}"
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 checksum:
   name_template: 'checksums.txt'

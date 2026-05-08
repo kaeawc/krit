@@ -5,7 +5,7 @@ for fast source analysis and can call JVM-backed Kotlin Analysis API/FIR helper
 tools for type-aware checks when a project needs them.
 
 ```bash
-go install github.com/kaeawc/krit/cmd/krit@latest
+curl -fsSL https://raw.githubusercontent.com/kaeawc/krit/main/install.sh | sh
 krit .
 ```
 
@@ -23,14 +23,21 @@ That's it. Run it in any Kotlin, Java, or Android project and get findings in se
 ## Install
 
 ```bash
-# Go
-go install github.com/kaeawc/krit/cmd/krit@latest
+# Recommended (macOS / Linux): verifies SHA256 and installs to ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/kaeawc/krit/main/install.sh | sh
 
-# From source
-go build -o krit ./cmd/krit/
+# Homebrew (macOS / Linux)
+brew install --cask kaeawc/tap/krit
+
+# Scoop (Windows)
+scoop bucket add krit https://github.com/kaeawc/scoop-krit
+scoop install krit
+
+# Go (any platform; needs Go 1.25+ and a C compiler)
+go install github.com/kaeawc/krit/cmd/krit@latest
 ```
 
-See [docs/install.md](docs/install.md) for current install options and companion tools (`krit-lsp`, `krit-mcp`, `krit-types`, and `krit-fir`).
+See [docs/install.md](docs/install.md) for the full set of install options and companion tools (`krit-lsp`, `krit-mcp`, `krit-types`, and `krit-fir`).
 
 ## First run
 

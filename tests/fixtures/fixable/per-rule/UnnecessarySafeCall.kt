@@ -1,0 +1,8 @@
+package fixtures.positive.potentialbugs
+
+class UnnecessarySafeCall {
+    fun example() {
+        val x: String = "hello"
+        val len = x?.length
+    }
+}

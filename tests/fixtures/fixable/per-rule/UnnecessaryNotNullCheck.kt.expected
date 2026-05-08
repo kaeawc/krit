@@ -1,0 +1,8 @@
+package style
+
+fun example() {
+    val x: String = "hello"
+    if (true) {
+        println(x)
+    }
+}

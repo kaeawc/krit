@@ -1,0 +1,17 @@
+[versions]
+# Each literal value is unique, so nothing should be flagged.
+okhttp = "4.12.0"
+retrofit = "2.11.0"
+kotlin = "1.9.0"
+compose = "1.6.0"
+agp = "8.1.0"
+# Rich-version inline tables are intentionally skipped even if their
+# `strictly`/`require` text happens to coincide with another alias.
+strict-foo = { strictly = "1.0.0" }
+strict-bar = { strictly = "1.0.0" }
+
+[libraries]
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }

@@ -1,0 +1,8 @@
+max_concurrency = 10
+exclude = ["localhost", "127.0.0.1", "example.com"]
+exclude_path = ["site/", "build/", "dist/", "node_modules/", ".git/", "vendor/", "android-lint-checks/"]
+accept = [200, 201, 204, 301, 302, 403, 429]
+timeout = 20
+max_retries = 3
+user_agent = "Mozilla/5.0 (compatible; lychee/krit)"
+cache = true

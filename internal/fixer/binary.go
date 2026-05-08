@@ -1,0 +1,314 @@
+package fixer
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+// ValidateBinaryFix checks whether a BinaryFix can be safely applied. For WebP
+// conversions it performs three checks:
+//
+//  1. Animated asset detection: animated GIFs and APNGs cannot be safely
+//     converted to static WebP. If the source is animated, an error is returned.
+//
+//  2. MinSdk compatibility: WebP lossy requires API 14, WebP lossless/transparency
+//     requires API 18. If BinaryFix.MinSdk is set and below the threshold, an
+//     error is returned.
+//
+//  3. Direct file reference scan: scans Kotlin, Java, and XML files for literal
+//     occurrences of the source file name (e.g. "icon.png"). Android resource
+//     references like "@drawable/icon" are safe because they resolve by name
+//     without extension, but direct file-name strings would break after conversion.
+//
+// Returns (nil, error) for safety failures (animated, minSdk).
+// Returns (refs, nil) when direct file references are found (caller decides).
+// Returns (nil, nil) when the fix is safe.
+func ValidateBinaryFix(fix *scanner.BinaryFix, searchDirs []string) ([]android.FileReference, error) {
+	if fix == nil || fix.Type != scanner.BinaryFixConvertWebP {
+		return nil, nil
+	}
+
+	// Animated asset check.
+	ext := strings.ToLower(filepath.Ext(fix.SourcePath))
+	if ext == ".gif" {
+		if animated, _ := android.IsAnimatedGIF(fix.SourcePath); animated {
+			return nil, fmt.Errorf("animated GIF cannot be safely converted to static WebP")
+		}
+	}
+	if ext == ".png" {
+		if animated, _ := android.IsAnimatedPNG(fix.SourcePath); animated {
+			return nil, fmt.Errorf("animated PNG (APNG) cannot be safely converted to static WebP")
+		}
+	}
+
+	// MinSdk compatibility check.
+	// WebP lossy: API 14, WebP lossless/transparency: API 18.
+	// We use API 14 as the minimum since cwebp defaults to lossy encoding.
+	if fix.MinSdk > 0 && fix.MinSdk < 14 {
+		return nil, fmt.Errorf("WebP requires minSdk >= 14, project targets %d", fix.MinSdk)
+	}
+
+	// Direct file reference scan.
+	baseName := filepath.Base(fix.SourcePath)
+	refs := android.ScanFileReferences(searchDirs, baseName)
+	return refs, nil
+}
+
+// ApplyBinaryFixesBatchColumns applies binary fixes from columnar findings in the
+// same safe order as ApplyBinaryFixesBatch, working directly with columnar data.
+func ApplyBinaryFixesBatchColumns(columns *scanner.FindingColumns, dryRun bool, searchDirs ...[]string) (applied int, errors []error) {
+	if columns == nil || columns.Len() == 0 {
+		return 0, nil
+	}
+
+	var fixes []*scanner.BinaryFix
+	columns.VisitRowsWithBinaryFixes(func(row int) {
+		if bf := columns.BinaryFixAt(row); bf != nil {
+			fixes = append(fixes, bf)
+		}
+	})
+	return applyBinaryFixesBatchRaw(fixes, dryRun, searchDirs...)
+}
+
+// applyBinaryFixesBatchRaw is the core implementation shared by ApplyBinaryFixesBatch
+// and ApplyBinaryFixesBatchColumns, operating on raw *BinaryFix pointers.
+func applyBinaryFixesBatchRaw(fixes []*scanner.BinaryFix, dryRun bool, searchDirs ...[]string) (applied int, errors []error) {
+	var refDirs []string
+	if len(searchDirs) > 0 {
+		refDirs = searchDirs[0]
+	}
+	var conversions, creates, moves, deletions, optimizations []*scanner.BinaryFix
+	for _, bf := range fixes {
+		if bf == nil || bf.HintOnly {
+			continue
+		}
+		switch bf.Type {
+		case scanner.BinaryFixConvertWebP:
+			conversions = append(conversions, bf)
+		case scanner.BinaryFixDeleteFile:
+			deletions = append(deletions, bf)
+		case scanner.BinaryFixCreateFile:
+			creates = append(creates, bf)
+		case scanner.BinaryFixMoveFile:
+			moves = append(moves, bf)
+		case scanner.BinaryFixOptimizePNG:
+			optimizations = append(optimizations, bf)
+		}
+	}
+	return applyBinaryFixPartitions(conversions, creates, moves, deletions, optimizations, dryRun, refDirs)
+}
+
+// applyBinaryFixPartitions runs the 6-pass ordered apply logic on pre-partitioned fix slices.
+// Order: conversions → optimizations → creates → moves → (delete-source for conversions) → explicit deletions.
+func applyBinaryFixPartitions(
+	conversions, creates, moves, deletions, optimizations []*scanner.BinaryFix,
+	dryRun bool,
+	refDirs []string,
+) (applied int, errors []error) {
+	n, errs, converted := applyWebPConversions(conversions, dryRun, refDirs)
+	applied += n
+	errors = append(errors, errs...)
+
+	n, errs = applyPNGOptimizations(optimizations, dryRun)
+	applied += n
+	errors = append(errors, errs...)
+
+	n, errs = applyFileCreates(creates, dryRun)
+	applied += n
+	errors = append(errors, errs...)
+
+	n, errs = applyFileMoves(moves, dryRun)
+	applied += n
+	errors = append(errors, errs...)
+
+	if !dryRun {
+		errors = append(errors, deleteConversionSources(conversions, converted)...)
+	}
+
+	n, errs = applyExplicitDeletions(deletions, dryRun)
+	applied += n
+	errors = append(errors, errs...)
+	return
+}
+
+func applyWebPConversions(conversions []*scanner.BinaryFix, dryRun bool, refDirs []string) (int, []error, map[string]bool) {
+	applied := 0
+	var errors []error
+	converted := make(map[string]bool)
+	for _, bf := range conversions {
+		refs, safetyErr := ValidateBinaryFix(bf, refDirs)
+		if safetyErr != nil {
+			bf.HintOnly = true
+			bf.Description = fmt.Sprintf("skipped: %s", safetyErr.Error())
+			errors = append(errors, fmt.Errorf("skipped conversion of %s: %s", bf.SourcePath, safetyErr.Error()))
+			continue
+		}
+		if len(refs) > 0 {
+			bf.HintOnly = true
+			bf.Description = fmt.Sprintf("skipped: %d direct reference(s) to %q would break after conversion", len(refs), filepath.Base(bf.SourcePath))
+			errors = append(errors, fmt.Errorf("skipped conversion of %s: %d direct file reference(s) found", bf.SourcePath, len(refs)))
+			continue
+		}
+		if err := convertToWebP(bf.SourcePath, bf.TargetPath, dryRun); err != nil {
+			errors = append(errors, err)
+			continue
+		}
+		applied++
+		converted[bf.SourcePath] = true
+	}
+	return applied, errors, converted
+}
+
+func applyPNGOptimizations(optimizations []*scanner.BinaryFix, dryRun bool) (int, []error) {
+	applied := 0
+	var errors []error
+	for _, bf := range optimizations {
+		if err := optimizePNG(bf.SourcePath, dryRun); err != nil {
+			errors = append(errors, err)
+		} else {
+			applied++
+		}
+	}
+	return applied, errors
+}
+
+func applyFileCreates(creates []*scanner.BinaryFix, dryRun bool) (int, []error) {
+	applied := 0
+	var errors []error
+	for _, bf := range creates {
+		if dryRun {
+			applied++
+			continue
+		}
+		dir := filepath.Dir(bf.TargetPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			errors = append(errors, fmt.Errorf("mkdir %s: %w", dir, err))
+			continue
+		}
+		if err := fsutil.WriteFileAtomic(bf.TargetPath, bf.Content, 0644); err != nil {
+			errors = append(errors, fmt.Errorf("create %s: %w", bf.TargetPath, err))
+		} else {
+			applied++
+		}
+	}
+	return applied, errors
+}
+
+func applyFileMoves(moves []*scanner.BinaryFix, dryRun bool) (int, []error) {
+	applied := 0
+	var errors []error
+	for _, bf := range moves {
+		if dryRun {
+			applied++
+			continue
+		}
+		dir := filepath.Dir(bf.TargetPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			errors = append(errors, fmt.Errorf("mkdir %s: %w", dir, err))
+			continue
+		}
+		if err := os.Rename(bf.SourcePath, bf.TargetPath); err != nil {
+			errors = append(errors, fmt.Errorf("move %s -> %s: %w", bf.SourcePath, bf.TargetPath, err))
+		} else {
+			applied++
+		}
+	}
+	return applied, errors
+}
+
+func deleteConversionSources(conversions []*scanner.BinaryFix, converted map[string]bool) []error {
+	var errors []error
+	for _, bf := range conversions {
+		if !bf.DeleteSource || !converted[bf.SourcePath] {
+			continue
+		}
+		if err := os.Remove(bf.SourcePath); err != nil {
+			errors = append(errors, fmt.Errorf("delete source %s: %w", bf.SourcePath, err))
+		}
+	}
+	return errors
+}
+
+func applyExplicitDeletions(deletions []*scanner.BinaryFix, dryRun bool) (int, []error) {
+	applied := 0
+	var errors []error
+	for _, bf := range deletions {
+		if dryRun {
+			applied++
+			continue
+		}
+		if err := os.Remove(bf.SourcePath); err != nil {
+			errors = append(errors, fmt.Errorf("delete %s: %w", bf.SourcePath, err))
+		} else {
+			applied++
+		}
+	}
+	return applied, errors
+}
+
+// convertToWebP converts an image file to WebP format using cwebp.
+// If dst is empty, generates the target path by replacing the file extension with .webp.
+// In dry-run mode, validates that cwebp is available but does not perform conversion.
+func convertToWebP(src, dst string, dryRun bool) error {
+	if dst == "" {
+		dst = strings.TrimSuffix(src, filepath.Ext(src)) + ".webp"
+	}
+	cwebp, err := exec.LookPath("cwebp")
+	if err != nil {
+		return fmt.Errorf("cwebp not found: install libwebp for automatic WebP conversion")
+	}
+	if dryRun {
+		return nil
+	}
+	cmd := exec.CommandContext(context.Background(), cwebp, "-q", "80", src, "-o", dst)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("cwebp failed: %w: %s", err, string(output))
+	}
+	return nil
+}
+
+// optimizePNG runs optipng (or pngcrush as fallback) for lossless PNG optimization.
+// In dry-run mode, validates that a tool is available but does not perform optimization.
+func optimizePNG(src string, dryRun bool) error {
+	// Try optipng first, then pngcrush as fallback.
+	optipng, err := exec.LookPath("optipng")
+	if err == nil {
+		if dryRun {
+			return nil
+		}
+		cmd := exec.CommandContext(context.Background(), optipng, "-o2", "-quiet", src)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("optipng failed on %s: %w: %s", src, err, string(output))
+		}
+		return nil
+	}
+
+	pngcrush, err := exec.LookPath("pngcrush")
+	if err == nil {
+		if dryRun {
+			return nil
+		}
+		tmp := src + ".crush"
+		cmd := exec.CommandContext(context.Background(), pngcrush, "-q", src, tmp)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			os.Remove(tmp) // clean up on failure
+			return fmt.Errorf("pngcrush failed on %s: %w: %s", src, err, string(output))
+		}
+		// Replace original with optimized version.
+		if err := os.Rename(tmp, src); err != nil {
+			os.Remove(tmp)
+			return fmt.Errorf("replace %s with optimized version: %w", src, err)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("no PNG optimizer found: install optipng or pngcrush for lossless PNG optimization")
+}

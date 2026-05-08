@@ -1,0 +1,30 @@
+package fixtures.negative.potentialbugs
+
+class IgnoredReturnValue {
+    fun process(list: List<Int>): List<Int> {
+        val result = list.map { it * 2 }
+        return result
+    }
+
+    fun tryExpressionUsed(list: List<String>): Set<String> {
+        return try {
+            list.toSet()
+        } catch (e: Exception) {
+            emptySet()
+        }
+    }
+
+    fun log(): Unit = Unit
+
+    fun ignoredUnitIsOk() {
+        log()
+    }
+
+    fun inPlaceMutatorsAreOk(items: MutableList<Int>) {
+        items.sort()
+        items.shuffle()
+        items.reverse()
+        items.fill(0)
+        items.clear()
+    }
+}

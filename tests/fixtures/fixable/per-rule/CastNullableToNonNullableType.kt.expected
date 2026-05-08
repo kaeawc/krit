@@ -1,0 +1,17 @@
+package potentialbugs
+
+data class Box<T>(val value: T)
+
+class Example {
+    fun explicit(input: String?) {
+        val result = input as? String
+        println(result)
+    }
+
+    fun multiline(input: Box<String>?) {
+        val result =
+            (input) as?
+                Box<String>
+        println(result)
+    }
+}

@@ -1,0 +1,9 @@
+package style
+
+import java.util.List
+
+class MyClass {
+    fun doSomething() {
+        println("hello")
+    }
+}

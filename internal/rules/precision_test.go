@@ -1,0 +1,40 @@
+package rules
+
+import (
+	"testing"
+
+	api "github.com/kaeawc/krit/internal/rules/api"
+)
+
+func TestRulePrecision(t *testing.T) {
+	tests := []struct {
+		name string
+		want Precision
+	}{
+		{"OldTargetApi", PrecisionPolicy},
+		{"MissingPermission", PrecisionTypeAware},
+		{"ArrayPrimitive", PrecisionHeuristicTextBacked},
+		{"DoubleMutabilityForCollection", PrecisionASTBacked},
+		{"AllowBackupManifest", PrecisionProjectStructure},
+		{"MagicNumber", PrecisionHeuristicTextBacked},
+		{"OptionalAbstractKeyword", PrecisionASTBacked},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var found *api.Rule
+			for _, r := range api.Registry {
+				if r.ID == tt.name {
+					found = r
+					break
+				}
+			}
+			if found == nil {
+				t.Fatalf("rule %q not found", tt.name)
+			}
+			if got := V2RulePrecision(found); got != tt.want {
+				t.Fatalf("V2RulePrecision(%s) = %q, want %q", tt.name, got, tt.want)
+			}
+		})
+	}
+}

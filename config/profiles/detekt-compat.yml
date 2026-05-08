@@ -1,0 +1,86 @@
+# Profile: detekt-compat
+#
+# Provides a migration-oriented rule surface using detekt-style rule
+# names and defaults where Krit has overlapping coverage. Disables
+# every Krit-specific ruleset so teams can start from familiar findings.
+#
+# Finding-count compatibility is best-effort. Krit's parser, dispatcher,
+# and type facts differ, so counts can differ even when rule names and
+# thresholds line up.
+#
+# This profile is merged on top of `config/default-krit.yml` by
+# `LoadAndMerge` — unlisted rules keep their default state.
+#
+# Use when: migrating from detekt and want a familiar baseline before
+# opting in to Krit's native rulesets.
+
+config:
+  validation: true
+  warningsAsErrors: false
+
+# --- Migrated rulesets: use familiar default thresholds ---
+
+complexity:
+  active: true
+  CyclomaticComplexMethod:
+    active: true
+    allowedComplexity: 15
+  LongParameterList:
+    active: true
+    allowedFunctionParameters: 6
+    allowedConstructorParameters: 7
+  # Other migrated thresholds already match Krit defaults.
+
+style:
+  active: true
+  ReturnCount:
+    active: true
+    max: 2
+  # These remain inactive by default; Krit defaults match.
+
+# --- Krit-specific rulesets: disabled for migration compatibility ---
+
+compose:
+  active: false
+
+a11y:
+  active: false
+
+architecture:
+  active: false
+
+dead-code:
+  active: false
+
+database:
+  active: false
+
+observability:
+  active: false
+
+resource-cost:
+  active: false
+
+security:
+  active: false
+
+privacy:
+  active: false
+
+release-engineering:
+  active: false
+
+supply-chain:
+  active: false
+
+testing-quality:
+  active: false
+
+licensing:
+  active: false
+
+di-hygiene:
+  active: false
+
+android-lint:
+  active: false

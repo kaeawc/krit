@@ -1,0 +1,3 @@
+<resources>
+    <string name="greet">%s, %s</string>
+</resources>

@@ -1,0 +1,1320 @@
+package rules
+
+import (
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	"github.com/kaeawc/krit/internal/experiment"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+// ClassNamingRule checks class names match a pattern.
+type ClassNamingRule struct {
+	FlatDispatchBase
+	BaseRule
+	Pattern *regexp.Regexp
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *ClassNamingRule) Confidence() float64 { return 0.95 }
+
+// FunctionNamingRule checks function names match a pattern.
+type FunctionNamingRule struct {
+	FlatDispatchBase
+	BaseRule
+	Pattern               *regexp.Regexp
+	IgnoreAnnotated       []string
+	CustomPreviewWildcard bool
+	CustomPreviewPrefixes []string
+	AllowBacktickNames    bool           // if true (default), backtick-quoted names are skipped
+	ExcludeClassPattern   *regexp.Regexp // classes matching this are excluded
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *FunctionNamingRule) Confidence() float64 { return 0.95 }
+
+func functionDeclarationHasExplicitReturnTypeFlat(file *scanner.File, idx uint32) bool {
+	seenParams := false
+	for i := 0; i < file.FlatChildCount(idx); i++ {
+		c := file.FlatChild(idx, i)
+		t := file.FlatType(c)
+		if t == "function_value_parameters" {
+			seenParams = true
+			continue
+		}
+		if !seenParams {
+			continue
+		}
+		switch t {
+		case "user_type", "nullable_type", "function_type", "parenthesized_type", "type_reference", "dynamic_type":
+			return true
+		case "function_body", "=", "{":
+			return false
+		}
+	}
+	text := file.FlatNodeText(idx)
+	funIdx := strings.Index(text, "fun ")
+	if funIdx < 0 {
+		return false
+	}
+	rest := text[funIdx:]
+	paren := strings.Index(rest, ")")
+	if paren < 0 {
+		return false
+	}
+	after := strings.TrimLeft(rest[paren+1:], " \t\n\r")
+	return strings.HasPrefix(after, ":")
+}
+
+func isTopLevelFunctionFlat(file *scanner.File, idx uint32) bool {
+	p, ok := file.FlatParent(idx)
+	return ok && file.FlatType(p) == "source_file"
+}
+
+func functionHasExpressionBodyReturningCallFlat(file *scanner.File, idx uint32) bool {
+	body, _ := file.FlatFindChild(idx, "function_body")
+	if body == 0 {
+		return false
+	}
+	bodyText := strings.TrimSpace(file.FlatNodeText(body))
+	if !strings.HasPrefix(bodyText, "=") {
+		return false
+	}
+	for i := 0; i < file.FlatNamedChildCount(body); i++ {
+		c := file.FlatNamedChild(body, i)
+		if file.FlatType(c) == "call_expression" {
+			return true
+		}
+	}
+	return false
+}
+
+// VariableNamingRule checks local variable names.
+type VariableNamingRule struct {
+	FlatDispatchBase
+	BaseRule
+	Pattern                *regexp.Regexp
+	PrivateVariablePattern *regexp.Regexp
+	ExcludeClassPattern    *regexp.Regexp
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *VariableNamingRule) Confidence() float64 { return 0.95 }
+
+func variableNamingIsFunctionLocalPropertyFlat(file *scanner.File, idx uint32) bool {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "function_body":
+			return true
+		case "class_body", "class_declaration", "object_declaration", "companion_object":
+			return false
+		}
+	}
+	return false
+}
+
+// PackageNamingRule checks package names.
+type PackageNamingRule struct {
+	FlatDispatchBase
+	BaseRule
+	Pattern *regexp.Regexp
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *PackageNamingRule) Confidence() float64 { return 0.95 }
+
+// EnumNamingRule checks enum entry names.
+type EnumNamingRule struct {
+	FlatDispatchBase
+	BaseRule
+	Pattern *regexp.Regexp
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *EnumNamingRule) Confidence() float64 { return 0.95 }
+
+func isTestSupportFile(path string) bool {
+	if scanner.IsTestFile(path) {
+		return true
+	}
+	lower := strings.ToLower(path)
+	return strings.Contains(lower, "-testing/") ||
+		strings.Contains(lower, "/testing/") ||
+		strings.Contains(lower, "/test-utils/") ||
+		strings.Contains(lower, "-test-utils/")
+}
+
+// ---------- New naming rules ----------
+
+// BooleanPropertyNamingRule checks that Boolean properties start with is/has/are.
+type BooleanPropertyNamingRule struct {
+	FlatDispatchBase
+	BaseRule
+	AllowedPattern *regexp.Regexp
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *BooleanPropertyNamingRule) Confidence() float64 { return 0.95 }
+
+func isBooleanPropertyFlat(file *scanner.File, idx uint32) bool {
+	declaredType := extractPropertyTypeFlat(file, idx)
+	if declaredType == "Boolean" || declaredType == "Boolean?" {
+		return true
+	}
+	if declaredType != "" {
+		return false
+	}
+	text := file.FlatNodeText(idx)
+	if eq := strings.Index(text, "="); eq >= 0 {
+		initializer := strings.TrimSpace(text[eq+1:])
+		return initializer == "true" || initializer == "false"
+	}
+	return false
+}
+
+// ConstructorParameterNamingRule checks constructor val/var parameter names.
+type ConstructorParameterNamingRule struct {
+	FlatDispatchBase
+	BaseRule
+	Pattern                 *regexp.Regexp
+	PrivateParameterPattern *regexp.Regexp
+	ExcludeClassPattern     *regexp.Regexp
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *ConstructorParameterNamingRule) Confidence() float64 { return 0.95 }
+
+// ForbiddenClassNameRule flags disallowed class names.
+type ForbiddenClassNameRule struct {
+	FlatDispatchBase
+	BaseRule
+	ForbiddenNames []string
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *ForbiddenClassNameRule) Confidence() float64 { return 0.95 }
+
+// FunctionNameMaxLengthRule flags function names exceeding a max length.
+type FunctionNameMaxLengthRule struct {
+	FlatDispatchBase
+	BaseRule
+	MaxLength int
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *FunctionNameMaxLengthRule) Confidence() float64 { return 0.95 }
+
+// FunctionNameMinLengthRule flags function names below a min length.
+type FunctionNameMinLengthRule struct {
+	FlatDispatchBase
+	BaseRule
+	MinLength int
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *FunctionNameMinLengthRule) Confidence() float64 { return 0.95 }
+
+// FunctionParameterNamingRule checks function parameter names.
+type FunctionParameterNamingRule struct {
+	FlatDispatchBase
+	BaseRule
+	Pattern             *regexp.Regexp
+	ExcludeClassPattern *regexp.Regexp
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *FunctionParameterNamingRule) Confidence() float64 { return 0.95 }
+
+// InvalidPackageDeclarationRule checks that the package declaration matches the directory structure.
+type InvalidPackageDeclarationRule struct {
+	FlatDispatchBase
+	BaseRule
+	RootPackage              string
+	RequireRootInDeclaration bool
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *InvalidPackageDeclarationRule) Confidence() float64 { return 0.95 }
+
+func invalidPackageDeclarationIgnoredPath(path string) bool {
+	normalized := filepath.ToSlash(path)
+	for _, marker := range []string{
+		"/.claude/skills/",
+		"/.github/",
+		"/.gitlab/",
+		"/.circleci/",
+		"/.buildkite/",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// LambdaParameterNamingRule checks lambda parameter names.
+type LambdaParameterNamingRule struct {
+	FlatDispatchBase
+	BaseRule
+	Pattern *regexp.Regexp
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *LambdaParameterNamingRule) Confidence() float64 { return 0.95 }
+
+// MatchingDeclarationNameRule checks that a file with a single non-private
+// top-level class or object has a filename matching that declaration's name.
+// Only KtClassOrObject declarations (class, interface, object, enum) are
+// counted; private classes are excluded; top-level functions, properties and
+// typealiases do not count toward the "single declaration" check. A typealias
+// whose name matches the filename suppresses the finding (allows Foo.kt with
+// typealias Foo = FooImpl + class FooImpl).
+type MatchingDeclarationNameRule struct {
+	FlatDispatchBase
+	BaseRule
+	MustBeFirst          bool
+	MultiplatformTargets []string
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *MatchingDeclarationNameRule) Confidence() float64 { return 0.95 }
+
+// fileNameWithoutSuffix strips multiplatform and .kt/.kts suffixes from a path.
+// For example "Foo.android.kt" with target "android" yields "Foo".
+func fileNameWithoutSuffix(path string, multiplatformTargets []string) string {
+	base := filepath.Base(path)
+	for _, target := range multiplatformTargets {
+		suffix := "." + target + ".kt"
+		if strings.HasSuffix(base, suffix) {
+			return strings.TrimSuffix(base, suffix)
+		}
+	}
+	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
+// MemberNameEqualsClassNameRule flags members whose name equals the containing class name.
+type MemberNameEqualsClassNameRule struct {
+	FlatDispatchBase
+	BaseRule
+	IgnoreOverridden bool
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *MemberNameEqualsClassNameRule) Confidence() float64 { return 0.95 }
+
+// NoNameShadowingRule flags inner declarations that shadow outer ones.
+// NoNameShadowing behavior:
+//   - Skips underscore "_" names
+//   - Non-inner class bodies reset scope (outer names not inherited)
+//   - Object/companion object declarations reset scope
+//   - Class member function params do NOT shadow class constructor params
+//     (accessible via this.name)
+type NoNameShadowingRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence because this
+// rule is highly accurate per-shadow but extremely noisy on real
+// codebases (~1,785 findings on pocket-android-app per roadmap/17).
+// Many shadows are intentional (scoping functions, kotlinx.coroutines
+// flow collectors, builder DSLs). Medium confidence keeps it in
+// --min-confidence=medium pipelines but lets strict pipelines filter
+// it out of their default gate.
+func (r *NoNameShadowingRule) Confidence() float64 { return 0.75 }
+
+type noNameShadowFindingKey struct {
+	line int
+	name string
+}
+
+// shadowScanCtx carries the per-scan state threaded through walkScopeFlat and
+// reportIfShadowedFlat. `visible` and `blocked` vary per scope, so they stay
+// as walkScopeFlat parameters; `file`, `findings`, and `seen` are constant for
+// the whole scan.
+type shadowScanCtx struct {
+	file     *scanner.File
+	findings *[]scanner.Finding
+	seen     map[noNameShadowFindingKey]bool
+}
+
+func (r *NoNameShadowingRule) walkScopeFlat(node uint32, ctx *shadowScanCtx, visible map[string]int, blocked map[string]bool) {
+	file := ctx.file
+	if visible == nil {
+		visible = make(map[string]int, 16)
+	}
+	var localNames map[string]bool
+	addLocalName := func(name string) {
+		if localNames == nil {
+			localNames = make(map[string]bool, 8)
+		}
+		if localNames[name] {
+			return
+		}
+		localNames[name] = true
+		visible[name]++
+	}
+	defer func() {
+		for name := range localNames {
+			if visible[name] <= 1 {
+				delete(visible, name)
+				continue
+			}
+			visible[name]--
+		}
+	}()
+
+	var collectNames func(n uint32)
+	collectNames = func(n uint32) {
+		skipNextLambdaAsClassBody := false
+		for i := 0; i < file.FlatNamedChildCount(n); i++ {
+			child := file.FlatNamedChild(n, i)
+			childType := file.FlatType(child)
+
+			if childType == "type_alias" {
+				continue
+			}
+			if noNameShadowIsScopeBarrierFlat(file, child) {
+				r.walkScopeFlat(child, ctx, nil, nil)
+				continue
+			}
+			if skipNextLambdaAsClassBody && childType == "lambda_literal" {
+				skipNextLambdaAsClassBody = false
+				r.walkScopeClassBodyLambda(child, ctx)
+				continue
+			}
+			if childType == "property_declaration" || childType == "variable_declaration" {
+				setSkip := r.collectVarDeclName(ctx, child, childType, visible, localNames, blocked, addLocalName)
+				if setSkip {
+					skipNextLambdaAsClassBody = true
+				}
+				continue
+			}
+			if childType == "parameter" {
+				name := extractIdentifierFlat(file, child)
+				if name != "" && name != "_" {
+					r.collectParameterName(ctx, n, child, name, visible, localNames, blocked, addLocalName)
+				}
+				continue
+			}
+			if childType == "class_parameter" {
+				name := extractIdentifierFlat(file, child)
+				if name != "" && name != "_" {
+					addLocalName(name)
+				}
+				continue
+			}
+			if noNameShadowIsScopeNodeFlat(file, child) {
+				switch childType {
+				case "function_declaration", "secondary_constructor":
+					r.walkScopeFlat(child, ctx, visible, blocked)
+				case "class_body":
+					if blocked == nil {
+						blocked = make(map[string]bool, 8)
+					}
+					addedBlocked := noNameShadowPushBlockedNamesFlat(file, child, blocked)
+					r.walkScopeFlat(child, ctx, visible, blocked)
+					for _, name := range addedBlocked {
+						delete(blocked, name)
+					}
+				default:
+					r.walkScopeFlat(child, ctx, visible, blocked)
+				}
+			} else {
+				if experiment.Enabled("no-name-shadowing-prune") && !noNameShadowMayContainDeclarationsFlat(file, child) {
+					continue
+				}
+				collectNames(child)
+			}
+		}
+	}
+	collectNames(node)
+}
+
+func (r *NoNameShadowingRule) walkScopeClassBodyLambda(child uint32, ctx *shadowScanCtx) {
+	file := ctx.file
+	lambdaBlocked := make(map[string]bool, 16)
+	var pushProps func(x uint32)
+	pushProps = func(x uint32) {
+		for j := 0; j < file.FlatNamedChildCount(x); j++ {
+			c := file.FlatNamedChild(x, j)
+			if file.FlatType(c) == "property_declaration" {
+				if name := extractIdentifierFlat(file, c); name != "" {
+					lambdaBlocked[name] = true
+				}
+			}
+			if file.FlatType(c) == "statements" {
+				pushProps(c)
+			}
+		}
+	}
+	pushProps(child)
+	r.walkScopeFlat(child, ctx, nil, lambdaBlocked)
+}
+
+func (r *NoNameShadowingRule) collectDestructuredNames(ctx *shadowScanCtx, multi uint32, visible map[string]int, localNames map[string]bool, blocked map[string]bool, addLocalName func(string)) {
+	file := ctx.file
+	for j := 0; j < file.FlatChildCount(multi); j++ {
+		compDecl := file.FlatChild(multi, j)
+		if file.FlatType(compDecl) != "variable_declaration" {
+			continue
+		}
+		compName := extractIdentifierFlat(file, compDecl)
+		if compName != "" && compName != "_" {
+			r.reportIfShadowedFlat(ctx, compName, compDecl, visible, localNames, blocked)
+			addLocalName(compName)
+		}
+	}
+}
+
+func noNameShadowVarDeclSuppressed(file *scanner.File, child uint32, name string) bool {
+	if noNameShadowIsLambdaParameterFlat(file, child) {
+		return true
+	}
+	if noNameShadowIsWhenSubjectBindingFlat(file, child) {
+		return true
+	}
+	if file.FlatHasAncestorOfType(child, "catch_block") {
+		return true
+	}
+	if noNameShadowHasLocalSuppression(file, child) {
+		return true
+	}
+	if isNullNarrowingSelfShadowFlat(file, child, name) {
+		return true
+	}
+	if isScopeFunctionSelfConfigurationShadowFlat(file, child, name) {
+		return true
+	}
+	if isSimpleSelfAliasShadowFlat(file, child, name) {
+		return true
+	}
+	if noNameShadowIsConstructorBackedClassPropertyFlat(file, child, name) {
+		return true
+	}
+	if noNameShadowIsSetterAssignPatternFlat(file, child, name) {
+		return true
+	}
+	if noNameShadowIsMutableDerivedCopyFlat(file, child, name) {
+		return true
+	}
+	return false
+}
+
+func (r *NoNameShadowingRule) collectParameterName(ctx *shadowScanCtx, n, child uint32, name string, visible map[string]int, localNames map[string]bool, blocked map[string]bool, addLocalName func(string)) {
+	file := ctx.file
+	if noNameShadowIsLambdaParameterFlat(file, child) {
+		addLocalName(name)
+		return
+	}
+	enclosingFn := n
+	if file.FlatType(enclosingFn) != "function_declaration" {
+		for p, ok := file.FlatParent(enclosingFn); ok; p, ok = file.FlatParent(p) {
+			enclosingFn = p
+			if file.FlatType(enclosingFn) == "function_declaration" {
+				break
+			}
+		}
+	}
+	if file.FlatType(enclosingFn) == "function_declaration" &&
+		file.FlatHasModifier(enclosingFn, "override") {
+		addLocalName(name)
+	} else if noNameShadowIsSetterParamFlat(file, enclosingFn, name) {
+		addLocalName(name)
+	} else {
+		r.reportIfShadowedFlat(ctx, name, child, visible, localNames, blocked)
+		addLocalName(name)
+	}
+}
+
+func (r *NoNameShadowingRule) collectVarDeclName(ctx *shadowScanCtx, child uint32, childType string, visible map[string]int, localNames map[string]bool, blocked map[string]bool, addLocalName func(string)) (setSkipLambda bool) {
+	file := ctx.file
+	if parent, ok := file.FlatParent(child); ok && file.FlatType(parent) == "source_file" {
+		return false
+	}
+	if childType == "property_declaration" {
+		if ut, ok := file.FlatFindChild(child, "user_type"); ok {
+			if file.FlatNodeTextEquals(ut, "constructor") {
+				return true
+			}
+		}
+	}
+	multi, _ := file.FlatFindChild(child, "multi_variable_declaration")
+	if multi != 0 {
+		r.collectDestructuredNames(ctx, multi, visible, localNames, blocked, addLocalName)
+		return false
+	}
+	name := extractIdentifierFlat(file, child)
+	if name != "" && name != "_" {
+		if noNameShadowVarDeclSuppressed(file, child, name) {
+			addLocalName(name)
+		} else {
+			r.reportIfShadowedFlat(ctx, name, child, visible, localNames, blocked)
+			addLocalName(name)
+		}
+	}
+	return false
+}
+
+// reportIfShadowed checks if name shadows an outer declaration and appends a
+// finding if so, with deduplication.
+func (r *NoNameShadowingRule) reportIfShadowedFlat(ctx *shadowScanCtx, name string, child uint32, visible map[string]int, localNames map[string]bool, blocked map[string]bool) {
+	file := ctx.file
+	findings := ctx.findings
+	seen := ctx.seen
+	if blocked != nil && blocked[name] {
+		return
+	}
+	// Skip destructuring components. `val (a, b) = pair` and lambda
+	// destructuring `{ (view, day) -> ... }` bind names that refer to a
+	// specific element of the source expression — the names are not
+	// freely choosable without changing semantics.
+	if isInsideDestructuringFlat(file, child) {
+		return
+	}
+	if localNames == nil || !localNames[name] {
+		if visible[name] == 0 {
+			return
+		}
+		line := file.FlatRow(child) + 1
+		// Use the declaration's actual column so multiple shadowing
+		// declarations on the same line (e.g. two function parameters)
+		// produce distinct finding keys.
+		col := file.FlatCol(child) + 1
+		key := noNameShadowFindingKey{line: line, name: name}
+		if !seen[key] {
+			seen[key] = true
+			*findings = append(*findings, r.Finding(file, line, col,
+				fmt.Sprintf("Name '%s' shadows an outer declaration", name)))
+		}
+	}
+}
+
+// isNullNarrowingSelfShadowFlat returns true when `decl` is the canonical
+// Kotlin null-narrowing self-shadow idiom, e.g.:
+//
+//	val foo = foo ?: return
+//	val foo = foo?.bar
+//	val foo = foo?.bar ?: default
+//	val foo = foo?.let { ... } ?: default
+//
+// The detection walks the initializer AST rather than scanning text — this
+// avoids false matches on byte sequences like `?:` that may appear in
+// comments, string literals, or unrelated subexpressions.
+func isNullNarrowingSelfShadowFlat(file *scanner.File, decl uint32, name string) bool {
+	init := declInitializerFlat(file, decl)
+	if init == 0 {
+		return false
+	}
+	// Strip parens.
+	for file.FlatType(init) == "parenthesized_expression" && file.FlatNamedChildCount(init) > 0 {
+		init = file.FlatNamedChild(init, 0)
+	}
+	if isCheckNotNullSelfShadowFlat(file, init, name) {
+		return true
+	}
+	// The initializer must use `?:` (elvis) or `?.` (safe call) somewhere
+	// in its leftmost spine.
+	requiresNullOp := false
+	cur := init
+	for {
+		switch file.FlatType(cur) {
+		case "parenthesized_expression":
+			if file.FlatNamedChildCount(cur) == 0 {
+				return false
+			}
+			cur = file.FlatNamedChild(cur, 0)
+			continue
+		case "elvis_expression":
+			requiresNullOp = true
+			if file.FlatNamedChildCount(cur) == 0 {
+				return false
+			}
+			cur = file.FlatNamedChild(cur, 0)
+			continue
+		case "navigation_expression":
+			if flatNavigationHasSafeCall(file, cur) {
+				requiresNullOp = true
+			}
+			if file.FlatNamedChildCount(cur) == 0 {
+				return false
+			}
+			cur = file.FlatNamedChild(cur, 0)
+			continue
+		case "call_expression":
+			// Descend into the callee/receiver (first named child).
+			if file.FlatNamedChildCount(cur) == 0 {
+				return false
+			}
+			cur = file.FlatNamedChild(cur, 0)
+			continue
+		case "simple_identifier":
+			return requiresNullOp && file.FlatNodeText(cur) == name
+		default:
+			return false
+		}
+	}
+}
+
+func isCheckNotNullSelfShadowFlat(file *scanner.File, init uint32, name string) bool {
+	if file.FlatType(init) != "call_expression" {
+		return false
+	}
+	callName := flatCallNameAny(file, init)
+	if callName != "checkNotNull" && callName != "requireNotNull" {
+		return false
+	}
+	_, args := flatCallExpressionParts(file, init)
+	if args == 0 {
+		return false
+	}
+	for i := 0; i < file.FlatNamedChildCount(args); i++ {
+		arg := file.FlatNamedChild(args, i)
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		argText := strings.TrimSpace(file.FlatNodeText(arg))
+		if eq := strings.Index(argText, "="); eq >= 0 {
+			argText = strings.TrimSpace(argText[eq+1:])
+		}
+		return argText == name
+	}
+	return false
+}
+
+func isScopeFunctionSelfConfigurationShadowFlat(file *scanner.File, decl uint32, name string) bool {
+	init := declInitializerFlat(file, decl)
+	if init == 0 {
+		return false
+	}
+	for file.FlatType(init) == "parenthesized_expression" && file.FlatNamedChildCount(init) > 0 {
+		init = file.FlatNamedChild(init, 0)
+	}
+	if file.FlatType(init) != "call_expression" {
+		return false
+	}
+	callName := flatCallNameAny(file, init)
+	switch callName {
+	case "apply", "also", "run", "let":
+	default:
+		return false
+	}
+	text := strings.TrimSpace(file.FlatNodeText(init))
+	return strings.HasPrefix(text, name+"."+callName) ||
+		strings.HasPrefix(text, name+"?."+callName)
+}
+
+// declInitializerFlat returns the named initializer expression of a property
+// or variable declaration (the node following the `=` token), or 0 if none.
+func declInitializerFlat(file *scanner.File, decl uint32) uint32 {
+	seenEq := false
+	for c := file.FlatFirstChild(decl); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "=" {
+			seenEq = true
+			continue
+		}
+		if seenEq && file.FlatIsNamed(c) {
+			t := file.FlatType(c)
+			if t == "line_comment" || t == "multiline_comment" {
+				continue
+			}
+			return c
+		}
+	}
+	return 0
+}
+
+func noNameShadowHasLocalSuppression(file *scanner.File, decl uint32) bool {
+	mods, ok := file.FlatFindChild(decl, "modifiers")
+	if !ok || mods == 0 {
+		return false
+	}
+	text := file.FlatNodeText(mods)
+	return strings.Contains(text, "NAME_SHADOWING") ||
+		strings.Contains(text, "NoNameShadowing") ||
+		strings.Contains(text, "detekt:NoNameShadowing") ||
+		strings.Contains(text, "detekt.NoNameShadowing")
+}
+
+func isSimpleSelfAliasShadowFlat(file *scanner.File, decl uint32, name string) bool {
+	text := file.FlatNodeText(decl)
+	eq := strings.Index(text, "=")
+	if eq < 0 {
+		return false
+	}
+	rhs := strings.TrimSpace(text[eq+1:])
+	rhs = strings.TrimPrefix(rhs, "this.")
+	return rhs == name
+}
+
+func noNameShadowIsConstructorBackedClassPropertyFlat(file *scanner.File, decl uint32, name string) bool {
+	if file.FlatType(decl) != "property_declaration" {
+		return false
+	}
+	var classBody uint32
+	for p, ok := file.FlatParent(decl); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "class_body":
+			classBody = p
+		case "function_body", "source_file":
+			return false
+		}
+		if classBody != 0 {
+			break
+		}
+	}
+	if classBody == 0 {
+		return false
+	}
+	classDecl, ok := file.FlatParent(classBody)
+	if !ok {
+		return false
+	}
+	for classDecl != 0 && file.FlatType(classDecl) != "class_declaration" {
+		var parentOK bool
+		classDecl, parentOK = file.FlatParent(classDecl)
+		if !parentOK {
+			return false
+		}
+	}
+	if !propertyInitializerContainsIdentifierFlat(file, decl, name) {
+		return false
+	}
+	return classHeaderHasNonPropertyParameterNamedFlat(file, classDecl, name) ||
+		classHeaderTextBeforeDeclarationContainsParamFlat(file, classDecl, decl, name)
+}
+
+func noNameShadowIsSetterAssignPatternFlat(file *scanner.File, decl uint32, name string) bool {
+	if file.FlatType(decl) != "property_declaration" && file.FlatType(decl) != "variable_declaration" {
+		return false
+	}
+	parent, ok := file.FlatParent(decl)
+	if !ok {
+		return false
+	}
+	next, ok := noNameShadowNextNamedSiblingInParent(file, parent, decl)
+	if !ok || !noNameShadowIsThisAssignmentFromName(file, next, name) {
+		return false
+	}
+	return !noNameShadowIdentifierUsedAfterSibling(file, parent, next, name)
+}
+
+func noNameShadowIsMutableDerivedCopyFlat(file *scanner.File, decl uint32, name string) bool {
+	prop := decl
+	if file.FlatType(prop) == "variable_declaration" {
+		parent, ok := file.FlatParent(prop)
+		if !ok || file.FlatType(parent) != "property_declaration" {
+			return false
+		}
+		prop = parent
+	}
+	if file.FlatType(prop) != "property_declaration" || !propertyDeclarationIsVar(file, prop) {
+		return false
+	}
+	init := declInitializerFlat(file, prop)
+	if init == 0 {
+		return false
+	}
+	for file.FlatType(init) == "parenthesized_expression" && file.FlatNamedChildCount(init) > 0 {
+		init = file.FlatNamedChild(init, 0)
+	}
+	receiver := noNameShadowDerivedCopyReceiverFlat(file, init)
+	if receiver == "" || receiver == name {
+		return false
+	}
+	parent, ok := file.FlatParent(prop)
+	if !ok {
+		return false
+	}
+	return noNameShadowIdentifierAssignedAfterSibling(file, parent, prop, name)
+}
+
+func noNameShadowDerivedCopyReceiverFlat(file *scanner.File, init uint32) string {
+	if file.FlatType(init) != "navigation_expression" {
+		return ""
+	}
+	text := strings.TrimSpace(file.FlatNodeText(init))
+	dot := strings.Index(text, ".")
+	safeDot := strings.Index(text, "?.")
+	if safeDot >= 0 && (dot < 0 || safeDot < dot) {
+		dot = safeDot
+	}
+	if dot <= 0 {
+		return ""
+	}
+	receiver := strings.TrimSpace(text[:dot])
+	if !isSimpleIdentifierText(receiver) {
+		return ""
+	}
+	return receiver
+}
+
+func isSimpleIdentifierText(text string) bool {
+	if text == "" || !isIdentStartByte(text[0]) {
+		return false
+	}
+	for i := 1; i < len(text); i++ {
+		if !isIdentByte(text[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func noNameShadowIsSetterParamFlat(file *scanner.File, fn uint32, name string) bool {
+	if fn == 0 || file.FlatType(fn) != "function_declaration" {
+		return false
+	}
+	body, ok := file.FlatFindChild(fn, "function_body")
+	if !ok || body == 0 {
+		return false
+	}
+	stmts, _ := file.FlatFindChild(body, "statements")
+	if stmts == 0 {
+		stmts = body
+	}
+	first := noNameShadowFirstNamedChild(file, stmts)
+	if first == 0 || !noNameShadowIsThisAssignmentFromName(file, first, name) {
+		return false
+	}
+	return !noNameShadowIdentifierUsedAfterSibling(file, stmts, first, name)
+}
+
+func noNameShadowIsThisAssignmentFromName(file *scanner.File, stmt uint32, name string) bool {
+	text := strings.TrimSpace(file.FlatNodeText(stmt))
+	eq := strings.Index(text, "=")
+	if eq < 0 {
+		return false
+	}
+	lhs := strings.TrimSpace(text[:eq])
+	rhs := strings.TrimSpace(text[eq+1:])
+	return (lhs == "this."+name || noNameShadowIsLabeledThisProperty(lhs, name)) && rhs == name
+}
+
+func noNameShadowIsLabeledThisProperty(lhs string, name string) bool {
+	if !strings.HasPrefix(lhs, "this@") {
+		return false
+	}
+	dot := strings.LastIndex(lhs, ".")
+	if dot < 0 || dot == len(lhs)-1 {
+		return false
+	}
+	return lhs[dot+1:] == name
+}
+
+func noNameShadowIdentifierUsedAfterSibling(file *scanner.File, parent uint32, sibling uint32, name string) bool {
+	pastSibling := false
+	for i := 0; i < file.FlatNamedChildCount(parent); i++ {
+		child := file.FlatNamedChild(parent, i)
+		if child == sibling {
+			pastSibling = true
+			continue
+		}
+		if !pastSibling {
+			continue
+		}
+		if containsIdentifierToken(file.FlatNodeText(child), name) {
+			return true
+		}
+	}
+	return false
+}
+
+func noNameShadowIdentifierAssignedAfterSibling(file *scanner.File, parent uint32, sibling uint32, name string) bool {
+	pastSibling := false
+	for i := 0; i < file.FlatNamedChildCount(parent); i++ {
+		child := file.FlatNamedChild(parent, i)
+		if child == sibling {
+			pastSibling = true
+			continue
+		}
+		if !pastSibling {
+			continue
+		}
+		if noNameShadowTextAssignsBareIdentifier(file.FlatNodeText(child), name) {
+			return true
+		}
+	}
+	return false
+}
+
+func noNameShadowTextAssignsBareIdentifier(text, name string) bool {
+	if name == "" {
+		return false
+	}
+	start := 0
+	for {
+		idx := strings.Index(text[start:], name)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		after := pos + len(name)
+		beforeOK := pos == 0 || !isIdentByte(text[pos-1])
+		afterOK := after == len(text) || !isIdentByte(text[after])
+		if beforeOK && afterOK {
+			rest := strings.TrimLeft(text[after:], " \t\r\n")
+			if strings.HasPrefix(rest, "=") && !strings.HasPrefix(rest, "==") && !strings.HasPrefix(rest, "=>") {
+				return true
+			}
+		}
+		start = after
+		if start >= len(text) {
+			return false
+		}
+	}
+}
+
+func noNameShadowFirstNamedChild(file *scanner.File, parent uint32) uint32 {
+	for i := 0; i < file.FlatNamedChildCount(parent); i++ {
+		child := file.FlatNamedChild(parent, i)
+		if child != 0 {
+			return child
+		}
+	}
+	return 0
+}
+
+func noNameShadowNextNamedSiblingInParent(file *scanner.File, parent uint32, node uint32) (uint32, bool) {
+	pastNode := false
+	for i := 0; i < file.FlatNamedChildCount(parent); i++ {
+		child := file.FlatNamedChild(parent, i)
+		if child == node {
+			pastNode = true
+			continue
+		}
+		if pastNode && child != 0 {
+			return child, true
+		}
+	}
+	return 0, false
+}
+
+func classHeaderHasNonPropertyParameterNamedFlat(file *scanner.File, classDecl uint32, name string) bool {
+	var found bool
+	var visit func(uint32)
+	visit = func(node uint32) {
+		if found {
+			return
+		}
+		for i := 0; i < file.FlatNamedChildCount(node); i++ {
+			child := file.FlatNamedChild(node, i)
+			childType := file.FlatType(child)
+			if childType == "class_body" {
+				continue
+			}
+			if childType == "class_parameter" {
+				if !classParameterDefinesPropertyFlat(file, child) && extractIdentifierFlat(file, child) == name {
+					found = true
+					return
+				}
+				continue
+			}
+			visit(child)
+		}
+	}
+	visit(classDecl)
+	return found
+}
+
+func propertyInitializerContainsIdentifierFlat(file *scanner.File, decl uint32, name string) bool {
+	text := file.FlatNodeText(decl)
+	eq := strings.Index(text, "=")
+	if eq < 0 || eq+1 >= len(text) {
+		return false
+	}
+	return containsIdentifierToken(text[eq+1:], name)
+}
+
+func classHeaderTextBeforeDeclarationContainsParamFlat(file *scanner.File, classDecl, decl uint32, name string) bool {
+	start := int(file.FlatStartByte(classDecl))
+	end := int(file.FlatStartByte(decl))
+	if start < 0 || end <= start || end > len(file.Content) {
+		return false
+	}
+	header := string(file.Content[start:end])
+	if !strings.Contains(header, "constructor(") && !strings.Contains(header, "class ") {
+		return false
+	}
+	return containsIdentifierToken(header, name)
+}
+
+func containsIdentifierToken(text, name string) bool {
+	if name == "" {
+		return false
+	}
+	start := 0
+	for {
+		idx := strings.Index(text[start:], name)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		beforeOK := pos == 0 || !isIdentByte(text[pos-1])
+		after := pos + len(name)
+		afterOK := after == len(text) || !isIdentByte(text[after])
+		if beforeOK && afterOK {
+			return true
+		}
+		start = after
+		if start >= len(text) {
+			return false
+		}
+	}
+}
+
+func isExtensionFunctionDeclFlat(file *scanner.File, idx uint32) bool {
+	if file == nil || file.FlatType(idx) != "function_declaration" {
+		return false
+	}
+	var sawUserType bool
+	for i := 0; i < file.FlatChildCount(idx); i++ {
+		c := file.FlatChild(idx, i)
+		switch file.FlatType(c) {
+		case "user_type":
+			sawUserType = true
+		case "simple_identifier":
+			if sawUserType {
+				return true
+			}
+			return false
+		}
+	}
+	text := strings.TrimSpace(file.FlatNodeText(idx))
+	if !strings.HasPrefix(text, "fun ") {
+		return false
+	}
+	rest := strings.TrimPrefix(text, "fun ")
+	if parenIdx := strings.Index(rest, "("); parenIdx > 0 {
+		head := rest[:parenIdx]
+		return strings.Contains(head, ".")
+	}
+	return false
+}
+
+func isInsideDestructuringFlat(file *scanner.File, idx uint32) bool {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "multi_variable_declaration":
+			return true
+		case "function_declaration", "lambda_literal", "class_body", "function_body", "statements", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+func noNameShadowIsLambdaParameterFlat(file *scanner.File, idx uint32) bool {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "statements":
+			return false
+		case "lambda_literal":
+			return true
+		case "function_declaration", "class_declaration", "object_declaration", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+func noNameShadowIsWhenSubjectBindingFlat(file *scanner.File, idx uint32) bool {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "when_subject":
+			return true
+		case "when_entry", "function_declaration", "class_declaration", "object_declaration", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+func noNameShadowPushBlockedNamesFlat(file *scanner.File, classBody uint32, blocked map[string]bool) []string {
+	var added []string
+	for i := 0; i < file.FlatNamedChildCount(classBody); i++ {
+		child := file.FlatNamedChild(classBody, i)
+		if file.FlatType(child) == "property_declaration" {
+			name := extractIdentifierFlat(file, child)
+			if name != "" && !blocked[name] {
+				blocked[name] = true
+				added = append(added, name)
+			}
+		}
+	}
+
+	classDecl, ok := file.FlatParent(classBody)
+	if ok {
+		for i := 0; i < file.FlatNamedChildCount(classDecl); i++ {
+			child := file.FlatNamedChild(classDecl, i)
+			switch file.FlatType(child) {
+			case "primary_constructor", "class_parameter":
+				noNameShadowCollectParamNamesFlat(file, child, func(name string) {
+					if name == "" || blocked[name] {
+						return
+					}
+					blocked[name] = true
+					added = append(added, name)
+				})
+			}
+		}
+	}
+	return added
+}
+
+func noNameShadowMayContainDeclarationsFlat(file *scanner.File, idx uint32) bool {
+	switch file.FlatType(idx) {
+	case "source_file", "statements", "block", "function_body", "class_body", "lambda_literal",
+		"for_statement", "while_statement", "do_while_statement", "if_expression",
+		"when_expression", "when_entry", "try_expression", "catch_block", "finally_block",
+		"property_declaration", "variable_declaration", "multi_variable_declaration",
+		"parameter", "class_parameter", "function_declaration", "secondary_constructor",
+		"class_declaration", "object_declaration", "companion_object":
+		return true
+	}
+	return file.FlatNamedChildCount(idx) > 0 && file.FlatHasAncestorOfType(idx, "source_file")
+}
+
+func noNameShadowIsScopeBarrierFlat(file *scanner.File, idx uint32) bool {
+	switch file.FlatType(idx) {
+	case "class_declaration":
+		return !file.FlatHasModifier(idx, "inner")
+	case "object_declaration", "companion_object":
+		return true
+	}
+	return false
+}
+
+func noNameShadowIsScopeNodeFlat(file *scanner.File, idx uint32) bool {
+	switch file.FlatType(idx) {
+	case "function_declaration", "secondary_constructor", "function_body", "lambda_literal",
+		"for_statement", "while_statement", "do_while_statement", "if_expression", "when_expression",
+		"try_expression", "catch_block", "finally_block", "class_body", "control_structure_body",
+		"anonymous_initializer":
+		return true
+	}
+	return false
+}
+
+func noNameShadowCollectParamNamesFlat(file *scanner.File, idx uint32, visit func(string)) {
+	switch file.FlatType(idx) {
+	case "class_parameter", "parameter":
+		if name := extractIdentifierFlat(file, idx); name != "" {
+			visit(name)
+		}
+		return
+	}
+	for i := 0; i < file.FlatNamedChildCount(idx); i++ {
+		noNameShadowCollectParamNamesFlat(file, file.FlatNamedChild(idx, i), visit)
+	}
+}
+
+// NonBooleanPropertyPrefixedWithIsRule flags non-Boolean properties that start with "is".
+type NonBooleanPropertyPrefixedWithIsRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *NonBooleanPropertyPrefixedWithIsRule) Confidence() float64 { return 0.95 }
+
+// ObjectPropertyNamingRule checks property names inside object declarations.
+type ObjectPropertyNamingRule struct {
+	FlatDispatchBase
+	BaseRule
+	ConstPattern           *regexp.Regexp
+	PropertyPattern        *regexp.Regexp
+	PrivatePropertyPattern *regexp.Regexp
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *ObjectPropertyNamingRule) Confidence() float64 { return 0.95 }
+
+// TopLevelPropertyNamingRule checks top-level property names.
+type TopLevelPropertyNamingRule struct {
+	FlatDispatchBase
+	BaseRule
+	ConstPattern           *regexp.Regexp
+	PropertyPattern        *regexp.Regexp
+	PrivatePropertyPattern *regexp.Regexp
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *TopLevelPropertyNamingRule) Confidence() float64 { return 0.95 }
+
+// VariableMaxLengthRule flags variable names that are too long.
+type VariableMaxLengthRule struct {
+	FlatDispatchBase
+	BaseRule
+	MaxLength int
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *VariableMaxLengthRule) Confidence() float64 { return 0.95 }
+
+// VariableMinLengthRule flags variable names that are too short.
+type VariableMinLengthRule struct {
+	FlatDispatchBase
+	BaseRule
+	MinLength int
+}
+
+// Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
+// deterministic — the identifier is what it is. No heuristic path.
+// Classified per roadmap/17.
+func (r *VariableMinLengthRule) Confidence() float64 { return 0.95 }
+
+func walkFunctionParametersFlat(file *scanner.File, idx uint32, visit func(uint32)) {
+	if file == nil || idx == 0 {
+		return
+	}
+	if file.FlatType(idx) == "lambda_literal" {
+		return
+	}
+	if file.FlatType(idx) == "parameter" {
+		visit(idx)
+	}
+	file.FlatForEachChild(idx, func(child uint32) {
+		walkFunctionParametersFlat(file, child, visit)
+	})
+}

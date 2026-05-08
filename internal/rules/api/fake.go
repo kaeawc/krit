@@ -1,0 +1,110 @@
+package api
+
+import (
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+// FakeRule creates a minimal rule for testing. The check function
+// receives the context and can emit findings via ctx.Emit().
+func FakeRule(id string, opts ...FakeOption) *Rule {
+	r := &Rule{
+		ID:          id,
+		Category:    "test",
+		Description: "fake rule for testing",
+		Sev:         SeverityWarning,
+		Check:       func(*Context) {},
+	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
+}
+
+// FakeOption configures a FakeRule.
+type FakeOption func(*Rule)
+
+// WithNodeTypes sets the node types the rule dispatches on.
+func WithNodeTypes(types ...string) FakeOption {
+	return func(r *Rule) { r.NodeTypes = types }
+}
+
+// WithLexicalCalleeNames narrows call_expression dispatch by syntactic callee name.
+func WithLexicalCalleeNames(names ...string) FakeOption {
+	return func(r *Rule) { r.LexicalCalleeNames = names }
+}
+
+// WithNeeds sets the capabilities bitfield.
+func WithNeeds(c Capabilities) FakeOption {
+	return func(r *Rule) { r.Needs = c }
+}
+
+// WithCheck sets the check function.
+func WithCheck(fn func(*Context)) FakeOption {
+	return func(r *Rule) { r.Check = fn }
+}
+
+// WithFix sets the fix level.
+func WithFix(level FixLevel) FakeOption {
+	return func(r *Rule) { r.Fix = level }
+}
+
+// WithConfidence sets the base confidence.
+func WithConfidence(c float64) FakeOption {
+	return func(r *Rule) { r.Confidence = c }
+}
+
+// WithSeverity sets the severity.
+func WithSeverity(s Severity) FakeOption {
+	return func(r *Rule) { r.Sev = s }
+}
+
+// WithOracle sets the oracle filter.
+func WithOracle(f *OracleFilter) FakeOption {
+	return func(r *Rule) { r.Oracle = f }
+}
+
+// WithOracleCallTargets sets the oracle call-target filter.
+func WithOracleCallTargets(f *OracleCallTargetFilter) FakeOption {
+	return func(r *Rule) { r.OracleCallTargets = f }
+}
+
+// WithLibraryFacts marks the fake rule as reading project library facts.
+func WithLibraryFacts() FakeOption {
+	return func(r *Rule) { r.NeedsLibraryFacts = true }
+}
+
+// FakeContext creates a minimal context for testing with the given file.
+// A FindingCollector is pre-allocated; use ContextFindings(ctx) to read results.
+func FakeContext(file *scanner.File) *Context {
+	return &Context{
+		File:      file,
+		Collector: scanner.NewFindingCollector(0),
+	}
+}
+
+// FakeContextWithNode creates a context for testing with a specific node index.
+func FakeContextWithNode(file *scanner.File, idx uint32) *Context {
+	ctx := &Context{
+		File:      file,
+		Idx:       idx,
+		Collector: scanner.NewFindingCollector(0),
+	}
+	if file.FlatTree != nil && int(idx) < len(file.FlatTree.Nodes) {
+		node := file.FlatTree.Nodes[idx]
+		ctx.Node = &node
+	}
+	return ctx
+}
+
+// ContextFindings drains the context's collector and returns findings as a slice.
+func ContextFindings(ctx *Context) []scanner.Finding {
+	if ctx.Collector == nil {
+		return nil
+	}
+	cols := *ctx.Collector.Columns()
+	out := make([]scanner.Finding, cols.Len())
+	for i := range out {
+		out[i] = cols.Finding(i)
+	}
+	return out
+}

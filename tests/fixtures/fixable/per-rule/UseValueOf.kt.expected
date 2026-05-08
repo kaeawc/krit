@@ -1,0 +1,8 @@
+package fixtures.positive.android
+
+class BoxingExample {
+    fun create() {
+        val num = Integer.valueOf(42)
+        val flag = Boolean.valueOf(true)
+    }
+}

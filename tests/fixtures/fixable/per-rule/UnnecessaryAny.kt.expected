@@ -1,0 +1,9 @@
+package style
+
+fun example() {
+    val list = listOf(1, 2, 3)
+    val result = list.any { it > 1 }
+    val a = list.isNotEmpty()
+    val b = list.isNotEmpty()
+    val c = list.isEmpty()
+}

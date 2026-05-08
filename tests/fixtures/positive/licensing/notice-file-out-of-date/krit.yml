@@ -1,0 +1,5 @@
+licensing:
+  NoticeFileOutOfDate:
+    active: true
+    noticeRequiredArtifacts:
+      - "com.example:attrib-required-lib"

@@ -1,0 +1,42 @@
+package com.example
+
+import java.io.Serializable
+import java.util.Date
+import kotlin.collections.ArrayList
+
+public class Foo constructor(val name: String) {
+
+    fun bar(): Unit {
+        val x = "hello"
+        val list = emptyList()
+        val set = emptySet()
+        val map = emptyMap()
+        val items = listOf(1, 2, 3)
+        val result = items.any { it > 2 }
+        val result2 = items.none { it < 0 }
+        val filtered = items.first { it > 1 }
+        val filtered2 = items.count { it > 2 }
+        val sorted = items.sortedDescending()
+        val sortedBy = items.sortedByDescending(it)
+        val size = items.flatMap { it.children }.size
+        val arr: IntArray = intArrayOf(1, 2, 3)
+        val arr2: BooleanArray = booleanArrayOf()
+        val greeting = "hello"
+        val x2 = items
+        val thing = { it + 1 }
+        for (i in 0 until 10) {
+            println(i)
+        }
+        val s: String? = null
+        if (s.isNullOrEmpty()) {
+            println("empty")
+        }
+        val maybeList: List<String>? = null
+        val safe = maybeList.orEmpty()
+        val value = items.get(0)
+        require(isValid) { "invalid input" }
+        check(isReady) { "not ready" }
+	    val tabbed = true
+        val trailing = "whitespace"
+    }
+}

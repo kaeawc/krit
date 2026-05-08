@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lint violations: nested ScrollViews, px usage, hardcoded text, missing contentDescription -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16px">
+
+        <TextView
+            android:id="@+id/text_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Home Screen"
+            android:textSize="22sp" />
+
+        <!-- MissingContentDescription -->
+        <ImageView
+            android:id="@+id/img_banner"
+            android:layout_width="match_parent"
+            android:layout_height="180px"
+            android:src="@drawable/ic_launcher" />
+
+        <!-- HardcodedText -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Featured Items"
+            android:textSize="18sp"
+            android:paddingTop="12px"
+            android:paddingBottom="8px" />
+
+        <!-- NestedScrolling: ScrollView inside ScrollView -->
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="300px">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Item 1"
+                    android:padding="8dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Item 2"
+                    android:padding="8dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Item 3"
+                    android:padding="8dp" />
+
+                <!-- MissingContentDescription -->
+                <ImageView
+                    android:layout_width="match_parent"
+                    android:layout_height="100px"
+                    android:src="@drawable/ic_launcher" />
+
+            </LinearLayout>
+
+        </ScrollView>
+
+        <Button
+            android:id="@+id/btn_action"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Load More"
+            android:layout_marginTop="16dp" />
+
+    </LinearLayout>
+
+</ScrollView>

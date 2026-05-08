@@ -1,0 +1,21 @@
+package style
+
+fun example(str: String): String {
+    return str.ifEmpty { "default" }
+}
+
+fun example2(str: String): String {
+    return str.ifBlank { "default" }
+}
+
+fun example3(list: List<Int>): List<Int> {
+    return list.ifEmpty { listOf(1) }
+}
+
+fun example4(list: List<Int>): List<Int> {
+    return list.ifEmpty { listOf(2) }
+}
+
+fun example5(str: String): String {
+    return str.ifBlank { "bar" }
+}

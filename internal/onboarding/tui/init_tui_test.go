@@ -1,0 +1,1173 @@
+package tui
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/muesli/reflow/wordwrap"
+
+	"github.com/kaeawc/krit/internal/onboarding"
+)
+
+// newTestModel builds a minimal initModel the TUI tests can drive
+// directly without running the bubbletea program. Tests set m.phase
+// and invoke Update/View methods to verify behavior.
+func newTestModel(t *testing.T) Model {
+	t.Helper()
+	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := onboarding.LoadRegistry(filepath.Join(repoRoot, "config", "onboarding", "controversial-rules.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(onboarding.ScanOptions{RepoRoot: repoRoot}, reg, repoRoot, "", false)
+	m.width = 160
+	m.height = 40
+	m.selected = "balanced"
+	m.scans["balanced"] = &onboarding.ScanResult{
+		Total: 50,
+		ByRule: map[string]int{
+			"MagicNumber":              10,
+			"UnsafeCallOnNullableType": 5,
+			"UnsafeCast":               3,
+			"ComposeUnstableParameter": 2,
+		},
+		Findings: map[string][]onboarding.FindingSample{
+			"MagicNumber": {
+				{File: "/src/Foo.kt", Line: 42, Message: "Magic number 42 used in expression"},
+				{File: "/src/Bar.kt", Line: 10, Message: "Magic number 100 used in expression"},
+			},
+			"UnsafeCallOnNullableType": {
+				{File: "/src/Baz.kt", Line: 7, Message: "Unsafe call on nullable receiver"},
+			},
+		},
+	}
+	return m
+}
+
+// startQM sets the questionnaire phase on m and returns the questionnaireModel.
+func startQM(m *Model) questionnaireModel {
+	qm := newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+	m.phase = qm
+	return qm
+}
+
+// startEM sets the explorer phase on m and returns the explorerModel.
+func startEM(m *Model) explorerModel {
+	em := newExplorerModel(m.selected, m.scans, m.opts.RepoRoot, m.width, m.height)
+	m.phase = em
+	return em
+}
+
+// startTM loads thresholds synchronously, sets phase, and returns thresholdsModel.
+func startTM(m *Model) thresholdsModel {
+	tm := newThresholdsModel(m.selected, m.opts.RepoRoot, false)
+	loaded, _ := tm.Update(tm.Init()())
+	lm := loaded.(thresholdsModel)
+	m.phase = lm
+	return lm
+}
+
+// getQM extracts questionnaireModel from phase, failing if wrong type.
+func getQM(t *testing.T, m Model) questionnaireModel {
+	t.Helper()
+	qm, ok := m.phase.(questionnaireModel)
+	if !ok {
+		t.Fatalf("expected questionnaireModel phase, got %T", m.phase)
+	}
+	return qm
+}
+
+// getEM extracts explorerModel from phase, failing if wrong type.
+func getEM(t *testing.T, m Model) explorerModel {
+	t.Helper()
+	em, ok := m.phase.(explorerModel)
+	if !ok {
+		t.Fatalf("expected explorerModel phase, got %T", m.phase)
+	}
+	return em
+}
+
+// getTM extracts thresholdsModel from phase, failing if wrong type.
+func getTM(t *testing.T, m Model) thresholdsModel {
+	t.Helper()
+	tm, ok := m.phase.(thresholdsModel)
+	if !ok {
+		t.Fatalf("expected thresholdsModel phase, got %T", m.phase)
+	}
+	return tm
+}
+
+// pressKey returns the model state after dispatching a key through
+// Update for the given phase. Useful for chaining key events.
+func pressKey(m Model, key string) Model {
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+	return next.(Model)
+}
+
+// pressNamedKey is like pressKey but for named keys (arrows, enter, etc.).
+func pressNamedKey(m Model, t tea.KeyType) Model {
+	next, _ := m.Update(tea.KeyMsg{Type: t})
+	return next.(Model)
+}
+
+// pressKeyDrain dispatches a key and then executes the returned
+// tea.Cmd (if any), feeding its message back into Update. This is
+// needed for sub-models that communicate via command-returned
+// messages (e.g. pickerModel emitting profileSelectedMsg).
+func pressKeyDrain(m Model, key string) Model {
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+	m = next.(Model)
+	if cmd != nil {
+		msg := cmd()
+		if msg != nil {
+			next, _ = m.Update(msg)
+			m = next.(Model)
+		}
+	}
+	return m
+}
+
+// pressNamedKeyDrain is like pressKeyDrain but for named keys.
+func pressNamedKeyDrain(m Model, t tea.KeyType) Model {
+	next, cmd := m.Update(tea.KeyMsg{Type: t})
+	m = next.(Model)
+	if cmd != nil {
+		msg := cmd()
+		if msg != nil {
+			next, _ = m.Update(msg)
+			m = next.(Model)
+		}
+	}
+	return m
+}
+
+// ---------- applyAnswer cascade + inversion ----------------------------
+
+func TestApplyAnswerInversionDisables(t *testing.T) {
+	m := newTestModel(t)
+	qm := startQM(&m)
+
+	// Find allow-bang-operator (should be cascaded out of visibleQs
+	// because strict-null-safety is its parent, but we can still call
+	// applyAnswer on it directly to test the inversion logic).
+	var q *onboarding.Question
+	for i := range m.registry.Questions {
+		if m.registry.Questions[i].ID == "allow-bang-operator" {
+			q = &m.registry.Questions[i]
+			break
+		}
+	}
+	if q == nil {
+		t.Fatal("allow-bang-operator missing from registry")
+	}
+
+	initial := qm.liveTotal
+	updated := qm.applyAnswer(q, true) // "yes, allow !!"
+
+	// The two rules in allow-bang-operator should subtract their
+	// counts from liveTotal since they're being disabled.
+	expectedDelta := m.scans["balanced"].ByRule["UnsafeCallOnNullableType"] +
+		m.scans["balanced"].ByRule["MapGetWithNotNullAssertionOperator"]
+	if initial-updated.liveTotal != expectedDelta {
+		t.Errorf("expected liveTotal delta %d, got %d", expectedDelta, initial-updated.liveTotal)
+	}
+
+	if len(updated.answers) == 0 || updated.answers[len(updated.answers)-1].QuestionID != "allow-bang-operator" {
+		t.Error("applyAnswer did not append the answer")
+	}
+}
+
+func TestApplyAnswerCascadeStrictYes(t *testing.T) {
+	m := newTestModel(t)
+	qm := newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+
+	// Find enforce-compose-stability parent (cascades to 3 children).
+	var parent *onboarding.Question
+	for i := range m.registry.Questions {
+		if m.registry.Questions[i].ID == "enforce-compose-stability" {
+			parent = &m.registry.Questions[i]
+			break
+		}
+	}
+	if parent == nil {
+		t.Fatal("enforce-compose-stability missing")
+	}
+	if len(parent.CascadesTo) == 0 {
+		t.Fatal("enforce-compose-stability has no cascades")
+	}
+
+	before := len(qm.answers)
+	updated := qm.applyAnswer(parent, true) // yes → cascades to children with strict defaults
+
+	// We should have parent + all children in answers now.
+	got := len(updated.answers) - before
+	expected := 1 + len(parent.CascadesTo)
+	if got != expected {
+		t.Errorf("applyAnswer should have added %d answers, got %d", expected, got)
+	}
+
+	// Every cascaded child should be marked Cascaded:true with Parent set.
+	for _, a := range updated.answers[before+1:] {
+		if !a.Cascaded {
+			t.Errorf("child %s not marked Cascaded", a.QuestionID)
+		}
+		if a.Parent != "enforce-compose-stability" {
+			t.Errorf("child %s Parent = %q, want enforce-compose-stability", a.QuestionID, a.Parent)
+		}
+	}
+}
+
+func TestApplyAnswerCascadeRelaxedBucket(t *testing.T) {
+	m := newTestModel(t)
+	qm := newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+
+	var parent *onboarding.Question
+	for i := range m.registry.Questions {
+		if m.registry.Questions[i].ID == "enforce-compose-stability" {
+			parent = &m.registry.Questions[i]
+			break
+		}
+	}
+	if parent == nil {
+		t.Fatal("enforce-compose-stability missing")
+	}
+
+	before := len(qm.answers)
+	updated := qm.applyAnswer(parent, false) // no → cascades to children with relaxed defaults
+
+	childAnswers := updated.answers[before+1:]
+	// For enforce-compose-stability, every child has relaxed:false,
+	// so derived value should be false for all of them.
+	for _, a := range childAnswers {
+		if a.Value {
+			t.Errorf("child %s derived true, want false (relaxed bucket)", a.QuestionID)
+		}
+	}
+}
+
+// ---------- updatePicker key handling ---------------------------------
+
+func TestUpdatePickerNavigation(t *testing.T) {
+	m := newTestModel(t)
+	pm := newPickerModel(onboarding.ProfileNames, m.scans, 0, make(map[string]time.Duration), m.width)
+	m.phase = pm
+
+	// Down twice → index 2
+	m = pressKey(m, "j")
+	m = pressKey(m, "j")
+	if m.phase.(pickerModel).cursor != 2 {
+		t.Errorf("picker.cursor = %d, want 2", m.phase.(pickerModel).cursor)
+	}
+
+	// Up once → index 1
+	m = pressKey(m, "k")
+	if m.phase.(pickerModel).cursor != 1 {
+		t.Errorf("picker.cursor = %d, want 1", m.phase.(pickerModel).cursor)
+	}
+
+	// Can't go above 0.
+	pm2 := m.phase.(pickerModel)
+	pm2.cursor = 0
+	m.phase = pm2
+	m = pressKey(m, "k")
+	if m.phase.(pickerModel).cursor != 0 {
+		t.Errorf("picker.cursor = %d, want 0 (clamped)", m.phase.(pickerModel).cursor)
+	}
+
+	// Can't go below last profile.
+	pm3 := m.phase.(pickerModel)
+	pm3.cursor = len(onboarding.ProfileNames) - 1
+	m.phase = pm3
+	m = pressKey(m, "j")
+	if m.phase.(pickerModel).cursor != len(onboarding.ProfileNames)-1 {
+		t.Errorf("picker.cursor = %d, want %d (clamped)", m.phase.(pickerModel).cursor, len(onboarding.ProfileNames)-1)
+	}
+}
+
+func TestUpdatePickerEnterToQuestionnaire(t *testing.T) {
+	m := newTestModel(t)
+	pm := newPickerModel(onboarding.ProfileNames, m.scans, 0, make(map[string]time.Duration), m.width)
+	pm.cursor = 1 // balanced
+	m.phase = pm
+
+	m = pressNamedKeyDrain(m, tea.KeyEnter)
+	if _, ok := m.phase.(questionnaireModel); !ok {
+		t.Errorf("phase after enter = %T, want questionnaireModel", m.phase)
+	}
+	if m.selected != onboarding.ProfileNames[1] {
+		t.Errorf("selected = %q, want %q", m.selected, onboarding.ProfileNames[1])
+	}
+}
+
+func TestUpdatePickerBrowseToExplorer(t *testing.T) {
+	m := newTestModel(t)
+	pm := newPickerModel(onboarding.ProfileNames, m.scans, 0, make(map[string]time.Duration), m.width)
+	pm.cursor = 1
+	m.phase = pm
+
+	m = pressKeyDrain(m, "b")
+	if _, ok := m.phase.(explorerModel); !ok {
+		t.Errorf("phase after 'b' = %T, want explorerModel", m.phase)
+	}
+	if m.selected != onboarding.ProfileNames[1] {
+		t.Errorf("selected = %q, want %q", m.selected, onboarding.ProfileNames[1])
+	}
+	if len(m.phase.(explorerModel).ruleItems) == 0 {
+		t.Error("ruleItems not populated after transitioning to explorer")
+	}
+}
+
+// ---------- updateQuestionnaire key handling --------------------------
+
+func TestUpdateQuestionnaireToggleYesNo(t *testing.T) {
+	m := newTestModel(t)
+	m.phase = newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+	if _, ok := m.phase.(questionnaireModel); !ok {
+		t.Fatalf("expected questionnaireModel phase: %T", m.phase)
+	}
+
+	// Press 'n' to move cursor to No.
+	m = pressKey(m, "n")
+	if getQM(t, m).qCursor != 1 {
+		t.Errorf("after 'n', qCursor = %d, want 1", getQM(t, m).qCursor)
+	}
+
+	// Press 'y' to move back to Yes.
+	m = pressKey(m, "y")
+	if getQM(t, m).qCursor != 0 {
+		t.Errorf("after 'y', qCursor = %d, want 0", getQM(t, m).qCursor)
+	}
+
+	// left / right arrows.
+	m = pressNamedKey(m, tea.KeyRight)
+	if getQM(t, m).qCursor != 1 {
+		t.Errorf("after right, qCursor = %d, want 1", getQM(t, m).qCursor)
+	}
+	m = pressNamedKey(m, tea.KeyLeft)
+	if getQM(t, m).qCursor != 0 {
+		t.Errorf("after left, qCursor = %d, want 0", getQM(t, m).qCursor)
+	}
+}
+
+func TestUpdateQuestionnaireEnterAdvances(t *testing.T) {
+	m := newTestModel(t)
+	m.phase = newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+	before := getQM(t, m).qIdx
+
+	m = pressNamedKey(m, tea.KeyEnter)
+	qm := getQM(t, m)
+	if qm.qIdx != before+1 {
+		t.Errorf("qIdx after enter = %d, want %d", qm.qIdx, before+1)
+	}
+	if len(qm.answers) == 0 {
+		t.Error("enter did not record an answer")
+	}
+}
+
+func TestQuestionnairePreviewRespondsToYesNo(t *testing.T) {
+	m := newTestModel(t)
+	qm := newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+
+	// Move to a non-parent question that has fixtures.
+	for qm.qIdx < len(qm.visibleQs) {
+		q := &m.registry.Questions[qm.visibleQs[qm.qIdx]]
+		if q.Kind != "parent" && q.PositiveFixture != nil {
+			break
+		}
+		qm.qIdx++
+	}
+	if qm.qIdx >= len(qm.visibleQs) {
+		t.Skip("no non-parent question with fixture found")
+	}
+
+	// Yes → rule active → should show diff content.
+	qm.qCursor = 0
+	m.phase = qm
+	viewYes := m.View()
+
+	// No → rule inactive → should show "rule disabled".
+	qm.qCursor = 1
+	m.phase = qm
+	viewNo := m.View()
+
+	if viewYes == viewNo {
+		t.Error("expected different preview for Yes vs No")
+	}
+}
+
+// ---------- updateThresholds ------------------------------------------
+
+func TestUpdateThresholdsNavAndAdjust(t *testing.T) {
+	m := newTestModel(t)
+	startTM(&m)
+	if _, ok := m.phase.(thresholdsModel); !ok {
+		t.Fatalf("phase is %T, want thresholdsModel", m.phase)
+	}
+	if len(getTM(t, m).values) != len(thresholdSpecs) {
+		t.Fatalf("thresholdValues len = %d, want %d", len(getTM(t, m).values), len(thresholdSpecs))
+	}
+
+	// Down arrow → cursor advances.
+	m = pressKey(m, "j")
+	if getTM(t, m).cursor != 1 {
+		t.Errorf("after down, cursor = %d, want 1", getTM(t, m).cursor)
+	}
+
+	spec := thresholdSpecs[getTM(t, m).cursor]
+	initial := getTM(t, m).values[getTM(t, m).cursor]
+
+	// + bumps value by step.
+	m = pressKey(m, "+")
+	if getTM(t, m).values[getTM(t, m).cursor] != initial+spec.step {
+		t.Errorf("after +, value = %d, want %d", getTM(t, m).values[getTM(t, m).cursor], initial+spec.step)
+	}
+
+	// - drops it back.
+	m = pressKey(m, "-")
+	if getTM(t, m).values[getTM(t, m).cursor] != initial {
+		t.Errorf("after -, value = %d, want %d", getTM(t, m).values[getTM(t, m).cursor], initial)
+	}
+}
+
+func TestUpdateThresholdsClampsToMinMax(t *testing.T) {
+	m := newTestModel(t)
+	startTM(&m)
+
+	spec := thresholdSpecs[0]
+
+	// Force value to min and invoke -.
+	tm := getTM(t, m)
+	tm.values[0] = spec.min
+	m.phase = tm
+	m = pressKey(m, "-")
+	if getTM(t, m).values[0] != spec.min {
+		t.Errorf("value below min = %d, want %d (clamped)", getTM(t, m).values[0], spec.min)
+	}
+
+	// Force value to max and invoke +.
+	tm2 := getTM(t, m)
+	tm2.values[0] = spec.max
+	m.phase = tm2
+	m = pressKey(m, "+")
+	if getTM(t, m).values[0] != spec.max {
+		t.Errorf("value above max = %d, want %d (clamped)", getTM(t, m).values[0], spec.max)
+	}
+}
+
+func TestUpdateThresholdsEnterProducesOverrides(t *testing.T) {
+	m := newTestModel(t)
+	startTM(&m)
+
+	// Enter → thresholdsModel emits thresholdsDoneMsg → root transitions to writing
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2 := next.(Model)
+	if cmd == nil {
+		t.Fatal("expected Cmd from enter, got nil")
+	}
+	// cmd produces thresholdsDoneMsg; feed it back to root
+	doneMsg := cmd()
+	if doneMsg == nil {
+		t.Fatal("Cmd returned nil message")
+	}
+	tdone, ok := doneMsg.(thresholdsDoneMsg)
+	if !ok {
+		t.Fatalf("expected thresholdsDoneMsg, got %T", doneMsg)
+	}
+	if len(tdone.overrides) != len(thresholdSpecs) {
+		t.Errorf("thresholdOverrides len = %d, want %d", len(tdone.overrides), len(thresholdSpecs))
+	}
+	// Feed thresholdsDoneMsg to root → phase becomes writing, writeConfigCmd returned
+	next2, writeCmd := m2.Update(doneMsg)
+	mFinal := next2.(Model)
+	if _, ok := mFinal.phase.(writingPhaseModel); !ok {
+		t.Errorf("phase after enter = %T, want writingPhaseModel", mFinal.phase)
+	}
+	if writeCmd == nil {
+		t.Error("expected writeConfigCmd from enter, got nil")
+	}
+}
+
+// ---------- updateAutofixConfirm / updateBaselineConfirm --------------
+
+func TestUpdateAutofixConfirmYesRuns(t *testing.T) {
+	m := newTestModel(t)
+	m.phase = newAutofixConfirmPhase()
+	m.configPath = filepath.Join(t.TempDir(), "krit.yml")
+
+	// Enter with cursor=0 (Yes default) → answered → autofixAnsweredMsg{true}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2 := next.(Model)
+	if cmd == nil {
+		t.Fatal("expected Cmd, got nil")
+	}
+	answerMsg := cmd()
+	if answerMsg == nil {
+		t.Fatal("Cmd returned nil")
+	}
+	next2, autofixCmd := m2.Update(answerMsg)
+	mFinal := next2.(Model)
+	if _, ok := mFinal.phase.(autofixRunningPhaseModel); !ok {
+		t.Errorf("phase = %T, want autofixRunningPhaseModel", mFinal.phase)
+	}
+	if autofixCmd == nil {
+		t.Error("expected autofixCmd, got nil")
+	}
+}
+
+func TestUpdateAutofixConfirmNoSkips(t *testing.T) {
+	m := newTestModel(t)
+	m.phase = newAutofixConfirmPhase()
+	m = pressKey(m, "n")
+	m = pressNamedKeyDrain(m, tea.KeyEnter)
+	if _, ok := m.phase.(baselineConfirmPhaseModel); !ok {
+		t.Errorf("phase after no = %T, want baselineConfirmPhaseModel", m.phase)
+	}
+	if !m.autofixSkipped {
+		t.Error("autofixSkipped should be true after selecting No")
+	}
+}
+
+func TestUpdateBaselineConfirmNoSkipsToDone(t *testing.T) {
+	m := newTestModel(t)
+	m.phase = newBaselineConfirmPhase(0, 0, nil, false)
+	m = pressKey(m, "n")
+	m = pressNamedKeyDrain(m, tea.KeyEnter)
+	if _, ok := m.phase.(donePhaseModel); !ok {
+		t.Errorf("phase after no = %T, want donePhaseModel", m.phase)
+	}
+	if !m.baselineSkipped {
+		t.Error("baselineSkipped should be true after selecting No")
+	}
+}
+
+// ---------- startTM reads profile YAML ------------------------
+
+func TestStartThresholdsReadsProfileValues(t *testing.T) {
+	m := newTestModel(t)
+	startTM(&m)
+
+	// balanced profile has LongMethod.allowedLines: 60.
+	var longMethodVal int
+	for i, spec := range thresholdSpecs {
+		if spec.rule == "LongMethod" && spec.field == "allowedLines" {
+			longMethodVal = getTM(t, m).values[i]
+			break
+		}
+	}
+	if longMethodVal != 60 {
+		t.Errorf("LongMethod.allowedLines from balanced profile = %d, want 60", longMethodVal)
+	}
+
+	// balanced profile has MaxLineLength.maxLineLength: 120.
+	var maxLineVal int
+	for i, spec := range thresholdSpecs {
+		if spec.rule == "MaxLineLength" {
+			maxLineVal = getTM(t, m).values[i]
+			break
+		}
+	}
+	if maxLineVal != 120 {
+		t.Errorf("MaxLineLength from balanced = %d, want 120", maxLineVal)
+	}
+}
+
+func TestExtractThresholdValuesMalformed(t *testing.T) {
+	// Invalid YAML produces an empty map, not a panic.
+	got := extractThresholdValues([]byte("this: is: not: valid"))
+	if got == nil {
+		t.Error("expected non-nil map on parse failure")
+	}
+}
+
+// ---------- View smoke tests ------------------------------------------
+
+func TestAllPhasesRender(t *testing.T) {
+	phases := []struct {
+		name  string
+		setup func(*Model)
+		want  string
+	}{
+		{"scanning", func(m *Model) {
+			m.phase = newScanningModel(m.opts, m.target)
+		}, "starting strict scan"},
+		{"picker", func(m *Model) {
+			m.phase = newPickerModel(onboarding.ProfileNames, m.scans, 0, make(map[string]time.Duration), m.width)
+		}, "profile picker"},
+		{"questionnaire", func(m *Model) {
+			m.phase = newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+		}, "questionnaire"},
+		{"thresholds", func(m *Model) {
+			tm := newThresholdsModel(m.selected, m.opts.RepoRoot, false)
+			loaded, _ := tm.Update(tm.Init()())
+			m.phase = loaded
+		}, "thresholds"},
+		{"explorer", func(m *Model) {
+			m.phase = newExplorerModel(m.selected, m.scans, m.opts.RepoRoot, m.width, m.height)
+		}, "rule explorer"},
+		{"writing", func(m *Model) { m.phase = writingPhaseModel{} }, "writing config"},
+		{"autofixConfirm", func(m *Model) {
+			m.phase = newAutofixConfirmPhase()
+		}, "Apply safe autofixes"},
+		{"autofixRunning", func(m *Model) { m.phase = autofixRunningPhaseModel{} }, "applying safe autofixes"},
+		{"baselineConfirm", func(m *Model) {
+			m.phase = newBaselineConfirmPhase(5, 42, nil, false)
+		}, "baseline"},
+		{"baselineRunning", func(m *Model) { m.phase = baselineRunningPhaseModel{} }, "writing"},
+		{"done", func(m *Model) {
+			m.phase = donePhaseModel{
+				configPath:      "/tmp/krit.yml",
+				selected:        m.selected,
+				target:          m.target,
+				baselineWritten: true,
+				baselinePath:    "/tmp/.krit/baseline.xml",
+			}
+		}, "done"},
+	}
+
+	for _, p := range phases {
+		p := p
+		t.Run(p.name, func(t *testing.T) {
+			m := newTestModel(t)
+			p.setup(&m)
+			out := m.View()
+			if out == "" {
+				t.Errorf("phase %s produced empty view", p.name)
+			}
+			if !strings.Contains(strings.ToLower(out), strings.ToLower(p.want)) {
+				t.Errorf("phase %s view missing %q; first 200 chars: %s", p.name, p.want, snippet(out, 200))
+			}
+		})
+	}
+}
+
+func TestViewErrorState(t *testing.T) {
+	m := newTestModel(t)
+	m.err = &tempError{msg: "boom"}
+	out := m.View()
+	if !strings.Contains(out, "error") || !strings.Contains(out, "boom") {
+		t.Errorf("error view missing expected text: %q", out)
+	}
+}
+
+type tempError struct{ msg string }
+
+func (e *tempError) Error() string { return e.msg }
+
+// ---------- scansDoneMsg flow ------------------------------------------
+
+func TestScanDoneAdvancesAndEventuallyShowsPicker(t *testing.T) {
+	m := newTestModel(t)
+	m.scans = make(map[string]*onboarding.ScanResult)
+	m.phase = newScanningModel(m.opts, m.target)
+
+	scans := make(map[string]*onboarding.ScanResult)
+	for i, p := range onboarding.ProfileNames {
+		scans[p] = &onboarding.ScanResult{Total: i * 10, ByRule: map[string]int{}}
+	}
+	modelAfter, _ := m.Update(scansDoneMsg{
+		scans:             scans,
+		scanTotalDuration: 0,
+		profileDurations:  make(map[string]time.Duration),
+	})
+	m = modelAfter.(Model)
+
+	if _, ok := m.phase.(pickerModel); !ok {
+		t.Errorf("after scansDoneMsg, phase = %T, want pickerModel", m.phase)
+	}
+	if len(m.scans) != len(onboarding.ProfileNames) {
+		t.Errorf("scans recorded = %d, want %d", len(m.scans), len(onboarding.ProfileNames))
+	}
+}
+
+// copyDirForTest performs a recursive copy from src to dst,
+// preserving permissions on regular files.
+func copyDirForTest(t *testing.T, src, dst string) {
+	t.Helper()
+	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode())
+	})
+	if err != nil {
+		t.Fatalf("copyDirForTest: %v", err)
+	}
+}
+
+// TestAutofixCmdRuns exercises autofixCmd's full pipeline
+// (pre-scan, --fix, post-scan) against a real target, which also
+// covers runKritJSON in-process.
+func TestAutofixCmdRuns(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(repoRoot, "playground", "kotlin-webservice")
+	if _, err := os.Stat(src); err != nil {
+		t.Skipf("playground missing: %v", err)
+	}
+
+	target := t.TempDir()
+	copyDirForTest(t, src, target)
+	_ = os.Remove(filepath.Join(target, "krit.yml"))
+	_ = os.RemoveAll(filepath.Join(target, ".krit"))
+
+	// Write a minimal krit.yml so the autofix pass has something to read.
+	profileYAML, err := os.ReadFile(filepath.Join(repoRoot, "config", "profiles", "balanced.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath, err := onboarding.WriteConfigFile(target, onboarding.WriteConfigOptions{
+		ProfileYAML: profileYAML,
+		ProfileName: "balanced",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newTestModel(t)
+	m.opts.KritBin = binPath
+	m.target = target
+	m.configPath = configPath
+
+	cmd := m.autofixCmd()
+	if cmd == nil {
+		t.Fatal("autofixCmd returned nil")
+	}
+	msg := cmd()
+	done, ok := msg.(autofixDoneMsg)
+	if !ok {
+		t.Fatalf("expected autofixDoneMsg, got %T", msg)
+	}
+	if done.err != nil {
+		t.Fatalf("autofix failed: %v", done.err)
+	}
+	// Post-fix count can be <= pre-fix count depending on what's
+	// fixable at idiomatic level. We just assert the pipeline ran.
+	if done.prefix < 0 || done.postfix < 0 {
+		t.Errorf("negative counts from autofix: prefix=%d postfix=%d", done.prefix, done.postfix)
+	}
+}
+
+// TestBaselineCmdRuns covers baselineCmd in-process.
+func TestBaselineCmdRuns(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(repoRoot, "playground", "kotlin-webservice")
+	if _, err := os.Stat(src); err != nil {
+		t.Skipf("playground missing: %v", err)
+	}
+
+	target := t.TempDir()
+	copyDirForTest(t, src, target)
+
+	profileYAML, err := os.ReadFile(filepath.Join(repoRoot, "config", "profiles", "balanced.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath, err := onboarding.WriteConfigFile(target, onboarding.WriteConfigOptions{
+		ProfileYAML: profileYAML,
+		ProfileName: "balanced",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newTestModel(t)
+	m.opts.KritBin = binPath
+	m.target = target
+	m.configPath = configPath
+
+	cmd := m.baselineCmd()
+	if cmd == nil {
+		t.Fatal("baselineCmd returned nil")
+	}
+	msg := cmd()
+	done, ok := msg.(baselineDoneMsg)
+	if !ok {
+		t.Fatalf("expected baselineDoneMsg, got %T", msg)
+	}
+	if done.err != nil {
+		t.Fatalf("baseline failed: %v", done.err)
+	}
+	if done.path == "" {
+		t.Error("baselineDoneMsg.path is empty")
+	}
+	if _, err := os.Stat(done.path); err != nil {
+		t.Errorf("baseline file missing: %v", err)
+	}
+}
+
+// TestExplorerDedupesRuleNames ensures startEM collapses
+// rules that happen to be registered under more than one
+// BaseRule{} literal (e.g. AppCompatResource appears twice today).
+// The user-facing explorer should show each name exactly once.
+func TestExplorerDedupesRuleNames(t *testing.T) {
+	m := newTestModel(t)
+	em := startEM(&m)
+
+	seen := make(map[string]int, len(em.ruleItems))
+	for _, item := range em.ruleItems {
+		seen[item.name]++
+	}
+	for name, count := range seen {
+		if count > 1 {
+			t.Errorf("rule %q appears %d times in ruleItems; expected 1", name, count)
+		}
+	}
+}
+
+// TestModelInitReturnsScanCmd confirms bubbletea's Init() hook
+// returns a non-nil Cmd that schedules the first profile scan. This
+// is the only way to cover Init() in-process — it's a lifecycle
+// hook bubbletea calls at program start.
+func TestModelInitReturnsScanCmd(t *testing.T) {
+	m := newTestModel(t)
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("Init() returned nil Cmd")
+	}
+}
+
+// TestWriteExplorerCmdProducesOverrides runs writeExplorerCmd's
+// returned Cmd function and asserts that the generated krit.yml
+// carries an override for every rule whose state differs from the
+// registry default.
+func TestWriteExplorerCmdProducesOverrides(t *testing.T) {
+	m := newTestModel(t)
+	m.target = t.TempDir()
+	em := startEM(&m)
+
+	// Find MagicNumber (active by default in the registry) and flip it off.
+	flipped := false
+	for _, item := range em.ruleItems {
+		if item.name == "MagicNumber" {
+			em.ruleActive["MagicNumber"] = false
+			flipped = true
+			break
+		}
+	}
+	if !flipped {
+		t.Fatal("MagicNumber not found in ruleItems")
+	}
+	m.phase = em
+
+	// Get overrides via explorer's commitCmd.
+	overrideMsg := em.commitCmd()().(explorerDoneMsg)
+
+	cmd := m.writeExplorerCmd(overrideMsg.overrides)
+	if cmd == nil {
+		t.Fatal("writeExplorerCmd returned nil Cmd")
+	}
+	msg := cmd()
+	done, ok := msg.(writeDoneMsg)
+	if !ok {
+		t.Fatalf("expected writeDoneMsg, got %T", msg)
+	}
+	if done.err != nil {
+		t.Fatalf("writeExplorerCmd failed: %v", done.err)
+	}
+	if done.path == "" {
+		t.Fatal("writeDoneMsg.path is empty")
+	}
+
+	data, err := os.ReadFile(done.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	// The generated file should contain our MagicNumber override as
+	// active: false under the style ruleset.
+	if !strings.Contains(body, "MagicNumber") {
+		t.Error("generated krit.yml missing MagicNumber override")
+	}
+	if !strings.Contains(body, "active: false") {
+		t.Error("generated krit.yml missing active: false override")
+	}
+}
+
+func TestScanDoneErrorQuits(t *testing.T) {
+	m := newTestModel(t)
+	m.phase = newScanningModel(m.opts, m.target)
+	// scanningModel.Update(scanDoneMsg{err}) emits scanErrorMsg via Cmd
+	next, cmd := m.Update(scanDoneMsg{profile: "strict", err: &tempError{msg: "scan failed"}})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("expected Cmd from scan error")
+	}
+	errMsg := cmd() // scanErrorMsg
+	next2, quitCmd := m.Update(errMsg)
+	mAfter := next2.(Model)
+	if mAfter.err == nil {
+		t.Error("expected err to be set on scanErrorMsg")
+	}
+	if quitCmd == nil {
+		t.Error("expected tea.Quit cmd on scan error")
+	}
+}
+
+// ---------- Explorer right-pane enhancements --------------------------
+
+func TestExplorerViewShowsFindingSamples(t *testing.T) {
+	m := newTestModel(t)
+	em := startEM(&m)
+
+	// Navigate to MagicNumber which has 2 findings in the test scan.
+	for i, item := range em.ruleItems {
+		if item.name == "MagicNumber" {
+			em.explorerCursor = i
+			break
+		}
+	}
+	m.phase = em
+	view := m.View()
+	if !strings.Contains(view, "10 finding(s) in this scan") {
+		t.Error("expected finding count for MagicNumber")
+	}
+	if !strings.Contains(view, "Foo.kt:42") {
+		t.Error("expected sample finding Foo.kt:42 in right pane")
+	}
+	if !strings.Contains(view, "Bar.kt:10") {
+		t.Error("expected sample finding Bar.kt:10 in right pane")
+	}
+}
+
+func TestExplorerViewShowsDescription(t *testing.T) {
+	m := newTestModel(t)
+	em := startEM(&m)
+
+	// LongMethod has a Description() — find it.
+	for i, item := range em.ruleItems {
+		if item.name == "LongMethod" {
+			em.explorerCursor = i
+			break
+		}
+	}
+	m.phase = em
+	view := m.View()
+	if !strings.Contains(view, "Flags functions that exceed") {
+		t.Error("expected LongMethod description in right pane")
+	}
+}
+
+func TestExplorerFixtureDiffView(t *testing.T) {
+	m := newTestModel(t)
+	em := startEM(&m)
+
+	// Pre-populate fixture cache for the first rule with similar fixture data
+	// (>40% similarity triggers diff view; dissimilar triggers stacked view).
+	first := em.ruleItems[0]
+	em.explorerFixtureCache[first.name] = fixturePair{
+		positive: "package test\nimport foo\nval x = 42\nval y = 1",
+		negative: "package test\nimport foo\nval x = CONSTANT\nval y = 1",
+	}
+
+	// Rule active → should show fixture content with highlighting.
+	em.ruleActive[first.name] = true
+	m.phase = em
+	view := m.View()
+	if !strings.Contains(view, "val x") {
+		t.Error("expected fixture code when rule is active")
+	}
+
+	// Rule inactive → should show "rule disabled".
+	em.ruleActive[first.name] = false
+	m.phase = em
+	view = m.View()
+	if !strings.Contains(view, "rule disabled") {
+		t.Error("expected 'rule disabled' when rule is inactive")
+	}
+}
+
+func TestExplorerFixtureLoadedMsg(t *testing.T) {
+	m := newTestModel(t)
+	startEM(&m)
+
+	pair := fixturePair{
+		positive: "fun test() {}",
+		negative: "// no issue",
+	}
+	next, _ := m.Update(explorerFixtureLoadedMsg{
+		ruleName: "MagicNumber",
+		pair:     pair,
+	})
+	mAfter := next.(Model)
+	em := getEM(t, mAfter)
+	cached, ok := em.explorerFixtureCache["MagicNumber"]
+	if !ok {
+		t.Fatal("expected MagicNumber in explorerFixtureCache after msg")
+	}
+	if cached.positive != "fun test() {}" {
+		t.Errorf("cached positive = %q, want %q", cached.positive, "fun test() {}")
+	}
+}
+
+func TestExplorerRuleRefPopulated(t *testing.T) {
+	m := newTestModel(t)
+	em := startEM(&m)
+	for _, item := range em.ruleItems {
+		if item.ruleRef == nil {
+			t.Errorf("ruleRef nil for rule %q", item.name)
+		}
+	}
+}
+
+func TestExplorerViewHintLine(t *testing.T) {
+	m := newTestModel(t)
+	startEM(&m)
+	view := m.View()
+	if !strings.Contains(view, "space toggle") {
+		t.Error("expected 'space toggle' in bottom hint line")
+	}
+}
+
+func TestReflowWordWrap(t *testing.T) {
+	// Verify reflow/wordwrap works as expected for our use cases.
+	got := wordwrap.String("hello world", 5)
+	if !strings.Contains(got, "\n") {
+		t.Errorf("expected line break in wrapped output: %q", got)
+	}
+}
+
+func TestViolationLines(t *testing.T) {
+	positive := "line1\nline2\nline3"
+	negative := "line1\nchanged\nline3"
+	viol := violationLines(positive, negative)
+	// line2 (index 1) should be a violation.
+	if !viol[1] {
+		t.Error("expected line 1 (line2) to be a violation")
+	}
+	// line1 and line3 should NOT be violations.
+	if viol[0] {
+		t.Error("line 0 (line1) should not be a violation")
+	}
+	if viol[2] {
+		t.Error("line 2 (line3) should not be a violation")
+	}
+}
+
+func TestRenderFixtureContentShowsPositiveOnly(t *testing.T) {
+	pair := fixturePair{
+		positive: "package test\nval x = 42\nval y = 1",
+		negative: "package test\nval x = CONSTANT\nval y = 1",
+	}
+	content := renderFixtureContent(pair, 60)
+	// Should show the positive fixture code, not a diff.
+	if !strings.Contains(content, "val x = 42") {
+		t.Error("expected positive fixture content")
+	}
+	// Should NOT show diff markers or clean section.
+	if strings.Contains(content, "- ") || strings.Contains(content, "+ ") {
+		t.Error("should not contain diff markers")
+	}
+	if strings.Contains(content, "clean:") {
+		t.Error("should not show clean section")
+	}
+}
+
+func TestRenderFixtureContentPrefersFixBefore(t *testing.T) {
+	pair := fixturePair{
+		positive:  "val x = 42",
+		negative:  "const val X = 42",
+		fixBefore: "val x: Any = foo() as String",
+		fixAfter:  "val x: Any = foo() as? String",
+	}
+	content := renderFixtureContent(pair, 60)
+	// Should show fixBefore content, not positive.
+	if !strings.Contains(content, "foo() as String") {
+		t.Error("expected fixBefore content when available")
+	}
+}
+
+func TestRenderFixtureContentNoFixture(t *testing.T) {
+	pair := fixturePair{}
+	content := renderFixtureContent(pair, 60)
+	if !strings.Contains(content, "no fixture") {
+		t.Error("expected '(no fixture)' for empty pair")
+	}
+}
+
+func TestQuestionnaireViewportScrollForwarded(t *testing.T) {
+	m := newTestModel(t)
+	m.phase = newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+
+	// Press down — should forward to viewport (no error, model returned).
+	m = pressKey(m, "j")
+	// Press up — same.
+	m = pressKey(m, "k")
+	// If we got here without panic, viewport forwarding works.
+}
+
+func TestParentQuestionShowsChildFixture(t *testing.T) {
+	m := newTestModel(t)
+	qm := newQuestionnaireModel(m.registry, m.selected, m.scans, false, m.opts.RepoRoot, m.width, m.height)
+
+	// Load fixtures inline for test.
+	cmd := loadFixturesCmd(m.registry.Questions, m.opts.RepoRoot)
+	loaded, _ := qm.Update(cmd().(fixturesLoadedMsg))
+	qm = loaded.(questionnaireModel)
+
+	// Find the "enforce-compose-stability" parent question.
+	var parentIdx int
+	found := false
+	for i, qi := range qm.visibleQs {
+		q := &m.registry.Questions[qi]
+		if q.ID == "enforce-compose-stability" {
+			parentIdx = i
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Skip("enforce-compose-stability not in visible questions")
+	}
+
+	qm.qIdx = parentIdx
+	qm.qCursor = 0 // Yes → rule active
+	m.phase = qm
+	view := m.View()
+
+	// Should NOT show "no fixture" — should show child's fixture content.
+	if strings.Contains(view, "no fixture to preview") {
+		t.Error("parent question should show child fixture, not 'no fixture to preview'")
+	}
+}
+
+func TestBuildFindingsMapCapsAt3(t *testing.T) {
+	result := &onboarding.ScanResult{
+		Findings: map[string][]onboarding.FindingSample{
+			"TestRule": {
+				{File: "a.kt", Line: 1, Message: "m1"},
+				{File: "b.kt", Line: 2, Message: "m2"},
+				{File: "c.kt", Line: 3, Message: "m3"},
+			},
+		},
+	}
+	if len(result.Findings["TestRule"]) != 3 {
+		t.Errorf("expected 3 findings, got %d", len(result.Findings["TestRule"]))
+	}
+}

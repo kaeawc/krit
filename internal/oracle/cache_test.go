@@ -1,0 +1,706 @@
+package oracle
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/kaeawc/krit/internal/perf"
+)
+
+// writeTempFile writes content to a new file under dir and returns the
+// absolute path. Test helper.
+func writeTempFile(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", p, err)
+	}
+	return p
+}
+
+func TestContentHash_StableAcrossReads(t *testing.T) {
+	tmp := t.TempDir()
+	p := writeTempFile(t, tmp, "a.kt", "fun main() {}\n")
+	h1, err := ContentHash(p)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	h2, err := ContentHash(p)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if h1 != h2 {
+		t.Fatalf("content hash not stable: %s vs %s", h1, h2)
+	}
+	// Rewriting with the same content must yield the same hash.
+	if err := os.WriteFile(p, []byte("fun main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h3, _ := ContentHash(p)
+	if h3 != h1 {
+		t.Fatalf("rewrite same content changed hash: %s vs %s", h3, h1)
+	}
+}
+
+func TestClassifyFiles_FreshMiss_NoEntry(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := writeTempFile(t, tmp, "A.kt", "class A {}\n")
+	hits, misses := ClassifyFiles(cacheDir, []string{a})
+	if len(hits) != 0 || len(misses) != 1 {
+		t.Fatalf("expected 0 hits / 1 miss, got hits=%d misses=%d", len(hits), len(misses))
+	}
+	if misses[0] != a {
+		t.Fatalf("wrong miss path: %s", misses[0])
+	}
+}
+
+func TestClassifyFiles_WarmHit(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two files: A depends on B.
+	b := writeTempFile(t, tmp, "B.kt", "class B {}\n")
+	a := writeTempFile(t, tmp, "A.kt", "class A : B()\n")
+
+	hash, _ := ContentHash(a)
+	fp, _ := closureFingerprint([]string{b}, nil)
+	entry := &CacheEntry{
+		ContentHash: hash,
+		FilePath:    a,
+		FileResult:  &File{Package: "x"},
+		PerFileDeps: map[string]*Class{},
+		Closure:     CacheClosure{DepPaths: []string{b}, Fingerprint: fp},
+	}
+	if err := WriteEntry(cacheDir, entry); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	hits, misses := ClassifyFiles(cacheDir, []string{a})
+	if len(hits) != 1 || len(misses) != 0 {
+		t.Fatalf("expected 1 hit / 0 miss, got hits=%d misses=%d", len(hits), len(misses))
+	}
+	if hits[0].FilePath != a {
+		t.Fatalf("wrong hit path: %s", hits[0].FilePath)
+	}
+	if hits[0].FileResult == nil || hits[0].FileResult.Package != "x" {
+		t.Fatalf("hit lost FileResult contents")
+	}
+}
+
+func TestClassifyFiles_FilteredEntryDoesNotSatisfyBroadRun(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := writeTempFile(t, tmp, "A.kt", "class A { fun f() = delay(1) }\n")
+	hash, _ := ContentHash(a)
+	fp, _ := closureFingerprint(nil, nil)
+	if err := WriteEntry(cacheDir, &CacheEntry{
+		ContentHash:           hash,
+		FilePath:              a,
+		FileResult:            &File{Package: "x"},
+		Closure:               CacheClosure{DepPaths: nil, Fingerprint: fp},
+		CallFilterFingerprint: "filtered",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, misses := ClassifyFilesScoped(cacheDir, []string{a}, "")
+	if len(hits) != 0 || len(misses) != 1 {
+		t.Fatalf("broad run used filtered entry: hits=%d misses=%d", len(hits), len(misses))
+	}
+}
+
+func TestClassifyFiles_BroadEntrySatisfiesFilteredRun(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := writeTempFile(t, tmp, "A.kt", "class A { fun f() = delay(1) }\n")
+	hash, _ := ContentHash(a)
+	fp, _ := closureFingerprint(nil, nil)
+	if err := WriteEntry(cacheDir, &CacheEntry{
+		ContentHash: hash,
+		FilePath:    a,
+		FileResult:  &File{Package: "x"},
+		Closure:     CacheClosure{DepPaths: nil, Fingerprint: fp},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, misses := ClassifyFilesScoped(cacheDir, []string{a}, "filtered")
+	if len(hits) != 1 || len(misses) != 0 {
+		t.Fatalf("filtered run did not use broad entry: hits=%d misses=%d", len(hits), len(misses))
+	}
+}
+
+func TestClassifyFiles_ClosureChanged_Miss(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := writeTempFile(t, tmp, "B.kt", "class B {}\n")
+	a := writeTempFile(t, tmp, "A.kt", "class A : B()\n")
+
+	hash, _ := ContentHash(a)
+	fp, _ := closureFingerprint([]string{b}, nil)
+	if err := WriteEntry(cacheDir, &CacheEntry{
+		ContentHash: hash,
+		FilePath:    a,
+		FileResult:  &File{Package: "x"},
+		Closure:     CacheClosure{DepPaths: []string{b}, Fingerprint: fp},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Mutate B so its hash changes, but leave A intact (A's content hash
+	// still matches, so we want the cache to miss on closure only).
+	if err := os.WriteFile(b, []byte("class B { fun x() {} }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hits, misses := ClassifyFiles(cacheDir, []string{a})
+	if len(hits) != 0 || len(misses) != 1 {
+		t.Fatalf("expected 0 hits / 1 miss after closure change, got hits=%d misses=%d", len(hits), len(misses))
+	}
+}
+
+func TestClassifyFiles_CorruptEntry_Miss(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := writeTempFile(t, tmp, "A.kt", "class A {}\n")
+	hash, _ := ContentHash(a)
+
+	// Write deliberately invalid JSON at the entry path.
+	ep := entryPath(cacheDir, hash)
+	if err := os.MkdirAll(filepath.Dir(ep), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ep, []byte("not json {"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, misses := ClassifyFiles(cacheDir, []string{a})
+	if len(hits) != 0 || len(misses) != 1 {
+		t.Fatalf("expected 0 hits / 1 miss for corrupt entry, got hits=%d misses=%d", len(hits), len(misses))
+	}
+	// Corrupt file should have been best-effort deleted.
+	if _, err := os.Stat(ep); !os.IsNotExist(err) {
+		t.Fatalf("corrupt entry not deleted: %v", err)
+	}
+}
+
+func TestClassifyFiles_VersionMismatch_Miss(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := writeTempFile(t, tmp, "A.kt", "class A {}\n")
+	hash, _ := ContentHash(a)
+
+	// Hand-write an entry with a bogus version.
+	bad := map[string]any{
+		"v":            999,
+		"content_hash": hash,
+		"file_path":    a,
+		"closure":      map[string]any{"dep_paths": []string{}, "fingerprint": ""},
+	}
+	data, _ := json.Marshal(bad)
+	ep := entryPath(cacheDir, hash)
+	_ = os.MkdirAll(filepath.Dir(ep), 0o755)
+	if err := os.WriteFile(ep, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, misses := ClassifyFiles(cacheDir, []string{a})
+	if len(hits) != 0 || len(misses) != 1 {
+		t.Fatalf("expected 0 hits / 1 miss for version mismatch, got hits=%d misses=%d", len(hits), len(misses))
+	}
+}
+
+func TestCacheDir_BumpNukes(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Drop a file inside entries/.
+	sentinel := filepath.Join(cacheDir, "entries", "sentinel")
+	if err := os.WriteFile(sentinel, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packSentinel := filepath.Join(cacheDir, oraclePackSubdir, "aa"+oraclePackExt)
+	if err := os.MkdirAll(filepath.Dir(packSentinel), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packSentinel, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Manually lower the recorded version so the next CacheDir sees a
+	// mismatch and nukes the entries and pack subtrees.
+	_ = os.WriteFile(filepath.Join(cacheDir, "version"), []byte("0"), 0o644)
+	if _, err := CacheDir(tmp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
+		t.Fatalf("sentinel survived version bump: %v", err)
+	}
+	if _, err := os.Stat(packSentinel); !os.IsNotExist(err) {
+		t.Fatalf("pack sentinel survived version bump: %v", err)
+	}
+}
+
+func TestWriteEntry_Atomic_ReadBack(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, _ := CacheDir(tmp)
+	entry := &CacheEntry{
+		ContentHash: "deadbeef",
+		FilePath:    "/tmp/X.kt",
+		FileResult: &File{
+			Package: "p",
+			Declarations: []*Class{
+				{FQN: "p.X", Kind: "class"},
+			},
+		},
+		PerFileDeps: map[string]*Class{
+			"java.lang.Object": {FQN: "java.lang.Object", Kind: "class"},
+		},
+		Closure: CacheClosure{DepPaths: []string{}, Fingerprint: "abc"},
+	}
+	if err := WriteEntry(cacheDir, entry); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	got, err := LoadEntry(cacheDir, "deadbeef")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.FilePath != entry.FilePath {
+		t.Fatalf("path roundtrip broken: %s vs %s", got.FilePath, entry.FilePath)
+	}
+	if got.FileResult == nil || len(got.FileResult.Declarations) != 1 {
+		t.Fatalf("declarations roundtrip broken")
+	}
+	if got.PerFileDeps["java.lang.Object"] == nil {
+		t.Fatalf("per-file deps roundtrip broken")
+	}
+}
+
+func TestOraclePack_WriteReadMultipleShardsAndOverlay(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := []*CacheEntry{
+		{
+			ContentHash: "ab1111",
+			FilePath:    "/tmp/A.kt",
+			FileResult:  &File{Package: "a"},
+			Closure:     CacheClosure{DepPaths: []string{}, Fingerprint: "fp-a"},
+		},
+		{
+			ContentHash: "ab2222",
+			FilePath:    "/tmp/B.kt",
+			FileResult:  &File{Package: "b"},
+			Closure:     CacheClosure{DepPaths: []string{}, Fingerprint: "fp-b"},
+		},
+		{
+			ContentHash: "cd3333",
+			FilePath:    "/tmp/C.kt",
+			FileResult:  &File{Package: "c"},
+			Closure:     CacheClosure{DepPaths: []string{}, Fingerprint: "fp-c"},
+		},
+	}
+	for _, entry := range entries {
+		if err := WriteEntry(cacheDir, entry); err != nil {
+			t.Fatalf("write %s: %v", entry.ContentHash, err)
+		}
+	}
+
+	updated := *entries[0]
+	updated.FileResult = &File{Package: "updated"}
+	if err := WriteEntry(cacheDir, &updated); err != nil {
+		t.Fatalf("overlay write: %v", err)
+	}
+
+	got, err := LoadEntry(cacheDir, "ab1111")
+	if err != nil {
+		t.Fatalf("load updated: %v", err)
+	}
+	if got.FileResult == nil || got.FileResult.Package != "updated" {
+		t.Fatalf("overlay did not replace existing entry: %#v", got.FileResult)
+	}
+	got, err = LoadEntry(cacheDir, "ab2222")
+	if err != nil {
+		t.Fatalf("load same-shard sibling: %v", err)
+	}
+	if got.FileResult == nil || got.FileResult.Package != "b" {
+		t.Fatalf("same-shard sibling was not preserved: %#v", got.FileResult)
+	}
+	got, err = LoadEntry(cacheDir, "cd3333")
+	if err != nil {
+		t.Fatalf("load other shard: %v", err)
+	}
+	if got.FileResult == nil || got.FileResult.Package != "c" {
+		t.Fatalf("other-shard entry was not preserved: %#v", got.FileResult)
+	}
+	if _, err := os.Stat(entryPath(cacheDir, "ab1111")); !os.IsNotExist(err) {
+		t.Fatalf("packed write should not create legacy JSON entry, stat err=%v", err)
+	}
+}
+
+func TestClassifyFiles_LegacyFallbackWhenPackMissing(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := writeTempFile(t, tmp, "A.kt", "class A {}\n")
+	hash, _ := ContentHash(src)
+	fp, _ := closureFingerprint(nil, nil)
+	writeLegacyCacheEntry(t, cacheDir, &CacheEntry{
+		V:           CacheVersion,
+		ContentHash: hash,
+		FilePath:    src,
+		FileResult:  &File{Package: "legacy"},
+		Closure:     CacheClosure{DepPaths: nil, Fingerprint: fp},
+	})
+
+	hits, misses := ClassifyFiles(cacheDir, []string{src})
+	if len(hits) != 1 || len(misses) != 0 {
+		t.Fatalf("expected legacy hit, got hits=%d misses=%d", len(hits), len(misses))
+	}
+	if hits[0].FileResult == nil || hits[0].FileResult.Package != "legacy" {
+		t.Fatalf("wrong fallback entry: %#v", hits[0].FileResult)
+	}
+}
+
+func TestClassifyFiles_CorruptPackFallsBackToLegacy(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := writeTempFile(t, tmp, "A.kt", "class A {}\n")
+	hash, _ := ContentHash(src)
+	fp, _ := closureFingerprint(nil, nil)
+	if err := WriteEntry(cacheDir, &CacheEntry{
+		ContentHash: hash,
+		FilePath:    src,
+		FileResult:  &File{Package: "packed"},
+		Closure:     CacheClosure{DepPaths: nil, Fingerprint: fp},
+	}); err != nil {
+		t.Fatalf("write pack: %v", err)
+	}
+	packPath := filepath.Join(cacheDir, oraclePackSubdir, hash[:2]+oraclePackExt)
+	if err := os.WriteFile(packPath, []byte("not a pack"), 0o644); err != nil {
+		t.Fatalf("corrupt pack: %v", err)
+	}
+	writeLegacyCacheEntry(t, cacheDir, &CacheEntry{
+		V:           CacheVersion,
+		ContentHash: hash,
+		FilePath:    src,
+		FileResult:  &File{Package: "legacy"},
+		Closure:     CacheClosure{DepPaths: nil, Fingerprint: fp},
+	})
+
+	hits, misses := ClassifyFiles(cacheDir, []string{src})
+	if len(hits) != 1 || len(misses) != 0 {
+		t.Fatalf("expected fallback hit, got hits=%d misses=%d", len(hits), len(misses))
+	}
+	if hits[0].FileResult == nil || hits[0].FileResult.Package != "legacy" {
+		t.Fatalf("corrupt pack did not fall back to legacy: %#v", hits[0].FileResult)
+	}
+}
+
+func TestAssembleOracle_UnionsHitsAndFresh(t *testing.T) {
+	hit := &CacheEntry{
+		FilePath:   "/tmp/A.kt",
+		FileResult: &File{Package: "a"},
+		PerFileDeps: map[string]*Class{
+			"kotlin.Any":  {FQN: "kotlin.Any", Kind: "class"},
+			"kotlin.Unit": {FQN: "kotlin.Unit", Kind: "class"},
+		},
+	}
+	fresh := &Data{
+		Version:       1,
+		KotlinVersion: "2.3.20",
+		Files: map[string]*File{
+			"/tmp/B.kt": {Package: "b"},
+		},
+		Dependencies: map[string]*Class{
+			"kotlin.Unit":   {FQN: "kotlin.Unit", Kind: "fresh-wins"},
+			"kotlin.String": {FQN: "kotlin.String", Kind: "class"},
+		},
+	}
+	out := AssembleOracle([]*CacheEntry{hit}, fresh)
+	if out.Files["/tmp/A.kt"] == nil {
+		t.Fatalf("hit file missing from assembled oracle")
+	}
+	if out.Files["/tmp/B.kt"] == nil {
+		t.Fatalf("fresh file missing from assembled oracle")
+	}
+	if out.Dependencies["kotlin.Any"] == nil || out.Dependencies["kotlin.Any"].Kind != "class" {
+		t.Fatalf("hit-only dep not preserved")
+	}
+	if out.Dependencies["kotlin.Unit"].Kind != "fresh-wins" {
+		t.Fatalf("fresh did not override hit on conflict")
+	}
+	if out.Dependencies["kotlin.String"] == nil {
+		t.Fatalf("fresh-only dep missing")
+	}
+	if out.KotlinVersion != "2.3.20" {
+		t.Fatalf("kotlinVersion not propagated")
+	}
+}
+
+func TestPoisonEntry_WriteReadClassify(t *testing.T) {
+	tmp := t.TempDir()
+	src := writeTempFile(t, tmp, "Poison.kt", "class P // boom\n")
+	cache, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatalf("cache dir: %v", err)
+	}
+
+	// Simulate what krit-types emits for a crashed file: no FileResult, no
+	// dep tracking, only a Crashed marker in the CacheDepsFile.
+	deps := &CacheDepsFile{
+		Version:       1,
+		Approximation: "symbol-resolved-sources",
+		Files:         map[string]*CacheDepsEntry{},
+		Crashed: map[string]string{
+			src: "KotlinIllegalArgumentExceptionWithAttachments: FirPropertyImpl without source",
+		},
+	}
+	fresh := &Data{
+		Version:      1,
+		Files:        map[string]*File{},
+		Dependencies: map[string]*Class{},
+	}
+	written, err := WriteFreshEntries(cache, fresh, deps)
+	if err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if written != 1 {
+		t.Fatalf("expected 1 poison entry written, got %d", written)
+	}
+
+	// Classify the same file — it must come back as a HIT via the poison
+	// marker without re-analyzing.
+	hits, misses := ClassifyFiles(cache, []string{src})
+	if len(hits) != 1 {
+		t.Fatalf("expected 1 hit (poison), got %d; misses=%v", len(hits), misses)
+	}
+	if len(misses) != 0 {
+		t.Fatalf("expected 0 misses for poison entry, got %d (%v)", len(misses), misses)
+	}
+	h := hits[0]
+	if !h.Crashed {
+		t.Fatalf("hit is not marked crashed")
+	}
+	if h.FileResult != nil {
+		t.Fatalf("poison entry should have nil FileResult, got %+v", h.FileResult)
+	}
+	if h.CrashError == "" {
+		t.Fatalf("poison entry missing CrashError")
+	}
+
+	// Assemble — the poison entry contributes nothing to the output.
+	out := AssembleOracle(hits, nil)
+	if len(out.Files) != 0 {
+		t.Fatalf("poison entry should not populate Files, got %d", len(out.Files))
+	}
+	if len(out.Dependencies) != 0 {
+		t.Fatalf("poison entry should not populate Dependencies, got %d", len(out.Dependencies))
+	}
+
+	// Content change invalidates the poison marker → new content means a
+	// new hash, so ClassifyFiles produces a miss and the file gets re-tried.
+	if err := os.WriteFile(src, []byte("class P2 // different content\n"), 0o644); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+	hits2, misses2 := ClassifyFiles(cache, []string{src})
+	if len(misses2) != 1 {
+		t.Fatalf("content change should invalidate poison; got hits=%d misses=%d", len(hits2), len(misses2))
+	}
+}
+
+func TestWriteFreshEntriesWithTracker_EmitsAggregateBreakdown(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatalf("cache dir: %v", err)
+	}
+	dep := writeTempFile(t, tmp, "Dep.kt", "class Dep\n")
+	src := writeTempFile(t, tmp, "A.kt", "class A : Dep()\n")
+	fresh := &Data{
+		Version: 1,
+		Files: map[string]*File{
+			src: {Package: "x"},
+		},
+		Dependencies: map[string]*Class{},
+	}
+	deps := &CacheDepsFile{
+		Version:       1,
+		Approximation: "symbol-resolved-sources",
+		Files: map[string]*CacheDepsEntry{
+			src: {DepPaths: []string{dep}, PerFileDeps: map[string]*Class{}},
+		},
+	}
+	tracker := perf.New(true)
+	written, err := WriteFreshEntriesWithTracker(cacheDir, fresh, deps, tracker)
+	if err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if written != 1 {
+		t.Fatalf("expected 1 entry written, got %d", written)
+	}
+
+	timings := tracker.GetTimings()
+	for _, name := range []string{
+		"freshEntryContentHash",
+		"freshEntryClosureFingerprint",
+		"freshEntryMarshal",
+		"freshEntryAtomicWrite",
+		"freshEntryPoisonWrites",
+		"freshEntrySummary",
+		"freshEntrySizeTop25",
+	} {
+		if !hasTiming(timings, name) {
+			t.Fatalf("expected timing %q in %#v", name, timings)
+		}
+	}
+	summary := findTiming(timings, "freshEntrySummary")
+	if summary.Metrics["written"] != 1 || summary.Metrics["depPaths"] != 1 || summary.Metrics["uniqueDepPaths"] != 1 {
+		t.Fatalf("unexpected summary metrics: %#v", summary.Metrics)
+	}
+}
+
+func TestOracleCacheWriter_FlushPersistsQueuedFreshEntries(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatalf("cache dir: %v", err)
+	}
+	dep := writeTempFile(t, tmp, "Dep.kt", "class Dep\n")
+	src := writeTempFile(t, tmp, "A.kt", "class A : Dep()\n")
+	fresh := &Data{
+		Version: 1,
+		Files: map[string]*File{
+			src: {Package: "x"},
+		},
+		Dependencies: map[string]*Class{},
+	}
+	deps := &CacheDepsFile{
+		Version:       1,
+		Approximation: "symbol-resolved-sources",
+		Files: map[string]*CacheDepsEntry{
+			src: {DepPaths: []string{dep}, PerFileDeps: map[string]*Class{}},
+		},
+	}
+
+	w := NewCacheWriter(1)
+	queued, err := w.QueueFreshEntries(cacheDir, fresh, deps)
+	if err != nil {
+		t.Fatalf("queue: %v", err)
+	}
+	if queued != 1 {
+		t.Fatalf("queued %d entries, want 1", queued)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	hits, misses := ClassifyFiles(cacheDir, []string{src})
+	if len(hits) != 1 || len(misses) != 0 {
+		t.Fatalf("expected cached hit after flush, got hits=%d misses=%d", len(hits), len(misses))
+	}
+	stats := w.Stats()
+	if stats.Queued != 1 || stats.Completed != 1 || stats.Failed != 0 || stats.Bytes == 0 {
+		t.Fatalf("unexpected writer stats: %#v", stats)
+	}
+}
+
+func TestOracleCacheWriter_FlushPersistsPoisonEntries(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir, err := CacheDir(tmp)
+	if err != nil {
+		t.Fatalf("cache dir: %v", err)
+	}
+	src := writeTempFile(t, tmp, "Poison.kt", "class P // boom\n")
+	fresh := &Data{
+		Version:      1,
+		Files:        map[string]*File{},
+		Dependencies: map[string]*Class{},
+	}
+	deps := &CacheDepsFile{
+		Version:       1,
+		Approximation: "symbol-resolved-sources",
+		Files:         map[string]*CacheDepsEntry{},
+		Crashed: map[string]string{
+			src: "boom",
+		},
+	}
+
+	w := NewCacheWriter(1)
+	if _, err := w.QueueFreshEntries(cacheDir, fresh, deps); err != nil {
+		t.Fatalf("queue: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	hits, misses := ClassifyFiles(cacheDir, []string{src})
+	if len(hits) != 1 || len(misses) != 0 || !hits[0].Crashed {
+		t.Fatalf("expected poison hit after flush, got hits=%d misses=%d", len(hits), len(misses))
+	}
+	stats := w.Stats()
+	if stats.Queued != 1 || stats.Completed != 1 || stats.PoisonWrites != 1 {
+		t.Fatalf("unexpected writer stats: %#v", stats)
+	}
+}
+
+func hasTiming(entries []perf.TimingEntry, name string) bool {
+	return findTiming(entries, name).Name != ""
+}
+
+func findTiming(entries []perf.TimingEntry, name string) perf.TimingEntry {
+	for _, entry := range entries {
+		if entry.Name == name {
+			return entry
+		}
+		if child := findTiming(entry.Children, name); child.Name != "" {
+			return child
+		}
+	}
+	return perf.TimingEntry{}
+}
+
+func writeLegacyCacheEntry(t *testing.T, cacheDir string, entry *CacheEntry) {
+	t.Helper()
+	entry.V = CacheVersion
+	data, err := marshalCacheEntry(entry)
+	if err != nil {
+		t.Fatalf("marshal legacy entry: %v", err)
+	}
+	path := entryPath(cacheDir, entry.ContentHash)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir legacy entry: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write legacy entry: %v", err)
+	}
+}

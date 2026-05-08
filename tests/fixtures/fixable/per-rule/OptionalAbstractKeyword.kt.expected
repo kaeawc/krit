@@ -1,0 +1,6 @@
+package style
+
+interface Foo {
+     fun bar()
+     val name: String
+}

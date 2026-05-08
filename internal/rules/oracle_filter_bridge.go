@@ -1,0 +1,242 @@
+package rules
+
+import (
+	"github.com/kaeawc/krit/internal/oracle"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+// RuleNeedsKotlinOracle reports whether a rule is an actual KAA consumer.
+// NeedsTypeInfo is intentionally not enough: it is resolver-only source type
+// information. Oracle participation must come from the explicit NeedsOracle
+// bit or rule metadata that the pipeline passes to krit-types.
+func RuleNeedsKotlinOracle(r *api.Rule) bool {
+	if r == nil {
+		return false
+	}
+	if r.Needs.Has(api.NeedsOracle) || r.Oracle != nil || r.OracleCallTargets != nil || r.OracleDeclarationNeeds != nil {
+		return true
+	}
+	return ruleNeedsOracleDiagnostics(r)
+}
+
+// KotlinOracleRulesV2 returns the active subset that should contribute to KAA
+// file selection, call-target filtering, declaration export, and diagnostics.
+func KotlinOracleRulesV2(enabled []*api.Rule) []*api.Rule {
+	out := make([]*api.Rule, 0, len(enabled))
+	for _, r := range enabled {
+		if RuleNeedsKotlinOracle(r) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// BuildOracleFilterRulesV2 converts the subset of v2 rules that need the
+// Kotlin oracle into the minimal OracleFilterRule representation consumed
+// by oracle.CollectOracleFiles.
+//
+// Inversion semantics (roadmap/core-infra/oracle-filter-inversion.md):
+// rules that do NOT need the oracle are excluded from oracle selection
+// entirely — the oracle is only invoked on files an oracle-needing rule
+// asked for. A rule that needs the oracle with no Oracle filter set (or
+// an AllFiles: true filter) is treated as
+// wanting every file.
+func BuildOracleFilterRulesV2(enabled []*api.Rule) []oracle.FilterRule {
+	out := make([]oracle.FilterRule, 0, len(enabled))
+	for _, r := range enabled {
+		if !RuleNeedsKotlinOracle(r) {
+			continue
+		}
+		var spec *oracle.FilterSpec
+		if r.Oracle != nil {
+			spec = &oracle.FilterSpec{
+				Identifiers: r.Oracle.Identifiers,
+				AllFiles:    r.Oracle.AllFiles,
+			}
+		} else {
+			// The rule needs the oracle but did not narrow by
+			// content — it wants every file.
+			spec = &oracle.FilterSpec{AllFiles: true}
+		}
+		out = append(out, oracle.FilterRule{Name: r.ID, Filter: spec})
+	}
+	return out
+}
+
+// BuildOracleDeclarationProfileV2 derives the declaration-export profile
+// for a set of active rules. The result is the union of every oracle-needing
+// rule's OracleDeclarationNeeds declaration.
+//
+// Conservative semantics: if any active oracle rule has a nil
+// OracleDeclarationNeeds (has not opted into narrowing), the union is
+// promoted to FullDeclarationProfile — we cannot skip fields that an
+// un-annotated rule might silently consume. Once every oracle rule has
+// declared its needs (even an empty &api.OracleDeclarationProfile{} for rules
+// that only use expression-level APIs), the union may be strictly narrower
+// than full and krit-types skips the unflagged extraction steps.
+func BuildOracleDeclarationProfileV2(enabled []*api.Rule) oracle.DeclarationProfileSummary {
+	// First pass: check whether every oracle-needing rule has opted in.
+	// A single nil OracleDeclarationNeeds forces the full profile.
+	allOptedIn := true
+	for _, r := range enabled {
+		if !RuleNeedsKotlinOracle(r) {
+			continue
+		}
+		if r.OracleDeclarationNeeds == nil {
+			allOptedIn = false
+			break
+		}
+	}
+	if !allOptedIn {
+		return oracle.FinalizeDeclarationProfile(oracle.FullDeclarationProfile())
+	}
+
+	// Second pass: union the declared profiles.
+	var union oracle.DeclarationProfile
+	for _, r := range enabled {
+		if !RuleNeedsKotlinOracle(r) {
+			continue
+		}
+		n := r.OracleDeclarationNeeds
+		union = oracle.MergeDeclarationProfiles(union, oracle.DeclarationProfile{
+			ClassShell:              n.ClassShell,
+			Supertypes:              n.Supertypes,
+			ClassAnnotations:        n.ClassAnnotations,
+			Members:                 n.Members,
+			MemberSignatures:        n.MemberSignatures,
+			MemberAnnotations:       n.MemberAnnotations,
+			SourceDependencyClosure: n.SourceDependencyClosure,
+		})
+	}
+	return oracle.FinalizeDeclarationProfile(union)
+}
+
+// NeedsOracleDiagnostics reports whether active rules should request expensive
+// compiler diagnostics from krit-types.
+func NeedsOracleDiagnostics(enabled []*api.Rule) bool {
+	for _, r := range enabled {
+		if ruleNeedsOracleDiagnostics(r) {
+			return true
+		}
+	}
+	return false
+}
+
+func ruleNeedsOracleDiagnostics(r *api.Rule) bool {
+	if r == nil {
+		return false
+	}
+	switch r.ID {
+	case "UnsafeCast", "UnreachableCode":
+		return true
+	}
+	return false
+}
+
+// BuildOracleCallTargetFilterV2 unions the call-target interest declared by
+// active rules. If any enabled oracle rule declares AllCalls, the returned
+// summary is disabled and callers must resolve every call. Rules with nil
+// OracleCallTargets are treated as non-consumers of
+// LookupCallTarget and do not contribute to the union.
+func BuildOracleCallTargetFilterV2(enabled []*api.Rule) oracle.CallTargetFilterSummary {
+	return BuildOracleCallTargetFilterV2ForFiles(enabled, nil)
+}
+
+// OracleCallTargetFilterNeedsFiles reports whether any active rule asks
+// the call-target filter to derive lexical callee names from source files.
+func OracleCallTargetFilterNeedsFiles(enabled []*api.Rule) bool {
+	for _, r := range enabled {
+		if !RuleNeedsKotlinOracle(r) || r.OracleCallTargets == nil {
+			continue
+		}
+		if len(r.OracleCallTargets.AnnotatedIdentifiers) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// BuildOracleCallTargetFilterV2ForFiles is BuildOracleCallTargetFilterV2
+// plus source-derived callee names for rules that declare
+// OracleCallTargetFilter.AnnotatedIdentifiers. If those rules are evaluated
+// without source files, the function conservatively disables filtering so
+// the JVM preserves broad LookupCallTarget behavior.
+func BuildOracleCallTargetFilterV2ForFiles(enabled []*api.Rule, files []*scanner.File) oracle.CallTargetFilterSummary {
+	summary := oracle.CallTargetFilterSummary{Enabled: true}
+	for _, r := range enabled {
+		if !RuleNeedsKotlinOracle(r) {
+			continue
+		}
+		spec := r.OracleCallTargets
+		if spec == nil {
+			continue
+		}
+		profile := oracle.CallTargetRuleProfile{
+			RuleID:               r.ID,
+			AllCalls:             spec.AllCalls,
+			DiscardedOnly:        spec.DiscardedOnly,
+			CalleeNames:          append([]string(nil), spec.CalleeNames...),
+			TargetFQNs:           append([]string(nil), spec.TargetFQNs...),
+			LexicalHintsByCallee: cloneLexicalHintsByCallee(spec.LexicalHintsByCallee),
+			LexicalSkipByCallee:  cloneLexicalHintsByCallee(spec.LexicalSkipByCallee),
+			AnnotatedIdentifiers: append([]string(nil), spec.AnnotatedIdentifiers...),
+		}
+		if spec.AllCalls {
+			summary.Enabled = false
+			summary.DisabledBy = append(summary.DisabledBy, r.ID)
+			profile.DisabledReason = "allCalls"
+			summary.RuleProfiles = append(summary.RuleProfiles, profile)
+			continue
+		}
+		summary.CalleeNames = append(summary.CalleeNames, spec.CalleeNames...)
+		summary.TargetFQNs = append(summary.TargetFQNs, spec.TargetFQNs...)
+		summary.LexicalHintsByCallee = mergeLexicalHintsByCallee(summary.LexicalHintsByCallee, spec.LexicalHintsByCallee)
+		summary.LexicalSkipByCallee = mergeLexicalHintsByCallee(summary.LexicalSkipByCallee, spec.LexicalSkipByCallee)
+		if len(spec.AnnotatedIdentifiers) > 0 {
+			if len(files) == 0 {
+				summary.Enabled = false
+				summary.DisabledBy = append(summary.DisabledBy, r.ID)
+				profile.DisabledReason = "missingFiles"
+				summary.RuleProfiles = append(summary.RuleProfiles, profile)
+				continue
+			}
+			names, uncertain := deriveAnnotatedDeclarationCalleeNames(files, spec.AnnotatedIdentifiers)
+			if uncertain {
+				summary.Enabled = false
+				summary.DisabledBy = append(summary.DisabledBy, r.ID)
+				profile.DisabledReason = "uncertainAnnotatedCallees"
+				summary.RuleProfiles = append(summary.RuleProfiles, profile)
+				continue
+			}
+			summary.CalleeNames = append(summary.CalleeNames, names...)
+			profile.DerivedCalleeNames = append(profile.DerivedCalleeNames, names...)
+		}
+		summary.RuleProfiles = append(summary.RuleProfiles, profile)
+	}
+	return oracle.FinalizeCallTargetFilter(summary)
+}
+
+func mergeLexicalHintsByCallee(dst, src map[string][]string) map[string][]string {
+	for callee, hints := range src {
+		if callee == "" || len(hints) == 0 {
+			continue
+		}
+		if dst == nil {
+			dst = make(map[string][]string)
+		}
+		dst[callee] = append(dst[callee], hints...)
+	}
+	return dst
+}
+
+func cloneLexicalHintsByCallee(in map[string][]string) map[string][]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(in))
+	for callee, hints := range in {
+		out[callee] = append([]string(nil), hints...)
+	}
+	return out
+}

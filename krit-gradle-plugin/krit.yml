@@ -1,0 +1,23 @@
+# Krit configuration for the Gradle plugin Kotlin code
+style:
+  MagicNumber:
+    excludes: ['**/test/**']
+    ignorePropertyDeclaration: true
+    ignoreAnnotation: true
+    ignoreEnums: true
+    ignoreNumbers: ['-1', '0', '1', '2', '8080']
+  MaxLineLength:
+    maxLineLength: 140
+    excludeCommentStatements: true
+  UnderscoresInNumericLiterals:
+    acceptableLength: 5
+
+complexity:
+  LongMethod:
+    threshold: 80
+  CyclomaticComplexMethod:
+    allowedComplexity: 15
+
+potential-bugs:
+  UnsafeCast:
+    excludes: ['**/test/**']

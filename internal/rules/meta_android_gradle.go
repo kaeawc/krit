@@ -1,0 +1,139 @@
+// Descriptor metadata for internal/rules/android_gradle.go.
+// NOTE: Meta() for NewerVersionAvailableRule is hand-written in meta_newer_version_available.go.
+
+package rules
+
+import (
+	api "github.com/kaeawc/krit/internal/rules/api"
+)
+
+func (r *AndroidGradlePluginVersionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "AndroidGradlePluginVersion",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+	}
+}
+
+func (r *DeprecatedDependencyRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "DeprecatedDependency",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+	}
+}
+
+// DynamicVersionRule is also registered as rule ID "GradleDynamicVersion"; Meta() only represents the primary ID.
+func (r *DynamicVersionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "DynamicVersion",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+	}
+}
+
+func (r *GradleDeprecatedRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "GradleDeprecated",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+	}
+}
+
+func (r *GradleGetterRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "GradleGetter",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+	}
+}
+
+func (r *GradleIdeErrorRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "GradleIdeError",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+	}
+}
+
+func (r *GradleOldTargetAPIRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "OldTargetApi",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		Options: []api.ConfigOption{
+			api.IntOption(api.IntOptionSpec[GradleOldTargetAPIRule]{
+				Name:        "threshold",
+				Default:     33,
+				Description: "",
+				Apply:       func(r *GradleOldTargetAPIRule, v int) { r.Threshold = v },
+			}),
+		},
+	}
+}
+
+func (r *GradleOverridesRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "GradleOverrides",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+	}
+}
+
+func (r *GradlePathRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "GradlePath",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+	}
+}
+
+// GradlePluginCompatibilityRule is also registered as rule ID "GradleCompatible"; Meta() only represents the primary ID.
+func (r *GradlePluginCompatibilityRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "GradlePluginCompatibility",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+	}
+}
+
+func (r *MavenLocalRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "MavenLocal",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+	}
+}
+
+func (r *MinSdkTooLowRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "MinSdkTooLow",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		Options: []api.ConfigOption{
+			api.IntOption(api.IntOptionSpec[MinSdkTooLowRule]{
+				Name:        "threshold",
+				Default:     21,
+				Description: "",
+				Apply:       func(r *MinSdkTooLowRule, v int) { r.Threshold = v },
+			}),
+		},
+	}
+}
+
+func (r *RemoteVersionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "RemoteVersion",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+	}
+}
+
+// StringIntegerRule is also registered as rule ID "StringShouldBeInt"; Meta() only represents the primary ID.
+func (r *StringIntegerRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "StringInteger",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+	}
+}

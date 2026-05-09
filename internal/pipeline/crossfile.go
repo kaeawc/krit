@@ -472,10 +472,32 @@ func runConcurrentCrossRules(ctx context.Context, ruleSet []*api.Rule, codeIndex
 	// count, satisfying the issue's finding-equivalence requirement.
 	scanner.MergeCollectors(dst, locals...)
 	if errs != nil {
-		for _, le := range localErrs {
-			*errs = append(*errs, le...)
-		}
+		*errs = append(*errs, mergeSortedLocalErrs(localErrs)...)
 	}
+}
+
+// mergeSortedLocalErrs flattens per-worker DispatchError slices and
+// sorts the result through the canonical comparator. Worker slot
+// ordering is deterministic, but the *content* of each slot reflects
+// goroutine completion order (workers pull from a shared jobs
+// channel), so a flat append yields a non-deterministic slice across
+// runs. Sorting at this seam keeps `runConcurrentCrossRules`'
+// returned-errs contract — "canonical order regardless of worker
+// schedule" — self-contained. See #29.
+func mergeSortedLocalErrs(localErrs [][]rules.DispatchError) []rules.DispatchError {
+	var n int
+	for _, le := range localErrs {
+		n += len(le)
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make([]rules.DispatchError, 0, n)
+	for _, le := range localErrs {
+		out = append(out, le...)
+	}
+	rules.SortDispatchErrors(out)
+	return out
 }
 
 // runConcurrentCrossRule invokes a single rule's Check against a given

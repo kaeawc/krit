@@ -25,6 +25,7 @@ import (
 	climscorecard "github.com/kaeawc/krit/internal/cli/scorecard"
 	climselecttests "github.com/kaeawc/krit/internal/cli/selecttests"
 	climserve "github.com/kaeawc/krit/internal/cli/serve"
+	climsnapshot "github.com/kaeawc/krit/internal/cli/snapshot"
 	climsuggestreviewers "github.com/kaeawc/krit/internal/cli/suggestreviewers"
 	climtestcoverage "github.com/kaeawc/krit/internal/cli/testcoverage"
 	climtransform "github.com/kaeawc/krit/internal/cli/transform"
@@ -63,6 +64,7 @@ const (
 	verbGen
 	verbGraph
 	verbPrecommit
+	verbSnapshot
 )
 
 var verbByName = map[string]subcommandVerb{
@@ -94,6 +96,7 @@ var verbByName = map[string]subcommandVerb{
 	"gen":                verbGen,
 	"graph":              verbGraph,
 	"precommit":          verbPrecommit,
+	"snapshot":           verbSnapshot,
 }
 
 func classifyVerb(arg string) subcommandVerb {
@@ -169,6 +172,9 @@ func runVerbAndExitB(verb subcommandVerb, rest []string) bool {
 		os.Exit(climgraph.Run(rest))
 	case verbPrecommit:
 		os.Exit(climprecommit.Run(rest))
+	case verbSnapshot:
+		climsnapshot.Version = version
+		os.Exit(climsnapshot.Run(rest))
 	}
 	return false
 }

@@ -1,0 +1,13 @@
+package fixable.style
+
+import java.io.Serializable
+
+class Foo : Serializable {
+    fun doSomething() {
+        println("doing something")
+    }
+
+    companion object {
+        private const val serialVersionUID: Long = 1L
+    }
+}

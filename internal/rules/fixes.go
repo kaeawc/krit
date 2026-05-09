@@ -176,11 +176,11 @@ func (r *MandatoryBracesLoopsRule) IsFixable() bool { return true }
 // lands.
 func (r *UseIfInsteadOfWhenRule) IsFixable() bool { return false }
 
-// SerialVersionUIDInSerializableClass: fix would be to inject a new
-// `private const val serialVersionUID = 1L` in the class body, but
-// the current Check() never populates Fix. Advertised as not-fixable
-// until the inject helper lands.
-func (r *SerialVersionUIDInSerializableClassRule) IsFixable() bool { return false }
+// SerialVersionUIDInSerializableClass: fix injects a
+// `private const val serialVersionUID: Long = 1L` into the class —
+// adding it to an existing companion object when present, or creating
+// one otherwise.
+func (r *SerialVersionUIDInSerializableClassRule) IsFixable() bool { return true }
 
 // Style2 fixable rules (batch 5)
 func (r *BracesOnIfStatementsRule) IsFixable() bool        { return true }

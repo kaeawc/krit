@@ -1,6 +1,9 @@
 package rules_test
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // ---------- AbstractClassCanBeConcreteClass ----------
 
@@ -573,6 +576,49 @@ class Foo : java.io.Serializable {
 }`)
 	if len(findings) == 0 {
 		t.Error("expected finding for missing serialVersionUID")
+	}
+}
+
+func TestSerialVersionUIDInSerializableClass_FixNoCompanion(t *testing.T) {
+	findings := runRuleByName(t, "SerialVersionUIDInSerializableClass", `
+package test
+class Foo : java.io.Serializable {
+    val name = "test"
+}`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected Fix to be populated")
+	}
+	if !strings.Contains(findings[0].Fix.Replacement, "companion object") {
+		t.Errorf("expected fix to inject companion object, got %q", findings[0].Fix.Replacement)
+	}
+	if !strings.Contains(findings[0].Fix.Replacement, "private const val serialVersionUID: Long = 1L") {
+		t.Errorf("expected fix to inject serialVersionUID property, got %q", findings[0].Fix.Replacement)
+	}
+}
+
+func TestSerialVersionUIDInSerializableClass_FixExistingCompanion(t *testing.T) {
+	findings := runRuleByName(t, "SerialVersionUIDInSerializableClass", `
+package test
+class Foo : java.io.Serializable {
+    companion object {
+        const val FOO = 1
+    }
+}`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected Fix to be populated")
+	}
+	repl := findings[0].Fix.Replacement
+	if strings.Contains(repl, "companion object {") {
+		t.Errorf("fix should not declare a new companion object when one exists, got %q", repl)
+	}
+	if !strings.Contains(repl, "private const val serialVersionUID: Long = 1L") {
+		t.Errorf("expected fix to inject serialVersionUID property, got %q", repl)
 	}
 }
 

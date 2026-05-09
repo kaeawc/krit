@@ -34,6 +34,12 @@ type Reference struct {
 	File      string
 	Line      int
 	InComment bool // true if this reference is inside a comment node
+	// StartByte/EndByte locate the identifier's text in File.Content. They
+	// are populated for Kotlin and Java references; XML and other text-based
+	// references leave them as 0 and are not safe to rewrite by offset.
+	StartByte int
+	EndByte   int
+	Language  Language
 }
 
 // ResolvedSymbol is a language-tagged source declaration resolved from the

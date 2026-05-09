@@ -218,16 +218,22 @@ func collectJavaReferencesFlatUncached(file *File, refs *[]Reference) {
 			continue
 		}
 		*refs = append(*refs, Reference{
-			Name: name,
-			File: file.Path,
-			Line: int(node.StartRow) + 1,
+			Name:      name,
+			File:      file.Path,
+			Line:      int(node.StartRow) + 1,
+			StartByte: int(node.StartByte),
+			EndByte:   int(node.EndByte),
+			Language:  LangJava,
 		})
 		if isSimple {
 			if prop := javaAccessorPropertyName(name); prop != "" {
 				*refs = append(*refs, Reference{
-					Name: prop,
-					File: file.Path,
-					Line: int(node.StartRow) + 1,
+					Name:      prop,
+					File:      file.Path,
+					Line:      int(node.StartRow) + 1,
+					StartByte: int(node.StartByte),
+					EndByte:   int(node.EndByte),
+					Language:  LangJava,
 				})
 			}
 		}

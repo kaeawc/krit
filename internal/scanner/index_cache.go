@@ -225,6 +225,9 @@ type packedRefs struct {
 	File      []uint32
 	Line      []int32
 	InComment []bool
+	StartByte []int32
+	EndByte   []int32
+	Language  []uint8
 }
 
 // packedLookup stores the assembled lookup maps + bloom filter in a
@@ -465,12 +468,18 @@ func packPayload(symbols []Symbol, refs []Reference) cachePayload {
 		File:      make([]uint32, len(refs)),
 		Line:      make([]int32, len(refs)),
 		InComment: make([]bool, len(refs)),
+		StartByte: make([]int32, len(refs)),
+		EndByte:   make([]int32, len(refs)),
+		Language:  make([]uint8, len(refs)),
 	}
 	for i, r := range refs {
 		pr.Name[i] = intr.intern(r.Name)
 		pr.File[i] = intr.intern(r.File)
 		pr.Line[i] = int32(r.Line)
 		pr.InComment[i] = r.InComment
+		pr.StartByte[i] = int32(r.StartByte)
+		pr.EndByte[i] = int32(r.EndByte)
+		pr.Language[i] = uint8(r.Language)
 	}
 
 	return cachePayload{Strings: intr.table, Syms: ps, Refs: pr}
@@ -545,6 +554,8 @@ func (p cachePayload) unpackRefs(getStr func(uint32) (string, bool)) ([]Referenc
 	if len(p.Refs.File) != m || len(p.Refs.Line) != m || len(p.Refs.InComment) != m {
 		return nil, false
 	}
+	hasBytes := len(p.Refs.StartByte) == m && len(p.Refs.EndByte) == m
+	hasLang := len(p.Refs.Language) == m
 	refs := make([]Reference, m)
 	for i := 0; i < m; i++ {
 		name, ok1 := getStr(p.Refs.Name[i])
@@ -552,12 +563,20 @@ func (p cachePayload) unpackRefs(getStr func(uint32) (string, bool)) ([]Referenc
 		if !ok1 || !ok2 {
 			return nil, false
 		}
-		refs[i] = Reference{
+		ref := Reference{
 			Name:      name,
 			File:      file,
 			Line:      int(p.Refs.Line[i]),
 			InComment: p.Refs.InComment[i],
 		}
+		if hasBytes {
+			ref.StartByte = int(p.Refs.StartByte[i])
+			ref.EndByte = int(p.Refs.EndByte[i])
+		}
+		if hasLang {
+			ref.Language = Language(p.Refs.Language[i])
+		}
+		refs[i] = ref
 	}
 	return refs, true
 }

@@ -176,6 +176,9 @@ func collectReferencesFlat(file *File, refs *[]Reference) {
 			File:      file.Path,
 			Line:      file.FlatRow(idx) + 1,
 			InComment: file.FlatHasAnyAncestorOfType(idx, commentTypes...),
+			StartByte: int(file.FlatStartByte(idx)),
+			EndByte:   int(file.FlatEndByte(idx)),
+			Language:  file.Language,
 		})
 	})
 }

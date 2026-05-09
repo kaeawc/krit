@@ -32,7 +32,8 @@ package scanner
 //       line, startByte, endByte: svarint
 //       flags: u8 (bit0=IsOverride, bit1=IsTest, bit2=IsMain, bit3=IsStatic, bit4=IsFinal) } * symbolCount
 //   refCount: uvarint
-//     { nameID: uvarint; line: svarint; flags: u8 (bit0=InComment) } * refCount
+//     { nameID: uvarint; line, startByte, endByte: svarint;
+//       language: u8; flags: u8 (bit0=InComment) } * refCount
 
 import (
 	"encoding/binary"
@@ -42,7 +43,7 @@ import (
 
 const (
 	shardPayloadMagic   uint32 = 0x4B534843 // "KSHC"
-	shardPayloadVersion uint16 = 2
+	shardPayloadVersion uint16 = 3
 )
 
 type codecWriter struct {
@@ -221,6 +222,9 @@ func encodeShardPayload(s *fileShard) []byte {
 	for i, ref := range s.References {
 		w.putUvarint(uint64(rNameID[i]))
 		w.putVarint(int64(ref.Line))
+		w.putVarint(int64(ref.StartByte))
+		w.putVarint(int64(ref.EndByte))
+		w.putU8(uint8(ref.Language))
 		var f uint8
 		if ref.InComment {
 			f |= 1
@@ -423,6 +427,18 @@ func decodeShardRefs(r *codecReader, path string, lookup func(uint64) (string, e
 		if err != nil {
 			return nil, err
 		}
+		startByte, err := r.getVarint()
+		if err != nil {
+			return nil, err
+		}
+		endByte, err := r.getVarint()
+		if err != nil {
+			return nil, err
+		}
+		lang, err := r.getU8()
+		if err != nil {
+			return nil, err
+		}
 		f, err := r.getU8()
 		if err != nil {
 			return nil, err
@@ -432,6 +448,9 @@ func decodeShardRefs(r *codecReader, path string, lookup func(uint64) (string, e
 			File:      path,
 			Line:      int(line),
 			InComment: f&1 != 0,
+			StartByte: int(startByte),
+			EndByte:   int(endByte),
+			Language:  Language(lang),
 		}
 	}
 	return refs, nil

@@ -119,7 +119,7 @@ func TestShardCodec_GoldenSHA256(t *testing.T) {
 	sum := sha256.Sum256(encoded)
 	got := hex.EncodeToString(sum[:])
 
-	const want = "b96909454ab29767f9243ff2b4a7c4f7ecd06a8be32eb69d025a92f8929efa61"
+	const want = "f7f3ff2908f1d9d244dd422bd48d96a20624e592ed080f7d468055f6ce07d00b"
 
 	if got != want {
 		t.Fatalf("golden shard digest changed:\nwant=%s\ngot =%s\nencoded=%x\nthis means the shard codec wire format moved; bump shardPayloadVersion and update this digest deliberately", want, got, encoded)

@@ -17,7 +17,7 @@ import (
 // Version is set by main via ldflags.
 var Version string
 
-const usage = `usage: krit snapshot <capture|backfill|status|timeline|info|diff|gate> [flags]
+const usage = `usage: krit snapshot <capture|backfill|status|timeline|info|diff|gate|install-hook> [flags]
 
   capture [<sha>]      capture a structural snapshot for sha (default: HEAD)
   backfill             capture snapshots for past commits via git worktrees
@@ -26,6 +26,7 @@ const usage = `usage: krit snapshot <capture|backfill|status|timeline|info|diff|
   info <sha>           print the manifest for a captured sha
   diff <from> <to>     show structural delta between two captured snapshots
   gate <from> <to>     fail (exit 2) if a delta exceeds a configured threshold
+  install-hook         install a post-commit hook that captures HEAD on each commit
 
 Capture flags:
   --repo PATH       repo root (default: cwd)
@@ -59,6 +60,8 @@ func Run(args []string) int {
 		return runDiff(args[1:])
 	case "gate":
 		return runGate(args[1:])
+	case "install-hook":
+		return runInstallHook(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown snapshot subcommand: %s\n%s", args[0], usage)
 		return 1
@@ -273,6 +276,46 @@ type repeatedFlag []string
 func (r *repeatedFlag) String() string     { return strings.Join(*r, ",") }
 func (r *repeatedFlag) Set(v string) error { *r = append(*r, v); return nil }
 func (r *repeatedFlag) Get() interface{}   { return []string(*r) }
+
+func runInstallHook(args []string) int {
+	fs := flag.NewFlagSet("snapshot install-hook", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	repoFlag := fs.String("repo", "", "repository root (default: cwd)")
+	uninstallFlag := fs.Bool("uninstall", false, "remove the krit-installed hook")
+	forceFlag := fs.Bool("force", false, "overwrite an existing post-commit hook")
+	printFlag := fs.Bool("print", false, "print the hook script to stdout instead of installing")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+
+	if *printFlag {
+		fmt.Print(snap.PostCommitHook)
+		return 0
+	}
+
+	repoRoot, code := resolveRepoRoot(*repoFlag)
+	if code != 0 {
+		return code
+	}
+
+	if *uninstallFlag {
+		path, err := snap.UninstallHook(repoRoot)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "removed %s\n", path)
+		return 0
+	}
+
+	path, err := snap.InstallHook(repoRoot, *forceFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(os.Stderr, "installed %s\n", path)
+	return 0
+}
 
 func runGate(args []string) int {
 	fs := flag.NewFlagSet("snapshot gate", flag.ContinueOnError)

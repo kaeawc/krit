@@ -190,43 +190,60 @@ func registerStyleCollapsibleIfStatements() {
 			}
 			f := r.Finding(file, file.FlatRow(idx)+1, 1,
 				"Collapsible if statements: these nested ifs can be merged with '&&'.")
-			outerCond, _ := file.FlatFindChild(idx, "parenthesized_expression")
-			if outerCond == 0 {
-				for ci := 0; ci < file.FlatChildCount(idx); ci++ {
-					ch := file.FlatChild(idx, ci)
-					if t := file.FlatType(ch); t != "if" && t != "control_structure_body" && t != "{" && t != "}" {
-						if t == "parenthesized_expression" || t == "boolean_literal" || t == "call_expression" || t == "simple_identifier" || t == "comparison_expression" || t == "conjunction_expression" || t == "disjunction_expression" || t == "prefix_expression" {
-							outerCond = ch
-							break
-						}
-					}
-				}
-			}
-			if outerCond != 0 && innerIf != 0 {
-				outerCondText := file.FlatNodeText(outerCond)
-				if strings.HasPrefix(outerCondText, "(") && strings.HasSuffix(outerCondText, ")") {
-					outerCondText = outerCondText[1 : len(outerCondText)-1]
-				}
-				innerCondNode, _ := file.FlatFindChild(innerIf, "parenthesized_expression")
-				innerBody, _ := file.FlatFindChild(innerIf, "control_structure_body")
-				if innerCondNode != 0 && innerBody != 0 {
-					innerCondText := file.FlatNodeText(innerCondNode)
-					if strings.HasPrefix(innerCondText, "(") && strings.HasSuffix(innerCondText, ")") {
-						innerCondText = innerCondText[1 : len(innerCondText)-1]
-					}
-					innerBodyText := file.FlatNodeText(innerBody)
-					merged := "if (" + outerCondText + " && " + innerCondText + ") " + innerBodyText
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(idx)),
-						EndByte:     int(file.FlatEndByte(idx)),
-						Replacement: merged,
-					}
+			outerCond := ifExpressionConditionNode(file, idx)
+			innerCond := ifExpressionConditionNode(file, innerIf)
+			innerBody, _ := file.FlatFindChild(innerIf, "control_structure_body")
+			if outerCond != 0 && innerCond != 0 && innerBody != 0 {
+				outerCondText := unwrapParens(file.FlatNodeText(outerCond))
+				innerCondText := unwrapParens(file.FlatNodeText(innerCond))
+				innerBodyText := file.FlatNodeText(innerBody)
+				merged := "if (" + outerCondText + " && " + innerCondText + ") " + innerBodyText
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: merged,
 				}
 			}
 			ctx.Emit(f)
 		},
 	})
+}
+
+// ifExpressionConditionNode returns the AST node holding the condition of
+// an if_expression. The Kotlin tree-sitter grammar represents the
+// condition as either a parenthesized_expression child or as bare
+// children between the `(` and `)` tokens (e.g. a simple_identifier or
+// a comparison_expression). Returns 0 when no recognizable condition is
+// found.
+func ifExpressionConditionNode(file *scanner.File, ifExpr uint32) uint32 {
+	if file == nil || ifExpr == 0 {
+		return 0
+	}
+	if cond, ok := file.FlatFindChild(ifExpr, "parenthesized_expression"); ok && cond != 0 {
+		return cond
+	}
+	for ci := 0; ci < file.FlatChildCount(ifExpr); ci++ {
+		ch := file.FlatChild(ifExpr, ci)
+		switch file.FlatType(ch) {
+		case "if", "(", ")", "{", "}", "control_structure_body", "else":
+			continue
+		}
+		if file.FlatIsNamed(ch) {
+			return ch
+		}
+	}
+	return 0
+}
+
+// unwrapParens strips a single matching pair of outer parentheses from
+// the given expression text. Used when reading parenthesized_expression
+// node text — its FlatNodeText includes the surrounding `(` and `)`.
+func unwrapParens(s string) string {
+	if strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") {
+		return s[1 : len(s)-1]
+	}
+	return s
 }
 
 func singleIfExpressionInControlBody(file *scanner.File, body uint32) uint32 {

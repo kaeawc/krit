@@ -730,8 +730,82 @@ func registerStyleSerialVersionUIDInSerializableClass() {
 			if !implementsSerializable {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1,
+			f := r.Finding(file, file.FlatRow(idx)+1, 1,
 				fmt.Sprintf("Serializable class '%s' is missing serialVersionUID.", name))
+			f.Fix = buildSerialVersionUIDFix(file, idx)
+			ctx.Emit(f)
 		},
 	})
+}
+
+// buildSerialVersionUIDFix injects a `private const val serialVersionUID: Long = 1L`
+// property into the class. If the class already has a companion object,
+// the property is added inside it; otherwise a new companion object is
+// inserted at the end of the class body. Returns nil when the class has
+// no body (declaration-only) — there's nowhere to inject.
+func buildSerialVersionUIDFix(file *scanner.File, idx uint32) *scanner.Fix {
+	body, _ := file.FlatFindChild(idx, "class_body")
+	if body == 0 {
+		return nil
+	}
+	classCol := file.FlatCol(idx)
+	indent := strings.Repeat(" ", classCol)
+	memberIndent := indent + "    "
+	innerIndent := memberIndent + "    "
+
+	var companion uint32
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "companion_object" {
+			companion = child
+			break
+		}
+	}
+	if companion != 0 {
+		innerBody, _ := file.FlatFindChild(companion, "class_body")
+		if innerBody == 0 {
+			return nil
+		}
+		// Insert just after the opening `{` of the companion's body.
+		insertAt := int(file.FlatStartByte(innerBody)) + 1
+		// Use the companion's own column for indentation reference.
+		companionCol := file.FlatCol(companion)
+		propIndent := strings.Repeat(" ", companionCol) + "    "
+		return &scanner.Fix{
+			ByteMode:    true,
+			StartByte:   insertAt,
+			EndByte:     insertAt,
+			Replacement: "\n" + propIndent + "private const val serialVersionUID: Long = 1L\n",
+		}
+	}
+
+	// No companion object — insert a new one immediately before the
+	// class body's closing `}`. FlatEndByte is exclusive, so `}` lives
+	// at end-1.
+	bodyEnd := int(file.FlatEndByte(body))
+	insertAt := bodyEnd - 1
+	if insertAt < 0 || insertAt >= len(file.Content) || file.Content[insertAt] != '}' {
+		return nil
+	}
+	// Strip whitespace immediately before the closing `}` so the
+	// inserted block sits on a fresh line at the right indent.
+	stripStart := insertAt
+	for stripStart > 0 {
+		c := file.Content[stripStart-1]
+		if c == ' ' || c == '\t' {
+			stripStart--
+			continue
+		}
+		break
+	}
+	replacement := "\n" +
+		memberIndent + "companion object {\n" +
+		innerIndent + "private const val serialVersionUID: Long = 1L\n" +
+		memberIndent + "}\n" +
+		indent
+	return &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   stripStart,
+		EndByte:     insertAt,
+		Replacement: replacement,
+	}
 }

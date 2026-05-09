@@ -28,6 +28,36 @@ func flatNavigationExpressionLastIdentifier(file *scanner.File, idx uint32) stri
 	return last
 }
 
+// flatNavigationExpressionLastIdentifierNamed returns the trailing
+// simple_identifier of a navigation_expression when its text equals
+// `want`, or 0 otherwise. Handles both Kotlin tree-sitter grammar
+// shapes — a direct simple_identifier child and a navigation_suffix
+// wrapping the identifier. Used by autofix builders that need the AST
+// node (and therefore its byte range) rather than just a presence
+// check.
+func flatNavigationExpressionLastIdentifierNamed(file *scanner.File, idx uint32, want string) uint32 {
+	if file == nil || idx == 0 || want == "" {
+		return 0
+	}
+	var last uint32
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "simple_identifier":
+			last = child
+		case "navigation_suffix":
+			for gc := file.FlatFirstChild(child); gc != 0; gc = file.FlatNextSib(gc) {
+				if file.FlatType(gc) == "simple_identifier" {
+					last = gc
+				}
+			}
+		}
+	}
+	if last == 0 || !file.FlatNodeTextEquals(last, want) {
+		return 0
+	}
+	return last
+}
+
 func flatNavigationExpressionLastIdentifierEquals(file *scanner.File, idx uint32, want string) bool {
 	if file == nil || idx == 0 || want == "" {
 		return false

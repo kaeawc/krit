@@ -24,12 +24,10 @@ func (r *TrailingWhitespaceRule) IsFixable() bool          { return true }
 func (r *NoTabsRule) IsFixable() bool                      { return true }
 func (r *RedundantVisibilityModifierRule) IsFixable() bool { return true }
 
-// RedundantConstructorKeyword: the Check() attempts a byte-mode fix
-// but only when a `class_parameters` child is present in the
-// constructor, which the current tree-sitter grammar doesn't produce
-// reliably. Advertised as not-fixable until the parser pipeline
-// matches.
-func (r *RedundantConstructorKeywordRule) IsFixable() bool           { return false }
+// RedundantConstructorKeyword: byte-mode fix removes the `constructor`
+// keyword (and any preceding whitespace) up to the `(` that opens the
+// parameter list.
+func (r *RedundantConstructorKeywordRule) IsFixable() bool           { return true }
 func (r *OptionalUnitRule) IsFixable() bool                          { return true }
 func (r *ExplicitItLambdaParameterRule) IsFixable() bool             { return true }
 func (r *RangeUntilInsteadOfRangeToRule) IsFixable() bool            { return true }
@@ -113,12 +111,13 @@ func (r *UselessPostfixExpressionRule) IsFixable() bool      { return true }
 func (r *NullableToStringCallRule) IsFixable() bool          { return false }
 
 // Style2 fixable rules
-// AlsoCouldBeApply: `.also { }` → `.apply { }` swap is a simple
-// text rewrite but the current Check() never populates Fix.
-// Not-fixable until the helper lands.
-func (r *AlsoCouldBeApplyRule) IsFixable() bool                      { return false }
+// AlsoCouldBeApply: `.also { }` → `.apply { }` swap rewrites the
+// scope-function name and strips the `it.` receiver prefix from each
+// statement. The fix bails when `it` appears outside a leading
+// receiver position to avoid leaving unbound references behind.
+func (r *AlsoCouldBeApplyRule) IsFixable() bool                      { return true }
 func (r *DoubleNegativeExpressionRule) IsFixable() bool              { return true }
-func (r *DoubleNegativeLambdaRule) IsFixable() bool                  { return false } // too complex
+func (r *DoubleNegativeLambdaRule) IsFixable() bool                  { return true }
 func (r *ExpressionBodySyntaxRule) IsFixable() bool                  { return true }
 func (r *NullableBooleanCheckRule) IsFixable() bool                  { return true }
 func (r *SpacingAfterPackageAndImportsRule) IsFixable() bool         { return true }
@@ -133,11 +132,7 @@ func (r *UnderscoresInNumericLiteralsRule) IsFixable() bool          { return tr
 func (r *VarCouldBeValRule) IsFixable() bool                         { return true }
 
 // Style2 fixable rules (batch 3)
-// CollapsibleIfStatements: the Check() attempts a text-mode fix but
-// relies on a parsing path that doesn't fire on the current
-// tree-sitter output. Advertised as not-fixable until the AST shape
-// is stable.
-func (r *CollapsibleIfStatementsRule) IsFixable() bool         { return false }
+func (r *CollapsibleIfStatementsRule) IsFixable() bool         { return true }
 func (r *DataClassShouldBeImmutableRule) IsFixable() bool      { return true }
 func (r *ProtectedMemberInFinalClassRule) IsFixable() bool     { return true }
 func (r *AbstractClassCanBeConcreteClassRule) IsFixable() bool { return true }
@@ -171,16 +166,18 @@ func (r *MissingPackageDeclarationRule) IsFixable() bool { return false }
 // Style2 fixable rules (batch 4)
 func (r *MandatoryBracesLoopsRule) IsFixable() bool { return true }
 
-// UseIfInsteadOfWhen: when → if rewrite requires rebuilding the
-// condition + body structure; not fixable until the rewrite helper
-// lands.
-func (r *UseIfInsteadOfWhenRule) IsFixable() bool { return false }
+// UseIfInsteadOfWhen: rewrites no-subject `when` expressions with up to
+// two single-condition entries into the equivalent `if`/`if-else`. The
+// subject form and multi-condition entries are left untouched because
+// their rewrite would require synthesizing comparison operators whose
+// semantics depend on the entry kind.
+func (r *UseIfInsteadOfWhenRule) IsFixable() bool { return true }
 
-// SerialVersionUIDInSerializableClass: fix would be to inject a new
-// `private const val serialVersionUID = 1L` in the class body, but
-// the current Check() never populates Fix. Advertised as not-fixable
-// until the inject helper lands.
-func (r *SerialVersionUIDInSerializableClassRule) IsFixable() bool { return false }
+// SerialVersionUIDInSerializableClass: fix injects a
+// `private const val serialVersionUID: Long = 1L` into the class —
+// adding it to an existing companion object when present, or creating
+// one otherwise.
+func (r *SerialVersionUIDInSerializableClassRule) IsFixable() bool { return true }
 
 // Style2 fixable rules (batch 5)
 func (r *BracesOnIfStatementsRule) IsFixable() bool        { return true }

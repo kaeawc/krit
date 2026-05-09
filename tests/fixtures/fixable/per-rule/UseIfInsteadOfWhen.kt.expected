@@ -1,0 +1,5 @@
+package fixable.style
+
+fun classify(c: Boolean): Int {
+    return if (c) 1 else 2
+}

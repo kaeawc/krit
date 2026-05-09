@@ -573,12 +573,14 @@ func (r *DoubleNegativeLambdaRule) Confidence() float64 { return 0.9 }
 func (r *DoubleNegativeLambdaRule) checkDoubleNegativeLambdaFlat(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
 	callee := flatCallExpressionName(file, idx)
-	var msg string
+	var msg, replacementCallee string
 	switch callee {
 	case "filterNot":
 		msg = "Double negative in '.filterNot { !... }'. Use '.filter { ... }' instead."
+		replacementCallee = "filter"
 	case "none":
 		msg = "Double negative in '.none { !... }'. Use '.all { ... }' instead."
+		replacementCallee = "all"
 	default:
 		if !doubleNegativeLambdaCalleeConfigured(callee, r.NegativeFunctions) {
 			return
@@ -602,7 +604,56 @@ func (r *DoubleNegativeLambdaRule) checkDoubleNegativeLambdaFlat(ctx *api.Contex
 	if op == 0 || file.FlatType(op) != "!" {
 		return
 	}
-	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+
+	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+	// Only the well-known names have a deterministic name swap. For
+	// configurable NegativeFunctions the right replacement is the
+	// author's call — emit without a fix.
+	if replacementCallee != "" {
+		f.Fix = buildDoubleNegativeLambdaFix(file, idx, op, callee, replacementCallee)
+	}
+	ctx.Emit(f)
+}
+
+// buildDoubleNegativeLambdaFix rewrites `recv.filterNot { !pred }` to
+// `recv.filter { pred }` (and `none`→`all`) by renaming the callee
+// identifier and removing the `!` prefix from the lambda body. Returns
+// nil when either edit cannot be located.
+func buildDoubleNegativeLambdaFix(file *scanner.File, call uint32, bangOp uint32, oldName, newName string) *scanner.Fix {
+	var calleeIdent uint32
+	for c := file.FlatFirstChild(call); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "simple_identifier":
+			if file.FlatNodeTextEquals(c, oldName) {
+				calleeIdent = c
+			}
+		case "navigation_expression":
+			calleeIdent = flatNavigationExpressionLastIdentifierNamed(file, c, oldName)
+		}
+		if calleeIdent != 0 {
+			break
+		}
+	}
+	if calleeIdent == 0 || bangOp == 0 {
+		return nil
+	}
+
+	callStart := int(file.FlatStartByte(call))
+	callEnd := int(file.FlatEndByte(call))
+	edits := []byteEdit{
+		{int(file.FlatStartByte(calleeIdent)), int(file.FlatEndByte(calleeIdent)), newName},
+		{int(file.FlatStartByte(bangOp)), int(file.FlatEndByte(bangOp)), ""},
+	}
+	repl, ok := applyByteEdits(file.Content, callStart, callEnd, edits)
+	if !ok {
+		return nil
+	}
+	return &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   callStart,
+		EndByte:     callEnd,
+		Replacement: repl,
+	}
 }
 
 // NullableBooleanCheckRule detects `x == true` on Boolean?.

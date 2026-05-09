@@ -1,0 +1,7 @@
+package fixable.style
+
+fun check(a: Boolean, b: Boolean) {
+    if (a && b) {
+            println("both")
+        }
+}

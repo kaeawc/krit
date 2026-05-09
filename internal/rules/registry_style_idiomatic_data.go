@@ -222,7 +222,9 @@ func registerStyleIdiomaticDataRules() {
 					return
 				}
 				if entryCount <= 2 {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "When expression with two or fewer branches could be replaced with if.")
+					f := r.Finding(file, file.FlatRow(idx)+1, 1, "When expression with two or fewer branches could be replaced with if.")
+					f.Fix = buildUseIfInsteadOfWhenFix(file, idx)
+					ctx.Emit(f)
 				}
 			},
 		})
@@ -390,7 +392,9 @@ func registerStyleIdiomaticDataRules() {
 				}
 				receiverStatements, ok := alsoLambdaReceiverStatementCount(file, lambda)
 				if ok && receiverStatements >= 2 {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "'also' with multiple 'it.' references could be replaced with 'apply'.")
+					f := r.Finding(file, file.FlatRow(idx)+1, 1, "'also' with multiple 'it.' references could be replaced with 'apply'.")
+					f.Fix = buildAlsoCouldBeApplyFix(file, idx, lambda)
+					ctx.Emit(f)
 				}
 			},
 		})
@@ -430,6 +434,271 @@ func registerStyleIdiomaticDataRules() {
 	}
 }
 
+// buildAlsoCouldBeApplyFix rewrites `recv.also { it.f(); it.g = 1 }` to
+// `recv.apply { f(); g = 1 }`. The fix is conservative: it bails when any
+// `it` reference appears outside the leading receiver position of a
+// statement (so nested `it` arguments — which would become unbound
+// after switching to `apply` — preserve the original code). Returns nil
+// when the rewrite cannot be performed safely.
+func buildAlsoCouldBeApplyFix(file *scanner.File, call uint32, lambda uint32) *scanner.Fix {
+	if file == nil || call == 0 || lambda == 0 {
+		return nil
+	}
+	nav, _ := flatCallExpressionParts(file, call)
+	if nav == 0 {
+		return nil
+	}
+	alsoNode := flatNavigationExpressionLastIdentifierNamed(file, nav, "also")
+	if alsoNode == 0 {
+		return nil
+	}
+
+	statements, ok := file.FlatFindChild(lambda, "statements")
+	if !ok || statements == 0 {
+		return nil
+	}
+
+	// Walk every statement and locate the navigation_expression whose
+	// receiver is the bare `it`. Collect the byte ranges of "it." so we
+	// can strip them in the rewritten text.
+	type cut struct{ start, end int }
+	var cuts []cut
+	statementCount := 0
+	for stmt := file.FlatFirstChild(statements); stmt != 0; stmt = file.FlatNextSib(stmt) {
+		if !file.FlatIsNamed(stmt) {
+			continue
+		}
+		statementCount++
+		navNode := alsoStatementNavWithItReceiver(file, stmt)
+		if navNode == 0 {
+			return nil
+		}
+		itNode := file.FlatNamedChild(navNode, 0)
+		if itNode == 0 || file.FlatType(itNode) != "simple_identifier" || !file.FlatNodeTextEquals(itNode, "it") {
+			return nil
+		}
+		// Range to cut: `it` plus the trailing `.` token. The Kotlin
+		// tree-sitter grammar puts the `.` either as a direct sibling
+		// of `it` (older grammar shape) or as the first child of a
+		// `navigation_suffix` node that follows `it` (current grammar).
+		itStart := int(file.FlatStartByte(itNode))
+		cutEnd := dotEndAfterReceiver(file, navNode, itNode)
+		if cutEnd == 0 {
+			return nil
+		}
+		cuts = append(cuts, cut{itStart, cutEnd})
+	}
+	if statementCount == 0 {
+		return nil
+	}
+
+	// Conservative guard: every `it` simple_identifier inside the lambda
+	// must be one we're stripping. If `it` appears in an argument
+	// position (e.g. `it.f(it)` or `g(it)`), the apply rewrite would
+	// leave the inner `it` unbound — refuse the fix.
+	itTotal := 0
+	file.FlatWalkAllNodes(lambda, func(n uint32) {
+		if file.FlatType(n) == "simple_identifier" && file.FlatNodeTextEquals(n, "it") {
+			itTotal++
+		}
+	})
+	if itTotal != len(cuts) {
+		return nil
+	}
+
+	// Build the replacement text by editing the original call_expression
+	// bytes in place. `also` becomes `apply`; each `it.` is dropped.
+	callStart := int(file.FlatStartByte(call))
+	callEnd := int(file.FlatEndByte(call))
+	edits := make([]byteEdit, 0, 1+len(cuts))
+	edits = append(edits, byteEdit{int(file.FlatStartByte(alsoNode)), int(file.FlatEndByte(alsoNode)), "apply"})
+	for _, c := range cuts {
+		edits = append(edits, byteEdit{c.start, c.end, ""})
+	}
+	repl, ok2 := applyByteEdits(file.Content, callStart, callEnd, edits)
+	if !ok2 {
+		return nil
+	}
+	return &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   callStart,
+		EndByte:     callEnd,
+		Replacement: repl,
+	}
+}
+
+// buildUseIfInsteadOfWhenFix rewrites a `when` expression with up to two
+// entries into an equivalent `if`/`if-else` expression. Only the
+// no-subject form is rewritten — subject forms (`when (x) { 1 -> ... }`)
+// would need synthetic `==`/`is`/`in` comparisons whose semantics depend
+// on the entry kind, and existing comma-separated multi-condition
+// entries are likewise skipped. Returns nil when the rewrite cannot be
+// performed safely.
+func buildUseIfInsteadOfWhenFix(file *scanner.File, when uint32) *scanner.Fix {
+	if file == nil || when == 0 {
+		return nil
+	}
+	type entry struct {
+		isElse bool
+		// cond is the condition expression node (the when_condition's
+		// first named child) when isElse is false. Multi-condition
+		// entries (comma-separated) are not supported and force the
+		// whole fix to bail.
+		cond uint32
+		body uint32
+	}
+	var entries []entry
+	for c := file.FlatFirstChild(when); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "when_subject":
+			// Subject form (`when (x) { 1 -> ... }`) would need
+			// synthetic `==`/`is`/`in` operators whose meaning depends
+			// on the entry kind — leave it to the author.
+			return nil
+		case "when_entry":
+			// fall through to entry collection below
+		default:
+			continue
+		}
+		var e entry
+		condCount := 0
+		for ec := file.FlatFirstChild(c); ec != 0; ec = file.FlatNextSib(ec) {
+			switch file.FlatType(ec) {
+			case "else":
+				e.isElse = true
+			case "when_condition":
+				condCount++
+				if condCount > 1 {
+					return nil
+				}
+				if named := file.FlatNamedChild(ec, 0); named != 0 {
+					e.cond = named
+				}
+			case "control_structure_body":
+				e.body = ec
+			}
+		}
+		if e.body == 0 {
+			return nil
+		}
+		if !e.isElse && e.cond == 0 {
+			return nil
+		}
+		entries = append(entries, e)
+	}
+	if len(entries) == 0 || len(entries) > 2 {
+		return nil
+	}
+
+	var replacement string
+	switch len(entries) {
+	case 1:
+		e := entries[0]
+		if e.isElse {
+			// `when { else -> X }` collapses to just X.
+			replacement = file.FlatNodeText(e.body)
+		} else {
+			replacement = "if (" + file.FlatNodeText(e.cond) + ") " + file.FlatNodeText(e.body)
+		}
+	case 2:
+		first := entries[0]
+		if first.isElse {
+			// First entry can't be else if there's a second branch.
+			return nil
+		}
+		condText := file.FlatNodeText(first.cond)
+		thenText := file.FlatNodeText(first.body)
+		second := entries[1]
+		if second.isElse {
+			replacement = "if (" + condText + ") " + thenText + " else " + file.FlatNodeText(second.body)
+		} else {
+			replacement = "if (" + condText + ") " + thenText +
+				" else if (" + file.FlatNodeText(second.cond) + ") " + file.FlatNodeText(second.body)
+		}
+	}
+
+	return &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   int(file.FlatStartByte(when)),
+		EndByte:     int(file.FlatEndByte(when)),
+		Replacement: replacement,
+	}
+}
+
+// dotEndAfterReceiver returns the byte offset just past the `.` token
+// that follows a leading receiver (e.g. `it`) in a navigation expression
+// or directly_assignable_expression. Handles both grammar shapes: a
+// direct `.` sibling and a `navigation_suffix` whose first child is the
+// `.` token. Returns 0 when no dot is found.
+func dotEndAfterReceiver(file *scanner.File, parent, recv uint32) int {
+	if file == nil || parent == 0 || recv == 0 {
+		return 0
+	}
+	for c := file.FlatFirstChild(parent); c != 0; c = file.FlatNextSib(c) {
+		if c != recv {
+			continue
+		}
+		next := file.FlatNextSib(c)
+		if next == 0 {
+			return 0
+		}
+		switch file.FlatType(next) {
+		case ".":
+			return int(file.FlatEndByte(next))
+		case "navigation_suffix":
+			dot := file.FlatFirstChild(next)
+			if dot != 0 && file.FlatType(dot) == "." {
+				return int(file.FlatEndByte(dot))
+			}
+		}
+		return 0
+	}
+	return 0
+}
+
+// alsoStatementNavWithItReceiver returns the navigation_expression whose
+// leading receiver is the bare `it` identifier for the given statement.
+// Mirrors alsoStatementReceiverIsIt's traversal but returns the
+// navigation node rather than a bool, so callers can rewrite the
+// `it.<member>` prefix.
+func alsoStatementNavWithItReceiver(file *scanner.File, stmt uint32) uint32 {
+	if file == nil || stmt == 0 {
+		return 0
+	}
+	switch file.FlatType(stmt) {
+	case "call_expression":
+		nav, _ := flatCallExpressionParts(file, stmt)
+		if alsoNavigationReceiverIsIt(file, nav) {
+			return nav
+		}
+		return 0
+	case "assignment", "assignment_expression":
+		return alsoStatementNavWithItReceiver(file, file.FlatNamedChild(stmt, 0))
+	case "directly_assignable_expression":
+		if nav, ok := file.FlatFindChild(stmt, "navigation_expression"); ok {
+			if alsoNavigationReceiverIsIt(file, nav) {
+				return nav
+			}
+			return 0
+		}
+		if alsoNavigationReceiverIsIt(file, stmt) {
+			return stmt
+		}
+		return 0
+	case "navigation_expression":
+		if alsoNavigationReceiverIsIt(file, stmt) {
+			return stmt
+		}
+		return 0
+	case "parenthesized_expression", "annotated_expression":
+		return alsoStatementNavWithItReceiver(file, file.FlatNamedChild(stmt, 0))
+	}
+	if file.FlatNamedChildCount(stmt) == 1 {
+		return alsoStatementNavWithItReceiver(file, file.FlatNamedChild(stmt, 0))
+	}
+	return 0
+}
+
 func alsoLambdaReceiverStatementCount(file *scanner.File, lambda uint32) (int, bool) {
 	if file == nil || lambda == 0 {
 		return 0, false
@@ -452,29 +721,7 @@ func alsoLambdaReceiverStatementCount(file *scanner.File, lambda uint32) (int, b
 }
 
 func alsoStatementReceiverIsIt(file *scanner.File, stmt uint32) bool {
-	if file == nil || stmt == 0 {
-		return false
-	}
-	switch file.FlatType(stmt) {
-	case "call_expression":
-		nav, _ := flatCallExpressionParts(file, stmt)
-		return alsoNavigationReceiverIsIt(file, nav)
-	case "assignment", "assignment_expression":
-		return alsoStatementReceiverIsIt(file, file.FlatNamedChild(stmt, 0))
-	case "directly_assignable_expression":
-		if nav, ok := file.FlatFindChild(stmt, "navigation_expression"); ok {
-			return alsoNavigationReceiverIsIt(file, nav)
-		}
-		return alsoNavigationReceiverIsIt(file, stmt)
-	case "navigation_expression":
-		return alsoNavigationReceiverIsIt(file, stmt)
-	case "parenthesized_expression", "annotated_expression":
-		return alsoStatementReceiverIsIt(file, file.FlatNamedChild(stmt, 0))
-	}
-	if file.FlatNamedChildCount(stmt) == 1 {
-		return alsoStatementReceiverIsIt(file, file.FlatNamedChild(stmt, 0))
-	}
-	return false
+	return alsoStatementNavWithItReceiver(file, stmt) != 0
 }
 
 func alsoNavigationReceiverIsIt(file *scanner.File, nav uint32) bool {

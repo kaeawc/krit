@@ -102,7 +102,7 @@ func registerStyleExpressionsExtraRules() {
 		r := &DoubleNegativeLambdaRule{BaseRule: BaseRule{RuleName: "DoubleNegativeLambda", RuleSetName: "style", Sev: "warning", Desc: "Detects double negative lambda patterns like filterNot { !predicate } that should use filter."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Fix: api.FixIdiomatic, Implementation: r,
 			Check: r.checkDoubleNegativeLambdaFlat,
 		})
 	}

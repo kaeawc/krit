@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
@@ -467,6 +468,99 @@ fun foo(x: Boolean) {
 	}
 }
 
+func TestUseIfInsteadOfWhen_FixCondElse(t *testing.T) {
+	findings := runRuleByName(t, "UseIfInsteadOfWhen", `
+package test
+fun foo(c: Boolean): Int = when {
+    c -> 1
+    else -> 2
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected fix to be populated")
+	}
+	if !strings.Contains(findings[0].Fix.Replacement, "if (c) 1 else 2") {
+		t.Errorf("got %q", findings[0].Fix.Replacement)
+	}
+}
+
+func TestUseIfInsteadOfWhen_FixTwoConditionsNoElse(t *testing.T) {
+	findings := runRuleByName(t, "UseIfInsteadOfWhen", `
+package test
+fun foo(c: Boolean, d: Boolean) = when {
+    c -> 1
+    d -> 2
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected fix to be populated")
+	}
+	if !strings.Contains(findings[0].Fix.Replacement, "if (c) 1 else if (d) 2") {
+		t.Errorf("got %q", findings[0].Fix.Replacement)
+	}
+}
+
+func TestUseIfInsteadOfWhen_FixSingleEntry(t *testing.T) {
+	findings := runRuleByName(t, "UseIfInsteadOfWhen", `
+package test
+fun foo(c: Boolean) {
+    when { c -> println("yes") }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected fix to be populated")
+	}
+	if !strings.Contains(findings[0].Fix.Replacement, `if (c) println("yes")`) {
+		t.Errorf("got %q", findings[0].Fix.Replacement)
+	}
+}
+
+func TestUseIfInsteadOfWhen_NoFixForSubjectForm(t *testing.T) {
+	// Subject-form when (`when (x) { 1 -> ... }`) needs synthetic
+	// `==`/`is`/`in` operators to preserve semantics — the fix should
+	// bail and let the author choose.
+	findings := runRuleByName(t, "UseIfInsteadOfWhen", `
+package test
+fun foo(x: Int): Int = when (x) {
+    1 -> 10
+    else -> 20
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix != nil {
+		t.Errorf("expected no fix for subject form, got %q", findings[0].Fix.Replacement)
+	}
+}
+
+func TestUseIfInsteadOfWhen_NoFixForMultiCondition(t *testing.T) {
+	// Comma-separated when_conditions (e.g. `1, 2 -> ...`) need
+	// disjunction synthesis — bail.
+	findings := runRuleByName(t, "UseIfInsteadOfWhen", `
+package test
+fun foo(c: Boolean, d: Boolean) = when {
+    c, d -> 1
+    else -> 2
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix != nil {
+		t.Errorf("expected no fix for multi-condition entry, got %q", findings[0].Fix.Replacement)
+	}
+}
+
 func TestUseIfInsteadOfWhen_Negative(t *testing.T) {
 	findings := runRuleByName(t, "UseIfInsteadOfWhen", `
 package test
@@ -716,6 +810,79 @@ fun foo(person: Person) {
 `)
 	if len(findings) == 0 {
 		t.Fatal("expected finding for also with multiple it receiver assignments")
+	}
+}
+
+func TestAlsoCouldBeApply_FixSimpleCalls(t *testing.T) {
+	findings := runRuleByName(t, "AlsoCouldBeApply", `
+package test
+fun foo(b: StringBuilder) {
+    b.also {
+        it.append("a")
+        it.append("b")
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected fix to be populated")
+	}
+	repl := findings[0].Fix.Replacement
+	if !strings.Contains(repl, ".apply {") {
+		t.Errorf("expected .apply rewrite, got %q", repl)
+	}
+	if strings.Contains(repl, "it.append") {
+		t.Errorf("expected it. prefix to be stripped, got %q", repl)
+	}
+	if !strings.Contains(repl, "append(\"a\")") || !strings.Contains(repl, "append(\"b\")") {
+		t.Errorf("expected calls preserved, got %q", repl)
+	}
+}
+
+func TestAlsoCouldBeApply_FixAssignmentsAndCall(t *testing.T) {
+	findings := runRuleByName(t, "AlsoCouldBeApply", `
+package test
+class Cfg { var name = ""; var size = 0; fun init() {} }
+fun build(): Cfg = Cfg().also {
+    it.name = "x"
+    it.size = 1
+    it.init()
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected fix to be populated")
+	}
+	repl := findings[0].Fix.Replacement
+	if strings.Contains(repl, "it.") {
+		t.Errorf("expected all it. prefixes stripped, got %q", repl)
+	}
+	if !strings.Contains(repl, ".apply {") {
+		t.Errorf("expected apply rewrite, got %q", repl)
+	}
+}
+
+func TestAlsoCouldBeApply_FixSkipsWhenItUsedInArg(t *testing.T) {
+	// `it` appears in an argument position — the fix must bail because
+	// switching to `apply` would leave the inner `it` unbound.
+	findings := runRuleByName(t, "AlsoCouldBeApply", `
+package test
+fun foo(b: StringBuilder, log: (Any) -> Unit) {
+    b.also {
+        it.append("a")
+        it.append(it)
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix != nil {
+		t.Errorf("expected fix to be skipped when it appears in arg position, got %q", findings[0].Fix.Replacement)
 	}
 }
 

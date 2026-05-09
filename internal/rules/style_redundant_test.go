@@ -40,6 +40,27 @@ class Foo constructor(val x: Int)
 	}
 }
 
+func TestRedundantConstructorKeyword_FixRemovesKeyword(t *testing.T) {
+	findings := runRuleByName(t, "RedundantConstructorKeyword", `
+package test
+class Foo constructor(val x: Int)
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected fix populated (Kotlin tree-sitter emits class_parameter children directly, not a class_parameters wrapper)")
+	}
+	// The fix replaces the leading whitespace + `constructor` keyword
+	// with empty bytes, ending exactly at the `(` of the parameter list.
+	if findings[0].Fix.Replacement != "" {
+		t.Errorf("expected empty replacement, got %q", findings[0].Fix.Replacement)
+	}
+	if findings[0].Fix.EndByte <= findings[0].Fix.StartByte {
+		t.Errorf("expected non-empty cut range, got [%d,%d)", findings[0].Fix.StartByte, findings[0].Fix.EndByte)
+	}
+}
+
 func TestRedundantConstructorKeyword_Negative(t *testing.T) {
 	findings := runRuleByName(t, "RedundantConstructorKeyword", `
 package test

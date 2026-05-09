@@ -107,13 +107,23 @@ func registerStyleRedundantConstructorKeyword() {
 			for startByte > 0 && (file.Content[startByte-1] == ' ' || file.Content[startByte-1] == '\t') {
 				startByte--
 			}
-			// Find the parameter list (class_parameters) inside the constructor node.
-			paramList, _ := file.FlatFindChild(ctor, "class_parameters")
-			if paramList != 0 {
+			// Locate the `(` that opens the constructor parameter list.
+			// The Kotlin tree-sitter grammar emits the parameters as
+			// individual `class_parameter` children alongside the `(`,
+			// `,`, and `)` token children — there is no
+			// `class_parameters` wrapper to find.
+			parenStart := 0
+			for c := file.FlatFirstChild(ctor); c != 0; c = file.FlatNextSib(c) {
+				if file.FlatType(c) == "(" {
+					parenStart = int(file.FlatStartByte(c))
+					break
+				}
+			}
+			if parenStart > startByte {
 				f.Fix = &scanner.Fix{
 					ByteMode:    true,
 					StartByte:   startByte,
-					EndByte:     int(file.FlatStartByte(paramList)),
+					EndByte:     parenStart,
 					Replacement: "",
 				}
 			}

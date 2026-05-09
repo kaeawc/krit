@@ -290,7 +290,6 @@ var knownFixableRulesWithoutPerRuleFixture = map[string]bool{
 	"ExplicitItLambdaMultipleParameters": true,
 	"FunctionOnlyReturningConstant":      true,
 	"MissingPackageDeclaration":          true,
-	"RedundantConstructorKeyword":        true,
 	"UnnecessaryFullyQualifiedName":      true,
 	"UnusedParameter":                    true,
 	"UnusedPrivateClass":                 true,

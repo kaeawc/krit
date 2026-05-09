@@ -24,12 +24,10 @@ func (r *TrailingWhitespaceRule) IsFixable() bool          { return true }
 func (r *NoTabsRule) IsFixable() bool                      { return true }
 func (r *RedundantVisibilityModifierRule) IsFixable() bool { return true }
 
-// RedundantConstructorKeyword: the Check() attempts a byte-mode fix
-// but only when a `class_parameters` child is present in the
-// constructor, which the current tree-sitter grammar doesn't produce
-// reliably. Advertised as not-fixable until the parser pipeline
-// matches.
-func (r *RedundantConstructorKeywordRule) IsFixable() bool           { return false }
+// RedundantConstructorKeyword: byte-mode fix removes the `constructor`
+// keyword (and any preceding whitespace) up to the `(` that opens the
+// parameter list.
+func (r *RedundantConstructorKeywordRule) IsFixable() bool           { return true }
 func (r *OptionalUnitRule) IsFixable() bool                          { return true }
 func (r *ExplicitItLambdaParameterRule) IsFixable() bool             { return true }
 func (r *RangeUntilInsteadOfRangeToRule) IsFixable() bool            { return true }

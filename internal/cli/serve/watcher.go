@@ -31,6 +31,15 @@ type fileWatcher struct {
 
 	closeOnce sync.Once
 	done      chan struct{}
+	// ready closes once the initial recursive walk has finished. The
+	// walk runs asynchronously after startFileWatcher returns so the
+	// daemon's startup latency is bounded by NewWatcher() + a single
+	// root Add() rather than by a full project tree walk. Callers who
+	// need a fully primed watcher (tests on sub-dirs, e.g.) can wait
+	// on Ready() — production callers don't need to: events arriving
+	// before the walk completes for a still-unwatched subtree are
+	// covered by the watcher's documented best-effort contract.
+	ready chan struct{}
 }
 
 // startFileWatcher returns a started watcher rooted at root. Callers
@@ -48,14 +57,36 @@ func startFileWatcher(ctx context.Context, root string, state *pipeline.Workspac
 		state:    state,
 		reporter: reporter,
 		done:     make(chan struct{}),
+		ready:    make(chan struct{}),
 	}
-	if err := fw.addRecursive(root); err != nil {
+	// Add the root synchronously so files written directly under it
+	// are caught from t=0. The recursive descent runs in a goroutine —
+	// on a 60k-file repo a sync walk costs multiple seconds, which is
+	// the daemon's first-call latency budget.
+	if err := w.Add(root); err != nil {
 		_ = w.Close()
 		return nil, err
 	}
+	go fw.populate()
 	go fw.run(ctx)
 	return fw, nil
 }
+
+// populate walks the project tree and registers each directory with
+// the underlying watcher. Closes fw.ready when done. Errors are
+// logged via the reporter — a partial registration just means the
+// usual best-effort fallback (next request rehashes contents).
+func (fw *fileWatcher) populate() {
+	defer close(fw.ready)
+	if err := fw.addRecursiveSkip(fw.root, true); err != nil {
+		fw.warn("watch populate: %v\n", err)
+	}
+}
+
+// Ready returns a channel that closes once the initial recursive
+// walk has finished. Tests that exercise pre-existing subtrees can
+// wait on it; production callers don't need to.
+func (fw *fileWatcher) Ready() <-chan struct{} { return fw.ready }
 
 // Stop releases the watcher. Safe to call multiple times.
 func (fw *fileWatcher) Stop() {
@@ -132,6 +163,13 @@ func (fw *fileWatcher) handle(ev fsnotify.Event) {
 // analyses files under them, so receiving events for them just
 // burns descriptors and CPU.
 func (fw *fileWatcher) addRecursive(dir string) error {
+	return fw.addRecursiveSkip(dir, false)
+}
+
+// addRecursiveSkip is addRecursive with a hook to skip the root Add —
+// startFileWatcher adds the root synchronously and only the async
+// descendant walk should skip re-adding it.
+func (fw *fileWatcher) addRecursiveSkip(dir string, skipRoot bool) error {
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			// Skip unreadable entries — the daemon shouldn't crash
@@ -146,6 +184,9 @@ func (fw *fileWatcher) addRecursive(dir string) error {
 		base := filepath.Base(path)
 		if isPrunedDir(base) && path != dir {
 			return filepath.SkipDir
+		}
+		if skipRoot && path == dir {
+			return nil
 		}
 		if err := fw.w.Add(path); err != nil {
 			fw.warn("watch %s: %v\n", path, err)

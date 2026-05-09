@@ -863,3 +863,128 @@ class Foo {
 		}
 	}
 }
+
+// --- NoElseInWhenSealed ---
+
+func TestNoElseInWhenSealed_MissingSealedVariant_Positive(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NoElseInWhenSealed", `
+package test
+
+sealed class Result {
+    object Loading : Result()
+    data class Success(val value: String) : Result()
+    data class Failure(val error: Throwable) : Result()
+}
+
+fun render(r: Result): String = when (r) {
+    is Result.Loading -> "loading"
+    is Result.Success -> r.value
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for missing sealed variant")
+	}
+}
+
+func TestNoElseInWhenSealed_AllVariantsCovered_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NoElseInWhenSealed", `
+package test
+
+sealed class Result {
+    object Loading : Result()
+    data class Success(val value: String) : Result()
+    data class Failure(val error: Throwable) : Result()
+}
+
+fun render(r: Result): String = when (r) {
+    is Result.Loading -> "loading"
+    is Result.Success -> r.value
+    is Result.Failure -> r.error.message ?: "error"
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when all sealed variants covered, got %d", len(findings))
+	}
+}
+
+func TestNoElseInWhenSealed_HasElse_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NoElseInWhenSealed", `
+package test
+
+sealed class Result {
+    object Loading : Result()
+    data class Success(val value: String) : Result()
+}
+
+fun render(r: Result): String = when (r) {
+    is Result.Loading -> "loading"
+    else -> "ready"
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when else branch present, got %d", len(findings))
+	}
+}
+
+func TestNoElseInWhenSealed_MissingEnumEntry_Positive(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NoElseInWhenSealed", `
+package test
+
+enum class Color { RED, GREEN, BLUE }
+
+fun describe(c: Color): String = when (c) {
+    Color.RED -> "warm"
+    Color.BLUE -> "cool"
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for missing enum entry")
+	}
+}
+
+func TestNoElseInWhenSealed_AllEnumEntriesCovered_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NoElseInWhenSealed", `
+package test
+
+enum class Color { RED, GREEN, BLUE }
+
+fun describe(c: Color): String = when (c) {
+    Color.RED -> "warm"
+    Color.GREEN -> "fresh"
+    Color.BLUE -> "cool"
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when all enum entries covered, got %d", len(findings))
+	}
+}
+
+func TestNoElseInWhenSealed_NotSealedOrEnum_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NoElseInWhenSealed", `
+package test
+
+fun classify(x: Int): String = when (x) {
+    1 -> "one"
+    2 -> "two"
+    else -> "many"
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings on non-sealed/non-enum subject, got %d", len(findings))
+	}
+}
+
+func TestNoElseInWhenSealed_NoSubject_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NoElseInWhenSealed", `
+package test
+
+fun classify(x: Int): String = when {
+    x > 0 -> "positive"
+    x < 0 -> "negative"
+    else -> "zero"
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings on subject-less when, got %d", len(findings))
+	}
+}

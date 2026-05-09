@@ -99,6 +99,16 @@ func flatReadModifierFlags(file *scanner.File, idx uint32) modifierFlags {
 	if file == nil || file.FlatTree == nil || idx == 0 {
 		return flags
 	}
+	// Tree-sitter parses `enum class X` and `sealed class X` with the
+	// enum/sealed keyword as a direct child of class_declaration rather
+	// than wrapped inside a `modifiers` node. Walk both: the direct
+	// children for class-level keywords, and the dedicated `modifiers`
+	// subtree for visibility/data/inner/etc.
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if t := file.FlatType(child); t == "enum" || t == "sealed" || t == "data" || t == "inner" || t == "abstract" || t == "open" || t == "private" || t == "internal" || t == "protected" || t == "override" {
+			applyModifierText(&flags, file.FlatNodeText(child))
+		}
+	}
 	mods := flatFindNamedChildOfType(file, idx, "modifiers")
 	if mods == 0 {
 		return flags

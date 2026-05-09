@@ -352,6 +352,45 @@ func registerPotentialbugsTypesRules() {
 		})
 	}
 	{
+		r := &NoElseInWhenSealedRule{BaseRule: BaseRule{RuleName: "NoElseInWhenSealed", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects when expressions on sealed classes or enums that are missing variants and have no else branch."}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
+			NodeTypes: []string{"when_expression"}, Confidence: 0.9, Implementation: r,
+			Needs: api.NeedsResolver,
+			Tags:  []string{"precompile"},
+			Check: func(ctx *api.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if ctx.Resolver == nil {
+					return
+				}
+				if whenHasElseBranchFlat(file, idx) {
+					return
+				}
+				if _, ok := file.FlatFindChild(idx, "when_subject"); !ok {
+					return
+				}
+				kind, subjectName, variants := whenSubjectExhaustiveKindFlat(file, idx, ctx.Resolver)
+				if kind == "" || len(variants) == 0 {
+					return
+				}
+				typeNames, entryNames := collectWhenCoveredVariants(file, idx)
+				var missing []string
+				switch kind {
+				case "sealed":
+					missing = missingSealedVariants(typeNames, variants)
+				case "enum":
+					missing = missingEnumEntries(entryNames, variants)
+				}
+				if len(missing) == 0 {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("'when' on %s '%s' is not exhaustive: missing %s. Add the missing branches or an 'else' clause.",
+						kind, subjectName, strings.Join(missing, ", ")))
+			},
+		})
+	}
+	{
 		r := &ElseCaseInsteadOfExhaustiveWhenRule{BaseRule: BaseRule{RuleName: "ElseCaseInsteadOfExhaustiveWhen", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects when expressions on sealed classes or enums that use an else branch instead of exhaustive matching."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),

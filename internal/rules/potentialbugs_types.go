@@ -1190,6 +1190,44 @@ func whenElseBranchTerminatesFlat(file *scanner.File, idx uint32) bool {
 	return false
 }
 
+// whenSubjectExhaustiveKindFlat is the kind-aware variant of
+// whenSubjectExhaustiveVariantsFlat: it returns whether the subject is a
+// sealed hierarchy or an enum so callers can match variants by `is`
+// type-test or by entry value. kind is "sealed" or "enum"; empty when
+// the subject doesn't resolve to either.
+func whenSubjectExhaustiveKindFlat(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) (kind, subjectName string, variants []string) {
+	if file == nil || idx == 0 || resolver == nil || file.FlatType(idx) != "when_expression" {
+		return "", "", nil
+	}
+	subject := whenSubjectExpressionFlat(file, idx)
+	if subject == 0 {
+		return "", "", nil
+	}
+	candidates := whenSubjectTypeCandidatesFlat(file, subject, resolver)
+	for _, name := range candidates {
+		if vs := resolver.SealedVariants(name); len(vs) > 0 {
+			return "sealed", simpleTypeName(name), vs
+		}
+		if vs := resolver.EnumEntries(name); len(vs) > 0 {
+			return "enum", simpleTypeName(name), vs
+		}
+		if info := resolver.ClassHierarchy(name); info != nil {
+			for _, infoName := range []string{info.Name, info.FQN} {
+				if infoName == "" || infoName == name {
+					continue
+				}
+				if vs := resolver.SealedVariants(infoName); len(vs) > 0 {
+					return "sealed", simpleTypeName(infoName), vs
+				}
+				if vs := resolver.EnumEntries(infoName); len(vs) > 0 {
+					return "enum", simpleTypeName(infoName), vs
+				}
+			}
+		}
+	}
+	return "", "", nil
+}
+
 func whenSubjectExhaustiveVariantsFlat(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) (string, []string) {
 	if file == nil || idx == 0 || resolver == nil || file.FlatType(idx) != "when_expression" {
 		return "", nil
@@ -1305,4 +1343,115 @@ func whenConditionTypeTestName(file *scanner.File, condition uint32) string {
 		return ""
 	}
 	return strings.TrimSpace(file.FlatNodeText(userType))
+}
+
+// ---------------------------------------------------------------------------
+// NoElseInWhenSealedRule — the inverse of ElseCaseInsteadOfExhaustiveWhen.
+// Flags `when` expressions whose subject is a sealed type or enum, that
+// have no `else` branch, and that are missing one or more variants. Mimics
+// kotlinc's NO_ELSE_IN_WHEN / NON_EXHAUSTIVE_WHEN_STATEMENT diagnostics for
+// the cases the resolver can prove from source — sealed hierarchies and
+// enums declared in the workspace.
+//
+// Without a resolver the rule cannot identify variants and stays silent.
+// Library-defined sealed types (e.g. kotlin.Result) require classpath
+// metadata; until that lands the rule simply doesn't fire on them.
+// ---------------------------------------------------------------------------
+type NoElseInWhenSealedRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *NoElseInWhenSealedRule) Confidence() float64 { return 0.9 }
+
+// whenConditionEnumEntryName extracts the entry name from a value-style
+// when_condition like `Color.RED` (navigation_expression) or a bare
+// `RED` (simple_identifier). Returns "" when the condition isn't a
+// recognizable enum-entry match.
+func whenConditionEnumEntryName(file *scanner.File, condition uint32) string {
+	if file == nil || file.FlatType(condition) != "when_condition" {
+		return ""
+	}
+	for child := file.FlatFirstChild(condition); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		switch file.FlatType(child) {
+		case "navigation_expression":
+			if name := flatNavigationExpressionLastIdentifier(file, child); name != "" {
+				return name
+			}
+		case "simple_identifier":
+			return strings.TrimSpace(file.FlatNodeText(child))
+		}
+	}
+	return ""
+}
+
+func collectWhenCoveredVariants(file *scanner.File, idx uint32) (typeNames map[string]bool, entryNames map[string]bool) {
+	typeNames = map[string]bool{}
+	entryNames = map[string]bool{}
+	file.FlatForEachChild(idx, func(entry uint32) {
+		if file.FlatType(entry) != "when_entry" {
+			return
+		}
+		file.FlatForEachChild(entry, func(cond uint32) {
+			if file.FlatType(cond) != "when_condition" {
+				return
+			}
+			if name := whenConditionTypeTestName(file, cond); name != "" {
+				typeNames[name] = true
+			}
+			if name := whenConditionEnumEntryName(file, cond); name != "" {
+				entryNames[name] = true
+			}
+		})
+	})
+	return typeNames, entryNames
+}
+
+func missingSealedVariants(covered map[string]bool, variants []string) []string {
+	// Normalize covered names to also include their simple-name form so
+	// `is Result.Loading` matches a variant indexed as `Loading`.
+	coveredSet := make(map[string]bool, len(covered)*2)
+	for name := range covered {
+		coveredSet[name] = true
+		coveredSet[simpleTypeName(name)] = true
+	}
+	seen := map[string]bool{}
+	var missing []string
+	for _, v := range variants {
+		if v == "" {
+			continue
+		}
+		simple := simpleTypeName(v)
+		if seen[simple] {
+			continue
+		}
+		seen[simple] = true
+		if coveredSet[v] || coveredSet[simple] {
+			continue
+		}
+		missing = append(missing, simple)
+	}
+	return missing
+}
+
+func missingEnumEntries(covered map[string]bool, entries []string) []string {
+	seen := map[string]bool{}
+	var missing []string
+	for _, e := range entries {
+		if e == "" {
+			continue
+		}
+		if seen[e] {
+			continue
+		}
+		seen[e] = true
+		if covered[e] {
+			continue
+		}
+		missing = append(missing, e)
+	}
+	return missing
 }

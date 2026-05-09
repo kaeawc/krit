@@ -33,6 +33,10 @@ type Plan struct {
 	Declarations []scanner.Symbol
 	References   []scanner.Reference
 	Files        []string
+	// Contexts is the per-file package/import context for every file that
+	// appears in Files (when known). Apply uses it to rewrite import
+	// statements and detect package-only renames.
+	Contexts map[string]FileContext
 }
 
 // ParseTarget validates the FQN arguments and extracts the simple names used by
@@ -65,17 +69,30 @@ func ParseTarget(fromFQN, toFQN string) (Target, error) {
 }
 
 // BuildPlan projects the current reference index into the declaration and
-// reference candidates for a requested rename.
+// reference candidates for a requested rename. References are filtered to
+// only those that resolve to target.FromFQN in their file's package and
+// import context. Files without context (e.g. files not parsed into the
+// index) are matched by simple name as a conservative fallback.
 func BuildPlan(idx *scanner.CodeIndex, target Target) Plan {
-	plan := Plan{Target: target}
+	plan := Plan{Target: target, Contexts: make(map[string]FileContext)}
 	if idx == nil {
 		return plan
+	}
+
+	for _, file := range idx.Files {
+		if file == nil {
+			continue
+		}
+		plan.Contexts[file.Path] = BuildFileContext(file)
 	}
 
 	files := make(map[string]bool)
 
 	for _, sym := range idx.Symbols {
 		if sym.Name != target.FromName {
+			continue
+		}
+		if sym.FQN != "" && sym.FQN != target.FromFQN {
 			continue
 		}
 		plan.Declarations = append(plan.Declarations, sym)
@@ -85,6 +102,12 @@ func BuildPlan(idx *scanner.CodeIndex, target Target) Plan {
 	if idx.MayHaveReference(target.FromName) {
 		for _, ref := range idx.References {
 			if ref.Name != target.FromName {
+				continue
+			}
+			if ref.InComment {
+				continue
+			}
+			if !referenceMatchesTarget(ref, target, plan.Contexts) {
 				continue
 			}
 			plan.References = append(plan.References, ref)
@@ -132,6 +155,19 @@ func (p Plan) Summary() Summary {
 func (p Plan) CandidateCount() int {
 	summary := p.Summary()
 	return summary.Declarations + summary.References
+}
+
+// referenceMatchesTarget reports whether a simple-name reference should be
+// counted as resolving to target.FromFQN. With no per-file context (e.g.
+// XML, or a reference from a file the index didn't parse) the reference is
+// accepted by name only — Apply will skip it because it has no
+// rewrite-safe byte range.
+func referenceMatchesTarget(ref scanner.Reference, target Target, contexts map[string]FileContext) bool {
+	ctx, ok := contexts[ref.File]
+	if !ok {
+		return true
+	}
+	return ctx.MatchesFQN(target.FromName, target.FromFQN)
 }
 
 func simpleName(fqn string) (string, bool) {

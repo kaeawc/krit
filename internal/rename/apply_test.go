@@ -224,6 +224,69 @@ func TestApply_RejectsDifferentPackage(t *testing.T) {
 	}
 }
 
+func TestApply_IgnoresStringLiterals(t *testing.T) {
+	dir := t.TempDir()
+	declPath := filepath.Join(dir, "OldName.kt")
+	usePath := filepath.Join(dir, "Feature.kt")
+	writeFile(t, declPath, "package com.example\n\nclass OldName\n")
+	writeFile(t, usePath, ""+
+		"package com.example\n"+
+		"\n"+
+		"fun greeting(): String = \"OldName is here\"\n")
+
+	plan := buildKotlinPlan(t, []string{declPath, usePath}, "com.example.OldName", "com.example.NewName")
+	if _, err := Apply(plan); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got := readFile(t, usePath)
+	if !strings.Contains(got, "\"OldName is here\"") {
+		t.Fatalf("string literal got rewritten: %s", got)
+	}
+}
+
+func TestApply_PreservesPackageTrailingComments(t *testing.T) {
+	dir := t.TempDir()
+	declPath := filepath.Join(dir, "OldName.kt")
+	writeFile(t, declPath, ""+
+		"package com.example\n"+
+		"\n"+
+		"// keep this comment\n"+
+		"class OldName\n")
+
+	plan := buildKotlinPlan(t, []string{declPath}, "com.example.OldName", "com.bar.NewName")
+	if _, err := Apply(plan); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got := readFile(t, filepath.Join(dir, "NewName.kt"))
+	if !strings.Contains(got, "// keep this comment") {
+		t.Fatalf("post-package comment was dropped:\n%s", got)
+	}
+	if !strings.Contains(got, "package com.bar") {
+		t.Fatalf("package not rewritten:\n%s", got)
+	}
+}
+
+func TestApply_RejectsIdenticalFromAndTo(t *testing.T) {
+	target, err := ParseTarget("com.example.OldName", "com.example.OldName")
+	if err == nil {
+		t.Fatalf("expected ParseTarget to reject identical FQNs, got target=%+v", target)
+	}
+}
+
+func TestValidatePlan_RejectsAmbiguousDeclarations(t *testing.T) {
+	target, _ := ParseTarget("com.example.OldName", "com.example.NewName")
+	plan := Plan{
+		Target: target,
+		Declarations: []scanner.Symbol{
+			{Name: "OldName", FQN: "com.example.OldName", File: "a.kt"},
+			{Name: "OldName", FQN: "com.example.OldName", File: "b.kt"},
+		},
+	}
+	if err := ValidatePlan(plan); err == nil {
+		t.Fatalf("expected ValidatePlan to reject duplicate declarations")
+	}
+}
+
 func buildKotlinPlan(t *testing.T, paths []string, fromFQN, toFQN string) Plan {
 	t.Helper()
 	files, errs := scanner.ScanFiles(paths, 1)

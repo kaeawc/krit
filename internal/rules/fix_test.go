@@ -298,7 +298,6 @@ var knownFixableRulesWithoutPerRuleFixture = map[string]bool{
 	"UnusedPrivateProperty":              true,
 	"UnusedVariable":                     true,
 	"UseDataClass":                       true,
-	"UseIfInsteadOfWhen":                 true,
 	"UseLet":                             true,
 }
 

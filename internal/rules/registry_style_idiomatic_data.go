@@ -222,7 +222,9 @@ func registerStyleIdiomaticDataRules() {
 					return
 				}
 				if entryCount <= 2 {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "When expression with two or fewer branches could be replaced with if.")
+					f := r.Finding(file, file.FlatRow(idx)+1, 1, "When expression with two or fewer branches could be replaced with if.")
+					f.Fix = buildUseIfInsteadOfWhenFix(file, idx)
+					ctx.Emit(f)
 				}
 			},
 		})
@@ -549,6 +551,104 @@ func buildAlsoCouldBeApplyFix(file *scanner.File, call uint32, lambda uint32) *s
 		StartByte:   callStart,
 		EndByte:     callEnd,
 		Replacement: b.String(),
+	}
+}
+
+// buildUseIfInsteadOfWhenFix rewrites a `when` expression with up to two
+// entries into an equivalent `if`/`if-else` expression. Only the
+// no-subject form is rewritten — subject forms (`when (x) { 1 -> ... }`)
+// would need synthetic `==`/`is`/`in` comparisons whose semantics depend
+// on the entry kind, and existing comma-separated multi-condition
+// entries are likewise skipped. Returns nil when the rewrite cannot be
+// performed safely.
+func buildUseIfInsteadOfWhenFix(file *scanner.File, when uint32) *scanner.Fix {
+	if file == nil || when == 0 {
+		return nil
+	}
+	// Bail on subject form — the rewrite would need to expand `1`, `is X`,
+	// `in 0..9`, etc. into expressions that match the original semantics.
+	for c := file.FlatFirstChild(when); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "when_subject" {
+			return nil
+		}
+	}
+
+	type entry struct {
+		isElse bool
+		// cond is the condition expression node (the when_condition's
+		// first named child) when isElse is false. Multi-condition
+		// entries (comma-separated) are not supported and force the
+		// whole fix to bail.
+		cond uint32
+		body uint32
+	}
+	var entries []entry
+	for c := file.FlatFirstChild(when); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) != "when_entry" {
+			continue
+		}
+		var e entry
+		condCount := 0
+		for ec := file.FlatFirstChild(c); ec != 0; ec = file.FlatNextSib(ec) {
+			switch file.FlatType(ec) {
+			case "else":
+				e.isElse = true
+			case "when_condition":
+				condCount++
+				if condCount > 1 {
+					return nil
+				}
+				if named := file.FlatNamedChild(ec, 0); named != 0 {
+					e.cond = named
+				}
+			case "control_structure_body":
+				e.body = ec
+			}
+		}
+		if e.body == 0 {
+			return nil
+		}
+		if !e.isElse && e.cond == 0 {
+			return nil
+		}
+		entries = append(entries, e)
+	}
+	if len(entries) == 0 || len(entries) > 2 {
+		return nil
+	}
+
+	var replacement string
+	switch len(entries) {
+	case 1:
+		e := entries[0]
+		if e.isElse {
+			// `when { else -> X }` collapses to just X.
+			replacement = file.FlatNodeText(e.body)
+		} else {
+			replacement = "if (" + file.FlatNodeText(e.cond) + ") " + file.FlatNodeText(e.body)
+		}
+	case 2:
+		first := entries[0]
+		if first.isElse {
+			// First entry can't be else if there's a second branch.
+			return nil
+		}
+		condText := file.FlatNodeText(first.cond)
+		thenText := file.FlatNodeText(first.body)
+		second := entries[1]
+		if second.isElse {
+			replacement = "if (" + condText + ") " + thenText + " else " + file.FlatNodeText(second.body)
+		} else {
+			replacement = "if (" + condText + ") " + thenText +
+				" else if (" + file.FlatNodeText(second.cond) + ") " + file.FlatNodeText(second.body)
+		}
+	}
+
+	return &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   int(file.FlatStartByte(when)),
+		EndByte:     int(file.FlatEndByte(when)),
+		Replacement: replacement,
 	}
 }
 

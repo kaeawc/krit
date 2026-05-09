@@ -166,10 +166,12 @@ func (r *MissingPackageDeclarationRule) IsFixable() bool { return false }
 // Style2 fixable rules (batch 4)
 func (r *MandatoryBracesLoopsRule) IsFixable() bool { return true }
 
-// UseIfInsteadOfWhen: when → if rewrite requires rebuilding the
-// condition + body structure; not fixable until the rewrite helper
-// lands.
-func (r *UseIfInsteadOfWhenRule) IsFixable() bool { return false }
+// UseIfInsteadOfWhen: rewrites no-subject `when` expressions with up to
+// two single-condition entries into the equivalent `if`/`if-else`. The
+// subject form and multi-condition entries are left untouched because
+// their rewrite would require synthesizing comparison operators whose
+// semantics depend on the entry kind.
+func (r *UseIfInsteadOfWhenRule) IsFixable() bool { return true }
 
 // SerialVersionUIDInSerializableClass: fix injects a
 // `private const val serialVersionUID: Long = 1L` into the class —

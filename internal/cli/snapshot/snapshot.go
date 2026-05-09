@@ -272,14 +272,6 @@ func runBackfill(args []string) int {
 	return 0
 }
 
-// repeatedFlag captures every occurrence of a flag value into a slice.
-// flag.Var requires a Set(string) error implementation.
-type repeatedFlag []string
-
-func (r *repeatedFlag) String() string     { return strings.Join(*r, ",") }
-func (r *repeatedFlag) Set(v string) error { *r = append(*r, v); return nil }
-func (r *repeatedFlag) Get() interface{}   { return []string(*r) }
-
 func runSimulate(args []string) int {
 	fs := flag.NewFlagSet("snapshot simulate", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -313,11 +305,12 @@ func runSimulate(args []string) int {
 		Workers:    *workersFlag,
 		Reporter: func(ev snap.SimulateEvent) {
 			short := shortSHA(ev.CommitSHA)
-			if ev.Error != nil {
+			switch ev.Kind {
+			case "scored":
+				fmt.Fprintf(os.Stderr, "scored   %s findings=%d (%s)\n", short, ev.Findings, ev.Duration.Round(time.Millisecond))
+			case "failed":
 				fmt.Fprintf(os.Stderr, "failed   %s: %v\n", short, ev.Error)
-				return
 			}
-			fmt.Fprintf(os.Stderr, "scored   %s findings=%d (%s)\n", short, ev.Findings, ev.Duration.Round(time.Millisecond))
 		},
 	})
 	if err != nil {
@@ -385,7 +378,7 @@ func runGate(args []string) int {
 	fs.SetOutput(os.Stderr)
 	repoFlag := fs.String("repo", "", "repository root (default: cwd)")
 	formatFlag := fs.String("format", "text", "output format: text|json")
-	var maxAbs, maxDelta, maxPct repeatedFlag
+	var maxAbs, maxDelta, maxPct clishared.MultiString
 	fs.Var(&maxAbs, "max-abs", "metric=value (absolute cap on the to-side reading); repeatable")
 	fs.Var(&maxDelta, "max-delta", "metric=value (cap on absolute increase); repeatable")
 	fs.Var(&maxPct, "max-pct", "metric=value (cap on percent increase from from-side); repeatable")

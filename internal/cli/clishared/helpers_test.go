@@ -45,6 +45,22 @@ func TestSimpleName(t *testing.T) {
 	}
 }
 
+func TestMultiStringAccumulates(t *testing.T) {
+	var f MultiString
+	if err := f.Set("a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Set("b"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f) != 2 || f[0] != "a" || f[1] != "b" {
+		t.Errorf("flag = %v, want [a b]", []string(f))
+	}
+	if got := f.String(); got != "a,b" {
+		t.Errorf("String() = %q, want %q", got, "a,b")
+	}
+}
+
 func equalSlice(a, b []string) bool {
 	if len(a) == 0 && len(b) == 0 {
 		return true

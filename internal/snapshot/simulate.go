@@ -12,12 +12,15 @@ import (
 	"runtime"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
-// SimulateOptions controls a `backfill_simulate` walk: what rule to
-// score, which history to walk, how to invoke krit, etc.
+// defaultSimulateCommits caps a Simulate call when neither Since nor
+// MaxCommits is set. Each commit pays one full krit run, so an
+// unbounded walk on a long-history repo would burn hours unannounced;
+// this default keeps a naive invocation under control.
+const defaultSimulateCommits = 50
+
 type SimulateOptions struct {
 	RepoRoot   string
 	Rule       string
@@ -31,24 +34,21 @@ type SimulateOptions struct {
 	Reporter func(SimulateEvent)
 }
 
-// SimulateEvent fires once per commit handled.
+// SimulateEvent is one commit's outcome. Kind is "scored" or "failed".
 type SimulateEvent struct {
+	Kind      string
 	CommitSHA string
 	Findings  int
 	Duration  time.Duration
 	Error     error
 }
 
-// SimulatePoint is one (commit, count) reading. Sorted by capture time
-// (newest-first to match `git log` order).
 type SimulatePoint struct {
 	CommitSHA   string `json:"commit_sha"`
 	CommittedAt int64  `json:"committed_at"`
 	Findings    int    `json:"findings"`
 }
 
-// SimulateResult is the time series of per-commit finding counts
-// produced by Simulate.
 type SimulateResult struct {
 	Rule   string          `json:"rule"`
 	Points []SimulatePoint `json:"points"`
@@ -57,9 +57,9 @@ type SimulateResult struct {
 
 // Simulate answers "if rule X had been active for the last <since>,
 // how many findings would each commit have carried?" by walking
-// history with detached worktrees and shelling out to krit -f json
-// against each one. Slow per call (one full analyse per commit) but
-// the use case is one-off rule tuning, not a hot path.
+// history with detached worktrees and shelling out to krit per
+// commit. Slow per call (one full analyse per commit) — the use case
+// is one-off rule tuning.
 func Simulate(opts SimulateOptions) (*SimulateResult, error) {
 	if opts.RepoRoot == "" {
 		return nil, errors.New("snapshot: SimulateOptions.RepoRoot required")
@@ -75,6 +75,10 @@ func Simulate(opts SimulateOptions) (*SimulateResult, error) {
 	if workers <= 0 {
 		workers = runtime.NumCPU()
 	}
+	maxCommits := opts.MaxCommits
+	if maxCommits == 0 && opts.Since == 0 {
+		maxCommits = defaultSimulateCommits
+	}
 	kritBin := opts.KritBin
 	if kritBin == "" {
 		kritBin, err = resolveKritBin()
@@ -83,11 +87,11 @@ func Simulate(opts SimulateOptions) (*SimulateResult, error) {
 		}
 	}
 
-	shas, err := listBackfillShas(root, opts.Branch, opts.Since, opts.MaxCommits)
+	commits, err := listCommits(root, opts.Branch, int64(opts.Since/time.Second), maxCommits)
 	if err != nil {
 		return nil, err
 	}
-	if len(shas) == 0 {
+	if len(commits) == 0 {
 		return &SimulateResult{Rule: opts.Rule}, nil
 	}
 
@@ -97,95 +101,91 @@ func Simulate(opts SimulateOptions) (*SimulateResult, error) {
 	}
 	defer os.RemoveAll(scratch)
 
-	var gitMu sync.Mutex
-	var failedMu sync.Mutex
+	timestampBySHA := make(map[string]int64, len(commits))
+	shas := make([]string, len(commits))
+	for i, c := range commits {
+		shas[i] = c.SHA
+		timestampBySHA[c.SHA] = c.CommittedAt
+	}
+
+	starts := make(map[string]time.Time, len(commits))
+	findings := make(map[string]int, len(commits))
+	var resultsMu sync.Mutex
 	var failed []string
-	points := make([]SimulatePoint, len(shas))
-	var done atomic.Int64
 
-	jobs := make(chan int)
-	var wg sync.WaitGroup
-	wg.Add(workers)
-	for i := 0; i < workers; i++ {
-		go func(workerID int) {
-			defer wg.Done()
-			for idx := range jobs {
-				sha := shas[idx]
-				start := time.Now()
-				findings, committedAt, err := simulateSha(root, sha, kritBin, opts.Rule, scratch, workerID, &gitMu)
-				ev := SimulateEvent{CommitSHA: sha, Findings: findings, Duration: time.Since(start), Error: err}
-				if err != nil {
-					failedMu.Lock()
-					failed = append(failed, sha)
-					failedMu.Unlock()
-				} else {
-					points[idx] = SimulatePoint{CommitSHA: sha, CommittedAt: committedAt, Findings: findings}
-				}
-				done.Add(1)
-				if opts.Reporter != nil {
-					opts.Reporter(ev)
-				}
+	worktreeWalk(root, scratch, workers, shas,
+		func(job worktreeJob) error {
+			resultsMu.Lock()
+			starts[job.SHA] = time.Now()
+			resultsMu.Unlock()
+			count, err := runKritForRule(kritBin, opts.Rule, job.WorktreePath)
+			if err != nil {
+				return err
 			}
-		}(i)
-	}
-	for i := range shas {
-		jobs <- i
-	}
-	close(jobs)
-	wg.Wait()
+			resultsMu.Lock()
+			findings[job.SHA] = count
+			resultsMu.Unlock()
+			return nil
+		},
+		func(sha string, err error) {
+			resultsMu.Lock()
+			start := starts[sha]
+			count := findings[sha]
+			delete(starts, sha)
+			resultsMu.Unlock()
+			ev := SimulateEvent{CommitSHA: sha, Findings: count, Duration: time.Since(start)}
+			if err != nil {
+				ev.Kind = "failed"
+				ev.Error = err
+				resultsMu.Lock()
+				failed = append(failed, sha)
+				resultsMu.Unlock()
+			} else {
+				ev.Kind = "scored"
+			}
+			if opts.Reporter != nil {
+				opts.Reporter(ev)
+			}
+		},
+	)
 
-	// Drop placeholder points for failed shas and sort newest-first.
-	out := points[:0]
-	for _, p := range points {
-		if p.CommitSHA != "" {
-			out = append(out, p)
-		}
+	points := make([]SimulatePoint, 0, len(findings))
+	for sha, count := range findings {
+		points = append(points, SimulatePoint{
+			CommitSHA:   sha,
+			CommittedAt: timestampBySHA[sha],
+			Findings:    count,
+		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CommittedAt > out[j].CommittedAt })
+	sort.Slice(points, func(i, j int) bool { return points[i].CommittedAt > points[j].CommittedAt })
 	sort.Strings(failed)
-	return &SimulateResult{Rule: opts.Rule, Points: out, Failed: failed}, nil
+	return &SimulateResult{Rule: opts.Rule, Points: points, Failed: failed}, nil
 }
 
-// simulateSha runs krit -f json --enable-rules <rule> against a
-// detached worktree at sha and returns the count of findings the rule
-// produced plus the commit's committer-time. Uses gitMu to serialise
-// the worktree add/remove against the primary repo.
-func simulateSha(primaryRepoRoot, sha, kritBin, rule, scratchDir string, workerID int, gitMu *sync.Mutex) (int, int64, error) {
-	worktreePath := filepath.Join(scratchDir, fmt.Sprintf("w%d-%s", workerID, sha[:12]))
-
-	gitMu.Lock()
-	addErr := gitWorktreeAdd(primaryRepoRoot, worktreePath, sha)
-	gitMu.Unlock()
-	if addErr != nil {
-		return 0, 0, addErr
-	}
-	defer func() {
-		gitMu.Lock()
-		gitWorktreeRemove(primaryRepoRoot, worktreePath)
-		gitMu.Unlock()
-	}()
-
-	committedAt, _ := commitTimestamp(primaryRepoRoot, sha)
-
+// runKritForRule invokes krit -f json -enable-rules <rule> against
+// worktreePath and returns the rule's per-summary count. krit's exit
+// code is non-zero when findings exist, so we keep the run error only
+// to surface if stdout failed to parse.
+func runKritForRule(kritBin, rule, worktreePath string) (int, error) {
 	cmd := exec.CommandContext(context.Background(), kritBin, "-f", "json", "-enable-rules", rule, ".")
 	cmd.Dir = worktreePath
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
-	// krit returns non-zero when findings exist; ignore exit status and
-	// rely on whether stdout parses.
-	_ = cmd.Run()
-
+	runErr := cmd.Run()
 	count, err := parseRuleFindingCount(out.Bytes(), rule)
 	if err != nil {
-		return 0, committedAt, fmt.Errorf("parse krit output for %s: %w (stderr: %s)", sha, err, errBuf.String())
+		stderr := bytes.TrimSpace(errBuf.Bytes())
+		if runErr != nil {
+			return 0, fmt.Errorf("krit run failed (stderr=%q): %w", stderr, runErr)
+		}
+		return 0, fmt.Errorf("parse krit output (stderr=%q): %w", stderr, err)
 	}
-	return count, committedAt, nil
+	return count, nil
 }
 
-// parseRuleFindingCount reads krit's `-f json` envelope and returns
-// the number of findings in summary.byRule[rule]. Absent rule keys are
-// 0, not an error.
+// parseRuleFindingCount reads krit's `-f json` envelope. Absent rule
+// keys are 0, not an error.
 func parseRuleFindingCount(payload []byte, rule string) (int, error) {
 	if len(payload) == 0 {
 		return 0, errors.New("empty payload")
@@ -199,24 +199,6 @@ func parseRuleFindingCount(payload []byte, rule string) (int, error) {
 		return 0, err
 	}
 	return env.Summary.ByRule[rule], nil
-}
-
-// commitTimestamp returns the committer-time (unix seconds) for sha.
-// Returns 0 + nil error when git can't resolve it; the simulate flow
-// tolerates a missing timestamp without aborting.
-func commitTimestamp(repoRoot, sha string) (int64, error) {
-	cmd := exec.CommandContext(context.Background(), "git", "log", "-1", "--format=%ct", sha)
-	cmd.Dir = repoRoot
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
-		return 0, err
-	}
-	var ts int64
-	if _, err := fmt.Sscanf(out.String(), "%d", &ts); err != nil {
-		return 0, err
-	}
-	return ts, nil
 }
 
 func resolveKritBin() (string, error) {

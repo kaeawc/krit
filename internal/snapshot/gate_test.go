@@ -57,14 +57,29 @@ func TestGateFlagsAllConstraintsIndependently(t *testing.T) {
 	if len(res.Violations) != 3 {
 		t.Fatalf("expected 3 violations (one per constraint), got %d: %+v", len(res.Violations), res.Violations)
 	}
-	seen := map[string]bool{}
+	seen := map[GateConstraint]bool{}
 	for _, v := range res.Violations {
 		seen[v.Constraint] = true
 	}
-	for _, want := range []string{"max_absolute", "max_increase", "max_increase_pct"} {
+	for _, want := range []GateConstraint{ConstraintMaxAbsolute, ConstraintMaxIncrease, ConstraintMaxIncreasePct} {
 		if !seen[want] {
 			t.Fatalf("missing %s violation: %+v", want, res.Violations)
 		}
+	}
+}
+
+func TestGateFlagsInfinitePctOnFromZero(t *testing.T) {
+	root := writeGateFixtures(t, 0, 25)
+	limit := 10.0
+	res, err := Gate(GateOptions{
+		Root: root, FromSHA: gateFromSHA, ToSHA: gateToSHA,
+		Thresholds: []GateThreshold{{Metric: "loc", MaxIncreasePct: &limit}},
+	})
+	if err != nil {
+		t.Fatalf("Gate: %v", err)
+	}
+	if len(res.Violations) != 1 || res.Violations[0].Constraint != ConstraintMaxIncreasePct {
+		t.Fatalf("expected one max_increase_pct violation, got %+v", res.Violations)
 	}
 }
 

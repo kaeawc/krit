@@ -1,11 +1,13 @@
 package snapshot
 
 import (
+	"bytes"
 	_ "embed"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kaeawc/krit/internal/fsutil"
 )
@@ -13,20 +15,18 @@ import (
 //go:embed hook_post_commit.sh
 var PostCommitHook string
 
-// HookMarker tags krit-installed hooks so InstallHook can refuse to
-// overwrite a user's hand-rolled post-commit and so UninstallHook only
-// removes hooks that we wrote.
+// HookMarker is the line InstallHook injects after the shebang so
+// future InstallHook / UninstallHook calls can recognise their own
+// output without overwriting a user's custom hook.
 const HookMarker = "# krit-snapshot-hook"
 
-// HookPath returns the canonical post-commit hook path for repoRoot.
 func HookPath(repoRoot string) string {
 	return filepath.Join(repoRoot, ".git", "hooks", "post-commit")
 }
 
-// InstallHook writes the embedded post-commit hook to
-// .git/hooks/post-commit. When force is false and an existing hook
-// without the krit marker is present, returns an error so the user's
-// custom hook is preserved.
+// InstallHook writes the embedded post-commit hook. With force=false
+// it refuses to overwrite an existing non-krit hook so a user's
+// hand-rolled hook is preserved.
 func InstallHook(repoRoot string, force bool) (string, error) {
 	if repoRoot == "" {
 		return "", errors.New("snapshot: InstallHook requires repoRoot")
@@ -39,8 +39,8 @@ func InstallHook(repoRoot string, force bool) (string, error) {
 		return "", fmt.Errorf("snapshot: mkdir %s: %w", dir, err)
 	}
 	path := HookPath(repoRoot)
-	if existing, err := os.ReadFile(path); err == nil && !force {
-		if !hasMarker(existing) {
+	if !force {
+		if existing, err := os.ReadFile(path); err == nil && !hasMarker(existing) {
 			return "", fmt.Errorf("snapshot: %s exists and is not krit-managed; pass force to overwrite", path)
 		}
 	}
@@ -50,9 +50,8 @@ func InstallHook(repoRoot string, force bool) (string, error) {
 	return path, nil
 }
 
-// UninstallHook removes the post-commit hook iff it was installed by
-// krit (carries HookMarker). A user-written hook is left untouched and
-// reported via the returned error.
+// UninstallHook removes the post-commit hook iff it carries
+// HookMarker; a hand-rolled hook is left untouched.
 func UninstallHook(repoRoot string) (string, error) {
 	if repoRoot == "" {
 		return "", errors.New("snapshot: UninstallHook requires repoRoot")
@@ -74,44 +73,15 @@ func UninstallHook(repoRoot string) (string, error) {
 	return path, nil
 }
 
-// taggedHook returns the embedded script with the marker injected on
-// the first non-shebang line so InstallHook can recognise it later.
+// taggedHook injects HookMarker right after the shebang so an
+// installed hook is detectable on later runs.
 func taggedHook() string {
-	src := PostCommitHook
-	if len(src) > 0 && src[0] == '#' {
-		// Insert the marker right after the shebang line.
-		idx := indexOfNewline(src)
-		if idx >= 0 {
-			return src[:idx+1] + HookMarker + "\n" + src[idx+1:]
-		}
+	if shebang, rest, ok := strings.Cut(PostCommitHook, "\n"); ok && strings.HasPrefix(shebang, "#") {
+		return shebang + "\n" + HookMarker + "\n" + rest
 	}
-	return HookMarker + "\n" + src
+	return HookMarker + "\n" + PostCommitHook
 }
 
 func hasMarker(b []byte) bool {
-	return contains(splitLines(string(b)), HookMarker)
-}
-
-func splitLines(s string) []string {
-	var out []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			out = append(out, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		out = append(out, s[start:])
-	}
-	return out
-}
-
-func indexOfNewline(s string) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			return i
-		}
-	}
-	return -1
+	return bytes.Contains(b, []byte(HookMarker))
 }

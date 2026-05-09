@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"sync"
 	"testing"
 )
 
@@ -68,25 +69,43 @@ func TestSimulateReturnsNewestFirstSeries(t *testing.T) {
 	}
 }
 
-// buildKritForTest compiles the krit CLI into a temp file and returns
-// its path. Skipping when go isn't on PATH keeps simulate tests
-// portable.
+// buildKritForTest compiles the krit CLI once per test process and
+// caches the path so a future second simulate test doesn't pay the
+// build cost twice. Returns "" + skip when go isn't available.
+var (
+	kritTestBinOnce sync.Once
+	kritTestBin     string
+	kritTestBinErr  error
+)
+
 func buildKritForTest(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go not available")
 	}
-	bin := filepath.Join(t.TempDir(), "krit-test-bin")
-	if runtime.GOOS == "windows" {
-		bin += ".exe"
+	kritTestBinOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "krit-simulate-bin-*")
+		if err != nil {
+			kritTestBinErr = err
+			return
+		}
+		bin := filepath.Join(dir, "krit-test-bin")
+		if runtime.GOOS == "windows" {
+			bin += ".exe"
+		}
+		cmd := exec.CommandContext(context.Background(), "go", "build", "-o", bin, "github.com/kaeawc/krit/cmd/krit")
+		cmd.Stdout = os.Stderr
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			kritTestBinErr = err
+			return
+		}
+		kritTestBin = bin
+	})
+	if kritTestBinErr != nil {
+		t.Skipf("krit binary build failed: %v", kritTestBinErr)
 	}
-	cmd := exec.CommandContext(context.Background(), "go", "build", "-o", bin, "github.com/kaeawc/krit/cmd/krit")
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		t.Skipf("krit binary build failed: %v", err)
-	}
-	return bin
+	return kritTestBin
 }
 
 // initSimulateRepo creates a 3-commit Kotlin repo where each commit

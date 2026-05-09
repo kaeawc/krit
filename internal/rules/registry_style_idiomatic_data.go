@@ -448,7 +448,7 @@ func buildAlsoCouldBeApplyFix(file *scanner.File, call uint32, lambda uint32) *s
 	if nav == 0 {
 		return nil
 	}
-	alsoNode := findAlsoIdentifier(file, nav)
+	alsoNode := flatNavigationExpressionLastIdentifierNamed(file, nav, "also")
 	if alsoNode == 0 {
 		return nil
 	}
@@ -510,47 +510,20 @@ func buildAlsoCouldBeApplyFix(file *scanner.File, call uint32, lambda uint32) *s
 	// bytes in place. `also` becomes `apply`; each `it.` is dropped.
 	callStart := int(file.FlatStartByte(call))
 	callEnd := int(file.FlatEndByte(call))
-
-	type edit struct {
-		start, end int
-		repl       string
-	}
-	edits := []edit{
-		{
-			start: int(file.FlatStartByte(alsoNode)),
-			end:   int(file.FlatEndByte(alsoNode)),
-			repl:  "apply",
-		},
-	}
+	edits := make([]byteEdit, 0, 1+len(cuts))
+	edits = append(edits, byteEdit{int(file.FlatStartByte(alsoNode)), int(file.FlatEndByte(alsoNode)), "apply"})
 	for _, c := range cuts {
-		edits = append(edits, edit{c.start, c.end, ""})
+		edits = append(edits, byteEdit{c.start, c.end, ""})
 	}
-	// Sort edits by start byte (ascending). Cuts come from a forward
-	// walk so they're already ordered, but the also-edit is at the call
-	// callee — earlier than the lambda body — and we need a stable sort
-	// regardless of insertion order.
-	for i := 1; i < len(edits); i++ {
-		for j := i; j > 0 && edits[j].start < edits[j-1].start; j-- {
-			edits[j], edits[j-1] = edits[j-1], edits[j]
-		}
+	repl, ok2 := applyByteEdits(file.Content, callStart, callEnd, edits)
+	if !ok2 {
+		return nil
 	}
-	var b strings.Builder
-	cursor := callStart
-	for _, e := range edits {
-		if e.start < cursor || e.end > callEnd {
-			return nil
-		}
-		b.Write(file.Content[cursor:e.start])
-		b.WriteString(e.repl)
-		cursor = e.end
-	}
-	b.Write(file.Content[cursor:callEnd])
-
 	return &scanner.Fix{
 		ByteMode:    true,
 		StartByte:   callStart,
 		EndByte:     callEnd,
-		Replacement: b.String(),
+		Replacement: repl,
 	}
 }
 
@@ -565,14 +538,6 @@ func buildUseIfInsteadOfWhenFix(file *scanner.File, when uint32) *scanner.Fix {
 	if file == nil || when == 0 {
 		return nil
 	}
-	// Bail on subject form — the rewrite would need to expand `1`, `is X`,
-	// `in 0..9`, etc. into expressions that match the original semantics.
-	for c := file.FlatFirstChild(when); c != 0; c = file.FlatNextSib(c) {
-		if file.FlatType(c) == "when_subject" {
-			return nil
-		}
-	}
-
 	type entry struct {
 		isElse bool
 		// cond is the condition expression node (the when_condition's
@@ -584,7 +549,15 @@ func buildUseIfInsteadOfWhenFix(file *scanner.File, when uint32) *scanner.Fix {
 	}
 	var entries []entry
 	for c := file.FlatFirstChild(when); c != 0; c = file.FlatNextSib(c) {
-		if file.FlatType(c) != "when_entry" {
+		switch file.FlatType(c) {
+		case "when_subject":
+			// Subject form (`when (x) { 1 -> ... }`) would need
+			// synthetic `==`/`is`/`in` operators whose meaning depends
+			// on the entry kind — leave it to the author.
+			return nil
+		case "when_entry":
+			// fall through to entry collection below
+		default:
 			continue
 		}
 		var e entry
@@ -650,32 +623,6 @@ func buildUseIfInsteadOfWhenFix(file *scanner.File, when uint32) *scanner.Fix {
 		EndByte:     int(file.FlatEndByte(when)),
 		Replacement: replacement,
 	}
-}
-
-// findAlsoIdentifier returns the simple_identifier node for `also` inside
-// the given navigation_expression, handling both grammar shapes: a flat
-// `recv . also` triple of children, and the newer `recv navigation_suffix(. also)`
-// nesting where the dot and identifier live under a navigation_suffix node.
-func findAlsoIdentifier(file *scanner.File, nav uint32) uint32 {
-	if file == nil || nav == 0 {
-		return 0
-	}
-	var found uint32
-	for c := file.FlatFirstChild(nav); c != 0; c = file.FlatNextSib(c) {
-		switch file.FlatType(c) {
-		case "simple_identifier":
-			if file.FlatNodeTextEquals(c, "also") {
-				found = c
-			}
-		case "navigation_suffix":
-			for sub := file.FlatFirstChild(c); sub != 0; sub = file.FlatNextSib(sub) {
-				if file.FlatType(sub) == "simple_identifier" && file.FlatNodeTextEquals(sub, "also") {
-					found = sub
-				}
-			}
-		}
-	}
-	return found
 }
 
 // dotEndAfterReceiver returns the byte offset just past the `.` token
@@ -774,29 +721,7 @@ func alsoLambdaReceiverStatementCount(file *scanner.File, lambda uint32) (int, b
 }
 
 func alsoStatementReceiverIsIt(file *scanner.File, stmt uint32) bool {
-	if file == nil || stmt == 0 {
-		return false
-	}
-	switch file.FlatType(stmt) {
-	case "call_expression":
-		nav, _ := flatCallExpressionParts(file, stmt)
-		return alsoNavigationReceiverIsIt(file, nav)
-	case "assignment", "assignment_expression":
-		return alsoStatementReceiverIsIt(file, file.FlatNamedChild(stmt, 0))
-	case "directly_assignable_expression":
-		if nav, ok := file.FlatFindChild(stmt, "navigation_expression"); ok {
-			return alsoNavigationReceiverIsIt(file, nav)
-		}
-		return alsoNavigationReceiverIsIt(file, stmt)
-	case "navigation_expression":
-		return alsoNavigationReceiverIsIt(file, stmt)
-	case "parenthesized_expression", "annotated_expression":
-		return alsoStatementReceiverIsIt(file, file.FlatNamedChild(stmt, 0))
-	}
-	if file.FlatNamedChildCount(stmt) == 1 {
-		return alsoStatementReceiverIsIt(file, file.FlatNamedChild(stmt, 0))
-	}
-	return false
+	return alsoStatementNavWithItReceiver(file, stmt) != 0
 }
 
 func alsoNavigationReceiverIsIt(file *scanner.File, nav uint32) bool {

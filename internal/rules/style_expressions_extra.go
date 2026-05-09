@@ -628,7 +628,7 @@ func buildDoubleNegativeLambdaFix(file *scanner.File, call uint32, bangOp uint32
 				calleeIdent = c
 			}
 		case "navigation_expression":
-			calleeIdent = navigationLastIdentifierMatching(file, c, oldName)
+			calleeIdent = flatNavigationExpressionLastIdentifierNamed(file, c, oldName)
 		}
 		if calleeIdent != 0 {
 			break
@@ -640,56 +640,20 @@ func buildDoubleNegativeLambdaFix(file *scanner.File, call uint32, bangOp uint32
 
 	callStart := int(file.FlatStartByte(call))
 	callEnd := int(file.FlatEndByte(call))
-	type edit struct {
-		start, end int
-		repl       string
-	}
-	edits := []edit{
+	edits := []byteEdit{
 		{int(file.FlatStartByte(calleeIdent)), int(file.FlatEndByte(calleeIdent)), newName},
 		{int(file.FlatStartByte(bangOp)), int(file.FlatEndByte(bangOp)), ""},
 	}
-	if edits[1].start < edits[0].start {
-		edits[0], edits[1] = edits[1], edits[0]
+	repl, ok := applyByteEdits(file.Content, callStart, callEnd, edits)
+	if !ok {
+		return nil
 	}
-	var b strings.Builder
-	cursor := callStart
-	for _, e := range edits {
-		if e.start < cursor || e.end > callEnd {
-			return nil
-		}
-		b.Write(file.Content[cursor:e.start])
-		b.WriteString(e.repl)
-		cursor = e.end
-	}
-	b.Write(file.Content[cursor:callEnd])
 	return &scanner.Fix{
 		ByteMode:    true,
 		StartByte:   callStart,
 		EndByte:     callEnd,
-		Replacement: b.String(),
+		Replacement: repl,
 	}
-}
-
-// navigationLastIdentifierMatching returns the last simple_identifier
-// inside the given navigation_expression when its text equals want, or 0
-// otherwise. Handles both grammar shapes (flat and navigation_suffix).
-func navigationLastIdentifierMatching(file *scanner.File, nav uint32, want string) uint32 {
-	var found uint32
-	for c := file.FlatFirstChild(nav); c != 0; c = file.FlatNextSib(c) {
-		switch file.FlatType(c) {
-		case "simple_identifier":
-			if file.FlatNodeTextEquals(c, want) {
-				found = c
-			}
-		case "navigation_suffix":
-			for sub := file.FlatFirstChild(c); sub != 0; sub = file.FlatNextSib(sub) {
-				if file.FlatType(sub) == "simple_identifier" && file.FlatNodeTextEquals(sub, want) {
-					found = sub
-				}
-			}
-		}
-	}
-	return found
 }
 
 // NullableBooleanCheckRule detects `x == true` on Boolean?.

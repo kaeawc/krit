@@ -15,7 +15,10 @@ import (
 
 const (
 	typeIndexCacheDirName = "type-index-cache"
-	typeIndexCacheVersion = 1
+	// Bumped to 2 when MemberInfo gained Params []ParamInfo and
+	// TypeParameters []string. Older cache payloads decode the prior
+	// MemberInfo shape and are silently dropped on version mismatch.
+	typeIndexCacheVersion = 2
 )
 
 var (

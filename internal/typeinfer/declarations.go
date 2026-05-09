@@ -508,13 +508,17 @@ func (r *defaultResolver) extractMembersFlat(bodyIdx uint32, file *scanner.File,
 			}
 			mods := flatReadModifierFlags(file, memberIdx)
 			retType := r.extractFunctionReturnTypeFlat(memberIdx, file, it)
+			params := r.extractFunctionParamsFlat(memberIdx, file, it)
+			typeParams := flatExtractFunctionTypeParameters(file, memberIdx)
 			members = append(members, MemberInfo{
-				Name:       name,
-				Kind:       "function",
-				Type:       retType,
-				Visibility: mods.visibility,
-				IsOverride: mods.override,
-				IsAbstract: mods.abstract,
+				Name:           name,
+				Kind:           "function",
+				Type:           retType,
+				Visibility:     mods.visibility,
+				IsOverride:     mods.override,
+				IsAbstract:     mods.abstract,
+				Params:         params,
+				TypeParameters: typeParams,
 			})
 		case "property_declaration":
 			name := flatMemberName(file, memberIdx)
@@ -579,4 +583,111 @@ func (r *defaultResolver) extractFunctionReturnTypeFlat(funcIdx uint32, file *sc
 		}
 	}
 	return nil
+}
+
+// extractFunctionParamsFlat extracts the parameter list from a
+// function_declaration. Returns nil for parameter-less functions or
+// declarations whose parameter list cannot be located. Each parameter's
+// type is resolved best-effort: same-workspace and stdlib types yield
+// concrete ResolvedType values; library-only types return TypeUnknown
+// values until classpath-aware resolution lands.
+func (r *defaultResolver) extractFunctionParamsFlat(funcIdx uint32, file *scanner.File, it *ImportTable) []ParamInfo {
+	if file == nil || funcIdx == 0 {
+		return nil
+	}
+	params := flatFindNamedChildOfType(file, funcIdx, "function_value_parameters")
+	if params == 0 {
+		return nil
+	}
+	var out []ParamInfo
+	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "parameter" {
+			continue
+		}
+		info := r.parameterInfoFlat(child, file, it)
+		if info.Name == "" {
+			continue
+		}
+		out = append(out, info)
+	}
+	return out
+}
+
+func (r *defaultResolver) parameterInfoFlat(parameterIdx uint32, file *scanner.File, it *ImportTable) ParamInfo {
+	name, typeNode := flatParameterNameAndType(file, parameterIdx)
+	if name == "" {
+		return ParamInfo{}
+	}
+	var typ *ResolvedType
+	if typeNode != 0 {
+		typ = r.resolveTypeNodeFlat(typeNode, file, it)
+	}
+	if typ == nil {
+		typ = UnknownType()
+	}
+	return ParamInfo{Name: name, Type: typ, HasDefault: flatParameterHasDefault(file, parameterIdx)}
+}
+
+func flatParameterNameAndType(file *scanner.File, parameterIdx uint32) (name string, typeNode uint32) {
+	seenColon := false
+	for sub := file.FlatFirstChild(parameterIdx); sub != 0; sub = file.FlatNextSib(sub) {
+		switch file.FlatType(sub) {
+		case "simple_identifier":
+			if name == "" && !seenColon {
+				name = strings.TrimSpace(file.FlatNodeText(sub))
+			}
+		case ":":
+			seenColon = true
+		case "user_type", "nullable_type", "type_identifier", "function_type":
+			if seenColon && typeNode == 0 {
+				typeNode = sub
+			}
+		}
+	}
+	return name, typeNode
+}
+
+// flatParameterHasDefault reports whether the parameter at parameterIdx
+// is followed by `=` (its default-value expression) before the next
+// parameter delimiter. Tree-sitter Kotlin emits the `=` as a sibling of
+// the parameter node, not a child.
+func flatParameterHasDefault(file *scanner.File, parameterIdx uint32) bool {
+	for next := file.FlatNextSib(parameterIdx); next != 0; next = file.FlatNextSib(next) {
+		t := file.FlatType(next)
+		if t == "," || t == ")" {
+			return false
+		}
+		if t == "=" {
+			return true
+		}
+	}
+	return false
+}
+
+// flatExtractFunctionTypeParameters returns the simple names of generic
+// type parameters declared on a function. Returns nil when the function
+// has no type parameters.
+func flatExtractFunctionTypeParameters(file *scanner.File, funcIdx uint32) []string {
+	if file == nil || funcIdx == 0 {
+		return nil
+	}
+	tp := flatFindNamedChildOfType(file, funcIdx, "type_parameters")
+	if tp == 0 {
+		return nil
+	}
+	var out []string
+	for child := file.FlatFirstChild(tp); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "type_parameter" {
+			continue
+		}
+		for sub := file.FlatFirstChild(child); sub != 0; sub = file.FlatNextSib(sub) {
+			if file.FlatType(sub) == "type_identifier" || file.FlatType(sub) == "simple_identifier" {
+				if name := strings.TrimSpace(file.FlatNodeText(sub)); name != "" {
+					out = append(out, name)
+					break
+				}
+			}
+		}
+	}
+	return out
 }

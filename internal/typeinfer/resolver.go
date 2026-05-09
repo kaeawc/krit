@@ -53,11 +53,30 @@ type ClassInfo struct {
 // MemberInfo holds information about a class member.
 type MemberInfo struct {
 	Name       string
-	Kind       string // "function", "property"
-	Type       *ResolvedType
-	Visibility string // "public", "private", "internal", "protected"
+	Kind       string        // "function", "property"
+	Type       *ResolvedType // function: return type; property: declared type
+	Visibility string        // "public", "private", "internal", "protected"
 	IsOverride bool
 	IsAbstract bool
+	// Params is the parameter list for function members. Nil for
+	// properties or for functions where parameters could not be
+	// extracted. The order matches the source declaration. Each
+	// ParamInfo records the parameter's simple name and best-effort
+	// resolved type — types from same-workspace declarations populate
+	// fully; library-typed parameters carry only the simple name with
+	// a TypeUnknown ResolvedType until classpath-aware resolution lands.
+	Params []ParamInfo
+	// TypeParameters is the simple list of generic type parameter names
+	// declared on the function (e.g. ["T", "R"] for `fun <T, R> f()`).
+	// Populated for function members; nil for properties.
+	TypeParameters []string
+}
+
+// ParamInfo describes a function parameter as recorded in MemberInfo.
+type ParamInfo struct {
+	Name       string
+	Type       *ResolvedType
+	HasDefault bool
 }
 
 // ImportTable maps simple names to FQNs for a single file.

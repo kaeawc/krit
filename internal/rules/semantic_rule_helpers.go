@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
@@ -262,26 +263,70 @@ func classHasNestedViewHolderFlat(file *scanner.File, class uint32) bool {
 	return found
 }
 
+// recyclerAdapterSupertypeNames are the supertype names the RecyclerAdapter
+// rules treat as Adapter-implementing. Shared between the local AST check and
+// the resolver-fallback hierarchy walk to keep both paths in sync.
+var recyclerAdapterSupertypeNames = []string{
+	"androidx.recyclerview.widget.RecyclerView.Adapter",
+	"android.support.v7.widget.RecyclerView.Adapter",
+	"android.widget.BaseAdapter",
+	"RecyclerView.Adapter",
+	"BaseAdapter",
+	"Adapter",
+}
+
 func isRecyclerAdapterClassFlat(ctx *api.Context, class uint32) bool {
 	file := ctx.File
-	if ctx.Resolver != nil {
-		name := extractIdentifierFlat(file, class)
-		if info := ctx.Resolver.ClassHierarchy(name); info != nil {
-			for _, st := range info.Supertypes {
-				if semanticTypeNameMatches(st,
-					"androidx.recyclerview.widget.RecyclerView.Adapter",
-					"android.support.v7.widget.RecyclerView.Adapter",
-					"android.widget.BaseAdapter",
-					"RecyclerView.Adapter",
-					"BaseAdapter",
-					"Adapter",
-				) {
-					return true
-				}
-			}
+	if classExtendsAnyFlat(file, class, recyclerAdapterSupertypeNames...) {
+		return true
+	}
+	if ctx.Resolver == nil || !classHasAdapterLikeSupertypeFlat(file, class) {
+		return false
+	}
+	info := ctx.Resolver.ClassHierarchy(extractIdentifierFlat(file, class))
+	if info == nil {
+		return false
+	}
+	for _, st := range info.Supertypes {
+		if semanticTypeNameMatches(st, recyclerAdapterSupertypeNames...) {
+			return true
 		}
 	}
-	return classExtendsAnyFlat(file, class, "RecyclerView.Adapter", "BaseAdapter", "Adapter")
+	return false
+}
+
+// classHasAdapterLikeSupertypeFlat returns true when the class has at least
+// one direct supertype whose type identifier ends in "Adapter" or contains
+// "RecyclerView" — a cheap signal that consulting the type oracle might
+// produce a real Adapter match. The walk is restricted to type-identifier
+// shapes so generic args, lambda bodies, and value arguments don't trigger.
+func classHasAdapterLikeSupertypeFlat(file *scanner.File, class uint32) bool {
+	if file == nil || class == 0 {
+		return false
+	}
+	adapter := []byte("Adapter")
+	recyclerView := []byte("RecyclerView")
+	found := false
+	for child := file.FlatFirstChild(class); child != 0 && !found; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "delegation_specifier", "superclass", "super_interfaces":
+		default:
+			continue
+		}
+		file.FlatWalkAllNodes(child, func(n uint32) {
+			if found {
+				return
+			}
+			switch file.FlatType(n) {
+			case "type_identifier", "scoped_type_identifier", "scoped_identifier", "generic_type":
+				text := file.FlatNodeBytes(n)
+				if bytes.HasSuffix(text, adapter) || bytes.Contains(text, recyclerView) {
+					found = true
+				}
+			}
+		})
+	}
+	return found
 }
 
 func logCallIsAndroidLog(ctx *api.Context, call uint32) bool {

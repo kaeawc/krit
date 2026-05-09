@@ -30,10 +30,12 @@ import (
 )
 
 // DefaultParseCacheCapBytes is the default cap for the parse cache.
-// Picked from measured usage across large Android and Kotlin repos. 200 MB
-// covers typical Android/KMP repos with headroom while keeping very large
-// repositories bounded.
-const DefaultParseCacheCapBytes int64 = 200 * 1024 * 1024
+// Sized for very large monorepos (e.g. the Kotlin compiler at ~19k source
+// files needs ~430 MB to avoid LRU thrashing on warm runs). Smaller caps
+// caused multi-second background flushes on every warm scan as entries
+// were evicted and re-encoded; 1 GB has comfortable headroom for the
+// largest repos we benchmark against.
+const DefaultParseCacheCapBytes int64 = 1024 * 1024 * 1024
 
 const (
 	lruSidecarVersion    uint32 = 1

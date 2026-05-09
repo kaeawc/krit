@@ -137,7 +137,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.Version = fs.Bool("version", false, "Print version")
 	f.NoCache = fs.Bool("no-cache", false, "Disable incremental analysis cache")
 	f.NoParseCache = fs.Bool("no-parse-cache", false, "Disable the on-disk tree-sitter parse cache (forces re-parse of every file)")
-	f.ParseCacheCapMB = fs.Int("parse-cache-cap-mb", 0, "Size cap in MB for .krit/parse-cache/ (0 = use config or default 200; negative = unlimited)")
+	f.ParseCacheCapMB = fs.Int("parse-cache-cap-mb", 0, "Size cap in MB for .krit/parse-cache/ (0 = use config or default 1024; negative = unlimited)")
 	f.NoResourceCache = fs.Bool("no-resource-cache", false, "Disable the on-disk Android values-XML ResourceIndex cache (forces re-parse of every values XML file)")
 	f.ClearCache = fs.Bool("clear-cache", false, "Delete all on-disk caches (incremental, parse) and exit")
 	f.NoMatrixCache = fs.Bool("no-matrix-cache", false, "Disable the experiment-matrix baseline cache (no read, no write)")

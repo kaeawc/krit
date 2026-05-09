@@ -672,16 +672,44 @@ func tryResourceSourceBundleDelta(in AndroidInput, mergedSourceIdx *android.Reso
 }
 
 func sourcePathsForManifest(in AndroidInput) []string {
-	if len(in.SourcePaths) > 0 {
-		return in.SourcePaths
-	}
-	paths := make([]string, 0, len(in.SourceFiles))
+	// Build the set of paths we have hashable evidence for: a SourceFile or
+	// a precomputed SourceHash. Anything else can't take part in the manifest
+	// (its hash can't be recomputed at load time), so excluding it keeps the
+	// save-side and load-side path lists in lockstep.
+	have := make(map[string]struct{}, len(in.SourceFiles)+len(in.SourceHashes))
 	for _, file := range in.SourceFiles {
-		if file != nil {
-			paths = append(paths, file.Path)
+		if file != nil && file.Path != "" {
+			have[file.Path] = struct{}{}
 		}
 	}
-	return paths
+	for path, hash := range in.SourceHashes {
+		if path != "" && hash != "" {
+			have[path] = struct{}{}
+		}
+	}
+	src := in.SourcePaths
+	if len(src) == 0 {
+		src = make([]string, 0, len(have))
+		for path := range have {
+			src = append(src, path)
+		}
+	}
+	seen := make(map[string]struct{}, len(src))
+	out := make([]string, 0, len(src))
+	for _, p := range src {
+		if p == "" {
+			continue
+		}
+		if _, ok := have[p]; !ok {
+			continue
+		}
+		if _, dup := seen[p]; dup {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	return out
 }
 
 func resourceSourceHashes(in AndroidInput) (map[string]string, bool) {

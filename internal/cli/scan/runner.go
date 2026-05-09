@@ -57,6 +57,11 @@ type runner struct {
 	projectModelLoaded bool
 	cacheFilePath      string
 
+	// preloadedAnalysisCacheCh receives the result of a background
+	// cache.Load kicked off as soon as cacheFilePath is known, in
+	// parallel with collectFiles / projectModel / filterRules.
+	preloadedAnalysisCacheCh chan *cache.Cache
+
 	// File collection
 	files                []string
 	allJavaPaths         []string
@@ -233,7 +238,7 @@ func newRunner(f *scanFlags) (*runner, int, bool) {
 		return nil, 2, false
 	}
 
-	return &runner{
+	r := &runner{
 		f:               f,
 		cfg:             cfg,
 		paths:           paths,
@@ -246,7 +251,13 @@ func newRunner(f *scanFlags) (*runner, int, bool) {
 		trackedFiles:    trackedfiles.NewGitIndex(),
 		libraryFacts:    librarymodel.DefaultFacts(),
 		cacheFilePath:   cacheFilePath,
-	}, 0, true
+	}
+	if !*f.NoCache && cacheFilePath != "" {
+		ch := make(chan *cache.Cache, 1)
+		r.preloadedAnalysisCacheCh = ch
+		go func() { ch <- cache.Load(cacheFilePath) }()
+	}
+	return r, 0, true
 }
 
 // collectFiles walks the scan paths once for both Kotlin and Java files,
@@ -383,6 +394,11 @@ func (r *runner) runOracleIndex() (int, error) {
 	}
 	var res pipeline.IndexResult
 	var err error
+	var preloadedCache *cache.Cache
+	if r.useCache && r.preloadedAnalysisCacheCh != nil {
+		preloadedCache = <-r.preloadedAnalysisCacheCh
+		r.preloadedAnalysisCacheCh = nil
+	}
 	r.tracker.TrackVoid("oracleIndex", func() {
 		in := pipeline.IndexInput{
 			ParseResult:       pipeline.ParseResult{ActiveRules: r.activeRules},
@@ -408,6 +424,7 @@ func (r *runner) runOracleIndex() (int, error) {
 			CacheFilePaths:           r.cacheFilePaths,
 			CacheConfig:              r.cfg,
 			CacheEditorConfigEnabled: *r.f.EditorConfig,
+			PreloadedAnalysisCache:   preloadedCache,
 		}
 		res, err = (pipeline.IndexPhase{
 			SkipModules:       true,

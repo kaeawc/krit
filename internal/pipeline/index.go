@@ -148,6 +148,13 @@ type IndexInput struct {
 	// ComputeConfigHash.
 	CacheEditorConfigEnabled bool
 
+	// PreloadedAnalysisCache, when non-nil, is used in place of cache.Load
+	// during the cacheLoad phase. The CLI runner kicks off the load in a
+	// background goroutine while collectFiles / projectModel / filterRules
+	// run, then passes the result here so cacheLoad becomes a near-zero
+	// receive instead of a serialized disk read.
+	PreloadedAnalysisCache *cache.Cache
+
 	// --- Oracle/cache bypass knobs. The CLI runs IndexPhase twice: once
 	// before ParsePhase for oracle + cache (pre-parse block) and once
 	// after ParsePhase for CodeIndex / module graph / Android. The second
@@ -407,7 +414,11 @@ func (p IndexPhase) runCacheLoad(in IndexInput, result *IndexResult) {
 	var analysisCache *cache.Cache
 	_ = in.trackSerial("cacheLoad", func() error {
 		loadStart = time.Now()
-		analysisCache = cache.Load(in.CacheFilePath)
+		if in.PreloadedAnalysisCache != nil {
+			analysisCache = in.PreloadedAnalysisCache
+		} else {
+			analysisCache = cache.Load(in.CacheFilePath)
+		}
 		return nil
 	})
 

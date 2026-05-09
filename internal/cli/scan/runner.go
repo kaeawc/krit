@@ -60,7 +60,7 @@ type runner struct {
 	// preloadedAnalysisCacheCh receives the result of a background
 	// cache.Load kicked off as soon as cacheFilePath is known, in
 	// parallel with collectFiles / projectModel / filterRules.
-	preloadedAnalysisCacheCh chan *cache.Cache
+	preloadedAnalysisCacheCh <-chan *cache.Cache
 
 	// File collection
 	files                []string
@@ -253,9 +253,9 @@ func newRunner(f *scanFlags) (*runner, int, bool) {
 		cacheFilePath:   cacheFilePath,
 	}
 	if !*f.NoCache && cacheFilePath != "" {
-		ch := make(chan *cache.Cache, 1)
-		r.preloadedAnalysisCacheCh = ch
-		go func() { ch <- cache.Load(cacheFilePath) }()
+		r.preloadedAnalysisCacheCh = preloadAnalysisCache(func() *cache.Cache {
+			return cache.Load(cacheFilePath)
+		})
 	}
 	return r, 0, true
 }

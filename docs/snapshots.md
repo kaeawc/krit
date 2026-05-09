@@ -33,6 +33,10 @@ krit snapshot install-hook --uninstall  # removes it
 krit snapshot install-hook --print      # print the script (for core.hooksPath setups)
 ```
 
+`install-hook` also appends `.krit/snapshots/` to the repo's root
+`.gitignore` (idempotent, best-effort) so captured blobs and manifests
+don't get committed by accident.
+
 The hook runs `krit snapshot capture HEAD` detached, so a slow capture
 never blocks `git commit`. Capture latency on a warm parse cache is a
 few hundred milliseconds on small-to-medium repos; the first capture of

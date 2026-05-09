@@ -47,6 +47,9 @@ func InstallHook(repoRoot string, force bool) (string, error) {
 	if err := fsutil.WriteFileAtomic(path, []byte(taggedHook()), 0o755); err != nil {
 		return "", fmt.Errorf("snapshot: write %s: %w", path, err)
 	}
+	// Best-effort: keep generated snapshot artifacts out of git. Failures
+	// here (read-only fs, permission errors) shouldn't block hook install.
+	_, _ = EnsureGitignoreEntry(repoRoot, SnapshotsGitignorePattern)
 	return path, nil
 }
 

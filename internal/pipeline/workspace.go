@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"path/filepath"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -24,6 +25,13 @@ type WorkspaceState struct {
 
 	mu     sync.RWMutex
 	parsed map[string]parsedEntry
+	// dirty tracks paths that have been invalidated since the last
+	// DrainDirty call. Populated by Touch (intended to be called
+	// alongside Invalidate from the file watcher); drained by daemon
+	// verbs that report "files changed since last analyze" stats.
+	// Guarded by mu so the dirty-set is consistent with the parsed
+	// cache snapshot a verb sees.
+	dirty map[string]struct{}
 
 	hits   atomic.Int64
 	misses atomic.Int64
@@ -127,6 +135,54 @@ func (w *WorkspaceState) Invalidate(path string) {
 	w.mu.Unlock()
 }
 
+// Touch records that path has changed on disk since the last
+// DrainDirty. Intended to be called alongside Invalidate from the
+// file watcher so consumers can later ask "what changed since I last
+// looked?" — useful for daemon verbs that want to report DirtyFiles
+// in their response stats and for incremental analysis paths.
+//
+// Touch never blocks on parse work and is safe under concurrent
+// callers; it grabs the same mu the parsed cache uses so a snapshot
+// pair (DrainDirty + Stats) can be observed atomically by holding mu.
+func (w *WorkspaceState) Touch(path string) {
+	if w == nil {
+		return
+	}
+	key := normalizeKey(path)
+	w.mu.Lock()
+	if w.dirty == nil {
+		w.dirty = make(map[string]struct{})
+	}
+	w.dirty[key] = struct{}{}
+	w.mu.Unlock()
+}
+
+// DrainDirty returns the paths Touch'd since the last call, in
+// sorted order, and clears the internal dirty-set. The sort is the
+// determinism contract: callers (verb response payloads, log lines,
+// cache fingerprints) need stable iteration order regardless of map
+// iteration randomness.
+//
+// Returns nil when no Touch has occurred since the last drain.
+func (w *WorkspaceState) DrainDirty() []string {
+	if w == nil {
+		return nil
+	}
+	w.mu.Lock()
+	if len(w.dirty) == 0 {
+		w.mu.Unlock()
+		return nil
+	}
+	paths := make([]string, 0, len(w.dirty))
+	for p := range w.dirty {
+		paths = append(paths, p)
+	}
+	w.dirty = nil
+	w.mu.Unlock()
+	sort.Strings(paths)
+	return paths
+}
+
 // InvalidateAll drops every cached entry. Used when the workspace
 // itself becomes stale (e.g. a future fsnotify path detects a config
 // change that affects all parses).
@@ -136,6 +192,7 @@ func (w *WorkspaceState) InvalidateAll() {
 	}
 	w.mu.Lock()
 	w.parsed = make(map[string]parsedEntry)
+	w.dirty = nil
 	w.mu.Unlock()
 
 	w.xfileMu.Lock()

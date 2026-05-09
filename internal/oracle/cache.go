@@ -512,6 +512,21 @@ func AssembleOracle(hits []*CacheEntry, fresh *Data) *Data {
 	return out
 }
 
+// mergeData combines per-shard `*Data` results into a single result.
+//
+// Disjointness invariant: callers (currently `splitMissesForKAA`)
+// produce shards whose Files keys do not overlap. If a future shard
+// strategy violates that, the merge would silently last-write-wins on
+// collisions in goroutine-completion order — non-deterministic.
+//
+// We enforce the invariant explicitly: a duplicate key panics with a
+// clear message. Today this is unreachable; tomorrow it surfaces the
+// bug at the producer rather than letting silent non-determinism
+// propagate into oracle facts and downstream type inference. See #33.
+//
+// Dependencies use last-write-wins because that's the documented
+// merge semantic for jar-resolved class facts (see mergeCachedClasses
+// callers): they are intentionally idempotent across shards.
 func mergeData(parts ...*Data) *Data {
 	out := &Data{
 		Version:      1,
@@ -526,6 +541,9 @@ func mergeData(parts ...*Data) *Data {
 			out.KotlinVersion = part.KotlinVersion
 		}
 		for path, file := range part.Files {
+			if _, dup := out.Files[path]; dup {
+				panic(fmt.Sprintf("oracle: mergeData received non-disjoint Files key %q across shards (#33 disjointness invariant)", path))
+			}
 			out.Files[path] = file
 		}
 		for fqn, cls := range part.Dependencies {
@@ -552,6 +570,11 @@ type CacheDepsEntry struct {
 	PerFileDeps map[string]*Class `json:"perFileDeps"`
 }
 
+// mergeCacheDeps is the CacheDepsFile counterpart of mergeData. The
+// same disjointness invariant applies: callers split files across
+// shards by path so per-shard `Files` and `Crashed` maps are unique.
+// A future overlapping shard strategy would otherwise silently
+// last-write-wins on goroutine completion order — see #33.
 func mergeCacheDeps(parts ...*CacheDepsFile) *CacheDepsFile {
 	var sawPart bool
 	out := &CacheDepsFile{
@@ -568,9 +591,15 @@ func mergeCacheDeps(parts ...*CacheDepsFile) *CacheDepsFile {
 			out.Approximation = part.Approximation
 		}
 		for path, entry := range part.Files {
+			if _, dup := out.Files[path]; dup {
+				panic(fmt.Sprintf("oracle: mergeCacheDeps received non-disjoint Files key %q across shards (#33 disjointness invariant)", path))
+			}
 			out.Files[path] = entry
 		}
 		for path, msg := range part.Crashed {
+			if _, dup := out.Crashed[path]; dup {
+				panic(fmt.Sprintf("oracle: mergeCacheDeps received non-disjoint Crashed key %q across shards (#33 disjointness invariant)", path))
+			}
 			out.Crashed[path] = msg
 		}
 	}

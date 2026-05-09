@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/iterutil"
 	"github.com/kaeawc/krit/internal/logger"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -95,7 +96,11 @@ func ApplyAllFixesColumns(columns *scanner.FindingColumns, suffix string) (total
 		byFile[file] = append(byFile[file], row)
 	})
 
-	for path, rows := range byFile {
+	// Iterate paths in sorted order so emitted errors and log lines have
+	// a stable ordering across runs. Bare map iteration here was a source
+	// of CI log diff noise — see #27.
+	for _, path := range iterutil.SortedKeys(byFile) {
+		rows := byFile[path]
 		res, err := applyFixesDetailedColumns(path, columns, rows, suffix, false)
 		if err != nil {
 			errors = append(errors, fmt.Errorf("%s: %w", path, err))

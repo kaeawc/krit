@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
@@ -324,6 +325,79 @@ fun main() {
 `)
 	if len(findings) == 0 {
 		t.Fatal("expected finding for double negative lambda")
+	}
+}
+
+func TestDoubleNegativeLambda_FixFilterNotToFilter(t *testing.T) {
+	findings := runRuleByName(t, "DoubleNegativeLambda", `
+package test
+fun main(list: List<Int>) {
+    val result = list.filterNot { !it.isValid() }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected fix to be populated")
+	}
+	repl := findings[0].Fix.Replacement
+	if !strings.Contains(repl, ".filter {") {
+		t.Errorf("expected callee renamed to filter, got %q", repl)
+	}
+	if strings.Contains(repl, "filterNot") {
+		t.Errorf("expected filterNot removed, got %q", repl)
+	}
+	if strings.Contains(repl, "!it.isValid") {
+		t.Errorf("expected ! removed from lambda body, got %q", repl)
+	}
+}
+
+func TestDoubleNegativeLambda_FixNoneToAll(t *testing.T) {
+	findings := runRuleByName(t, "DoubleNegativeLambda", `
+package test
+fun main(list: List<Int>) {
+    val r = list.none { !it.isValid() }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected fix to be populated")
+	}
+	repl := findings[0].Fix.Replacement
+	if !strings.Contains(repl, ".all {") {
+		t.Errorf("expected callee renamed to all, got %q", repl)
+	}
+}
+
+func TestDoubleNegativeLambda_NoFixForConfiguredCallee(t *testing.T) {
+	var rule *rules.DoubleNegativeLambdaRule
+	for _, candidate := range api.Registry {
+		if candidate.ID == "DoubleNegativeLambda" {
+			rule = candidate.Implementation.(*rules.DoubleNegativeLambdaRule)
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("rule not registered")
+	}
+	original := rule.NegativeFunctions
+	defer func() { rule.NegativeFunctions = original }()
+	rule.NegativeFunctions = []string{"rejectAll"}
+
+	findings := runRuleByName(t, "DoubleNegativeLambda", `
+package test
+fun main(list: List<Int>) {
+    val r = list.rejectAll { !it.isValid() }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix != nil {
+		t.Errorf("expected no fix for configured callee (no canonical inverse), got %q", findings[0].Fix.Replacement)
 	}
 }
 

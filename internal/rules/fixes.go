@@ -117,7 +117,7 @@ func (r *NullableToStringCallRule) IsFixable() bool          { return false }
 // receiver position to avoid leaving unbound references behind.
 func (r *AlsoCouldBeApplyRule) IsFixable() bool                      { return true }
 func (r *DoubleNegativeExpressionRule) IsFixable() bool              { return true }
-func (r *DoubleNegativeLambdaRule) IsFixable() bool                  { return false } // too complex
+func (r *DoubleNegativeLambdaRule) IsFixable() bool                  { return true }
 func (r *ExpressionBodySyntaxRule) IsFixable() bool                  { return true }
 func (r *NullableBooleanCheckRule) IsFixable() bool                  { return true }
 func (r *SpacingAfterPackageAndImportsRule) IsFixable() bool         { return true }

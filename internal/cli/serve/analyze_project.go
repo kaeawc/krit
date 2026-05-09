@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/oracle"
@@ -89,8 +87,8 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 	}
 	rules.ApplyConfig(cfg)
 
-	disabledSet := parseRuleNameSetCSV(args.DisableRules)
-	enabledSet := parseRuleNameSetCSV(args.EnableRules)
+	disabledSet := clishared.ParseRuleNameSetCSV(args.DisableRules)
+	enabledSet := clishared.ParseRuleNameSetCSV(args.EnableRules)
 	experimental := args.Experimental || cfg.GetTopLevelBool("experimental", false)
 	activeRules := rules.ActiveRulesV2(disabledSet, enabledSet, args.AllRules, experimental)
 
@@ -140,7 +138,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 // requiring krit.yml.
 func loadDaemonConfig(root string) (*config.Config, error) {
 	defaultCfgPath := config.FindDefaultConfig()
-	userCfgPath := findRepoConfig(root)
+	userCfgPath := clishared.FindConfigInDir(root)
 	cfg, mergeErr := config.LoadAndMerge(userCfgPath, defaultCfgPath)
 	if cfg == nil {
 		cfg = config.NewConfig()
@@ -152,37 +150,4 @@ func loadDaemonConfig(root string) (*config.Config, error) {
 		return cfg, fmt.Errorf("config merge: %w", mergeErr)
 	}
 	return cfg, nil
-}
-
-// findRepoConfig probes root for a krit.yml or .krit.yml file and
-// returns its path, or "" when neither is present. Mirrors the CLI's
-// detectConfigForScanArgs helper, which lives in internal/cli/scan
-// and isn't importable from here.
-func findRepoConfig(root string) string {
-	if root == "" {
-		return ""
-	}
-	for _, name := range []string{"krit.yml", ".krit.yml"} {
-		candidate := filepath.Join(root, name)
-		if fi, err := os.Stat(candidate); err == nil && !fi.IsDir() {
-			return candidate
-		}
-	}
-	return ""
-}
-
-// parseRuleNameSetCSV is the daemon-side equivalent of the CLI's
-// parseRuleNameSet helper (internal/cli/scan/rule_name_set.go).
-// The two should be unified in `internal/cli/clishared` in a
-// follow-up; today the CLI version is unexported and exporting it
-// would touch the scan package's blast radius. Tracked separately.
-func parseRuleNameSetCSV(csv string) map[string]bool {
-	out := make(map[string]bool)
-	if csv == "" {
-		return out
-	}
-	for _, name := range strings.Split(csv, ",") {
-		out[strings.TrimSpace(name)] = true
-	}
-	return out
 }

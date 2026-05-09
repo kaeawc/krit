@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/javafacts"
@@ -70,13 +71,7 @@ func detectConfigForScanArgs(args []string) string {
 	if !info.IsDir() {
 		dir = filepath.Dir(root)
 	}
-	for _, name := range []string{"krit.yml", ".krit.yml"} {
-		candidate := filepath.Join(dir, name)
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-	}
-	return ""
+	return clishared.FindConfigInDir(dir)
 }
 
 // resolvedStore returns a *store.FileStore for the given --store-dir flag

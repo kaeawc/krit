@@ -1,4 +1,4 @@
-package scan
+package clishared
 
 import (
 	"reflect"
@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestParseRuleNameSet(t *testing.T) {
+func TestParseRuleNameSetCSV(t *testing.T) {
 	cases := []struct {
 		name string
 		in   string
@@ -22,17 +22,17 @@ func TestParseRuleNameSet(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := parseRuleNameSet(tc.in)
+			got := ParseRuleNameSetCSV(tc.in)
 			gotKeys := mapKeysSorted(got)
 			if !reflect.DeepEqual(gotKeys, tc.want) {
-				t.Fatalf("parseRuleNameSet(%q) keys = %v; want %v", tc.in, gotKeys, tc.want)
+				t.Fatalf("ParseRuleNameSetCSV(%q) keys = %v; want %v", tc.in, gotKeys, tc.want)
 			}
 		})
 	}
 }
 
-func TestParseRuleNameSetReturnsNonNilMap(t *testing.T) {
-	got := parseRuleNameSet("")
+func TestParseRuleNameSetCSVReturnsNonNilMap(t *testing.T) {
+	got := ParseRuleNameSetCSV("")
 	if got == nil {
 		t.Fatal("got nil map; want non-nil empty")
 	}

@@ -6,6 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kaeawc/krit/internal/cli/clishared"
@@ -15,7 +17,7 @@ import (
 // Version is set by main via ldflags.
 var Version string
 
-const usage = `usage: krit snapshot <capture|backfill|status|timeline|info|diff> [flags]
+const usage = `usage: krit snapshot <capture|backfill|status|timeline|info|diff|gate> [flags]
 
   capture [<sha>]      capture a structural snapshot for sha (default: HEAD)
   backfill             capture snapshots for past commits via git worktrees
@@ -23,6 +25,7 @@ const usage = `usage: krit snapshot <capture|backfill|status|timeline|info|diff>
   timeline             print scalar metric over captured snapshots
   info <sha>           print the manifest for a captured sha
   diff <from> <to>     show structural delta between two captured snapshots
+  gate <from> <to>     fail (exit 2) if a delta exceeds a configured threshold
 
 Capture flags:
   --repo PATH       repo root (default: cwd)
@@ -54,6 +57,8 @@ func Run(args []string) int {
 		return runInfo(args[1:])
 	case "diff":
 		return runDiff(args[1:])
+	case "gate":
+		return runGate(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown snapshot subcommand: %s\n%s", args[0], usage)
 		return 1
@@ -259,6 +264,149 @@ func runBackfill(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// repeatedFlag captures every occurrence of a flag value into a slice.
+// flag.Var requires a Set(string) error implementation.
+type repeatedFlag []string
+
+func (r *repeatedFlag) String() string     { return strings.Join(*r, ",") }
+func (r *repeatedFlag) Set(v string) error { *r = append(*r, v); return nil }
+func (r *repeatedFlag) Get() interface{}   { return []string(*r) }
+
+func runGate(args []string) int {
+	fs := flag.NewFlagSet("snapshot gate", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	repoFlag := fs.String("repo", "", "repository root (default: cwd)")
+	formatFlag := fs.String("format", "text", "output format: text|json")
+	var maxAbs, maxDelta, maxPct repeatedFlag
+	fs.Var(&maxAbs, "max-abs", "metric=value (absolute cap on the to-side reading); repeatable")
+	fs.Var(&maxDelta, "max-delta", "metric=value (cap on absolute increase); repeatable")
+	fs.Var(&maxPct, "max-pct", "metric=value (cap on percent increase from from-side); repeatable")
+	positional, rest := clishared.SplitPositional(args, 2)
+	if err := fs.Parse(rest); err != nil {
+		return 1
+	}
+	if len(positional) != 2 {
+		fmt.Fprintln(os.Stderr, "usage: krit snapshot gate <from> <to> [--max-abs metric=v]... [--max-delta metric=v]... [--max-pct metric=v]...")
+		return 1
+	}
+
+	thresholds, err := parseGateThresholds(maxAbs, maxDelta, maxPct)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	if len(thresholds) == 0 {
+		fmt.Fprintln(os.Stderr, "error: at least one --max-abs / --max-delta / --max-pct required")
+		return 1
+	}
+
+	repoRoot, code := resolveRepoRoot(*repoFlag)
+	if code != 0 {
+		return code
+	}
+
+	root := snap.SnapshotsDir(repoRoot)
+	fromSHA, err := snap.ResolveCommitSHA(repoRoot, positional[0])
+	if err != nil {
+		fromSHA = positional[0]
+	}
+	toSHA, err := snap.ResolveCommitSHA(repoRoot, positional[1])
+	if err != nil {
+		toSHA = positional[1]
+	}
+
+	res, err := snap.Gate(snap.GateOptions{
+		Root: root, FromSHA: fromSHA, ToSHA: toSHA, Thresholds: thresholds,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+
+	if *formatFlag == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(res)
+	} else {
+		printGateText(res)
+	}
+	if len(res.Violations) > 0 {
+		return 2
+	}
+	return 0
+}
+
+func parseGateThresholds(maxAbs, maxDelta, maxPct []string) ([]snap.GateThreshold, error) {
+	byMetric := make(map[string]*snap.GateThreshold)
+	add := func(raw, kind string) error {
+		metric, value, err := parseMetricKV(raw)
+		if err != nil {
+			return err
+		}
+		t := byMetric[metric]
+		if t == nil {
+			t = &snap.GateThreshold{Metric: metric}
+			byMetric[metric] = t
+		}
+		v := value
+		switch kind {
+		case "abs":
+			t.MaxAbsolute = &v
+		case "delta":
+			t.MaxIncrease = &v
+		case "pct":
+			t.MaxIncreasePct = &v
+		}
+		return nil
+	}
+	for _, s := range maxAbs {
+		if err := add(s, "abs"); err != nil {
+			return nil, err
+		}
+	}
+	for _, s := range maxDelta {
+		if err := add(s, "delta"); err != nil {
+			return nil, err
+		}
+	}
+	for _, s := range maxPct {
+		if err := add(s, "pct"); err != nil {
+			return nil, err
+		}
+	}
+	out := make([]snap.GateThreshold, 0, len(byMetric))
+	for _, t := range byMetric {
+		out = append(out, *t)
+	}
+	return out, nil
+}
+
+func parseMetricKV(raw string) (string, float64, error) {
+	idx := strings.IndexByte(raw, '=')
+	if idx <= 0 || idx == len(raw)-1 {
+		return "", 0, fmt.Errorf("expected metric=value, got %q", raw)
+	}
+	metric := strings.TrimSpace(raw[:idx])
+	v, err := strconv.ParseFloat(strings.TrimSpace(raw[idx+1:]), 64)
+	if err != nil {
+		return "", 0, fmt.Errorf("parse %q value: %w", raw, err)
+	}
+	return metric, v, nil
+}
+
+func printGateText(res *snap.GateResult) {
+	fmt.Printf("from %s -> to %s\n", shortSHA(res.From), shortSHA(res.To))
+	if len(res.Violations) == 0 {
+		fmt.Println("gate: pass")
+		return
+	}
+	fmt.Printf("gate: %d violation(s)\n", len(res.Violations))
+	for _, v := range res.Violations {
+		fmt.Printf("  %-16s %s: limit=%g got=%g (from=%g to=%g)\n",
+			v.Metric, v.Constraint, v.Limit, v.Got, v.From, v.To)
+	}
 }
 
 func runDiff(args []string) int {

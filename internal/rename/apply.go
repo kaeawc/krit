@@ -217,6 +217,7 @@ func mergePackageAndImportEdits(plan Plan, editsByFile map[string][]edit) {
 		return
 	}
 	declFiles := declarationFiles(plan)
+	refFiles := referenceFiles(plan)
 
 	for _, file := range plan.cachedFiles {
 		if file == nil {
@@ -245,8 +246,85 @@ func mergePackageAndImportEdits(plan Plan, editsByFile map[string][]edit) {
 					Replace:   repl,
 				})
 			}
+			continue
+		}
+
+		// File referenced the symbol but had no explicit import — that is
+		// only possible when the file shares the symbol's old package. Now
+		// that the symbol is moving away, the file needs an explicit
+		// import added.
+		if !declFiles[file.Path] && refFiles[file.Path] {
+			ctx, ok := plan.Contexts[file.Path]
+			if !ok {
+				continue
+			}
+			if ctx.Package != plan.Target.FromPackage() {
+				continue
+			}
+			ins := buildImportInsertion(file, hr, plan.Target.ToFQN)
+			if ins == nil {
+				continue
+			}
+			editsByFile[file.Path] = append(editsByFile[file.Path], *ins)
 		}
 	}
+}
+
+func referenceFiles(plan Plan) map[string]bool {
+	out := make(map[string]bool, len(plan.References))
+	for _, r := range plan.References {
+		out[r.File] = true
+	}
+	return out
+}
+
+// buildImportInsertion returns an edit that inserts an `import <toFQN>`
+// line at the appropriate position in file. Insertion point precedence:
+// before the first existing import; else after the package declaration;
+// else at the start of the file. Returns nil when no anchor exists.
+func buildImportInsertion(file *scanner.File, hr HeaderRanges, toFQN string) *edit {
+	semi := ""
+	if file.Language == scanner.LangJava {
+		semi = ";"
+	}
+	if first := earliestRange(hr.Imports, hr.Wildcards); first != nil {
+		return &edit{
+			StartByte: first[0],
+			EndByte:   first[0],
+			Replace:   "import " + toFQN + semi + "\n",
+		}
+	}
+	if hr.Package != ([2]int{}) {
+		// Insert immediately after the package line; clamped Package[1] is
+		// the byte before the newline. We add a leading "\n\nimport ..."
+		// so the new import is separated from the package declaration.
+		return &edit{
+			StartByte: hr.Package[1],
+			EndByte:   hr.Package[1],
+			Replace:   "\n\nimport " + toFQN + semi,
+		}
+	}
+	return &edit{
+		StartByte: 0,
+		EndByte:   0,
+		Replace:   "import " + toFQN + semi + "\n\n",
+	}
+}
+
+func earliestRange(maps ...map[string][2]int) *[2]int {
+	var best *[2]int
+	for _, m := range maps {
+		for _, r := range m {
+			if r[0] == 0 && r[1] == 0 {
+				continue
+			}
+			rr := r
+			if best == nil || rr[0] < best[0] {
+				best = &rr
+			}
+		}
+	}
+	return best
 }
 
 func stripEditsInRange(edits []edit, rng [2]int) []edit {

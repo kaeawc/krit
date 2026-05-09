@@ -293,6 +293,31 @@ func TestApply_PreservesKotlinAliasOnCrossPackageRename(t *testing.T) {
 	}
 }
 
+func TestApply_InsertsImportForOrphanedSamePackageReference(t *testing.T) {
+	dir := t.TempDir()
+	declPath := filepath.Join(dir, "OldName.kt")
+	usePath := filepath.Join(dir, "Feature.kt")
+
+	writeFile(t, declPath, "package com.example.foo\n\nclass OldName\n")
+	writeFile(t, usePath, ""+
+		"package com.example.foo\n"+
+		"\n"+
+		"fun useIt(): OldName = OldName()\n")
+
+	plan := buildKotlinPlan(t, []string{declPath, usePath}, "com.example.foo.OldName", "com.example.bar.NewName")
+	if _, err := Apply(plan); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	got := readFile(t, usePath)
+	if !strings.Contains(got, "import com.example.bar.NewName") {
+		t.Fatalf("expected inserted import, got:\n%s", got)
+	}
+	if !strings.Contains(got, "fun useIt(): NewName = NewName()") {
+		t.Fatalf("call sites not rewritten:\n%s", got)
+	}
+}
+
 func TestApply_RejectsIdenticalFromAndTo(t *testing.T) {
 	target, err := ParseTarget("com.example.OldName", "com.example.OldName")
 	if err == nil {

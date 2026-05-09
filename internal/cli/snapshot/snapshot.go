@@ -5,6 +5,7 @@
 package snapshot
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -17,11 +18,12 @@ import (
 // the snapshot package.
 var Version string
 
-const usage = `usage: krit snapshot <capture|status|timeline> [flags]
+const usage = `usage: krit snapshot <capture|status|timeline|info> [flags]
 
   capture [<sha>]   capture a structural snapshot for sha (default: HEAD)
   status            list captured snapshots in this repo
   timeline          print scalar metric over captured snapshots
+  info <sha>        print the manifest for a captured sha
 
 Capture flags:
   --repo PATH       repo root (default: cwd)
@@ -48,6 +50,8 @@ func Run(args []string) int {
 		return runStatus(args[1:])
 	case "timeline":
 		return runTimeline(args[1:])
+	case "info":
+		return runInfo(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown snapshot subcommand: %s\n%s", args[0], usage)
 		return 1
@@ -105,6 +109,10 @@ func runCapture(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
+	if _, err := snap.CaptureManifest(root, res, repoRoot, Version); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
 
 	short := sha
 	if len(short) > 12 {
@@ -150,8 +158,62 @@ func runStatus(args []string) int {
 		fmt.Fprintf(os.Stderr, "no snapshots in %s\n", root)
 		return 0
 	}
+	fmt.Println("commit\tcaptured_at\tkrit_version\tfiles\tsymbols\tbytes")
 	for _, e := range entries {
-		fmt.Printf("%s\t%d\t%s\n", e.CommitSHA, e.Bytes, e.Path)
+		short := e.CommitSHA
+		if len(short) > 12 {
+			short = short[:12]
+		}
+		m, err := snap.LoadManifest(root, e.CommitSHA)
+		if err != nil || m == nil {
+			fmt.Printf("%s\t-\t-\t-\t-\t%d\n", short, e.Bytes)
+			continue
+		}
+		fmt.Printf("%s\t%d\t%s\t%d\t%d\t%d\n", short, m.CapturedAt, m.KritVersion, m.Files, m.Symbols, e.Bytes)
+	}
+	return 0
+}
+
+func runInfo(args []string) int {
+	fs := flag.NewFlagSet("snapshot info", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	repoFlag := fs.String("repo", "", "repository root (default: cwd)")
+	positional, rest := clishared.SplitPositional(args, 1)
+	if err := fs.Parse(rest); err != nil {
+		return 1
+	}
+	if len(positional) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: krit snapshot info <sha>")
+		return 1
+	}
+
+	repoRoot := *repoFlag
+	if repoRoot == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		repoRoot = cwd
+	}
+
+	root := snap.SnapshotsDir(repoRoot)
+	sha, err := snap.ResolveCommitSHA(repoRoot, positional[0])
+	if err != nil {
+		// Fall back to the literal arg — useful when a captured sha
+		// is no longer reachable from the current branch.
+		sha = positional[0]
+	}
+	m, err := snap.LoadManifest(root, sha)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(m); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
 	}
 	return 0
 }

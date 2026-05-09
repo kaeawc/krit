@@ -20,6 +20,10 @@ type edit struct {
 	StartByte int
 	EndByte   int
 	Replace   string
+	// Expect, when non-empty, must equal the existing content at the byte
+	// range. Identifier edits use this to detect stale indexes; full-line
+	// edits (package, import) leave it empty and trust the AST node range.
+	Expect string
 }
 
 // Apply rewrites every reference site in plan to target.ToName and writes
@@ -44,6 +48,7 @@ func apply(plan Plan, dry bool) (ApplyResult, error) {
 	}
 
 	editsByFile := collectIdentifierEdits(plan)
+	mergePackageAndImportEdits(plan, editsByFile)
 
 	var result ApplyResult
 	files := make([]string, 0, len(editsByFile))
@@ -94,6 +99,7 @@ func collectIdentifierEdits(plan Plan) map[string][]edit {
 			StartByte: ref.StartByte,
 			EndByte:   ref.EndByte,
 			Replace:   plan.Target.ToName,
+			Expect:    plan.Target.FromName,
 		})
 	}
 	return out
@@ -114,9 +120,11 @@ func applyFileEdits(plan Plan, file string, edits []edit) ([]byte, error) {
 		if e.StartByte < 0 || e.EndByte > len(content) {
 			return nil, fmt.Errorf("rename apply: edit out of bounds in %s (%d..%d, len=%d)", file, e.StartByte, e.EndByte, len(content))
 		}
-		current := string(content[e.StartByte:e.EndByte])
-		if current != plan.Target.FromName {
-			return nil, fmt.Errorf("rename apply: %s byte range %d..%d holds %q, not %q (file changed since indexing?)", file, e.StartByte, e.EndByte, current, plan.Target.FromName)
+		if e.Expect != "" {
+			current := string(content[e.StartByte:e.EndByte])
+			if current != e.Expect {
+				return nil, fmt.Errorf("rename apply: %s byte range %d..%d holds %q, not %q (file changed since indexing?)", file, e.StartByte, e.EndByte, current, e.Expect)
+			}
 		}
 		content = append(content[:e.StartByte], append([]byte(e.Replace), content[e.EndByte:]...)...)
 	}
@@ -140,6 +148,140 @@ func planFilesFromPlan(plan Plan) []*scanner.File {
 		return plan.cachedFiles
 	}
 	return nil
+}
+
+// mergePackageAndImportEdits adds edits for files that need their package
+// declaration or import statements rewritten. Triggered when the rename
+// crosses package boundaries; same-package renames need no header edits
+// because the simple-name rewrite from collectIdentifierEdits already
+// updates explicit import lines in place.
+func mergePackageAndImportEdits(plan Plan, editsByFile map[string][]edit) {
+	if !plan.Target.PackageChanged() {
+		return
+	}
+	declFiles := declarationFiles(plan)
+
+	for _, file := range plan.cachedFiles {
+		if file == nil {
+			continue
+		}
+		hr := CollectHeaderRanges(file)
+
+		if declFiles[file.Path] && hr.Package != ([2]int{}) {
+			rewriteText := buildPackageReplacement(file, hr.Package, plan.Target.ToPackage())
+			if rewriteText != "" {
+				editsByFile[file.Path] = append(editsByFile[file.Path], edit{
+					StartByte: hr.Package[0],
+					EndByte:   hr.Package[1],
+					Replace:   rewriteText,
+				})
+			}
+		}
+
+		if rng, ok := hr.Imports[plan.Target.FromFQN]; ok {
+			repl := rewriteImportLine(file, rng, plan.Target.FromFQN, plan.Target.ToFQN)
+			if repl != "" {
+				editsByFile[file.Path] = stripEditsInRange(editsByFile[file.Path], rng)
+				editsByFile[file.Path] = append(editsByFile[file.Path], edit{
+					StartByte: rng[0],
+					EndByte:   rng[1],
+					Replace:   repl,
+				})
+			}
+		}
+	}
+}
+
+func stripEditsInRange(edits []edit, rng [2]int) []edit {
+	out := edits[:0]
+	for _, e := range edits {
+		if e.StartByte >= rng[0] && e.EndByte <= rng[1] {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func declarationFiles(plan Plan) map[string]bool {
+	out := make(map[string]bool, len(plan.Declarations))
+	for _, d := range plan.Declarations {
+		out[d.File] = true
+	}
+	return out
+}
+
+// buildPackageReplacement substitutes the FromPackage occurrence within the
+// existing package declaration text with toPackage, preserving the file's
+// original `package` keyword spacing and trailing semicolon (Java).
+func buildPackageReplacement(file *scanner.File, rng [2]int, toPackage string) string {
+	if file.Content == nil {
+		return ""
+	}
+	if rng[0] < 0 || rng[1] > len(file.Content) || rng[0] >= rng[1] {
+		return ""
+	}
+	original := string(file.Content[rng[0]:rng[1]])
+	switch file.Language {
+	case scanner.LangJava:
+		semi := ""
+		body := original
+		if len(body) > 0 && body[len(body)-1] == ';' {
+			semi = ";"
+			body = body[:len(body)-1]
+		}
+		return "package " + toPackage + semi + trailingNewline(body)
+	default:
+		return "package " + toPackage + trailingNewline(original)
+	}
+}
+
+func rewriteImportLine(file *scanner.File, rng [2]int, fromFQN, toFQN string) string {
+	if file.Content == nil {
+		return ""
+	}
+	if rng[0] < 0 || rng[1] > len(file.Content) || rng[0] >= rng[1] {
+		return ""
+	}
+	original := string(file.Content[rng[0]:rng[1]])
+	switch file.Language {
+	case scanner.LangJava:
+		semi := ""
+		body := original
+		if len(body) > 0 && body[len(body)-1] == ';' {
+			semi = ";"
+			body = body[:len(body)-1]
+		}
+		// Preserve `static` modifier if it was present.
+		isStatic := false
+		trimmed := body
+		trimmed = trimImportPrefix(trimmed)
+		if len(trimmed) >= len("static ") && trimmed[:len("static ")] == "static " {
+			isStatic = true
+		}
+		prefix := "import "
+		if isStatic {
+			prefix = "import static "
+		}
+		_ = fromFQN
+		return prefix + toFQN + semi + trailingNewline(body)
+	default:
+		return "import " + toFQN + trailingNewline(original)
+	}
+}
+
+func trimImportPrefix(s string) string {
+	if len(s) >= len("import ") && s[:len("import ")] == "import " {
+		return s[len("import "):]
+	}
+	return s
+}
+
+func trailingNewline(s string) string {
+	if len(s) > 0 && s[len(s)-1] == '\n' {
+		return "\n"
+	}
+	return ""
 }
 
 func atomicWrite(path string, content []byte) error {

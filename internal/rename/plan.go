@@ -19,6 +19,31 @@ type Target struct {
 	ToName   string
 }
 
+// FromPackage returns the package portion of FromFQN (everything before the
+// final dot), or the empty string for an unqualified target.
+func (t Target) FromPackage() string {
+	idx := strings.LastIndex(t.FromFQN, ".")
+	if idx <= 0 {
+		return ""
+	}
+	return t.FromFQN[:idx]
+}
+
+// ToPackage returns the package portion of ToFQN.
+func (t Target) ToPackage() string {
+	idx := strings.LastIndex(t.ToFQN, ".")
+	if idx <= 0 {
+		return ""
+	}
+	return t.ToFQN[:idx]
+}
+
+// PackageChanged reports whether the rename moves the symbol to a new
+// package — i.e. its FQN parent changed.
+func (t Target) PackageChanged() bool {
+	return t.FromPackage() != t.ToPackage()
+}
+
 // Summary is a compact view of the current rename plan.
 type Summary struct {
 	Declarations int
@@ -73,23 +98,39 @@ func ParseTarget(fromFQN, toFQN string) (Target, error) {
 	}, nil
 }
 
-// BuildPlan projects the current reference index into the declaration and
-// reference candidates for a requested rename. References are filtered to
-// only those that resolve to target.FromFQN in their file's package and
-// import context. Files without context (e.g. files not parsed into the
-// index) are matched by simple name as a conservative fallback.
+// BuildPlan is a convenience wrapper around BuildPlanWithFiles with no
+// extra files beyond what the index carries.
 func BuildPlan(idx *scanner.CodeIndex, target Target) Plan {
+	return BuildPlanWithFiles(idx, target, nil)
+}
+
+// BuildPlanWithFiles projects the current reference index into the declaration
+// and reference candidates for a requested rename. References are filtered to
+// only those that resolve to target.FromFQN in their file's package and
+// import context. extraFiles supplies parsed *scanner.File objects that the
+// CodeIndex does not itself store (Java files, in particular) so Apply can
+// rewrite their package declarations and imports.
+func BuildPlanWithFiles(idx *scanner.CodeIndex, target Target, extraFiles []*scanner.File) Plan {
 	plan := Plan{Target: target, Contexts: make(map[string]FileContext)}
 	if idx == nil {
 		return plan
 	}
 
-	for _, file := range idx.Files {
+	addFile := func(file *scanner.File) {
 		if file == nil {
-			continue
+			return
+		}
+		if _, seen := plan.Contexts[file.Path]; seen {
+			return
 		}
 		plan.Contexts[file.Path] = BuildFileContext(file)
 		plan.cachedFiles = append(plan.cachedFiles, file)
+	}
+	for _, file := range idx.Files {
+		addFile(file)
+	}
+	for _, file := range extraFiles {
+		addFile(file)
 	}
 
 	files := make(map[string]bool)

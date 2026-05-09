@@ -151,6 +151,129 @@ func (c FileContext) MatchesFQN(name, fqn string) bool {
 	return false
 }
 
+// HeaderRanges holds byte ranges for package and import statement nodes in
+// a single file. Used by Apply to rewrite or replace those statements
+// when a rename moves a symbol across packages.
+type HeaderRanges struct {
+	Package        [2]int            // byte range of package_header / package_declaration; zero means no package
+	Imports        map[string][2]int // FQN -> import_header range
+	Aliases        map[string][2]int // alias -> import_header range
+	Wildcards      map[string][2]int // package -> wildcard import range
+	FirstImportPos int               // byte offset where a new import would be inserted; 0 if no anchor
+}
+
+// CollectHeaderRanges walks file's flat AST to extract byte ranges for the
+// package declaration and every import statement. Works for both Kotlin
+// and Java files.
+func CollectHeaderRanges(file *scanner.File) HeaderRanges {
+	hr := HeaderRanges{
+		Imports:   make(map[string][2]int),
+		Aliases:   make(map[string][2]int),
+		Wildcards: make(map[string][2]int),
+	}
+	if file == nil || file.FlatTree == nil {
+		return hr
+	}
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		switch file.FlatType(idx) {
+		case "package_header", "package_declaration":
+			hr.Package = [2]int{int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx))}
+		case "import_header":
+			recordImportRange(file, idx, &hr, parseKotlinImportTarget)
+		case "import_declaration":
+			recordImportRange(file, idx, &hr, parseJavaImportTarget)
+		}
+	})
+	hr.FirstImportPos = computeFirstImportPos(file, hr)
+	return hr
+}
+
+type importTarget struct {
+	fqn      string
+	alias    string
+	wildcard bool
+	pkg      string
+}
+
+func recordImportRange(file *scanner.File, idx uint32, hr *HeaderRanges, parse func(string) importTarget) {
+	rng := [2]int{int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx))}
+	tgt := parse(file.FlatNodeText(idx))
+	switch {
+	case tgt.alias != "" && tgt.fqn != "":
+		hr.Aliases[tgt.alias] = rng
+		hr.Imports[tgt.fqn] = rng
+	case tgt.wildcard && tgt.pkg != "":
+		hr.Wildcards[tgt.pkg] = rng
+	case tgt.fqn != "":
+		hr.Imports[tgt.fqn] = rng
+	}
+}
+
+func parseKotlinImportTarget(raw string) importTarget {
+	text := strings.TrimSpace(raw)
+	text = strings.TrimPrefix(text, "import")
+	text = strings.TrimSpace(text)
+	text = strings.TrimSuffix(text, ";")
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return importTarget{}
+	}
+	if i := strings.Index(text, " as "); i >= 0 {
+		fqn := strings.TrimSpace(text[:i])
+		alias := strings.TrimSpace(text[i+len(" as "):])
+		return importTarget{fqn: fqn, alias: alias}
+	}
+	if strings.HasSuffix(text, ".*") {
+		return importTarget{wildcard: true, pkg: strings.TrimSuffix(text, ".*")}
+	}
+	return importTarget{fqn: text}
+}
+
+func parseJavaImportTarget(raw string) importTarget {
+	text := strings.TrimSpace(raw)
+	text = strings.TrimPrefix(text, "import")
+	text = strings.TrimSpace(text)
+	text = strings.TrimPrefix(text, "static")
+	text = strings.TrimSpace(text)
+	text = strings.TrimSuffix(text, ";")
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return importTarget{}
+	}
+	if strings.HasSuffix(text, ".*") {
+		return importTarget{wildcard: true, pkg: strings.TrimSuffix(text, ".*")}
+	}
+	return importTarget{fqn: text}
+}
+
+// computeFirstImportPos returns the byte offset where a freshly-inserted
+// import line should go. Prefers the byte immediately before the first
+// existing import; otherwise the byte after the package declaration; else 0.
+func computeFirstImportPos(_ *scanner.File, hr HeaderRanges) int {
+	first := -1
+	consider := func(rng [2]int) {
+		if rng[1] == 0 && rng[0] == 0 {
+			return
+		}
+		if first == -1 || rng[0] < first {
+			first = rng[0]
+		}
+	}
+	for _, r := range hr.Imports {
+		consider(r)
+	}
+	for _, r := range hr.Wildcards {
+		consider(r)
+	}
+	if first >= 0 {
+		return first
+	}
+	if hr.Package != [2]int{} {
+		return hr.Package[1]
+	}
+	return 0
+}
+
 func splitFQN(fqn string) (parent, simple string, ok bool) {
 	idx := strings.LastIndex(fqn, ".")
 	if idx <= 0 || idx == len(fqn)-1 {

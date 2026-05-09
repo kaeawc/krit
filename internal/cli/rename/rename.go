@@ -98,7 +98,7 @@ func buildRenamePlan(paths []string, workers int, target krename.Target) (krenam
 	}
 
 	idx := scanner.BuildIndex(parsedFiles, workers, parsedJavaFiles...)
-	return krename.BuildPlan(idx, target), nil
+	return krename.BuildPlanWithFiles(idx, target, parsedJavaFiles), nil
 }
 
 func joinErrors(errs []error) error {

@@ -89,6 +89,34 @@ func (e DispatchError) Error() string {
 	return fmt.Sprintf("krit: panic in rule %s on %s:%d: %v", e.RuleName, e.FilePath, e.Line, e.PanicValue)
 }
 
+// SortDispatchErrors orders errors by (FilePath, Line, RuleName,
+// PanicValue string) so that error emission has a stable cross-run
+// ordering regardless of which goroutine recovered each panic first.
+//
+// Callers in pipeline phases (dispatch, crossfile, etc.) MUST invoke
+// this before emitting `[]DispatchError` to a Reporter or returning
+// it across a phase boundary — see issues #28 and #29. The helper
+// lives in this package so every dispatch-error producer can reach it
+// without re-deriving the comparator.
+func SortDispatchErrors(errs []DispatchError) {
+	if len(errs) <= 1 {
+		return
+	}
+	sort.SliceStable(errs, func(i, j int) bool {
+		a, b := errs[i], errs[j]
+		if a.FilePath != b.FilePath {
+			return a.FilePath < b.FilePath
+		}
+		if a.Line != b.Line {
+			return a.Line < b.Line
+		}
+		if a.RuleName != b.RuleName {
+			return a.RuleName < b.RuleName
+		}
+		return fmt.Sprintf("%v", a.PanicValue) < fmt.Sprintf("%v", b.PanicValue)
+	})
+}
+
 // Rule families are no longer expressed as named Go interfaces. Rules
 // declare their dispatch intent structurally — callers type-assert to
 // anonymous interface types describing just the methods they need.

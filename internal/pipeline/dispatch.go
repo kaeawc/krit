@@ -45,10 +45,15 @@ func (d DispatchPhase) dispatchWorkerCount(in IndexResult) int {
 }
 
 // emitPanicDiagnostics reports any rule panics that occurred during dispatch.
+//
+// Errors are sorted before emission so that warning output has a stable
+// ordering across runs regardless of which goroutine recovered each
+// panic first — see #28.
 func (DispatchPhase) emitPanicDiagnostics(in IndexResult, acc rules.RunStats) {
 	if len(acc.Errors) == 0 {
 		return
 	}
+	rules.SortDispatchErrors(acc.Errors)
 	for _, de := range acc.Errors {
 		in.Reporter.Warnf("%s\n", de.Error())
 	}

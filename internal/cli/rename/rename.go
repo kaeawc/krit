@@ -16,6 +16,7 @@ type renameCommand struct {
 	ToFQN   string
 	Paths   []string
 	Jobs    int
+	Apply   bool
 }
 
 func Run(args []string) int {
@@ -23,6 +24,7 @@ func Run(args []string) int {
 	fs := flag.NewFlagSet("rename", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.IntVar(&cmd.Jobs, "j", runtime.NumCPU(), "Number of parallel jobs")
+	fs.BoolVar(&cmd.Apply, "apply", false, "Apply the rename to the working tree (default: dry-run)")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: krit rename [flags] <from-fqn> <to-fqn> [paths...]")
 		fs.PrintDefaults()
@@ -64,6 +66,11 @@ func runRenameCommand(cmd renameCommand) int {
 		return 2
 	}
 
+	if err := krename.ValidatePlan(plan); err != nil {
+		fmt.Fprintf(os.Stderr, "error: rename: %v\n", err)
+		return 2
+	}
+
 	summary := plan.Summary()
 	fmt.Printf(
 		"Rename planning found %d candidate occurrences in %d files (%d declarations, %d references) for %s -> %s.\n",
@@ -74,8 +81,38 @@ func runRenameCommand(cmd renameCommand) int {
 		target.FromFQN,
 		target.ToFQN,
 	)
-	fmt.Fprintf(os.Stderr, "error: %v\n", krename.ErrApplyNotImplemented)
-	return 2
+
+	if !cmd.Apply {
+		res, err := krename.DryRunApply(plan)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: rename dry-run: %v\n", err)
+			return 2
+		}
+		fmt.Printf("Dry run: would change %d files (%d edits)", res.FilesChanged, res.Edits)
+		if len(res.Moves) > 0 {
+			fmt.Printf(", %d file moves", len(res.Moves))
+		}
+		fmt.Println(". Re-run with --apply to write changes.")
+		for _, mv := range res.Moves {
+			fmt.Printf("  move: %s -> %s\n", mv.From, mv.To)
+		}
+		return 0
+	}
+
+	res, err := krename.Apply(plan)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: rename apply: %v\n", err)
+		return 1
+	}
+	fmt.Printf("Applied: %d files changed (%d edits)", res.FilesChanged, res.Edits)
+	if len(res.Moves) > 0 {
+		fmt.Printf(", %d file moves", len(res.Moves))
+	}
+	fmt.Println(".")
+	for _, mv := range res.Moves {
+		fmt.Printf("  moved: %s -> %s\n", mv.From, mv.To)
+	}
+	return 0
 }
 
 func buildRenamePlan(paths []string, workers int, target krename.Target) (krename.Plan, error) {

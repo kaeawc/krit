@@ -206,6 +206,25 @@ func packageNameForFile(file *File) string {
 	return kotlinPackageName(file)
 }
 
+// parsePackageHeaderText extracts a clean dotted package name from a
+// `package_header` node's text. Tree-sitter Kotlin sometimes attaches
+// trailing comments and whitespace to the package_header node, so we
+// take only the first non-empty, non-comment line and strip the leading
+// `package` keyword.
+func parsePackageHeaderText(raw string) string {
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "//") || strings.HasPrefix(line, "/*") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "package")
+		line = strings.TrimSpace(line)
+		line = strings.TrimSuffix(line, ";")
+		return strings.TrimSpace(line)
+	}
+	return ""
+}
+
 func kotlinPackageName(file *File) string {
 	if file == nil || file.FlatTree == nil {
 		return ""
@@ -215,12 +234,9 @@ func kotlinPackageName(file *File) string {
 		if pkg != "" || file.FlatType(idx) != "package_header" {
 			return
 		}
-		text := strings.TrimSpace(file.FlatNodeText(idx))
-		text = strings.TrimPrefix(text, "package")
-		text = strings.TrimSpace(text)
-		pkg = strings.TrimSuffix(text, ";")
+		pkg = parsePackageHeaderText(file.FlatNodeText(idx))
 	})
-	return internString(strings.TrimSpace(pkg))
+	return internString(pkg)
 }
 
 func symbolOwner(file *File, idx uint32, pkg string) string {

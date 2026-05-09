@@ -36,24 +36,50 @@ func BuildFileContext(file *scanner.File) FileContext {
 
 	file.FlatWalkAllNodes(0, func(idx uint32) {
 		switch file.FlatType(idx) {
-		case "package_header":
-			text := strings.TrimSpace(file.FlatNodeText(idx))
-			text = strings.TrimPrefix(text, "package")
-			text = strings.TrimSpace(text)
-			ctx.Package = strings.TrimSuffix(text, ";")
-		case "package_declaration":
-			text := strings.TrimSpace(file.FlatNodeText(idx))
-			text = strings.TrimPrefix(text, "package")
-			text = strings.TrimSpace(text)
-			ctx.Package = strings.TrimSuffix(text, ";")
+		case "package_header", "package_declaration":
+			if ctx.Package == "" {
+				ctx.Package = firstHeaderLine(file.FlatNodeText(idx), "package")
+			}
 		case "import_header":
-			parseKotlinImport(file.FlatNodeText(idx), &ctx)
+			parseKotlinImport(firstSourceLine(file.FlatNodeText(idx)), &ctx)
 		case "import_declaration":
-			parseJavaImport(file.FlatNodeText(idx), &ctx)
+			parseJavaImport(firstSourceLine(file.FlatNodeText(idx)), &ctx)
 		}
 	})
 
 	return ctx
+}
+
+// firstSourceLine returns the first non-empty, non-comment line of raw,
+// trimmed. Used to ignore trailing trivia that tree-sitter sometimes
+// attaches to header nodes.
+func firstSourceLine(raw string) string {
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "//") || strings.HasPrefix(line, "/*") {
+			continue
+		}
+		return line
+	}
+	return ""
+}
+
+// firstHeaderLine returns the first non-empty, non-comment line of raw with
+// the given keyword stripped. Tree-sitter Kotlin/Java sometimes attach
+// trailing comments and whitespace to header nodes, so a naïve TrimSpace
+// of FlatNodeText would include them.
+func firstHeaderLine(raw, keyword string) string {
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "//") || strings.HasPrefix(line, "/*") {
+			continue
+		}
+		line = strings.TrimPrefix(line, keyword)
+		line = strings.TrimSpace(line)
+		line = strings.TrimSuffix(line, ";")
+		return strings.TrimSpace(line)
+	}
+	return ""
 }
 
 func parseKotlinImport(raw string, ctx *FileContext) {
@@ -177,7 +203,7 @@ func CollectHeaderRanges(file *scanner.File) HeaderRanges {
 	file.FlatWalkAllNodes(0, func(idx uint32) {
 		switch file.FlatType(idx) {
 		case "package_header", "package_declaration":
-			hr.Package = [2]int{int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx))}
+			hr.Package = clampToFirstLine(file, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
 		case "import_header":
 			recordImportRange(file, idx, &hr, parseKotlinImportTarget)
 		case "import_declaration":
@@ -196,8 +222,8 @@ type importTarget struct {
 }
 
 func recordImportRange(file *scanner.File, idx uint32, hr *HeaderRanges, parse func(string) importTarget) {
-	rng := [2]int{int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx))}
-	tgt := parse(file.FlatNodeText(idx))
+	rng := clampToFirstLine(file, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
+	tgt := parse(firstSourceLine(file.FlatNodeText(idx)))
 	switch {
 	case tgt.alias != "" && tgt.fqn != "":
 		hr.Aliases[tgt.alias] = rng
@@ -272,6 +298,22 @@ func computeFirstImportPos(_ *scanner.File, hr HeaderRanges) int {
 		return hr.Package[1]
 	}
 	return 0
+}
+
+// clampToFirstLine narrows a byte range to its first line. If the range
+// starts at the beginning of a header but extends into trailing
+// comments/whitespace (a tree-sitter quirk), the rewriter would otherwise
+// erase those when replacing the line.
+func clampToFirstLine(file *scanner.File, start, end int) [2]int {
+	if file.Content == nil || start < 0 || end > len(file.Content) || start >= end {
+		return [2]int{start, end}
+	}
+	for i := start; i < end; i++ {
+		if file.Content[i] == '\n' {
+			return [2]int{start, i}
+		}
+	}
+	return [2]int{start, end}
 }
 
 func splitFQN(fqn string) (parent, simple string, ok bool) {

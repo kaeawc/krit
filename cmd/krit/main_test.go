@@ -1147,13 +1147,33 @@ func TestRenameSubcommand_PlansAndReturnsTodo(t *testing.T) {
 	}
 
 	stdout, stderr, code := runKrit(t, "rename", "com.example.OldName", "com.example.NewName", dir)
-	if code != 2 {
-		t.Fatalf("rename failed: exit=%d stderr=%s stdout=%s", code, stderr, stdout)
+	if code != 0 {
+		t.Fatalf("rename dry-run failed: exit=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
 	if !strings.Contains(stdout, "Rename planning found") {
 		t.Fatalf("expected rename planning summary, got: %s", stdout)
 	}
-	if !strings.Contains(stderr, "rename apply is not implemented yet") {
-		t.Fatalf("expected TODO stderr, got: %s", stderr)
+	if !strings.Contains(stdout, "Dry run") {
+		t.Fatalf("expected dry-run summary, got: %s", stdout)
+	}
+	// Dry-run leaves the file in place.
+	if _, err := os.Stat(oldNamePath); err != nil {
+		t.Fatalf("dry-run should preserve original file: %v", err)
+	}
+
+	stdout, stderr, code = runKrit(t, "rename", "-apply", "com.example.OldName", "com.example.NewName", dir)
+	if code != 0 {
+		t.Fatalf("rename apply failed: exit=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	newPath := filepath.Join(filepath.Dir(oldNamePath), "NewName.kt")
+	if _, err := os.Stat(newPath); err != nil {
+		t.Fatalf("expected renamed file at %s: %v", newPath, err)
+	}
+	body, err := os.ReadFile(featurePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "OldName") {
+		t.Fatalf("apply did not rewrite reference: %s", body)
 	}
 }

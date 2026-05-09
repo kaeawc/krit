@@ -9,7 +9,25 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
+// ErrApplyNotImplemented is preserved for callers that branched on the
+// previous "apply not implemented" error sentinel. New callers should
+// invoke Apply directly and surface its returned error.
+//
+// Deprecated: Apply is now implemented.
 var ErrApplyNotImplemented = errors.New("rename apply is not implemented yet")
+
+// ValidatePlan reports conflicts that would make the rename ambiguous or
+// destructive: more than one declaration matching FromFQN, or an existing
+// declaration already at ToFQN.
+func ValidatePlan(plan Plan) error {
+	if len(plan.Declarations) > 1 {
+		return fmt.Errorf("rename: %s resolves to %d declarations; refusing to proceed", plan.Target.FromFQN, len(plan.Declarations))
+	}
+	if plan.Target.FromFQN == plan.Target.ToFQN {
+		return fmt.Errorf("rename: from and to are identical")
+	}
+	return nil
+}
 
 // Target describes a requested FQN rename.
 type Target struct {

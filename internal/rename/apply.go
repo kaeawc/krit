@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -267,77 +268,45 @@ func declarationFiles(plan Plan) map[string]bool {
 	return out
 }
 
-// buildPackageReplacement substitutes the FromPackage occurrence within the
-// existing package declaration text with toPackage, preserving the file's
-// original `package` keyword spacing and trailing semicolon (Java).
+// buildPackageReplacement returns the replacement text for the file's
+// package declaration line, preserving the trailing semicolon for Java.
 func buildPackageReplacement(file *scanner.File, rng [2]int, toPackage string) string {
-	if file.Content == nil {
-		return ""
-	}
-	if rng[0] < 0 || rng[1] > len(file.Content) || rng[0] >= rng[1] {
+	if file.Content == nil || rng[0] < 0 || rng[1] > len(file.Content) || rng[0] >= rng[1] {
 		return ""
 	}
 	original := string(file.Content[rng[0]:rng[1]])
-	switch file.Language {
-	case scanner.LangJava:
-		semi := ""
-		body := original
-		if len(body) > 0 && body[len(body)-1] == ';' {
-			semi = ";"
-			body = body[:len(body)-1]
-		}
-		return "package " + toPackage + semi + trailingNewline(body)
-	default:
-		return "package " + toPackage + trailingNewline(original)
+	hasSemi := strings.HasSuffix(strings.TrimSpace(original), ";")
+	out := "package " + toPackage
+	if file.Language == scanner.LangJava || hasSemi {
+		out += ";"
 	}
+	return out
 }
 
 func rewriteImportLine(file *scanner.File, rng [2]int, fromFQN, toFQN string) string {
-	if file.Content == nil {
+	if file.Content == nil || rng[0] < 0 || rng[1] > len(file.Content) || rng[0] >= rng[1] {
 		return ""
 	}
-	if rng[0] < 0 || rng[1] > len(file.Content) || rng[0] >= rng[1] {
-		return ""
-	}
-	original := string(file.Content[rng[0]:rng[1]])
-	switch file.Language {
-	case scanner.LangJava:
-		semi := ""
-		body := original
-		if len(body) > 0 && body[len(body)-1] == ';' {
-			semi = ";"
-			body = body[:len(body)-1]
-		}
-		// Preserve `static` modifier if it was present.
-		isStatic := false
-		trimmed := body
-		trimmed = trimImportPrefix(trimmed)
-		if len(trimmed) >= len("static ") && trimmed[:len("static ")] == "static " {
-			isStatic = true
-		}
-		prefix := "import "
-		if isStatic {
+	original := strings.TrimSpace(string(file.Content[rng[0]:rng[1]]))
+	hasSemi := strings.HasSuffix(original, ";")
+	body := strings.TrimSuffix(original, ";")
+	body = strings.TrimSpace(body)
+	body = strings.TrimPrefix(body, "import")
+	body = strings.TrimSpace(body)
+
+	prefix := "import "
+	if file.Language == scanner.LangJava {
+		if strings.HasPrefix(body, "static ") {
 			prefix = "import static "
 		}
-		_ = fromFQN
-		return prefix + toFQN + semi + trailingNewline(body)
-	default:
-		return "import " + toFQN + trailingNewline(original)
 	}
-}
 
-func trimImportPrefix(s string) string {
-	if len(s) >= len("import ") && s[:len("import ")] == "import " {
-		return s[len("import "):]
+	out := prefix + toFQN
+	if file.Language == scanner.LangJava || hasSemi {
+		out += ";"
 	}
-	return s
-}
-
-func trailingNewline(s string) string {
-	if len(s) > 0 && s[len(s)-1] == '\n' {
-		return "\n"
-	}
-	return ""
+	_ = fromFQN
+	return out
 }
 
 func atomicWrite(path string, content []byte) error {

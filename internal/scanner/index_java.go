@@ -133,10 +133,7 @@ func javaPackageName(file *File) string {
 		if pkg != "" || file.FlatType(idx) != "package_declaration" {
 			return
 		}
-		text := strings.TrimSpace(file.FlatNodeText(idx))
-		text = strings.TrimPrefix(text, "package")
-		text = strings.TrimSuffix(text, ";")
-		pkg = strings.TrimSpace(text)
+		pkg = parsePackageHeaderText(file.FlatNodeText(idx))
 	})
 	return internString(pkg)
 }

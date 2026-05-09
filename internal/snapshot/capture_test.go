@@ -18,7 +18,7 @@ func TestCaptureStandaloneKotlinFile(t *testing.T) {
 		t.Fatalf("write src: %v", err)
 	}
 
-	blob, err := Capture(CaptureOptions{
+	res, err := Capture(CaptureOptions{
 		RepoRoot:    repo,
 		CommitSHA:   "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
 		KritVersion: "test",
@@ -27,6 +27,7 @@ func TestCaptureStandaloneKotlinFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Capture: %v", err)
 	}
+	blob := res.Blob
 	if blob.SchemaVersion != SchemaVersion {
 		t.Fatalf("SchemaVersion: %d", blob.SchemaVersion)
 	}
@@ -50,6 +51,19 @@ func TestCaptureStandaloneKotlinFile(t *testing.T) {
 	}
 	if !foundGreet {
 		t.Fatalf("expected greet symbol in blob: %+v", blob.Symbols)
+	}
+
+	if res.Metrics == nil || res.Metrics.CommitSHA != blob.CommitSHA {
+		t.Fatalf("metrics not populated: %+v", res.Metrics)
+	}
+	if len(res.Metrics.Files) != 1 || res.Metrics.Files[0].Path != "src/main/kotlin/demo/Greet.kt" {
+		t.Fatalf("metrics files: %+v", res.Metrics.Files)
+	}
+	if res.Metrics.Files[0].Symbols == 0 {
+		t.Fatalf("expected at least one symbol on greet file: %+v", res.Metrics.Files[0])
+	}
+	if res.Metrics.Files[0].Cyclomatic < 1 {
+		t.Fatalf("expected cyclomatic >= 1, got %d", res.Metrics.Files[0].Cyclomatic)
 	}
 }
 

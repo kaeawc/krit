@@ -29,11 +29,21 @@ type CaptureOptions struct {
 	Now func() time.Time
 }
 
+// Result is the output of a Capture invocation: the structural graph
+// blob plus the per-file/per-module metrics rollup derived from the
+// same parse. Callers that only need the blob can read .Blob; callers
+// driving a timeline query also need .Metrics.
+type Result struct {
+	Blob    *Blob
+	Metrics *Metrics
+}
+
 // Capture walks RepoRoot, builds a structural graph (module discovery +
 // cross-file scanner index over Kotlin and Java sources), and returns a
-// Blob ready for Save. No findings are computed — this is the cold-path
-// graph store, deliberately separate from rule dispatch.
-func Capture(opts CaptureOptions) (*Blob, error) {
+// Result containing both the cold-path graph blob and the dense scalar
+// rollup. No findings are computed — this is deliberately separate from
+// rule dispatch.
+func Capture(opts CaptureOptions) (*Result, error) {
 	if opts.RepoRoot == "" {
 		return nil, fmt.Errorf("snapshot: RepoRoot required")
 	}
@@ -78,7 +88,12 @@ func Capture(opts CaptureOptions) (*Blob, error) {
 		Files:         buildFiles(ktFiles, javaFiles, fileToModule, root),
 		Symbols:       buildSymbols(idx, root),
 	}
-	return blob, nil
+
+	allFiles := make([]*scanner.File, 0, len(ktFiles)+len(javaFiles))
+	allFiles = append(allFiles, ktFiles...)
+	allFiles = append(allFiles, javaFiles...)
+	metrics := computeMetrics(blob, allFiles)
+	return &Result{Blob: blob, Metrics: metrics}, nil
 }
 
 // collectSources walks each discovered module's source roots. fileToModule

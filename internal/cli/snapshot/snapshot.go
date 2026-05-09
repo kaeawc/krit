@@ -17,14 +17,22 @@ import (
 // the snapshot package.
 var Version string
 
-const usage = `usage: krit snapshot <capture|status> [flags]
+const usage = `usage: krit snapshot <capture|status|timeline> [flags]
 
   capture [<sha>]   capture a structural snapshot for sha (default: HEAD)
   status            list captured snapshots in this repo
+  timeline          print scalar metric over captured snapshots
 
-Flags (apply to capture):
+Capture flags:
   --repo PATH       repo root (default: cwd)
   --output PATH     write blob path on success to PATH (default: stderr)
+
+Timeline flags:
+  --repo PATH       repo root (default: cwd)
+  --scope SCOPE     repo|module|file  (default: repo)
+  --target TARGET   module path or file path; required for module/file scope
+  --metric METRIC   loc|bytes|symbols|public_symbols|cyclomatic|files|fan_in|fan_out
+                    (default: loc)
 `
 
 // Run dispatches to the chosen sub-verb. Returns the process exit code.
@@ -38,6 +46,8 @@ func Run(args []string) int {
 		return runCapture(args[1:])
 	case "status":
 		return runStatus(args[1:])
+	case "timeline":
+		return runTimeline(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown snapshot subcommand: %s\n%s", args[0], usage)
 		return 1
@@ -75,7 +85,7 @@ func runCapture(args []string) int {
 		return 1
 	}
 
-	blob, err := snap.Capture(snap.CaptureOptions{
+	res, err := snap.Capture(snap.CaptureOptions{
 		RepoRoot:    repoRoot,
 		CommitSHA:   sha,
 		KritVersion: Version,
@@ -86,8 +96,12 @@ func runCapture(args []string) int {
 	}
 
 	root := snap.SnapshotsDir(repoRoot)
-	path, err := snap.Save(root, blob)
+	path, err := snap.Save(root, res.Blob)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	if _, err := snap.SaveMetrics(root, res.Metrics); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
@@ -97,7 +111,7 @@ func runCapture(args []string) int {
 		short = short[:12]
 	}
 	fmt.Fprintf(os.Stderr, "captured snapshot %s (%d files, %d symbols, %d modules) -> %s\n",
-		short, len(blob.Files), len(blob.Symbols), len(blob.Modules), path)
+		short, len(res.Blob.Files), len(res.Blob.Symbols), len(res.Blob.Modules), path)
 
 	if *outputFlag != "" {
 		if err := os.WriteFile(*outputFlag, []byte(path+"\n"), 0o644); err != nil {
@@ -138,6 +152,51 @@ func runStatus(args []string) int {
 	}
 	for _, e := range entries {
 		fmt.Printf("%s\t%d\t%s\n", e.CommitSHA, e.Bytes, e.Path)
+	}
+	return 0
+}
+
+func runTimeline(args []string) int {
+	fs := flag.NewFlagSet("snapshot timeline", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	repoFlag := fs.String("repo", "", "repository root (default: cwd)")
+	scopeFlag := fs.String("scope", "repo", "repo|module|file")
+	targetFlag := fs.String("target", "", "module path or file path (required for module/file)")
+	metricFlag := fs.String("metric", "loc", "loc|bytes|symbols|public_symbols|cyclomatic|files|fan_in|fan_out|modules")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+
+	repoRoot := *repoFlag
+	if repoRoot == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		repoRoot = cwd
+	}
+
+	root := snap.SnapshotsDir(repoRoot)
+	points, err := snap.Timeline(root, snap.TimelineQuery{
+		Scope:  snap.TimelineScope(*scopeFlag),
+		Target: *targetFlag,
+		Metric: *metricFlag,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	if len(points) == 0 {
+		fmt.Fprintln(os.Stderr, "no timeline points (no captured snapshots match)")
+		return 0
+	}
+	for _, p := range points {
+		short := p.CommitSHA
+		if len(short) > 12 {
+			short = short[:12]
+		}
+		fmt.Printf("%s\t%d\t%g\n", short, p.CapturedAt, p.Value)
 	}
 	return 0
 }

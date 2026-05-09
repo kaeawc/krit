@@ -48,6 +48,26 @@ type ParseInput struct {
 	ActiveRules []*api.Rule
 	// IncludeGenerated, when true, retains files under /generated/.
 	IncludeGenerated bool
+	// IncludeGeneratedAllowlist is a list of path substrings that select
+	// known-safe generated source directories (Hilt, KSP, Kapt,
+	// ViewBinding, DataBinding, BuildConfig). When IncludeGenerated is
+	// false, files whose path contains "/generated/" AND any one of these
+	// substrings are KEPT in the parse result and have File.Generated set
+	// to true. The resolver indexes them so cross-file references into
+	// generated code resolve, but rules that opt out via File.Generated
+	// will not run on them.
+	//
+	// A nil allowlist preserves the historical behavior: when
+	// IncludeGenerated is false, every file under "/generated/" is
+	// dropped. Use DefaultKnownSafeGenerators() for a sensible default.
+	//
+	// Note: the file collector prunes "build/" at walk time via
+	// fileignore.DefaultPrunedDir, so allowlist substrings under build/
+	// (the typical Gradle layout) only take effect when the caller
+	// supplies KotlinPaths directly or otherwise places generated output
+	// outside build/. Integration with the walker's prune list is a
+	// follow-up for the broader Phase 3 effort.
+	IncludeGeneratedAllowlist []string
 	// KotlinPaths, when non-nil, short-circuits CollectKotlinFiles and
 	// uses the supplied paths directly. Main already collects paths
 	// early (for cache lookups and empty-project detection) and passes

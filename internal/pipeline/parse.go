@@ -79,10 +79,14 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 
 	// Filter generated Kotlin files unless explicitly requested. Generated
 	// dirs contain codegen output that dwarfs hand-written sources and
-	// strands workers.
+	// strands workers. When IncludeGeneratedAllowlist is set, files whose
+	// paths match a known-safe-generator substring are kept (and tagged
+	// File.Generated = true) so the resolver can index them; the
+	// dispatcher and rule layer still see them as files but can opt out
+	// via File.Generated.
 	if !in.IncludeGenerated {
 		var droppedGenerated int
-		kotlinFiles, droppedGenerated = filterGeneratedSourceFiles(kotlinFiles)
+		kotlinFiles, droppedGenerated = filterGeneratedSourceFilesWithAllowlist(kotlinFiles, in.IncludeGeneratedAllowlist)
 		if droppedGenerated > 0 {
 			in.logf("verbose: Skipped %d files in */generated/* dirs (pass --include-generated to re-enable)\n", droppedGenerated)
 		}
@@ -129,7 +133,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 			javaFiles, javaParseErrs = scanner.ScanJavaFilesCached(javaPaths, workers, in.ParseCache)
 			parseErrs = append(parseErrs, javaParseErrs...)
 			if !in.IncludeGenerated {
-				javaFiles, _ = filterGeneratedSourceFiles(javaFiles)
+				javaFiles, _ = filterGeneratedSourceFilesWithAllowlist(javaFiles, in.IncludeGeneratedAllowlist)
 			}
 			for _, f := range javaFiles {
 				installSourceSuppression(f, ruleExcludes, ruleAliases)
@@ -148,17 +152,55 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 	}, nil
 }
 
-func filterGeneratedSourceFiles(files []*scanner.File) ([]*scanner.File, int) {
+// DefaultKnownSafeGenerators returns path substrings selecting build outputs
+// from the well-known annotation processors and Gradle code generators
+// whose output the resolver should index so cross-file references into
+// generated code (Hilt components, KSP-generated factories, Room *_Impl
+// classes, ViewBinding/DataBinding bindings, BuildConfig) resolve in
+// source typeinfer. Callers wire this list into ParseInput when they
+// want generated symbols to be type-aware without including arbitrary
+// machine-written code in linting.
+func DefaultKnownSafeGenerators() []string {
+	return []string{
+		"build/generated/source/kapt/",
+		"build/generated/source/kaptKotlin/",
+		"build/generated/ksp/",
+		"build/generated/source/buildConfig/",
+		"build/generated/source/viewBinding/",
+		"build/generated/source/dataBinding/",
+		"build/generated/data_binding_base_class_source_out/",
+		"build/generated/hilt/",
+	}
+}
+
+func filterGeneratedSourceFilesWithAllowlist(files []*scanner.File, allowlist []string) ([]*scanner.File, int) {
 	filtered := files[:0]
 	var droppedGenerated int
 	for _, f := range files {
-		if f != nil && strings.Contains(f.Path, "/generated/") {
-			droppedGenerated++
+		if f == nil || !strings.Contains(f.Path, "/generated/") {
+			filtered = append(filtered, f)
 			continue
 		}
-		filtered = append(filtered, f)
+		if pathMatchesAnySubstring(f.Path, allowlist) {
+			f.Generated = true
+			filtered = append(filtered, f)
+			continue
+		}
+		droppedGenerated++
 	}
 	return filtered, droppedGenerated
+}
+
+func pathMatchesAnySubstring(path string, substrings []string) bool {
+	for _, s := range substrings {
+		if s == "" {
+			continue
+		}
+		if strings.Contains(path, s) {
+			return true
+		}
+	}
+	return false
 }
 
 func installSourceSuppression(f *scanner.File, ruleExcludes map[string][]string, ruleAliases map[string][]string) {

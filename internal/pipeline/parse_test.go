@@ -133,6 +133,60 @@ func TestParsePhase_Run_GeneratedFilesSkipped(t *testing.T) {
 	}
 }
 
+func TestParsePhase_Run_GeneratedAllowlist_KeepsAndTagsMatchingFiles(t *testing.T) {
+	dir := t.TempDir()
+	// Use paths that are not under build/ (file collector prunes build/
+	// at walk time). A typical case: a path the user explicitly passes
+	// that points inside the generated tree, or a project that mirrors
+	// generated output into a non-build dir.
+	hiltPath := filepath.Join(dir, "src", "generated", "hilt", "App_HiltModules.kt")
+	kspPath := filepath.Join(dir, "src", "generated", "ksp", "main", "kotlin", "Foo_Factory.kt")
+	otherGenPath := filepath.Join(dir, "src", "generated", "snapshot", "Snap.kt")
+	realPath := filepath.Join(dir, "src", "main", "kotlin", "Bar.kt")
+	writeKt(t, hiltPath, "class App_HiltModules {}\n")
+	writeKt(t, kspPath, "class Foo_Factory {}\n")
+	writeKt(t, otherGenPath, "class Snap {}\n")
+	writeKt(t, realPath, "class Bar {}\n")
+
+	allowlist := []string{
+		"src/generated/hilt/",
+		"src/generated/ksp/",
+	}
+	in := ParseInput{
+		Paths:                     []string{dir},
+		IncludeGenerated:          false,
+		IncludeGeneratedAllowlist: allowlist,
+	}
+	out, err := (ParsePhase{}).Run(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Run: unexpected error: %v", err)
+	}
+	got := map[string]bool{}
+	for _, f := range out.KotlinFiles {
+		got[filepath.Base(f.Path)] = f.Generated
+	}
+	if _, ok := got["Bar.kt"]; !ok {
+		t.Errorf("hand-written Bar.kt was dropped")
+	} else if got["Bar.kt"] {
+		t.Errorf("Bar.kt unexpectedly tagged Generated")
+	}
+	if !got["App_HiltModules.kt"] {
+		t.Errorf("expected Hilt-generated App_HiltModules.kt to be kept and tagged Generated; got=%v", got)
+	}
+	if !got["Foo_Factory.kt"] {
+		t.Errorf("expected KSP-generated Foo_Factory.kt to be kept and tagged Generated; got=%v", got)
+	}
+	if _, kept := got["Snap.kt"]; kept {
+		t.Errorf("expected non-allowlisted generated Snap.kt to be dropped; got=%v", got)
+	}
+}
+
+func TestDefaultKnownSafeGenerators_NonEmpty(t *testing.T) {
+	if got := DefaultKnownSafeGenerators(); len(got) == 0 {
+		t.Fatal("DefaultKnownSafeGenerators() returned empty slice")
+	}
+}
+
 func TestParsePhase_Run_GeneratedFilesKept_WhenFlagSet(t *testing.T) {
 	dir := t.TempDir()
 	genPath := filepath.Join(dir, "generated", "Foo.kt")

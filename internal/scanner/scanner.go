@@ -114,6 +114,14 @@ type File struct {
 	FlatTree    *FlatTree
 	lineOffsets []int // cached byte offset of each line start
 
+	// Generated is true when the file came from a build/generated/**
+	// directory and was kept by the parse phase's known-safe-generator
+	// allowlist (Hilt, KSP, Kapt, ViewBinding, DataBinding, etc.).
+	// Rules that should not lint generated code — but still want their
+	// resolver to index it — gate on this. Pure source files always
+	// have Generated == false.
+	Generated bool
+
 	// Metadata carries language-specific parsed structures (e.g.
 	// *android.ManifestMeta, *android.ResourceMeta, *android.BuildConfig)
 	// for non-source-language files. Nil for Kotlin/Java.

@@ -133,11 +133,7 @@ func (r *UnderscoresInNumericLiteralsRule) IsFixable() bool          { return tr
 func (r *VarCouldBeValRule) IsFixable() bool                         { return true }
 
 // Style2 fixable rules (batch 3)
-// CollapsibleIfStatements: the Check() attempts a text-mode fix but
-// relies on a parsing path that doesn't fire on the current
-// tree-sitter output. Advertised as not-fixable until the AST shape
-// is stable.
-func (r *CollapsibleIfStatementsRule) IsFixable() bool         { return false }
+func (r *CollapsibleIfStatementsRule) IsFixable() bool         { return true }
 func (r *DataClassShouldBeImmutableRule) IsFixable() bool      { return true }
 func (r *ProtectedMemberInFinalClassRule) IsFixable() bool     { return true }
 func (r *AbstractClassCanBeConcreteClassRule) IsFixable() bool { return true }

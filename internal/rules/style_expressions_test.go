@@ -209,6 +209,50 @@ fun check(a: Boolean, b: Boolean) {
 	}
 }
 
+func TestCollapsibleIfStatements_FixSimpleIdentifierCondition(t *testing.T) {
+	findings := runRuleByName(t, "CollapsibleIfStatements", `
+package test
+fun check(a: Boolean, b: Boolean) {
+    if (a) {
+        if (b) {
+            println("both")
+        }
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected fix to be populated for simple_identifier conditions (inner cond is a bare identifier, not parenthesized_expression)")
+	}
+	if !strings.Contains(findings[0].Fix.Replacement, "if (a && b)") {
+		t.Errorf("expected merged condition 'if (a && b)', got %q", findings[0].Fix.Replacement)
+	}
+}
+
+func TestCollapsibleIfStatements_FixComparisonCondition(t *testing.T) {
+	findings := runRuleByName(t, "CollapsibleIfStatements", `
+package test
+fun check(x: Int, y: Int) {
+    if (x > 0) {
+        if (y > 0) {
+            println("pos")
+        }
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected fix to be populated for comparison conditions")
+	}
+	if !strings.Contains(findings[0].Fix.Replacement, "if (x > 0 && y > 0)") {
+		t.Errorf("expected merged condition 'if (x > 0 && y > 0)', got %q", findings[0].Fix.Replacement)
+	}
+}
+
 func TestCollapsibleIfStatements_Negative(t *testing.T) {
 	findings := runRuleByName(t, "CollapsibleIfStatements", `
 package test

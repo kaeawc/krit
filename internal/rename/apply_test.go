@@ -266,6 +266,33 @@ func TestApply_PreservesPackageTrailingComments(t *testing.T) {
 	}
 }
 
+func TestApply_PreservesKotlinAliasOnCrossPackageRename(t *testing.T) {
+	dir := t.TempDir()
+	declPath := filepath.Join(dir, "OldName.kt")
+	usePath := filepath.Join(dir, "Feature.kt")
+
+	writeFile(t, declPath, "package com.example.foo\n\nclass OldName\n")
+	writeFile(t, usePath, ""+
+		"package com.example.user\n"+
+		"\n"+
+		"import com.example.foo.OldName as Aliased\n"+
+		"\n"+
+		"fun useIt(): Aliased = Aliased()\n")
+
+	plan := buildKotlinPlan(t, []string{declPath, usePath}, "com.example.foo.OldName", "com.example.bar.NewName")
+	if _, err := Apply(plan); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	got := readFile(t, usePath)
+	if !strings.Contains(got, "import com.example.bar.NewName as Aliased") {
+		t.Fatalf("alias not preserved on import rewrite:\n%s", got)
+	}
+	if !strings.Contains(got, "fun useIt(): Aliased = Aliased()") {
+		t.Fatalf("alias usage was rewritten:\n%s", got)
+	}
+}
+
 func TestApply_RejectsIdenticalFromAndTo(t *testing.T) {
 	target, err := ParseTarget("com.example.OldName", "com.example.OldName")
 	if err == nil {

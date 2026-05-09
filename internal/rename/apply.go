@@ -295,13 +295,19 @@ func rewriteImportLine(file *scanner.File, rng [2]int, fromFQN, toFQN string) st
 	body = strings.TrimSpace(body)
 
 	prefix := "import "
+	suffix := ""
 	if file.Language == scanner.LangJava {
 		if strings.HasPrefix(body, "static ") {
 			prefix = "import static "
 		}
+	} else {
+		// Kotlin: preserve `as <alias>` if present.
+		if i := strings.Index(body, " as "); i >= 0 {
+			suffix = body[i:]
+		}
 	}
 
-	out := prefix + toFQN
+	out := prefix + toFQN + suffix
 	if file.Language == scanner.LangJava || hasSemi {
 		out += ";"
 	}

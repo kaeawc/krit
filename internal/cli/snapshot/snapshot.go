@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/kaeawc/krit/internal/cli/clishared"
 	snap "github.com/kaeawc/krit/internal/snapshot"
@@ -14,9 +15,10 @@ import (
 // Version is set by main via ldflags.
 var Version string
 
-const usage = `usage: krit snapshot <capture|status|timeline|info> [flags]
+const usage = `usage: krit snapshot <capture|backfill|status|timeline|info> [flags]
 
   capture [<sha>]   capture a structural snapshot for sha (default: HEAD)
+  backfill          capture snapshots for past commits via git worktrees
   status            list captured snapshots in this repo
   timeline          print scalar metric over captured snapshots
   info <sha>        print the manifest for a captured sha
@@ -41,6 +43,8 @@ func Run(args []string) int {
 	switch args[0] {
 	case "capture":
 		return runCapture(args[1:])
+	case "backfill":
+		return runBackfill(args[1:])
 	case "status":
 		return runStatus(args[1:])
 	case "timeline":
@@ -200,6 +204,55 @@ func runInfo(args []string) int {
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(m); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runBackfill(args []string) int {
+	fs := flag.NewFlagSet("snapshot backfill", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	repoFlag := fs.String("repo", "", "repository root (default: cwd)")
+	branchFlag := fs.String("branch", "", "branch or revspec to walk (default: HEAD)")
+	sinceFlag := fs.Duration("since", 0, "only capture commits in the last duration (e.g. 720h for 30d)")
+	maxFlag := fs.Int("max", 0, "max number of commits to capture (0 = unlimited)")
+	workersFlag := fs.Int("workers", 0, "parallel worker count (0 = NumCPU)")
+	forceFlag := fs.Bool("force", false, "recapture even when a snapshot already exists")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+
+	repoRoot, code := resolveRepoRoot(*repoFlag)
+	if code != 0 {
+		return code
+	}
+
+	res, err := snap.Backfill(snap.BackfillOptions{
+		RepoRoot:    repoRoot,
+		Branch:      *branchFlag,
+		Since:       *sinceFlag,
+		MaxCommits:  *maxFlag,
+		Workers:     *workersFlag,
+		Force:       *forceFlag,
+		KritVersion: Version,
+		Reporter: func(ev snap.BackfillEvent) {
+			short := shortSHA(ev.CommitSHA)
+			switch ev.Kind {
+			case "captured":
+				fmt.Fprintf(os.Stderr, "captured %s (%s)\n", short, ev.Duration.Round(time.Millisecond))
+			case "skipped":
+				fmt.Fprintf(os.Stderr, "skipped  %s\n", short)
+			case "failed":
+				fmt.Fprintf(os.Stderr, "failed   %s: %v\n", short, ev.Error)
+			}
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(os.Stderr, "backfill: %d captured, %d skipped, %d failed\n", res.Captured, res.Skipped, res.Failed)
+	if res.Failed > 0 {
 		return 1
 	}
 	return 0

@@ -85,7 +85,7 @@ func TestSortIndexSymbols_TiebreakerOnFQN(t *testing.T) {
 		{Name: "Foo", File: "/x.kt", StartByte: 0, FQN: "z.Foo"},
 		{Name: "Foo", File: "/x.kt", StartByte: 0, FQN: "a.Foo"},
 	}
-	sortIndexSymbols(in)
+	SortIndexSymbols(in)
 	if in[0].FQN != "a.Foo" {
 		t.Fatalf("expected a.Foo first, got %s", in[0].FQN)
 	}
@@ -98,7 +98,7 @@ func TestSortIndexReferences_TiebreakerOnName(t *testing.T) {
 		{Name: "Zebra", File: "/x.kt", Line: 1},
 		{Name: "Alpha", File: "/x.kt", Line: 1},
 	}
-	sortIndexReferences(in)
+	SortIndexReferences(in)
 	if in[0].Name != "Alpha" {
 		t.Fatalf("expected Alpha first, got %s", in[0].Name)
 	}

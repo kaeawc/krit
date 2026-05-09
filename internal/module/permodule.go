@@ -108,6 +108,18 @@ func BuildPerModuleIndexWithGlobal(graph *Graph, allFiles []*scanner.File, worke
 	}
 
 	// Step 3: build per-module CodeIndex values in parallel from the buckets.
+	//
+	// Bucket symbols/refs inherit canonical order from the global index
+	// (see scanner.appendIndexDataBuffers, which sorts via
+	// sortIndexSymbols/sortIndexReferences). We re-apply the canonical
+	// sort here as a defensive measure: a future regression in the
+	// global index ordering would otherwise silently propagate into
+	// every module-aware rule. See #32.
+	for _, b := range buckets {
+		scanner.SortIndexSymbols(b.symbols)
+		scanner.SortIndexReferences(b.refs)
+	}
+
 	var (
 		mu  sync.Mutex
 		wg  sync.WaitGroup

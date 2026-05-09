@@ -9,14 +9,14 @@ import (
 	"github.com/kaeawc/krit/internal/perf"
 )
 
-// sortIndexSymbols orders Symbol slices canonically. Used at the
+// SortIndexSymbols orders Symbol slices canonically. Used at the
 // scanner index merge seam (post-fan-in) so any consumer iterating
 // `CodeIndex.Symbols` or `symbolsByName[Name]` sees the same
 // sequence every run regardless of which worker contributed which
 // shard. Composite key: (File, StartByte, FQN, Name). FQN before
 // Name handles the case where two declarations share a short name
 // in different packages but produce the same `Symbol.Name`.
-func sortIndexSymbols(symbols []Symbol) {
+func SortIndexSymbols(symbols []Symbol) {
 	sort.SliceStable(symbols, func(i, j int) bool {
 		a, b := symbols[i], symbols[j]
 		if a.File != b.File {
@@ -32,11 +32,11 @@ func sortIndexSymbols(symbols []Symbol) {
 	})
 }
 
-// sortIndexReferences is the Reference counterpart. Composite key:
+// SortIndexReferences is the Reference counterpart. Composite key:
 // (File, Line, Name). References don't carry a byte offset; line is
 // sufficient because the rule consumers care about source position,
 // not exact column.
-func sortIndexReferences(refs []Reference) {
+func SortIndexReferences(refs []Reference) {
 	sort.SliceStable(refs, func(i, j int) bool {
 		a, b := refs[i], refs[j]
 		if a.File != b.File {
@@ -136,7 +136,7 @@ func appendIndexDataBuffers(symbols []Symbol, refs []Reference, buffers []indexD
 		// later iterates Symbols/symbolsByName[Name] (rules picking
 		// first-match, fix payloads built from traversal order) sees
 		// the same sequence each run. See #30.
-		sortIndexSymbols(symbols)
+		SortIndexSymbols(symbols)
 	}
 	if refCount > 0 {
 		needed := len(refs) + refCount
@@ -148,7 +148,7 @@ func appendIndexDataBuffers(symbols []Symbol, refs []Reference, buffers []indexD
 		for _, buf := range buffers {
 			refs = append(refs, buf.refs...)
 		}
-		sortIndexReferences(refs)
+		SortIndexReferences(refs)
 	}
 	return symbols, refs
 }

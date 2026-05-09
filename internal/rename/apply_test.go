@@ -318,6 +318,76 @@ func TestApply_InsertsImportForOrphanedSamePackageReference(t *testing.T) {
 	}
 }
 
+func TestApply_MovesDeclarationFileToNewPackageDir(t *testing.T) {
+	dir := t.TempDir()
+	srcRoot := filepath.Join(dir, "src", "main", "kotlin")
+	oldDir := filepath.Join(srcRoot, "com", "example", "foo")
+	if err := os.MkdirAll(oldDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	declPath := filepath.Join(oldDir, "OldName.kt")
+	writeFile(t, declPath, "package com.example.foo\n\nclass OldName\n")
+
+	plan := buildKotlinPlan(t, []string{declPath}, "com.example.foo.OldName", "com.example.bar.NewName")
+	res, err := Apply(plan)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(res.Moves) != 1 {
+		t.Fatalf("Moves = %d, want 1", len(res.Moves))
+	}
+	wantDest := filepath.Join(srcRoot, "com", "example", "bar", "NewName.kt")
+	if res.Moves[0].To != wantDest {
+		t.Fatalf("Moves[0].To = %q, want %q", res.Moves[0].To, wantDest)
+	}
+	if _, err := os.Stat(declPath); !os.IsNotExist(err) {
+		t.Fatalf("old file still exists: %v", err)
+	}
+	if _, err := os.Stat(wantDest); err != nil {
+		t.Fatalf("new file missing: %v", err)
+	}
+}
+
+func TestApply_KeepsFileInPlaceWhenLayoutDoesNotMirrorPackage(t *testing.T) {
+	// Path has no com/example/foo segments — flat layout. Even though
+	// the rename crosses packages, the directory stays where it is.
+	dir := t.TempDir()
+	declPath := filepath.Join(dir, "OldName.kt")
+	writeFile(t, declPath, "package com.example.foo\n\nclass OldName\n")
+
+	plan := buildKotlinPlan(t, []string{declPath}, "com.example.foo.OldName", "com.example.bar.NewName")
+	res, err := Apply(plan)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(res.Moves) != 1 {
+		t.Fatalf("Moves = %d, want 1", len(res.Moves))
+	}
+	wantDest := filepath.Join(dir, "NewName.kt")
+	if res.Moves[0].To != wantDest {
+		t.Fatalf("Moves[0].To = %q, want %q", res.Moves[0].To, wantDest)
+	}
+}
+
+func TestRemapPackageDir(t *testing.T) {
+	cases := []struct {
+		dir, oldPkg, newPkg string
+		want                string
+		ok                  bool
+	}{
+		{"src/main/kotlin/com/foo", "com.foo", "com.bar", "src/main/kotlin/com/bar", true},
+		{"src/main/kotlin/com/foo/sub", "com.foo", "com.bar", "src/main/kotlin/com/foo/sub", false},
+		{"com/foo", "com.foo", "com.bar", "com/bar", true},
+		{"flat", "com.foo", "com.bar", "flat", false},
+	}
+	for _, tc := range cases {
+		got, ok := remapPackageDir(tc.dir, tc.oldPkg, tc.newPkg)
+		if ok != tc.ok || got != tc.want {
+			t.Errorf("remapPackageDir(%q,%q,%q) = (%q,%v), want (%q,%v)", tc.dir, tc.oldPkg, tc.newPkg, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
 func TestApply_RejectsIdenticalFromAndTo(t *testing.T) {
 	target, err := ParseTarget("com.example.OldName", "com.example.OldName")
 	if err == nil {

@@ -96,6 +96,9 @@ func apply(plan Plan, dry bool) (ApplyResult, error) {
 		if _, err := os.Stat(mv.To); err == nil {
 			return result, fmt.Errorf("rename apply: destination %s already exists", mv.To)
 		}
+		if err := os.MkdirAll(filepath.Dir(mv.To), 0o755); err != nil {
+			return result, fmt.Errorf("rename apply: mkdir %s: %w", filepath.Dir(mv.To), err)
+		}
 		if err := os.Rename(mv.From, mv.To); err != nil {
 			return result, fmt.Errorf("rename apply: rename %s -> %s: %w", mv.From, mv.To, err)
 		}
@@ -104,14 +107,12 @@ func apply(plan Plan, dry bool) (ApplyResult, error) {
 	return result, nil
 }
 
-// planFileMoves identifies declaration files whose basename matches the
-// rename's FromName and proposes a same-directory rename to ToName + the
-// existing extension. Kotlin convention but Java requirement when the
-// renamed class is the file's top-level public class.
+// planFileMoves identifies declaration files that need to be renamed,
+// moved to a different package directory, or both. The basename gets
+// updated when the file's stem matches Target.FromName; the directory
+// gets updated when the file's parent path mirrors Target.FromPackage()
+// and the rename changes packages.
 func planFileMoves(plan Plan) []FileMove {
-	if plan.Target.FromName == plan.Target.ToName {
-		return nil
-	}
 	declFiles := declarationFiles(plan)
 	out := make([]FileMove, 0)
 	seen := make(map[string]bool, len(declFiles))
@@ -120,21 +121,63 @@ func planFileMoves(plan Plan) []FileMove {
 			continue
 		}
 		seen[path] = true
-		dir := filepath.Dir(path)
-		base := filepath.Base(path)
-		ext := filepath.Ext(base)
-		stem := base[:len(base)-len(ext)]
-		if stem != plan.Target.FromName {
-			continue
-		}
-		dest := filepath.Join(dir, plan.Target.ToName+ext)
-		if dest == path {
+		dest := plannedDestination(path, plan.Target)
+		if dest == "" || dest == path {
 			continue
 		}
 		out = append(out, FileMove{From: path, To: dest})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].From < out[j].From })
 	return out
+}
+
+// plannedDestination computes the new path for a declaration file given
+// the target rename. Returns the original path unchanged if neither the
+// basename nor the package directory should move.
+func plannedDestination(path string, target Target) string {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	ext := filepath.Ext(base)
+	stem := base[:len(base)-len(ext)]
+
+	newStem := stem
+	if stem == target.FromName && target.FromName != target.ToName {
+		newStem = target.ToName
+	}
+
+	newDir := dir
+	if target.PackageChanged() {
+		if mapped, ok := remapPackageDir(dir, target.FromPackage(), target.ToPackage()); ok {
+			newDir = mapped
+		}
+	}
+
+	if newDir == dir && newStem == stem {
+		return path
+	}
+	return filepath.Join(newDir, newStem+ext)
+}
+
+// remapPackageDir replaces a trailing oldPackage path within dir with
+// newPackage. Returns false if dir does not end with the expected
+// package path, in which case the caller should leave the directory as
+// is (the file may be in a flat layout that doesn't mirror packages).
+func remapPackageDir(dir, oldPackage, newPackage string) (string, bool) {
+	if oldPackage == "" {
+		return dir, false
+	}
+	oldPath := strings.ReplaceAll(oldPackage, ".", string(filepath.Separator))
+	cleanDir := filepath.Clean(dir)
+	if cleanDir == oldPath {
+		return strings.ReplaceAll(newPackage, ".", string(filepath.Separator)), true
+	}
+	suffix := string(filepath.Separator) + oldPath
+	if !strings.HasSuffix(cleanDir, suffix) {
+		return dir, false
+	}
+	prefix := cleanDir[:len(cleanDir)-len(suffix)]
+	newPath := strings.ReplaceAll(newPackage, ".", string(filepath.Separator))
+	return filepath.Join(prefix, newPath), true
 }
 
 func collectIdentifierEdits(plan Plan) map[string][]edit {

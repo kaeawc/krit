@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
@@ -716,6 +717,79 @@ fun foo(person: Person) {
 `)
 	if len(findings) == 0 {
 		t.Fatal("expected finding for also with multiple it receiver assignments")
+	}
+}
+
+func TestAlsoCouldBeApply_FixSimpleCalls(t *testing.T) {
+	findings := runRuleByName(t, "AlsoCouldBeApply", `
+package test
+fun foo(b: StringBuilder) {
+    b.also {
+        it.append("a")
+        it.append("b")
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected fix to be populated")
+	}
+	repl := findings[0].Fix.Replacement
+	if !strings.Contains(repl, ".apply {") {
+		t.Errorf("expected .apply rewrite, got %q", repl)
+	}
+	if strings.Contains(repl, "it.append") {
+		t.Errorf("expected it. prefix to be stripped, got %q", repl)
+	}
+	if !strings.Contains(repl, "append(\"a\")") || !strings.Contains(repl, "append(\"b\")") {
+		t.Errorf("expected calls preserved, got %q", repl)
+	}
+}
+
+func TestAlsoCouldBeApply_FixAssignmentsAndCall(t *testing.T) {
+	findings := runRuleByName(t, "AlsoCouldBeApply", `
+package test
+class Cfg { var name = ""; var size = 0; fun init() {} }
+fun build(): Cfg = Cfg().also {
+    it.name = "x"
+    it.size = 1
+    it.init()
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix == nil {
+		t.Fatal("expected fix to be populated")
+	}
+	repl := findings[0].Fix.Replacement
+	if strings.Contains(repl, "it.") {
+		t.Errorf("expected all it. prefixes stripped, got %q", repl)
+	}
+	if !strings.Contains(repl, ".apply {") {
+		t.Errorf("expected apply rewrite, got %q", repl)
+	}
+}
+
+func TestAlsoCouldBeApply_FixSkipsWhenItUsedInArg(t *testing.T) {
+	// `it` appears in an argument position — the fix must bail because
+	// switching to `apply` would leave the inner `it` unbound.
+	findings := runRuleByName(t, "AlsoCouldBeApply", `
+package test
+fun foo(b: StringBuilder, log: (Any) -> Unit) {
+    b.also {
+        it.append("a")
+        it.append(it)
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix != nil {
+		t.Errorf("expected fix to be skipped when it appears in arg position, got %q", findings[0].Fix.Replacement)
 	}
 }
 

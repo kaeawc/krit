@@ -113,10 +113,11 @@ func (r *UselessPostfixExpressionRule) IsFixable() bool      { return true }
 func (r *NullableToStringCallRule) IsFixable() bool          { return false }
 
 // Style2 fixable rules
-// AlsoCouldBeApply: `.also { }` → `.apply { }` swap is a simple
-// text rewrite but the current Check() never populates Fix.
-// Not-fixable until the helper lands.
-func (r *AlsoCouldBeApplyRule) IsFixable() bool                      { return false }
+// AlsoCouldBeApply: `.also { }` → `.apply { }` swap rewrites the
+// scope-function name and strips the `it.` receiver prefix from each
+// statement. The fix bails when `it` appears outside a leading
+// receiver position to avoid leaving unbound references behind.
+func (r *AlsoCouldBeApplyRule) IsFixable() bool                      { return true }
 func (r *DoubleNegativeExpressionRule) IsFixable() bool              { return true }
 func (r *DoubleNegativeLambdaRule) IsFixable() bool                  { return false } // too complex
 func (r *ExpressionBodySyntaxRule) IsFixable() bool                  { return true }

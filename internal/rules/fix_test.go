@@ -286,7 +286,6 @@ func truncate(s string, max int) string {
 }
 
 var knownFixableRulesWithoutPerRuleFixture = map[string]bool{
-	"AlsoCouldBeApply":                   true,
 	"BooleanPropertyNaming":              true,
 	"ExplicitItLambdaMultipleParameters": true,
 	"FunctionOnlyReturningConstant":      true,

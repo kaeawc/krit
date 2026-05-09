@@ -390,7 +390,9 @@ func registerStyleIdiomaticDataRules() {
 				}
 				receiverStatements, ok := alsoLambdaReceiverStatementCount(file, lambda)
 				if ok && receiverStatements >= 2 {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "'also' with multiple 'it.' references could be replaced with 'apply'.")
+					f := r.Finding(file, file.FlatRow(idx)+1, 1, "'also' with multiple 'it.' references could be replaced with 'apply'.")
+					f.Fix = buildAlsoCouldBeApplyFix(file, idx, lambda)
+					ctx.Emit(f)
 				}
 			},
 		})
@@ -428,6 +430,226 @@ func registerStyleIdiomaticDataRules() {
 			},
 		})
 	}
+}
+
+// buildAlsoCouldBeApplyFix rewrites `recv.also { it.f(); it.g = 1 }` to
+// `recv.apply { f(); g = 1 }`. The fix is conservative: it bails when any
+// `it` reference appears outside the leading receiver position of a
+// statement (so nested `it` arguments — which would become unbound
+// after switching to `apply` — preserve the original code). Returns nil
+// when the rewrite cannot be performed safely.
+func buildAlsoCouldBeApplyFix(file *scanner.File, call uint32, lambda uint32) *scanner.Fix {
+	if file == nil || call == 0 || lambda == 0 {
+		return nil
+	}
+	nav, _ := flatCallExpressionParts(file, call)
+	if nav == 0 {
+		return nil
+	}
+	alsoNode := findAlsoIdentifier(file, nav)
+	if alsoNode == 0 {
+		return nil
+	}
+
+	statements, ok := file.FlatFindChild(lambda, "statements")
+	if !ok || statements == 0 {
+		return nil
+	}
+
+	// Walk every statement and locate the navigation_expression whose
+	// receiver is the bare `it`. Collect the byte ranges of "it." so we
+	// can strip them in the rewritten text.
+	type cut struct{ start, end int }
+	var cuts []cut
+	statementCount := 0
+	for stmt := file.FlatFirstChild(statements); stmt != 0; stmt = file.FlatNextSib(stmt) {
+		if !file.FlatIsNamed(stmt) {
+			continue
+		}
+		statementCount++
+		navNode := alsoStatementNavWithItReceiver(file, stmt)
+		if navNode == 0 {
+			return nil
+		}
+		itNode := file.FlatNamedChild(navNode, 0)
+		if itNode == 0 || file.FlatType(itNode) != "simple_identifier" || !file.FlatNodeTextEquals(itNode, "it") {
+			return nil
+		}
+		// Range to cut: `it` plus the trailing `.` token. The Kotlin
+		// tree-sitter grammar puts the `.` either as a direct sibling
+		// of `it` (older grammar shape) or as the first child of a
+		// `navigation_suffix` node that follows `it` (current grammar).
+		itStart := int(file.FlatStartByte(itNode))
+		cutEnd := dotEndAfterReceiver(file, navNode, itNode)
+		if cutEnd == 0 {
+			return nil
+		}
+		cuts = append(cuts, cut{itStart, cutEnd})
+	}
+	if statementCount == 0 {
+		return nil
+	}
+
+	// Conservative guard: every `it` simple_identifier inside the lambda
+	// must be one we're stripping. If `it` appears in an argument
+	// position (e.g. `it.f(it)` or `g(it)`), the apply rewrite would
+	// leave the inner `it` unbound — refuse the fix.
+	itTotal := 0
+	file.FlatWalkAllNodes(lambda, func(n uint32) {
+		if file.FlatType(n) == "simple_identifier" && file.FlatNodeTextEquals(n, "it") {
+			itTotal++
+		}
+	})
+	if itTotal != len(cuts) {
+		return nil
+	}
+
+	// Build the replacement text by editing the original call_expression
+	// bytes in place. `also` becomes `apply`; each `it.` is dropped.
+	callStart := int(file.FlatStartByte(call))
+	callEnd := int(file.FlatEndByte(call))
+
+	type edit struct {
+		start, end int
+		repl       string
+	}
+	edits := []edit{
+		{
+			start: int(file.FlatStartByte(alsoNode)),
+			end:   int(file.FlatEndByte(alsoNode)),
+			repl:  "apply",
+		},
+	}
+	for _, c := range cuts {
+		edits = append(edits, edit{c.start, c.end, ""})
+	}
+	// Sort edits by start byte (ascending). Cuts come from a forward
+	// walk so they're already ordered, but the also-edit is at the call
+	// callee — earlier than the lambda body — and we need a stable sort
+	// regardless of insertion order.
+	for i := 1; i < len(edits); i++ {
+		for j := i; j > 0 && edits[j].start < edits[j-1].start; j-- {
+			edits[j], edits[j-1] = edits[j-1], edits[j]
+		}
+	}
+	var b strings.Builder
+	cursor := callStart
+	for _, e := range edits {
+		if e.start < cursor || e.end > callEnd {
+			return nil
+		}
+		b.Write(file.Content[cursor:e.start])
+		b.WriteString(e.repl)
+		cursor = e.end
+	}
+	b.Write(file.Content[cursor:callEnd])
+
+	return &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   callStart,
+		EndByte:     callEnd,
+		Replacement: b.String(),
+	}
+}
+
+// findAlsoIdentifier returns the simple_identifier node for `also` inside
+// the given navigation_expression, handling both grammar shapes: a flat
+// `recv . also` triple of children, and the newer `recv navigation_suffix(. also)`
+// nesting where the dot and identifier live under a navigation_suffix node.
+func findAlsoIdentifier(file *scanner.File, nav uint32) uint32 {
+	if file == nil || nav == 0 {
+		return 0
+	}
+	var found uint32
+	for c := file.FlatFirstChild(nav); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "simple_identifier":
+			if file.FlatNodeTextEquals(c, "also") {
+				found = c
+			}
+		case "navigation_suffix":
+			for sub := file.FlatFirstChild(c); sub != 0; sub = file.FlatNextSib(sub) {
+				if file.FlatType(sub) == "simple_identifier" && file.FlatNodeTextEquals(sub, "also") {
+					found = sub
+				}
+			}
+		}
+	}
+	return found
+}
+
+// dotEndAfterReceiver returns the byte offset just past the `.` token
+// that follows a leading receiver (e.g. `it`) in a navigation expression
+// or directly_assignable_expression. Handles both grammar shapes: a
+// direct `.` sibling and a `navigation_suffix` whose first child is the
+// `.` token. Returns 0 when no dot is found.
+func dotEndAfterReceiver(file *scanner.File, parent, recv uint32) int {
+	if file == nil || parent == 0 || recv == 0 {
+		return 0
+	}
+	for c := file.FlatFirstChild(parent); c != 0; c = file.FlatNextSib(c) {
+		if c != recv {
+			continue
+		}
+		next := file.FlatNextSib(c)
+		if next == 0 {
+			return 0
+		}
+		switch file.FlatType(next) {
+		case ".":
+			return int(file.FlatEndByte(next))
+		case "navigation_suffix":
+			dot := file.FlatFirstChild(next)
+			if dot != 0 && file.FlatType(dot) == "." {
+				return int(file.FlatEndByte(dot))
+			}
+		}
+		return 0
+	}
+	return 0
+}
+
+// alsoStatementNavWithItReceiver returns the navigation_expression whose
+// leading receiver is the bare `it` identifier for the given statement.
+// Mirrors alsoStatementReceiverIsIt's traversal but returns the
+// navigation node rather than a bool, so callers can rewrite the
+// `it.<member>` prefix.
+func alsoStatementNavWithItReceiver(file *scanner.File, stmt uint32) uint32 {
+	if file == nil || stmt == 0 {
+		return 0
+	}
+	switch file.FlatType(stmt) {
+	case "call_expression":
+		nav, _ := flatCallExpressionParts(file, stmt)
+		if alsoNavigationReceiverIsIt(file, nav) {
+			return nav
+		}
+		return 0
+	case "assignment", "assignment_expression":
+		return alsoStatementNavWithItReceiver(file, file.FlatNamedChild(stmt, 0))
+	case "directly_assignable_expression":
+		if nav, ok := file.FlatFindChild(stmt, "navigation_expression"); ok {
+			if alsoNavigationReceiverIsIt(file, nav) {
+				return nav
+			}
+			return 0
+		}
+		if alsoNavigationReceiverIsIt(file, stmt) {
+			return stmt
+		}
+		return 0
+	case "navigation_expression":
+		if alsoNavigationReceiverIsIt(file, stmt) {
+			return stmt
+		}
+		return 0
+	case "parenthesized_expression", "annotated_expression":
+		return alsoStatementNavWithItReceiver(file, file.FlatNamedChild(stmt, 0))
+	}
+	if file.FlatNamedChildCount(stmt) == 1 {
+		return alsoStatementNavWithItReceiver(file, file.FlatNamedChild(stmt, 0))
+	}
+	return 0
 }
 
 func alsoLambdaReceiverStatementCount(file *scanner.File, lambda uint32) (int, bool) {

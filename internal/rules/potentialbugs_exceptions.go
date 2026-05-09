@@ -1209,3 +1209,142 @@ func isInfiniteLoopFlat(file *scanner.File, idx uint32) bool {
 	})
 	return !hasBreak
 }
+
+// ---------------------------------------------------------------------------
+// MissingReturnRule — flags block-bodied functions with a non-Unit/non-Nothing
+// declared return type whose body cannot guarantee a returned value on every
+// path. Mimics kotlinc's NO_RETURN_IN_FUNCTION_WITH_BLOCK_BODY diagnostic
+// using AST + the same termination helpers UnreachableCode uses.
+//
+// Rule scope is intentionally narrow:
+//   - block-bodied functions only (`{ ... }`); expression bodies (`= expr`)
+//     always return their expression value
+//   - functions with an explicit declared return type only; the implicit
+//     Unit case is silent
+//   - return type "Unit"/"Nothing" (and the kotlin.X qualified forms) is
+//     skipped because Unit doesn't need a return and Nothing-returning
+//     functions can't return normally
+//   - abstract / interface / expect / external functions have no body and
+//     are skipped
+//
+// ---------------------------------------------------------------------------
+type MissingReturnRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *MissingReturnRule) Confidence() float64 { return 0.85 }
+
+func missingReturnDeclaredType(file *scanner.File, fn uint32) (typeIdx uint32, body uint32) {
+	foundParams := false
+	for child := file.FlatFirstChild(fn); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "function_value_parameters":
+			foundParams = true
+		case "function_body":
+			body = child
+		case "user_type", "nullable_type", "type_identifier":
+			if foundParams && typeIdx == 0 {
+				typeIdx = child
+			}
+		}
+	}
+	return typeIdx, body
+}
+
+func missingReturnTypeIsUnitOrNothing(text string) bool {
+	switch strings.TrimSpace(text) {
+	case "Unit", "Nothing", "kotlin.Unit", "kotlin.Nothing":
+		return true
+	}
+	return false
+}
+
+func missingReturnIsExpressionBody(file *scanner.File, body uint32) bool {
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "=" {
+			return true
+		}
+		if file.FlatIsNamed(child) {
+			// Reached a named child (e.g. statements) before any `=`. It's a
+			// block body.
+			return false
+		}
+	}
+	return false
+}
+
+// missingReturnFunctionTerminates returns true when the block body is
+// guaranteed to terminate on every path with a return, throw,
+// Nothing-returning call, exhaustive-if, or exhaustive-when.
+func missingReturnFunctionTerminates(file *scanner.File, body uint32, resolver typeinfer.TypeResolver) bool {
+	if file == nil || body == 0 {
+		return false
+	}
+	stmts, _ := file.FlatFindChild(body, "statements")
+	if stmts == 0 {
+		return false
+	}
+	var last uint32
+	for i := file.FlatChildCount(stmts) - 1; i >= 0; i-- {
+		c := file.FlatChild(stmts, i)
+		t := file.FlatType(c)
+		if t == "line_comment" || t == "multiline_comment" || t == "{" || t == "}" {
+			continue
+		}
+		last = c
+		break
+	}
+	if last == 0 {
+		return false
+	}
+	switch file.FlatType(last) {
+	case "jump_expression":
+		text := file.FlatNodeText(last)
+		return strings.HasPrefix(text, "return") || strings.HasPrefix(text, "throw")
+	case "if_expression":
+		return ifAllBranchesTerminateFlat(file, last)
+	case "when_expression":
+		return whenIsExhaustiveAndTerminatesFlat(file, last, resolver)
+	}
+	return isNothingReturningCallFlat(file, last, resolver)
+}
+
+func (r *MissingReturnRule) check(ctx *api.Context) {
+	idx, file := ctx.Idx, ctx.File
+	if file.FlatType(idx) != "function_declaration" {
+		return
+	}
+	if file.FlatHasModifier(idx, "abstract") || file.FlatHasModifier(idx, "expect") || file.FlatHasModifier(idx, "external") {
+		return
+	}
+	retType, body := missingReturnDeclaredType(file, idx)
+	if body == 0 || retType == 0 {
+		return
+	}
+	if missingReturnTypeIsUnitOrNothing(file.FlatNodeText(retType)) {
+		return
+	}
+	if missingReturnIsExpressionBody(file, body) {
+		return
+	}
+	if missingReturnFunctionTerminates(file, body, ctx.Resolver) {
+		return
+	}
+	name := flatDeclarationNameLocal(file, idx)
+	typeText := strings.TrimSpace(file.FlatNodeText(retType))
+	msg := fmt.Sprintf("Function '%s' declares return type '%s' but its body may not return on every path. Add a `return` or terminate every branch.", name, typeText)
+	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+}
+
+// flatDeclarationNameLocal returns the function declaration's
+// simple_identifier name. Local helper to avoid pulling in the
+// resolver package's flatDeclarationName.
+func flatDeclarationNameLocal(file *scanner.File, fn uint32) string {
+	for child := file.FlatFirstChild(fn); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "simple_identifier" {
+			return strings.TrimSpace(file.FlatNodeText(child))
+		}
+	}
+	return "<anonymous>"
+}

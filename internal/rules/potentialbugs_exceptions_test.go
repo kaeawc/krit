@@ -403,3 +403,115 @@ fun main(w: Watchdog) {
 		t.Fatalf("expected no findings after Watchdog.exitProcess(), got %d", len(findings))
 	}
 }
+
+// --- MissingReturn ---
+
+func TestMissingReturn_FallThrough_Positive(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "MissingReturn", `
+package test
+fun foo(x: Int): Int {
+    println(x)
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected MissingReturn finding for fall-through body")
+	}
+}
+
+func TestMissingReturn_NormalReturn_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "MissingReturn", `
+package test
+fun foo(x: Int): Int {
+    return x + 1
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestMissingReturn_ExpressionBody_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "MissingReturn", `
+package test
+fun foo(x: Int): Int = x + 1
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings on expression body, got %d", len(findings))
+	}
+}
+
+func TestMissingReturn_UnitReturnType_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "MissingReturn", `
+package test
+fun foo(x: Int): Unit {
+    println(x)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for explicit Unit return, got %d", len(findings))
+	}
+}
+
+func TestMissingReturn_ImplicitUnit_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "MissingReturn", `
+package test
+fun foo(x: Int) {
+    println(x)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for implicit Unit, got %d", len(findings))
+	}
+}
+
+func TestMissingReturn_NothingReturnType_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "MissingReturn", `
+package test
+fun crash(): Nothing {
+    throw IllegalStateException("boom")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for Nothing return type, got %d", len(findings))
+	}
+}
+
+func TestMissingReturn_ExhaustiveIfReturns_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "MissingReturn", `
+package test
+fun foo(x: Int): Int {
+    if (x > 0) {
+        return x
+    } else {
+        return -x
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for exhaustive-if returns, got %d", len(findings))
+	}
+}
+
+func TestMissingReturn_NothingCallTerminates_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "MissingReturn", `
+package test
+fun foo(x: Int): String {
+    TODO("not yet")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when TODO terminates, got %d", len(findings))
+	}
+}
+
+func TestMissingReturn_AbstractFunction_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "MissingReturn", `
+package test
+abstract class Holder {
+    abstract fun get(): Int
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings on abstract function, got %d", len(findings))
+	}
+}

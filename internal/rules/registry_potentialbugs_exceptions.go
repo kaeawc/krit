@@ -90,4 +90,14 @@ func registerPotentialbugsExceptionsRules() {
 			Check:                  r.checkNode,
 		})
 	}
+	{
+		r := &MissingReturnRule{BaseRule: BaseRule{RuleName: "MissingReturn", RuleSetName: "potential-bugs", Sev: "error", Desc: "Detects block-bodied functions with a non-Unit return type whose body does not terminate on every path."}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.85, Implementation: r,
+			Needs: api.NeedsResolver,
+			Tags:  []string{"precompile"},
+			Check: r.check,
+		})
+	}
 }

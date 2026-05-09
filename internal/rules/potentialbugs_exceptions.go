@@ -662,9 +662,26 @@ var oracleDiagnosticFactories = map[string]bool{
 func (r *UnreachableCodeRule) Confidence() float64 { return 0.75 }
 
 // nothingReturningFuncs lists bare function names that are known to return Nothing.
+//
+// The heuristic-only callers (blockTerminatesFlat) require this to be a
+// conservative allow-list — any name added here is treated as Nothing-returning
+// even without resolver evidence. Names that overlap with common user-defined
+// helpers (like `fail`) are intentionally omitted; they get picked up via the
+// resolver-backed path when the resolver can prove a Nothing return type.
 var nothingReturningFuncs = map[string]bool{
-	"TODO":  true,
-	"error": true,
+	"TODO":        true,
+	"error":       true,
+	"exitProcess": true,
+}
+
+// nothingReturningQualifierPrefixes are the leading navigation segments
+// accepted as qualifiers for a Nothing-returning stdlib call. `kotlin.error`
+// or `kotlin.system.exitProcess` qualify; arbitrary user-defined receivers
+// like `myObject.error` do not.
+var nothingReturningQualifierPrefixes = [][]string{
+	{"kotlin"},
+	{"kotlin", "system"},
+	{"kotlin", "test"},
 }
 
 func (r *UnreachableCodeRule) checkNode(ctx *api.Context) {
@@ -787,7 +804,7 @@ func unreachableCodeDetectJump(file *scanner.File, child uint32, i, childCount i
 			return true, file.FlatRow(child) + 1, skipNext, newSkipUntilRow
 		}
 	}
-	if isNothingCallFlat(file, child) {
+	if isNothingReturningCallFlat(file, child, resolver) {
 		return true, file.FlatRow(child) + 1, false, newSkipUntilRow
 	}
 	if file.FlatType(child) == "if_expression" && ifAllBranchesTerminateFlat(file, child) {
@@ -918,7 +935,62 @@ func isNothingCallFlat(file *scanner.File, idx uint32) bool {
 		return true
 	}
 	segments := flatNavigationChainIdentifiers(file, nav)
-	return len(segments) == 2 && segments[0] == "kotlin" && segments[1] == name
+	if len(segments) == 0 || segments[len(segments)-1] != name {
+		return false
+	}
+	prefix := segments[:len(segments)-1]
+	for _, accepted := range nothingReturningQualifierPrefixes {
+		if stringSliceEqual(prefix, accepted) {
+			return true
+		}
+	}
+	return false
+}
+
+func stringSliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// isNothingReturningCallFlat returns true for any call_expression whose
+// callee provably returns Nothing. It first checks the static heuristic
+// table (isNothingCallFlat) for stdlib globals, then asks the resolver
+// for the call's inferred type when the call has no receiver. The
+// resolver-backed path catches workspace functions declared with
+// `: Nothing` return type.
+//
+// The resolver fallback is restricted to bare calls because the
+// resolver's call-type inference falls back to top-level stdlib lookup
+// when a navigation receiver doesn't yield a matching method, which can
+// produce a misleading Nothing for harmless calls like `logger.error()`.
+// Limiting to bare calls avoids that false positive while still catching
+// the high-value case (workspace `fun X(): Nothing`).
+//
+// Returns false when the resolver is nil or the inferred type is unknown.
+func isNothingReturningCallFlat(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) bool {
+	if isNothingCallFlat(file, idx) {
+		return true
+	}
+	if resolver == nil || file == nil || file.FlatType(idx) != "call_expression" {
+		return false
+	}
+	if nav, _ := flatCallExpressionParts(file, idx); nav != 0 {
+		// Has a receiver; the resolver's fallback to top-level stdlib
+		// lookup can produce a wrong Nothing here. Stay conservative.
+		return false
+	}
+	t := resolver.ResolveFlatNode(idx, file)
+	if t == nil {
+		return false
+	}
+	return t.Name == "Nothing"
 }
 
 // ifAllBranchesTerminateFlat checks if an if_expression has both then and else branches

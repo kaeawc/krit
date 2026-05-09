@@ -339,3 +339,67 @@ fun main(logger: Logger) {
 		t.Fatalf("expected no findings after logger.error(), got %d", len(findings))
 	}
 }
+
+func TestUnreachableCode_AfterExitProcess_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UnreachableCode", `
+package test
+fun main() {
+    exitProcess(0)
+    println("unreachable")
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for unreachable code after exitProcess()")
+	}
+}
+
+func TestUnreachableCode_AfterQualifiedExitProcess_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UnreachableCode", `
+package test
+fun main() {
+    kotlin.system.exitProcess(0)
+    println("unreachable")
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for unreachable code after kotlin.system.exitProcess()")
+	}
+}
+
+func TestUnreachableCode_AfterWorkspaceNothingFunc_Positive(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "UnreachableCode", `
+package test
+
+private fun failHard(msg: String): Nothing = throw IllegalStateException(msg)
+
+fun main() {
+    failHard("boom")
+    println("unreachable")
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for unreachable code after workspace Nothing-returning function")
+	}
+}
+
+func TestUnreachableCode_NegativeUserExitProcessOnReceiver(t *testing.T) {
+	// A user-defined `exitProcess` method on an arbitrary receiver does not
+	// match the strict qualifier allow-list, and the resolver cannot
+	// confirm a Nothing return type for an unknown method. The rule must
+	// not fire.
+	findings := runRuleByName(t, "UnreachableCode", `
+package test
+
+class Watchdog {
+    fun exitProcess(code: Int) {}
+}
+
+fun main(w: Watchdog) {
+    w.exitProcess(0)
+    println("still reachable")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings after Watchdog.exitProcess(), got %d", len(findings))
+	}
+}

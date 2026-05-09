@@ -514,8 +514,13 @@ func init() {
 	// -------------------------------------------------------------------------
 	// Nothing-returning top-level functions
 	// -------------------------------------------------------------------------
-	StdlibMethods["_.TODO"] = &StdlibMethod{ReturnType: &ResolvedType{Name: "Nothing", FQN: "kotlin.Nothing", Kind: TypeNothing}, ReturnTypeArgIndex: -1}
-	StdlibMethods["_.error"] = &StdlibMethod{ReturnType: &ResolvedType{Name: "Nothing", FQN: "kotlin.Nothing", Kind: TypeNothing}, ReturnTypeArgIndex: -1}
+	// Only stdlib globals with no plausible user-defined conflict are listed
+	// here. Workspace functions whose declared return type is Nothing are
+	// resolved via r.functions in the resolver and don't need entries.
+	nothing := &StdlibMethod{ReturnType: &ResolvedType{Name: "Nothing", FQN: "kotlin.Nothing", Kind: TypeNothing}, ReturnTypeArgIndex: -1}
+	StdlibMethods["_.TODO"] = nothing
+	StdlibMethods["_.error"] = nothing
+	StdlibMethods["_.exitProcess"] = nothing
 }
 
 // LookupStdlibMethod looks up a stdlib method by receiver type name and method name.

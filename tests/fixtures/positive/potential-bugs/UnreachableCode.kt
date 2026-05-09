@@ -1,5 +1,7 @@
 package fixtures.positive.potentialbugs
 
+private fun failHard(msg: String): Nothing = throw IllegalStateException(msg)
+
 class UnreachableCode {
     // Statement after return
     fun afterReturn(x: Int): Int {
@@ -38,6 +40,26 @@ class UnreachableCode {
     // Statement after error()
     fun afterError() {
         error("fatal")
+        println("unreachable")
+    }
+
+    // Statement after exitProcess()
+    fun afterExitProcess() {
+        exitProcess(0)
+        println("unreachable")
+    }
+
+    // Statement after fully-qualified kotlin.system.exitProcess()
+    fun afterQualifiedExitProcess() {
+        kotlin.system.exitProcess(0)
+        println("unreachable")
+    }
+
+    // Statement after a workspace-defined Nothing-returning function.
+    // The resolver picks up failHard() via r.functions and reports its
+    // return type as Nothing, so the rule treats it as a jump.
+    fun afterWorkspaceNothing() {
+        failHard("boom")
         println("unreachable")
     }
 

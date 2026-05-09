@@ -253,7 +253,12 @@ func newRunner(f *scanFlags) (*runner, int, bool) {
 		libraryFacts:    librarymodel.DefaultFacts(),
 		cacheFilePath:   cacheFilePath,
 	}
-	if !*f.NoCache && cacheFilePath != "" {
+	// Skip the preload on early-exit paths that never reach
+	// runOracleIndex. --oracle-filter-fingerprint is the only one
+	// detectable here without doing the file walk first; the empty-repo
+	// short-circuit needs file collection to fire and isn't worth a
+	// pre-walk just to save the wasted load.
+	if !*f.NoCache && cacheFilePath != "" && !*f.OracleFilterFingerprint {
 		r.preloadedAnalysisCacheCh = preloadAnalysisCache(func() *cache.Cache {
 			return cache.Load(cacheFilePath)
 		})

@@ -37,6 +37,11 @@ type Plan struct {
 	// appears in Files (when known). Apply uses it to rewrite import
 	// statements and detect package-only renames.
 	Contexts map[string]FileContext
+
+	// cachedFiles holds the parsed *scanner.File objects from the index
+	// so Apply can reuse already-loaded content instead of re-reading
+	// from disk. Internal — not part of the persisted plan shape.
+	cachedFiles []*scanner.File
 }
 
 // ParseTarget validates the FQN arguments and extracts the simple names used by
@@ -84,6 +89,7 @@ func BuildPlan(idx *scanner.CodeIndex, target Target) Plan {
 			continue
 		}
 		plan.Contexts[file.Path] = BuildFileContext(file)
+		plan.cachedFiles = append(plan.cachedFiles, file)
 	}
 
 	files := make(map[string]bool)

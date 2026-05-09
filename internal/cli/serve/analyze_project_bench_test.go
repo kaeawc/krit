@@ -19,8 +19,6 @@
 package serve
 
 import (
-	"context"
-	"fmt"
 	"os"
 	"runtime"
 	"testing"
@@ -141,31 +139,10 @@ func BenchmarkAnalyzeProjectLeak(b *testing.B) {
 	}
 }
 
-// startServerForCorpus is the corpus-rooted analogue of
-// startServerForTest. Differences: --root points at the corpus
-// (not t.TempDir()), the socket lives in /tmp, no test-only
-// shortcuts. Cleanup is registered on b so the daemon and socket
-// are torn down between iterations of cold-bench loops.
+// startServerForCorpus is the corpus-rooted wrapper over
+// startServerWith. readyTimeout=0 so the bench tight-spins on
+// daemon.Available — startup cost isn't part of the measurement.
 func startServerForCorpus(b *testing.B, root string) (string, *daemonState) {
 	b.Helper()
-	socketDir, err := os.MkdirTemp("/tmp", "krit-corpus-")
-	if err != nil {
-		b.Fatalf("MkdirTemp: %v", err)
-	}
-	b.Cleanup(func() { _ = os.RemoveAll(socketDir) })
-	socket := fmt.Sprintf("%s/d.sock", socketDir)
-
-	state := newDaemonState(root)
-	srv := daemon.NewServer(socket)
-	registerVerbs(srv, state)
-	if err := srv.Start(context.Background()); err != nil {
-		b.Fatalf("start: %v", err)
-	}
-	b.Cleanup(srv.Stop)
-
-	for !daemon.Available(socket) {
-		// Spin briefly; benchmarks tolerate this since they're not
-		// measuring startup cost.
-	}
-	return socket, state
+	return startServerWith(b, root, 0)
 }

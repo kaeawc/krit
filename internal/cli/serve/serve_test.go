@@ -1,49 +1,19 @@
 package serve
 
 import (
-	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/kaeawc/krit/internal/daemon"
 )
 
-// startServerForTest spins up a serve.Server with the standard verbs
-// registered. warm() is intentionally skipped: analyze-buffer doesn't
-// need the module graph, and warm() would try to scan t.TempDir() as
-// a project.
-//
-// macOS limits Unix-socket paths to 104 bytes; with long test names
-// even t.TempDir() overruns. Place the socket under a short MkdirTemp
-// rooted at /tmp so the path stays well under the cap.
+// startServerForTest spins up a serve.Server rooted at t.TempDir() and
+// waits up to one second for the socket to become available. Thin
+// wrapper over startServerWith.
 func startServerForTest(t *testing.T) (string, *daemonState) {
 	t.Helper()
-	socketDir, err := os.MkdirTemp("/tmp", "krit-srv-")
-	if err != nil {
-		t.Fatalf("MkdirTemp: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
-	socket := filepath.Join(socketDir, "d.sock")
-
-	state := newDaemonState(t.TempDir())
-	srv := daemon.NewServer(socket)
-	registerVerbs(srv, state)
-
-	if err := srv.Start(context.Background()); err != nil {
-		t.Fatalf("start: %v", err)
-	}
-	t.Cleanup(srv.Stop)
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if daemon.Available(socket) {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	return socket, state
+	return startServerWith(t, t.TempDir(), time.Second)
 }
 
 func TestAnalyzeBuffer_RoundTrip(t *testing.T) {

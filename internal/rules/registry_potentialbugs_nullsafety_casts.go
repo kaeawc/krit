@@ -36,6 +36,7 @@ func registerPotentialbugsNullsafetyCastsRules() {
 			// types for the conservative local fallback; no declarations traversal
 			// needed.
 			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
+			Tags:                   []string{"precompile"},
 			Implementation:         r,
 			Check:                  r.check,
 		})

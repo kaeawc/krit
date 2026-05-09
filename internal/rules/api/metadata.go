@@ -180,6 +180,13 @@ type RuleDescriptor struct {
 	// (e.g. "complexity", "naming", "performance").
 	RuleSet string
 
+	// Tags are advisory cross-cutting labels that group rules across
+	// RuleSets. See Rule.Tags for the full contract; the descriptor
+	// field exists so rules implementing MetaProvider can publish tags
+	// the same way they publish other metadata. Tags are purely
+	// descriptive and do not affect activation or dispatch.
+	Tags []string
+
 	// Severity is "error", "warning", or "info".
 	Severity string
 

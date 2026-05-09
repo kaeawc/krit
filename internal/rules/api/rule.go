@@ -493,6 +493,17 @@ type Rule struct {
 	// renaming a rule so existing user suppressions keep working.
 	Aliases []string
 
+	// Tags are advisory cross-cutting labels that group rules across
+	// RuleSets. Unlike Category/RuleSet (which is the rule's primary
+	// configuration group and is load-bearing for activation, suppression
+	// keys, and option lookup), Tags are purely descriptive metadata that
+	// consumers (docs, CLI filters, IDE pickers) can use to surface
+	// thematic groupings without renaming a rule. Examples: "precompile"
+	// for rules that approximate compiler diagnostics, "android" for
+	// Android-specific checks. Tags do NOT affect dispatcher routing or
+	// config activation today.
+	Tags []string
+
 	// EnabledByDefaultSince records the krit version in which this rule
 	// became default-active (DefaultActive transitioned from false to
 	// true). Empty string means the rule has been default-active since

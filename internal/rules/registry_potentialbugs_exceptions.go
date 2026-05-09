@@ -68,6 +68,7 @@ func registerPotentialbugsExceptionsRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"try_expression"}, Confidence: 0.75, Implementation: r,
 			Needs: api.NeedsResolver,
+			Tags:  []string{"precompile"},
 			Check: r.checkFlatNode,
 		})
 	}
@@ -77,6 +78,7 @@ func registerPotentialbugsExceptionsRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"statements"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
 			Needs: api.NeedsTypeInfo | api.NeedsOracleDiagnostics,
+			Tags:  []string{"precompile"},
 			// Narrow by the four jump keywords the rule actually dispatches
 			// on. Without any jump keyword a file cannot produce an
 			// UNREACHABLE_CODE finding; USELESS_ELVIS diagnostics in files

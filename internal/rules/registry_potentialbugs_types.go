@@ -357,6 +357,7 @@ func registerPotentialbugsTypesRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"when_expression"}, Confidence: 0.75, Implementation: r,
 			Needs: api.NeedsResolver,
+			Tags:  []string{"precompile"},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !whenHasElseBranchFlat(file, idx) {

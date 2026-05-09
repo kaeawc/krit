@@ -89,6 +89,22 @@ or removed modules and module dependency edges, and per-metric repo /
 module deltas. Refuses cross-version diffs when blob schemas differ;
 both args resolve through `git rev-parse` so refs and short shas work.
 
+## Simulate a rule across history
+
+Answer "would this rule have been useful if I'd shipped it six months
+ago?" by walking history and scoring the rule against each commit:
+
+```sh
+krit snapshot simulate MagicNumber --since 720h --workers 4
+krit snapshot simulate LongMethod --max 100 --format json
+```
+
+Each commit is checked out into a detached worktree, krit is invoked
+with `-f json -enable-rules <rule>` against it, and the resulting
+`summary.byRule[<rule>]` count becomes one point in the time series.
+Slow per call (one full krit run per commit) — the design assumes
+rule-tuning is a one-off rather than a hot path.
+
 ## CI gate
 
 Fail (exit 2) when a delta crosses a threshold. Threshold flags are

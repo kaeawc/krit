@@ -27,6 +27,7 @@ const usage = `usage: krit snapshot <capture|backfill|status|timeline|info|diff|
   diff <from> <to>     show structural delta between two captured snapshots
   gate <from> <to>     fail (exit 2) if a delta exceeds a configured threshold
   install-hook         install a post-commit hook that captures HEAD on each commit
+  simulate <rule>      score a rule across history (would this rule have been useful?)
 
 Capture flags:
   --repo PATH       repo root (default: cwd)
@@ -62,6 +63,8 @@ func Run(args []string) int {
 		return runGate(args[1:])
 	case "install-hook":
 		return runInstallHook(args[1:])
+	case "simulate":
+		return runSimulate(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown snapshot subcommand: %s\n%s", args[0], usage)
 		return 1
@@ -276,6 +279,66 @@ type repeatedFlag []string
 func (r *repeatedFlag) String() string     { return strings.Join(*r, ",") }
 func (r *repeatedFlag) Set(v string) error { *r = append(*r, v); return nil }
 func (r *repeatedFlag) Get() interface{}   { return []string(*r) }
+
+func runSimulate(args []string) int {
+	fs := flag.NewFlagSet("snapshot simulate", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	repoFlag := fs.String("repo", "", "repository root (default: cwd)")
+	branchFlag := fs.String("branch", "", "branch or revspec to walk (default: HEAD)")
+	sinceFlag := fs.Duration("since", 0, "only score commits in the last duration (e.g. 720h for 30d)")
+	maxFlag := fs.Int("max", 0, "max number of commits to score (0 = unlimited)")
+	workersFlag := fs.Int("workers", 0, "parallel worker count (0 = NumCPU)")
+	formatFlag := fs.String("format", "text", "output format: text|json")
+
+	positional, rest := clishared.SplitPositional(args, 1)
+	if err := fs.Parse(rest); err != nil {
+		return 1
+	}
+	if len(positional) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: krit snapshot simulate <rule> [--since DUR] [--max N] [--workers N]")
+		return 1
+	}
+
+	repoRoot, code := resolveRepoRoot(*repoFlag)
+	if code != 0 {
+		return code
+	}
+
+	res, err := snap.Simulate(snap.SimulateOptions{
+		RepoRoot:   repoRoot,
+		Rule:       positional[0],
+		Branch:     *branchFlag,
+		Since:      *sinceFlag,
+		MaxCommits: *maxFlag,
+		Workers:    *workersFlag,
+		Reporter: func(ev snap.SimulateEvent) {
+			short := shortSHA(ev.CommitSHA)
+			if ev.Error != nil {
+				fmt.Fprintf(os.Stderr, "failed   %s: %v\n", short, ev.Error)
+				return
+			}
+			fmt.Fprintf(os.Stderr, "scored   %s findings=%d (%s)\n", short, ev.Findings, ev.Duration.Round(time.Millisecond))
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+
+	if *formatFlag == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(res)
+		return 0
+	}
+	for _, p := range res.Points {
+		fmt.Printf("%s\t%d\t%d\n", shortSHA(p.CommitSHA), p.CommittedAt, p.Findings)
+	}
+	if len(res.Failed) > 0 {
+		fmt.Fprintf(os.Stderr, "%d commit(s) failed; see stderr above\n", len(res.Failed))
+	}
+	return 0
+}
 
 func runInstallHook(args []string) int {
 	fs := flag.NewFlagSet("snapshot install-hook", flag.ContinueOnError)

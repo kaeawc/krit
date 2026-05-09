@@ -17,6 +17,7 @@ func registerStyleUnusedRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"import_header"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
+			Tags: []string{"precompile"},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				shortName := importShortNameFlat(file, idx)
@@ -52,6 +53,7 @@ func registerStyleUnusedRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Fix: api.FixSemantic, Implementation: r,
+			Tags: []string{"precompile"},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if scanner.IsTestFile(file.Path) {
@@ -146,6 +148,7 @@ func registerStyleUnusedRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"property_declaration", "variable_declaration"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+			Tags: []string{"precompile"},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if scanner.IsTestFile(file.Path) {

@@ -495,7 +495,7 @@ func (s *Server) loadConfigAndBuildDispatcher() {
 	if configPath == "" && s.rootURI != "" {
 		rootPath := uriToPath(s.rootURI)
 		// Check for krit.yml or .krit.yml in the workspace root
-		for _, name := range []string{"krit.yml", ".krit.yml"} {
+		for _, name := range config.Filenames {
 			candidate := filepath.Join(rootPath, name)
 			if _, err := os.Stat(candidate); err == nil {
 				configPath = candidate

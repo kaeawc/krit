@@ -7,9 +7,44 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
 )
+
+// FindConfigInDir probes dir for the first present file in
+// config.Filenames and returns its path, or "" when none is present
+// (or dir is empty).
+func FindConfigInDir(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	for _, name := range config.Filenames {
+		candidate := filepath.Join(dir, name)
+		if fi, err := os.Stat(candidate); err == nil && !fi.IsDir() {
+			return candidate
+		}
+	}
+	return ""
+}
+
+// ParseRuleNameSetCSV parses a comma-separated list of rule names into a
+// lookup set. Whitespace around each name is trimmed. Empty input returns
+// an empty (non-nil) map so callers can index it without nil checks.
+//
+// Shared by --disable-rules / --enable-rules on both the CLI and daemon
+// paths. A trailing comma or whitespace-only token produces an empty-string
+// entry — harmless because no real rule has ID "".
+func ParseRuleNameSetCSV(csv string) map[string]bool {
+	out := make(map[string]bool)
+	if csv == "" {
+		return out
+	}
+	for _, name := range strings.Split(csv, ",") {
+		out[strings.TrimSpace(name)] = true
+	}
+	return out
+}
 
 // SimpleName extracts the last dot-separated segment of an FQN,
 // stripping any trailing parenthesised arity/signature.

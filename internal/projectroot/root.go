@@ -3,6 +3,8 @@ package projectroot
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/kaeawc/krit/internal/config"
 )
 
 // Find picks the repository root for repo-local Krit state. It starts from the
@@ -33,8 +35,10 @@ func Find(scanPaths []string) string {
 	}
 }
 
+var rootMarkers = append([]string{".git"}, append(config.Filenames, "settings.gradle", "settings.gradle.kts")...)
+
 func isRootMarkerDir(dir string) bool {
-	for _, name := range []string{".git", "krit.yml", ".krit.yml", "settings.gradle", "settings.gradle.kts"} {
+	for _, name := range rootMarkers {
 		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
 			return true
 		}

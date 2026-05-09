@@ -11,6 +11,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/cache"
+	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/experiment"
@@ -328,8 +329,8 @@ func (r *runner) ensureProjectModel() {
 // Returns (handled=true, code) when the run should terminate early.
 func (r *runner) filterRules() (handled bool, code int) {
 	r.tracker.TrackVoid("filterRules", func() {
-		disabledSet := parseRuleNameSet(*r.f.DisableRules)
-		enabledSet := parseRuleNameSet(*r.f.EnableRules)
+		disabledSet := clishared.ParseRuleNameSetCSV(*r.f.DisableRules)
+		enabledSet := clishared.ParseRuleNameSetCSV(*r.f.EnableRules)
 		experimental := *r.f.Experimental || r.cfg.GetTopLevelBool("experimental", false)
 		r.activeRules = rules.ActiveRulesV2(disabledSet, enabledSet, *r.f.AllRules, experimental)
 		if rulesNeedProjectModel(r.activeRules) {

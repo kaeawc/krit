@@ -93,9 +93,13 @@ func loadFile(path string) (*Config, error) {
 	return &Config{data: raw}, nil
 }
 
+// Filenames lists the krit configuration filenames, in the order
+// callers should probe for them. Centralised so adding a third name
+// (e.g. krit.yaml) is a one-line change.
+var Filenames = []string{"krit.yml", ".krit.yml"}
+
 func autoDetect() (*Config, error) {
-	candidates := []string{"krit.yml", ".krit.yml"}
-	for _, name := range candidates {
+	for _, name := range Filenames {
 		if _, err := os.Stat(name); err == nil {
 			return loadFile(name)
 		}

@@ -139,7 +139,7 @@ func runInitFlag(initFlag bool) {
 	if !initFlag {
 		return
 	}
-	for _, name := range []string{"krit.yml", ".krit.yml"} {
+	for _, name := range config.Filenames {
 		if _, err := os.Stat(name); err == nil {
 			fmt.Fprintf(os.Stderr, "Config already exists: %s\n", name)
 			os.Exit(0)
@@ -163,7 +163,7 @@ func runDoctorFlag(doctorFlag bool, version string) {
 	fmt.Printf("  krit version: %s\n", version)
 	fmt.Printf("  rules: %d registered (%d active by default)\n", len(api.Registry), countActiveV2(api.Registry))
 	configFound := false
-	for _, name := range []string{"krit.yml", ".krit.yml"} {
+	for _, name := range config.Filenames {
 		if _, err := os.Stat(name); err == nil {
 			fmt.Printf("  config: %s (found)\n", name)
 			configFound = true

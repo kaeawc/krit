@@ -224,6 +224,98 @@ func TestFileWatcher_InvalidatesLibraryFactsOnVersionsTomlChange(t *testing.T) {
 	}
 }
 
+// TestFileWatcher_TouchPropagatesOnKotlinWrite asserts the watcher
+// pushes the changed path into WorkspaceState's dirty-set, so daemon
+// verbs that call DrainDirty later see the file. Mirrors the
+// invalidate-on-write test but probes the new Touch path. Watcher
+// latency target: ≤ 200ms (the SLO from the daemon plan).
+func TestFileWatcher_TouchPropagatesOnKotlinWrite(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "Foo.kt")
+	if err := os.WriteFile(path, []byte("fun a() {}\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	ws := pipeline.NewWorkspaceState(root)
+
+	w, err := startFileWatcher(context.Background(), root, ws, nil)
+	if err != nil {
+		t.Fatalf("startFileWatcher: %v", err)
+	}
+	defer w.Stop()
+
+	start := time.Now()
+	if err := os.WriteFile(path, []byte("fun a() { 42 }\n"), 0o644); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+
+	// Drain repeatedly until the touch arrives. Bounds the assertion
+	// to the watcher-latency SLO from the plan: ≤ 200ms from os.Write
+	// to dirty-set visibility.
+	deadline := time.Now().Add(2 * time.Second)
+	var dirty []string
+	for time.Now().Before(deadline) {
+		if dirty = ws.DrainDirty(); len(dirty) > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(dirty) == 0 {
+		t.Fatal("expected dirty-set to contain the written path within 2s")
+	}
+	if got := time.Since(start); got > 200*time.Millisecond {
+		// Soft warning: the SLO is a plan-level target; tests on a
+		// loaded CI runner may exceed it. We log rather than fail to
+		// avoid flakes; the daemon's end-to-end test in step 8
+		// asserts the SLO directly.
+		t.Logf("watcher latency = %v (target ≤ 200ms)", got)
+	}
+	// Path should match the touched file (after WorkspaceState's
+	// normalisation, which evaluates symlinks consistent with what
+	// ParseFile does).
+	found := false
+	for _, p := range dirty {
+		if filepath.Base(p) == "Foo.kt" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("dirty-set %v did not contain Foo.kt", dirty)
+	}
+}
+
+// TestFileWatcher_TouchPropagatesOnGradleWrite covers the Gradle/
+// versions-catalog branch of the watcher's handle().
+func TestFileWatcher_TouchPropagatesOnGradleWrite(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "build.gradle.kts")
+	if err := os.WriteFile(path, []byte("// gradle\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	ws := pipeline.NewWorkspaceState(root)
+
+	w, err := startFileWatcher(context.Background(), root, ws, nil)
+	if err != nil {
+		t.Fatalf("startFileWatcher: %v", err)
+	}
+	defer w.Stop()
+
+	if err := os.WriteFile(path, []byte("// gradle changed\n"), 0o644); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	var dirty []string
+	for time.Now().Before(deadline) {
+		if dirty = ws.DrainDirty(); len(dirty) > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(dirty) == 0 {
+		t.Fatal("expected dirty-set to contain build.gradle.kts within 2s")
+	}
+}
+
 func TestIsLibraryConfigPath(t *testing.T) {
 	tests := []struct {
 		path string

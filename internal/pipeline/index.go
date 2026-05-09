@@ -412,15 +412,20 @@ func (p IndexPhase) runCacheLoad(in IndexInput, result *IndexResult) {
 
 	var loadStart time.Time
 	var analysisCache *cache.Cache
-	_ = in.trackSerial("cacheLoad", func() error {
+	if in.PreloadedAnalysisCache != nil {
+		// The async preload happens in newRunner before the pipeline
+		// starts; wrapping the assignment in trackSerial would record
+		// a misleading ~0 ms cacheLoad entry. The goroutine's wall
+		// time is owned by the runner.
 		loadStart = time.Now()
-		if in.PreloadedAnalysisCache != nil {
-			analysisCache = in.PreloadedAnalysisCache
-		} else {
+		analysisCache = in.PreloadedAnalysisCache
+	} else {
+		_ = in.trackSerial("cacheLoad", func() error {
+			loadStart = time.Now()
 			analysisCache = cache.Load(in.CacheFilePath)
-		}
-		return nil
-	})
+			return nil
+		})
+	}
 
 	// Attach the unified store when available so incremental cache
 	// entries are persisted per-file in the store instead of the JSON file.

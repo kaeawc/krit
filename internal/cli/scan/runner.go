@@ -1296,7 +1296,7 @@ func (r *runner) recordTotalTimingAndStopProfiles() {
 // outputPhase wires the Findings columns through OutputPhase, after first
 // short-circuiting --sample-rule and --rule-audit.
 func (r *runner) outputPhase() int {
-	perfSnap := capturePerfSnapshot(*r.f.Perf, r.tracker)
+	perfSnap := capturePerfSnapshot(*r.f.Perf, r.tracker, resolveParseCacheCap(*r.f.ParseCacheCapMB, r.cfg))
 
 	if handled, code := runSampleRuleShortCircuit(r.allColumns, sampleRuleOpts{
 		Rule:         *r.f.SampleRule,

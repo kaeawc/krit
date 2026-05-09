@@ -18,9 +18,10 @@ type perfSnapshot struct {
 // OutputPhase needs it. Returns a zero-value snapshot when perfEnabled
 // is false; otherwise pulls timings from the tracker (when the tracker
 // itself is enabled) and snapshots all named caches plus the parse-cache
-// budget. Pulled out of scan.Run so the conditional structure has one
-// named owner instead of two adjacent if blocks.
-func capturePerfSnapshot(perfEnabled bool, tracker perf.Tracker) perfSnapshot {
+// budget. capBytes is the effective parse-cache cap (after --parse-cache-cap-mb
+// and krit.yml have been applied) — passing a stale default would make
+// pctOfCap misreport against the wrong ceiling.
+func capturePerfSnapshot(perfEnabled bool, tracker perf.Tracker, capBytes int64) perfSnapshot {
 	var snap perfSnapshot
 	if !perfEnabled {
 		return snap
@@ -29,7 +30,7 @@ func capturePerfSnapshot(perfEnabled bool, tracker perf.Tracker) perfSnapshot {
 		snap.Timings = tracker.GetTimings()
 	}
 	snap.Caches = cacheutil.AllStats()
-	b := cacheutil.Budget(cacheutil.DefaultParseCacheCapBytes)
+	b := cacheutil.Budget(capBytes)
 	snap.Budget = &b
 	return snap
 }

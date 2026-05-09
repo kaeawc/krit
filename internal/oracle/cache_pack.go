@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -320,6 +321,11 @@ func (h *oraclePackHandle) putMany(writes []oracleEncodedEntryWrite) error {
 		items = append(items, oraclePackItem{key: key, data: blob, crc: crc32.ChecksumIEEE(blob)})
 	}
 
+	// Sort by key so the on-disk pack file is byte-deterministic across
+	// runs. Without this, map iteration order randomizes both `items`
+	// composition and `buildOraclePack`'s header/data layout — see #25.
+	sortOraclePackItems(items)
+
 	buf := buildOraclePack(items)
 	if err := fsutil.WriteFileAtomic(h.path, buf, 0o644); err != nil {
 		return err
@@ -331,7 +337,34 @@ func (h *oraclePackHandle) putMany(writes []oracleEncodedEntryWrite) error {
 	return nil
 }
 
+// sortOraclePackItems sorts items by key in ascending order. It is the
+// single canonical ordering for entries inside an oracle pack file —
+// callers must invoke it before buildOraclePack so the resulting
+// artifact is byte-deterministic across runs.
+func sortOraclePackItems(items []oraclePackItem) {
+	sort.Slice(items, func(i, j int) bool { return items[i].key < items[j].key })
+}
+
+// oraclePackItemsSorted reports whether items are in canonical ascending
+// key order. Exposed as a precondition check for buildOraclePack and
+// for tests that exercise the determinism contract.
+func oraclePackItemsSorted(items []oraclePackItem) bool {
+	for i := 1; i < len(items); i++ {
+		if items[i-1].key > items[i].key {
+			return false
+		}
+	}
+	return true
+}
+
 func buildOraclePack(items []oraclePackItem) []byte {
+	// Determinism contract: callers must pass items in canonical sorted
+	// key order. Catching a violation here surfaces the bug at the
+	// producer rather than letting silently non-deterministic bytes
+	// reach disk.
+	if !oraclePackItemsSorted(items) {
+		panic("oracle: buildOraclePack received unsorted items; call sortOraclePackItems first")
+	}
 	headerSize := oraclePackHeaderFixed
 	for _, it := range items {
 		headerSize += oraclePackEntryFixed + len(it.key)

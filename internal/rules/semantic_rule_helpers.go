@@ -195,11 +195,8 @@ func javaTypeContainerMatchesAny(file *scanner.File, idx uint32, names ...string
 	if file == nil || idx == 0 {
 		return false
 	}
-	text := strings.TrimSpace(file.FlatNodeText(idx))
-	for _, name := range names {
-		if semanticTypeNameMatches(text, name) || strings.Contains(text, name) {
-			return true
-		}
+	if matchTypeBytes(file.FlatNodeBytes(idx), names) {
+		return true
 	}
 	found := false
 	file.FlatWalkAllNodes(idx, func(child uint32) {
@@ -208,16 +205,52 @@ func javaTypeContainerMatchesAny(file *scanner.File, idx uint32, names ...string
 		}
 		switch file.FlatType(child) {
 		case "type_identifier", "scoped_type_identifier", "scoped_identifier", "generic_type":
-			typeName := strings.TrimSpace(file.FlatNodeText(child))
-			for _, name := range names {
-				if semanticTypeNameMatches(typeName, name) || strings.Contains(typeName, name) {
-					found = true
-					return
-				}
+			if matchTypeBytes(file.FlatNodeBytes(child), names) {
+				found = true
 			}
 		}
 	})
 	return found
+}
+
+// matchTypeBytes is the byte-level equivalent of the
+// "semanticTypeNameMatches(s, name) || strings.Contains(s, name)"
+// fallback chain used by the Java supertype walker. The fast path is a
+// pure bytes.Contains; the $-form normalization (only meaningful for
+// nested-class JNI-style names) is paid for only when an unambiguous
+// '$' is present, which keeps the common case allocation-free.
+func matchTypeBytes(text []byte, names []string) bool {
+	text = bytes.TrimSpace(text)
+	if len(text) == 0 {
+		return false
+	}
+	for _, name := range names {
+		if bytes.Contains(text, []byte(name)) {
+			return true
+		}
+	}
+	// $→. normalization can rescue a match only when either side carries
+	// '$'. Today no caller passes a $-form name, but guarding both keeps
+	// the fast path strictly equivalent to the prior implementation.
+	hasDollar := bytes.IndexByte(text, '$') >= 0
+	if !hasDollar {
+		for _, name := range names {
+			if strings.IndexByte(name, '$') >= 0 {
+				hasDollar = true
+				break
+			}
+		}
+	}
+	if !hasDollar {
+		return false
+	}
+	s := string(text)
+	for _, name := range names {
+		if semanticTypeNameMatches(s, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func classHasMemberFunctionFlat(file *scanner.File, class uint32, name string) bool {

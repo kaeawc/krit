@@ -10,17 +10,20 @@ import (
 	"github.com/kaeawc/krit/internal/fsutil"
 )
 
-// ManifestSchemaVersion versions the JSON manifest layout. Bumped when a
-// field is added that older readers cannot tolerate; field additions
-// that older readers can ignore should not bump this.
+// ManifestSchemaVersion versions the JSON manifest layout. Bumped only
+// when a field is added that older readers cannot tolerate.
 const ManifestSchemaVersion = 1
 
 const manifestFileName = "manifest.json"
 
-// Manifest is the small, human-readable sidecar describing a captured
-// snapshot. Stored as JSON alongside the graph blob and metrics rollup
-// so callers can answer "what shas have we captured, at what krit
-// version, with what parents" without decoding either binary.
+// Manifest is the JSON sidecar describing a captured snapshot. Greppable
+// without krit; lets callers answer "what shas have we captured, at
+// what krit version, with what parents" without decoding the binary
+// blobs.
+//
+// RuleSetHash is reserved for the findings-rollup phase: when non-empty
+// it identifies the rule registry + config used to compute findings,
+// so cross-version diffs can refuse to compare incomparable counts.
 type Manifest struct {
 	SchemaVersion int      `json:"schema_version"`
 	CommitSHA     string   `json:"commit_sha"`
@@ -32,26 +35,17 @@ type Manifest struct {
 	Files         int      `json:"files"`
 	Symbols       int      `json:"symbols"`
 	Modules       int      `json:"modules"`
-	// RuleSetHash, when non-empty, identifies the rule registry + config
-	// used to derive any findings rollups for this snapshot. Empty in
-	// PRD-1 phase C (findings rollups arrive in a later phase). Captured
-	// here so cross-version diffs can refuse to compare incomparable
-	// findings counts later without changing the schema again.
-	RuleSetHash string `json:"rule_set_hash,omitempty"`
+	RuleSetHash   string   `json:"rule_set_hash,omitempty"`
 }
 
-// manifestPath returns the on-disk path for a sha's manifest. Sibling of
-// BlobPath / metricsPath under the same per-sha directory.
 func manifestPath(root, sha string) (string, error) {
-	if len(sha) < 2 {
-		return "", fmt.Errorf("snapshot: sha %q too short", sha)
+	dir, err := shaDir(root, sha)
+	if err != nil {
+		return "", err
 	}
-	return filepath.Join(root, "graphs", sha[:2], sha, manifestFileName), nil
+	return filepath.Join(dir, manifestFileName), nil
 }
 
-// SaveManifest writes m next to the graph blob and metrics rollup for the
-// same sha. JSON (not gob+zstd) so the manifest is greppable and
-// debuggable without krit.
 func SaveManifest(root string, m *Manifest) (string, error) {
 	if m == nil {
 		return "", errors.New("snapshot: nil manifest")
@@ -77,7 +71,6 @@ func SaveManifest(root string, m *Manifest) (string, error) {
 	return path, nil
 }
 
-// LoadManifest reads the manifest for sha from root.
 func LoadManifest(root, sha string) (*Manifest, error) {
 	path, err := manifestPath(root, sha)
 	if err != nil {
@@ -94,10 +87,8 @@ func LoadManifest(root, sha string) (*Manifest, error) {
 	return &m, nil
 }
 
-// LoadManifests returns the manifest for every captured sha under root,
-// sorted by sha. Snapshots whose manifest is missing or malformed are
-// skipped silently — callers concerned with completeness reconcile by
-// re-capturing those shas.
+// LoadManifests returns every captured sha's manifest under root, sorted
+// by sha. Missing or malformed manifests are skipped silently.
 func LoadManifests(root string) ([]Manifest, error) {
 	entries, err := List(root)
 	if err != nil {
@@ -115,9 +106,8 @@ func LoadManifests(root string) ([]Manifest, error) {
 }
 
 // CaptureManifest builds a Manifest from a captured Result and writes
-// it next to the blob and metrics files. Returns the on-disk path.
-// repoRoot is used for git parent lookup; pass "" to skip the lookup
-// (manifest is then written without ParentSHAs populated).
+// it next to the blob and metrics files. repoRoot is used for the git
+// parent lookup; pass "" to skip the lookup.
 func CaptureManifest(root string, res *Result, repoRoot, kritVersion string) (string, error) {
 	m := buildManifest(res, repoRoot, kritVersion)
 	if m == nil {
@@ -126,9 +116,30 @@ func CaptureManifest(root string, res *Result, repoRoot, kritVersion string) (st
 	return SaveManifest(root, m)
 }
 
-// buildManifest derives a Manifest from a captured Result. Parent shas
-// are looked up via git when repoRoot is non-empty; failures fall back
-// to an empty parent list rather than aborting the capture.
+// SaveResult persists the graph blob, metrics rollup, and a
+// freshly-built manifest for a captured Result. Returns the blob path.
+func SaveResult(root string, res *Result, repoRoot, kritVersion string) (string, error) {
+	if res == nil || res.Blob == nil {
+		return "", errors.New("snapshot: nil result")
+	}
+	blobPath, err := Save(root, res.Blob)
+	if err != nil {
+		return "", err
+	}
+	if res.Metrics != nil {
+		if _, err := SaveMetrics(root, res.Metrics); err != nil {
+			return "", err
+		}
+	}
+	if _, err := CaptureManifest(root, res, repoRoot, kritVersion); err != nil {
+		return "", err
+	}
+	return blobPath, nil
+}
+
+// buildManifest swallows git-lookup failures so capture can still
+// succeed when git is unavailable or the sha is unreachable; the
+// resulting manifest just has no ParentSHAs.
 func buildManifest(res *Result, repoRoot, kritVersion string) *Manifest {
 	if res == nil || res.Blob == nil {
 		return nil

@@ -12,11 +12,9 @@ import (
 	"github.com/kaeawc/krit/internal/fsutil"
 )
 
-// blobFileName is the filename used inside each per-sha snapshot directory.
 const blobFileName = "graph.gob.zst"
 
-// SnapshotsDir returns the snapshots root inside repoRoot. Mirrors
-// cache.DefaultDir's convention of nesting under ".krit/".
+// SnapshotsDir returns the snapshots root inside repoRoot.
 func SnapshotsDir(repoRoot string) string {
 	if repoRoot == "" {
 		repoRoot = "."
@@ -24,21 +22,26 @@ func SnapshotsDir(repoRoot string) string {
 	return filepath.Join(repoRoot, ".krit", "snapshots")
 }
 
-// BlobPath returns the on-disk path for a given commit sha under root.
-// root should typically be SnapshotsDir(repoRoot). The two-character sha
-// prefix mirrors git's loose-object layout to keep directory fan-out
-// bounded for repos with many captured shas.
-func BlobPath(root, sha string) (string, error) {
+// shaDir returns the per-sha directory under root. The two-character
+// prefix mirrors git's loose-object layout so directory fan-out stays
+// bounded on repos with many captured shas.
+func shaDir(root, sha string) (string, error) {
 	if len(sha) < 2 {
 		return "", fmt.Errorf("snapshot: sha %q too short", sha)
 	}
-	return filepath.Join(root, "graphs", sha[:2], sha, blobFileName), nil
+	return filepath.Join(root, "graphs", sha[:2], sha), nil
 }
 
-// Save writes b to its content-addressed location under root, returning the
-// absolute path written. Parent directories are created on demand and the
-// final write goes through fsutil.WriteFileAtomic so a partially-written
-// blob never appears on disk.
+func BlobPath(root, sha string) (string, error) {
+	dir, err := shaDir(root, sha)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, blobFileName), nil
+}
+
+// Save writes b atomically to its content-addressed location under root
+// and returns the path written.
 func Save(root string, b *Blob) (string, error) {
 	if b == nil {
 		return "", errors.New("snapshot: nil blob")
@@ -63,7 +66,6 @@ func Save(root string, b *Blob) (string, error) {
 	return path, nil
 }
 
-// Load reads the blob for sha from root.
 func Load(root, sha string) (*Blob, error) {
 	path, err := BlobPath(root, sha)
 	if err != nil {
@@ -88,9 +90,8 @@ type Entry struct {
 	Bytes     int64
 }
 
-// List returns every captured snapshot under root, sorted by sha. Entries
-// that fail to stat are skipped silently. List does not load blobs; callers
-// who need decoded contents call Load on each Entry.CommitSHA.
+// List returns every captured snapshot under root, sorted by sha.
+// Entries that fail to stat are skipped silently.
 func List(root string) ([]Entry, error) {
 	graphsDir := filepath.Join(root, "graphs")
 	prefixes, err := os.ReadDir(graphsDir)

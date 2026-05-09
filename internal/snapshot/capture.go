@@ -12,37 +12,23 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// CaptureOptions controls a single snapshot capture invocation.
+// CaptureOptions controls a single Capture invocation.
 type CaptureOptions struct {
-	// RepoRoot is the absolute path to the project root. Required.
-	RepoRoot string
-	// CommitSHA is the git commit being captured. Required (callers
-	// resolve it via the git helper or pass it explicitly).
-	CommitSHA string
-	// KritVersion is stamped on the blob. Empty defaults to "dev"
-	// to match the CLI's untagged build behavior.
+	RepoRoot    string
+	CommitSHA   string
 	KritVersion string
-	// Workers, when zero, falls back to runtime.NumCPU().
-	Workers int
-	// Now allows tests to inject a deterministic capture time. When
-	// nil the wall clock is used.
+	Workers     int
+	// Now allows tests to inject a deterministic capture time.
 	Now func() time.Time
 }
 
-// Result is the output of a Capture invocation: the structural graph
-// blob plus the per-file/per-module metrics rollup derived from the
-// same parse. Callers that only need the blob can read .Blob; callers
-// driving a timeline query also need .Metrics.
+// Result pairs the structural blob with the metrics rollup derived from
+// the same parse.
 type Result struct {
 	Blob    *Blob
 	Metrics *Metrics
 }
 
-// Capture walks RepoRoot, builds a structural graph (module discovery +
-// cross-file scanner index over Kotlin and Java sources), and returns a
-// Result containing both the cold-path graph blob and the dense scalar
-// rollup. No findings are computed — this is deliberately separate from
-// rule dispatch.
 func Capture(opts CaptureOptions) (*Result, error) {
 	if opts.RepoRoot == "" {
 		return nil, fmt.Errorf("snapshot: RepoRoot required")
@@ -73,8 +59,8 @@ func Capture(opts CaptureOptions) (*Result, error) {
 	}
 
 	ktPaths, javaPaths, fileToModule := collectSources(graph, root)
-	ktFiles := parseKotlin(ktPaths)
-	javaFiles := parseJava(javaPaths)
+	ktFiles, _ := scanner.ScanFilesCached(ktPaths, workers, nil)
+	javaFiles, _ := scanner.ScanJavaFilesCached(javaPaths, workers, nil)
 
 	idx := scanner.BuildIndex(ktFiles, workers, javaFiles...)
 
@@ -96,9 +82,11 @@ func Capture(opts CaptureOptions) (*Result, error) {
 	return &Result{Blob: blob, Metrics: metrics}, nil
 }
 
-// collectSources walks each discovered module's source roots. fileToModule
-// maps absolute source path -> gradle module path so per-file rollups can
-// attribute the file without re-walking the graph later.
+// collectSources walks each module's source roots once via
+// CollectKotlinAndJavaFiles and records a path -> gradle-module
+// attribution for downstream rollups. When the project has no Gradle
+// modules (e.g. a plain Kotlin tree) it falls back to a single
+// repo-root walk.
 func collectSources(graph *module.Graph, repoRoot string) (kotlin, java []string, fileToModule map[string]string) {
 	fileToModule = make(map[string]string)
 	seenKt := make(map[string]bool)
@@ -116,70 +104,40 @@ func collectSources(graph *module.Graph, repoRoot string) (kotlin, java []string
 			if len(roots) == 0 {
 				roots = []string{filepath.Join(mod.Dir, "src", "main", "kotlin"), filepath.Join(mod.Dir, "src", "main", "java")}
 			}
-			ktForMod, _ := scanner.CollectKotlinFiles(roots, nil)
-			jvForMod, _ := scanner.CollectJavaFiles(roots, nil)
+			ktForMod, jvForMod, _ := scanner.CollectKotlinAndJavaFiles(roots, nil)
 			for _, p := range ktForMod {
-				abs, _ := filepath.Abs(p)
-				if !seenKt[abs] {
-					seenKt[abs] = true
+				if !seenKt[p] {
+					seenKt[p] = true
 					kotlin = append(kotlin, p)
-					fileToModule[abs] = mod.Path
+					fileToModule[p] = mod.Path
 				}
 			}
 			for _, p := range jvForMod {
-				abs, _ := filepath.Abs(p)
-				if !seenJv[abs] {
-					seenJv[abs] = true
+				if !seenJv[p] {
+					seenJv[p] = true
 					java = append(java, p)
-					fileToModule[abs] = mod.Path
+					fileToModule[p] = mod.Path
 				}
 			}
 		}
 	}
 
 	if len(kotlin) == 0 && len(java) == 0 {
-		ktForRoot, _ := scanner.CollectKotlinFiles([]string{repoRoot}, nil)
-		jvForRoot, _ := scanner.CollectJavaFiles([]string{repoRoot}, nil)
+		ktForRoot, jvForRoot, _ := scanner.CollectKotlinAndJavaFiles([]string{repoRoot}, nil)
 		for _, p := range ktForRoot {
-			abs, _ := filepath.Abs(p)
-			if !seenKt[abs] {
-				seenKt[abs] = true
+			if !seenKt[p] {
+				seenKt[p] = true
 				kotlin = append(kotlin, p)
 			}
 		}
 		for _, p := range jvForRoot {
-			abs, _ := filepath.Abs(p)
-			if !seenJv[abs] {
-				seenJv[abs] = true
+			if !seenJv[p] {
+				seenJv[p] = true
 				java = append(java, p)
 			}
 		}
 	}
 	return kotlin, java, fileToModule
-}
-
-func parseKotlin(paths []string) []*scanner.File {
-	out := make([]*scanner.File, 0, len(paths))
-	for _, p := range paths {
-		f, err := scanner.ParseFile(p)
-		if err != nil || f == nil {
-			continue
-		}
-		out = append(out, f)
-	}
-	return out
-}
-
-func parseJava(paths []string) []*scanner.File {
-	out := make([]*scanner.File, 0, len(paths))
-	for _, p := range paths {
-		f, err := scanner.ParseJavaFile(p)
-		if err != nil || f == nil {
-			continue
-		}
-		out = append(out, f)
-	}
-	return out
 }
 
 func buildModules(graph *module.Graph, repoRoot string) []Module {
@@ -219,10 +177,9 @@ func buildModules(graph *module.Graph, repoRoot string) []Module {
 func buildFiles(kt, jv []*scanner.File, fileToModule map[string]string, repoRoot string) []File {
 	out := make([]File, 0, len(kt)+len(jv))
 	add := func(f *scanner.File, lang string) {
-		abs, _ := filepath.Abs(f.Path)
 		out = append(out, File{
 			Path:     relPath(f.Path, repoRoot),
-			Module:   fileToModule[abs],
+			Module:   fileToModule[f.Path],
 			Language: lang,
 			Lines:    countLines(f),
 			Bytes:    len(f.Content),
@@ -276,6 +233,8 @@ func buildSymbols(idx *scanner.CodeIndex, repoRoot string) []Symbol {
 			IsTest:     s.IsTest,
 		})
 	}
+	// Symbols come from worker goroutines and arrive in non-deterministic
+	// order; sort so the captured blob is stable across runs.
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].FQN != out[j].FQN {
 			return out[i].FQN < out[j].FQN
@@ -285,19 +244,15 @@ func buildSymbols(idx *scanner.CodeIndex, repoRoot string) []Symbol {
 	return out
 }
 
+// relPath returns absPath relative to repoRoot in slash form. repoRoot
+// must already be absolute (Capture absolutises it once on entry).
+// Returns absPath unchanged when it falls outside repoRoot.
 func relPath(absPath, repoRoot string) string {
 	if absPath == "" {
 		return ""
 	}
-	abs, err := filepath.Abs(absPath)
-	if err != nil {
-		return absPath
-	}
-	rel, err := filepath.Rel(repoRoot, abs)
-	if err != nil {
-		return absPath
-	}
-	if strings.HasPrefix(rel, "..") {
+	rel, err := filepath.Rel(repoRoot, absPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
 		return absPath
 	}
 	return filepath.ToSlash(rel)

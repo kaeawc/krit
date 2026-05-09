@@ -14,16 +14,14 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// MetricsSchemaVersion versions the on-disk format of Metrics. Bumped
-// independently of Blob's SchemaVersion so adding a new scalar to the
-// rollup does not invalidate snapshots' graph blobs.
+// MetricsSchemaVersion versions Metrics independently of Blob, so
+// adding a new scalar to the rollup does not invalidate graph blobs.
 const MetricsSchemaVersion = 1
 
 const metricsFileName = "metrics.gob.zst"
 
-// Metrics is the scalar rollup that sits next to a Blob on disk. Hot
-// path for timeline/diff queries: loading N of these is cheap because
-// each one is small (a few KB even on large repos).
+// Metrics is the scalar rollup persisted next to a Blob. Timeline
+// queries load these directly without decoding the graph.
 type Metrics struct {
 	SchemaVersion int
 	CommitSHA     string
@@ -32,7 +30,6 @@ type Metrics struct {
 	Modules       []ModuleMetrics
 }
 
-// FileMetrics captures per-file scalars. Path is repo-relative.
 type FileMetrics struct {
 	Path          string
 	Module        string
@@ -44,8 +41,6 @@ type FileMetrics struct {
 	Cyclomatic    int
 }
 
-// ModuleMetrics aggregates per-file metrics into a per-module roll-up
-// and adds the graph-derived FanIn/FanOut.
 type ModuleMetrics struct {
 	Path          string
 	Files         int
@@ -57,10 +52,6 @@ type ModuleMetrics struct {
 	FanOut        int
 }
 
-// computeMetrics builds the rollup from the captured Blob plus the parsed
-// source files held during Capture. The blob carries file metadata and
-// symbols (deterministic across snapshots); the parsed files are needed
-// for source-driven scalars like cyclomatic complexity.
 func computeMetrics(blob *Blob, files []*scanner.File) *Metrics {
 	if blob == nil {
 		return &Metrics{SchemaVersion: MetricsSchemaVersion}
@@ -78,7 +69,7 @@ func computeMetrics(blob *Blob, files []*scanner.File) *Metrics {
 	publicCount := make(map[string]int)
 	for _, s := range blob.Symbols {
 		symbolCount[s.File]++
-		if s.Visibility == "public" || s.Visibility == "" {
+		if s.Visibility == "public" {
 			publicCount[s.File]++
 		}
 	}
@@ -138,10 +129,8 @@ func computeMetrics(blob *Blob, files []*scanner.File) *Metrics {
 
 var cyclomaticDecisionRe = regexp.MustCompile(`\b(if|else\s+if|when|for|while|catch)\b|&&|\|\||\?:`)
 
-// fileCyclomatic is a line-oriented decision-point count modeled on the
-// existing riskmap heuristic in internal/cli/riskmap. Rough but stable;
-// snapshots only need scalars that compare apples-to-apples across
-// commits, not absolute correctness.
+// fileCyclomatic mirrors the riskmap heuristic in
+// internal/cli/riskmap. Approximate but stable across runs.
 func fileCyclomatic(lines []string) int {
 	complexity := 0
 	for _, line := range lines {
@@ -160,17 +149,14 @@ func fileCyclomatic(lines []string) int {
 	return complexity
 }
 
-// metricsPath returns the on-disk location for a snapshot's metrics
-// rollup. Sibling of BlobPath under the same per-sha directory so the
-// pair is captured-and-deleted together.
 func metricsPath(root, sha string) (string, error) {
-	if len(sha) < 2 {
-		return "", fmt.Errorf("snapshot: sha %q too short", sha)
+	dir, err := shaDir(root, sha)
+	if err != nil {
+		return "", err
 	}
-	return filepath.Join(root, "graphs", sha[:2], sha, metricsFileName), nil
+	return filepath.Join(dir, metricsFileName), nil
 }
 
-// SaveMetrics writes m next to the existing graph blob for the same sha.
 func SaveMetrics(root string, m *Metrics) (string, error) {
 	if m == nil {
 		return "", errors.New("snapshot: nil metrics")
@@ -195,7 +181,6 @@ func SaveMetrics(root string, m *Metrics) (string, error) {
 	return path, nil
 }
 
-// LoadMetrics reads the metrics rollup for sha from root.
 func LoadMetrics(root, sha string) (*Metrics, error) {
 	path, err := metricsPath(root, sha)
 	if err != nil {

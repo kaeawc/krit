@@ -44,6 +44,7 @@ type WorkspaceState struct {
 	xfileMu      sync.Mutex
 	libraryFacts xfileSlot[*librarymodel.Facts]
 	codeIndex    xfileSlot[*scanner.CodeIndex]
+	dependents   xfileSlot[*scanner.DependentsIndex]
 }
 
 // xfileSlot pairs a fingerprint with a value. Zero value means
@@ -210,6 +211,7 @@ func (w *WorkspaceState) InvalidateAll() {
 	w.xfileMu.Lock()
 	w.libraryFacts = xfileSlot[*librarymodel.Facts]{}
 	w.codeIndex = xfileSlot[*scanner.CodeIndex]{}
+	w.dependents = xfileSlot[*scanner.DependentsIndex]{}
 	w.xfileMu.Unlock()
 }
 
@@ -275,11 +277,53 @@ func (w *WorkspaceState) CodeIndex(fingerprint string, build func() *scanner.Cod
 	return v
 }
 
+// Dependents is LibraryFacts for *scanner.DependentsIndex. Same
+// semantics: build only fires on a fingerprint mismatch; concurrent
+// races converge on a single cached pointer. The fingerprint should be
+// the same one driving CodeIndex so the two slots stay aligned.
+func (w *WorkspaceState) Dependents(fingerprint string, build func() *scanner.DependentsIndex) *scanner.DependentsIndex {
+	if w == nil || fingerprint == "" {
+		return build()
+	}
+	w.xfileMu.Lock()
+	if w.dependents.present && w.dependents.fingerprint == fingerprint {
+		v := w.dependents.value
+		w.xfileMu.Unlock()
+		return v
+	}
+	w.xfileMu.Unlock()
+
+	v := build()
+
+	w.xfileMu.Lock()
+	if w.dependents.present && w.dependents.fingerprint == fingerprint {
+		v = w.dependents.value
+	} else {
+		w.dependents = xfileSlot[*scanner.DependentsIndex]{fingerprint: fingerprint, value: v, present: true}
+	}
+	w.xfileMu.Unlock()
+	return v
+}
+
+// InvalidateDependents drops the cached DependentsIndex so the next
+// Dependents call rebuilds from current sources. Called by the file
+// watcher whenever a Kotlin file changes — the dependents map is
+// affected by edits to import_header nodes.
+func (w *WorkspaceState) InvalidateDependents() {
+	if w == nil {
+		return
+	}
+	w.xfileMu.Lock()
+	w.dependents = xfileSlot[*scanner.DependentsIndex]{}
+	w.xfileMu.Unlock()
+}
+
 // CrossFileStats reports whether the cross-file slots are populated.
 // Used by tests and verbose diagnostics.
 type CrossFileStats struct {
 	HasLibraryFacts bool
 	HasCodeIndex    bool
+	HasDependents   bool
 }
 
 // CrossFileStats returns a snapshot of the cross-file slots.
@@ -292,6 +336,7 @@ func (w *WorkspaceState) CrossFileStats() CrossFileStats {
 	return CrossFileStats{
 		HasLibraryFacts: w.libraryFacts.present,
 		HasCodeIndex:    w.codeIndex.present,
+		HasDependents:   w.dependents.present,
 	}
 }
 

@@ -348,3 +348,60 @@ func TestWorkspaceState_ConcurrentInvalidateIsSafe(t *testing.T) {
 	// No assertion beyond "didn't panic / didn't deadlock". The race
 	// detector catches data races automatically when -race is set.
 }
+
+func TestWorkspaceState_DependentsCachesByFingerprint(t *testing.T) {
+	ws := NewWorkspaceState("/tmp/test")
+	calls := 0
+	build := func() *scanner.DependentsIndex {
+		calls++
+		return scanner.BuildDependentsIndex(nil)
+	}
+
+	a := ws.Dependents("fp-1", build)
+	b := ws.Dependents("fp-1", build)
+	if a != b {
+		t.Error("expected pointer identity on cache hit")
+	}
+	if calls != 1 {
+		t.Errorf("build calls: got %d, want 1", calls)
+	}
+
+	c := ws.Dependents("fp-2", build)
+	if c == a {
+		t.Error("expected fingerprint change to rebuild")
+	}
+	if calls != 2 {
+		t.Errorf("build calls after rebuild: got %d, want 2", calls)
+	}
+}
+
+func TestWorkspaceState_InvalidateDependentsClearsOnlyThatSlot(t *testing.T) {
+	ws := NewWorkspaceState("/tmp/test")
+	ws.LibraryFacts("lf", func() *librarymodel.Facts { return &librarymodel.Facts{} })
+	ws.CodeIndex("ci", func() *scanner.CodeIndex { return &scanner.CodeIndex{} })
+	ws.Dependents("dep", func() *scanner.DependentsIndex { return scanner.BuildDependentsIndex(nil) })
+
+	ws.InvalidateDependents()
+	stats := ws.CrossFileStats()
+	if !stats.HasLibraryFacts {
+		t.Error("InvalidateDependents should not clear LibraryFacts")
+	}
+	if !stats.HasCodeIndex {
+		t.Error("InvalidateDependents should not clear CodeIndex")
+	}
+	if stats.HasDependents {
+		t.Error("InvalidateDependents should clear Dependents")
+	}
+}
+
+func TestWorkspaceState_InvalidateAllClearsDependents(t *testing.T) {
+	ws := NewWorkspaceState("/tmp/test")
+	ws.Dependents("dep", func() *scanner.DependentsIndex { return scanner.BuildDependentsIndex(nil) })
+	if !ws.CrossFileStats().HasDependents {
+		t.Fatal("setup failed: Dependents not cached")
+	}
+	ws.InvalidateAll()
+	if ws.CrossFileStats().HasDependents {
+		t.Error("InvalidateAll should clear Dependents")
+	}
+}

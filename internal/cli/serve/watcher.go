@@ -171,14 +171,17 @@ func (fw *fileWatcher) handle(ev fsnotify.Event) {
 	case isLibraryConfigPath(ev.Name):
 		fw.state.InvalidateLibraryFacts()
 		fw.state.InvalidateCodeIndex()
+		fw.state.InvalidateDependents()
 		// Touch the path so daemon verbs reporting "files changed
 		// since last analyze" see Gradle/version-catalog edits.
 		fw.state.Touch(ev.Name)
 	case isKotlinPath(ev.Name):
 		fw.state.Invalidate(ev.Name)
 		// Any source-file change can shift cross-file lookups, so
-		// drop the cached CodeIndex; the next caller rebuilds.
+		// drop the cached CodeIndex and DependentsIndex; the next
+		// caller rebuilds.
 		fw.state.InvalidateCodeIndex()
+		fw.state.InvalidateDependents()
 		// Record the dirty file. Repeated Touches dedup via the
 		// dirty-set's map semantics so an editor that emits
 		// Write+Write on save costs nothing extra.

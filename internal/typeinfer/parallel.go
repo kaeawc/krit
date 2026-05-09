@@ -2,6 +2,7 @@ package typeinfer
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"sync/atomic"
 
@@ -55,11 +56,17 @@ func IndexFileParallel(file *scanner.File) *FileTypeInfo {
 	tmp.buildScopesFlat(0, file, rootScope, it)
 	tmp.buildFlatSmartCastScopes(file, rootScope)
 
-	// Collect classes from the temporary resolver
-	var classes []*ClassInfo
+	// Collect classes from the temporary resolver. Sort by FQN so the
+	// returned slice has a stable, content-defined order — otherwise
+	// `for _, ci := range tmp.classes` would expose Go map iteration
+	// randomness to the merge step. Two declarations with the same
+	// short Name but different FQNs (cross-package collisions) then
+	// have a deterministic winner under last-write-wins. See #35.
+	classes := make([]*ClassInfo, 0, len(tmp.classes))
 	for _, ci := range tmp.classes {
 		classes = append(classes, ci)
 	}
+	sortClassInfos(classes)
 
 	return &FileTypeInfo{
 		Path:        file.Path,
@@ -149,38 +156,97 @@ func (r *defaultResolver) extractFilesParallelCached(files []*scanner.File, work
 }
 
 func (r *defaultResolver) mergeFileResults(results []*FileTypeInfo) {
+	// `results` is slot-indexed by the parallel extraction step, so its
+	// ordering matches the caller's `files` argument. To make the merge
+	// independent of that contract — and immune to short-name
+	// collisions across files where the previous code's "last in
+	// `results` wins" was effectively non-deterministic — process
+	// results in canonical Path-ascending order with content-sorted
+	// inner data. See #35.
+	ordered := make([]*FileTypeInfo, 0, len(results))
 	for _, fi := range results {
-		if fi == nil {
-			continue
+		if fi != nil {
+			ordered = append(ordered, fi)
 		}
+	}
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Path < ordered[j].Path })
+
+	for _, fi := range ordered {
 		r.imports[fi.Path] = fi.ImportTable
 		r.scopes[fi.Path] = fi.RootScope
 
-		for _, ci := range fi.Classes {
+		// Iterate classes in canonical FQN order. Last-write-wins on
+		// short-name collisions is preserved, but the "winner" is now
+		// the (path-largest, FQN-largest) class — a deterministic
+		// function of the input set rather than goroutine scheduling.
+		for _, ci := range orderedClassInfos(fi.Classes) {
 			r.classes[ci.Name] = ci
 			if ci.FQN != "" {
 				r.classFQN[ci.FQN] = ci
 			}
 		}
 
-		for typeName, variants := range fi.SealedSubs {
+		for _, typeName := range sortedKeys(fi.SealedSubs) {
+			variants := append([]string(nil), fi.SealedSubs[typeName]...)
+			sort.Strings(variants)
 			r.sealedVariants[typeName] = append(r.sealedVariants[typeName], variants...)
 		}
 
-		for typeName, entries := range fi.EnumEntries {
+		for _, typeName := range sortedKeys(fi.EnumEntries) {
+			entries := append([]string(nil), fi.EnumEntries[typeName]...)
+			sort.Strings(entries)
 			r.enumEntries[typeName] = entries
 		}
 
-		for name, targetType := range fi.TypeAliases {
-			r.typeAliases[name] = targetType
+		for _, name := range sortedKeysResolved(fi.TypeAliases) {
+			r.typeAliases[name] = fi.TypeAliases[name]
 		}
 
-		for name, retType := range fi.Functions {
-			r.functions[name] = retType
+		for _, name := range sortedKeysResolved(fi.Functions) {
+			r.functions[name] = fi.Functions[name]
 		}
 
 		r.extensions = append(r.extensions, fi.Extensions...)
 	}
+}
+
+// sortClassInfos / orderedClassInfos / sortedKeys helpers keep the
+// merge step's iteration order a deterministic function of input
+// content rather than goroutine scheduling or map randomization.
+
+func sortClassInfos(classes []*ClassInfo) {
+	sort.SliceStable(classes, func(i, j int) bool {
+		a, b := classes[i], classes[j]
+		if a.FQN != b.FQN {
+			return a.FQN < b.FQN
+		}
+		return a.Name < b.Name
+	})
+}
+
+func orderedClassInfos(in []*ClassInfo) []*ClassInfo {
+	if len(in) <= 1 {
+		return in
+	}
+	out := append([]*ClassInfo(nil), in...)
+	sortClassInfos(out)
+	return out
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedKeysResolved(m map[string]*ResolvedType) []string {
+	return sortedKeys(m)
 }
 
 func (r *defaultResolver) resolveSupertypeNames() {

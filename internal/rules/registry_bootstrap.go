@@ -91,6 +91,7 @@ func init() {
 	registerPotentialbugsNullsafetyCastsRules()
 	registerPotentialbugsNullsafetyRedundantRules()
 	registerPotentialbugsPropertiesRules()
+	registerPotentialbugsSmartCastRules()
 	registerPotentialbugsTypesRules()
 	registerPrivacyAnalyticsRules()
 	registerPrivacyPermissionsRules()

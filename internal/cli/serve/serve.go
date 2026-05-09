@@ -170,6 +170,30 @@ type daemonState struct {
 	// or status don't pay the rule-registration cost.
 	analyzerOnce sync.Once
 	analyzer     *pipeline.SingleFileAnalyzer
+
+	// parseCacheOnce gates lazy construction of the resident parse
+	// cache. The first analyze-project verb call builds one via
+	// scanner.NewParseCacheWithCap; subsequent calls reuse the same
+	// instance so the 7s zstd-decode cost the CLI pays per run is
+	// amortized to once per daemon lifetime.
+	parseCacheOnce sync.Once
+	parseCache     *scanner.ParseCache
+	parseCacheErr  error
+
+	// analyzeMu serializes whole-project analysis. The pipeline mutates
+	// resolver / oracle state and the analysis-cache write-back path
+	// is not safe under concurrent runs; queueing is acceptable
+	// because the daemon's typical client (LSP / build tool / MCP)
+	// invokes analyze-project at human-perceptible cadences, not
+	// in burst-parallel.
+	//
+	//nolint:unused // wired in by the analyze-project verb (step 5).
+	analyzeMu sync.Mutex
+
+	// coldDone reports whether at least one analyze-project call has
+	// completed. Used by RequireWarm clients (tests, CI gates) and by
+	// the response Stats.Cold flag.
+	coldDone atomic.Bool
 }
 
 func newDaemonState(root string) *daemonState {
@@ -185,6 +209,52 @@ func (s *daemonState) singleFileAnalyzer() *pipeline.SingleFileAnalyzer {
 		s.analyzer = pipeline.NewSingleFileAnalyzer(nil, nil)
 	})
 	return s.analyzer
+}
+
+// parseCacheFor returns the daemon-resident *scanner.ParseCache,
+// constructing one on the first call against the given repoDir +
+// capBytes. Subsequent calls return the same pointer so per-call
+// invocations of pipeline.RunProject share the same in-memory parse
+// table and skip zstd-decode for files whose content hash matches a
+// previous run.
+//
+// repoDir / capBytes are sampled only on the first call; later calls
+// ignore them. Callers that need to swap caches across roots should
+// stop the current daemon and start a new one (one root per daemon
+// is the documented constraint).
+//
+// A nil return is valid and means the parse cache is disabled (e.g.
+// the on-disk pack store could not be opened). RunProject tolerates
+// a nil ParseCache by falling back to direct tree-sitter parses.
+//
+// capBytes is plumbed through but only the verb path (step 5)
+// supplies a non-zero value; tests pass 0 (default cap).
+//
+//nolint:unparam // capBytes will be used by the analyze-project verb (step 5).
+func (s *daemonState) parseCacheFor(repoDir string, capBytes int64) (*scanner.ParseCache, error) {
+	s.parseCacheOnce.Do(func() {
+		if repoDir == "" {
+			s.parseCacheErr = errors.New("parseCacheFor: repoDir is empty")
+			return
+		}
+		pc, err := scanner.NewParseCacheWithCap(repoDir, capBytes)
+		if err != nil {
+			s.parseCacheErr = err
+			return
+		}
+		s.parseCache = pc
+	})
+	return s.parseCache, s.parseCacheErr
+}
+
+// closeParseCache releases the resident parse cache, if any. Called
+// from Server shutdown; safe to call when no cache exists.
+func (s *daemonState) closeParseCache() {
+	if s.parseCache == nil {
+		return
+	}
+	_ = s.parseCache.Close()
+	s.parseCache = nil
 }
 
 func (s *daemonState) warm() error {

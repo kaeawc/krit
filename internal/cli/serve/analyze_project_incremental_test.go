@@ -54,18 +54,7 @@ func TestAnalyzeProject_WatcherInvalidationFlowsToNextCall(t *testing.T) {
 
 	// Wait for the touch to propagate. Bounded by the 200ms SLO.
 	if !waitForCondition(func() bool {
-		// Peek without draining: workspace stats won't reveal the
-		// dirty set, so we have to drain. We do so into a temporary
-		// holder and re-Touch any drained paths so the verb call
-		// below still observes them.
-		dirty := state.workspace.DrainDirty()
-		if len(dirty) > 0 {
-			for _, p := range dirty {
-				state.workspace.Touch(p)
-			}
-			return true
-		}
-		return false
+		return state.workspace.DirtyCount() > 0
 	}) {
 		t.Fatalf("dirty-set never received the watcher's Touch within 2s")
 	}

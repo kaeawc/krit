@@ -56,17 +56,12 @@ func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawM
 		return nil, err
 	}
 
-	// Snapshot stats before the run so per-call ParseHits/Misses
-	// reflect this invocation, not the cumulative daemon total.
-	preStats := state.workspace.Stats()
-
 	out, err := pipeline.RunProject(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 	state.coldDone.Store(true)
 
-	postStats := state.workspace.Stats()
 	xfile := state.workspace.CrossFileStats()
 
 	return daemon.AnalyzeProjectResult{
@@ -75,8 +70,6 @@ func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawM
 			FilesScanned:    out.FilesScanned,
 			FindingsCount:   out.FindingsCount,
 			WallSeconds:     time.Since(start).Seconds(),
-			ParseHits:       postStats.Hits - preStats.Hits,
-			ParseMisses:     postStats.Misses - preStats.Misses,
 			CodeIndexHit:    xfile.HasCodeIndex,
 			LibraryFactsHit: xfile.HasLibraryFacts,
 			DirtyFiles:      len(dirty),
@@ -179,9 +172,10 @@ func findRepoConfig(root string) string {
 }
 
 // parseRuleNameSetCSV is the daemon-side equivalent of the CLI's
-// parseRuleNameSet helper. Local copy to avoid pulling in the
-// internal/cli/scan package (which would create an import cycle:
-// cli/scan → cli/serve via the verb dispatcher's serve.Run import).
+// parseRuleNameSet helper (internal/cli/scan/rule_name_set.go).
+// The two should be unified in `internal/cli/clishared` in a
+// follow-up; today the CLI version is unexported and exporting it
+// would touch the scan package's blast radius. Tracked separately.
 func parseRuleNameSetCSV(csv string) map[string]bool {
 	out := make(map[string]bool)
 	if csv == "" {

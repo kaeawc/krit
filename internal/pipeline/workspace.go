@@ -157,6 +157,18 @@ func (w *WorkspaceState) Touch(path string) {
 	w.mu.Unlock()
 }
 
+// DirtyCount returns the number of paths currently in the dirty
+// set without draining it. Useful for tests and observability that
+// need to peek without consuming.
+func (w *WorkspaceState) DirtyCount() int {
+	if w == nil {
+		return 0
+	}
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return len(w.dirty)
+}
+
 // DrainDirty returns the paths Touch'd since the last call, in
 // sorted order, and clears the internal dirty-set. The sort is the
 // determinism contract: callers (verb response payloads, log lines,

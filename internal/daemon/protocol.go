@@ -173,14 +173,20 @@ type AnalyzeProjectResult struct {
 
 // AnalyzeProjectStats reports per-call observability data — useful
 // for clients that want to log warm-vs-cold cadence, or for tests
-// asserting that the parse cache hit-rate behaves as expected after
-// a single-file change.
+// asserting that the dirty-set behaves as expected after a single-
+// file change.
+//
+// Parse-cache hit/miss accounting is intentionally absent: the
+// daemon-resident *scanner.ParseCache used by RunProject does not
+// yet expose per-call hit/miss deltas through the daemon's
+// observable surface. WorkspaceState's hit/miss counters track a
+// different cache (used by analyze-buffer) and would mislead
+// callers if reported here. Plumbing real per-call cache stats
+// from RunProject's ProjectResult is tracked as a follow-up.
 type AnalyzeProjectStats struct {
 	FilesScanned    int     `json:"files_scanned"`
 	FindingsCount   int     `json:"findings_count"`
 	WallSeconds     float64 `json:"wall_seconds"`
-	ParseHits       int64   `json:"parse_hits"`
-	ParseMisses     int64   `json:"parse_misses"`
 	CodeIndexHit    bool    `json:"code_index_hit"`
 	LibraryFactsHit bool    `json:"library_facts_hit"`
 	// DirtyFiles is the count of files Touched in WorkspaceState

@@ -82,6 +82,33 @@ func TestWorkspaceDrainDirty_NilReceiverIsSafe(t *testing.T) {
 	if got := w.DrainDirty(); got != nil {
 		t.Fatalf("nil receiver DrainDirty: got %v, want nil", got)
 	}
+	if got := w.DirtyCount(); got != 0 {
+		t.Fatalf("nil receiver DirtyCount: got %d, want 0", got)
+	}
+}
+
+// TestWorkspaceDirtyCount_PeeksWithoutDraining confirms DirtyCount
+// is a read-only inspector: Touched paths remain in the dirty-set
+// after multiple DirtyCount calls, and only DrainDirty clears them.
+func TestWorkspaceDirtyCount_PeeksWithoutDraining(t *testing.T) {
+	w := NewWorkspaceState("/tmp/repo")
+	w.Touch("/a.kt")
+	w.Touch("/b.kt")
+
+	if got := w.DirtyCount(); got != 2 {
+		t.Fatalf("first DirtyCount: got %d, want 2", got)
+	}
+	if got := w.DirtyCount(); got != 2 {
+		t.Fatalf("second DirtyCount: got %d, want 2 (peek must not drain)", got)
+	}
+
+	dirty := w.DrainDirty()
+	if len(dirty) != 2 {
+		t.Fatalf("DrainDirty: got %d, want 2", len(dirty))
+	}
+	if got := w.DirtyCount(); got != 0 {
+		t.Fatalf("after Drain: DirtyCount = %d, want 0", got)
+	}
 }
 
 // TestWorkspaceTouch_NormalizesPaths confirms Touch routes paths

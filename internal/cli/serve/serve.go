@@ -186,8 +186,6 @@ type daemonState struct {
 	// because the daemon's typical client (LSP / build tool / MCP)
 	// invokes analyze-project at human-perceptible cadences, not
 	// in burst-parallel.
-	//
-	//nolint:unused // wired in by the analyze-project verb (step 5).
 	analyzeMu sync.Mutex
 
 	// coldDone reports whether at least one analyze-project call has
@@ -227,10 +225,9 @@ func (s *daemonState) singleFileAnalyzer() *pipeline.SingleFileAnalyzer {
 // the on-disk pack store could not be opened). RunProject tolerates
 // a nil ParseCache by falling back to direct tree-sitter parses.
 //
-// capBytes is plumbed through but only the verb path (step 5)
-// supplies a non-zero value; tests pass 0 (default cap).
-//
-//nolint:unparam // capBytes will be used by the analyze-project verb (step 5).
+// capBytes is sampled only on the first call; later calls ignore it.
+// Tests pass 0 (default cap); the verb passes
+// cacheutil.DefaultParseCacheCapBytes.
 func (s *daemonState) parseCacheFor(repoDir string, capBytes int64) (*scanner.ParseCache, error) {
 	s.parseCacheOnce.Do(func() {
 		if repoDir == "" {

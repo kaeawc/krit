@@ -1,12 +1,53 @@
 package scanner
 
 import (
+	"sort"
 	"sync"
 
 	"github.com/bits-and-blooms/bloom/v3"
 
 	"github.com/kaeawc/krit/internal/perf"
 )
+
+// sortIndexSymbols orders Symbol slices canonically. Used at the
+// scanner index merge seam (post-fan-in) so any consumer iterating
+// `CodeIndex.Symbols` or `symbolsByName[Name]` sees the same
+// sequence every run regardless of which worker contributed which
+// shard. Composite key: (File, StartByte, FQN, Name). FQN before
+// Name handles the case where two declarations share a short name
+// in different packages but produce the same `Symbol.Name`.
+func sortIndexSymbols(symbols []Symbol) {
+	sort.SliceStable(symbols, func(i, j int) bool {
+		a, b := symbols[i], symbols[j]
+		if a.File != b.File {
+			return a.File < b.File
+		}
+		if a.StartByte != b.StartByte {
+			return a.StartByte < b.StartByte
+		}
+		if a.FQN != b.FQN {
+			return a.FQN < b.FQN
+		}
+		return a.Name < b.Name
+	})
+}
+
+// sortIndexReferences is the Reference counterpart. Composite key:
+// (File, Line, Name). References don't carry a byte offset; line is
+// sufficient because the rule consumers care about source position,
+// not exact column.
+func sortIndexReferences(refs []Reference) {
+	sort.SliceStable(refs, func(i, j int) bool {
+		a, b := refs[i], refs[j]
+		if a.File != b.File {
+			return a.File < b.File
+		}
+		if a.Line != b.Line {
+			return a.Line < b.Line
+		}
+		return a.Name < b.Name
+	})
+}
 
 // shardJob is one file's contribution task, uniform across Kotlin,
 // Java, and XML phases. fresh runs the fresh-index work when the
@@ -88,6 +129,14 @@ func appendIndexDataBuffers(symbols []Symbol, refs []Reference, buffers []indexD
 		for _, buf := range buffers {
 			symbols = append(symbols, buf.symbols...)
 		}
+		// Workers pulled jobs from a shared channel, so each buffer
+		// holds whichever files it happened to win — meaning the
+		// per-worker buffer contents (and therefore the merged slice)
+		// vary across runs. Re-sort canonically so any consumer that
+		// later iterates Symbols/symbolsByName[Name] (rules picking
+		// first-match, fix payloads built from traversal order) sees
+		// the same sequence each run. See #30.
+		sortIndexSymbols(symbols)
 	}
 	if refCount > 0 {
 		needed := len(refs) + refCount
@@ -99,6 +148,7 @@ func appendIndexDataBuffers(symbols []Symbol, refs []Reference, buffers []indexD
 		for _, buf := range buffers {
 			refs = append(refs, buf.refs...)
 		}
+		sortIndexReferences(refs)
 	}
 	return symbols, refs
 }

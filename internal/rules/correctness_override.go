@@ -65,15 +65,25 @@ func (r *OverrideSignatureMismatchRule) check(ctx *api.Context) {
 	if thisMember == nil || thisMember.Kind != "function" {
 		return
 	}
-	// Walk supertypes. If any supertype has a same-name function with a
-	// matching parameter count, the override is fine.
+	// Walk supertypes transitively. If any reachable supertype has a
+	// same-name function with a matching parameter count, the override is
+	// fine. Cycles are guarded against via a seen set.
 	var nearestMismatch *typeinfer.MemberInfo
 	matched := false
-	for _, st := range classInfo.Supertypes {
+	seen := map[string]bool{}
+	queue := append([]string(nil), classInfo.Supertypes...)
+	for len(queue) > 0 && !matched {
+		st := queue[0]
+		queue = queue[1:]
+		if seen[st] {
+			continue
+		}
+		seen[st] = true
 		super := ctx.Resolver.ClassHierarchy(st)
 		if super == nil {
 			continue
 		}
+		queue = append(queue, super.Supertypes...)
 		for i := range super.Members {
 			sm := &super.Members[i]
 			if sm.Kind != "function" || sm.Name != funcName {
@@ -87,9 +97,9 @@ func (r *OverrideSignatureMismatchRule) check(ctx *api.Context) {
 				nearestMismatch = sm
 			}
 		}
-		if matched {
-			return
-		}
+	}
+	if matched {
+		return
 	}
 	if nearestMismatch == nil {
 		// No supertype the resolver can see has this name; silent (could

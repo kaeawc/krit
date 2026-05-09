@@ -100,3 +100,42 @@ class Standalone {
 		t.Fatalf("expected no findings on class without supertypes, got %d", len(findings))
 	}
 }
+
+func TestAbstractMemberNotImplemented_TransitiveInterfaceMethod_Positive(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "AbstractMemberNotImplemented", `
+package test
+
+interface Greeter {
+    fun greet(name: String): String
+}
+
+abstract class GreeterBase : Greeter
+
+class HollowChild : GreeterBase()
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding when interface member missing two levels deep")
+	}
+	if !strings.Contains(findings[0].Message, "greet") {
+		t.Errorf("expected message to mention transitive missing 'greet'; got %q", findings[0].Message)
+	}
+}
+
+func TestAbstractMemberNotImplemented_TransitiveImplemented_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "AbstractMemberNotImplemented", `
+package test
+
+interface Greeter {
+    fun greet(name: String): String
+}
+
+abstract class GreeterBase : Greeter {
+    override fun greet(name: String): String = "hi $name"
+}
+
+class FullChild : GreeterBase()
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when intermediate concrete impl supplies the member, got %d", len(findings))
+	}
+}

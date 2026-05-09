@@ -62,7 +62,10 @@ func (r *AbstractMemberNotImplementedRule) check(ctx *api.Context) {
 		return
 	}
 	implementations := abstractRuleImplementations(file, idx, classInfo)
-	required := abstractRuleRequiredMembers(ctx.Resolver, classInfo.Supertypes)
+	required, transitivelySatisfied := abstractRuleRequiredMembers(ctx.Resolver, classInfo.Supertypes)
+	for name := range transitivelySatisfied {
+		implementations[name] = true
+	}
 	var missing []string
 	for name := range required {
 		if implementations[name] {
@@ -160,24 +163,52 @@ func classParameterName(file *scanner.File, paramIdx uint32) string {
 	return ""
 }
 
-func abstractRuleRequiredMembers(resolver typeinfer.TypeResolver, supertypes []string) map[string]bool {
-	required := map[string]bool{}
-	for _, st := range supertypes {
+// abstractRuleRequiredMembers walks the transitive supertype closure
+// and returns:
+//   - required: member names that some interface or abstract class
+//     declares abstractly somewhere up the chain.
+//   - satisfied: member names that an intermediate concrete class
+//     (or a non-abstract abstract-class member) provides, i.e. names
+//     the subclass does not need to re-implement.
+//
+// The dual return lets the rule subtract satisfied from required so
+// that `class FullChild : GreeterBase()` where GreeterBase already
+// implements Greeter.greet does not emit a finding.
+func abstractRuleRequiredMembers(resolver typeinfer.TypeResolver, supertypes []string) (required map[string]bool, satisfied map[string]bool) {
+	required = map[string]bool{}
+	satisfied = map[string]bool{}
+	seen := map[string]bool{}
+	queue := append([]string(nil), supertypes...)
+	for len(queue) > 0 {
+		st := queue[0]
+		queue = queue[1:]
+		if seen[st] {
+			continue
+		}
+		seen[st] = true
 		super := resolver.ClassHierarchy(st)
 		if super == nil {
 			continue
 		}
+		queue = append(queue, super.Supertypes...)
 		isInterface := strings.Contains(super.Kind, "interface")
+		isAbstractClass := super.IsAbstract && !isInterface
 		for _, m := range super.Members {
 			switch {
 			case isInterface:
-				// v1 simplification: every function/property on an
-				// interface is treated as abstract.
+				// v1 simplification: every interface member is treated
+				// as abstract. Default-method interfaces would
+				// false-positive until member-body presence is tracked.
 				required[m.Name] = true
-			case m.IsAbstract:
+			case isAbstractClass && m.IsAbstract:
 				required[m.Name] = true
+			default:
+				// Concrete class member, or non-abstract member of an
+				// abstract class. Satisfies the contract for any
+				// further-down subclass.
+				satisfied[m.Name] = true
 			}
 		}
 	}
-	return required
+	return required, satisfied
 }

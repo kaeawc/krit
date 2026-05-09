@@ -38,7 +38,8 @@ func TestApply_KotlinSamePackageRename(t *testing.T) {
 		t.Fatalf("FilesChanged = %d, want 2", res.FilesChanged)
 	}
 
-	got := readFile(t, declPath)
+	newDeclPath := filepath.Join(dir, "NewName.kt")
+	got := readFile(t, newDeclPath)
 	if !strings.Contains(got, "class NewName") || strings.Contains(got, "OldName") {
 		t.Fatalf("decl file content unexpected:\n%s", got)
 	}
@@ -96,7 +97,7 @@ func TestApply_KotlinCrossPackageRename(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	got := readFile(t, declPath)
+	got := readFile(t, filepath.Join(dir, "NewName.kt"))
 	if !strings.Contains(got, "package com.example.bar") {
 		t.Fatalf("decl file package not rewritten:\n%s", got)
 	}
@@ -152,7 +153,7 @@ func TestApply_JavaCrossPackageRename(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	got := readFile(t, declPath)
+	got := readFile(t, filepath.Join(dir, "NewName.java"))
 	if !strings.Contains(got, "package com.example.bar;") {
 		t.Fatalf("java decl package not rewritten:\n%s", got)
 	}
@@ -166,6 +167,49 @@ func TestApply_JavaCrossPackageRename(t *testing.T) {
 	}
 	if strings.Contains(got, "OldName") {
 		t.Fatalf("residual OldName in java use:\n%s", got)
+	}
+}
+
+func TestApply_RenamesMatchingFile(t *testing.T) {
+	dir := t.TempDir()
+	declPath := filepath.Join(dir, "OldName.kt")
+	writeFile(t, declPath, "package com.example\n\nclass OldName\n")
+
+	plan := buildKotlinPlan(t, []string{declPath}, "com.example.OldName", "com.example.NewName")
+	res, err := Apply(plan)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(res.Moves) != 1 {
+		t.Fatalf("Moves = %d, want 1", len(res.Moves))
+	}
+	want := filepath.Join(dir, "NewName.kt")
+	if res.Moves[0].To != want {
+		t.Fatalf("Moves[0].To = %q, want %q", res.Moves[0].To, want)
+	}
+	if _, err := os.Stat(declPath); !os.IsNotExist(err) {
+		t.Fatalf("old file still exists: err=%v", err)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("new file missing: %v", err)
+	}
+}
+
+func TestApply_DoesNotRenameMismatchedFile(t *testing.T) {
+	dir := t.TempDir()
+	declPath := filepath.Join(dir, "MyFile.kt")
+	writeFile(t, declPath, "package com.example\n\nclass OldName\n")
+
+	plan := buildKotlinPlan(t, []string{declPath}, "com.example.OldName", "com.example.NewName")
+	res, err := Apply(plan)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(res.Moves) != 0 {
+		t.Fatalf("Moves = %d, want 0", len(res.Moves))
+	}
+	if _, err := os.Stat(declPath); err != nil {
+		t.Fatalf("file should still exist: %v", err)
 	}
 }
 

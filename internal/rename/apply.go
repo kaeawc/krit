@@ -13,6 +13,14 @@ import (
 type ApplyResult struct {
 	FilesChanged int
 	Edits        int
+	Moves        []FileMove
+}
+
+// FileMove describes a renamed source file. The Old path no longer exists
+// after Apply returns; the From/To-relative directory is unchanged.
+type FileMove struct {
+	From string
+	To   string
 }
 
 // edit describes one byte-range substitution within a single file.
@@ -77,7 +85,55 @@ func apply(plan Plan, dry bool) (ApplyResult, error) {
 		result.FilesChanged++
 		result.Edits += len(fileEdits)
 	}
+
+	moves := planFileMoves(plan)
+	for _, mv := range moves {
+		if dry {
+			result.Moves = append(result.Moves, mv)
+			continue
+		}
+		if _, err := os.Stat(mv.To); err == nil {
+			return result, fmt.Errorf("rename apply: destination %s already exists", mv.To)
+		}
+		if err := os.Rename(mv.From, mv.To); err != nil {
+			return result, fmt.Errorf("rename apply: rename %s -> %s: %w", mv.From, mv.To, err)
+		}
+		result.Moves = append(result.Moves, mv)
+	}
 	return result, nil
+}
+
+// planFileMoves identifies declaration files whose basename matches the
+// rename's FromName and proposes a same-directory rename to ToName + the
+// existing extension. Kotlin convention but Java requirement when the
+// renamed class is the file's top-level public class.
+func planFileMoves(plan Plan) []FileMove {
+	if plan.Target.FromName == plan.Target.ToName {
+		return nil
+	}
+	declFiles := declarationFiles(plan)
+	out := make([]FileMove, 0)
+	seen := make(map[string]bool, len(declFiles))
+	for path := range declFiles {
+		if seen[path] {
+			continue
+		}
+		seen[path] = true
+		dir := filepath.Dir(path)
+		base := filepath.Base(path)
+		ext := filepath.Ext(base)
+		stem := base[:len(base)-len(ext)]
+		if stem != plan.Target.FromName {
+			continue
+		}
+		dest := filepath.Join(dir, plan.Target.ToName+ext)
+		if dest == path {
+			continue
+		}
+		out = append(out, FileMove{From: path, To: dest})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].From < out[j].From })
+	return out
 }
 
 func collectIdentifierEdits(plan Plan) map[string][]edit {

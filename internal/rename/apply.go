@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -35,18 +36,14 @@ type edit struct {
 	Expect string
 }
 
-// Apply rewrites every reference site in plan to target.ToName and writes
-// updated file contents back to disk. Each file is written atomically via
-// a sibling temp file plus rename. If any file fails to write, files
-// already written are not rolled back — the caller should run apply against
-// a clean working tree (typically a git checkout). Use DryRun to compute
-// the planned edits without touching disk.
+// Apply writes the rename to disk. Each touched file is rewritten
+// atomically. On partial failure, files already written are not rolled
+// back — run against a clean working tree (typically a git checkout).
 func Apply(plan Plan) (ApplyResult, error) {
 	return apply(plan, false)
 }
 
-// DryRunApply returns the same result Apply would produce without writing
-// anything to disk.
+// DryRunApply returns the result Apply would produce without writing.
 func DryRunApply(plan Plan) (ApplyResult, error) {
 	return apply(plan, true)
 }
@@ -80,8 +77,8 @@ func apply(plan Plan, dry bool) (ApplyResult, error) {
 			result.Edits += len(fileEdits)
 			continue
 		}
-		if err := atomicWrite(file, updated); err != nil {
-			return result, err
+		if err := fsutil.WriteFileAtomic(file, updated, fileMode(file)); err != nil {
+			return result, fmt.Errorf("rename apply: %w", err)
 		}
 		result.FilesChanged++
 		result.Edits += len(fileEdits)
@@ -183,16 +180,13 @@ func remapPackageDir(dir, oldPackage, newPackage string) (string, bool) {
 func collectIdentifierEdits(plan Plan) map[string][]edit {
 	out := make(map[string][]edit)
 	for _, ref := range plan.References {
-		if ref.StartByte <= 0 && ref.EndByte <= 0 {
-			continue
-		}
-		if ref.EndByte <= ref.StartByte {
+		if ref.EndByte <= ref.StartByte || ref.StartByte < 0 {
 			continue
 		}
 		if ref.Language != scanner.LangKotlin && ref.Language != scanner.LangJava {
 			continue
 		}
-		if _, ok := plan.Contexts[ref.File]; !ok {
+		if _, ok := plan.contexts[ref.File]; !ok {
 			continue
 		}
 		out[ref.File] = append(out[ref.File], edit{
@@ -205,49 +199,48 @@ func collectIdentifierEdits(plan Plan) map[string][]edit {
 	return out
 }
 
+// applyFileEdits returns content with edits spliced in. Edits are sorted
+// in ascending byte order and the result is built in a single pass to
+// avoid the O(N*E) reslicing cost of doing each edit independently.
 func applyFileEdits(plan Plan, file string, edits []edit) ([]byte, error) {
 	content, err := readFileContent(plan, file)
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(edits, func(i, j int) bool { return edits[i].StartByte > edits[j].StartByte })
+	sort.Slice(edits, func(i, j int) bool { return edits[i].StartByte < edits[j].StartByte })
 	for i := 1; i < len(edits); i++ {
-		if edits[i].EndByte > edits[i-1].StartByte {
+		if edits[i].StartByte < edits[i-1].EndByte {
 			return nil, fmt.Errorf("rename apply: overlapping edits in %s", file)
 		}
 	}
+
+	totalLen := len(content)
 	for _, e := range edits {
 		if e.StartByte < 0 || e.EndByte > len(content) {
 			return nil, fmt.Errorf("rename apply: edit out of bounds in %s (%d..%d, len=%d)", file, e.StartByte, e.EndByte, len(content))
 		}
-		if e.Expect != "" {
-			current := string(content[e.StartByte:e.EndByte])
-			if current != e.Expect {
-				return nil, fmt.Errorf("rename apply: %s byte range %d..%d holds %q, not %q (file changed since indexing?)", file, e.StartByte, e.EndByte, current, e.Expect)
-			}
+		if e.Expect != "" && string(content[e.StartByte:e.EndByte]) != e.Expect {
+			return nil, fmt.Errorf("rename apply: %s byte range %d..%d holds %q, not %q (file changed since indexing?)", file, e.StartByte, e.EndByte, content[e.StartByte:e.EndByte], e.Expect)
 		}
-		content = append(content[:e.StartByte], append([]byte(e.Replace), content[e.EndByte:]...)...)
+		totalLen += len(e.Replace) - (e.EndByte - e.StartByte)
 	}
-	return content, nil
+
+	out := make([]byte, 0, totalLen)
+	cursor := 0
+	for _, e := range edits {
+		out = append(out, content[cursor:e.StartByte]...)
+		out = append(out, e.Replace...)
+		cursor = e.EndByte
+	}
+	out = append(out, content[cursor:]...)
+	return out, nil
 }
 
 func readFileContent(plan Plan, path string) ([]byte, error) {
-	for _, f := range planFilesFromPlan(plan) {
-		if f != nil && f.Path == path && f.Content != nil {
-			return append([]byte(nil), f.Content...), nil
-		}
+	if f, ok := plan.filesByPath[path]; ok && f != nil && f.Content != nil {
+		return append([]byte(nil), f.Content...), nil
 	}
 	return os.ReadFile(path)
-}
-
-// planFilesFromPlan returns the files that were used to build the plan's
-// contexts. Stored separately from Contexts to avoid changing the public
-// FileContext shape.
-func planFilesFromPlan(plan Plan) []*scanner.File {
-	if plan.cachedFiles != nil {
-		return plan.cachedFiles
-	}
-	return nil
 }
 
 // mergePackageAndImportEdits adds edits for files that need their package
@@ -262,28 +255,26 @@ func mergePackageAndImportEdits(plan Plan, editsByFile map[string][]edit) {
 	declFiles := declarationFiles(plan)
 	refFiles := referenceFiles(plan)
 
-	for _, file := range plan.cachedFiles {
+	for path, ctx := range plan.contexts {
+		file := plan.filesByPath[path]
 		if file == nil {
 			continue
 		}
-		hr := CollectHeaderRanges(file)
 
-		if declFiles[file.Path] && hr.Package != ([2]int{}) {
-			rewriteText := buildPackageReplacement(file, hr.Package, plan.Target.ToPackage())
-			if rewriteText != "" {
-				editsByFile[file.Path] = append(editsByFile[file.Path], edit{
-					StartByte: hr.Package[0],
-					EndByte:   hr.Package[1],
-					Replace:   rewriteText,
+		if declFiles[path] && ctx.PackageRange != ([2]int{}) {
+			if repl := buildPackageReplacement(file, ctx.PackageRange, plan.Target.ToPackage()); repl != "" {
+				editsByFile[path] = append(editsByFile[path], edit{
+					StartByte: ctx.PackageRange[0],
+					EndByte:   ctx.PackageRange[1],
+					Replace:   repl,
 				})
 			}
 		}
 
-		if rng, ok := hr.Imports[plan.Target.FromFQN]; ok {
-			repl := rewriteImportLine(file, rng, plan.Target.FromFQN, plan.Target.ToFQN)
-			if repl != "" {
-				editsByFile[file.Path] = stripEditsInRange(editsByFile[file.Path], rng)
-				editsByFile[file.Path] = append(editsByFile[file.Path], edit{
+		if rng, ok := ctx.findImportByFQN(plan.Target.FromFQN); ok {
+			if repl := rewriteImportLine(file, rng, plan.Target.ToFQN); repl != "" {
+				editsByFile[path] = stripEditsInRange(editsByFile[path], rng)
+				editsByFile[path] = append(editsByFile[path], edit{
 					StartByte: rng[0],
 					EndByte:   rng[1],
 					Replace:   repl,
@@ -292,23 +283,11 @@ func mergePackageAndImportEdits(plan Plan, editsByFile map[string][]edit) {
 			continue
 		}
 
-		// File referenced the symbol but had no explicit import — that is
-		// only possible when the file shares the symbol's old package. Now
-		// that the symbol is moving away, the file needs an explicit
-		// import added.
-		if !declFiles[file.Path] && refFiles[file.Path] {
-			ctx, ok := plan.Contexts[file.Path]
-			if !ok {
-				continue
-			}
-			if ctx.Package != plan.Target.FromPackage() {
-				continue
-			}
-			ins := buildImportInsertion(file, hr, plan.Target.ToFQN)
-			if ins == nil {
-				continue
-			}
-			editsByFile[file.Path] = append(editsByFile[file.Path], *ins)
+		// Same-package reference without an explicit import: the file's
+		// implicit binding goes away when the symbol moves out, so insert
+		// an explicit import.
+		if !declFiles[path] && refFiles[path] && ctx.Package == plan.Target.FromPackage() {
+			editsByFile[path] = append(editsByFile[path], buildImportInsertion(file, ctx, plan.Target.ToFQN))
 		}
 	}
 }
@@ -322,52 +301,23 @@ func referenceFiles(plan Plan) map[string]bool {
 }
 
 // buildImportInsertion returns an edit that inserts an `import <toFQN>`
-// line at the appropriate position in file. Insertion point precedence:
-// before the first existing import; else after the package declaration;
-// else at the start of the file. Returns nil when no anchor exists.
-func buildImportInsertion(file *scanner.File, hr HeaderRanges, toFQN string) *edit {
+// line in file. Insertion point precedence: before the first existing
+// import; else after the package declaration; else at the start of the file.
+func buildImportInsertion(file *scanner.File, ctx fileContext, toFQN string) edit {
 	semi := ""
 	if file.Language == scanner.LangJava {
 		semi = ";"
 	}
-	if first := earliestRange(hr.Imports, hr.Wildcards); first != nil {
-		return &edit{
-			StartByte: first[0],
-			EndByte:   first[0],
-			Replace:   "import " + toFQN + semi + "\n",
-		}
+	pos, beforeImport := ctx.firstImportAnchor()
+	if beforeImport {
+		return edit{StartByte: pos, EndByte: pos, Replace: "import " + toFQN + semi + "\n"}
 	}
-	if hr.Package != ([2]int{}) {
-		// Insert immediately after the package line; clamped Package[1] is
-		// the byte before the newline. We add a leading "\n\nimport ..."
-		// so the new import is separated from the package declaration.
-		return &edit{
-			StartByte: hr.Package[1],
-			EndByte:   hr.Package[1],
-			Replace:   "\n\nimport " + toFQN + semi,
-		}
+	if ctx.PackageRange != ([2]int{}) {
+		// Anchor sits at the byte before the newline that ends the package
+		// line, so a leading "\n\n" gives a blank line of separation.
+		return edit{StartByte: pos, EndByte: pos, Replace: "\n\nimport " + toFQN + semi}
 	}
-	return &edit{
-		StartByte: 0,
-		EndByte:   0,
-		Replace:   "import " + toFQN + semi + "\n\n",
-	}
-}
-
-func earliestRange(maps ...map[string][2]int) *[2]int {
-	var best *[2]int
-	for _, m := range maps {
-		for _, r := range m {
-			if r[0] == 0 && r[1] == 0 {
-				continue
-			}
-			rr := r
-			if best == nil || rr[0] < best[0] {
-				best = &rr
-			}
-		}
-	}
-	return best
+	return edit{StartByte: 0, EndByte: 0, Replace: "import " + toFQN + semi + "\n\n"}
 }
 
 func stripEditsInRange(edits []edit, rng [2]int) []edit {
@@ -404,25 +354,22 @@ func buildPackageReplacement(file *scanner.File, rng [2]int, toPackage string) s
 	return out
 }
 
-func rewriteImportLine(file *scanner.File, rng [2]int, fromFQN, toFQN string) string {
+func rewriteImportLine(file *scanner.File, rng [2]int, toFQN string) string {
 	if file.Content == nil || rng[0] < 0 || rng[1] > len(file.Content) || rng[0] >= rng[1] {
 		return ""
 	}
 	original := strings.TrimSpace(string(file.Content[rng[0]:rng[1]]))
 	hasSemi := strings.HasSuffix(original, ";")
-	body := strings.TrimSuffix(original, ";")
-	body = strings.TrimSpace(body)
-	body = strings.TrimPrefix(body, "import")
-	body = strings.TrimSpace(body)
+	body := trimImportLine(original)
 
 	prefix := "import "
 	suffix := ""
-	if file.Language == scanner.LangJava {
+	switch file.Language {
+	case scanner.LangJava:
 		if strings.HasPrefix(body, "static ") {
 			prefix = "import static "
 		}
-	} else {
-		// Kotlin: preserve `as <alias>` if present.
+	default:
 		if i := strings.Index(body, " as "); i >= 0 {
 			suffix = body[i:]
 		}
@@ -432,38 +379,12 @@ func rewriteImportLine(file *scanner.File, rng [2]int, fromFQN, toFQN string) st
 	if file.Language == scanner.LangJava || hasSemi {
 		out += ";"
 	}
-	_ = fromFQN
 	return out
 }
 
-func atomicWrite(path string, content []byte) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".krit-rename-*")
-	if err != nil {
-		return fmt.Errorf("rename apply: temp file: %w", err)
+func fileMode(path string) os.FileMode {
+	if info, err := os.Stat(path); err == nil {
+		return info.Mode().Perm()
 	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(content); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("rename apply: write %s: %w", tmpPath, err)
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("rename apply: sync %s: %w", tmpPath, err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("rename apply: close %s: %w", tmpPath, err)
-	}
-	info, err := os.Stat(path)
-	if err == nil {
-		_ = os.Chmod(tmpPath, info.Mode())
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("rename apply: rename %s: %w", path, err)
-	}
-	return nil
+	return 0o644
 }

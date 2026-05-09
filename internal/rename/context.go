@@ -6,160 +6,81 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// FileContext captures the package and imports of a single source file so
-// references in that file can be resolved to fully qualified names.
-type FileContext struct {
-	File      string
-	Package   string
-	Language  scanner.Language
-	Imports   map[string]string // simple name -> FQN
-	Aliases   map[string]string // alias -> FQN (Kotlin only)
-	Wildcards []string          // package names imported with `.*`
+// fileContext captures the package, imports, and their byte ranges for a
+// single source file. References in that file resolve to FQNs through
+// Imports/Aliases/Wildcards; Apply rewrites import and package lines via
+// the byte ranges. A single AST walk in buildFileContext produces both.
+type fileContext struct {
+	File         string
+	Package      string
+	PackageRange [2]int
+	Language     scanner.Language
+
+	// Imports is keyed by simple name → {FQN, byte range}.
+	// Aliases is keyed by alias → {FQN, byte range}.
+	// Wildcards is keyed by package → {FQN: "", byte range}.
+	Imports   map[string]importInfo
+	Aliases   map[string]importInfo
+	Wildcards map[string]importInfo
 }
 
-// BuildFileContext walks file's flat AST to extract package, imports, aliases
-// and wildcard imports. Works for both Kotlin and Java files.
-func BuildFileContext(file *scanner.File) FileContext {
-	ctx := FileContext{
-		Imports: make(map[string]string),
-		Aliases: make(map[string]string),
+type importInfo struct {
+	FQN   string
+	Range [2]int
+}
+
+func buildFileContext(file *scanner.File) fileContext {
+	ctx := fileContext{
+		Imports:   make(map[string]importInfo),
+		Aliases:   make(map[string]importInfo),
+		Wildcards: make(map[string]importInfo),
 	}
-	if file == nil {
+	if file == nil || file.FlatTree == nil {
 		return ctx
 	}
 	ctx.File = file.Path
 	ctx.Language = file.Language
-
-	if file.FlatTree == nil {
-		return ctx
-	}
 
 	file.FlatWalkAllNodes(0, func(idx uint32) {
 		switch file.FlatType(idx) {
 		case "package_header", "package_declaration":
 			if ctx.Package == "" {
 				ctx.Package = firstHeaderLine(file.FlatNodeText(idx), "package")
+				ctx.PackageRange = clampToFirstLine(file, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
 			}
 		case "import_header":
-			parseKotlinImport(firstSourceLine(file.FlatNodeText(idx)), &ctx)
+			recordImport(file, idx, &ctx, parseKotlinImport)
 		case "import_declaration":
-			parseJavaImport(firstSourceLine(file.FlatNodeText(idx)), &ctx)
+			recordImport(file, idx, &ctx, parseJavaImport)
 		}
 	})
-
 	return ctx
 }
 
-// firstSourceLine returns the first non-empty, non-comment line of raw,
-// trimmed. Used to ignore trailing trivia that tree-sitter sometimes
-// attaches to header nodes.
-func firstSourceLine(raw string) string {
-	for _, line := range strings.Split(raw, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "//") || strings.HasPrefix(line, "/*") {
-			continue
-		}
-		return line
-	}
-	return ""
-}
-
-// firstHeaderLine returns the first non-empty, non-comment line of raw with
-// the given keyword stripped. Tree-sitter Kotlin/Java sometimes attach
-// trailing comments and whitespace to header nodes, so a naïve TrimSpace
-// of FlatNodeText would include them.
-func firstHeaderLine(raw, keyword string) string {
-	for _, line := range strings.Split(raw, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "//") || strings.HasPrefix(line, "/*") {
-			continue
-		}
-		line = strings.TrimPrefix(line, keyword)
-		line = strings.TrimSpace(line)
-		line = strings.TrimSuffix(line, ";")
-		return strings.TrimSpace(line)
-	}
-	return ""
-}
-
-func parseKotlinImport(raw string, ctx *FileContext) {
-	text := strings.TrimSpace(raw)
-	text = strings.TrimPrefix(text, "import")
-	text = strings.TrimSpace(text)
-	text = strings.TrimSuffix(text, ";")
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return
-	}
-	if i := strings.Index(text, " as "); i >= 0 {
-		fqn := strings.TrimSpace(text[:i])
-		alias := strings.TrimSpace(text[i+len(" as "):])
-		if fqn != "" && alias != "" {
-			ctx.Aliases[alias] = fqn
-		}
-		return
-	}
-	if strings.HasSuffix(text, ".*") {
-		pkg := strings.TrimSuffix(text, ".*")
-		if pkg != "" {
-			ctx.Wildcards = append(ctx.Wildcards, pkg)
-		}
-		return
-	}
-	if name, ok := simpleName(text); ok {
-		ctx.Imports[name] = text
-	}
-}
-
-func parseJavaImport(raw string, ctx *FileContext) {
-	text := strings.TrimSpace(raw)
-	text = strings.TrimPrefix(text, "import")
-	text = strings.TrimSpace(text)
-	text = strings.TrimPrefix(text, "static")
-	text = strings.TrimSpace(text)
-	text = strings.TrimSuffix(text, ";")
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return
-	}
-	if strings.HasSuffix(text, ".*") {
-		pkg := strings.TrimSuffix(text, ".*")
-		if pkg != "" {
-			ctx.Wildcards = append(ctx.Wildcards, pkg)
-		}
-		return
-	}
-	if name, ok := simpleName(text); ok {
-		ctx.Imports[name] = text
-	}
-}
-
-// ResolveSimpleName returns the FQN that `name` refers to in this file, or
-// the empty string if it cannot be resolved deterministically. The
-// resolution order is: alias > explicit import > same-package > single
-// wildcard match.
-func (c FileContext) ResolveSimpleName(name string) string {
+// resolveSimpleName returns the FQN that name refers to in this file via
+// alias or explicit import, or "" if the file did not import it.
+func (c fileContext) resolveSimpleName(name string) string {
 	if name == "" {
 		return ""
 	}
-	if fqn, ok := c.Aliases[name]; ok {
-		return fqn
+	if e, ok := c.Aliases[name]; ok {
+		return e.FQN
 	}
-	if fqn, ok := c.Imports[name]; ok {
-		return fqn
+	if e, ok := c.Imports[name]; ok {
+		return e.FQN
 	}
 	return ""
 }
 
-// MatchesFQN reports whether a reference of the given simple `name` in this
-// file resolves to fqn. Same-package references and wildcard imports are
-// considered alongside explicit imports/aliases. A wildcard match counts
-// only when no explicit import for `name` exists in this file.
-func (c FileContext) MatchesFQN(name, fqn string) bool {
+// matchesFQN reports whether a reference of the given simple name in this
+// file resolves to fqn. Resolution order: alias > explicit import >
+// same-package > wildcard import. A wildcard match counts only when no
+// explicit alias/import for name exists.
+func (c fileContext) matchesFQN(name, fqn string) bool {
 	if name == "" || fqn == "" {
 		return false
 	}
-	if resolved := c.ResolveSimpleName(name); resolved != "" {
+	if resolved := c.resolveSimpleName(name); resolved != "" {
 		return resolved == fqn
 	}
 	parent, simple, ok := splitFQN(fqn)
@@ -169,7 +90,7 @@ func (c FileContext) MatchesFQN(name, fqn string) bool {
 	if c.Package != "" && c.Package == parent {
 		return true
 	}
-	for _, wp := range c.Wildcards {
+	for wp := range c.Wildcards {
 		if wp == parent {
 			return true
 		}
@@ -177,133 +98,144 @@ func (c FileContext) MatchesFQN(name, fqn string) bool {
 	return false
 }
 
-// HeaderRanges holds byte ranges for package and import statement nodes in
-// a single file. Used by Apply to rewrite or replace those statements
-// when a rename moves a symbol across packages.
-type HeaderRanges struct {
-	Package        [2]int            // byte range of package_header / package_declaration; zero means no package
-	Imports        map[string][2]int // FQN -> import_header range
-	Aliases        map[string][2]int // alias -> import_header range
-	Wildcards      map[string][2]int // package -> wildcard import range
-	FirstImportPos int               // byte offset where a new import would be inserted; 0 if no anchor
-}
-
-// CollectHeaderRanges walks file's flat AST to extract byte ranges for the
-// package declaration and every import statement. Works for both Kotlin
-// and Java files.
-func CollectHeaderRanges(file *scanner.File) HeaderRanges {
-	hr := HeaderRanges{
-		Imports:   make(map[string][2]int),
-		Aliases:   make(map[string][2]int),
-		Wildcards: make(map[string][2]int),
-	}
-	if file == nil || file.FlatTree == nil {
-		return hr
-	}
-	file.FlatWalkAllNodes(0, func(idx uint32) {
-		switch file.FlatType(idx) {
-		case "package_header", "package_declaration":
-			hr.Package = clampToFirstLine(file, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
-		case "import_header":
-			recordImportRange(file, idx, &hr, parseKotlinImportTarget)
-		case "import_declaration":
-			recordImportRange(file, idx, &hr, parseJavaImportTarget)
+// findImportByFQN returns the byte range of the import_header that
+// imports fqn, if any. Aliased imports also count.
+func (c fileContext) findImportByFQN(fqn string) ([2]int, bool) {
+	for _, e := range c.Aliases {
+		if e.FQN == fqn {
+			return e.Range, true
 		}
-	})
-	hr.FirstImportPos = computeFirstImportPos(file, hr)
-	return hr
+	}
+	for _, e := range c.Imports {
+		if e.FQN == fqn {
+			return e.Range, true
+		}
+	}
+	return [2]int{}, false
 }
 
-type importTarget struct {
+// firstImportAnchor returns the byte offset where a freshly-inserted import
+// line should go. Prefers the position before the earliest existing
+// import; falls back to the end of the package line; else 0.
+func (c fileContext) firstImportAnchor() (int, bool) {
+	first := -1
+	for _, e := range c.Imports {
+		if first == -1 || e.Range[0] < first {
+			first = e.Range[0]
+		}
+	}
+	for _, e := range c.Wildcards {
+		if first == -1 || e.Range[0] < first {
+			first = e.Range[0]
+		}
+	}
+	if first >= 0 {
+		return first, true
+	}
+	if c.PackageRange != ([2]int{}) {
+		return c.PackageRange[1], false
+	}
+	return 0, false
+}
+
+type parsedImport struct {
 	fqn      string
 	alias    string
 	wildcard bool
 	pkg      string
 }
 
-func recordImportRange(file *scanner.File, idx uint32, hr *HeaderRanges, parse func(string) importTarget) {
+func recordImport(file *scanner.File, idx uint32, ctx *fileContext, parse func(string) parsedImport) {
 	rng := clampToFirstLine(file, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
 	tgt := parse(firstSourceLine(file.FlatNodeText(idx)))
 	switch {
 	case tgt.alias != "" && tgt.fqn != "":
-		hr.Aliases[tgt.alias] = rng
-		hr.Imports[tgt.fqn] = rng
+		entry := importInfo{FQN: tgt.fqn, Range: rng}
+		ctx.Aliases[tgt.alias] = entry
+		ctx.Imports[tgt.fqn] = entry
 	case tgt.wildcard && tgt.pkg != "":
-		hr.Wildcards[tgt.pkg] = rng
+		ctx.Wildcards[tgt.pkg] = importInfo{Range: rng}
 	case tgt.fqn != "":
-		hr.Imports[tgt.fqn] = rng
+		entry := importInfo{FQN: tgt.fqn, Range: rng}
+		if name, ok := simpleName(tgt.fqn); ok {
+			ctx.Imports[name] = entry
+		}
 	}
 }
 
-func parseKotlinImportTarget(raw string) importTarget {
-	text := strings.TrimSpace(raw)
-	text = strings.TrimPrefix(text, "import")
-	text = strings.TrimSpace(text)
-	text = strings.TrimSuffix(text, ";")
-	text = strings.TrimSpace(text)
+func parseKotlinImport(raw string) parsedImport {
+	text := trimImportLine(raw)
 	if text == "" {
-		return importTarget{}
+		return parsedImport{}
 	}
 	if i := strings.Index(text, " as "); i >= 0 {
-		fqn := strings.TrimSpace(text[:i])
-		alias := strings.TrimSpace(text[i+len(" as "):])
-		return importTarget{fqn: fqn, alias: alias}
+		return parsedImport{
+			fqn:   strings.TrimSpace(text[:i]),
+			alias: strings.TrimSpace(text[i+len(" as "):]),
+		}
 	}
 	if strings.HasSuffix(text, ".*") {
-		return importTarget{wildcard: true, pkg: strings.TrimSuffix(text, ".*")}
+		return parsedImport{wildcard: true, pkg: strings.TrimSuffix(text, ".*")}
 	}
-	return importTarget{fqn: text}
+	return parsedImport{fqn: text}
 }
 
-func parseJavaImportTarget(raw string) importTarget {
+func parseJavaImport(raw string) parsedImport {
+	text := trimImportLine(raw)
+	text = strings.TrimPrefix(text, "static")
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return parsedImport{}
+	}
+	if strings.HasSuffix(text, ".*") {
+		return parsedImport{wildcard: true, pkg: strings.TrimSuffix(text, ".*")}
+	}
+	return parsedImport{fqn: text}
+}
+
+func trimImportLine(raw string) string {
 	text := strings.TrimSpace(raw)
 	text = strings.TrimPrefix(text, "import")
 	text = strings.TrimSpace(text)
-	text = strings.TrimPrefix(text, "static")
-	text = strings.TrimSpace(text)
 	text = strings.TrimSuffix(text, ";")
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return importTarget{}
-	}
-	if strings.HasSuffix(text, ".*") {
-		return importTarget{wildcard: true, pkg: strings.TrimSuffix(text, ".*")}
-	}
-	return importTarget{fqn: text}
+	return strings.TrimSpace(text)
 }
 
-// computeFirstImportPos returns the byte offset where a freshly-inserted
-// import line should go. Prefers the byte immediately before the first
-// existing import; otherwise the byte after the package declaration; else 0.
-func computeFirstImportPos(_ *scanner.File, hr HeaderRanges) int {
-	first := -1
-	consider := func(rng [2]int) {
-		if rng[1] == 0 && rng[0] == 0 {
-			return
+// firstSourceLine returns the first non-empty, non-comment line of raw,
+// trimmed. Used to ignore trailing trivia that tree-sitter sometimes
+// attaches to header nodes.
+func firstSourceLine(raw string) string {
+	for s := raw; ; {
+		i := strings.IndexByte(s, '\n')
+		var line string
+		if i < 0 {
+			line = strings.TrimSpace(s)
+		} else {
+			line = strings.TrimSpace(s[:i])
 		}
-		if first == -1 || rng[0] < first {
-			first = rng[0]
+		if line != "" && !strings.HasPrefix(line, "//") && !strings.HasPrefix(line, "/*") {
+			return line
 		}
+		if i < 0 {
+			return ""
+		}
+		s = s[i+1:]
 	}
-	for _, r := range hr.Imports {
-		consider(r)
-	}
-	for _, r := range hr.Wildcards {
-		consider(r)
-	}
-	if first >= 0 {
-		return first
-	}
-	if hr.Package != [2]int{} {
-		return hr.Package[1]
-	}
-	return 0
 }
 
-// clampToFirstLine narrows a byte range to its first line. If the range
-// starts at the beginning of a header but extends into trailing
-// comments/whitespace (a tree-sitter quirk), the rewriter would otherwise
-// erase those when replacing the line.
+// firstHeaderLine returns the first non-empty, non-comment line of raw with
+// the given keyword stripped.
+func firstHeaderLine(raw, keyword string) string {
+	line := firstSourceLine(raw)
+	line = strings.TrimPrefix(line, keyword)
+	line = strings.TrimSpace(line)
+	line = strings.TrimSuffix(line, ";")
+	return strings.TrimSpace(line)
+}
+
+// clampToFirstLine narrows a byte range to its first line so a header
+// rewriter doesn't erase trailing comments that tree-sitter sometimes
+// attaches to a header node.
 func clampToFirstLine(file *scanner.File, start, end int) [2]int {
 	if file.Content == nil || start < 0 || end > len(file.Content) || start >= end {
 		return [2]int{start, end}

@@ -59,39 +59,40 @@ func TestBuildPlan(t *testing.T) {
 }
 
 func TestFileContext_MatchesFQN(t *testing.T) {
+	imp := func(fqn string) importInfo { return importInfo{FQN: fqn} }
 	cases := []struct {
 		name string
-		ctx  FileContext
+		ctx  fileContext
 		ref  string
 		fqn  string
 		want bool
 	}{
 		{
 			name: "explicit import matches",
-			ctx:  FileContext{Imports: map[string]string{"OldName": "com.example.OldName"}},
+			ctx:  fileContext{Imports: map[string]importInfo{"OldName": imp("com.example.OldName")}},
 			ref:  "OldName",
 			fqn:  "com.example.OldName",
 			want: true,
 		},
 		{
 			name: "explicit import to different fqn rejects",
-			ctx:  FileContext{Imports: map[string]string{"OldName": "com.other.OldName"}},
+			ctx:  fileContext{Imports: map[string]importInfo{"OldName": imp("com.other.OldName")}},
 			ref:  "OldName",
 			fqn:  "com.example.OldName",
 			want: false,
 		},
 		{
 			name: "same package matches without import",
-			ctx:  FileContext{Package: "com.example"},
+			ctx:  fileContext{Package: "com.example"},
 			ref:  "OldName",
 			fqn:  "com.example.OldName",
 			want: true,
 		},
 		{
 			name: "same package but explicit import overrides",
-			ctx: FileContext{
+			ctx: fileContext{
 				Package: "com.example",
-				Imports: map[string]string{"OldName": "com.other.OldName"},
+				Imports: map[string]importInfo{"OldName": imp("com.other.OldName")},
 			},
 			ref:  "OldName",
 			fqn:  "com.example.OldName",
@@ -99,21 +100,21 @@ func TestFileContext_MatchesFQN(t *testing.T) {
 		},
 		{
 			name: "wildcard import matches",
-			ctx:  FileContext{Wildcards: []string{"com.example"}},
+			ctx:  fileContext{Wildcards: map[string]importInfo{"com.example": {}}},
 			ref:  "OldName",
 			fqn:  "com.example.OldName",
 			want: true,
 		},
 		{
 			name: "alias resolves to fqn",
-			ctx:  FileContext{Aliases: map[string]string{"Alias": "com.example.OldName"}},
+			ctx:  fileContext{Aliases: map[string]importInfo{"Alias": imp("com.example.OldName")}},
 			ref:  "Alias",
 			fqn:  "com.example.OldName",
 			want: true,
 		},
 		{
 			name: "unrelated file rejects",
-			ctx:  FileContext{Package: "com.other"},
+			ctx:  fileContext{Package: "com.other"},
 			ref:  "OldName",
 			fqn:  "com.example.OldName",
 			want: false,
@@ -121,9 +122,9 @@ func TestFileContext_MatchesFQN(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := tc.ctx.MatchesFQN(tc.ref, tc.fqn)
+			got := tc.ctx.matchesFQN(tc.ref, tc.fqn)
 			if got != tc.want {
-				t.Fatalf("MatchesFQN = %v, want %v", got, tc.want)
+				t.Fatalf("matchesFQN = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -131,34 +132,24 @@ func TestFileContext_MatchesFQN(t *testing.T) {
 
 func TestParseImports(t *testing.T) {
 	t.Run("kotlin", func(t *testing.T) {
-		ctx := FileContext{Imports: map[string]string{}, Aliases: map[string]string{}}
-		parseKotlinImport("import com.example.Foo", &ctx)
-		parseKotlinImport("import com.example.Bar as B", &ctx)
-		parseKotlinImport("import com.example.util.*", &ctx)
-		if got := ctx.Imports["Foo"]; got != "com.example.Foo" {
-			t.Errorf("Imports[Foo] = %q", got)
+		assertEq := func(got parsedImport, want parsedImport, name string) {
+			if got != want {
+				t.Errorf("%s: got %+v want %+v", name, got, want)
+			}
 		}
-		if got := ctx.Aliases["B"]; got != "com.example.Bar" {
-			t.Errorf("Aliases[B] = %q", got)
-		}
-		if len(ctx.Wildcards) != 1 || ctx.Wildcards[0] != "com.example.util" {
-			t.Errorf("Wildcards = %v", ctx.Wildcards)
-		}
+		assertEq(parseKotlinImport("com.example.Foo"), parsedImport{fqn: "com.example.Foo"}, "explicit")
+		assertEq(parseKotlinImport("com.example.Bar as B"), parsedImport{fqn: "com.example.Bar", alias: "B"}, "alias")
+		assertEq(parseKotlinImport("com.example.util.*"), parsedImport{wildcard: true, pkg: "com.example.util"}, "wildcard")
 	})
 	t.Run("java", func(t *testing.T) {
-		ctx := FileContext{Imports: map[string]string{}, Aliases: map[string]string{}}
-		parseJavaImport("import com.example.Foo;", &ctx)
-		parseJavaImport("import static com.example.Bar.baz;", &ctx)
-		parseJavaImport("import com.example.util.*;", &ctx)
-		if got := ctx.Imports["Foo"]; got != "com.example.Foo" {
-			t.Errorf("Imports[Foo] = %q", got)
+		assertEq := func(got parsedImport, want parsedImport, name string) {
+			if got != want {
+				t.Errorf("%s: got %+v want %+v", name, got, want)
+			}
 		}
-		if got := ctx.Imports["baz"]; got != "com.example.Bar.baz" {
-			t.Errorf("Imports[baz] = %q", got)
-		}
-		if len(ctx.Wildcards) != 1 || ctx.Wildcards[0] != "com.example.util" {
-			t.Errorf("Wildcards = %v", ctx.Wildcards)
-		}
+		assertEq(parseJavaImport("com.example.Foo"), parsedImport{fqn: "com.example.Foo"}, "explicit")
+		assertEq(parseJavaImport("static com.example.Bar.baz"), parsedImport{fqn: "com.example.Bar.baz"}, "static")
+		assertEq(parseJavaImport("com.example.util.*"), parsedImport{wildcard: true, pkg: "com.example.util"}, "wildcard")
 	})
 }
 

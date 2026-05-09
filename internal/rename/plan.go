@@ -1,20 +1,12 @@
 package rename
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
-
-// ErrApplyNotImplemented is preserved for callers that branched on the
-// previous "apply not implemented" error sentinel. New callers should
-// invoke Apply directly and surface its returned error.
-//
-// Deprecated: Apply is now implemented.
-var ErrApplyNotImplemented = errors.New("rename apply is not implemented yet")
 
 // ValidatePlan reports conflicts that would make the rename ambiguous or
 // destructive: more than one declaration matching FromFQN, or an existing
@@ -69,22 +61,17 @@ type Summary struct {
 	Files        int
 }
 
-// Plan is the minimum viable rename substrate: it identifies the declarations
-// and reference sites that a future apply phase will need to rewrite.
+// Plan identifies the declarations and reference sites a rename will
+// touch, plus the per-file context Apply needs to rewrite imports and
+// move files.
 type Plan struct {
 	Target       Target
 	Declarations []scanner.Symbol
 	References   []scanner.Reference
 	Files        []string
-	// Contexts is the per-file package/import context for every file that
-	// appears in Files (when known). Apply uses it to rewrite import
-	// statements and detect package-only renames.
-	Contexts map[string]FileContext
 
-	// cachedFiles holds the parsed *scanner.File objects from the index
-	// so Apply can reuse already-loaded content instead of re-reading
-	// from disk. Internal — not part of the persisted plan shape.
-	cachedFiles []*scanner.File
+	contexts    map[string]fileContext
+	filesByPath map[string]*scanner.File
 }
 
 // ParseTarget validates the FQN arguments and extracts the simple names used by
@@ -116,39 +103,31 @@ func ParseTarget(fromFQN, toFQN string) (Target, error) {
 	}, nil
 }
 
-// BuildPlan is a convenience wrapper around BuildPlanWithFiles with no
-// extra files beyond what the index carries.
+// BuildPlan computes a rename plan from the index. Use BuildPlanWithFiles
+// when extra Java files need to participate (CodeIndex.Files only carries
+// Kotlin files).
 func BuildPlan(idx *scanner.CodeIndex, target Target) Plan {
 	return BuildPlanWithFiles(idx, target, nil)
 }
 
-// BuildPlanWithFiles projects the current reference index into the declaration
-// and reference candidates for a requested rename. References are filtered to
-// only those that resolve to target.FromFQN in their file's package and
-// import context. extraFiles supplies parsed *scanner.File objects that the
-// CodeIndex does not itself store (Java files, in particular) so Apply can
-// rewrite their package declarations and imports.
+// BuildPlanWithFiles is BuildPlan plus extraFiles. References are kept
+// only when their file's package/import context resolves the simple name
+// to target.FromFQN.
 func BuildPlanWithFiles(idx *scanner.CodeIndex, target Target, extraFiles []*scanner.File) Plan {
-	plan := Plan{Target: target, Contexts: make(map[string]FileContext)}
+	plan := Plan{
+		Target:      target,
+		contexts:    make(map[string]fileContext),
+		filesByPath: make(map[string]*scanner.File),
+	}
 	if idx == nil {
 		return plan
 	}
 
-	addFile := func(file *scanner.File) {
-		if file == nil {
-			return
-		}
-		if _, seen := plan.Contexts[file.Path]; seen {
-			return
-		}
-		plan.Contexts[file.Path] = BuildFileContext(file)
-		plan.cachedFiles = append(plan.cachedFiles, file)
-	}
 	for _, file := range idx.Files {
-		addFile(file)
+		plan.indexFile(file)
 	}
 	for _, file := range extraFiles {
-		addFile(file)
+		plan.indexFile(file)
 	}
 
 	files := make(map[string]bool)
@@ -166,13 +145,10 @@ func BuildPlanWithFiles(idx *scanner.CodeIndex, target Target, extraFiles []*sca
 
 	if idx.MayHaveReference(target.FromName) {
 		for _, ref := range idx.References {
-			if ref.Name != target.FromName {
+			if ref.Name != target.FromName || ref.InComment {
 				continue
 			}
-			if ref.InComment {
-				continue
-			}
-			if !referenceMatchesTarget(ref, target, plan.Contexts) {
+			if !plan.referenceMatchesTarget(ref) {
 				continue
 			}
 			plan.References = append(plan.References, ref)
@@ -222,17 +198,29 @@ func (p Plan) CandidateCount() int {
 	return summary.Declarations + summary.References
 }
 
-// referenceMatchesTarget reports whether a simple-name reference should be
-// counted as resolving to target.FromFQN. With no per-file context (e.g.
-// XML, or a reference from a file the index didn't parse) the reference is
-// accepted by name only — Apply will skip it because it has no
-// rewrite-safe byte range.
-func referenceMatchesTarget(ref scanner.Reference, target Target, contexts map[string]FileContext) bool {
-	ctx, ok := contexts[ref.File]
+// indexFile records the parsed file and its derived context. Idempotent
+// across duplicate paths.
+func (p *Plan) indexFile(file *scanner.File) {
+	if file == nil {
+		return
+	}
+	if _, seen := p.contexts[file.Path]; seen {
+		return
+	}
+	p.contexts[file.Path] = buildFileContext(file)
+	p.filesByPath[file.Path] = file
+}
+
+// referenceMatchesTarget reports whether a simple-name reference resolves
+// to target.FromFQN in its file's context. References from files we
+// didn't parse (XML, etc.) are accepted by name only — Apply will skip
+// them because they have no rewrite-safe byte range.
+func (p Plan) referenceMatchesTarget(ref scanner.Reference) bool {
+	ctx, ok := p.contexts[ref.File]
 	if !ok {
 		return true
 	}
-	return ctx.MatchesFQN(target.FromName, target.FromFQN)
+	return ctx.matchesFQN(p.Target.FromName, p.Target.FromFQN)
 }
 
 func simpleName(fqn string) (string, bool) {

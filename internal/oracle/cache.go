@@ -32,6 +32,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/iterutil"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/projectroot"
 	"github.com/kaeawc/krit/internal/store"
@@ -687,7 +688,13 @@ func freshOracleEntryJobs(fresh *Data, deps *CacheDepsFile) []freshOracleEntryJo
 	if deps != nil {
 		approx = deps.Approximation
 	}
-	for path, fr := range fresh.Files {
+	// Iterate paths in sorted order so the resulting `jobs` slice is
+	// stable across runs. Downstream batching in cache_writer slices
+	// `jobs[start:end]` into per-pack-handle batches, so non-deterministic
+	// ordering here propagates into pack file content distribution and
+	// (combined with #25) into pack file byte layout — see #34.
+	for _, path := range iterutil.SortedKeys(fresh.Files) {
+		fr := fresh.Files[path]
 		var depEntry *CacheDepsEntry
 		if deps != nil {
 			depEntry = deps.Files[path]
@@ -707,12 +714,12 @@ func freshOracleEntryJobs(fresh *Data, deps *CacheDepsFile) []freshOracleEntryJo
 		})
 	}
 	if deps != nil {
-		for path, errMsg := range deps.Crashed {
+		for _, path := range iterutil.SortedKeys(deps.Crashed) {
 			jobs = append(jobs, freshOracleEntryJob{
 				path:          path,
 				approximation: approx,
 				crashed:       true,
-				crashError:    errMsg,
+				crashError:    deps.Crashed[path],
 			})
 		}
 	}

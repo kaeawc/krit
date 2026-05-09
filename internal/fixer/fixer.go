@@ -196,9 +196,7 @@ func collectTextFixRows(path string, columns *scanner.FindingColumns, rows []int
 }
 
 func applyByteFixes(result string, byteFixes []textFixRow, path string) (string, []DroppedFix) {
-	sort.Slice(byteFixes, func(i, j int) bool {
-		return byteFixes[i].fix.StartByte > byteFixes[j].fix.StartByte
-	})
+	canonicalSortByteFixes(byteFixes)
 	var dropped []DroppedFix
 	byteFixes, dropped = deduplicateFixesReverse(byteFixes, textFixRowByteEnd, textFixRowByteStart, textFixRowDroppedFor(path))
 	buf := []byte(result)
@@ -213,9 +211,7 @@ func applyByteFixes(result string, byteFixes []textFixRow, path string) (string,
 }
 
 func applyLineFixes(result string, lineFixes []textFixRow, path string) (string, []DroppedFix) {
-	sort.Slice(lineFixes, func(i, j int) bool {
-		return lineFixes[i].fix.StartLine > lineFixes[j].fix.StartLine
-	})
+	canonicalSortLineFixes(lineFixes)
 	var dropped []DroppedFix
 	lineFixes, dropped = deduplicateFixesReverse(lineFixes, textFixRowLineEnd, textFixRowLineStart, textFixRowDroppedFor(path))
 	lines := strings.Split(result, "\n")
@@ -237,6 +233,56 @@ func applyLineFixes(result string, lineFixes []textFixRow, path string) (string,
 		lines = newLines
 	}
 	return strings.Join(lines, "\n"), dropped
+}
+
+// canonicalSortByteFixes orders byte-mode fixes for reverse-walk
+// application. The primary key is descending StartByte so the
+// dedup/apply loop walks the buffer back-to-front. Tiebreakers cover
+// the cases where two fixes from different rules collide at the same
+// position:
+//
+//   - EndByte desc: a longer span "wins" the slot when starts are
+//     equal (the shorter span overlaps the longer's interior, so
+//     keeping the longer one drops the inner overlap deterministically).
+//   - rule asc: lexicographic rule ID — total order tiebreaker so two
+//     unrelated rules touching the same range have a stable winner
+//     across runs.
+//
+// `sort.SliceStable` is used so callers that already supplied an
+// upstream secondary order (e.g. a `rows` slice built in column
+// order) still see that order respected within equal-key groups.
+//
+// Regression context: see #26. Previously the bare
+// `sort.Slice(StartByte desc)` left ties in undefined order, so when
+// two rules emitted overlapping fixes at the same offset
+// `deduplicateFixesReverse` dropped a different rule each run.
+func canonicalSortByteFixes(fixes []textFixRow) {
+	sort.SliceStable(fixes, func(i, j int) bool {
+		a, b := fixes[i].fix, fixes[j].fix
+		if a.StartByte != b.StartByte {
+			return a.StartByte > b.StartByte
+		}
+		if a.EndByte != b.EndByte {
+			return a.EndByte > b.EndByte
+		}
+		return fixes[i].rule < fixes[j].rule
+	})
+}
+
+// canonicalSortLineFixes is the line-mode counterpart to
+// canonicalSortByteFixes. Same total-order shape on
+// (StartLine desc, EndLine desc, rule asc).
+func canonicalSortLineFixes(fixes []textFixRow) {
+	sort.SliceStable(fixes, func(i, j int) bool {
+		a, b := fixes[i].fix, fixes[j].fix
+		if a.StartLine != b.StartLine {
+			return a.StartLine > b.StartLine
+		}
+		if a.EndLine != b.EndLine {
+			return a.EndLine > b.EndLine
+		}
+		return fixes[i].rule < fixes[j].rule
+	})
 }
 
 // mixedModeRulesRows returns a compact "[byte: A,B | line: C,D]" description

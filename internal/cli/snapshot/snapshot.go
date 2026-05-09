@@ -15,13 +15,14 @@ import (
 // Version is set by main via ldflags.
 var Version string
 
-const usage = `usage: krit snapshot <capture|backfill|status|timeline|info> [flags]
+const usage = `usage: krit snapshot <capture|backfill|status|timeline|info|diff> [flags]
 
-  capture [<sha>]   capture a structural snapshot for sha (default: HEAD)
-  backfill          capture snapshots for past commits via git worktrees
-  status            list captured snapshots in this repo
-  timeline          print scalar metric over captured snapshots
-  info <sha>        print the manifest for a captured sha
+  capture [<sha>]      capture a structural snapshot for sha (default: HEAD)
+  backfill             capture snapshots for past commits via git worktrees
+  status               list captured snapshots in this repo
+  timeline             print scalar metric over captured snapshots
+  info <sha>           print the manifest for a captured sha
+  diff <from> <to>     show structural delta between two captured snapshots
 
 Capture flags:
   --repo PATH       repo root (default: cwd)
@@ -51,6 +52,8 @@ func Run(args []string) int {
 		return runTimeline(args[1:])
 	case "info":
 		return runInfo(args[1:])
+	case "diff":
+		return runDiff(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown snapshot subcommand: %s\n%s", args[0], usage)
 		return 1
@@ -256,6 +259,86 @@ func runBackfill(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func runDiff(args []string) int {
+	fs := flag.NewFlagSet("snapshot diff", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	repoFlag := fs.String("repo", "", "repository root (default: cwd)")
+	formatFlag := fs.String("format", "text", "output format: text|json")
+	positional, rest := clishared.SplitPositional(args, 2)
+	if err := fs.Parse(rest); err != nil {
+		return 1
+	}
+	if len(positional) != 2 {
+		fmt.Fprintln(os.Stderr, "usage: krit snapshot diff <from> <to>")
+		return 1
+	}
+
+	repoRoot, code := resolveRepoRoot(*repoFlag)
+	if code != 0 {
+		return code
+	}
+
+	root := snap.SnapshotsDir(repoRoot)
+	fromSHA, err := snap.ResolveCommitSHA(repoRoot, positional[0])
+	if err != nil {
+		fromSHA = positional[0]
+	}
+	toSHA, err := snap.ResolveCommitSHA(repoRoot, positional[1])
+	if err != nil {
+		toSHA = positional[1]
+	}
+
+	d, err := snap.Diff(root, fromSHA, toSHA)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+
+	if *formatFlag == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(d); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+	printDiffText(d)
+	return 0
+}
+
+func printDiffText(d *snap.DiffResult) {
+	fmt.Printf("from %s -> to %s\n", shortSHA(d.From.CommitSHA), shortSHA(d.To.CommitSHA))
+	if len(d.AddedModules) > 0 || len(d.RemovedModules) > 0 {
+		fmt.Printf("\nmodules: +%d / -%d\n", len(d.AddedModules), len(d.RemovedModules))
+		for _, m := range d.AddedModules {
+			fmt.Printf("  + %s\n", m)
+		}
+		for _, m := range d.RemovedModules {
+			fmt.Printf("  - %s\n", m)
+		}
+	}
+	if len(d.AddedEdges) > 0 || len(d.RemovedEdges) > 0 {
+		fmt.Printf("\nedges: +%d / -%d\n", len(d.AddedEdges), len(d.RemovedEdges))
+		for _, e := range d.AddedEdges {
+			fmt.Printf("  + %s -> %s (%s)\n", e.From, e.To, e.Configuration)
+		}
+		for _, e := range d.RemovedEdges {
+			fmt.Printf("  - %s -> %s (%s)\n", e.From, e.To, e.Configuration)
+		}
+	}
+	fmt.Printf("\nfiles: +%d / -%d\n", len(d.AddedFiles), len(d.RemovedFiles))
+	fmt.Printf("symbols: +%d / -%d\n", len(d.AddedSymbols), len(d.RemovedSymbols))
+	if len(d.RepoMetrics) > 0 {
+		fmt.Println("\nrepo metrics:")
+		for _, name := range []string{"loc", "files", "symbols", "public_symbols", "cyclomatic", "modules"} {
+			if md, ok := d.RepoMetrics[name]; ok {
+				fmt.Printf("  %-16s %g -> %g (%+g)\n", name, md.From, md.To, md.Delta)
+			}
+		}
+	}
 }
 
 func runTimeline(args []string) int {

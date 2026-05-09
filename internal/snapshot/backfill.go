@@ -90,6 +90,13 @@ func Backfill(opts BackfillOptions) (BackfillResult, error) {
 		}
 	}
 
+	// gitMu serialises `git worktree add/remove` invocations against the
+	// same primary repo. Git's loose locking around `.git/worktrees/` is
+	// fine for sequential callers but races under concurrent registry
+	// mutation; the parse/index work that dominates capture time stays
+	// fully parallel.
+	var gitMu sync.Mutex
+
 	jobs := make(chan string)
 	var wg sync.WaitGroup
 	wg.Add(workers)
@@ -98,7 +105,7 @@ func Backfill(opts BackfillOptions) (BackfillResult, error) {
 			defer wg.Done()
 			for sha := range jobs {
 				start := time.Now()
-				err := captureSha(root, sha, scratch, workerID, snapshotsRoot, opts.KritVersion)
+				err := captureSha(root, sha, scratch, workerID, snapshotsRoot, opts.KritVersion, &gitMu)
 				ev := BackfillEvent{CommitSHA: sha, Duration: time.Since(start)}
 				if err != nil {
 					ev.Kind = "failed"
@@ -189,14 +196,23 @@ func contains(s []string, target string) bool {
 
 // captureSha checks sha out into a fresh git worktree under scratchDir,
 // runs Capture against it, persists the result back to snapshotsRoot,
-// and removes the worktree. Each worker uses a distinct subdirectory
-// so parallel `git worktree add` invocations cannot collide on path.
-func captureSha(primaryRepoRoot, sha, scratchDir string, workerID int, snapshotsRoot, kritVersion string) error {
+// and removes the worktree. Each worker uses a distinct subdirectory so
+// parallel scans never collide on path; gitMu serialises the
+// add/remove against the primary repo's `.git/worktrees/` registry.
+func captureSha(primaryRepoRoot, sha, scratchDir string, workerID int, snapshotsRoot, kritVersion string, gitMu *sync.Mutex) error {
 	worktreePath := filepath.Join(scratchDir, fmt.Sprintf("w%d-%s", workerID, sha[:12]))
-	if err := gitWorktreeAdd(primaryRepoRoot, worktreePath, sha); err != nil {
-		return err
+
+	gitMu.Lock()
+	addErr := gitWorktreeAdd(primaryRepoRoot, worktreePath, sha)
+	gitMu.Unlock()
+	if addErr != nil {
+		return addErr
 	}
-	defer gitWorktreeRemove(primaryRepoRoot, worktreePath)
+	defer func() {
+		gitMu.Lock()
+		gitWorktreeRemove(primaryRepoRoot, worktreePath)
+		gitMu.Unlock()
+	}()
 
 	res, err := Capture(CaptureOptions{
 		RepoRoot:    worktreePath,

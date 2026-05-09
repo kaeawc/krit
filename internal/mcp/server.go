@@ -189,6 +189,8 @@ func (s *Server) handleToolsCall(req *Request) {
 		result = s.toolTypes(params.Arguments)
 	case "structure":
 		result = s.toolStructure(params.Arguments)
+	case "snapshot":
+		result = s.toolSnapshot(params.Arguments)
 	default:
 		result = ToolResult{
 			Content: []ContentBlock{{Type: "text", Text: "unknown tool: " + params.Name}},

@@ -360,6 +360,9 @@ func registerVerbs(srv *daemon.Server, state *daemonState) {
 	srv.Register(daemon.VerbAnalyzeBuffers, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return handleAnalyzeBuffers(ctx, state, raw)
 	})
+	srv.Register(daemon.VerbAnalyzeProject, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return handleAnalyzeProject(ctx, state, raw)
+	})
 }
 
 // handleAnalyzeBuffer parses (or reuses a cached parse for) the buffer

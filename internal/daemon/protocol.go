@@ -32,6 +32,7 @@ const (
 	VerbAbiHash        = "abi-hash"
 	VerbAnalyzeBuffer  = "analyze-buffer"
 	VerbAnalyzeBuffers = "analyze-buffers"
+	VerbAnalyzeProject = "analyze-project"
 )
 
 // AbiHashArgs is the argument shape for the abi-hash verb.
@@ -115,4 +116,79 @@ type AnalyzeBufferEntry struct {
 	Findings json.RawMessage `json:"findings,omitempty"`
 	CacheHit bool            `json:"cache_hit"`
 	Error    string          `json:"error,omitempty"`
+}
+
+// AnalyzeProjectArgs drives the analyze-project verb. The verb runs
+// the same whole-project scan pipeline as `krit -f json` against the
+// daemon's resident parse cache (and, in future commits, resident
+// resolver and oracle), so the JSON shape returned in
+// AnalyzeProjectResult.Findings matches the CLI output byte-for-byte
+// modulo timing fields.
+//
+// Empty fields take daemon defaults; fields mirror the most useful
+// CLI flags one-to-one so client wrappers can translate flag-by-flag.
+type AnalyzeProjectArgs struct {
+	// Paths is the explicit scan target. Empty means "use the
+	// daemon's --root".
+	Paths []string `json:"paths,omitempty"`
+	// Format is the output format. Empty defaults to "json".
+	Format string `json:"format,omitempty"`
+	// BaselinePath, when non-empty, points at a baseline file used
+	// to suppress known findings.
+	BaselinePath string `json:"baseline,omitempty"`
+	// DiffRef, when non-empty, restricts findings to files changed
+	// since the given git ref.
+	DiffRef string `json:"diff,omitempty"`
+	// MinConfidence drops findings below the threshold from output.
+	MinConfidence float64 `json:"min_confidence,omitempty"`
+	// WarningsAsErrors promotes warning-severity findings to errors
+	// before format dispatch.
+	WarningsAsErrors bool `json:"warnings_as_errors,omitempty"`
+	// IncludeGenerated retains files under */generated/* during parse.
+	IncludeGenerated bool `json:"include_generated,omitempty"`
+	// AllRules opts into experimental rules in addition to the
+	// default core set.
+	AllRules bool `json:"all_rules,omitempty"`
+	// Experimental enables experimental flags whose default-off behavior
+	// the daemon would otherwise suppress.
+	Experimental bool `json:"experimental,omitempty"`
+	// EnableRules / DisableRules are comma-separated rule-id lists.
+	EnableRules  string `json:"enable_rules,omitempty"`
+	DisableRules string `json:"disable_rules,omitempty"`
+	// RequireWarm, when true, makes the verb fail fast (with a typed
+	// error) instead of paying cold-warm cost. Clients that want a
+	// hard SLA set this — useful for IDE workflows that can show a
+	// "warming up" indicator instead of blocking on the first call.
+	RequireWarm bool `json:"require_warm,omitempty"`
+}
+
+// AnalyzeProjectResult is the response payload. Findings is the raw
+// bytes the OutputPhase formatter wrote, so callers can
+// `json.Unmarshal(res.Findings, &theirSchema)` with no shape change
+// from `krit -f json`.
+type AnalyzeProjectResult struct {
+	Findings json.RawMessage     `json:"findings"`
+	Stats    AnalyzeProjectStats `json:"stats"`
+}
+
+// AnalyzeProjectStats reports per-call observability data — useful
+// for clients that want to log warm-vs-cold cadence, or for tests
+// asserting that the parse cache hit-rate behaves as expected after
+// a single-file change.
+type AnalyzeProjectStats struct {
+	FilesScanned    int     `json:"files_scanned"`
+	FindingsCount   int     `json:"findings_count"`
+	WallSeconds     float64 `json:"wall_seconds"`
+	ParseHits       int64   `json:"parse_hits"`
+	ParseMisses     int64   `json:"parse_misses"`
+	CodeIndexHit    bool    `json:"code_index_hit"`
+	LibraryFactsHit bool    `json:"library_facts_hit"`
+	// DirtyFiles is the count of files Touched in WorkspaceState
+	// since the last analyze-project call (drained at the start of
+	// this call). Useful for clients that want to show "N files
+	// changed since last scan" UX.
+	DirtyFiles int `json:"dirty_files"`
+	// Cold is true on the first analyze-project call after daemon
+	// startup; subsequent calls report false.
+	Cold bool `json:"cold"`
 }

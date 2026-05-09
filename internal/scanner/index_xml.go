@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -118,7 +119,22 @@ func loadXMLFilesForCache(ktFiles []*File) []*xmlCacheFile {
 		}(r)
 	}
 	wg.Wait()
+
+	// Goroutine completion order is non-deterministic, so `out`
+	// accumulates in whatever order the per-root walks finish. Sort by
+	// path so downstream consumers (cache fingerprints, reference
+	// extraction, rules that pick first-match) see a stable XML
+	// reference sequence across runs. See #31.
+	sortXMLCacheFiles(out)
 	return out
+}
+
+// sortXMLCacheFiles orders xmlCacheFile entries by path. It is the
+// canonical ordering for any aggregated XML file slice in the
+// scanner — exposed as a named helper so the determinism property is
+// documented and reusable for tests.
+func sortXMLCacheFiles(files []*xmlCacheFile) {
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 }
 
 func collectXMLReferencesFromLoaded(files []*xmlCacheFile) []Reference {

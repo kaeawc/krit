@@ -38,6 +38,19 @@ func SplitPositional(args []string, maxVal int) (positional, rest []string) {
 	return positional, rest
 }
 
+// MultiString is a flag.Value that accumulates repeated --flag value
+// invocations into a slice.
+type MultiString []string
+
+func (m *MultiString) String() string {
+	return strings.Join(*m, ",")
+}
+
+func (m *MultiString) Set(value string) error {
+	*m = append(*m, value)
+	return nil
+}
+
 // ScanModuleKotlinFiles finds and parses all .kt files under the
 // module's source roots.
 func ScanModuleKotlinFiles(mod *module.Module) []*scanner.File {

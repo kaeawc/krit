@@ -235,12 +235,12 @@ func TestMCPInitialize(t *testing.T) {
 	if _, err := readMCPResponse(reader, &toolsResult); err != nil {
 		t.Fatalf("read tools/list response: %v", err)
 	}
-	if len(toolsResult.Tools) != 7 {
+	if len(toolsResult.Tools) != 8 {
 		names := make([]string, len(toolsResult.Tools))
 		for i, tool := range toolsResult.Tools {
 			names[i] = tool.Name
 		}
-		t.Fatalf("expected 7 tools, got %d: %v", len(toolsResult.Tools), names)
+		t.Fatalf("expected 8 tools, got %d: %v", len(toolsResult.Tools), names)
 	}
 
 	// List resources to verify count

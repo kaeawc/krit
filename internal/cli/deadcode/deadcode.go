@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/deadcode"
 )
 
@@ -15,7 +16,7 @@ func Run(args []string) int {
 	fs.SetOutput(os.Stderr)
 	projectFlag := fs.Bool("project", false, "Run project-level cross-module reachability analysis")
 	jsonFlag := fs.Bool("json", false, "Emit findings as JSON")
-	var roots multiStringFlag
+	var roots clishared.MultiString
 	fs.Var(&roots, "root", "Additional reachability root (FQN or simple name); may repeat")
 
 	if err := fs.Parse(args); err != nil {
@@ -66,14 +67,4 @@ func formatProjectSignature(f deadcode.ProjectFinding) string {
 		vis = "public"
 	}
 	return fmt.Sprintf("%s %s %s", vis, f.Kind, f.Name)
-}
-
-// multiStringFlag accumulates repeated string flag values.
-type multiStringFlag []string
-
-func (m *multiStringFlag) String() string { return fmt.Sprintf("%v", []string(*m)) }
-
-func (m *multiStringFlag) Set(value string) error {
-	*m = append(*m, value)
-	return nil
 }

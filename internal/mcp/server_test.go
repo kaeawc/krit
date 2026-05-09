@@ -168,16 +168,18 @@ func TestToolsListReturnsTools(t *testing.T) {
 		t.Fatalf("unmarshal result: %v", err)
 	}
 
-	if len(result.Tools) != 7 {
-		t.Fatalf("expected 7 tools, got %d", len(result.Tools))
+	if len(result.Tools) != 8 {
+		t.Fatalf("expected 8 tools, got %d", len(result.Tools))
 	}
 
 	names := map[string]bool{}
 	for _, tool := range result.Tools {
 		names[tool.Name] = true
 	}
-	// Consolidated surface: rules-side (analyze, fix, rules), history (metrics), and facts-side (symbols, types, structure).
-	for _, expected := range []string{"analyze", "fix", "rules", "metrics", "symbols", "types", "structure"} {
+	// Consolidated surface: rules-side (analyze, fix, rules), history
+	// (metrics), facts-side (symbols, types, structure), and structural
+	// snapshots (snapshot).
+	for _, expected := range []string{"analyze", "fix", "rules", "metrics", "symbols", "types", "structure", "snapshot"} {
 		if !names[expected] {
 			t.Errorf("missing tool: %s", expected)
 		}

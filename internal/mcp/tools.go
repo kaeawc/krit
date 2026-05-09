@@ -34,6 +34,7 @@ func toolDefinitions() []ToolDefinition {
 		symbolsToolDef(),
 		typesToolDef(),
 		structureToolDef(),
+		snapshotToolDef(),
 	}
 }
 
@@ -159,6 +160,31 @@ func typesToolDef() ToolDefinition {
 			"code":  jsonschema.String("Kotlin source code"),
 			"path":  jsonschema.String("File path for context"),
 		}).WithRequired("code", "query"),
+	}
+}
+
+// snapshotToolDef returns the snapshot tool definition.
+func snapshotToolDef() ToolDefinition {
+	return ToolDefinition{
+		Name: "snapshot",
+		Description: "Read structural snapshots captured by `krit snapshot capture` / `krit snapshot backfill`. " +
+			"`operation`: `status` (list captured shas + manifests), `info` (one sha's manifest), " +
+			"`timeline` (a scalar metric over captured shas, sparse across history), " +
+			"`diff` (added/removed files, symbols, modules, edges, plus repo + module metric deltas between two captured shas). " +
+			"Reach for: \"How did fan-in on :feature:checkout move over the last 50 commits?\" (`timeline` + scope=module); " +
+			"\"What structural changes does this PR introduce vs. main?\" (`diff`).",
+		InputSchema: jsonschema.Object(map[string]*jsonschema.Schema{
+			"operation": jsonschema.StringEnum([]string{"status", "info", "timeline", "diff"},
+				"status: list captured snapshots; info: one sha's manifest; timeline: scalar metric series; diff: structural delta between two shas").
+				WithDefault("status"),
+			"repo_root":  jsonschema.String("Repo root (default: cwd)"),
+			"commit_sha": jsonschema.String("Commit sha or ref (operation=info)"),
+			"scope":      jsonschema.StringEnum([]string{"repo", "module", "file"}, "Timeline scope (operation=timeline)").WithDefault("repo"),
+			"target":     jsonschema.String("Module path (':app') or repo-relative file path; required for scope=module/file"),
+			"metric":     jsonschema.String("loc|bytes|symbols|public_symbols|cyclomatic|files|fan_in|fan_out|modules (operation=timeline)"),
+			"from":       jsonschema.String("From sha or ref (operation=diff)"),
+			"to":         jsonschema.String("To sha or ref (operation=diff)"),
+		}),
 	}
 }
 

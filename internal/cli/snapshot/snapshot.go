@@ -19,7 +19,7 @@ import (
 // Version is set by main via ldflags.
 var Version string
 
-const usage = `usage: krit snapshot <capture|backfill|status|timeline|info|diff|gate|install-hook> [flags]
+const usage = `usage: krit snapshot <capture|backfill|status|timeline|info|diff|gate|install-hook|prune> [flags]
 
   capture [<sha>]      capture a structural snapshot for sha (default: HEAD)
   backfill             capture snapshots for past commits via git worktrees
@@ -30,6 +30,7 @@ const usage = `usage: krit snapshot <capture|backfill|status|timeline|info|diff|
   gate <from> <to>     fail (exit 2) if a delta exceeds a configured threshold
   install-hook         install a post-commit hook that captures HEAD on each commit
   simulate <rule>      score a rule across history (would this rule have been useful?)
+  prune                evict captured snapshots per retention policy
 
 Capture flags:
   --repo PATH       repo root (default: cwd)
@@ -67,6 +68,8 @@ func Run(args []string) int {
 		return runInstallHook(args[1:])
 	case "simulate":
 		return runSimulate(args[1:])
+	case "prune":
+		return runPrune(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown snapshot subcommand: %s\n%s", args[0], usage)
 		return 1
@@ -634,4 +637,72 @@ func runTimeline(args []string) int {
 		fmt.Printf("%s\t%d\t%g\n", shortSHA(p.CommitSHA), p.CapturedAt, p.Value)
 	}
 	return 0
+}
+
+func runPrune(args []string) int {
+	fs := flag.NewFlagSet("snapshot prune", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	repoFlag := fs.String("repo", "", "repository root (default: cwd)")
+	keepDaysFlag := fs.Int("keep-days", 30, "retention window for feature-branch-reachable snapshots, in days")
+	keepOrphanDaysFlag := fs.Int("keep-orphan-days", 7, "retention window for unreachable (orphan) snapshots, in days")
+	dryRunFlag := fs.Bool("dry-run", false, "print what would be pruned without removing anything")
+	formatFlag := fs.String("format", "text", "output format: text|json")
+	var permanent clishared.MultiString
+	fs.Var(&permanent, "permanent-branch", "branch name treated as always-keep (repeatable; defaults to main + master)")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+
+	repoRoot, code := resolveRepoRoot(*repoFlag)
+	if code != 0 {
+		return code
+	}
+
+	res, err := snap.Prune(snap.PruneOptions{
+		Root:              snap.SnapshotsDir(repoRoot),
+		RepoRoot:          repoRoot,
+		PermanentBranches: permanent,
+		KeepFeatureAge:    time.Duration(*keepDaysFlag) * 24 * time.Hour,
+		KeepOrphanAge:     time.Duration(*keepOrphanDaysFlag) * 24 * time.Hour,
+		DryRun:            *dryRunFlag,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+
+	if *formatFlag == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(res)
+	} else {
+		printPruneText(res, *dryRunFlag)
+	}
+	for _, e := range res.Errors {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", e)
+	}
+	if len(res.Errors) > 0 {
+		return 1
+	}
+	return 0
+}
+
+func printPruneText(res *snap.PruneResult, dryRun bool) {
+	verb := "pruned"
+	if dryRun {
+		verb = "would prune"
+	}
+	if len(res.Entries) == 0 {
+		fmt.Println("snapshot prune: no captured snapshots")
+		return
+	}
+	for _, e := range res.Entries {
+		marker := "keep"
+		if e.Pruned {
+			marker = verb
+		}
+		fmt.Printf("  %s\t%s\t%s\t%s\n",
+			shortSHA(e.CommitSHA), e.Reach, marker, e.Reason)
+	}
+	fmt.Printf("snapshot prune: %d %s, %d kept\n", res.Pruned, verb, len(res.Entries)-res.Pruned)
 }

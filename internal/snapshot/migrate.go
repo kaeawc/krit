@@ -27,7 +27,30 @@ var blobMigrators = map[int]func(*Blob) (*Blob, error){}
 var metricsMigrators = map[int]func(*Metrics) (*Metrics, error){}
 
 // manifestMigrators is the per-step migration table for *Manifest.
-var manifestMigrators = map[int]func(*Manifest) (*Manifest, error){}
+var manifestMigrators = map[int]func(*Manifest) (*Manifest, error){
+	1: migrateManifestV1ToV2,
+}
+
+// migrateManifestV1ToV2 lifts the flat Files / Symbols / Modules
+// count fields into the new Counts struct introduced at v2. Writers
+// populate both fields in lockstep, so old readers continue to see
+// the flat layout — the migrator only matters when a newer binary
+// loads a payload captured at v1.
+//
+// The error return is part of the migrator-table contract; this
+// particular migrator can't fail, but future migrators may.
+//
+//nolint:unparam // matches the manifestMigrators map signature.
+func migrateManifestV1ToV2(m *Manifest) (*Manifest, error) {
+	cp := *m
+	cp.SchemaVersion = 2
+	cp.Counts = ManifestCounts{
+		Files:   m.Files,
+		Symbols: m.Symbols,
+		Modules: m.Modules,
+	}
+	return &cp, nil
+}
 
 // MigrateBlob walks blob's schema up to the current SchemaVersion.
 // Returns blob unchanged when already current; refuses to operate on

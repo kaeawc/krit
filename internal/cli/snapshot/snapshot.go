@@ -3,8 +3,10 @@ package snapshot
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"strconv"
 	"strings"
@@ -184,6 +186,16 @@ func runStatus(args []string) int {
 	return 0
 }
 
+// formatInfoError shapes a LoadManifest failure for `snapshot info <arg>`.
+// Missing-snapshot errors get a friendly hint; other failures fall through
+// as the underlying message.
+func formatInfoError(arg string, err error) string {
+	if errors.Is(err, fs.ErrNotExist) {
+		return fmt.Sprintf("error: %q is not a captured snapshot. Try `krit snapshot status` to list captured shas.", arg)
+	}
+	return fmt.Sprintf("error: %v", err)
+}
+
 func runInfo(args []string) int {
 	fs := flag.NewFlagSet("snapshot info", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -211,7 +223,7 @@ func runInfo(args []string) int {
 	}
 	m, err := snap.LoadManifest(root, sha)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		fmt.Fprintln(os.Stderr, formatInfoError(positional[0], err))
 		return 1
 	}
 	enc := json.NewEncoder(os.Stdout)

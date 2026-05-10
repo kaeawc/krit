@@ -145,6 +145,15 @@ type ProjectHostState struct {
 	// dispatch write-back. Required when AnalysisCache is non-nil. The
 	// daemon derives this from cache.FilePath(cacheDir, scanPaths).
 	AnalysisCacheFilePath string
+	// AnalysisCacheLookup, when true alongside a non-nil AnalysisCache,
+	// also enables the read side: IndexPhase.runCacheLoad runs
+	// cache.CheckFiles, populates CacheResult.CachedPaths, and
+	// DispatchPhase skips per-file rule execution on cache hits.
+	// Cached findings are merged back via mergeCachedFindings. False
+	// keeps the pre-#126 write-only behavior. The daemon flips this
+	// true after #126 lands. See issue #126 for the drift-risk
+	// analysis (baseline/diff, MinConfidence, RuleHash drift).
+	AnalysisCacheLookup bool
 }
 
 // ProjectInput is the value type that drives RunProject. The split
@@ -258,6 +267,7 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		Tracker:              host.Tracker,
 	}
 	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
+	wireAnalysisCacheLookup(&indexInput, args, host)
 	indexResult, err := IndexPhase{Workers: args.Workers}.Run(ctx, indexInput)
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("index: %w", err)
@@ -357,6 +367,35 @@ func projectRuleHash(activeRules []*api.Rule, cfg *config.Config) string {
 		}
 	}
 	return cache.ComputeConfigHash(ruleNames, cfg, false)
+}
+
+// wireAnalysisCacheLookup turns on IndexPhase.runCacheLoad when the
+// host opted into lookup mode. runCacheLoad populates CacheResult so
+// DispatchPhase can skip per-file rule execution on hits; the
+// existing post-IndexPhase write-back wiring stays unchanged.
+//
+// Cache-config fields are derived from args here (rule names from
+// ActiveRules, config from args.Config, scan paths from args.Paths)
+// to match how the CLI runner populates the same IndexInput slots.
+// RuleHash drift between daemon and CLI is the load-bearing risk
+// flagged in #126 — feeding both code paths through identical inputs
+// keeps the hash byte-stable.
+func wireAnalysisCacheLookup(in *IndexInput, args ProjectArgs, host ProjectHostState) {
+	if host.AnalysisCache == nil || !host.AnalysisCacheLookup {
+		return
+	}
+	in.CacheEnabled = true
+	in.PreloadedAnalysisCache = host.AnalysisCache
+	in.CacheFilePath = host.AnalysisCacheFilePath
+	in.CacheScanPaths = args.Paths
+	in.CacheConfig = args.Config
+	ruleNames := make([]string, 0, len(args.ActiveRules))
+	for _, r := range args.ActiveRules {
+		if r != nil {
+			ruleNames = append(ruleNames, r.ID)
+		}
+	}
+	in.CacheRuleNames = ruleNames
 }
 
 // wireOracleHandles fills in the oracle-related IndexInput fields when

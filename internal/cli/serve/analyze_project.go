@@ -167,6 +167,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			TypeIndexCacheDir:     typeinfer.TypeIndexCacheDir(repoDir),
 			AnalysisCache:         analysisCache,
 			AnalysisCacheFilePath: analysisCachePath,
+			AnalysisCacheLookup:   analysisCache != nil,
 			OracleDaemon:          oracleDaemon,
 		},
 	}, nil

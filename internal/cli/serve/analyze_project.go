@@ -55,13 +55,12 @@ func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawM
 	}
 
 	out, err := pipeline.RunProject(ctx, in)
+	state.analyzeMu.Unlock()
 	if err != nil {
-		state.analyzeMu.Unlock()
 		return nil, err
 	}
 	state.coldDone.Store(true)
 	xfile := state.workspace.CrossFileStats()
-	state.analyzeMu.Unlock()
 
 	return daemon.AnalyzeProjectResult{
 		Findings: out.JSON,

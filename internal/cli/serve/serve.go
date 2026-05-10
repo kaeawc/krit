@@ -203,7 +203,7 @@ type daemonState struct {
 	// dispatch merges per-file findings into the cache and saves it on
 	// each analyze-project call. The CLI's existing on-disk format is
 	// preserved so subsequent CLI runs read the daemon-populated cache.
-	analysisCacheMu   sync.Mutex
+	analysisCacheMu    sync.Mutex
 	analysisCacheByKey map[string]*analysisCacheEntry
 
 	// analyzeMu serializes whole-project analysis. The pipeline mutates

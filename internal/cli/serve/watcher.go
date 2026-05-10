@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 
@@ -13,6 +14,18 @@ import (
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/pipeline"
 )
+
+// watcherState is the subset of pipeline.WorkspaceState the file watcher
+// calls. The interface lets tests substitute a counting fake.
+type watcherState interface {
+	Invalidate(path string)
+	InvalidateCodeIndex()
+	InvalidateDependents()
+	InvalidateLibraryFacts()
+	Touch(path string)
+}
+
+const defaultDebounceWindow = 50 * time.Millisecond
 
 // fileWatcher pushes filesystem-change events into a daemon's
 // WorkspaceState invalidation API. It watches the project root
@@ -27,7 +40,7 @@ import (
 type fileWatcher struct {
 	w        *fsnotify.Watcher
 	root     string
-	state    *pipeline.WorkspaceState
+	state    watcherState
 	reporter *diag.Reporter
 	// onConfigChange fires when the watcher observes an edit to a
 	// krit.yml / .krit.yml file. Daemon callers wire this to
@@ -46,6 +59,14 @@ type fileWatcher struct {
 	// before the walk completes for a still-unwatched subtree are
 	// covered by the watcher's documented best-effort contract.
 	ready chan struct{}
+
+	// debounce coalesces rapid Write+Write+Chmod sequences that editors
+	// emit on a single logical save. Each path gets its own sliding timer;
+	// events within debounceWindow of each other are collapsed into one
+	// Invalidate+Touch call.
+	debounceMu     sync.Mutex
+	debounce       map[string]*time.Timer
+	debounceWindow time.Duration
 }
 
 // startFileWatcher returns a started watcher rooted at root. Callers
@@ -53,17 +74,23 @@ type fileWatcher struct {
 // Returns nil + error when the watcher couldn't be created (e.g. on
 // platforms without inotify/kqueue or when the root doesn't exist).
 func startFileWatcher(ctx context.Context, root string, state *pipeline.WorkspaceState, reporter *diag.Reporter, opts ...watcherOption) (*fileWatcher, error) {
+	return startFileWatcherWithState(ctx, root, state, reporter, opts...)
+}
+
+func startFileWatcherWithState(ctx context.Context, root string, state watcherState, reporter *diag.Reporter, opts ...watcherOption) (*fileWatcher, error) {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
 	fw := &fileWatcher{
-		w:        w,
-		root:     root,
-		state:    state,
-		reporter: reporter,
-		done:     make(chan struct{}),
-		ready:    make(chan struct{}),
+		w:              w,
+		root:           root,
+		state:          state,
+		reporter:       reporter,
+		done:           make(chan struct{}),
+		ready:          make(chan struct{}),
+		debounce:       make(map[string]*time.Timer),
+		debounceWindow: defaultDebounceWindow,
 	}
 	for _, opt := range opts {
 		opt(fw)
@@ -106,6 +133,12 @@ type watcherOption func(*fileWatcher)
 // to flag the daemon's cached config stale on krit.yml edits.
 func withConfigChangeCallback(fn func()) watcherOption {
 	return func(fw *fileWatcher) { fw.onConfigChange = fn }
+}
+
+// withDebounceWindow overrides the Kotlin-file debounce window. Used by
+// tests that need a shorter window to avoid slow test runs.
+func withDebounceWindow(d time.Duration) watcherOption {
+	return func(fw *fileWatcher) { fw.debounceWindow = d }
 }
 
 // Stop releases the watcher. Safe to call multiple times.
@@ -176,17 +209,32 @@ func (fw *fileWatcher) handle(ev fsnotify.Event) {
 		// since last analyze" see Gradle/version-catalog edits.
 		fw.state.Touch(ev.Name)
 	case isKotlinPath(ev.Name):
-		fw.state.Invalidate(ev.Name)
-		// Any source-file change can shift cross-file lookups, so
-		// drop the cached CodeIndex and DependentsIndex; the next
-		// caller rebuilds.
+		// Editors emit Write+Write+Chmod on a single logical save.
+		// Coalesce within debounceWindow so only one Invalidate+Touch
+		// fires per burst — the dirty-set's map semantics already dedup
+		// Touch, but Invalidate and CodeIndex drops are not free.
+		fw.scheduleKotlinInvalidate(ev.Name)
+	}
+}
+
+// scheduleKotlinInvalidate coalesces rapid fsnotify events for path into a
+// single Invalidate+Touch call fired after fw.debounceWindow of silence.
+// Each new event within the window restarts the timer (sliding debounce).
+func (fw *fileWatcher) scheduleKotlinInvalidate(path string) {
+	fw.debounceMu.Lock()
+	if t, ok := fw.debounce[path]; ok {
+		t.Stop()
+	}
+	fw.debounce[path] = time.AfterFunc(fw.debounceWindow, func() {
+		fw.debounceMu.Lock()
+		delete(fw.debounce, path)
+		fw.debounceMu.Unlock()
+		fw.state.Invalidate(path)
 		fw.state.InvalidateCodeIndex()
 		fw.state.InvalidateDependents()
-		// Record the dirty file. Repeated Touches dedup via the
-		// dirty-set's map semantics so an editor that emits
-		// Write+Write on save costs nothing extra.
-		fw.state.Touch(ev.Name)
-	}
+		fw.state.Touch(path)
+	})
+	fw.debounceMu.Unlock()
 }
 
 // addRecursive walks dir and adds every directory to the watcher.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,6 +12,17 @@ import (
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/scanner"
 )
+
+// countingState is a watcherState fake that counts Invalidate calls.
+type countingState struct {
+	invalidateCalls atomic.Int64
+}
+
+func (c *countingState) Invalidate(path string)  { c.invalidateCalls.Add(1) }
+func (c *countingState) InvalidateCodeIndex()    {}
+func (c *countingState) InvalidateDependents()   {}
+func (c *countingState) InvalidateLibraryFacts() {}
+func (c *countingState) Touch(path string)       {}
 
 // waitForCondition polls fn every 5ms up to 2s. Returns true when fn
 // turns true; false on timeout. Used to bridge the async fsnotify
@@ -295,12 +307,10 @@ func TestFileWatcher_TouchPropagatesOnKotlinWrite(t *testing.T) {
 	if len(dirty) == 0 {
 		t.Fatal("expected dirty-set to contain the written path within 2s")
 	}
-	if got := time.Since(start); got > 200*time.Millisecond {
-		// Soft warning: the SLO is a plan-level target; tests on a
-		// loaded CI runner may exceed it. We log rather than fail to
-		// avoid flakes; the daemon's end-to-end test in step 8
-		// asserts the SLO directly.
-		t.Logf("watcher latency = %v (target ≤ 200ms)", got)
+	if got := time.Since(start); got > 250*time.Millisecond {
+		// Soft warning: 50ms debounce + 200ms OS/queue latency budget.
+		// Log rather than fail to avoid CI flakes on loaded runners.
+		t.Logf("watcher latency = %v (target ≤ 250ms incl. 50ms debounce)", got)
 	}
 	// Path should match the touched file (after WorkspaceState's
 	// normalisation, which evaluates symlinks consistent with what
@@ -346,6 +356,48 @@ func TestFileWatcher_TouchPropagatesOnGradleWrite(t *testing.T) {
 	}
 	if len(dirty) == 0 {
 		t.Fatal("expected dirty-set to contain build.gradle.kts within 2s")
+	}
+}
+
+// TestFileWatcher_DebounceEditorSavePattern verifies that three rapid events
+// for the same Kotlin file coalesce into a single Invalidate call.
+func TestFileWatcher_DebounceEditorSavePattern(t *testing.T) {
+	root := t.TempDir()
+	ktPath := filepath.Join(root, "Foo.kt")
+	if err := os.WriteFile(ktPath, []byte("fun a() {}\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	state := &countingState{}
+	const window = 20 * time.Millisecond
+	w, err := startFileWatcherWithState(context.Background(), root, state, nil,
+		withDebounceWindow(window))
+	if err != nil {
+		t.Fatalf("startFileWatcher: %v", err)
+	}
+	defer w.Stop()
+	<-w.Ready()
+
+	// Simulate three Write+Write+Chmod events within 5ms — a typical
+	// editor save burst.
+	for range 3 {
+		if err := os.WriteFile(ktPath, []byte("fun a() { 1 }\n"), 0o644); err != nil {
+			t.Fatalf("rewrite: %v", err)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	// Wait for the debounce window to fire (window + generous margin).
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if state.invalidateCalls.Load() > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if got := state.invalidateCalls.Load(); got != 1 {
+		t.Errorf("Invalidate called %d times, want 1 (debounce should coalesce burst)", got)
 	}
 }
 

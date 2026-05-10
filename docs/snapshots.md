@@ -128,6 +128,52 @@ krit snapshot gate origin/main HEAD \
 Multiple flags on the same metric stack independently. Repo-scope only
 in v1.
 
+### CI usage
+
+The gate compares two captured snapshots, so a CI run that wants to
+fail on regressions vs. `main` needs to capture both ends of the
+delta. PRs run on fresh checkouts with no `.krit/snapshots/` cache, so
+both captures happen at gate time:
+
+```sh
+git fetch origin main
+krit snapshot capture origin/main
+krit snapshot capture HEAD
+krit snapshot gate origin/main HEAD \
+    --max-pct loc=5 \
+    --max-pct cyclomatic=10
+```
+
+#### GitHub Actions
+
+```yaml
+- name: Snapshot gate
+  run: |
+    git fetch origin main --depth=1
+    krit snapshot capture origin/main
+    krit snapshot capture HEAD
+    krit snapshot gate origin/main HEAD \
+        --max-pct loc=5 \
+        --max-pct cyclomatic=10
+```
+
+#### GitLab CI
+
+```yaml
+snapshot_gate:
+  script:
+    - git fetch origin main --depth=1
+    - krit snapshot capture origin/main
+    - krit snapshot capture HEAD
+    - krit snapshot gate origin/main HEAD --max-pct loc=5 --max-pct cyclomatic=10
+```
+
+Two full captures per CI run is the slow part on large repos —
+capture dominates over gate. A shared snapshot store (S3/GCS-backed
+`.krit/snapshots/` mirror) that lets runners download `origin/main`'s
+snapshot instead of recomputing it is a future direction; for now the
+two-capture pattern is the canonical shape.
+
 ## MCP
 
 The `snapshot` MCP tool exposes the read-only operations to AI agents:

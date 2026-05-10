@@ -11,7 +11,6 @@ import (
 	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
-	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
 )
@@ -83,7 +82,7 @@ func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawM
 // where CLI-flag-style knobs (rule lists, format) are wired into the
 // pipeline's typed value inputs.
 func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipeline.ProjectInput, error) {
-	cfg, err := loadDaemonConfig(s.root)
+	cfg, err := s.ensureConfig()
 	if err != nil {
 		return pipeline.ProjectInput{}, fmt.Errorf("load config: %w", err)
 	}
@@ -99,7 +98,10 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 		paths = []string{s.root}
 	}
 
-	repoDir := oracle.FindRepoDir(paths)
+	// Cached at construction — oracle.FindRepoDir is a filesystem walk
+	// for VCS markers and the answer can't change for the duration of
+	// a daemon process. See #49.
+	repoDir := s.repoDir
 	if repoDir == "" {
 		repoDir = s.root
 	}

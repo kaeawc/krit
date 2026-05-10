@@ -9,6 +9,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/pipeline"
 )
@@ -28,6 +29,11 @@ type fileWatcher struct {
 	root     string
 	state    *pipeline.WorkspaceState
 	reporter *diag.Reporter
+	// onConfigChange fires when the watcher observes an edit to a
+	// krit.yml / .krit.yml file. Daemon callers wire this to
+	// daemonState.InvalidateConfig so the next analyze-project verb
+	// reloads. Nil is allowed (no daemon, no callback).
+	onConfigChange func()
 
 	closeOnce sync.Once
 	done      chan struct{}
@@ -46,7 +52,7 @@ type fileWatcher struct {
 // must call Stop to release the underlying fsnotify resources.
 // Returns nil + error when the watcher couldn't be created (e.g. on
 // platforms without inotify/kqueue or when the root doesn't exist).
-func startFileWatcher(ctx context.Context, root string, state *pipeline.WorkspaceState, reporter *diag.Reporter) (*fileWatcher, error) {
+func startFileWatcher(ctx context.Context, root string, state *pipeline.WorkspaceState, reporter *diag.Reporter, opts ...watcherOption) (*fileWatcher, error) {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -58,6 +64,9 @@ func startFileWatcher(ctx context.Context, root string, state *pipeline.Workspac
 		reporter: reporter,
 		done:     make(chan struct{}),
 		ready:    make(chan struct{}),
+	}
+	for _, opt := range opts {
+		opt(fw)
 	}
 	// Add the root synchronously so files written directly under it
 	// are caught from t=0. The recursive descent runs in a goroutine —
@@ -87,6 +96,17 @@ func (fw *fileWatcher) populate() {
 // walk has finished. Tests that exercise pre-existing subtrees can
 // wait on it; production callers don't need to.
 func (fw *fileWatcher) Ready() <-chan struct{} { return fw.ready }
+
+// watcherOption tunes startFileWatcher. Variadic so callers without a
+// daemonState (e.g. unit tests of the watcher itself) don't need to
+// pass a no-op callback.
+type watcherOption func(*fileWatcher)
+
+// withConfigChangeCallback wires fw.onConfigChange. Used by serve.Run
+// to flag the daemon's cached config stale on krit.yml edits.
+func withConfigChangeCallback(fn func()) watcherOption {
+	return func(fw *fileWatcher) { fw.onConfigChange = fn }
+}
 
 // Stop releases the watcher. Safe to call multiple times.
 func (fw *fileWatcher) Stop() {
@@ -140,6 +160,14 @@ func (fw *fileWatcher) handle(ev fsnotify.Event) {
 	// isKotlinPath because of its extension, but it drives library
 	// facts, not the per-file parse cache.
 	switch {
+	case isKritConfigPath(ev.Name):
+		// krit.yml / .krit.yml drives rule selection. The cached
+		// config on the daemon is now stale; the next analyze-project
+		// call rebuilds.
+		if fw.onConfigChange != nil {
+			fw.onConfigChange()
+		}
+		fw.state.Touch(ev.Name)
 	case isLibraryConfigPath(ev.Name):
 		fw.state.InvalidateLibraryFacts()
 		fw.state.InvalidateCodeIndex()
@@ -206,6 +234,19 @@ func (fw *fileWatcher) warn(format string, args ...any) {
 // .kts. Mirrors the precommit/cli filter.
 func isKotlinPath(p string) bool {
 	return strings.HasSuffix(p, ".kt") || strings.HasSuffix(p, ".kts")
+}
+
+// isKritConfigPath reports whether the path is the krit.yml /
+// .krit.yml the daemon honours for rule selection. Editing one
+// invalidates the daemon's cached *config.Config.
+func isKritConfigPath(p string) bool {
+	base := filepath.Base(p)
+	for _, name := range config.Filenames {
+		if base == name {
+			return true
+		}
+	}
+	return false
 }
 
 // isLibraryConfigPath reports whether the path is a Gradle build

@@ -21,8 +21,10 @@ import (
 
 	"github.com/kaeawc/krit/internal/arch"
 	"github.com/kaeawc/krit/internal/cli/clishared"
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/module"
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -126,7 +128,7 @@ func Run(args []string) int {
 	}
 
 	if !*noWatcherFlag {
-		if w, err := startFileWatcher(ctx, root, state.workspace, srv.Reporter); err != nil {
+		if w, err := startFileWatcher(ctx, root, state.workspace, srv.Reporter, withConfigChangeCallback(state.InvalidateConfig)); err != nil {
 			fmt.Fprintf(os.Stderr, "krit serve: filesystem watcher disabled: %v\n", err)
 		} else {
 			defer w.Stop()
@@ -158,9 +160,24 @@ type daemonState struct {
 	root         string
 	warmDuration time.Duration
 
+	// repoDir is the resolved repository root for repo-local krit
+	// state. Filled once at construction (oracle.FindRepoDir is a
+	// filesystem walk; the value can't change for the duration of a
+	// daemon process). Falls back to root when no VCS marker is
+	// found.
+	repoDir string
+
 	mu    sync.RWMutex
 	graph *module.Graph
 	files int
+
+	// configMu guards cachedConfig + configDirty. Use ensureConfig().
+	configMu     sync.Mutex
+	cachedConfig *config.Config
+	// configDirty is set by InvalidateConfig (called from the file
+	// watcher on krit.yml / .krit.yml edits). The next ensureConfig
+	// reloads from disk and clears the flag.
+	configDirty atomic.Bool
 
 	// workspace memoizes parsed buffers across analyze-buffer calls so
 	// the daemon stays cheap across short-lived client requests.
@@ -195,10 +212,44 @@ type daemonState struct {
 }
 
 func newDaemonState(root string) *daemonState {
+	repoDir := oracle.FindRepoDir([]string{root})
+	if repoDir == "" {
+		repoDir = root
+	}
 	return &daemonState{
 		root:      root,
+		repoDir:   repoDir,
 		workspace: pipeline.NewWorkspaceState(root),
 	}
+}
+
+// ensureConfig returns the daemon's cached *config.Config, loading
+// from disk on the first call and on any call after InvalidateConfig
+// has been signalled. Concurrent callers serialise on configMu but
+// only the loader pays the I/O.
+func (s *daemonState) ensureConfig() (*config.Config, error) {
+	if cfg := s.cachedConfig; cfg != nil && !s.configDirty.Load() {
+		return cfg, nil
+	}
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	if s.cachedConfig != nil && !s.configDirty.Load() {
+		return s.cachedConfig, nil
+	}
+	cfg, err := loadDaemonConfig(s.root)
+	if err != nil {
+		return nil, err
+	}
+	s.cachedConfig = cfg
+	s.configDirty.Store(false)
+	return cfg, nil
+}
+
+// InvalidateConfig flags the cached config stale; the next
+// ensureConfig call reloads krit.yml from disk. Called by the file
+// watcher on krit.yml / .krit.yml edits.
+func (s *daemonState) InvalidateConfig() {
+	s.configDirty.Store(true)
 }
 
 // singleFileAnalyzer returns the lazily-built shared analyzer.

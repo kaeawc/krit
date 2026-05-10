@@ -95,8 +95,6 @@ func worktreeWalk(repoRoot, scratchDir string, workers int, commits []string, pe
 	wg.Wait()
 }
 
-// gitSemaphore returns a buffered channel used as a semaphore for git
-// worktree add/remove calls. The capacity is workers/2, minimum 1.
 func gitSemaphore(workers int) chan struct{} {
 	c := workers / 2
 	if c < 1 {
@@ -105,11 +103,6 @@ func gitSemaphore(workers int) chan struct{} {
 	return make(chan struct{}, c)
 }
 
-// withWorktree adds a detached worktree at sha, runs fn against its
-// path, and removes the worktree. Git ops are throttled via sem so at
-// most cap(sem) add/remove calls run concurrently. The per-worker
-// subdir keys on workerID + short-sha so two workers can never collide
-// on path.
 func withWorktree(repoRoot, sha, scratchDir string, workerID int, sem chan struct{}, fn func(path string) error) error {
 	worktreePath := filepath.Join(scratchDir, fmt.Sprintf("w%d-%s", workerID, sha[:12]))
 

@@ -177,6 +177,32 @@ capture dominates over gate. A shared snapshot store (S3/GCS-backed
 snapshot instead of recomputing it is a future direction; for now the
 two-capture pattern is the canonical shape.
 
+## Prune
+
+`krit snapshot prune` evicts captured snapshots per a retention
+policy:
+
+- Snapshots reachable from a permanent branch (`main` / `master` by
+  default; override with repeated `--permanent-branch <name>`) are
+  always kept.
+- Snapshots reachable only from a feature branch are kept while
+  younger than `--keep-days N` (default 30).
+- Orphans (no ref reaches them — the typical product of force-push
+  or a deleted branch) are kept while younger than
+  `--keep-orphan-days N` (default 7).
+
+`--dry-run` prints what would be pruned without writing; `--format
+json` emits a machine-readable report. The pruner updates
+`.krit/snapshots/index.json` in lockstep so subsequent `status`
+calls don't see ghost entries.
+
+```sh
+krit snapshot prune --dry-run                 # what would go?
+krit snapshot prune --keep-days 90            # keep feature snapshots 3 months
+krit snapshot prune --permanent-branch main \
+    --permanent-branch release/2026.05         # protect a release branch too
+```
+
 ## MCP
 
 The `snapshot` MCP tool exposes the read-only operations to AI agents:

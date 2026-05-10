@@ -110,3 +110,42 @@ func upsertIndex(root string, m *Manifest) error {
 	}
 	return nil
 }
+
+// removeFromIndex drops the given shas from the rollup atomically.
+// Missing entries are silently skipped — Prune calls this after the
+// per-sha directory is already gone, and a rerun should be idempotent.
+func removeFromIndex(root string, shas ...string) error {
+	if len(shas) == 0 {
+		return nil
+	}
+	indexMu.Lock()
+	defer indexMu.Unlock()
+	existing, err := LoadIndex(root)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return nil
+	}
+	drop := make(map[string]struct{}, len(shas))
+	for _, s := range shas {
+		drop[s] = struct{}{}
+	}
+	kept := existing.Entries[:0]
+	for _, e := range existing.Entries {
+		if _, gone := drop[e.CommitSHA]; gone {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	existing.Entries = kept
+	payload, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return fmt.Errorf("snapshot: marshal index: %w", err)
+	}
+	payload = append(payload, '\n')
+	if err := fsutil.WriteFileAtomic(indexPath(root), payload, 0o644); err != nil {
+		return fmt.Errorf("snapshot: write index: %w", err)
+	}
+	return nil
+}

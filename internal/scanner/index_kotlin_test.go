@@ -31,6 +31,26 @@ func TestParsePackageHeaderText(t *testing.T) {
 			raw:  "  package   com.example.foo  \n",
 			want: "com.example.foo",
 		},
+		{
+			name: "empty",
+			raw:  "",
+			want: "",
+		},
+		{
+			name: "comments only",
+			raw:  "// just a comment\n/* and another */",
+			want: "",
+		},
+		{
+			name: "leading blank lines and comments",
+			raw:  "\n\n// a comment\n\npackage com.example\n",
+			want: "com.example",
+		},
+		{
+			name: "block comment then package",
+			raw:  "/* license header */\npackage com.example.bar\n",
+			want: "com.example.bar",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

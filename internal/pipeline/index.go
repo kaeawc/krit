@@ -14,6 +14,7 @@ import (
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
@@ -73,6 +74,11 @@ type IndexInput struct {
 	// calls. Forwarded to IndexResult so CrossFilePhase consults it
 	// before calling scanner.BuildIndex.
 	CodeIndexCache CodeIndexCache
+	// ResolverCache, when non-nil and PrebuiltResolver is nil,
+	// memoizes the constructed TypeResolver across calls. Buys an
+	// entire perFileExtraction + merge + resolveSupertypes skip on
+	// warm-no-change runs.
+	ResolverCache ResolverCache
 	// Reporter routes verbose progress and warning lines from IndexPhase.
 	// Nil means silent.
 	Reporter *diag.Reporter
@@ -286,7 +292,6 @@ func (p IndexPhase) buildTypeResolver(ctx context.Context, in IndexInput, resolv
 	if p.SkipResolverIndex || !caps.Has(api.NeedsResolver) {
 		return nil, nil
 	}
-	r := typeinfer.NewResolver()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -294,16 +299,39 @@ func (p IndexPhase) buildTypeResolver(ctx context.Context, in IndexInput, resolv
 	if workers <= 0 {
 		workers = runtime.NumCPU()
 	}
-	if indexer, ok := interface{}(r).(interface {
-		IndexFilesParallel([]*scanner.File, int)
-	}); ok {
-		_ = in.trackSerial("typeIndex", func() error {
-			indexer.IndexFilesParallel(in.KotlinFiles, workers)
-			return nil
-		})
-		in.logf("verbose: Indexed %d Kotlin files for type resolution", len(in.KotlinFiles))
+	build := func() typeinfer.TypeResolver {
+		r := typeinfer.NewResolver()
+		if indexer, ok := interface{}(r).(interface {
+			IndexFilesParallel([]*scanner.File, int)
+		}); ok {
+			_ = in.trackSerial("typeIndex", func() error {
+				indexer.IndexFilesParallel(in.KotlinFiles, workers)
+				return nil
+			})
+			in.logf("verbose: Indexed %d Kotlin files for type resolution", len(in.KotlinFiles))
+		}
+		return r
 	}
-	return r, nil
+	if in.ResolverCache != nil {
+		return in.ResolverCache.Resolver(resolverFingerprint(in.KotlinFiles), build), nil
+	}
+	return build(), nil
+}
+
+// resolverFingerprint hashes the sorted (path, content-hash) pairs of
+// every Kotlin file contributing to typeinfer.TypeResolver state.
+// Mismatch forces a complete rebuild via ResolverCache.Resolver — no
+// stale entries from removed/renamed files survive across calls.
+func resolverFingerprint(files []*scanner.File) string {
+	entries := make([]string, 0, len(files))
+	for _, f := range files {
+		if f == nil {
+			continue
+		}
+		entries = append(entries, f.Path+"\x00"+hashutil.Default().HashContent(f.Path, f.Content))
+	}
+	sort.Strings(entries)
+	return hashutil.HashHex([]byte(strings.Join(entries, "\x01")))
 }
 
 // discoverModuleGraph performs a best-effort module discovery when

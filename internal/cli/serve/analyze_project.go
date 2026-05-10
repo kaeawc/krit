@@ -139,6 +139,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			ParseCache:        parseCache,
 			LibraryFactsCache: s.workspace,
 			CodeIndexCache:    s.workspace,
+			ResolverCache:     s.workspace,
 			CrossFileCacheDir: scanner.CrossFileCacheDir(repoDir),
 		},
 	}, nil

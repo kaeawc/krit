@@ -306,6 +306,19 @@ type CodeIndexCache interface {
 	CodeIndex(fingerprint string, build func() *scanner.CodeIndex) *scanner.CodeIndex
 }
 
+// ResolverCache lets a long-lived host (typically *WorkspaceState)
+// memoize a typeinfer.TypeResolver across RunProject calls. Same
+// shape and contract as CodeIndexCache: build fires on a fingerprint
+// mismatch; the watcher's InvalidateResolver call covers the daemon.
+//
+// Fingerprint must capture every input that affects resolver state:
+// today the sorted (path, content-hash) pairs of every Kotlin file
+// indexed. Mismatches force a fresh resolver — no stale entries from
+// removed/renamed files leak across the boundary.
+type ResolverCache interface {
+	Resolver(fingerprint string, build func() typeinfer.TypeResolver) typeinfer.TypeResolver
+}
+
 // FileTiming captures per-file dispatch timing recorded when
 // IndexResult.ProfileDispatch is set.
 type FileTiming struct {

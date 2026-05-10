@@ -10,6 +10,7 @@ import (
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // WorkspaceState is the long-lived in-memory parse cache shared by
@@ -45,6 +46,7 @@ type WorkspaceState struct {
 	libraryFacts xfileSlot[*librarymodel.Facts]
 	codeIndex    xfileSlot[*scanner.CodeIndex]
 	dependents   xfileSlot[*scanner.DependentsIndex]
+	resolver     xfileSlot[typeinfer.TypeResolver]
 }
 
 // xfileSlot pairs a fingerprint with a value. Zero value means
@@ -362,6 +364,50 @@ func (w *WorkspaceState) InvalidateCodeIndex() {
 	}
 	w.xfileMu.Lock()
 	w.codeIndex = xfileSlot[*scanner.CodeIndex]{}
+	w.xfileMu.Unlock()
+}
+
+// Resolver memoizes a typeinfer.TypeResolver across calls. Same
+// semantics as CodeIndex: build only fires on a fingerprint mismatch;
+// concurrent races converge on a single cached pointer. The
+// fingerprint must capture every input that affects resolver state
+// (Kotlin file paths + content hashes today). A nil receiver always
+// builds (no caching).
+func (w *WorkspaceState) Resolver(fingerprint string, build func() typeinfer.TypeResolver) typeinfer.TypeResolver {
+	if w == nil || fingerprint == "" {
+		return build()
+	}
+	w.xfileMu.Lock()
+	if w.resolver.present && w.resolver.fingerprint == fingerprint {
+		v := w.resolver.value
+		w.xfileMu.Unlock()
+		return v
+	}
+	w.xfileMu.Unlock()
+
+	v := build()
+
+	w.xfileMu.Lock()
+	if w.resolver.present && w.resolver.fingerprint == fingerprint {
+		v = w.resolver.value
+	} else {
+		w.resolver = xfileSlot[typeinfer.TypeResolver]{fingerprint: fingerprint, value: v, present: true}
+	}
+	w.xfileMu.Unlock()
+	return v
+}
+
+// InvalidateResolver drops the cached resolver. Called when any
+// Kotlin source file changes — typeinfer's ImportTable / class /
+// extension state aggregates across files, so any edit invalidates
+// the whole slot. Belt-and-suspenders alongside the fingerprint
+// check.
+func (w *WorkspaceState) InvalidateResolver() {
+	if w == nil {
+		return
+	}
+	w.xfileMu.Lock()
+	w.resolver = xfileSlot[typeinfer.TypeResolver]{}
 	w.xfileMu.Unlock()
 }
 

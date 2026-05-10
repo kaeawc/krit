@@ -216,6 +216,8 @@ func (w *WorkspaceState) InvalidateAll() {
 	w.libraryFacts = xfileSlot[*librarymodel.Facts]{}
 	w.codeIndex = xfileSlot[*scanner.CodeIndex]{}
 	w.dependents = xfileSlot[*scanner.DependentsIndex]{}
+	w.resolver = xfileSlot[typeinfer.TypeResolver]{}
+	w.oracleFilter = xfileSlot[*oracle.CallTargetFilterSummary]{}
 	w.xfileMu.Unlock()
 }
 

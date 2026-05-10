@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/librarymodel"
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 const sampleKotlin = `package demo
@@ -318,10 +320,14 @@ func TestWorkspaceState_InvalidateAllClearsCrossFile(t *testing.T) {
 	ws := NewWorkspaceState("/tmp/test")
 	ws.LibraryFacts("lf", func() *librarymodel.Facts { return &librarymodel.Facts{} })
 	ws.CodeIndex("ci", func() *scanner.CodeIndex { return &scanner.CodeIndex{} })
+	ws.Dependents("dep", func() *scanner.DependentsIndex { return &scanner.DependentsIndex{} })
+	ws.Resolver("res", func() typeinfer.TypeResolver { return typeinfer.NewResolver() })
+	ws.OracleFilter("of", func() *oracle.CallTargetFilterSummary { return &oracle.CallTargetFilterSummary{Enabled: true} })
 	ws.InvalidateAll()
 	stats := ws.CrossFileStats()
-	if stats.HasLibraryFacts || stats.HasCodeIndex {
-		t.Errorf("InvalidateAll should clear cross-file slots, got %+v", stats)
+	if stats.HasLibraryFacts || stats.HasCodeIndex || stats.HasDependents ||
+		stats.HasResolver || stats.HasOracleFilter {
+		t.Errorf("InvalidateAll should clear every cross-file slot, got %+v", stats)
 	}
 }
 

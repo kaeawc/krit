@@ -309,6 +309,14 @@ func TestParseSourceImport(t *testing.T) {
 		{"java static", "import static com.example.Foo.bar", "com.example.Foo.bar", "bar", false},
 		{"not import", "package com.example", "", "", false},
 		{"empty body", "import   ", "", "", false},
+		// Regression for #114: tree-sitter trailing trivia (a leading
+		// block comment attached to the import_header node) must not
+		// fool the import-keyword gate. Pre-fix returned ("", "", false).
+		{"leading block comment trivia", "/* doc */\nimport com.example.Foo", "com.example.Foo", "Foo", false},
+		// Pre-fix this passed because TrimSpace + TrimPrefix("import")
+		// happened to handle the leading newline; included to lock the
+		// behavior in.
+		{"leading newline", "\nimport com.example.Foo", "com.example.Foo", "Foo", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

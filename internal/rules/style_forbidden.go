@@ -8,6 +8,7 @@ import (
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sourceheader"
 )
 
 // WildcardImportRule detects import x.y.* statements.
@@ -43,10 +44,11 @@ func importStatementPath(file *scanner.File, idx uint32) string {
 	if file == nil || idx == 0 {
 		return ""
 	}
-	text := strings.TrimSpace(file.FlatNodeText(idx))
-	text = strings.TrimSpace(strings.TrimPrefix(text, "import"))
+	// FirstHeaderLine handles tree-sitter trailing trivia (comments,
+	// trailing semicolon). Java imports may carry a leading `static`
+	// modifier; strip it after the keyword/trivia pass.
+	text := sourceheader.FirstHeaderLine(file.FlatNodeText(idx), "import")
 	text = strings.TrimSpace(strings.TrimPrefix(text, "static"))
-	text = strings.TrimSuffix(text, ";")
 	return strings.TrimSpace(text)
 }
 

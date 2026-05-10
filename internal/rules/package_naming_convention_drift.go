@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sourceheader"
 )
 
 const packageNamingConventionDriftSourceRoot = "/src/main/kotlin/"
@@ -26,12 +27,7 @@ func packageHeaderNameFlat(file *scanner.File, idx uint32) string {
 	if idNode, ok := file.FlatFindChild(idx, "identifier"); ok {
 		return strings.TrimSpace(file.FlatNodeText(idNode))
 	}
-
-	text := strings.TrimSpace(strings.TrimPrefix(file.FlatNodeText(idx), "package "))
-	if idx := strings.IndexByte(text, '\n'); idx >= 0 {
-		text = strings.TrimSpace(text[:idx])
-	}
-	return text
+	return sourceheader.FirstHeaderLine(file.FlatNodeText(idx), "package")
 }
 
 func packageNamingConventionExpectedPrefix(filePath string) string {

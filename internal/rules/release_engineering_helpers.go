@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/kaeawc/krit/internal/sourceheader"
 )
 
 // commentedOutCallRe matches a single line that looks like a Kotlin call
@@ -246,11 +248,14 @@ func isGeneratedSourcePath(path string) bool {
 //
 // Returns ("", "", false) when text is not an import line.
 func parseSourceImport(text string) (qualifiedName string, localName string, wildcard bool) {
-	text = strings.TrimSpace(text)
-	if !strings.HasPrefix(text, "import") {
+	// FirstSourceLine skips tree-sitter trailing trivia (block comment
+	// trailers, blank-line tails) so the import-keyword gate isn't fooled
+	// by a leading line/block comment.
+	line := sourceheader.FirstSourceLine(text)
+	if !strings.HasPrefix(line, "import") {
 		return "", "", false
 	}
-	body := strings.TrimSpace(strings.TrimPrefix(text, "import"))
+	body := strings.TrimSpace(strings.TrimPrefix(line, "import"))
 	body = strings.TrimSpace(strings.TrimSuffix(body, ";"))
 	body = strings.TrimPrefix(body, "static ")
 	body = strings.TrimSpace(body)

@@ -6,7 +6,7 @@
 //
 // To run:
 //
-//	export KRIT_KOTLIN_CORPUS=$HOME/github/kotlin
+//	export KRIT_KOTLIN_CORPUS=/path/to/kotlin
 //	go test -tags=kotlin_corpus -run='^$' \
 //	    -bench=BenchmarkAnalyzeProject \
 //	    -benchtime=10x \
@@ -30,7 +30,7 @@ func corpusRoot(b *testing.B) string {
 	b.Helper()
 	root := os.Getenv("KRIT_KOTLIN_CORPUS")
 	if root == "" {
-		b.Skip("KRIT_KOTLIN_CORPUS env var not set; set to e.g. ~/github/kotlin to enable")
+		b.Skip("KRIT_KOTLIN_CORPUS env var not set; set to a Kotlin corpus checkout to enable")
 	}
 	if fi, err := os.Stat(root); err != nil || !fi.IsDir() {
 		b.Skipf("KRIT_KOTLIN_CORPUS=%q is not a directory: %v", root, err)

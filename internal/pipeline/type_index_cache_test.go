@@ -33,9 +33,9 @@ func TestIndexPhase_TypeIndexCacheDir_HitsOnSecondRun(t *testing.T) {
 
 	in := IndexInput{
 		ParseResult: ParseResult{
-			Paths:        []string{dir},
-			KotlinFiles:  []*scanner.File{parsed},
-			ActiveRules:  []*api.Rule{rule},
+			Paths:       []string{dir},
+			KotlinFiles: []*scanner.File{parsed},
+			ActiveRules: []*api.Rule{rule},
 		},
 		TypeIndexCacheDir: cacheDir,
 	}

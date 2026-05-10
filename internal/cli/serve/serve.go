@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/arch"
+	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
@@ -197,6 +198,14 @@ type daemonState struct {
 	parseCache     *scanner.ParseCache
 	parseCacheErr  error
 
+	// analysisCacheMu guards lazy construction of the resident
+	// *cache.Cache + its file path, scoped per scan-path set. Pipeline
+	// dispatch merges per-file findings into the cache and saves it on
+	// each analyze-project call. The CLI's existing on-disk format is
+	// preserved so subsequent CLI runs read the daemon-populated cache.
+	analysisCacheMu    sync.Mutex
+	analysisCacheByKey map[string]*analysisCacheEntry
+
 	// analyzeMu serializes whole-project analysis. The pipeline mutates
 	// resolver / oracle state and the analysis-cache write-back path
 	// is not safe under concurrent runs; queueing is acceptable
@@ -217,10 +226,40 @@ func newDaemonState(root string) *daemonState {
 		repoDir = root
 	}
 	return &daemonState{
-		root:      root,
-		repoDir:   repoDir,
-		workspace: pipeline.NewWorkspaceState(root),
+		root:               root,
+		repoDir:            repoDir,
+		workspace:          pipeline.NewWorkspaceState(root),
+		analysisCacheByKey: make(map[string]*analysisCacheEntry),
 	}
+}
+
+// analysisCacheEntry holds a lazily-loaded *cache.Cache and the file
+// path it persists to. Keyed by the cache file path inside daemonState
+// so distinct scan-path sets don't share an entry.
+type analysisCacheEntry struct {
+	cache *cache.Cache
+	path  string
+}
+
+// analysisCacheFor returns the resident *cache.Cache and its file path
+// for the given scan paths, lazily loading from disk on first request.
+// Returns (nil, "") when the cache directory cannot be derived (no
+// repo root found). Subsequent calls with the same scan-path set
+// return the same pointer so DispatchPhase write-back is amortized
+// across daemon calls.
+func (s *daemonState) analysisCacheFor(scanPaths []string) (*cache.Cache, string) {
+	cacheDir, filePath := cache.ResolveCacheDir("", scanPaths)
+	if cacheDir == "" || filePath == "" {
+		return nil, ""
+	}
+	s.analysisCacheMu.Lock()
+	defer s.analysisCacheMu.Unlock()
+	if entry, ok := s.analysisCacheByKey[filePath]; ok {
+		return entry.cache, entry.path
+	}
+	loaded := cache.Load(filePath)
+	s.analysisCacheByKey[filePath] = &analysisCacheEntry{cache: loaded, path: filePath}
+	return loaded, filePath
 }
 
 // ensureConfig returns the daemon's cached *config.Config, loading

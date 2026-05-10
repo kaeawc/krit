@@ -117,8 +117,14 @@ type ProjectHostState struct {
 	// daemon handle (used only when Oracle is also set).
 	OracleDaemon *oracle.Daemon
 	// AnalysisCache, when non-nil, drives the incremental findings
-	// cache. Nil disables the cache entirely.
+	// cache. DispatchPhase merges new per-file findings into it and
+	// saves the result to AnalysisCacheFilePath after dispatch. Nil
+	// disables cache write-back entirely.
 	AnalysisCache *cache.Cache
+	// AnalysisCacheFilePath is where AnalysisCache is persisted on
+	// dispatch write-back. Required when AnalysisCache is non-nil. The
+	// daemon derives this from cache.FilePath(cacheDir, scanPaths).
+	AnalysisCacheFilePath string
 }
 
 // ProjectInput is the value type that drives RunProject. The split
@@ -247,6 +253,20 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		indexResult.Daemon = host.OracleDaemon
 	}
 	indexResult.Cache = host.AnalysisCache
+	if host.AnalysisCache != nil {
+		// Wire the dispatch-side write-back fields so writeCacheBack
+		// can update the cache and persist it on each call. Lookup-side
+		// (file-skip on hit) requires CacheResult population in
+		// IndexPhase.runCacheLoad and stays out of scope for this
+		// promotion — populating the cache without skipping is safe
+		// (no output drift) and benefits subsequent CLI runs.
+		indexResult.CacheFilePath = host.AnalysisCacheFilePath
+		indexResult.CacheScanPaths = args.Paths
+		indexResult.Version = args.Version
+		if indexResult.RuleHash == "" {
+			indexResult.RuleHash = projectRuleHash(args.ActiveRules, args.Config)
+		}
+	}
 
 	// Phase 3: dispatch (per-file rules).
 	dispatchResult, err := DispatchPhase{}.Run(ctx, indexResult)
@@ -301,4 +321,18 @@ func parseCacheCounters(pc *scanner.ParseCache) (int64, int64) {
 	}
 	s := pc.Stats()
 	return s.Hits, s.Misses
+}
+
+// projectRuleHash mirrors IndexPhase.computeRuleHash for the daemon's
+// AnalysisCache write-back path. RuleHash is set on the saved cache so
+// subsequent CLI lookups reject the cache when the rule set / config
+// has drifted.
+func projectRuleHash(activeRules []*api.Rule, cfg *config.Config) string {
+	ruleNames := make([]string, 0, len(activeRules))
+	for _, r := range activeRules {
+		if r != nil {
+			ruleNames = append(ruleNames, r.ID)
+		}
+	}
+	return cache.ComputeConfigHash(ruleNames, cfg, false)
 }

@@ -117,6 +117,12 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 		parseCache = nil
 	}
 
+	// AnalysisCache is daemon-resident: lazy-loaded on first request,
+	// keyed by the resolved cache file path so distinct scan-path sets
+	// don't share an entry. DispatchPhase will merge new findings into
+	// it and persist to disk on each call.
+	analysisCache, analysisCachePath := s.analysisCacheFor(paths)
+
 	return pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{
 			Config:           cfg,
@@ -130,17 +136,18 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			IncludeGenerated: args.IncludeGenerated,
 			Version:          kritVersion(),
 		},
-		// Resolver, Oracle, AnalysisCache will be wired into Host as the
-		// daemon promotes them to resident state in follow-up commits
+		// Oracle daemon-resident wiring will land in a follow-up commit
 		// (see #48). RunProject treats nil as "construct per-call as the
 		// CLI runner does today", so the verb is already correct — just
 		// slower than its eventual ceiling.
 		Host: pipeline.ProjectHostState{
-			ParseCache:        parseCache,
-			LibraryFactsCache: s.workspace,
-			CodeIndexCache:    s.workspace,
-			ResolverCache:     s.workspace,
-			CrossFileCacheDir: scanner.CrossFileCacheDir(repoDir),
+			ParseCache:            parseCache,
+			LibraryFactsCache:     s.workspace,
+			CodeIndexCache:        s.workspace,
+			ResolverCache:         s.workspace,
+			CrossFileCacheDir:     scanner.CrossFileCacheDir(repoDir),
+			AnalysisCache:         analysisCache,
+			AnalysisCacheFilePath: analysisCachePath,
 		},
 	}, nil
 }

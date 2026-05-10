@@ -33,9 +33,9 @@ func TestFormatInfoError_PassthroughOnOtherError(t *testing.T) {
 
 func TestSplitModuleMetric(t *testing.T) {
 	cases := []struct {
-		spec    string
-		module  string
-		metric  string
+		spec   string
+		module string
+		metric string
 	}{
 		{"loc", "", "loc"},
 		{"cyclomatic", "", "cyclomatic"},

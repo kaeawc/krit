@@ -409,6 +409,59 @@ func TestValidatePlan_RejectsAmbiguousDeclarations(t *testing.T) {
 	}
 }
 
+func TestValidatePlan_RejectsOccupiedDestination(t *testing.T) {
+	target, _ := ParseTarget("com.example.OldName", "com.example.NewName")
+	plan := Plan{
+		Target: target,
+		Declarations: []scanner.Symbol{
+			{Name: "OldName", FQN: "com.example.OldName", File: "a.kt", Line: 3},
+		},
+		Conflicts: []scanner.Symbol{
+			{Name: "NewName", FQN: "com.example.NewName", File: "b.kt", Line: 7},
+		},
+	}
+	err := ValidatePlan(plan)
+	if err == nil {
+		t.Fatalf("expected ValidatePlan to reject rename into occupied FQN")
+	}
+	if !strings.Contains(err.Error(), "b.kt:7") || !strings.Contains(err.Error(), "com.example.NewName") {
+		t.Errorf("error %q should mention conflicting site b.kt:7 and dest FQN", err.Error())
+	}
+}
+
+func TestBuildPlan_PopulatesConflictsWhenDestinationOccupied(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "A.kt")
+	b := filepath.Join(dir, "B.kt")
+	writeFile(t, a, "package com.example\n\nclass OldName\n")
+	writeFile(t, b, "package com.example\n\nclass NewName\n")
+
+	plan := buildKotlinPlan(t, []string{a, b}, "com.example.OldName", "com.example.NewName")
+	if len(plan.Conflicts) != 1 {
+		t.Fatalf("expected 1 conflict at destination FQN; got %d (%+v)", len(plan.Conflicts), plan.Conflicts)
+	}
+	if plan.Conflicts[0].FQN != "com.example.NewName" {
+		t.Errorf("conflict FQN = %q; want com.example.NewName", plan.Conflicts[0].FQN)
+	}
+	if err := ValidatePlan(plan); err == nil {
+		t.Fatalf("ValidatePlan should reject when destination is already declared")
+	}
+}
+
+func TestBuildPlan_NoConflictsWhenDestinationFree(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "A.kt")
+	writeFile(t, a, "package com.example\n\nclass OldName\n")
+
+	plan := buildKotlinPlan(t, []string{a}, "com.example.OldName", "com.example.NewName")
+	if len(plan.Conflicts) != 0 {
+		t.Fatalf("expected no conflicts; got %d (%+v)", len(plan.Conflicts), plan.Conflicts)
+	}
+	if err := ValidatePlan(plan); err != nil {
+		t.Fatalf("ValidatePlan should accept rename to free FQN: %v", err)
+	}
+}
+
 func buildKotlinPlan(t *testing.T, paths []string, fromFQN, toFQN string) Plan {
 	t.Helper()
 	files, errs := scanner.ScanFiles(paths, 1)

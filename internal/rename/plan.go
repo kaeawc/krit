@@ -18,6 +18,10 @@ func ValidatePlan(plan Plan) error {
 	if plan.Target.FromFQN == plan.Target.ToFQN {
 		return fmt.Errorf("rename: from and to are identical")
 	}
+	if len(plan.Conflicts) > 0 {
+		c := plan.Conflicts[0]
+		return fmt.Errorf("rename: destination %s already declared at %s:%d; refusing to proceed", plan.Target.ToFQN, c.File, c.Line)
+	}
 	return nil
 }
 
@@ -69,6 +73,10 @@ type Plan struct {
 	Declarations []scanner.Symbol
 	References   []scanner.Reference
 	Files        []string
+	// Conflicts are declarations already present at Target.ToFQN — a
+	// rename into an occupied FQN would land two declarations at the
+	// same name. ValidatePlan refuses to proceed when this is non-empty.
+	Conflicts []scanner.Symbol
 
 	contexts    map[string]fileContext
 	filesByPath map[string]*scanner.File
@@ -133,6 +141,9 @@ func BuildPlanWithFiles(idx *scanner.CodeIndex, target Target, extraFiles []*sca
 	files := make(map[string]bool)
 
 	for _, sym := range idx.Symbols {
+		if sym.Name == target.ToName && sym.FQN == target.ToFQN {
+			plan.Conflicts = append(plan.Conflicts, sym)
+		}
 		if sym.Name != target.FromName {
 			continue
 		}
@@ -156,6 +167,12 @@ func BuildPlanWithFiles(idx *scanner.CodeIndex, target Target, extraFiles []*sca
 		}
 	}
 
+	sort.Slice(plan.Conflicts, func(i, j int) bool {
+		if plan.Conflicts[i].File != plan.Conflicts[j].File {
+			return plan.Conflicts[i].File < plan.Conflicts[j].File
+		}
+		return plan.Conflicts[i].Line < plan.Conflicts[j].Line
+	})
 	sort.Slice(plan.Declarations, func(i, j int) bool {
 		if plan.Declarations[i].File != plan.Declarations[j].File {
 			return plan.Declarations[i].File < plan.Declarations[j].File

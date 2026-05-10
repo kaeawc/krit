@@ -13,6 +13,7 @@ import (
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sourceheader"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -1739,10 +1740,7 @@ func sourcePackageName(file *scanner.File) string {
 		if nodeType != "package_header" && nodeType != "package_declaration" {
 			return
 		}
-		text := strings.TrimSpace(file.FlatNodeText(idx))
-		text = strings.TrimPrefix(text, "package")
-		text = strings.TrimSpace(strings.TrimSuffix(text, ";"))
-		packageName = text
+		packageName = sourceheader.FirstHeaderLine(file.FlatNodeText(idx), "package")
 	})
 	return packageName
 }
@@ -1895,8 +1893,7 @@ func timberImportsForFile(file *scanner.File) timberImportInfo {
 		return info
 	}
 	file.FlatWalkNodes(0, "import_header", func(node uint32) {
-		text := strings.TrimSpace(file.FlatNodeText(node))
-		text = strings.TrimSpace(strings.TrimPrefix(text, "import"))
+		text := sourceheader.FirstHeaderLine(file.FlatNodeText(node), "import")
 		if text == "" {
 			return
 		}

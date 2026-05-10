@@ -131,6 +131,27 @@ prefixing with a module path (`:feature:checkout/fan_in`,
 split is on the last `/`, so module IDs containing `/` survive intact.
 Multiple flags on the same metric stack independently.
 
+Thresholds can also live in `krit.yml` so every CI run picks them up
+without flag noise:
+
+```yaml
+snapshot:
+  gate:
+    repo:
+      - metric: loc
+        max_increase_pct: 5
+      - metric: cyclomatic
+        max_increase_pct: 10
+    module:
+      ":app":
+        - metric: fan_in
+          max_absolute: 30
+```
+
+CLI flags merge on top of the config: a flag that sets a constraint
+config didn't (or overrides one config did) wins, while constraints
+defined only in config still apply.
+
 ### CI usage
 
 The gate compares two captured snapshots, so a CI run that wants to

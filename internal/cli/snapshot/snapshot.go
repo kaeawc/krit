@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/cli/clishared"
+	"github.com/kaeawc/krit/internal/config"
 	snap "github.com/kaeawc/krit/internal/snapshot"
 )
 
@@ -406,19 +407,24 @@ func runGate(args []string) int {
 		return 1
 	}
 
-	thresholds, err := parseGateThresholds(maxAbs, maxDelta, maxPct)
+	cliThresholds, err := parseGateThresholds(maxAbs, maxDelta, maxPct)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	if len(thresholds) == 0 {
-		fmt.Fprintln(os.Stderr, "error: at least one --max-abs / --max-delta / --max-pct required")
 		return 1
 	}
 
 	repoRoot, code := resolveRepoRoot(*repoFlag)
 	if code != 0 {
 		return code
+	}
+
+	// Layer in krit.yml's snapshot.gate section, with CLI flags taking
+	// precedence over config on the same (module, metric, constraint).
+	configThresholds := loadGateThresholdsFromKritYml(repoRoot)
+	thresholds := mergeGateThresholds(configThresholds, cliThresholds)
+	if len(thresholds) == 0 {
+		fmt.Fprintln(os.Stderr, "error: at least one --max-abs / --max-delta / --max-pct required (or a snapshot.gate section in krit.yml)")
+		return 1
 	}
 
 	root := snap.SnapshotsDir(repoRoot)
@@ -726,4 +732,173 @@ func printPruneText(res *snap.PruneResult, dryRun bool) {
 			shortSHA(e.CommitSHA), e.Reach, marker, e.Reason)
 	}
 	fmt.Printf("snapshot prune: %d %s, %d kept\n", res.Pruned, verb, len(res.Entries)-res.Pruned)
+}
+
+// loadGateThresholdsFromKritYml reads snapshot.gate.{repo,module} from
+// the krit.yml at repoRoot and returns the resulting thresholds. A
+// missing config or missing section yields no thresholds and no
+// error: callers fall through to CLI flags only.
+func loadGateThresholdsFromKritYml(repoRoot string) []snap.GateThreshold {
+	cfgPath := clishared.FindConfigInDir(repoRoot)
+	if cfgPath == "" {
+		return nil
+	}
+	cfg, err := config.LoadConfig(cfgPath)
+	if err != nil || cfg == nil {
+		return nil
+	}
+	return parseGateConfigSection(cfg.Data())
+}
+
+// parseGateConfigSection walks the snapshot.gate.{repo,module} schema
+// out of a krit.yml's raw map. Pulled out for unit-test isolation.
+//
+//	snapshot:
+//	  gate:
+//	    repo:
+//	      - metric: loc
+//	        max_increase_pct: 5
+//	    module:
+//	      ":app":
+//	        - metric: fan_in
+//	          max_absolute: 30
+func parseGateConfigSection(data map[string]interface{}) []snap.GateThreshold {
+	gate := nestedMap(data, "snapshot", "gate")
+	if gate == nil {
+		return nil
+	}
+	var out []snap.GateThreshold
+	if repoEntries, ok := gate["repo"].([]interface{}); ok {
+		for _, e := range repoEntries {
+			if t, ok := decodeThresholdEntry("", e); ok {
+				out = append(out, t)
+			}
+		}
+	}
+	if moduleMap, ok := gate["module"].(map[string]interface{}); ok {
+		for module, raw := range moduleMap {
+			entries, ok := raw.([]interface{})
+			if !ok {
+				continue
+			}
+			for _, e := range entries {
+				if t, ok := decodeThresholdEntry(module, e); ok {
+					out = append(out, t)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// nestedMap returns the map at data[path[0]][path[1]]... or nil if
+// any segment is missing or non-map.
+func nestedMap(data map[string]interface{}, path ...string) map[string]interface{} {
+	cur := data
+	for _, key := range path {
+		raw, ok := cur[key]
+		if !ok {
+			return nil
+		}
+		next, ok := raw.(map[string]interface{})
+		if !ok {
+			return nil
+		}
+		cur = next
+	}
+	return cur
+}
+
+// decodeThresholdEntry reads one {metric, max_*} entry. Returns
+// ok=false when the metric is missing or no constraint is set —
+// callers skip silently to keep config malformed-but-non-fatal.
+func decodeThresholdEntry(module string, raw interface{}) (snap.GateThreshold, bool) {
+	m, ok := raw.(map[string]interface{})
+	if !ok {
+		return snap.GateThreshold{}, false
+	}
+	metric, _ := m["metric"].(string)
+	metric = strings.TrimSpace(metric)
+	if metric == "" {
+		return snap.GateThreshold{}, false
+	}
+	t := snap.GateThreshold{Module: module, Metric: metric}
+	hit := false
+	if v, ok := configFloat(m["max_absolute"]); ok {
+		t.MaxAbsolute = &v
+		hit = true
+	}
+	if v, ok := configFloat(m["max_increase"]); ok {
+		t.MaxIncrease = &v
+		hit = true
+	}
+	if v, ok := configFloat(m["max_increase_pct"]); ok {
+		t.MaxIncreasePct = &v
+		hit = true
+	}
+	if !hit {
+		return snap.GateThreshold{}, false
+	}
+	return t, true
+}
+
+// configFloat coerces a YAML scalar into float64. Tolerates int and
+// float YAML node types (yaml.v3 picks one based on syntax) and
+// number-bearing strings (so users who quote values still work).
+func configFloat(v interface{}) (float64, bool) {
+	switch x := v.(type) {
+	case nil:
+		return 0, false
+	case float64:
+		return x, true
+	case int:
+		return float64(x), true
+	case int64:
+		return float64(x), true
+	case string:
+		f, err := strconv.ParseFloat(strings.TrimSpace(x), 64)
+		if err != nil {
+			return 0, false
+		}
+		return f, true
+	}
+	return 0, false
+}
+
+// mergeGateThresholds applies CLI thresholds on top of config
+// thresholds. CLI takes precedence per (module, metric, constraint),
+// so a user passing --max-pct loc=10 on top of a krit.yml that says
+// 5 wins. Constraints not set on the CLI side fall through to config.
+func mergeGateThresholds(config, cli []snap.GateThreshold) []snap.GateThreshold {
+	type key struct{ module, metric string }
+	byKey := make(map[key]*snap.GateThreshold)
+	add := func(src snap.GateThreshold, override bool) {
+		k := key{module: src.Module, metric: src.Metric}
+		dst := byKey[k]
+		if dst == nil {
+			cp := src
+			byKey[k] = &cp
+			return
+		}
+		if src.MaxAbsolute != nil && (override || dst.MaxAbsolute == nil) {
+			dst.MaxAbsolute = src.MaxAbsolute
+		}
+		if src.MaxIncrease != nil && (override || dst.MaxIncrease == nil) {
+			dst.MaxIncrease = src.MaxIncrease
+		}
+		if src.MaxIncreasePct != nil && (override || dst.MaxIncreasePct == nil) {
+			dst.MaxIncreasePct = src.MaxIncreasePct
+		}
+	}
+	for _, t := range config {
+		add(t, false)
+	}
+	for _, t := range cli {
+		add(t, true)
+	}
+	out := make([]snap.GateThreshold, 0, len(byKey))
+	for _, t := range byKey {
+		out = append(out, *t)
+	}
+	return out
 }

@@ -274,11 +274,11 @@ type oracleDaemonEntry struct {
 // verb proceeds without type resolution. Subsequent calls with the
 // same scan-path key reuse the cached *oracle.Daemon.
 //
-// This is the lifecycle skeleton from issue #125 PR-A. Today no
-// daemon code path actually consumes the returned handle: the
-// analyze-project verb still calls RunProject without OracleEnabled.
-// PR-B will thread the handle through to ProjectHostState once the
-// CLI-flag plumbing for OracleEnabled lands.
+// Wired into the analyze-project verb path: buildProjectInput threads
+// the returned handle into ProjectHostState.OracleDaemon and flips
+// ProjectArgs.OracleEnabled when the daemon is non-nil, so type-aware
+// rules in the daemon get oracle precision without paying JVM startup
+// on every call.
 func (s *daemonState) ensureOracleDaemon(scanPaths []string) (*oracle.Daemon, error) {
 	jarPath := oracle.FindJar(scanPaths)
 	if jarPath == "" {

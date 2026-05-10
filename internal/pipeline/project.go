@@ -93,6 +93,12 @@ type ProjectHostState struct {
 	// watcher fires WorkspaceState.InvalidateLibraryFacts on Gradle /
 	// version-catalog edits). *WorkspaceState satisfies this interface.
 	LibraryFactsCache LibraryFactsCache
+	// TypeIndexCacheDir, when non-empty, enables the per-file
+	// FileTypeInfo on-disk cache so warm runs skip per-file
+	// extraction for unchanged files. Empty disables the cache (the
+	// CLI runner sets this from typeinfer.TypeIndexCacheDir(repoDir)
+	// when --no-cache is not passed; the daemon does the same).
+	TypeIndexCacheDir string
 	// Oracle, when non-nil, is the resident type-oracle handle.
 	Oracle *oracle.Oracle
 	// OracleDaemon, when non-nil, is the long-lived krit-types JVM
@@ -206,6 +212,7 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		PrebuiltResolver:     host.PrebuiltResolver,
 		PrebuiltLibraryFacts: host.PrebuiltLibraryFacts,
 		LibraryFactsCache:    host.LibraryFactsCache,
+		TypeIndexCacheDir:    host.TypeIndexCacheDir,
 		Reporter:             host.Reporter,
 		Tracker:              host.Tracker,
 	}

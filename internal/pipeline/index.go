@@ -69,6 +69,12 @@ type IndexInput struct {
 	// is derived from the discovered Gradle paths; the host's watcher
 	// drops the slot when Gradle / version-catalog files change.
 	LibraryFactsCache LibraryFactsCache
+	// TypeIndexCacheDir, when non-empty, enables the per-file
+	// FileTypeInfo cache (typeinfer.IndexFilesParallelCachedWithTracker).
+	// Unchanged files are read from disk instead of re-extracted, which
+	// is the dominant cost (~336 ms / 19k files in the planning-doc
+	// measurement) on warm + 1-edit runs. Empty disables the cache.
+	TypeIndexCacheDir string
 	// Reporter routes verbose progress and warning lines from IndexPhase.
 	// Nil means silent.
 	Reporter *diag.Reporter
@@ -289,6 +295,26 @@ func (p IndexPhase) buildTypeResolver(ctx context.Context, in IndexInput, resolv
 	workers := p.Workers
 	if workers <= 0 {
 		workers = runtime.NumCPU()
+	}
+	if in.TypeIndexCacheDir != "" {
+		if cached, ok := interface{}(r).(interface {
+			IndexFilesParallelCachedWithTracker([]*scanner.File, int, string, perf.Tracker) (int, int)
+		}); ok {
+			var hits, misses int
+			if in.Tracker != nil {
+				child := in.Tracker.Serial("typeIndex")
+				hits, misses = cached.IndexFilesParallelCachedWithTracker(in.KotlinFiles, workers, in.TypeIndexCacheDir, child)
+				perf.AddEntryDetails(child, "cacheSummary", 0, map[string]int64{
+					"hits":   int64(hits),
+					"misses": int64(misses),
+				}, nil)
+				child.End()
+			} else {
+				hits, misses = cached.IndexFilesParallelCachedWithTracker(in.KotlinFiles, workers, in.TypeIndexCacheDir, nil)
+			}
+			in.logf("verbose: Indexed %d Kotlin files for type resolution (typeIndex cache: %d hits, %d misses)", len(in.KotlinFiles), hits, misses)
+			return r, nil
+		}
 	}
 	if indexer, ok := interface{}(r).(interface {
 		IndexFilesParallel([]*scanner.File, int)

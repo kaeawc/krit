@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sourceheader"
 )
 
 type fileHeaders struct {
@@ -24,9 +25,7 @@ func scanFileHeadersFlat(rootIdx uint32, file *scanner.File) fileHeaders {
 	visitChild := func(child uint32) {
 		switch file.FlatType(child) {
 		case "package_header":
-			text := strings.TrimSpace(file.FlatNodeText(child))
-			text = strings.TrimPrefix(text, "package ")
-			headers.pkg = strings.TrimSpace(text)
+			headers.pkg = sourceheader.FirstHeaderLine(file.FlatNodeText(child), "package")
 		case "import_header", "import_list":
 			extractImportsFlat(child, file, headers.it)
 		}
@@ -53,9 +52,7 @@ func extractImportsFlat(nodeIdx uint32, file *scanner.File, it *ImportTable) {
 		return
 	}
 	if file.FlatType(nodeIdx) == "import_header" {
-		text := strings.TrimSpace(file.FlatNodeText(nodeIdx))
-		text = strings.TrimPrefix(text, "import ")
-		text = strings.TrimSpace(text)
+		text := sourceheader.FirstHeaderLine(file.FlatNodeText(nodeIdx), "import")
 
 		if idx := strings.Index(text, " as "); idx >= 0 {
 			fqn := strings.TrimSpace(text[:idx])

@@ -23,12 +23,14 @@ var errDaemonNotWarm = errors.New("daemon not warm yet")
 // handleAnalyzeProject runs the whole-project scan pipeline against
 // the daemon's resident state and returns the formatted findings.
 //
-// Concurrency: serialised on daemonState.analyzeMu. The pipeline
-// mutates resolver / oracle state and the analysis-cache write-back
-// path isn't safe under concurrent runs; queueing is the documented
-// behaviour. Wire-protocol clients that need to issue many calls in
-// a burst should batch them on the client side rather than attempt
-// to parallelise here.
+// Concurrency: serialised on daemonState.analyzeMu across the full
+// call. Unlocking before pipeline.RunProject would allow concurrent
+// runs, but rules.ApplyConfig (called inside buildProjectInput) writes
+// to package-global state (DefaultInactive, rule excludes, custom
+// pattern registry) that RunProject reads via AllSuppressionAliases
+// and the dispatcher — a verified DATA RACE under -race. Loosening
+// the lock requires making the rules config state per-call or
+// initialising it once at daemon startup. See issue #53.
 func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawMessage) (any, error) {
 	var args daemon.AnalyzeProjectArgs
 	if len(raw) > 0 {
@@ -38,27 +40,26 @@ func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawM
 	}
 
 	state.analyzeMu.Lock()
-	defer state.analyzeMu.Unlock()
-
 	cold := !state.coldDone.Load()
 	if args.RequireWarm && cold {
+		state.analyzeMu.Unlock()
 		return nil, errDaemonNotWarm
 	}
-
 	start := time.Now()
 	dirty := state.workspace.DrainDirty()
 
 	in, err := state.buildProjectInput(args)
 	if err != nil {
+		state.analyzeMu.Unlock()
 		return nil, err
 	}
 
 	out, err := pipeline.RunProject(ctx, in)
+	state.analyzeMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
 	state.coldDone.Store(true)
-
 	xfile := state.workspace.CrossFileStats()
 
 	return daemon.AnalyzeProjectResult{

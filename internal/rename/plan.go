@@ -139,33 +139,8 @@ func BuildPlanWithFiles(idx *scanner.CodeIndex, target Target, extraFiles []*sca
 	}
 
 	files := make(map[string]bool)
-
-	for _, sym := range idx.Symbols {
-		if sym.Name == target.ToName && sym.FQN == target.ToFQN {
-			plan.Conflicts = append(plan.Conflicts, sym)
-		}
-		if sym.Name != target.FromName {
-			continue
-		}
-		if sym.FQN != "" && sym.FQN != target.FromFQN {
-			continue
-		}
-		plan.Declarations = append(plan.Declarations, sym)
-		files[sym.File] = true
-	}
-
-	if idx.MayHaveReference(target.FromName) {
-		for _, ref := range idx.References {
-			if ref.Name != target.FromName || ref.InComment {
-				continue
-			}
-			if !plan.referenceMatchesTarget(ref) {
-				continue
-			}
-			plan.References = append(plan.References, ref)
-			files[ref.File] = true
-		}
-	}
+	plan.collectSymbols(idx, target, files)
+	plan.collectReferences(idx, target, files)
 
 	sort.Slice(plan.Conflicts, func(i, j int) bool {
 		if plan.Conflicts[i].File != plan.Conflicts[j].File {
@@ -213,6 +188,38 @@ func (p Plan) Summary() Summary {
 func (p Plan) CandidateCount() int {
 	summary := p.Summary()
 	return summary.Declarations + summary.References
+}
+
+func (p *Plan) collectSymbols(idx *scanner.CodeIndex, target Target, files map[string]bool) {
+	for _, sym := range idx.Symbols {
+		if sym.Name == target.ToName && sym.FQN == target.ToFQN {
+			p.Conflicts = append(p.Conflicts, sym)
+		}
+		if sym.Name != target.FromName {
+			continue
+		}
+		if sym.FQN != "" && sym.FQN != target.FromFQN {
+			continue
+		}
+		p.Declarations = append(p.Declarations, sym)
+		files[sym.File] = true
+	}
+}
+
+func (p *Plan) collectReferences(idx *scanner.CodeIndex, target Target, files map[string]bool) {
+	if !idx.MayHaveReference(target.FromName) {
+		return
+	}
+	for _, ref := range idx.References {
+		if ref.Name != target.FromName || ref.InComment {
+			continue
+		}
+		if !p.referenceMatchesTarget(ref) {
+			continue
+		}
+		p.References = append(p.References, ref)
+		files[ref.File] = true
+	}
 }
 
 // indexFile records the parsed file and its derived context. Idempotent

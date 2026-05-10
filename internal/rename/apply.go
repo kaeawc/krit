@@ -1,6 +1,7 @@
 package rename
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -358,28 +359,41 @@ func rewriteImportLine(file *scanner.File, rng [2]int, toFQN string) string {
 	if file.Content == nil || rng[0] < 0 || rng[1] > len(file.Content) || rng[0] >= rng[1] {
 		return ""
 	}
-	original := strings.TrimSpace(string(file.Content[rng[0]:rng[1]]))
-	hasSemi := strings.HasSuffix(original, ";")
-	body := trimImportLine(original)
+	// Single-pass byte parse: trim leading/trailing whitespace, peel
+	// the optional trailing `;`, drop the leading `import` keyword,
+	// then peek for Java's `static` modifier or Kotlin's ` as ` alias.
+	// Avoids the intermediate strings + four-step Trim cascade the
+	// older shape paid per import — see #47.
+	body := bytes.TrimSpace(file.Content[rng[0]:rng[1]])
+	hasSemi := len(body) > 0 && body[len(body)-1] == ';'
+	if hasSemi {
+		body = bytes.TrimSpace(body[:len(body)-1])
+	}
+	body = bytes.TrimPrefix(body, []byte("import"))
+	body = bytes.TrimSpace(body)
 
 	prefix := "import "
-	suffix := ""
+	var suffix []byte
 	switch file.Language {
 	case scanner.LangJava:
-		if strings.HasPrefix(body, "static ") {
+		if bytes.HasPrefix(body, []byte("static ")) {
 			prefix = "import static "
 		}
 	default:
-		if i := strings.Index(body, " as "); i >= 0 {
+		if i := bytes.Index(body, []byte(" as ")); i >= 0 {
 			suffix = body[i:]
 		}
 	}
 
-	out := prefix + toFQN + suffix
+	// Pre-size: prefix + toFQN + suffix + optional ';'.
+	out := make([]byte, 0, len(prefix)+len(toFQN)+len(suffix)+1)
+	out = append(out, prefix...)
+	out = append(out, toFQN...)
+	out = append(out, suffix...)
 	if file.Language == scanner.LangJava || hasSemi {
-		out += ";"
+		out = append(out, ';')
 	}
-	return out
+	return string(out)
 }
 
 func fileMode(path string) os.FileMode {

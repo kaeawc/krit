@@ -206,6 +206,17 @@ type daemonState struct {
 	analysisCacheMu    sync.Mutex
 	analysisCacheByKey map[string]*analysisCacheEntry
 
+	// oracleDaemonMu guards lazy construction + recovery of the
+	// resident krit-types JVM subprocess. Lifecycle: ensureOracleDaemon
+	// constructs once per scan-path set; pingOracleDaemon checks
+	// liveness and Close+Rebuilds on a failed ping. Stays nil when
+	// the krit-types JAR cannot be located — the caller treats nil
+	// as "oracle disabled" and the verb proceeds without type
+	// resolution. See issue #125 PR breakdown.
+	oracleDaemonMu      sync.Mutex
+	oracleDaemonByKey   map[string]*oracleDaemonEntry
+	oracleDaemonStarter oracleDaemonStarter
+
 	// analyzeMu serializes whole-project analysis. The pipeline mutates
 	// resolver / oracle state and the analysis-cache write-back path
 	// is not safe under concurrent runs; queueing is acceptable
@@ -226,11 +237,118 @@ func newDaemonState(root string) *daemonState {
 		repoDir = root
 	}
 	return &daemonState{
-		root:               root,
-		repoDir:            repoDir,
-		workspace:          pipeline.NewWorkspaceState(root),
-		analysisCacheByKey: make(map[string]*analysisCacheEntry),
+		root:                root,
+		repoDir:             repoDir,
+		workspace:           pipeline.NewWorkspaceState(root),
+		analysisCacheByKey:  make(map[string]*analysisCacheEntry),
+		oracleDaemonByKey:   make(map[string]*oracleDaemonEntry),
+		oracleDaemonStarter: defaultOracleDaemonStarter{},
 	}
+}
+
+// oracleDaemonStarter abstracts the JVM-subprocess construction so
+// tests can substitute a fake without spinning up a real daemon. The
+// production implementation is defaultOracleDaemonStarter.
+type oracleDaemonStarter interface {
+	Start(jarPath string, sourceDirs []string, classpath []string, verbose bool) (*oracle.Daemon, error)
+}
+
+type defaultOracleDaemonStarter struct{}
+
+func (defaultOracleDaemonStarter) Start(jarPath string, sourceDirs, classpath []string, verbose bool) (*oracle.Daemon, error) {
+	return oracle.ConnectOrStartDaemon(jarPath, sourceDirs, classpath, verbose)
+}
+
+// oracleDaemonEntry caches a started Daemon plus the inputs it was
+// constructed under so a future change to scan paths or jar location
+// can detect divergence and rebuild.
+type oracleDaemonEntry struct {
+	daemon     *oracle.Daemon
+	jarPath    string
+	sourceDirs []string
+}
+
+// ensureOracleDaemon lazy-starts (or reuses) a krit-types JVM daemon
+// for the given scan paths. Returns (nil, nil) when the krit-types JAR
+// cannot be located — callers treat that as "oracle disabled" and the
+// verb proceeds without type resolution. Subsequent calls with the
+// same scan-path key reuse the cached *oracle.Daemon.
+//
+// This is the lifecycle skeleton from issue #125 PR-A. Today no
+// daemon code path actually consumes the returned handle: the
+// analyze-project verb still calls RunProject without OracleEnabled.
+// PR-B will thread the handle through to ProjectHostState once the
+// CLI-flag plumbing for OracleEnabled lands.
+func (s *daemonState) ensureOracleDaemon(scanPaths []string) (*oracle.Daemon, error) {
+	jarPath := oracle.FindJar(scanPaths)
+	if jarPath == "" {
+		// Graceful disable: no jar means oracle isn't installed in
+		// this environment. Cache the negative result so we don't
+		// re-walk the filesystem on every call.
+		return nil, nil
+	}
+	sourceDirs := oracle.FindSourceDirs(scanPaths)
+	key := jarPath + "\x00" + strings.Join(sourceDirs, "\x00")
+
+	s.oracleDaemonMu.Lock()
+	defer s.oracleDaemonMu.Unlock()
+	if entry, ok := s.oracleDaemonByKey[key]; ok {
+		return entry.daemon, nil
+	}
+	d, err := s.oracleDaemonStarter.Start(jarPath, sourceDirs, nil, false)
+	if err != nil {
+		return nil, fmt.Errorf("start oracle daemon: %w", err)
+	}
+	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, sourceDirs: sourceDirs}
+	return d, nil
+}
+
+// pingOracleDaemon checks the liveness of every cached daemon and
+// rebuilds any that fail to respond. Called at the start of each
+// analyze-project verb so a JVM that died (OOM, host kill) gets
+// replaced before the verb attempts to use it. nil-receiver and
+// nil-daemon entries are no-ops.
+func (s *daemonState) pingOracleDaemon() {
+	if s == nil {
+		return
+	}
+	s.oracleDaemonMu.Lock()
+	defer s.oracleDaemonMu.Unlock()
+	for key, entry := range s.oracleDaemonByKey {
+		if entry == nil || entry.daemon == nil {
+			continue
+		}
+		if err := entry.daemon.Ping(); err == nil {
+			continue
+		}
+		// Failed ping → close and rebuild. Closing a dead daemon is
+		// best-effort; errors are intentionally ignored.
+		_ = entry.daemon.Close()
+		d, err := s.oracleDaemonStarter.Start(entry.jarPath, entry.sourceDirs, nil, false)
+		if err != nil {
+			// Drop the entry so the next ensureOracleDaemon retries.
+			delete(s.oracleDaemonByKey, key)
+			continue
+		}
+		entry.daemon = d
+	}
+}
+
+// closeOracleDaemons shuts down every cached daemon. Called from the
+// serve shutdown hook so JVM children don't survive their parent.
+func (s *daemonState) closeOracleDaemons() {
+	if s == nil {
+		return
+	}
+	s.oracleDaemonMu.Lock()
+	defer s.oracleDaemonMu.Unlock()
+	for _, entry := range s.oracleDaemonByKey {
+		if entry == nil || entry.daemon == nil {
+			continue
+		}
+		_ = entry.daemon.Close()
+	}
+	s.oracleDaemonByKey = map[string]*oracleDaemonEntry{}
 }
 
 // analysisCacheEntry holds a lazily-loaded *cache.Cache and the file

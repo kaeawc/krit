@@ -22,6 +22,7 @@ type watcherState interface {
 	InvalidateCodeIndex()
 	InvalidateDependents()
 	InvalidateLibraryFacts()
+	InvalidateResolver()
 	Touch(path string)
 }
 
@@ -232,6 +233,7 @@ func (fw *fileWatcher) scheduleKotlinInvalidate(path string) {
 		fw.state.Invalidate(path)
 		fw.state.InvalidateCodeIndex()
 		fw.state.InvalidateDependents()
+		fw.state.InvalidateResolver()
 		fw.state.Touch(path)
 	})
 	fw.debounceMu.Unlock()

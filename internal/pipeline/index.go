@@ -138,6 +138,15 @@ type IndexInput struct {
 	// analyze-project verb calls; the JVM warmup cost (~seconds) is
 	// then paid once per krit-serve lifetime instead of per call.
 	PrebuiltOracleDaemon *oracle.Daemon
+	// PrebuiltOracleCallFilter, when non-nil, is used in place of the
+	// per-call buildOracleCallTargetFilterForInvocation() rebuild.
+	// RunProject computes (and caches) the filter once via
+	// host.OracleFilterCache before IndexPhase runs; runDaemonOracle
+	// reuses it instead of re-scanning every Kotlin file for
+	// annotated-identifier hits. Skip-mode (Enabled==false) values
+	// are still passed through as a sentinel so the JVM-side gate
+	// stays consistent with the cached classification.
+	PrebuiltOracleCallFilter *oracle.CallTargetFilterSummary
 	// Store is the optional unified store for oracle cache entries.
 	Store *store.FileStore
 	// OracleCacheWriter, when non-nil, defers cold oracle cache-entry
@@ -599,7 +608,7 @@ var _ Phase[IndexInput, IndexResult] = IndexPhase{}
 // runDaemonOracle starts a daemon, analyzes all files, and wraps base in
 // a CompositeResolver. Returns the updated resolver.
 func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, oracleTracker perf.Tracker, base typeinfer.TypeResolver, result *IndexResult) typeinfer.TypeResolver {
-	callFilterPtr := buildOracleCallTargetFilterForInvocation(oracleRules, loadOracleFilterFiles, oracleTracker, in.Reporter)
+	callFilterPtr := selectOracleCallFilter(in, oracleRules, loadOracleFilterFiles, oracleTracker)
 
 	var d *oracle.Daemon
 	if in.PrebuiltOracleDaemon != nil {
@@ -739,7 +748,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		defer cleanup()
 	}
 
-	callFilterPtr := buildOracleCallTargetFilterForInvocation(oracleRules, loadOracleFilterFiles, jvmTracker, in.Reporter)
+	callFilterPtr := selectOracleCallFilter(in, oracleRules, loadOracleFilterFiles, jvmTracker)
 	declarationProfileSummary := rules.BuildOracleDeclarationProfileV2(oracleRules)
 	factUnion := rules.OracleFactUnion(oracleRules)
 	perf.AddEntryDetails(jvmTracker, "oracleFactUnion", 0, map[string]int64{
@@ -1107,6 +1116,23 @@ func boolMetric(b bool) int64 {
 		return 1
 	}
 	return 0
+}
+
+// selectOracleCallFilter returns the prebuilt filter when the host
+// supplied one, otherwise builds it via the per-call path. Wraps both
+// runDaemonOracle and runJvmAnalyze so the daemon's resident filter
+// cache is honoured everywhere oracle classification fires.
+func selectOracleCallFilter(in IndexInput, oracleRules []*api.Rule, loadOracleFilterFiles func() []*scanner.File, tracker perf.Tracker) *oracle.CallTargetFilterSummary {
+	if in.PrebuiltOracleCallFilter != nil {
+		// Skip-mode (Enabled==false) is preserved as a sentinel; the
+		// gate inside runDaemonOracle / runJvmAnalyze handles
+		// nil-vs-disabled symmetrically.
+		if !in.PrebuiltOracleCallFilter.Enabled {
+			return nil
+		}
+		return in.PrebuiltOracleCallFilter
+	}
+	return buildOracleCallTargetFilterForInvocation(oracleRules, loadOracleFilterFiles, tracker, in.Reporter)
 }
 
 func buildOracleCallTargetFilterForInvocation(activeRules []*api.Rule, loadFiles func() []*scanner.File, tracker perf.Tracker, reporter *diag.Reporter) *oracle.CallTargetFilterSummary {

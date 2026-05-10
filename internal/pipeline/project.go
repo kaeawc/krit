@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
@@ -110,6 +113,12 @@ type ProjectHostState struct {
 	// files, so mismatches force a complete rebuild rather than a
 	// stale-entry leak. *WorkspaceState satisfies this interface.
 	ResolverCache ResolverCache
+	// OracleFilterCache, when non-nil and Args.OracleEnabled is true,
+	// memoizes the oracle CallTargetFilterSummary across calls.
+	// RunProject computes the filter once per file-set + rule-set
+	// fingerprint and threads it into IndexInput.PrebuiltOracleCallFilter.
+	// *WorkspaceState satisfies this interface.
+	OracleFilterCache OracleFilterCache
 	// CrossFileCacheDir, when non-empty, enables the on-disk cross-file
 	// CodeIndex cache (zstd-encoded shards under .krit/crossfile-cache).
 	// Independent of CodeIndexCache: the disk cache is shared across
@@ -250,15 +259,25 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 	}
 	// Wire the oracle handle when the host supplied one + the args
 	// requested oracle. UseDaemon is forced on so runDaemonOracle is
-	// the path that picks up PrebuiltOracleDaemon. NoOracleFilter is
-	// forced on for now: the filter pre-scan is per-call and would
-	// negate the daemon-resident savings until #125 PR-C caches it.
+	// the path that picks up PrebuiltOracleDaemon.
 	if args.OracleEnabled && host.OracleDaemon != nil {
 		indexInput.OracleEnabled = true
 		indexInput.UseDaemon = true
 		indexInput.PrebuiltOracleDaemon = host.OracleDaemon
 		indexInput.OracleScanPaths = args.Paths
-		indexInput.NoOracleFilter = true
+		// Memoize the oracle call filter. The classification is the
+		// dominant per-call oracle cost (annotated-identifier scans
+		// over every Kotlin file). When the host supplies a cache, we
+		// fingerprint the rule + file set and reuse the cached filter
+		// across calls. Without a cache we fall through to the per-
+		// call rebuild inside selectOracleCallFilter.
+		if host.OracleFilterCache != nil {
+			fp := oracleFilterFingerprint(args.ActiveRules, parseResult.KotlinFiles)
+			indexInput.PrebuiltOracleCallFilter = host.OracleFilterCache.OracleFilter(fp, func() *oracle.CallTargetFilterSummary {
+				summary := rules.BuildOracleCallTargetFilterV2ForFiles(args.ActiveRules, parseResult.KotlinFiles)
+				return &summary
+			})
+		}
 	}
 	indexResult, err := IndexPhase{Workers: args.Workers}.Run(ctx, indexInput)
 	if err != nil {
@@ -359,4 +378,27 @@ func projectRuleHash(activeRules []*api.Rule, cfg *config.Config) string {
 		}
 	}
 	return cache.ComputeConfigHash(ruleNames, cfg, false)
+}
+
+// oracleFilterFingerprint hashes the active rule IDs together with
+// the sorted (path, content-hash) tuples of every Kotlin file. Both
+// inputs feed BuildOracleCallTargetFilterV2ForFiles; either changing
+// invalidates the cached filter.
+func oracleFilterFingerprint(activeRules []*api.Rule, kotlinFiles []*scanner.File) string {
+	ruleIDs := make([]string, 0, len(activeRules))
+	for _, r := range activeRules {
+		if r != nil {
+			ruleIDs = append(ruleIDs, r.ID)
+		}
+	}
+	sort.Strings(ruleIDs)
+	fileEntries := make([]string, 0, len(kotlinFiles))
+	for _, f := range kotlinFiles {
+		if f == nil {
+			continue
+		}
+		fileEntries = append(fileEntries, f.Path+"\x00"+hashutil.Default().HashContent(f.Path, f.Content))
+	}
+	sort.Strings(fileEntries)
+	return hashutil.HashHex([]byte(strings.Join(ruleIDs, "\x01") + "\x02" + strings.Join(fileEntries, "\x01")))
 }

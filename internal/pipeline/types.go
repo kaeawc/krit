@@ -319,6 +319,19 @@ type ResolverCache interface {
 	Resolver(fingerprint string, build func() typeinfer.TypeResolver) typeinfer.TypeResolver
 }
 
+// OracleFilterCache lets a long-lived host (typically *WorkspaceState)
+// memoize the oracle *CallTargetFilterSummary across RunProject calls.
+// The filter classification scans every Kotlin file for annotated
+// identifiers; without caching it dominates the warm oracle cost.
+//
+// Fingerprint must include the active rule IDs (the filter is keyed
+// on rule capabilities + AnnotatedIdentifier specs) and the sorted
+// (path, content-hash) pairs of every Kotlin file. Mismatches force a
+// fresh classification.
+type OracleFilterCache interface {
+	OracleFilter(fingerprint string, build func() *oracle.CallTargetFilterSummary) *oracle.CallTargetFilterSummary
+}
+
 // FileTiming captures per-file dispatch timing recorded when
 // IndexResult.ProfileDispatch is set.
 type FileTiming struct {

@@ -23,6 +23,7 @@ func (c *countingState) InvalidateCodeIndex()    {}
 func (c *countingState) InvalidateDependents()   {}
 func (c *countingState) InvalidateLibraryFacts() {}
 func (c *countingState) InvalidateResolver()     {}
+func (c *countingState) InvalidateOracleFilter() {}
 func (c *countingState) Touch(path string)       {}
 
 // waitForCondition polls fn every 5ms up to 2s. Returns true when fn

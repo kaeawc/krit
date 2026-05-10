@@ -162,6 +162,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			LibraryFactsCache:     s.workspace,
 			CodeIndexCache:        s.workspace,
 			ResolverCache:         s.workspace,
+			OracleFilterCache:     s.workspace,
 			CrossFileCacheDir:     scanner.CrossFileCacheDir(repoDir),
 			TypeIndexCacheDir:     typeinfer.TypeIndexCacheDir(repoDir),
 			AnalysisCache:         analysisCache,

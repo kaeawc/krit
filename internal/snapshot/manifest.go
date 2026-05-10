@@ -93,7 +93,11 @@ func LoadManifest(root, sha string) (*Manifest, error) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("snapshot: parse %s: %w", path, err)
 	}
-	return &m, nil
+	migrated, err := MigrateManifest(&m)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: %s: %w", path, err)
+	}
+	return migrated, nil
 }
 
 // LoadManifests returns every captured sha's manifest under root,

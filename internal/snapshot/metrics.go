@@ -195,5 +195,9 @@ func LoadMetrics(root, sha string) (*Metrics, error) {
 	if err := cacheutil.DecodeZstdGob(f, &m); err != nil {
 		return nil, fmt.Errorf("snapshot: decode %s: %w", path, err)
 	}
-	return &m, nil
+	migrated, err := MigrateMetrics(&m)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: %s: %w", path, err)
+	}
+	return migrated, nil
 }

@@ -80,7 +80,11 @@ func Load(root, sha string) (*Blob, error) {
 	if err := cacheutil.DecodeZstdGob(f, &b); err != nil {
 		return nil, fmt.Errorf("snapshot: decode %s: %w", path, err)
 	}
-	return &b, nil
+	migrated, err := MigrateBlob(&b)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: %s: %w", path, err)
+	}
+	return migrated, nil
 }
 
 // Entry is one captured snapshot, returned by List.

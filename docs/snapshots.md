@@ -224,6 +224,33 @@ krit snapshot prune --permanent-branch main \
     --permanent-branch release/2026.05         # protect a release branch too
 ```
 
+## Schema migration
+
+`Blob`, `Metrics`, and `Manifest` each carry a monotonic
+`SchemaVersion` field. `Load` / `LoadMetrics` / `LoadManifest` route
+through `MigrateBlob` / `MigrateMetrics` / `MigrateManifest`, which
+walk a per-source-version migrator table to bring older payloads up
+to the current shape transparently. Future-versioned payloads (a
+captured snapshot from a newer krit) refuse to load with an
+`upgrade krit` hint rather than silently lose fields.
+
+### Schema-bump checklist
+
+When changing the on-disk shape of a `Blob`, `Metrics`, or
+`Manifest`:
+
+1. Bump the matching `SchemaVersion` constant (`SchemaVersion`,
+   `MetricsSchemaVersion`, `ManifestSchemaVersion`) by one.
+2. Add a per-step migrator to the matching map in
+   `internal/snapshot/migrate.go` keyed by the **source** version,
+   returning the value at `version + 1`. Step migrators chain so a
+   v1 → v3 jump runs v1→v2 then v2→v3.
+3. Add a fixture round-trip test: encode at the old version, run
+   `Migrate*`, assert the new shape.
+4. Existing on-disk snapshots from v(N) keep loading via the new
+   migrator; readers from older krit versions refuse to read v(N+1)
+   data with the upgrade hint above.
+
 ## MCP
 
 The `snapshot` MCP tool exposes the read-only operations to AI agents:

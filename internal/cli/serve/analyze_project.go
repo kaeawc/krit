@@ -14,6 +14,7 @@ import (
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // errDaemonNotWarm is returned to RequireWarm clients on a cold
@@ -146,6 +147,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			CodeIndexCache:        s.workspace,
 			ResolverCache:         s.workspace,
 			CrossFileCacheDir:     scanner.CrossFileCacheDir(repoDir),
+			TypeIndexCacheDir:     typeinfer.TypeIndexCacheDir(repoDir),
 			AnalysisCache:         analysisCache,
 			AnalysisCacheFilePath: analysisCachePath,
 		},

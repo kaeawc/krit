@@ -72,6 +72,8 @@ func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawM
 			LibraryFactsHit: xfile.HasLibraryFacts,
 			DirtyFiles:      len(dirty),
 			Cold:            cold,
+			ParseHits:       out.ParseHits,
+			ParseMisses:     out.ParseMisses,
 		},
 	}, nil
 }

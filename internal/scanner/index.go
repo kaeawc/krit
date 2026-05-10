@@ -110,12 +110,14 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 	// Warm path: full payload hit via unpackFull (includes lookup maps).
 	if cachedIdx, ok := LoadCrossFileCacheIndex(cacheDir, fingerprint); ok {
 		cachedIdx.Files = append(cachedIdx.Files, files...)
+		cachedIdx.Files = append(cachedIdx.Files, javaFiles...)
 		cachedIdx.Fingerprint = fingerprint
 		return cachedIdx, true
 	}
 
 	if idx, ok := buildIndexFromPriorOverlay(cacheDir, entries, files, javaFiles, xmlFiles, workers, tracker); ok {
 		idx.Files = append(idx.Files, files...)
+		idx.Files = append(idx.Files, javaFiles...)
 		idx.Fingerprint = fingerprint
 		return idx, false
 	}
@@ -127,6 +129,7 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 	symbols, refs, prebuiltBloom := collectIndexDataSharded(cacheDir, files, javaFiles, xmlFiles, workers, tracker)
 	idx := BuildIndexFromDataWithBloom(symbols, refs, prebuiltBloom, tracker)
 	idx.Files = append(idx.Files, files...)
+	idx.Files = append(idx.Files, javaFiles...)
 	idx.Fingerprint = fingerprint
 
 	meta := CrossFileCacheMeta{
@@ -145,6 +148,7 @@ func BuildIndexWithTracker(files []*File, workers int, tracker perf.Tracker, jav
 	symbols, refs := collectIndexDataWithTracker(files, workers, tracker, javaFiles...)
 	idx := BuildIndexFromDataWithTracker(symbols, refs, tracker)
 	idx.Files = append(idx.Files, files...)
+	idx.Files = append(idx.Files, javaFiles...)
 	return idx
 }
 

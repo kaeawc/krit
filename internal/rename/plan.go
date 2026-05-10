@@ -125,9 +125,7 @@ func ParseTarget(fromFQN, toFQN string) (Target, error) {
 	}, nil
 }
 
-// BuildPlan computes a rename plan from the index. Use BuildPlanWithFiles
-// when extra Java files need to participate (CodeIndex.Files only carries
-// Kotlin files).
+// BuildPlan computes a rename plan from the index.
 func BuildPlan(idx *scanner.CodeIndex, target Target) Plan {
 	return BuildPlanWithFiles(idx, target, nil)
 }

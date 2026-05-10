@@ -6,6 +6,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sourceheader"
 )
 
 var dependencyWrappers = map[string]bool{
@@ -222,9 +223,7 @@ func packageNameFlat(file *scanner.File) string {
 	if header == 0 {
 		return ""
 	}
-	text := strings.TrimSpace(file.FlatNodeText(header))
-	text = strings.TrimPrefix(text, "package")
-	return strings.TrimSpace(text)
+	return sourceheader.FirstHeaderLine(file.FlatNodeText(header), "package")
 }
 
 func importTableFlat(file *scanner.File) map[string]string {
@@ -234,9 +233,7 @@ func importTableFlat(file *scanner.File) map[string]string {
 		if node == 0 || file.FlatType(node) != "import_header" {
 			continue
 		}
-		text := strings.TrimSpace(file.FlatNodeText(node))
-		text = strings.TrimPrefix(text, "import")
-		text = strings.TrimSpace(text)
+		text := sourceheader.FirstHeaderLine(file.FlatNodeText(node), "import")
 		if text == "" {
 			continue
 		}

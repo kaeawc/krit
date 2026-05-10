@@ -58,10 +58,11 @@ type runner struct {
 	projectModelLoaded bool
 	cacheFilePath      string
 
-	// preloadedAnalysisCacheCh receives the result of a background
-	// cache.Load kicked off as soon as cacheFilePath is known, in
-	// parallel with collectFiles / projectModel / filterRules.
-	preloadedAnalysisCacheCh <-chan *cache.Cache
+	// analysisCacheLoadFuture memoizes the background cache.Load kicked
+	// off as soon as cacheFilePath is known, in parallel with
+	// collectFiles / projectModel / filterRules. nil when no preload
+	// was scheduled (--no-cache, --oracle-filter-fingerprint).
+	analysisCacheLoadFuture *AnalysisCacheLoadFuture
 
 	// File collection
 	files                []string
@@ -259,9 +260,10 @@ func newRunner(f *scanFlags) (*runner, int, bool) {
 	// short-circuit needs file collection to fire and isn't worth a
 	// pre-walk just to save the wasted load.
 	if !*f.NoCache && cacheFilePath != "" && !*f.OracleFilterFingerprint {
-		r.preloadedAnalysisCacheCh = preloadAnalysisCache(func() *cache.Cache {
+		r.analysisCacheLoadFuture = NewAnalysisCacheLoadFuture(func() *cache.Cache {
 			return cache.Load(cacheFilePath)
 		})
+		r.analysisCacheLoadFuture.Start()
 	}
 	return r, 0, true
 }
@@ -401,9 +403,14 @@ func (r *runner) runOracleIndex() (int, error) {
 	var res pipeline.IndexResult
 	var err error
 	var preloadedCache *cache.Cache
-	if r.useCache && r.preloadedAnalysisCacheCh != nil {
-		preloadedCache = <-r.preloadedAnalysisCacheCh
-		r.preloadedAnalysisCacheCh = nil
+	if r.useCache && r.analysisCacheLoadFuture != nil {
+		preloadedCache = r.analysisCacheLoadFuture.Await()
+		// Surface the actual load wall-time as a perf entry so warm
+		// runs don't read 0ms cacheLoad — the pipeline's trackSerial
+		// wraps the receive, which is near-instant on the preloaded
+		// path (see #67/#84).
+		perf.AddEntry(r.tracker, "cacheLoadAsync", r.analysisCacheLoadFuture.Duration())
+		r.analysisCacheLoadFuture = nil
 	}
 	r.tracker.TrackVoid("oracleIndex", func() {
 		in := pipeline.IndexInput{

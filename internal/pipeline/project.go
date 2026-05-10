@@ -154,6 +154,22 @@ type ProjectHostState struct {
 	// true after #126 lands. See issue #126 for the drift-risk
 	// analysis (baseline/diff, MinConfidence, RuleHash drift).
 	AnalysisCacheLookup bool
+	// FindingsBundleStore, when non-nil, enables the whole-run findings
+	// cache (#55). RunProject computes a RunFingerprint from rules +
+	// config + source set + cross-file state + Android + library
+	// facts; a Load hit returns the prior run's FindingColumns
+	// directly and skips dispatch + cross-file work entirely. Cache
+	// miss runs the full pipeline and Saves the result.
+	//
+	// scanner.DiskFindingsBundleStore{} satisfies this interface. nil
+	// disables the bundle cache. Daemon wires this together with
+	// FindingsBundleCacheRoot.
+	FindingsBundleStore scanner.FindingsBundleStore
+	// FindingsBundleCacheRoot is the on-disk root the bundle store
+	// persists to (typically the repo dir). Empty disables the bundle
+	// cache even if a store is set. The daemon supplies this from
+	// scanner.FindingsBundleCacheDir's parent (the repo dir).
+	FindingsBundleCacheRoot string
 }
 
 // ProjectInput is the value type that drives RunProject. The split
@@ -300,16 +316,35 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		}
 	}
 
-	// Phase 3: dispatch (per-file rules).
-	dispatchResult, err := DispatchPhase{}.Run(ctx, indexResult)
-	if err != nil {
-		return ProjectResult{}, fmt.Errorf("dispatch: %w", err)
+	// Whole-run findings cache. When the host supplies a store +
+	// cache root, compute the RunFingerprint from rules/config/source
+	// set/cross-file/Android/libraryFacts and try a Load. On hit we
+	// skip dispatch + cross-file entirely and feed the cached
+	// FindingColumns straight through OutputPhase. See #55.
+	runFP, bundleEnabled := computeRunFingerprint(args, host, parseResult, indexResult)
+	var dispatchResult DispatchResult
+	var crossFileResult CrossFileResult
+	var bundleHit bool
+	if bundleEnabled {
+		if cached, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, runFP); ok && cached != nil {
+			dispatchResult = DispatchResult{IndexResult: indexResult, Findings: *cached}
+			crossFileResult = CrossFileResult{DispatchResult: dispatchResult}
+			bundleHit = true
+		}
 	}
+	if !bundleHit {
+		// Phase 3: dispatch (per-file rules).
+		var err error
+		dispatchResult, err = DispatchPhase{}.Run(ctx, indexResult)
+		if err != nil {
+			return ProjectResult{}, fmt.Errorf("dispatch: %w", err)
+		}
 
-	// Phase 4: cross-file rules.
-	crossFileResult, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, dispatchResult)
-	if err != nil {
-		return ProjectResult{}, fmt.Errorf("crossfile: %w", err)
+		// Phase 4: cross-file rules.
+		crossFileResult, err = CrossFilePhase{Workers: args.Workers}.Run(ctx, dispatchResult)
+		if err != nil {
+			return ProjectResult{}, fmt.Errorf("crossfile: %w", err)
+		}
 	}
 
 	// Phase 5: output to an in-memory buffer.
@@ -329,6 +364,15 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 	})
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("output: %w", err)
+	}
+
+	// Save the bundle on every miss so a subsequent identical run is
+	// a load+skip. Hits don't need a re-save; the cached bundle is
+	// already on disk under the same key. Best-effort: save errors
+	// are not surfaced — the verb already succeeded and the run's
+	// output is unaffected.
+	if bundleEnabled && !bundleHit {
+		_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, &crossFileResult.Findings)
 	}
 
 	hits1, misses1 := parseCacheCounters(host.ParseCache)
@@ -418,6 +462,77 @@ func wireOracleHandles(in *IndexInput, args ProjectArgs, host ProjectHostState, 
 		summary := rules.BuildOracleCallTargetFilterV2ForFiles(args.ActiveRules, kotlinFiles)
 		return &summary
 	})
+}
+
+// computeRunFingerprint builds a scanner.RunFingerprint from the run's
+// inputs so the whole-run findings cache can key on it. Returns a
+// (fingerprint, enabled) pair: enabled is false when the host didn't
+// wire a store + root, so callers can skip the cache plumbing.
+//
+// Every field that affects rule output flows in:
+//
+//   - Version: args.Version (the binary's release identifier; bumps
+//     after the wire format / output shape changes).
+//   - Rules: cache.ComputeConfigHash over the active rule IDs + Config.
+//     Drift in either invalidates the bundle.
+//   - Config: same hash as Rules today; kept separate so a future
+//     split (e.g. rule-set hash vs. user-tunable knobs) doesn't
+//     require a fingerprint shape change.
+//   - SourceSet: sorted (path, content-hash) pairs of every Kotlin
+//     and Java file in the parse result.
+//   - CrossFile: indexResult.CodeIndex.Fingerprint when present;
+//     captures the cross-file symbol/reference index.
+//   - Android: sorted Gradle paths from the detected Android project.
+//   - LibraryFacts: indexResult.LibraryFacts.Fingerprint when present.
+//
+// The function is deliberately conservative: any input change
+// produces a fresh fingerprint and forces a fresh dispatch. The
+// delta planner's "exactly 1 file changed and cross-file is stable"
+// optimisation is out of scope for this PR (#55 PR-A) — that path
+// requires a structural CrossFile fingerprint that doesn't move with
+// every byte change. Pending follow-up.
+func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult ParseResult, indexResult IndexResult) (scanner.RunFingerprint, bool) {
+	if host.FindingsBundleStore == nil || host.FindingsBundleCacheRoot == "" {
+		return scanner.RunFingerprint{}, false
+	}
+	rulesHash := projectRuleHash(args.ActiveRules, args.Config)
+	fp := scanner.RunFingerprint{
+		Version:   args.Version,
+		Rules:     rulesHash,
+		Config:    rulesHash,
+		SourceSet: sourceSetFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles),
+	}
+	if indexResult.CodeIndex != nil {
+		fp.CrossFile = indexResult.CodeIndex.Fingerprint
+	}
+	if indexResult.AndroidProject != nil {
+		fp.Android = libraryFactsFingerprint(indexResult.AndroidProject.GradlePaths)
+	}
+	if indexResult.LibraryFacts != nil {
+		fp.LibraryFacts = indexResult.LibraryFacts.Fingerprint()
+	}
+	return fp, true
+}
+
+// sourceSetFingerprint hashes sorted (path, content-hash) tuples of
+// every parsed Kotlin and Java file. Any added, removed, renamed, or
+// edited file moves the fingerprint, forcing a bundle miss.
+func sourceSetFingerprint(kotlinFiles, javaFiles []*scanner.File) string {
+	entries := make([]string, 0, len(kotlinFiles)+len(javaFiles))
+	add := func(f *scanner.File) {
+		if f == nil {
+			return
+		}
+		entries = append(entries, f.Path+"\x00"+hashutil.Default().HashContent(f.Path, f.Content))
+	}
+	for _, f := range kotlinFiles {
+		add(f)
+	}
+	for _, f := range javaFiles {
+		add(f)
+	}
+	sort.Strings(entries)
+	return hashutil.HashHex([]byte(strings.Join(entries, "\x01")))
 }
 
 // oracleFilterFingerprint hashes the active rule IDs together with

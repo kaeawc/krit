@@ -167,10 +167,12 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			OracleFilterCache:     s.workspace,
 			CrossFileCacheDir:     scanner.CrossFileCacheDir(repoDir),
 			TypeIndexCacheDir:     typeinfer.TypeIndexCacheDir(repoDir),
-			AnalysisCache:         analysisCache,
-			AnalysisCacheFilePath: analysisCachePath,
-			AnalysisCacheLookup:   analysisCache != nil,
-			OracleDaemon:          oracleDaemon,
+			AnalysisCache:           analysisCache,
+			AnalysisCacheFilePath:   analysisCachePath,
+			AnalysisCacheLookup:     analysisCache != nil,
+			OracleDaemon:            oracleDaemon,
+			FindingsBundleStore:     scanner.DiskFindingsBundleStore{},
+			FindingsBundleCacheRoot: repoDir,
 		},
 	}, nil
 }

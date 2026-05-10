@@ -55,10 +55,10 @@ func listCommits(repoRoot, branch string, sinceSeconds int64, maxCount int) ([]c
 
 // worktreeWalk runs perCommit against each commit in commits using a
 // pool of workers. Each worker manages its own detached worktree under
-// scratchDir; gitMu serialises `git worktree add/remove` against the
-// primary repo's `.git/worktrees/` registry, where concurrent
-// mutations race even though git's per-worktree locks are
-// sequential-safe.
+// scratchDir; gitSem limits concurrent git worktree add/remove calls
+// to workers/2 (minimum 1). Each path is unique (workerID + sha prefix)
+// so there is no path collision, but the .git/worktrees registry still
+// benefits from partial serialisation on older git versions.
 //
 // perCommit returns nil for success or an error. Both outcomes are
 // reported through onResult so the caller drives accounting (event
@@ -70,7 +70,7 @@ type worktreeJob struct {
 }
 
 func worktreeWalk(repoRoot, scratchDir string, workers int, commits []string, perCommit func(worktreeJob) error, onResult func(sha string, err error)) {
-	var gitMu sync.Mutex
+	sem := gitSemaphore(workers)
 	jobs := make(chan int)
 	var wg sync.WaitGroup
 	wg.Add(workers)
@@ -79,7 +79,7 @@ func worktreeWalk(repoRoot, scratchDir string, workers int, commits []string, pe
 			defer wg.Done()
 			for idx := range jobs {
 				sha := commits[idx]
-				err := withWorktree(repoRoot, sha, scratchDir, workerID, &gitMu, func(path string) error {
+				err := withWorktree(repoRoot, sha, scratchDir, workerID, sem, func(path string) error {
 					return perCommit(worktreeJob{WorktreePath: path, SHA: sha, WorkerID: workerID})
 				})
 				if onResult != nil {
@@ -95,23 +95,27 @@ func worktreeWalk(repoRoot, scratchDir string, workers int, commits []string, pe
 	wg.Wait()
 }
 
-// withWorktree adds a detached worktree at sha, runs fn against its
-// path, and removes the worktree, all under gitMu for the git ops. The
-// per-worker subdir keys on workerID + short-sha so two workers can
-// never collide on path.
-func withWorktree(repoRoot, sha, scratchDir string, workerID int, gitMu *sync.Mutex, fn func(path string) error) error {
+func gitSemaphore(workers int) chan struct{} {
+	c := workers / 2
+	if c < 1 {
+		c = 1
+	}
+	return make(chan struct{}, c)
+}
+
+func withWorktree(repoRoot, sha, scratchDir string, workerID int, sem chan struct{}, fn func(path string) error) error {
 	worktreePath := filepath.Join(scratchDir, fmt.Sprintf("w%d-%s", workerID, sha[:12]))
 
-	gitMu.Lock()
+	sem <- struct{}{}
 	addErr := gitWorktreeAdd(repoRoot, worktreePath, sha)
-	gitMu.Unlock()
+	<-sem
 	if addErr != nil {
 		return addErr
 	}
 	defer func() {
-		gitMu.Lock()
+		sem <- struct{}{}
 		gitWorktreeRemove(repoRoot, worktreePath)
-		gitMu.Unlock()
+		<-sem
 	}()
 	return fn(worktreePath)
 }

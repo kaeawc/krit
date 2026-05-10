@@ -78,8 +78,7 @@ type CodeIndex struct {
 	refBloom *bloom.BloomFilter
 }
 
-// BuildIndex constructs a cross-file index from parsed Kotlin files,
-// optionally including Java files for reference-only indexing.
+// BuildIndex constructs a cross-file index from parsed Kotlin and Java files.
 func BuildIndex(files []*File, workers int, javaFiles ...*File) *CodeIndex {
 	return BuildIndexWithTracker(files, workers, nil, javaFiles...)
 }
@@ -109,15 +108,13 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 
 	// Warm path: full payload hit via unpackFull (includes lookup maps).
 	if cachedIdx, ok := LoadCrossFileCacheIndex(cacheDir, fingerprint); ok {
-		cachedIdx.Files = append(cachedIdx.Files, files...)
-		cachedIdx.Files = append(cachedIdx.Files, javaFiles...)
+		cachedIdx.Files = appendSourceFiles(cachedIdx.Files, files, javaFiles)
 		cachedIdx.Fingerprint = fingerprint
 		return cachedIdx, true
 	}
 
 	if idx, ok := buildIndexFromPriorOverlay(cacheDir, entries, files, javaFiles, xmlFiles, workers, tracker); ok {
-		idx.Files = append(idx.Files, files...)
-		idx.Files = append(idx.Files, javaFiles...)
+		idx.Files = appendSourceFiles(idx.Files, files, javaFiles)
 		idx.Fingerprint = fingerprint
 		return idx, false
 	}
@@ -128,8 +125,7 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 	// build skip the per-reference AddString loop.
 	symbols, refs, prebuiltBloom := collectIndexDataSharded(cacheDir, files, javaFiles, xmlFiles, workers, tracker)
 	idx := BuildIndexFromDataWithBloom(symbols, refs, prebuiltBloom, tracker)
-	idx.Files = append(idx.Files, files...)
-	idx.Files = append(idx.Files, javaFiles...)
+	idx.Files = appendSourceFiles(idx.Files, files, javaFiles)
 	idx.Fingerprint = fingerprint
 
 	meta := CrossFileCacheMeta{
@@ -147,9 +143,22 @@ func BuildIndexCached(cacheDir string, files []*File, workers int, tracker perf.
 func BuildIndexWithTracker(files []*File, workers int, tracker perf.Tracker, javaFiles ...*File) *CodeIndex {
 	symbols, refs := collectIndexDataWithTracker(files, workers, tracker, javaFiles...)
 	idx := BuildIndexFromDataWithTracker(symbols, refs, tracker)
-	idx.Files = append(idx.Files, files...)
-	idx.Files = append(idx.Files, javaFiles...)
+	idx.Files = appendSourceFiles(idx.Files, files, javaFiles)
 	return idx
+}
+
+// appendSourceFiles appends kotlin then java files to dst, pre-sizing to avoid
+// two allocations when both slices are non-empty.
+func appendSourceFiles(dst, kotlinFiles, javaFiles []*File) []*File {
+	need := len(dst) + len(kotlinFiles) + len(javaFiles)
+	if cap(dst) < need {
+		grown := make([]*File, len(dst), need)
+		copy(grown, dst)
+		dst = grown
+	}
+	dst = append(dst, kotlinFiles...)
+	dst = append(dst, javaFiles...)
+	return dst
 }
 
 // BuildIndexFromData constructs a CodeIndex from pre-collected symbols and

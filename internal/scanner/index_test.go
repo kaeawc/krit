@@ -458,24 +458,20 @@ func TestBuildIndex_JavaFilesAppearInIndexFiles(t *testing.T) {
 
 	idx := BuildIndex([]*File{kt}, 1, javaFile)
 
-	var paths []string
-	for _, f := range idx.Files {
-		paths = append(paths, f.Path)
-	}
 	hasKotlin, hasJava := false, false
-	for _, p := range paths {
-		if p == kotlinPath {
+	for _, f := range idx.Files {
+		switch f.Path {
+		case kotlinPath:
 			hasKotlin = true
-		}
-		if p == javaPath {
+		case javaPath:
 			hasJava = true
 		}
 	}
 	if !hasKotlin {
-		t.Errorf("CodeIndex.Files missing Kotlin file; got %v", paths)
+		t.Errorf("CodeIndex.Files missing Kotlin file %s", kotlinPath)
 	}
 	if !hasJava {
-		t.Errorf("CodeIndex.Files missing Java file; got %v", paths)
+		t.Errorf("CodeIndex.Files missing Java file %s", javaPath)
 	}
 }
 

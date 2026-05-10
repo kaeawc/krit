@@ -164,3 +164,52 @@ func TestMigratorChainExecutesInOrder(t *testing.T) {
 		t.Errorf("expected ordered v(N-2) -> v(N-1) -> v(N) chain; got calls=%v", calls)
 	}
 }
+
+func TestMigrateManifestV1ToV2_LiftsFlatCountsIntoStruct(t *testing.T) {
+	in := &Manifest{
+		SchemaVersion: 1,
+		CommitSHA:     "abc",
+		Files:         12,
+		Symbols:       34,
+		Modules:       2,
+	}
+	got, err := MigrateManifest(in)
+	if err != nil {
+		t.Fatalf("MigrateManifest: %v", err)
+	}
+	if got.SchemaVersion != ManifestSchemaVersion {
+		t.Errorf("SchemaVersion = %d; want %d", got.SchemaVersion, ManifestSchemaVersion)
+	}
+	if got.Counts.Files != 12 || got.Counts.Symbols != 34 || got.Counts.Modules != 2 {
+		t.Errorf("Counts not lifted: %+v", got.Counts)
+	}
+	// Flat fields should still be intact for v1 readers iterating
+	// the same manifest.
+	if got.Files != 12 || got.Symbols != 34 || got.Modules != 2 {
+		t.Errorf("flat counts dropped during migration: %+v", got)
+	}
+}
+
+func TestMigrateManifestV1ToV2_RoundTripsViaSaveLoad(t *testing.T) {
+	root := t.TempDir()
+	v1 := &Manifest{
+		SchemaVersion: 1,
+		CommitSHA:     "abcd1234",
+		Files:         5,
+		Symbols:       7,
+		Modules:       1,
+	}
+	if _, err := SaveManifest(root, v1); err != nil {
+		t.Fatalf("SaveManifest: %v", err)
+	}
+	got, err := LoadManifest(root, "abcd1234")
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+	if got.SchemaVersion != ManifestSchemaVersion {
+		t.Errorf("re-loaded schema = %d; want %d", got.SchemaVersion, ManifestSchemaVersion)
+	}
+	if got.Counts.Files != 5 || got.Counts.Symbols != 7 || got.Counts.Modules != 1 {
+		t.Errorf("Counts not populated on load: %+v", got.Counts)
+	}
+}

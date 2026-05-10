@@ -11,11 +11,26 @@ import (
 	"github.com/kaeawc/krit/internal/fsutil"
 )
 
-// ManifestSchemaVersion versions the JSON manifest layout. Bumped only
-// when a field is added that older readers cannot tolerate.
-const ManifestSchemaVersion = 1
+// ManifestSchemaVersion versions the JSON manifest layout.
+//
+//	v1 — flat Files / Symbols / Modules count fields at the top level.
+//	v2 — counts moved into a nested Counts struct so future additions
+//	     (LinesOfCode, FailedFiles, FindingsTotal) don't widen the
+//	     top-level shape. v1 readers still see the flat fields: writers
+//	     populate both, and the v1->v2 migrator copies them in on read
+//	     so older payloads compare correctly.
+const ManifestSchemaVersion = 2
 
 const manifestFileName = "manifest.json"
+
+// ManifestCounts is the per-snapshot count rollup nested under
+// Manifest at v2. New count fields land here without touching the
+// top-level shape.
+type ManifestCounts struct {
+	Files   int `json:"files"`
+	Symbols int `json:"symbols"`
+	Modules int `json:"modules"`
+}
 
 // Manifest is the JSON sidecar describing a captured snapshot. Greppable
 // without krit; lets callers answer "what shas have we captured, at
@@ -25,6 +40,11 @@ const manifestFileName = "manifest.json"
 // RuleSetHash is reserved for the findings-rollup phase: when non-empty
 // it identifies the rule registry + config used to compute findings,
 // so cross-version diffs can refuse to compare incomparable counts.
+//
+// The flat Files / Symbols / Modules fields and the nested Counts
+// struct carry the same numbers — writers populate both so v1 readers
+// (and grep/jq pipelines) keep working through the transition. New
+// code should prefer Counts.
 type Manifest struct {
 	SchemaVersion int      `json:"schema_version"`
 	CommitSHA     string   `json:"commit_sha"`
@@ -33,10 +53,14 @@ type Manifest struct {
 	KritVersion   string   `json:"krit_version"`
 	BlobSchema    int      `json:"blob_schema"`
 	MetricsSchema int      `json:"metrics_schema"`
-	Files         int      `json:"files"`
-	Symbols       int      `json:"symbols"`
-	Modules       int      `json:"modules"`
-	RuleSetHash   string   `json:"rule_set_hash,omitempty"`
+	// Files / Symbols / Modules are kept at the top level for v1
+	// reader compatibility. Prefer Counts in new code; the two move
+	// in lockstep.
+	Files       int            `json:"files"`
+	Symbols     int            `json:"symbols"`
+	Modules     int            `json:"modules"`
+	Counts      ManifestCounts `json:"counts"`
+	RuleSetHash string         `json:"rule_set_hash,omitempty"`
 }
 
 func manifestPath(root, sha string) (string, error) {
@@ -168,6 +192,11 @@ func buildManifest(res *Result, repoRoot, kritVersion string) *Manifest {
 		return nil
 	}
 	parents, _ := ResolveParentSHAs(repoRoot, res.Blob.CommitSHA)
+	counts := ManifestCounts{
+		Files:   len(res.Blob.Files),
+		Symbols: len(res.Blob.Symbols),
+		Modules: len(res.Blob.Modules),
+	}
 	m := &Manifest{
 		SchemaVersion: ManifestSchemaVersion,
 		CommitSHA:     res.Blob.CommitSHA,
@@ -175,9 +204,11 @@ func buildManifest(res *Result, repoRoot, kritVersion string) *Manifest {
 		CapturedAt:    res.Blob.CapturedAt,
 		KritVersion:   kritVersion,
 		BlobSchema:    res.Blob.SchemaVersion,
-		Files:         len(res.Blob.Files),
-		Symbols:       len(res.Blob.Symbols),
-		Modules:       len(res.Blob.Modules),
+		// Flat fields kept for v1 reader compatibility; mirror Counts.
+		Files:   counts.Files,
+		Symbols: counts.Symbols,
+		Modules: counts.Modules,
+		Counts:  counts,
 	}
 	if res.Metrics != nil {
 		m.MetricsSchema = res.Metrics.SchemaVersion

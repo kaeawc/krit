@@ -132,6 +132,12 @@ type IndexInput struct {
 	// UseDaemon mirrors --daemon: use the long-lived krit-types daemon
 	// instead of one-shot invocation.
 	UseDaemon bool
+	// PrebuiltOracleDaemon, when non-nil, is reused by runDaemonOracle
+	// instead of calling oracle.InvokeDaemon. The serve daemon's
+	// ensureOracleDaemon supplies a *oracle.Daemon kept alive across
+	// analyze-project verb calls; the JVM warmup cost (~seconds) is
+	// then paid once per krit-serve lifetime instead of per call.
+	PrebuiltOracleDaemon *oracle.Daemon
 	// Store is the optional unified store for oracle cache entries.
 	Store *store.FileStore
 	// OracleCacheWriter, when non-nil, defers cold oracle cache-entry
@@ -284,17 +290,34 @@ func (in IndexInput) trackSerial(name string, fn func() error) error {
 // Name implements Phase.
 func (IndexPhase) Name() string { return "index" }
 
-// buildTypeResolver builds or selects the type resolver for downstream rules.
-// When a prebuilt or oracle-wrapped resolver is available it is used directly;
-// otherwise a fresh resolver is indexed in parallel when any active rule
-// declares NeedsResolver.
-func (p IndexPhase) buildTypeResolver(ctx context.Context, in IndexInput, resolverForOracle typeinfer.TypeResolver, caps api.Capabilities) (typeinfer.TypeResolver, error) {
+// buildTypeResolver picks the final dispatcher resolver. PrebuiltResolver
+// (LSP-supplied) wins; otherwise the resolverForOracle (which is either a
+// caller-provided BaseResolver, or one produced by buildBaseResolver below
+// and possibly wrapped by runOracle) flows through. Returns nil when the
+// active rule set declares no NeedsResolver capability and no caller
+// supplied a resolver.
+func (p IndexPhase) buildTypeResolver(_ context.Context, in IndexInput, resolverForOracle typeinfer.TypeResolver, caps api.Capabilities) (typeinfer.TypeResolver, error) {
 	if in.PrebuiltResolver != nil {
 		return in.PrebuiltResolver, nil
 	}
 	if resolverForOracle != nil {
 		return resolverForOracle, nil
 	}
+	if p.SkipResolverIndex || !caps.Has(api.NeedsResolver) {
+		return nil, nil
+	}
+	return nil, nil
+}
+
+// buildBaseResolver constructs (or fetches from the cache) the source-level
+// resolver that runOracle wraps. Pulled out of buildTypeResolver so the
+// resolver-building work happens before the oracle gate — IndexPhase.Run
+// passes the result in as resolverForOracle, which lets runDaemonOracle
+// see a non-nil base and actually wrap it.
+//
+// Returns nil when the active rule set declares no NeedsResolver capability
+// or the phase is configured to skip resolver indexing.
+func (p IndexPhase) buildBaseResolver(ctx context.Context, in IndexInput, caps api.Capabilities) (typeinfer.TypeResolver, error) {
 	if p.SkipResolverIndex || !caps.Has(api.NeedsResolver) {
 		return nil, nil
 	}
@@ -445,6 +468,16 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 	caps := unionNeeds(in.ActiveRules)
 
 	resolverForOracle := in.BaseResolver
+	if resolverForOracle == nil && in.PrebuiltResolver == nil {
+		// Build the base resolver up-front so runOracle has something
+		// to wrap. Returns nil when no rule needs a resolver — that's
+		// the early-out the oracle gate below also enforces.
+		built, err := p.buildBaseResolver(ctx, in, caps)
+		if err != nil {
+			return IndexResult{}, err
+		}
+		resolverForOracle = built
+	}
 	if !in.SkipOracle && in.OracleEnabled && resolverForOracle != nil && len(rules.KotlinOracleRulesV2(in.ActiveRules)) > 0 {
 		resolverForOracle = p.runOracle(in, resolverForOracle, &result)
 	}
@@ -573,13 +606,17 @@ func (p IndexPhase) runDaemonOracle(in IndexInput, oracleRules []*api.Rule, scan
 	callFilterPtr := buildOracleCallTargetFilterForInvocation(oracleRules, loadOracleFilterFiles, oracleTracker, in.Reporter)
 
 	var d *oracle.Daemon
-	var daemonErr error
-	oracleTracker.TrackVoid("jvmStart", func() {
-		d, daemonErr = oracle.InvokeDaemon(scanPaths, in.Verbose)
-	})
-	if daemonErr != nil {
-		in.warnf("warning: daemon: %v\n", daemonErr)
-		return base
+	if in.PrebuiltOracleDaemon != nil {
+		d = in.PrebuiltOracleDaemon
+	} else {
+		var daemonErr error
+		oracleTracker.TrackVoid("jvmStart", func() {
+			d, daemonErr = oracle.InvokeDaemon(scanPaths, in.Verbose)
+		})
+		if daemonErr != nil {
+			in.warnf("warning: daemon: %v\n", daemonErr)
+			return base
+		}
 	}
 	result.Daemon = d
 

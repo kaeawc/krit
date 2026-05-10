@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/kaeawc/krit/internal/cacheutil"
@@ -47,6 +48,11 @@ func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawM
 		state.analyzeMu.Unlock()
 		return nil, errDaemonNotWarm
 	}
+	// Health-check + auto-rebuild any cached oracle daemons before
+	// the verb runs. A JVM that died (OOM, host kill) gets replaced
+	// here so RunProject sees a live handle. No-op when no daemon is
+	// cached. See issue #125 PR-A for the lifecycle plumbing.
+	state.pingOracleDaemon()
 	start := time.Now()
 	dirty := state.workspace.DrainDirty()
 
@@ -124,6 +130,19 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 	// it and persist to disk on each call.
 	analysisCache, analysisCachePath := s.analysisCacheFor(paths)
 
+	// OracleDaemon is daemon-resident: lazy-started on first request
+	// when krit-types.jar is found. nil daemon means oracle stays
+	// disabled (no JVM, no behavior change vs. pre-#125). Per-verb
+	// ping happens at the call boundary in handleAnalyzeProject.
+	oracleDaemon, err := s.ensureOracleDaemon(paths)
+	if err != nil {
+		// Best-effort degrade: a failed daemon start shouldn't fail
+		// the whole verb. Log via stderr; the verb continues with
+		// oracle disabled.
+		fmt.Fprintf(os.Stderr, "warning: oracle daemon start: %v\n", err)
+		oracleDaemon = nil
+	}
+
 	return pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{
 			Config:           cfg,
@@ -136,11 +155,8 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			WarningsAsErrors: args.WarningsAsErrors,
 			IncludeGenerated: args.IncludeGenerated,
 			Version:          kritVersion(),
+			OracleEnabled:    oracleDaemon != nil,
 		},
-		// Oracle daemon-resident wiring will land in a follow-up commit
-		// (see #48). RunProject treats nil as "construct per-call as the
-		// CLI runner does today", so the verb is already correct — just
-		// slower than its eventual ceiling.
 		Host: pipeline.ProjectHostState{
 			ParseCache:            parseCache,
 			LibraryFactsCache:     s.workspace,
@@ -150,6 +166,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			TypeIndexCacheDir:     typeinfer.TypeIndexCacheDir(repoDir),
 			AnalysisCache:         analysisCache,
 			AnalysisCacheFilePath: analysisCachePath,
+			OracleDaemon:          oracleDaemon,
 		},
 	}, nil
 }

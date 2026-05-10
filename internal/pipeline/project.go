@@ -64,6 +64,11 @@ type ProjectArgs struct {
 	// ExperimentNames are the active experiment flag names echoed in
 	// JSON output.
 	ExperimentNames []string
+	// OracleEnabled, when true, runs the oracle pipeline inside
+	// IndexPhase (auto-detect / --input-types / --daemon paths). The
+	// daemon sets this true when ensureOracleDaemon found a
+	// krit-types JAR; the CLI sets it from --type-oracle.
+	OracleEnabled bool
 }
 
 // ProjectHostState is the long-lived subset of ProjectInput: state a
@@ -242,6 +247,18 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		TypeIndexCacheDir:    host.TypeIndexCacheDir,
 		Reporter:             host.Reporter,
 		Tracker:              host.Tracker,
+	}
+	// Wire the oracle handle when the host supplied one + the args
+	// requested oracle. UseDaemon is forced on so runDaemonOracle is
+	// the path that picks up PrebuiltOracleDaemon. NoOracleFilter is
+	// forced on for now: the filter pre-scan is per-call and would
+	// negate the daemon-resident savings until #125 PR-C caches it.
+	if args.OracleEnabled && host.OracleDaemon != nil {
+		indexInput.OracleEnabled = true
+		indexInput.UseDaemon = true
+		indexInput.PrebuiltOracleDaemon = host.OracleDaemon
+		indexInput.OracleScanPaths = args.Paths
+		indexInput.NoOracleFilter = true
 	}
 	indexResult, err := IndexPhase{Workers: args.Workers}.Run(ctx, indexInput)
 	if err != nil {

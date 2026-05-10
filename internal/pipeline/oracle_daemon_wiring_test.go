@@ -99,4 +99,3 @@ func TestRunProject_OracleDaemonNotWiredWhenDisabled(t *testing.T) {
 	// run completes; oracle handle never gets touched.
 	_ = res
 }
-

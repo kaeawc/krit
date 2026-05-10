@@ -296,17 +296,17 @@ func (IndexPhase) Name() string { return "index" }
 // and possibly wrapped by runOracle) flows through. Returns nil when the
 // active rule set declares no NeedsResolver capability and no caller
 // supplied a resolver.
-func (p IndexPhase) buildTypeResolver(_ context.Context, in IndexInput, resolverForOracle typeinfer.TypeResolver, caps api.Capabilities) (typeinfer.TypeResolver, error) {
+func (p IndexPhase) buildTypeResolver(in IndexInput, resolverForOracle typeinfer.TypeResolver, caps api.Capabilities) typeinfer.TypeResolver {
 	if in.PrebuiltResolver != nil {
-		return in.PrebuiltResolver, nil
+		return in.PrebuiltResolver
 	}
 	if resolverForOracle != nil {
-		return resolverForOracle, nil
+		return resolverForOracle
 	}
 	if p.SkipResolverIndex || !caps.Has(api.NeedsResolver) {
-		return nil, nil
+		return nil
 	}
-	return nil, nil
+	return nil
 }
 
 // buildBaseResolver constructs (or fetches from the cache) the source-level
@@ -482,11 +482,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		resolverForOracle = p.runOracle(in, resolverForOracle, &result)
 	}
 
-	resolver, err := p.buildTypeResolver(ctx, in, resolverForOracle, caps)
-	if err != nil {
-		return IndexResult{}, err
-	}
-	result.Resolver = resolver
+	result.Resolver = p.buildTypeResolver(in, resolverForOracle, caps)
 
 	if graph := p.discoverModuleGraph(in); graph != nil {
 		result.Graph = graph

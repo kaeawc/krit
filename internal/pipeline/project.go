@@ -98,6 +98,13 @@ type ProjectHostState struct {
 	// the disk-backed cross-file cache (CrossFileCacheDir) and finally
 	// to scanner.BuildIndex. *WorkspaceState satisfies this interface.
 	CodeIndexCache CodeIndexCache
+	// ResolverCache, when non-nil, memoizes the typeinfer.TypeResolver
+	// across calls. IndexPhase consults the slot before falling through
+	// to a fresh resolver + IndexFilesParallel*. The slot is keyed by
+	// the sorted (path, content-hash) pairs of all indexed Kotlin
+	// files, so mismatches force a complete rebuild rather than a
+	// stale-entry leak. *WorkspaceState satisfies this interface.
+	ResolverCache ResolverCache
 	// CrossFileCacheDir, when non-empty, enables the on-disk cross-file
 	// CodeIndex cache (zstd-encoded shards under .krit/crossfile-cache).
 	// Independent of CodeIndexCache: the disk cache is shared across
@@ -218,6 +225,7 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		PrebuiltLibraryFacts: host.PrebuiltLibraryFacts,
 		LibraryFactsCache:    host.LibraryFactsCache,
 		CodeIndexCache:       host.CodeIndexCache,
+		ResolverCache:        host.ResolverCache,
 		CrossFileCacheDir:    host.CrossFileCacheDir,
 		Reporter:             host.Reporter,
 		Tracker:              host.Tracker,

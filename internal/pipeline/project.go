@@ -257,28 +257,7 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		Reporter:             host.Reporter,
 		Tracker:              host.Tracker,
 	}
-	// Wire the oracle handle when the host supplied one + the args
-	// requested oracle. UseDaemon is forced on so runDaemonOracle is
-	// the path that picks up PrebuiltOracleDaemon.
-	if args.OracleEnabled && host.OracleDaemon != nil {
-		indexInput.OracleEnabled = true
-		indexInput.UseDaemon = true
-		indexInput.PrebuiltOracleDaemon = host.OracleDaemon
-		indexInput.OracleScanPaths = args.Paths
-		// Memoize the oracle call filter. The classification is the
-		// dominant per-call oracle cost (annotated-identifier scans
-		// over every Kotlin file). When the host supplies a cache, we
-		// fingerprint the rule + file set and reuse the cached filter
-		// across calls. Without a cache we fall through to the per-
-		// call rebuild inside selectOracleCallFilter.
-		if host.OracleFilterCache != nil {
-			fp := oracleFilterFingerprint(args.ActiveRules, parseResult.KotlinFiles)
-			indexInput.PrebuiltOracleCallFilter = host.OracleFilterCache.OracleFilter(fp, func() *oracle.CallTargetFilterSummary {
-				summary := rules.BuildOracleCallTargetFilterV2ForFiles(args.ActiveRules, parseResult.KotlinFiles)
-				return &summary
-			})
-		}
-	}
+	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
 	indexResult, err := IndexPhase{Workers: args.Workers}.Run(ctx, indexInput)
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("index: %w", err)
@@ -378,6 +357,28 @@ func projectRuleHash(activeRules []*api.Rule, cfg *config.Config) string {
 		}
 	}
 	return cache.ComputeConfigHash(ruleNames, cfg, false)
+}
+
+// wireOracleHandles fills in the oracle-related IndexInput fields when
+// the caller opted in via args.OracleEnabled and the host supplied a
+// daemon handle. Extracted from RunProject to keep its cyclomatic
+// complexity manageable.
+func wireOracleHandles(in *IndexInput, args ProjectArgs, host ProjectHostState, kotlinFiles []*scanner.File) {
+	if !args.OracleEnabled || host.OracleDaemon == nil {
+		return
+	}
+	in.OracleEnabled = true
+	in.UseDaemon = true
+	in.PrebuiltOracleDaemon = host.OracleDaemon
+	in.OracleScanPaths = args.Paths
+	if host.OracleFilterCache == nil {
+		return
+	}
+	fp := oracleFilterFingerprint(args.ActiveRules, kotlinFiles)
+	in.PrebuiltOracleCallFilter = host.OracleFilterCache.OracleFilter(fp, func() *oracle.CallTargetFilterSummary {
+		summary := rules.BuildOracleCallTargetFilterV2ForFiles(args.ActiveRules, kotlinFiles)
+		return &summary
+	})
 }
 
 // oracleFilterFingerprint hashes the active rule IDs together with

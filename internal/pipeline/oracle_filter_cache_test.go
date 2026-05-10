@@ -10,24 +10,6 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// countingOracleFilterCache is a test fake for OracleFilterCache that
-// counts how often build() actually fires.
-type countingOracleFilterCache struct {
-	cached *oracle.CallTargetFilterSummary
-	fp     string
-	builds int
-}
-
-func (c *countingOracleFilterCache) OracleFilter(fingerprint string, build func() *oracle.CallTargetFilterSummary) *oracle.CallTargetFilterSummary {
-	if c.cached != nil && c.fp == fingerprint {
-		return c.cached
-	}
-	c.cached = build()
-	c.fp = fingerprint
-	c.builds++
-	return c.cached
-}
-
 // TestOracleFilterFingerprint_StableAndDistinct verifies the
 // fingerprint is order-independent over rules + files and changes
 // when either input changes.

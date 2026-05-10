@@ -8,6 +8,7 @@ import (
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sourceheader"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -415,9 +416,7 @@ func handlerFileImportForSimple(file *scanner.File, simple string) (string, bool
 		}
 		switch file.FlatType(idx) {
 		case "import_header", "import_declaration":
-			text := strings.TrimSpace(file.FlatNodeText(idx))
-			text = strings.TrimPrefix(text, "import")
-			text = strings.TrimSpace(strings.TrimSuffix(text, ";"))
+			text := sourceheader.FirstHeaderLine(file.FlatNodeText(idx), "import")
 			text = strings.TrimSuffix(text, ".*")
 			if handlerSimpleTypeName(text) == simple {
 				out = text

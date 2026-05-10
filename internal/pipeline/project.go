@@ -113,6 +113,11 @@ type ProjectResult struct {
 	Stats rules.RunStats
 	// Caches is the unified cache stats array for the run.
 	Caches []cacheutil.NamedCacheStats
+	// ParseHits and ParseMisses report the per-call delta against
+	// ProjectInput.ParseCache (when one is attached). Both stay 0 when
+	// the input ran without a parse cache.
+	ParseHits   int64
+	ParseMisses int64
 }
 
 // RunProject runs the core scan pipeline against the given input and
@@ -148,6 +153,11 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 	if format == "" {
 		format = "json"
 	}
+
+	// Snapshot the parse-cache counters at the start of the run so the
+	// post-run delta is the per-call hit/miss accounting we report back
+	// to daemon clients. nil ParseCache returns the zero value.
+	hits0, misses0 := parseCacheCounters(in.ParseCache)
 
 	// Phase 1: parse.
 	parseResult, err := ParsePhase{Workers: in.Workers}.Run(ctx, ParseInput{
@@ -222,6 +232,7 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		return ProjectResult{}, fmt.Errorf("output: %w", err)
 	}
 
+	hits1, misses1 := parseCacheCounters(in.ParseCache)
 	return ProjectResult{
 		JSON:          buf.Bytes(),
 		FinalFindings: outResult.FinalFindings,
@@ -229,5 +240,18 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		FindingsCount: outResult.FinalFindings.Len(),
 		ParseErrors:   parseResult.ParseErrors,
 		Stats:         dispatchResult.Stats,
+		ParseHits:     hits1 - hits0,
+		ParseMisses:   misses1 - misses0,
 	}, nil
+}
+
+// parseCacheCounters extracts the cumulative Hits/Misses pair from a
+// *scanner.ParseCache. nil pc returns (0, 0). RunProject snaps these
+// before and after the run so the delta is the per-call accounting.
+func parseCacheCounters(pc *scanner.ParseCache) (int64, int64) {
+	if pc == nil {
+		return 0, 0
+	}
+	s := pc.Stats()
+	return s.Hits, s.Misses
 }

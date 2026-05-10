@@ -175,14 +175,6 @@ type AnalyzeProjectResult struct {
 // for clients that want to log warm-vs-cold cadence, or for tests
 // asserting that the dirty-set behaves as expected after a single-
 // file change.
-//
-// Parse-cache hit/miss accounting is intentionally absent: the
-// daemon-resident *scanner.ParseCache used by RunProject does not
-// yet expose per-call hit/miss deltas through the daemon's
-// observable surface. WorkspaceState's hit/miss counters track a
-// different cache (used by analyze-buffer) and would mislead
-// callers if reported here. Plumbing real per-call cache stats
-// from RunProject's ProjectResult is tracked as a follow-up.
 type AnalyzeProjectStats struct {
 	FilesScanned    int     `json:"files_scanned"`
 	FindingsCount   int     `json:"findings_count"`
@@ -197,4 +189,9 @@ type AnalyzeProjectStats struct {
 	// Cold is true on the first analyze-project call after daemon
 	// startup; subsequent calls report false.
 	Cold bool `json:"cold"`
+	// ParseHits and ParseMisses are the per-call delta against the
+	// resident parse cache (combined Kotlin + Java). Both stay 0 when
+	// no parse cache is attached.
+	ParseHits   int64 `json:"parse_hits"`
+	ParseMisses int64 `json:"parse_misses"`
 }

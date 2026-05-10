@@ -129,14 +129,12 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			IncludeGenerated: args.IncludeGenerated,
 			Version:          kritVersion(),
 		},
-		Host: pipeline.ProjectHostState{
-			ParseCache: parseCache,
-			// Resolver, Oracle, AnalysisCache, PrebuiltLibraryFacts will
-			// be wired in as the daemon promotes them to resident state
-			// in follow-up commits. RunProject treats nil as "construct
-			// per-call as the CLI runner does today", so the verb is
-			// already correct — just slower than its eventual ceiling.
-		},
+		// Resolver, Oracle, AnalysisCache, PrebuiltLibraryFacts will be
+		// wired into Host as the daemon promotes them to resident state
+		// in follow-up commits (see #48). RunProject treats nil as
+		// "construct per-call as the CLI runner does today", so the
+		// verb is already correct — just slower than its eventual ceiling.
+		Host: pipeline.ProjectHostState{ParseCache: parseCache},
 	}, nil
 }
 

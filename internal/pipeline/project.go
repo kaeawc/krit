@@ -316,35 +316,10 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		}
 	}
 
-	// Whole-run findings cache. When the host supplies a store +
-	// cache root, compute the RunFingerprint from rules/config/source
-	// set/cross-file/Android/libraryFacts and try a Load. On hit we
-	// skip dispatch + cross-file entirely and feed the cached
-	// FindingColumns straight through OutputPhase. See #55.
 	runFP, bundleEnabled := computeRunFingerprint(args, host, parseResult, indexResult)
-	var dispatchResult DispatchResult
-	var crossFileResult CrossFileResult
-	var bundleHit bool
-	if bundleEnabled {
-		if cached, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, runFP); ok && cached != nil {
-			dispatchResult = DispatchResult{IndexResult: indexResult, Findings: *cached}
-			crossFileResult = CrossFileResult{DispatchResult: dispatchResult}
-			bundleHit = true
-		}
-	}
-	if !bundleHit {
-		// Phase 3: dispatch (per-file rules).
-		var err error
-		dispatchResult, err = DispatchPhase{}.Run(ctx, indexResult)
-		if err != nil {
-			return ProjectResult{}, fmt.Errorf("dispatch: %w", err)
-		}
-
-		// Phase 4: cross-file rules.
-		crossFileResult, err = CrossFilePhase{Workers: args.Workers}.Run(ctx, dispatchResult)
-		if err != nil {
-			return ProjectResult{}, fmt.Errorf("crossfile: %w", err)
-		}
+	dispatchResult, crossFileResult, bundleHit, err := runDispatchOrLoadBundle(ctx, args, host, indexResult, runFP, bundleEnabled)
+	if err != nil {
+		return ProjectResult{}, err
 	}
 
 	// Phase 5: output to an in-memory buffer.
@@ -462,6 +437,35 @@ func wireOracleHandles(in *IndexInput, args ProjectArgs, host ProjectHostState, 
 		summary := rules.BuildOracleCallTargetFilterV2ForFiles(args.ActiveRules, kotlinFiles)
 		return &summary
 	})
+}
+
+// runDispatchOrLoadBundle resolves dispatch + cross-file findings,
+// either by reusing a cached bundle (full RunFingerprint hit) or by
+// running the normal DispatchPhase + CrossFilePhase. Extracted from
+// RunProject to keep cyclomatic budget in check.
+func runDispatchOrLoadBundle(
+	ctx context.Context,
+	args ProjectArgs,
+	host ProjectHostState,
+	indexResult IndexResult,
+	runFP scanner.RunFingerprint,
+	bundleEnabled bool,
+) (DispatchResult, CrossFileResult, bool, error) {
+	if bundleEnabled {
+		if cached, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, runFP); ok && cached != nil {
+			d := DispatchResult{IndexResult: indexResult, Findings: *cached}
+			return d, CrossFileResult{DispatchResult: d}, true, nil
+		}
+	}
+	d, err := DispatchPhase{}.Run(ctx, indexResult)
+	if err != nil {
+		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("dispatch: %w", err)
+	}
+	c, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, d)
+	if err != nil {
+		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("crossfile: %w", err)
+	}
+	return d, c, false, nil
 }
 
 // computeRunFingerprint builds a scanner.RunFingerprint from the run's

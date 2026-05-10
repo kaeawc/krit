@@ -36,9 +36,9 @@ func (r *recordingBundleStore) Save(root string, fp scanner.RunFingerprint, cols
 // skips dispatch + cross-file work) and produces byte-equal output.
 //
 // Asserts both:
-//   1. Save fires on the first (miss) call.
-//   2. Load returns the cached value on the second call AND output
-//      matches the first.
+//  1. Save fires on the first (miss) call.
+//  2. Load returns the cached value on the second call AND output
+//     matches the first.
 func TestRunProject_FindingsBundleCache_HitSkipsDispatch(t *testing.T) {
 	dir := t.TempDir()
 	cacheRoot := t.TempDir()

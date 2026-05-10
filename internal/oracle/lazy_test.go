@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func writeLazyOracleJSON(t *testing.T, dir string) string {
@@ -75,4 +76,44 @@ func TestLazyLookupReportsLoadErrorOnce(t *testing.T) {
 	if lazy.Err() == nil {
 		t.Fatal("expected retained load error")
 	}
+}
+
+func TestLazyLookupPreload_LoadsAhead(t *testing.T) {
+	path := writeLazyOracleJSON(t, t.TempDir())
+	lazy := NewLazyLookup(path, nil)
+	lazy.Preload()
+
+	// Spin briefly waiting for the goroutine to land. Generous bound
+	// because cold-cache test runners can drift.
+	deadline := time.Now().Add(time.Second)
+	for !lazy.Loaded() && time.Now().Before(deadline) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if !lazy.Loaded() {
+		t.Fatalf("Preload did not populate within 1s")
+	}
+}
+
+func TestLazyLookupPreload_IdempotentWithLookup(t *testing.T) {
+	path := writeLazyOracleJSON(t, t.TempDir())
+	lazy := NewLazyLookup(path, nil)
+	for i := 0; i < 5; i++ {
+		lazy.Preload()
+	}
+	info := lazy.LookupClass("Foo")
+	if info == nil {
+		t.Fatalf("LookupClass after Preload returned nil")
+	}
+	if info.FQN != "com.example.Foo" {
+		t.Fatalf("FQN = %q; want com.example.Foo", info.FQN)
+	}
+}
+
+func TestLazyLookupPreload_NilSafe(t *testing.T) {
+	var l *LazyLookup
+	l.Preload() // must not panic
+	if got := (&LazyLookup{}).Loaded(); got {
+		t.Fatalf("empty path should not load; Loaded() = %v", got)
+	}
+	(&LazyLookup{}).Preload() // path == "" — must not panic or load
 }

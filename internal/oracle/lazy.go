@@ -29,13 +29,33 @@ func (l *LazyLookup) get() *Oracle {
 	if l == nil || l.path == "" {
 		return nil
 	}
-	l.once.Do(func() {
-		l.loaded, l.err = Load(l.path)
-		if l.err != nil && l.onError != nil {
-			l.onError(l.err)
-		}
-	})
+	l.once.Do(l.load)
 	return l.loaded
+}
+
+// load is the once-guarded body invoked by both get() and Preload.
+// Pulled out as a method so Preload can hand it to once.Do without
+// allocating a fresh closure per call.
+func (l *LazyLookup) load() {
+	l.loaded, l.err = Load(l.path)
+	if l.err != nil && l.onError != nil {
+		l.onError(l.err)
+	}
+}
+
+// Preload kicks off the JSON deserialization in a background goroutine
+// so the first lookup observes a warm sync.Once instead of paying the
+// load latency itself. On large repos (Kotlin compiler: ~41 MB
+// types.json) the deferred load was ~500 ms, surfacing in per-rule
+// timings as whichever rule happened to fire first — Preload moves
+// that wall time off the rule path. Idempotent: multiple Preload
+// calls (or Preload followed by a real lookup) coalesce on the same
+// sync.Once.
+func (l *LazyLookup) Preload() {
+	if l == nil || l.path == "" {
+		return
+	}
+	go l.once.Do(l.load)
 }
 
 // Loaded reports whether the JSON has been deserialized successfully.

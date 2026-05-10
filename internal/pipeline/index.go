@@ -673,6 +673,10 @@ func (p IndexPhase) loadOracleFromPath(in IndexInput, oraclePath string, oracleT
 	lazy := oracle.NewLazyLookup(oraclePath, func(err error) {
 		in.warnf("warning: type oracle: %v\n", err)
 	})
+	// Move the JSON deserialization off the rule path; on large
+	// projects this is ~500 ms otherwise charged to whichever rule
+	// fires first. See #57.
+	lazy.Preload()
 	return oracle.NewCompositeResolver(lazy, base)
 }
 

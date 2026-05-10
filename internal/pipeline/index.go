@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"time"
@@ -61,7 +62,13 @@ type IndexInput struct {
 	PrebuiltResolver typeinfer.TypeResolver
 	// PrebuiltLibraryFacts, when non-nil, is passed through to downstream
 	// rule contexts instead of being rebuilt from detected Gradle files.
+	// Highest precedence — wins over LibraryFactsCache.
 	PrebuiltLibraryFacts *librarymodel.Facts
+	// LibraryFactsCache, when non-nil and PrebuiltLibraryFacts is nil,
+	// memoizes the constructed Facts across calls. The fingerprint key
+	// is derived from the discovered Gradle paths; the host's watcher
+	// drops the slot when Gradle / version-catalog files change.
+	LibraryFactsCache LibraryFactsCache
 	// Reporter routes verbose progress and warning lines from IndexPhase.
 	// Nil means silent.
 	Reporter *diag.Reporter
@@ -315,6 +322,16 @@ func (p IndexPhase) discoverModuleGraph(in IndexInput) *module.Graph {
 	return graph
 }
 
+// libraryFactsFingerprint is a stable cache key for a Gradle path set.
+// Watcher-driven InvalidateLibraryFacts is the source of truth for
+// staleness; this just needs to differ between distinct path sets so
+// concurrent projects don't collide on the same daemon's cache slot.
+func libraryFactsFingerprint(gradlePaths []string) string {
+	sorted := append([]string(nil), gradlePaths...)
+	sort.Strings(sorted)
+	return strings.Join(sorted, "\x00")
+}
+
 // detectAndroidProject detects the Android project and populates
 // LibraryFacts from its Gradle paths when not already set.
 func (p IndexPhase) detectAndroidProject(in IndexInput, result *IndexResult) {
@@ -323,8 +340,15 @@ func (p IndexPhase) detectAndroidProject(in IndexInput, result *IndexResult) {
 	}
 	result.AndroidProject = android.DetectProject(in.Paths)
 	if result.LibraryFacts == nil && result.AndroidProject != nil {
-		profile := librarymodel.ProfileFromGradlePaths(result.AndroidProject.GradlePaths)
-		result.LibraryFacts = librarymodel.FactsForProfile(profile)
+		gradle := result.AndroidProject.GradlePaths
+		build := func() *librarymodel.Facts {
+			return librarymodel.FactsForProfile(librarymodel.ProfileFromGradlePaths(gradle))
+		}
+		if in.LibraryFactsCache != nil && len(gradle) > 0 {
+			result.LibraryFacts = in.LibraryFactsCache.LibraryFacts(libraryFactsFingerprint(gradle), build)
+		} else {
+			result.LibraryFacts = build()
+		}
 	}
 }
 

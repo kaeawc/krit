@@ -19,6 +19,14 @@ import (
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
+// LibraryFactsCache lets a long-lived host (typically *WorkspaceState)
+// memoize *librarymodel.Facts across RunProject calls so the daemon
+// doesn't repay Gradle/version-catalog discovery on every analyze.
+// build is invoked on a fingerprint mismatch.
+type LibraryFactsCache interface {
+	LibraryFacts(fingerprint string, build func() *librarymodel.Facts) *librarymodel.Facts
+}
+
 // ProjectArgs is the per-call subset of ProjectInput: caller-provided
 // knobs that mirror a small, stable subset of CLI flags. These change
 // per request and are never stashed by the daemon.
@@ -77,7 +85,14 @@ type ProjectHostState struct {
 	PrebuiltResolver typeinfer.TypeResolver
 	// PrebuiltLibraryFacts, when non-nil, is forwarded to rule
 	// contexts instead of being rebuilt from detected Gradle files.
+	// Highest precedence — wins over LibraryFactsCache.
 	PrebuiltLibraryFacts *librarymodel.Facts
+	// LibraryFactsCache, when non-nil, is consulted in IndexPhase to
+	// reuse a daemon-resident *librarymodel.Facts across calls. Cache
+	// invalidation is the host's responsibility (the daemon's file
+	// watcher fires WorkspaceState.InvalidateLibraryFacts on Gradle /
+	// version-catalog edits). *WorkspaceState satisfies this interface.
+	LibraryFactsCache LibraryFactsCache
 	// Oracle, when non-nil, is the resident type-oracle handle.
 	Oracle *oracle.Oracle
 	// OracleDaemon, when non-nil, is the long-lived krit-types JVM
@@ -190,6 +205,7 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		ParseResult:          parseResult,
 		PrebuiltResolver:     host.PrebuiltResolver,
 		PrebuiltLibraryFacts: host.PrebuiltLibraryFacts,
+		LibraryFactsCache:    host.LibraryFactsCache,
 		Reporter:             host.Reporter,
 		Tracker:              host.Tracker,
 	}

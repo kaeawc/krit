@@ -3,6 +3,8 @@ package scanner
 import (
 	"strconv"
 	"strings"
+
+	"github.com/kaeawc/krit/internal/sourceheader"
 )
 
 func indexFile(file *File) ([]Symbol, []Reference) {
@@ -207,34 +209,11 @@ func packageNameForFile(file *File) string {
 }
 
 // parsePackageHeaderText extracts a clean dotted package name from a
-// `package_header` node's text. Tree-sitter Kotlin sometimes attaches
-// trailing comments and whitespace to the package_header node, so we
-// take only the first non-empty, non-comment line and strip the leading
-// `package` keyword.
+// `package_header` node's text. Tree-sitter Kotlin/Java sometimes
+// attaches trailing comments and whitespace to the header node, so we
+// strip the `package` keyword off the first source line.
 func parsePackageHeaderText(raw string) string {
-	// Single-pass scan: walk the line-delimited string in place so we
-	// don't allocate a slice covering every line for the typical
-	// one-or-two-line header. Mirrors firstSourceLine in rename;
-	// same shape — see #46.
-	for s := raw; ; {
-		var line string
-		i := strings.IndexByte(s, '\n')
-		if i < 0 {
-			line = strings.TrimSpace(s)
-		} else {
-			line = strings.TrimSpace(s[:i])
-		}
-		if line != "" && !strings.HasPrefix(line, "//") && !strings.HasPrefix(line, "/*") {
-			line = strings.TrimPrefix(line, "package")
-			line = strings.TrimSpace(line)
-			line = strings.TrimSuffix(line, ";")
-			return strings.TrimSpace(line)
-		}
-		if i < 0 {
-			return ""
-		}
-		s = s[i+1:]
-	}
+	return sourceheader.FirstHeaderLine(raw, "package")
 }
 
 func kotlinPackageName(file *File) string {

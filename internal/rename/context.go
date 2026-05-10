@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sourceheader"
 )
 
 // fileContext captures the package, imports, and their byte ranges for a
@@ -45,7 +46,7 @@ func buildFileContext(file *scanner.File) fileContext {
 		switch file.FlatType(idx) {
 		case "package_header", "package_declaration":
 			if ctx.Package == "" {
-				ctx.Package = firstHeaderLine(file.FlatNodeText(idx), "package")
+				ctx.Package = sourceheader.FirstHeaderLine(file.FlatNodeText(idx), "package")
 				ctx.PackageRange = clampToFirstLine(file, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
 			}
 		case "import_header":
@@ -147,7 +148,7 @@ type parsedImport struct {
 
 func recordImport(file *scanner.File, idx uint32, ctx *fileContext, parse func(string) parsedImport) {
 	rng := clampToFirstLine(file, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
-	tgt := parse(firstSourceLine(file.FlatNodeText(idx)))
+	tgt := parse(sourceheader.FirstSourceLine(file.FlatNodeText(idx)))
 	switch {
 	case tgt.alias != "" && tgt.fqn != "":
 		entry := importInfo{FQN: tgt.fqn, Range: rng}
@@ -201,37 +202,6 @@ func trimImportLine(raw string) string {
 	return strings.TrimSpace(text)
 }
 
-// firstSourceLine returns the first non-empty, non-comment line of raw,
-// trimmed. Used to ignore trailing trivia that tree-sitter sometimes
-// attaches to header nodes.
-func firstSourceLine(raw string) string {
-	for s := raw; ; {
-		i := strings.IndexByte(s, '\n')
-		var line string
-		if i < 0 {
-			line = strings.TrimSpace(s)
-		} else {
-			line = strings.TrimSpace(s[:i])
-		}
-		if line != "" && !strings.HasPrefix(line, "//") && !strings.HasPrefix(line, "/*") {
-			return line
-		}
-		if i < 0 {
-			return ""
-		}
-		s = s[i+1:]
-	}
-}
-
-// firstHeaderLine returns the first non-empty, non-comment line of raw with
-// the given keyword stripped.
-func firstHeaderLine(raw, keyword string) string {
-	line := firstSourceLine(raw)
-	line = strings.TrimPrefix(line, keyword)
-	line = strings.TrimSpace(line)
-	line = strings.TrimSuffix(line, ";")
-	return strings.TrimSpace(line)
-}
 
 // clampToFirstLine narrows a byte range to its first line so a header
 // rewriter doesn't erase trailing comments that tree-sitter sometimes

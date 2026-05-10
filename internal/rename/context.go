@@ -202,7 +202,6 @@ func trimImportLine(raw string) string {
 	return strings.TrimSpace(text)
 }
 
-
 // clampToFirstLine narrows a byte range to its first line so a header
 // rewriter doesn't erase trailing comments that tree-sitter sometimes
 // attaches to a header node.

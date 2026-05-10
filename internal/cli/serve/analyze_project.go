@@ -78,6 +78,8 @@ func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawM
 			WallSeconds:     time.Since(start).Seconds(),
 			CodeIndexHit:    xfile.HasCodeIndex,
 			LibraryFactsHit: xfile.HasLibraryFacts,
+			ResolverHit:     xfile.HasResolver,
+			OracleFilterHit: xfile.HasOracleFilter,
 			DirtyFiles:      len(dirty),
 			Cold:            cold,
 			ParseHits:       out.ParseHits,

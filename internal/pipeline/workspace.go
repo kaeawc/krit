@@ -328,6 +328,8 @@ type CrossFileStats struct {
 	HasLibraryFacts bool
 	HasCodeIndex    bool
 	HasDependents   bool
+	HasResolver     bool
+	HasOracleFilter bool
 }
 
 // CrossFileStats returns a snapshot of the cross-file slots.
@@ -341,6 +343,8 @@ func (w *WorkspaceState) CrossFileStats() CrossFileStats {
 		HasLibraryFacts: w.libraryFacts.present,
 		HasCodeIndex:    w.codeIndex.present,
 		HasDependents:   w.dependents.present,
+		HasResolver:     w.resolver.present,
+		HasOracleFilter: w.oracleFilter.present,
 	}
 }
 

@@ -12,11 +12,12 @@ import (
 )
 
 type renameCommand struct {
-	FromFQN string
-	ToFQN   string
-	Paths   []string
-	Jobs    int
-	Apply   bool
+	FromFQN                   string
+	ToFQN                     string
+	Paths                     []string
+	Jobs                      int
+	Apply                     bool
+	AllowMultipleDeclarations bool
 }
 
 func Run(args []string) int {
@@ -25,6 +26,7 @@ func Run(args []string) int {
 	fs.SetOutput(os.Stderr)
 	fs.IntVar(&cmd.Jobs, "j", runtime.NumCPU(), "Number of parallel jobs")
 	fs.BoolVar(&cmd.Apply, "apply", false, "Apply the rename to the working tree (default: dry-run)")
+	fs.BoolVar(&cmd.AllowMultipleDeclarations, "allow-multiple-declarations", false, "Bypass the multi-decl ambiguity guard (e.g. for legitimate Kotlin overload sets sharing an FQN)")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: krit rename [flags] <from-fqn> <to-fqn> [paths...]")
 		fs.PrintDefaults()
@@ -66,7 +68,9 @@ func runRenameCommand(cmd renameCommand) int {
 		return 2
 	}
 
-	if err := krename.ValidatePlan(plan); err != nil {
+	if err := krename.ValidatePlan(plan, krename.ValidateOptions{
+		AllowMultipleDeclarations: cmd.AllowMultipleDeclarations,
+	}); err != nil {
 		fmt.Fprintf(os.Stderr, "error: rename: %v\n", err)
 		return 2
 	}

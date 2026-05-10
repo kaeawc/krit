@@ -8,12 +8,26 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
+// ValidateOptions tunes ValidatePlan's safety guards. The zero value
+// is the safe default (the multi-decl ambiguity guard is enforced).
+type ValidateOptions struct {
+	// AllowMultipleDeclarations skips the multi-decl guard so renames
+	// across legitimate overload sets — e.g. extension functions that
+	// share an FQN, or a class plus a companion-object member sharing
+	// a name — go through. Apply still rewrites every matching site.
+	AllowMultipleDeclarations bool
+}
+
 // ValidatePlan reports conflicts that would make the rename ambiguous or
 // destructive: more than one declaration matching FromFQN, or an existing
-// declaration already at ToFQN.
-func ValidatePlan(plan Plan) error {
-	if len(plan.Declarations) > 1 {
-		return fmt.Errorf("rename: %s resolves to %d declarations; refusing to proceed", plan.Target.FromFQN, len(plan.Declarations))
+// declaration already at ToFQN. Pass options to relax specific guards.
+func ValidatePlan(plan Plan, opts ...ValidateOptions) error {
+	var o ValidateOptions
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	if len(plan.Declarations) > 1 && !o.AllowMultipleDeclarations {
+		return fmt.Errorf("rename: %s resolves to %d declarations; refusing to proceed (pass --allow-multiple-declarations to bypass)", plan.Target.FromFQN, len(plan.Declarations))
 	}
 	if plan.Target.FromFQN == plan.Target.ToFQN {
 		return fmt.Errorf("rename: from and to are identical")

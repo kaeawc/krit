@@ -121,12 +121,15 @@ krit snapshot gate origin/main HEAD \
     --max-delta files=20
 ```
 
-- `--max-abs metric=v` — cap on the to-side absolute reading
-- `--max-delta metric=v` — cap on the absolute increase
-- `--max-pct metric=v` — cap on the percent increase from the from-side
+- `--max-abs [module/]metric=v` — cap on the to-side absolute reading
+- `--max-delta [module/]metric=v` — cap on the absolute increase
+- `--max-pct [module/]metric=v` — cap on the percent increase from the from-side
 
-Multiple flags on the same metric stack independently. Repo-scope only
-in v1.
+Bare metric names (`loc`, `cyclomatic`) target the repo-scope reading;
+prefixing with a module path (`:feature:checkout/fan_in`,
+`:app/cyclomatic`) targets that module's reading from the diff. The
+split is on the last `/`, so module IDs containing `/` survive intact.
+Multiple flags on the same metric stack independently.
 
 ### CI usage
 

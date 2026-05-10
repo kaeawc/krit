@@ -391,9 +391,9 @@ func runGate(args []string) int {
 	repoFlag := fs.String("repo", "", "repository root (default: cwd)")
 	formatFlag := fs.String("format", "text", "output format: text|json")
 	var maxAbs, maxDelta, maxPct clishared.MultiString
-	fs.Var(&maxAbs, "max-abs", "metric=value (absolute cap on the to-side reading); repeatable")
-	fs.Var(&maxDelta, "max-delta", "metric=value (cap on absolute increase); repeatable")
-	fs.Var(&maxPct, "max-pct", "metric=value (cap on percent increase from from-side); repeatable")
+	fs.Var(&maxAbs, "max-abs", "[module/]metric=value (absolute cap on to-side); repeatable")
+	fs.Var(&maxDelta, "max-delta", "[module/]metric=value (cap on absolute increase); repeatable")
+	fs.Var(&maxPct, "max-pct", "[module/]metric=value (cap on percent increase from from-side); repeatable")
 	positional, rest := clishared.SplitPositional(args, 2)
 	if err := fs.Parse(rest); err != nil {
 		return 1
@@ -450,16 +450,19 @@ func runGate(args []string) int {
 }
 
 func parseGateThresholds(maxAbs, maxDelta, maxPct []string) ([]snap.GateThreshold, error) {
-	byMetric := make(map[string]*snap.GateThreshold)
+	type key struct{ module, metric string }
+	byKey := make(map[key]*snap.GateThreshold)
 	add := func(raw, kind string) error {
-		metric, value, err := parseMetricKV(raw)
+		spec, value, err := parseMetricKV(raw)
 		if err != nil {
 			return err
 		}
-		t := byMetric[metric]
+		module, metric := splitModuleMetric(spec)
+		k := key{module: module, metric: metric}
+		t := byKey[k]
 		if t == nil {
-			t = &snap.GateThreshold{Metric: metric}
-			byMetric[metric] = t
+			t = &snap.GateThreshold{Module: module, Metric: metric}
+			byKey[k] = t
 		}
 		v := value
 		switch kind {
@@ -487,11 +490,25 @@ func parseGateThresholds(maxAbs, maxDelta, maxPct []string) ([]snap.GateThreshol
 			return nil, err
 		}
 	}
-	out := make([]snap.GateThreshold, 0, len(byMetric))
-	for _, t := range byMetric {
+	out := make([]snap.GateThreshold, 0, len(byKey))
+	for _, t := range byKey {
 		out = append(out, *t)
 	}
 	return out, nil
+}
+
+// splitModuleMetric splits a threshold spec into (module, metric).
+// Bare metric names ("loc") return ("", "loc"); a module-prefixed
+// form (":app/cyclomatic", "app/loc") returns the leading segment as
+// module and the trailing segment as metric. The split is on the
+// LAST '/' so module paths that themselves contain '/' (rare but
+// legal in nested Gradle module IDs) survive intact.
+func splitModuleMetric(spec string) (string, string) {
+	idx := strings.LastIndexByte(spec, '/')
+	if idx < 0 {
+		return "", spec
+	}
+	return spec[:idx], spec[idx+1:]
 }
 
 func parseMetricKV(raw string) (string, float64, error) {
@@ -515,8 +532,12 @@ func printGateText(res *snap.GateResult) {
 	}
 	fmt.Printf("gate: %d violation(s)\n", len(res.Violations))
 	for _, v := range res.Violations {
-		fmt.Printf("  %-16s %s: limit=%g got=%g (from=%g to=%g)\n",
-			v.Metric, v.Constraint, v.Limit, v.Got, v.From, v.To)
+		label := v.Metric
+		if v.Module != "" {
+			label = v.Module + "/" + v.Metric
+		}
+		fmt.Printf("  %-32s %s: limit=%g got=%g (from=%g to=%g)\n",
+			label, v.Constraint, v.Limit, v.Got, v.From, v.To)
 	}
 }
 

@@ -42,7 +42,53 @@ type defaultResolver struct {
 	// IndexFilesParallel (their tree-sitter root differs), so this
 	// avoids a per-call AST walk for the implicit-java.lang shadow check.
 	javaTopLevelNames sync.Map // map[string]map[string]struct{}
+
+	// binSymbols is an optional classpath-aware reader consulted in
+	// ClassHierarchy when source-side maps miss. nil = no fallback,
+	// the resolver behaves exactly as before (KnownClassHierarchy /
+	// KnownInterfaces stubs only). Wired by SetBinSymbolReader.
+	binSymbols binarySymbolReader
 }
+
+// binarySymbolReader is the local interface shape typeinfer consumes
+// from the binsymbols package. Defined here so typeinfer doesn't import
+// binsymbols and create a cycle if a future caller needs to embed
+// resolver state in a binsymbols-aware producer.
+type binarySymbolReader interface {
+	LookupClass(fqn string) *binarySymbolClass
+}
+
+// binarySymbolClass is the local mirror of binsymbols.Class. The
+// SetBinSymbolReader entry point converts at the boundary so the
+// typeinfer package doesn't import binsymbols.
+type binarySymbolClass struct {
+	Name       string
+	FQN        string
+	Kind       string
+	Supertypes []string
+	IsAbstract bool
+	IsSealed   bool
+}
+
+// SetBinSymbolReader wires a classpath-aware binary symbol reader.
+// Pass nil to clear. The reader is consulted in ClassHierarchy after
+// source-side maps and before the hardcoded KnownClassHierarchy /
+// KnownInterfaces tables, so it can resolve refs that the workspace
+// imports from JARs/AARs.
+//
+// lookup must be safe for concurrent use; ClassHierarchy is called
+// from rule dispatch which fans out across files in parallel.
+func (r *defaultResolver) SetBinSymbolReader(lookup func(fqn string) *binarySymbolClass) {
+	if lookup == nil {
+		r.binSymbols = nil
+		return
+	}
+	r.binSymbols = binarySymbolReaderFunc(lookup)
+}
+
+type binarySymbolReaderFunc func(fqn string) *binarySymbolClass
+
+func (f binarySymbolReaderFunc) LookupClass(fqn string) *binarySymbolClass { return f(fqn) }
 
 // NewResolver creates a new resolver backed by source-level analysis.
 func NewResolver() *defaultResolver { //nolint:revive // tests access unexported fields directly
@@ -912,6 +958,22 @@ func (r *defaultResolver) ClassHierarchy(typeName string) *ClassInfo {
 	if info, ok := r.classes[typeName]; ok {
 		return info
 	}
+	// Classpath-aware fallback. Consulted after source-side maps so any
+	// workspace-declared type wins over a same-FQN library entry, and
+	// before hardcoded tables so binary readers can refine the small
+	// stdlib stubs.
+	if r.binSymbols != nil {
+		if c := r.binSymbols.LookupClass(typeName); c != nil {
+			return &ClassInfo{
+				Name:       coalesceString(c.Name, simpleNameOf(c.FQN)),
+				FQN:        coalesceString(c.FQN, typeName),
+				Kind:       c.Kind,
+				Supertypes: c.Supertypes,
+				IsSealed:   c.IsSealed,
+				IsAbstract: c.IsAbstract,
+			}
+		}
+	}
 	// Fall back to known framework hierarchy (by FQN)
 	if supertypes, ok := KnownClassHierarchy[typeName]; ok {
 		return &ClassInfo{Name: simpleNameOf(typeName), FQN: typeName, Supertypes: supertypes}
@@ -929,6 +991,15 @@ func (r *defaultResolver) ClassHierarchy(typeName string) *ClassInfo {
 		}
 	}
 	return nil
+}
+
+func coalesceString(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func (r *defaultResolver) SealedVariants(sealedTypeName string) []string {

@@ -126,9 +126,42 @@ func TestFileWatcher_AddsNewSubdir(t *testing.T) {
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	// Wait briefly so the watcher's Create handler picks up the new
-	// directory and starts watching it.
-	time.Sleep(50 * time.Millisecond)
+
+	// Wait for the watcher to register the new subdir before writing
+	// into it. Polling beats a fixed sleep: on a busy CI runner the
+	// subscription can take >50ms to propagate, which is the source of
+	// this test's historical flake (#80). The probe re-arms the file
+	// each iteration and waits for the watcher to invalidate it; once
+	// that happens we know the subdir is being watched and can drive
+	// the real assertion.
+	probe := filepath.Join(sub, "Probe.kt")
+	probeReady := false
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !probeReady {
+		if err := os.WriteFile(probe, []byte("fun p() {}\n"), 0o644); err != nil {
+			t.Fatalf("probe write: %v", err)
+		}
+		if _, err := ws.ParseFile(context.Background(), probe, []byte("fun p() {}\n")); err != nil {
+			t.Fatalf("probe parse: %v", err)
+		}
+		if err := os.WriteFile(probe, []byte("fun p() { 1 }\n"), 0o644); err != nil {
+			t.Fatalf("probe rewrite: %v", err)
+		}
+		probeDeadline := time.Now().Add(200 * time.Millisecond)
+		for time.Now().Before(probeDeadline) {
+			if ws.Stats().ParsedEntries == 0 {
+				probeReady = true
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if !probeReady {
+		t.Fatalf("watcher never picked up new subdir within 2s; stats=%+v", ws.Stats())
+	}
+	if err := os.Remove(probe); err != nil {
+		t.Fatalf("remove probe: %v", err)
+	}
 
 	path := filepath.Join(sub, "New.kt")
 	if err := os.WriteFile(path, []byte("fun n() {}\n"), 0o644); err != nil {

@@ -33,11 +33,13 @@ func TestRunProject_RoundTrip(t *testing.T) {
 	)
 
 	res, err := RunProject(context.Background(), ProjectInput{
-		Config:      config.NewConfig(),
-		Paths:       []string{dir},
-		ActiveRules: []*api.Rule{rule},
-		Format:      "json",
-		Version:     "test",
+		Args: ProjectArgs{
+			Config:      config.NewConfig(),
+			Paths:       []string{dir},
+			ActiveRules: []*api.Rule{rule},
+			Format:      "json",
+			Version:     "test",
+		},
 	})
 	if err != nil {
 		t.Fatalf("RunProject: %v", err)
@@ -74,17 +76,17 @@ func TestRunProject_RejectsEmptyInputs(t *testing.T) {
 	}{
 		{
 			name: "no config",
-			in:   ProjectInput{Paths: []string{"."}, ActiveRules: []*api.Rule{api.FakeRule("R")}},
+			in:   ProjectInput{Args: ProjectArgs{Paths: []string{"."}, ActiveRules: []*api.Rule{api.FakeRule("R")}}},
 			want: "Config is required",
 		},
 		{
 			name: "no rules",
-			in:   ProjectInput{Config: config.NewConfig(), Paths: []string{"."}},
+			in:   ProjectInput{Args: ProjectArgs{Config: config.NewConfig(), Paths: []string{"."}}},
 			want: "ActiveRules is empty",
 		},
 		{
 			name: "no paths",
-			in:   ProjectInput{Config: config.NewConfig(), ActiveRules: []*api.Rule{api.FakeRule("R")}},
+			in:   ProjectInput{Args: ProjectArgs{Config: config.NewConfig(), ActiveRules: []*api.Rule{api.FakeRule("R")}}},
 			want: "Paths is empty",
 		},
 	}
@@ -111,10 +113,12 @@ func TestRunProject_DefaultsFormatToJSON(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	res, err := RunProject(context.Background(), ProjectInput{
-		Config:      config.NewConfig(),
-		Paths:       []string{dir},
-		ActiveRules: []*api.Rule{api.FakeRule("Noop")},
-		// Format intentionally empty.
+		Args: ProjectArgs{
+			Config:      config.NewConfig(),
+			Paths:       []string{dir},
+			ActiveRules: []*api.Rule{api.FakeRule("Noop")},
+			// Format intentionally empty.
+		},
 	})
 	if err != nil {
 		t.Fatalf("RunProject: %v", err)

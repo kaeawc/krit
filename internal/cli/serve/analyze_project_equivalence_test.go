@@ -60,12 +60,14 @@ func TestAnalyzeProject_OutputMatchesDirectRunProject(t *testing.T) {
 	t.Cleanup(func() { _ = pc.Close() })
 
 	directResult, err := pipeline.RunProject(context.Background(), pipeline.ProjectInput{
-		Config:      cfg,
-		Paths:       []string{state.root},
-		ActiveRules: activeRules,
-		Format:      "json",
-		Version:     "test",
-		ParseCache:  pc,
+		Args: pipeline.ProjectArgs{
+			Config:      cfg,
+			Paths:       []string{state.root},
+			ActiveRules: activeRules,
+			Format:      "json",
+			Version:     "test",
+		},
+		Host: pipeline.ProjectHostState{ParseCache: pc},
 	})
 	if err != nil {
 		t.Fatalf("direct RunProject: %v", err)

@@ -117,22 +117,26 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 	}
 
 	return pipeline.ProjectInput{
-		Config:           cfg,
-		Paths:            paths,
-		ActiveRules:      activeRules,
-		Format:           args.Format,
-		BaselinePath:     args.BaselinePath,
-		DiffRef:          args.DiffRef,
-		MinConfidence:    args.MinConfidence,
-		WarningsAsErrors: args.WarningsAsErrors,
-		IncludeGenerated: args.IncludeGenerated,
-		Version:          kritVersion(),
-		ParseCache:       parseCache,
-		// Resolver, Oracle, AnalysisCache, PrebuiltLibraryFacts will
-		// be wired in as the daemon promotes them to resident state
-		// in follow-up commits. RunProject treats nil as "construct
-		// per-call as the CLI runner does today", so the verb is
-		// already correct — just slower than its eventual ceiling.
+		Args: pipeline.ProjectArgs{
+			Config:           cfg,
+			Paths:            paths,
+			ActiveRules:      activeRules,
+			Format:           args.Format,
+			BaselinePath:     args.BaselinePath,
+			DiffRef:          args.DiffRef,
+			MinConfidence:    args.MinConfidence,
+			WarningsAsErrors: args.WarningsAsErrors,
+			IncludeGenerated: args.IncludeGenerated,
+			Version:          kritVersion(),
+		},
+		Host: pipeline.ProjectHostState{
+			ParseCache: parseCache,
+			// Resolver, Oracle, AnalysisCache, PrebuiltLibraryFacts will
+			// be wired in as the daemon promotes them to resident state
+			// in follow-up commits. RunProject treats nil as "construct
+			// per-call as the CLI runner does today", so the verb is
+			// already correct — just slower than its eventual ceiling.
+		},
 	}, nil
 }
 

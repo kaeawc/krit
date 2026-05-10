@@ -19,21 +19,10 @@ import (
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
-// ProjectInput is the value type that drives RunProject. It is a flat
-// aggregation of the long-lived state a daemon (or any other long-lived
-// host) wants to keep resident across calls, plus the per-call knobs
-// that mirror a small, stable subset of CLI flags. Every reference-typed
-// field is optional; RunProject tolerates nil and lets the embedded
-// phases construct fresh state when needed.
-//
-// The CLI's existing scan.runner remains the canonical orchestrator for
-// `krit -f json`; ProjectInput exists so the daemon's analyze-project
-// verb can share one execution path with the CLI without dragging in
-// CLI-only concerns (CPU profiling, baseline-audit verb scaffolding,
-// experiment-matrix logic, fix application, output-file routing).
-type ProjectInput struct {
-	// --- Per-call inputs ---
-
+// ProjectArgs is the per-call subset of ProjectInput: caller-provided
+// knobs that mirror a small, stable subset of CLI flags. These change
+// per request and are never stashed by the daemon.
+type ProjectArgs struct {
 	// Config is the loaded krit.yml / .krit.yml. Required.
 	Config *config.Config
 	// Paths are the scan target paths (files or directories). Required.
@@ -67,9 +56,13 @@ type ProjectInput struct {
 	// ExperimentNames are the active experiment flag names echoed in
 	// JSON output.
 	ExperimentNames []string
+}
 
-	// --- Long-lived host state (all optional) ---
-
+// ProjectHostState is the long-lived subset of ProjectInput: state a
+// daemon (or any other long-lived host) wants to keep resident across
+// calls. Every field is optional; RunProject tolerates nil and lets the
+// embedded phases construct fresh state when needed.
+type ProjectHostState struct {
 	// Reporter routes verbose progress and warning lines.
 	Reporter *diag.Reporter
 	// Tracker, when non-nil, wraps expensive sub-phases for --perf.
@@ -95,6 +88,21 @@ type ProjectInput struct {
 	AnalysisCache *cache.Cache
 }
 
+// ProjectInput is the value type that drives RunProject. The split
+// between Args (per-call) and Host (long-lived) makes call sites
+// self-documenting: in.Args.Format is request-scoped, in.Host.ParseCache
+// is daemon-resident.
+//
+// The CLI's existing scan.runner remains the canonical orchestrator for
+// `krit -f json`; ProjectInput exists so the daemon's analyze-project
+// verb can share one execution path with the CLI without dragging in
+// CLI-only concerns (CPU profiling, baseline-audit verb scaffolding,
+// experiment-matrix logic, fix application, output-file routing).
+type ProjectInput struct {
+	Args ProjectArgs
+	Host ProjectHostState
+}
+
 // ProjectResult is the value type returned from RunProject.
 type ProjectResult struct {
 	// JSON is the formatted output bytes (in the requested Format).
@@ -114,7 +122,7 @@ type ProjectResult struct {
 	// Caches is the unified cache stats array for the run.
 	Caches []cacheutil.NamedCacheStats
 	// ParseHits and ParseMisses report the per-call delta against
-	// ProjectInput.ParseCache (when one is attached). Both stay 0 when
+	// ProjectInput.Host.ParseCache (when one is attached). Both stay 0 when
 	// the input ran without a parse cache.
 	ParseHits   int64
 	ParseMisses int64
@@ -135,21 +143,23 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 	if err := ctx.Err(); err != nil {
 		return ProjectResult{}, err
 	}
-	if in.Config == nil {
+	args := in.Args
+	host := in.Host
+	if args.Config == nil {
 		return ProjectResult{}, fmt.Errorf("RunProject: Config is required")
 	}
-	if len(in.ActiveRules) == 0 {
+	if len(args.ActiveRules) == 0 {
 		return ProjectResult{}, fmt.Errorf("RunProject: ActiveRules is empty")
 	}
-	if len(in.Paths) == 0 {
+	if len(args.Paths) == 0 {
 		return ProjectResult{}, fmt.Errorf("RunProject: Paths is empty")
 	}
 
-	startTime := in.StartTime
+	startTime := args.StartTime
 	if startTime.IsZero() {
 		startTime = time.Now()
 	}
-	format := in.Format
+	format := args.Format
 	if format == "" {
 		format = "json"
 	}
@@ -157,18 +167,18 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 	// Snapshot the parse-cache counters at the start of the run so the
 	// post-run delta is the per-call hit/miss accounting we report back
 	// to daemon clients. nil ParseCache returns the zero value.
-	hits0, misses0 := parseCacheCounters(in.ParseCache)
+	hits0, misses0 := parseCacheCounters(host.ParseCache)
 
 	// Phase 1: parse.
-	parseResult, err := ParsePhase{Workers: in.Workers}.Run(ctx, ParseInput{
-		Config:           in.Config,
-		Paths:            in.Paths,
-		ActiveRules:      in.ActiveRules,
-		IncludeGenerated: in.IncludeGenerated,
-		Workers:          in.Workers,
-		Reporter:         in.Reporter,
-		Tracker:          in.Tracker,
-		ParseCache:       in.ParseCache,
+	parseResult, err := ParsePhase{Workers: args.Workers}.Run(ctx, ParseInput{
+		Config:           args.Config,
+		Paths:            args.Paths,
+		ActiveRules:      args.ActiveRules,
+		IncludeGenerated: args.IncludeGenerated,
+		Workers:          args.Workers,
+		Reporter:         host.Reporter,
+		Tracker:          host.Tracker,
+		ParseCache:       host.ParseCache,
 	})
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("parse: %w", err)
@@ -178,12 +188,12 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 	// graph, and (when an oracle handle is supplied) wires it through.
 	indexInput := IndexInput{
 		ParseResult:          parseResult,
-		PrebuiltResolver:     in.PrebuiltResolver,
-		PrebuiltLibraryFacts: in.PrebuiltLibraryFacts,
-		Reporter:             in.Reporter,
-		Tracker:              in.Tracker,
+		PrebuiltResolver:     host.PrebuiltResolver,
+		PrebuiltLibraryFacts: host.PrebuiltLibraryFacts,
+		Reporter:             host.Reporter,
+		Tracker:              host.Tracker,
 	}
-	indexResult, err := IndexPhase{Workers: in.Workers}.Run(ctx, indexInput)
+	indexResult, err := IndexPhase{Workers: args.Workers}.Run(ctx, indexInput)
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("index: %w", err)
 	}
@@ -193,13 +203,13 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 	// so DispatchPhase / CrossFilePhase see the resident state. When
 	// IndexInput is later extended to accept a prebuilt oracle this
 	// fallback becomes obsolete.
-	if in.Oracle != nil && indexResult.Oracle == nil {
-		indexResult.Oracle = in.Oracle
+	if host.Oracle != nil && indexResult.Oracle == nil {
+		indexResult.Oracle = host.Oracle
 	}
-	if in.OracleDaemon != nil && indexResult.Daemon == nil {
-		indexResult.Daemon = in.OracleDaemon
+	if host.OracleDaemon != nil && indexResult.Daemon == nil {
+		indexResult.Daemon = host.OracleDaemon
 	}
-	indexResult.Cache = in.AnalysisCache
+	indexResult.Cache = host.AnalysisCache
 
 	// Phase 3: dispatch (per-file rules).
 	dispatchResult, err := DispatchPhase{}.Run(ctx, indexResult)
@@ -208,7 +218,7 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 	}
 
 	// Phase 4: cross-file rules.
-	crossFileResult, err := CrossFilePhase{Workers: in.Workers}.Run(ctx, dispatchResult)
+	crossFileResult, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, dispatchResult)
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("crossfile: %w", err)
 	}
@@ -220,19 +230,19 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		FixupResult:      fixupView,
 		Writer:           &buf,
 		Format:           format,
-		BaselinePath:     in.BaselinePath,
-		DiffRef:          in.DiffRef,
+		BaselinePath:     args.BaselinePath,
+		DiffRef:          args.DiffRef,
 		StartTime:        startTime,
-		Version:          in.Version,
-		ExperimentNames:  in.ExperimentNames,
-		WarningsAsErrors: in.WarningsAsErrors,
-		MinConfidence:    in.MinConfidence,
+		Version:          args.Version,
+		ExperimentNames:  args.ExperimentNames,
+		WarningsAsErrors: args.WarningsAsErrors,
+		MinConfidence:    args.MinConfidence,
 	})
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("output: %w", err)
 	}
 
-	hits1, misses1 := parseCacheCounters(in.ParseCache)
+	hits1, misses1 := parseCacheCounters(host.ParseCache)
 	return ProjectResult{
 		JSON:          buf.Bytes(),
 		FinalFindings: outResult.FinalFindings,

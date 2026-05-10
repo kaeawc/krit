@@ -118,7 +118,7 @@ class Foo
 `
 	file := parseTestFile(t, src)
 
-	got := extractPackageFlat(0, file)
+	got := extractPackageFlat(file)
 	if got != "com.example.app" {
 		t.Errorf("expected 'com.example.app', got %q", got)
 	}
@@ -129,7 +129,7 @@ func TestExtractPackage_NoPackage(t *testing.T) {
 `
 	file := parseTestFile(t, src)
 
-	got := extractPackageFlat(0, file)
+	got := extractPackageFlat(file)
 	if got != "" {
 		t.Errorf("expected empty string for no package, got %q", got)
 	}
@@ -147,7 +147,7 @@ class Foo
 `
 	file := parseTestFile(t, src)
 
-	got := extractPackageFlat(0, file)
+	got := extractPackageFlat(file)
 	if got != "com.example.app" {
 		t.Errorf("expected 'com.example.app' (trivia stripped), got %q", got)
 	}
@@ -208,7 +208,7 @@ class Foo
 `
 	file := parseTestFile(t, src)
 
-	got := extractPackageFlat(0, file)
+	got := extractPackageFlat(file)
 	if got != "org.example" {
 		t.Errorf("expected 'org.example', got %q", got)
 	}

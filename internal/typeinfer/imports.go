@@ -80,6 +80,6 @@ func extractImportsFlat(nodeIdx uint32, file *scanner.File, it *ImportTable) {
 	})
 }
 
-func extractPackageFlat(rootIdx uint32, file *scanner.File) string {
-	return scanFileHeadersFlat(rootIdx, file).pkg
+func extractPackageFlat(file *scanner.File) string {
+	return scanFileHeadersFlat(0, file).pkg
 }

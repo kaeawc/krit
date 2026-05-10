@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/kaeawc/krit/internal/fsutil"
 )
@@ -68,6 +69,14 @@ func SaveManifest(root string, m *Manifest) (string, error) {
 	if err := fsutil.WriteFileAtomic(path, payload, 0o644); err != nil {
 		return "", fmt.Errorf("snapshot: write %s: %w", path, err)
 	}
+	// Best-effort rollup update so `snapshot status` is O(1). A failure
+	// here doesn't fail capture — LoadManifests falls back to scanning.
+	if err := upsertIndex(root, m); err != nil {
+		// Surface as a non-fatal warning via stderr would belong here,
+		// but the snapshot package is reporter-free; swallow and let
+		// the next status fall back to the scan path.
+		_ = err
+	}
 	return path, nil
 }
 
@@ -87,9 +96,19 @@ func LoadManifest(root, sha string) (*Manifest, error) {
 	return &m, nil
 }
 
-// LoadManifests returns every captured sha's manifest under root, sorted
-// by sha. Missing or malformed manifests are skipped silently.
+// LoadManifests returns every captured sha's manifest under root,
+// sorted by sha. Missing or malformed manifests are skipped silently.
+//
+// Prefers the index.json rollup (O(1) read) when present; falls back
+// to the legacy per-sha scan when the rollup is missing (older
+// captures), unreadable (corruption), or carries a newer schema.
 func LoadManifests(root string) ([]Manifest, error) {
+	if idx, err := LoadIndex(root); err == nil && idx != nil {
+		out := make([]Manifest, len(idx.Entries))
+		copy(out, idx.Entries)
+		sort.Slice(out, func(i, j int) bool { return out[i].CommitSHA < out[j].CommitSHA })
+		return out, nil
+	}
 	entries, err := List(root)
 	if err != nil {
 		return nil, err

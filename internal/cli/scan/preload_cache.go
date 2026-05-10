@@ -50,11 +50,11 @@ func (f *AnalysisCacheLoadFuture) Start() {
 	}
 	f.once.Do(func() {
 		go func() {
+			// Recover-into-nil: leave f.cache == nil on panic so Await
+			// callers fall back to synchronous load. close(f.done)
+			// always runs so receivers never deadlock.
 			defer func() {
-				if r := recover(); r != nil {
-					// Leave f.cache == nil so Await callers fall back
-					// to synchronous load.
-				}
+				_ = recover()
 				close(f.done)
 			}()
 			start := time.Now()

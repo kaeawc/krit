@@ -3,9 +3,12 @@ package pipeline
 import (
 	"context"
 	"runtime"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/module"
@@ -53,6 +56,15 @@ func (CrossFilePhase) classifyCrossFileNeeds(activeRules []*api.Rule) (hasIndexB
 
 // buildOrReuseCodeIndex returns the pre-built CodeIndex when available;
 // otherwise it builds a new one when hasIndexBacked is true.
+//
+// Build precedence:
+//   - in.CodeIndex non-nil: caller already built it; use as-is.
+//   - !hasIndexBacked: rules don't need cross-file data; nil.
+//   - in.CodeIndexCache non-nil: in-memory slot keyed by content
+//     fingerprint. Cache miss falls through to the disk-backed cache
+//     when CrossFileCacheDir is set, else uncached BuildIndex.
+//   - in.CrossFileCacheDir non-empty: BuildIndexCached (disk-backed).
+//   - default: scanner.BuildIndex (uncached).
 func (p CrossFilePhase) buildOrReuseCodeIndex(in DispatchResult, hasIndexBacked bool) *scanner.CodeIndex {
 	if in.CodeIndex != nil || !hasIndexBacked {
 		return in.CodeIndex
@@ -64,7 +76,40 @@ func (p CrossFilePhase) buildOrReuseCodeIndex(in DispatchResult, hasIndexBacked 
 			workers = 1
 		}
 	}
-	return scanner.BuildIndex(in.KotlinFiles, workers, in.JavaFiles...)
+	build := func() *scanner.CodeIndex {
+		if in.CrossFileCacheDir != "" {
+			idx, _ := scanner.BuildIndexCached(in.CrossFileCacheDir, in.KotlinFiles, workers, nil, in.JavaFiles...)
+			return idx
+		}
+		return scanner.BuildIndex(in.KotlinFiles, workers, in.JavaFiles...)
+	}
+	if in.CodeIndexCache != nil {
+		return in.CodeIndexCache.CodeIndex(codeIndexFingerprint(in.KotlinFiles, in.JavaFiles), build)
+	}
+	return build()
+}
+
+// codeIndexFingerprint returns a stable cache key derived from the
+// sorted (path, content-hash) pairs of every Kotlin and Java file
+// contributing to the CodeIndex. Mismatches force a rebuild via
+// CodeIndexCache.CodeIndex; the watcher's InvalidateCodeIndex is the
+// daemon's belt-and-suspenders for cross-process drift.
+func codeIndexFingerprint(kotlin, java []*scanner.File) string {
+	entries := make([]string, 0, len(kotlin)+len(java))
+	addEntry := func(file *scanner.File) {
+		if file == nil {
+			return
+		}
+		entries = append(entries, file.Path+"\x00"+hashutil.Default().HashContent(file.Path, file.Content))
+	}
+	for _, f := range kotlin {
+		addEntry(f)
+	}
+	for _, f := range java {
+		addEntry(f)
+	}
+	sort.Strings(entries)
+	return hashutil.HashHex([]byte(strings.Join(entries, "\x01")))
 }
 
 // runCrossRuleSet executes serial and concurrent cross-file rules against

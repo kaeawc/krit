@@ -69,6 +69,10 @@ type IndexInput struct {
 	// is derived from the discovered Gradle paths; the host's watcher
 	// drops the slot when Gradle / version-catalog files change.
 	LibraryFactsCache LibraryFactsCache
+	// CodeIndexCache, when non-nil, memoizes *scanner.CodeIndex across
+	// calls. Forwarded to IndexResult so CrossFilePhase consults it
+	// before calling scanner.BuildIndex.
+	CodeIndexCache CodeIndexCache
 	// Reporter routes verbose progress and warning lines from IndexPhase.
 	// Nil means silent.
 	Reporter *diag.Reporter
@@ -376,7 +380,13 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		return IndexResult{}, err
 	}
 
-	result := IndexResult{ParseResult: in.ParseResult, LibraryFacts: in.PrebuiltLibraryFacts, CrossFindingsCacheDir: in.CrossFindingsCacheDir}
+	result := IndexResult{
+		ParseResult:           in.ParseResult,
+		LibraryFacts:          in.PrebuiltLibraryFacts,
+		CrossFindingsCacheDir: in.CrossFindingsCacheDir,
+		CrossFileCacheDir:     in.CrossFileCacheDir,
+		CodeIndexCache:        in.CodeIndexCache,
+	}
 
 	caps := unionNeeds(in.ActiveRules)
 

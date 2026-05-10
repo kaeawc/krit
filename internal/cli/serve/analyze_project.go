@@ -13,6 +13,7 @@ import (
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // errDaemonNotWarm is returned to RequireWarm clients on a cold
@@ -137,6 +138,8 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 		Host: pipeline.ProjectHostState{
 			ParseCache:        parseCache,
 			LibraryFactsCache: s.workspace,
+			CodeIndexCache:    s.workspace,
+			CrossFileCacheDir: scanner.CrossFileCacheDir(repoDir),
 		},
 	}, nil
 }

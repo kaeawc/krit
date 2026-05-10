@@ -93,6 +93,17 @@ type ProjectHostState struct {
 	// watcher fires WorkspaceState.InvalidateLibraryFacts on Gradle /
 	// version-catalog edits). *WorkspaceState satisfies this interface.
 	LibraryFactsCache LibraryFactsCache
+	// CodeIndexCache, when non-nil, memoizes *scanner.CodeIndex across
+	// calls. CrossFilePhase consults the slot before falling through to
+	// the disk-backed cross-file cache (CrossFileCacheDir) and finally
+	// to scanner.BuildIndex. *WorkspaceState satisfies this interface.
+	CodeIndexCache CodeIndexCache
+	// CrossFileCacheDir, when non-empty, enables the on-disk cross-file
+	// CodeIndex cache (zstd-encoded shards under .krit/crossfile-cache).
+	// Independent of CodeIndexCache: the disk cache is shared across
+	// daemon restarts, while the in-memory cache survives within a
+	// single daemon's lifetime.
+	CrossFileCacheDir string
 	// Oracle, when non-nil, is the resident type-oracle handle.
 	Oracle *oracle.Oracle
 	// OracleDaemon, when non-nil, is the long-lived krit-types JVM
@@ -206,6 +217,8 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		PrebuiltResolver:     host.PrebuiltResolver,
 		PrebuiltLibraryFacts: host.PrebuiltLibraryFacts,
 		LibraryFactsCache:    host.LibraryFactsCache,
+		CodeIndexCache:       host.CodeIndexCache,
+		CrossFileCacheDir:    host.CrossFileCacheDir,
 		Reporter:             host.Reporter,
 		Tracker:              host.Tracker,
 	}

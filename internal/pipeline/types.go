@@ -285,6 +285,25 @@ type IndexResult struct {
 	// normally and writes the result back; hit appends cached findings
 	// to the run's collector and skips rule execution.
 	CrossFindingsCacheDir string
+	// CrossFileCacheDir, when non-empty, enables the on-disk cross-file
+	// CodeIndex cache used by CrossFilePhase.buildOrReuseCodeIndex when
+	// in.CodeIndex is nil. Empty forces an uncached BuildIndex on every
+	// rebuild. Mirrors the IndexInput field of the same name.
+	CrossFileCacheDir string
+	// CodeIndexCache, when non-nil, layers an in-memory CodeIndex slot
+	// on top of the on-disk cache so a daemon avoids the disk-decode
+	// pass on warm calls. Nil means no in-memory cache. *WorkspaceState
+	// satisfies this interface.
+	CodeIndexCache CodeIndexCache
+}
+
+// CodeIndexCache lets a long-lived host (typically *WorkspaceState)
+// memoize *scanner.CodeIndex across RunProject calls. The host is
+// responsible for invalidating its slot when the underlying file set
+// changes; the watcher's InvalidateCodeIndex call covers the daemon.
+// Fingerprint mismatches force a rebuild via build.
+type CodeIndexCache interface {
+	CodeIndex(fingerprint string, build func() *scanner.CodeIndex) *scanner.CodeIndex
 }
 
 // FileTiming captures per-file dispatch timing recorded when

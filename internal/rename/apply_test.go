@@ -409,6 +409,47 @@ func TestValidatePlan_RejectsAmbiguousDeclarations(t *testing.T) {
 	}
 }
 
+func TestValidatePlan_AllowMultipleDeclarationsBypassesGuard(t *testing.T) {
+	target, _ := ParseTarget("com.example.OldName", "com.example.NewName")
+	plan := Plan{
+		Target: target,
+		Declarations: []scanner.Symbol{
+			{Name: "OldName", FQN: "com.example.OldName", File: "a.kt"},
+			{Name: "OldName", FQN: "com.example.OldName", File: "b.kt"},
+		},
+	}
+	if err := ValidatePlan(plan, ValidateOptions{AllowMultipleDeclarations: true}); err != nil {
+		t.Fatalf("ValidatePlan should accept multi-decl when AllowMultipleDeclarations is true: %v", err)
+	}
+}
+
+func TestApply_RewritesAllDeclarationsWhenAllowedMultiple(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "A.kt")
+	b := filepath.Join(dir, "B.kt")
+	writeFile(t, a, "package com.example\n\nfun OldName(x: String) = x\n")
+	writeFile(t, b, "package com.example\n\nfun OldName(x: Int) = x\n")
+
+	plan := buildKotlinPlan(t, []string{a, b}, "com.example.OldName", "com.example.NewName")
+	if got := len(plan.Declarations); got < 2 {
+		t.Fatalf("expected ≥2 declarations to exercise the guard; got %d", got)
+	}
+	if err := ValidatePlan(plan, ValidateOptions{AllowMultipleDeclarations: true}); err != nil {
+		t.Fatalf("ValidatePlan with override: %v", err)
+	}
+	if _, err := Apply(plan); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	for _, p := range []string{a, b} {
+		if _, err := os.Stat(p); err != nil {
+			continue
+		}
+		if content := readFile(t, p); strings.Contains(content, "OldName") {
+			t.Errorf("residual OldName in %s after multi-decl rename:\n%s", p, content)
+		}
+	}
+}
+
 func TestValidatePlan_RejectsOccupiedDestination(t *testing.T) {
 	target, _ := ParseTarget("com.example.OldName", "com.example.NewName")
 	plan := Plan{

@@ -440,6 +440,41 @@ fun use(helper: JavaHelper) = helper.label()
 	}
 }
 
+func TestBuildIndex_JavaFilesAppearInIndexFiles(t *testing.T) {
+	dir := t.TempDir()
+	javaPath := filepath.Join(dir, "JavaHelper.java")
+	if err := os.WriteFile(javaPath, []byte("package com.example;\npublic class JavaHelper {}\n"), 0o644); err != nil {
+		t.Fatalf("write java: %v", err)
+	}
+	kotlinPath := writeTempKt(t, dir, "UseJava.kt", "package com.example\n")
+	kt, err := ParseFile(kotlinPath)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	javaFile, err := ParseJavaFile(javaPath)
+	if err != nil {
+		t.Fatalf("ParseJavaFile: %v", err)
+	}
+
+	idx := BuildIndex([]*File{kt}, 1, javaFile)
+
+	hasKotlin, hasJava := false, false
+	for _, f := range idx.Files {
+		switch f.Path {
+		case kotlinPath:
+			hasKotlin = true
+		case javaPath:
+			hasJava = true
+		}
+	}
+	if !hasKotlin {
+		t.Errorf("CodeIndex.Files missing Kotlin file %s", kotlinPath)
+	}
+	if !hasJava {
+		t.Errorf("CodeIndex.Files missing Java file %s", javaPath)
+	}
+}
+
 func TestCollectJavaReferencesFlat_AddsScopedNames(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "UseJava.java")

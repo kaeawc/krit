@@ -228,7 +228,7 @@ func TestRunProject_FindingsBundleCache_ReportsMissComponent(t *testing.T) {
 
 	run(t)
 	verbose.Reset()
-	if err := os.WriteFile(src, []byte("package test\n\nclass Sample { fun value() = 2 }\n"), 0o644); err != nil {
+	if err := os.WriteFile(src, []byte("package test\n\nclass SampleRenamed { fun value() = 1 }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	run(t)

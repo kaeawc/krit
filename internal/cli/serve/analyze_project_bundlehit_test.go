@@ -42,3 +42,34 @@ func TestAnalyzeProject_BundleHitOnIdenticalSecondCall(t *testing.T) {
 			first.Stats.FindingsCount, second.Stats.FindingsCount)
 	}
 }
+
+func TestAnalyzeProject_BodyOnlyEditReusesFindingsBundle(t *testing.T) {
+	socket, state := startServerForTest(t)
+	writeKotlinFile(t, state.root, "A.kt",
+		"package demo\n\nclass A {\n    fun answer() = 1\n}\n")
+
+	var first daemon.AnalyzeProjectResult
+	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
+		daemon.AnalyzeProjectArgs{}, &first); err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	if first.Stats.FindingsBundleHit {
+		t.Fatalf("first call (no prior bundle) must report FindingsBundleHit=false; got %+v", first.Stats)
+	}
+
+	writeKotlinFile(t, state.root, "A.kt",
+		"package demo\n\nclass A {\n    fun answer() = 22\n}\n")
+
+	var second daemon.AnalyzeProjectResult
+	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
+		daemon.AnalyzeProjectArgs{}, &second); err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	if !second.Stats.FindingsBundleHit {
+		t.Fatalf("body-only edit with stable structural fingerprint must report FindingsBundleHit=true; got %+v", second.Stats)
+	}
+	if second.Stats.PhaseTimingsMs.Dispatch != 0 || second.Stats.PhaseTimingsMs.CrossFile != 0 {
+		t.Errorf("body-only bundle hit must bypass dispatch+crossfile; got dispatch=%dms crossfile=%dms",
+			second.Stats.PhaseTimingsMs.Dispatch, second.Stats.PhaseTimingsMs.CrossFile)
+	}
+}

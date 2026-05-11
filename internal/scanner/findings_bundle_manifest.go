@@ -16,8 +16,8 @@ import (
 //     stability of each non-SourceSet field).
 //   - The prior run's per-file content hashes (so we can detect
 //     exactly which files changed since last run).
-//   - The prior run's per-file structural fingerprints (informational
-//     today; future PRs may use them for finer-grained delta paths).
+//   - The prior run's per-file structural fingerprints, used to prove
+//     body-only Kotlin edits can replay the prior findings bundle.
 //   - The BundleKey of the prior bundle so we know which findings to
 //     load and merge into.
 //

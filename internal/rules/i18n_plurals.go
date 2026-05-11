@@ -12,6 +12,10 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
+var pluralsIfElseCountNames = map[string]bool{
+	"count": true, "quantity": true,
+}
+
 // PluralsBuiltWithIfElseRule detects manual pluralization built with an
 // if/else over `count == 1` whose branches produce string literals or
 // templates instead of using getQuantityString / pluralStringResource.
@@ -63,7 +67,7 @@ func identityVsOne(file *scanner.File, idExpr, litExpr uint32) bool {
 	if file.FlatType(idExpr) != "simple_identifier" {
 		return false
 	}
-	if !pluralsCountNames[file.FlatNodeText(idExpr)] {
+	if !pluralsIfElseCountNames[file.FlatNodeText(idExpr)] {
 		return false
 	}
 	if file.FlatType(litExpr) != "integer_literal" {

@@ -306,19 +306,7 @@ func Run() int {
 	r.setupAndroidProviders()
 	r.setupParseCaches()
 
-	if code, err := r.parsePhase(); err != nil {
-		return code
-	}
-	if code, err := r.targetedResolution(); err != nil {
-		return code
-	}
-	if code, err := r.dispatch(); err != nil {
-		return code
-	}
-	if code, err := r.crossFile(); err != nil {
-		return code
-	}
-	if code, err := r.androidPhase(); err != nil {
+	if code, err := r.runProjectAnalysis(); err != nil {
 		return code
 	}
 	r.firCheckAndCollect()

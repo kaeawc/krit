@@ -17,6 +17,7 @@ import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
@@ -121,6 +122,11 @@ type ProjectArgs struct {
 	// PerfRules, when true, forwards the dispatcher's sorted per-rule
 	// execution stats through OutputInput.PerfRuleStats.
 	PerfRules bool
+	// ProfileDispatch records per-file dispatch timings in DispatchResult.
+	ProfileDispatch bool
+	// EmitPerFileStats adds detailed dispatch timing entries under the
+	// ruleExecution tracker.
+	EmitPerFileStats bool
 	// ParseCacheCapBytes is the effective parse-cache cap used when
 	// ShowPerf builds OutputInput.CacheBudget. Zero falls back to
 	// cacheutil.DefaultParseCacheCapBytes.
@@ -148,6 +154,12 @@ type ProjectHostState struct {
 	// contexts instead of being rebuilt from detected Gradle files.
 	// Highest precedence — wins over LibraryFactsCache.
 	PrebuiltLibraryFacts *librarymodel.Facts
+	// JavaSemanticFacts, when non-nil, supplies javac-backed facts for
+	// Java rules that request them.
+	JavaSemanticFacts *javafacts.Facts
+	// JavaSemanticFactsLoader lazily builds JavaSemanticFacts after parse
+	// when active Java rules request compiler-backed facts.
+	JavaSemanticFactsLoader func(context.Context, []string, []*scanner.File, *librarymodel.Facts, perf.Tracker) (*javafacts.Facts, string, error)
 	// LibraryFactsCache, when non-nil, is consulted in IndexPhase to
 	// reuse a daemon-resident *librarymodel.Facts across calls. Cache
 	// invalidation is the host's responsibility (the daemon's file
@@ -188,6 +200,12 @@ type ProjectHostState struct {
 	// CLI runner sets this from typeinfer.TypeIndexCacheDir(repoDir)
 	// when --no-cache is not passed; the daemon does the same).
 	TypeIndexCacheDir string
+	// AndroidProviders, AndroidCacheDir, and AndroidCacheWriter let CLI
+	// callers keep Android project cache behavior while sharing the
+	// core RunProjectAnalysis path.
+	AndroidProviders   *AndroidProjectProviders
+	AndroidCacheDir    string
+	AndroidCacheWriter *scanner.AndroidCacheWriter
 	// Oracle, when non-nil, is the resident type-oracle handle.
 	Oracle *oracle.Oracle
 	// OracleDaemon, when non-nil, is the long-lived krit-types JVM
@@ -253,11 +271,9 @@ type warmAnalysisCachePlan struct {
 // self-documenting: in.Args.Format is request-scoped, in.Host.ParseCache
 // is daemon-resident.
 //
-// The CLI's existing scan.runner remains the canonical orchestrator for
-// `krit -f json`; ProjectInput exists so the daemon's analyze-project
-// verb can share one execution path with the CLI without dragging in
-// CLI-only concerns (CPU profiling, baseline-audit verb scaffolding,
-// experiment-matrix logic, fix application, output-file routing).
+// The CLI and daemon both adapt their request state into ProjectInput so
+// parse/index/dispatch/cross-file/Android analysis share one path while
+// CLI-only concerns stay outside pipeline.
 type ProjectInput struct {
 	Args ProjectArgs
 	Host ProjectHostState
@@ -304,6 +320,23 @@ type ProjectResult struct {
 	// crossfile, android) report 0. Useful for diagnosing which phase
 	// dominates warm-call latency without a full pprof capture.
 	PhaseTimingsMs PhaseTimingsMs
+}
+
+// ProjectAnalysisResult is the shared scan-core output before fixup and
+// report formatting. CLI callers use this boundary to keep CLI-only FIR,
+// baseline verbs, profile handling, and exit-code policy outside pipeline.
+type ProjectAnalysisResult struct {
+	ParseResult       ParseResult
+	IndexResult       IndexResult
+	DispatchResult    DispatchResult
+	CrossFileResult   CrossFileResult
+	FilesScanned      int
+	ParseErrors       []error
+	Stats             rules.RunStats
+	ParseHits         int64
+	ParseMisses       int64
+	FindingsBundleHit bool
+	PhaseTimingsMs    PhaseTimingsMs
 }
 
 // PhaseTimingsMs carries per-phase wall-time deltas captured around
@@ -360,56 +393,18 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	args := in.Args
 	host := in.Host
 
-	// Snapshot the parse-cache counters at the start of the run so the
-	// post-run delta is the per-call hit/miss accounting we report back
-	// to daemon clients. nil ParseCache returns the zero value.
-	hits0, misses0 := parseCacheCounters(host.ParseCache)
-
 	var phaseTimings PhaseTimingsMs
 	if res, ok, err := tryLoadFindingsBundleBeforeParse(ctx, startTime, format, args, host, out, &phaseTimings); ok || err != nil {
 		return res, err
 	}
-	host = awaitAnalysisCacheFuture(host)
-	warmPlan := buildWarmAnalysisCachePlan(args, host)
-	if warmPlan.cache != nil {
-		host.AnalysisCache = warmPlan.cache
-	}
-
-	// Phase 1: parse.
-	parseStart := time.Now()
-	parseResult, err := runProjectParsePhase(ctx, args, host, warmPlan)
-	phaseTimings.Parse = time.Since(parseStart).Milliseconds()
-	if err != nil {
-		return ProjectResult{}, fmt.Errorf("parse: %w", err)
-	}
-
-	indexStart := time.Now()
-	indexResult, err := runProjectIndexPhase(ctx, args, host, warmPlan, parseResult)
-	phaseTimings.Index = time.Since(indexStart).Milliseconds()
-	if err != nil {
-		return ProjectResult{}, fmt.Errorf("index: %w", err)
-	}
-
-	runFP, bundleEnabled := computeRunFingerprint(args, host, parseResult, indexResult)
-	manifestData := buildManifestData(args, host, parseResult, runFP, bundleEnabled)
-	dispatchResult, crossFileResult, bundleHit, dispatchTimes, err := runDispatchOrLoadBundle(ctx, args, host, indexResult, parseResult, runFP, bundleEnabled, manifestData)
+	analysis, err := RunProjectAnalysis(ctx, in)
 	if err != nil {
 		return ProjectResult{}, err
 	}
-	phaseTimings.Dispatch = dispatchTimes.dispatchMs
-	phaseTimings.CrossFile = dispatchTimes.crossFileMs
-
-	// Phase 4.5: Android project analysis. The findings-bundle hit
-	// returns a pre-merged set (Android findings were merged before the
-	// save on the original miss), so we only run AndroidPhase on misses.
-	androidStart := time.Now()
-	if err := runAndroidPhaseAndMerge(ctx, args, indexResult, &crossFileResult, bundleHit); err != nil {
-		return ProjectResult{}, err
-	}
-	phaseTimings.Android = time.Since(androidStart).Milliseconds()
+	phaseTimings = analysis.PhaseTimingsMs
 
 	fixupStart := time.Now()
-	fixupView, err := runFixupPhase(ctx, args, crossFileResult)
+	fixupView, err := runFixupPhase(ctx, args, analysis.CrossFileResult)
 	phaseTimings.Fixup = time.Since(fixupStart).Milliseconds()
 	if err != nil {
 		return ProjectResult{}, err
@@ -420,14 +415,14 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	perfTimings, caches, budget := capturePerfOutputs(args, host)
 	var perfRuleStats []rules.RuleExecutionStat
 	if args.PerfRules {
-		perfRuleStats = rules.SortedRuleExecutionStats(dispatchResult.Stats)
+		perfRuleStats = rules.SortedRuleExecutionStats(analysis.DispatchResult.Stats)
 	}
 	// CacheStats is gated on ShowPerf so the daemon's analyze-project
 	// JSON keeps omitting the "cache" key by default; auto-forwarding
 	// would silently widen the daemon's wire format.
 	var cacheStatsOut *cache.Stats
 	if args.ShowPerf {
-		cacheStatsOut = indexResult.CacheStats
+		cacheStatsOut = analysis.IndexResult.CacheStats
 	}
 	outputStart := time.Now()
 	outResult, err := OutputPhase{}.Run(ctx, OutputInput{
@@ -455,11 +450,67 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		return ProjectResult{}, fmt.Errorf("output: %w", err)
 	}
 
-	// Save the bundle on every miss so a subsequent identical run is
-	// a load+skip. Hits don't need a re-save; the cached bundle is
-	// already on disk under the same key. Best-effort: save errors
-	// are not surfaced — the verb already succeeded and the run's
-	// output is unaffected.
+	return ProjectResult{
+		FinalFindings:     outResult.FinalFindings,
+		FilesScanned:      analysis.FilesScanned,
+		FindingsCount:     outResult.FinalFindings.Len(),
+		ParseErrors:       analysis.ParseErrors,
+		Stats:             analysis.Stats,
+		ParseHits:         analysis.ParseHits,
+		ParseMisses:       analysis.ParseMisses,
+		Fixup:             fixupView,
+		FindingsBundleHit: analysis.FindingsBundleHit,
+		PhaseTimingsMs:    phaseTimings,
+	}, nil
+}
+
+// RunProjectAnalysis runs the shared parse/index/dispatch/cross-file/Android
+// core and returns findings before fixup and output formatting.
+func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisResult, error) {
+	if _, _, err := validateAndDefaultStreaming(ctx, in, io.Discard); err != nil {
+		return ProjectAnalysisResult{}, err
+	}
+	args := in.Args
+	host := awaitAnalysisCacheFuture(in.Host)
+	hits0, misses0 := parseCacheCounters(host.ParseCache)
+	warmPlan := buildWarmAnalysisCachePlan(args, host)
+	if warmPlan.cache != nil {
+		host.AnalysisCache = warmPlan.cache
+	}
+
+	var phaseTimings PhaseTimingsMs
+	parseStart := time.Now()
+	parseResult, err := runProjectParsePhase(ctx, args, host, warmPlan)
+	phaseTimings.Parse = time.Since(parseStart).Milliseconds()
+	if err != nil {
+		return ProjectAnalysisResult{}, fmt.Errorf("parse: %w", err)
+	}
+	indexStart := time.Now()
+	indexResult, err := runProjectIndexPhase(ctx, args, host, warmPlan, parseResult)
+	phaseTimings.Index = time.Since(indexStart).Milliseconds()
+	if err != nil {
+		return ProjectAnalysisResult{}, fmt.Errorf("index: %w", err)
+	}
+	defer endProjectAnalysisTrackers(indexResult)
+	if err := loadJavaSemanticFacts(ctx, args, host, parseResult.JavaFiles, &indexResult); err != nil {
+		return ProjectAnalysisResult{}, err
+	}
+
+	runFP, bundleEnabled := computeRunFingerprint(args, host, parseResult, indexResult)
+	manifestData := buildManifestData(args, host, parseResult, runFP, bundleEnabled)
+	dispatchResult, crossFileResult, bundleHit, dispatchTimes, err := runDispatchOrLoadBundle(ctx, args, host, indexResult, parseResult, runFP, bundleEnabled, manifestData)
+	if err != nil {
+		return ProjectAnalysisResult{}, err
+	}
+	phaseTimings.Dispatch = dispatchTimes.dispatchMs
+	phaseTimings.CrossFile = dispatchTimes.crossFileMs
+
+	androidStart := time.Now()
+	if err := runAndroidPhaseAndMerge(ctx, args, host, indexResult, &crossFileResult, bundleHit); err != nil {
+		return ProjectAnalysisResult{}, err
+	}
+	phaseTimings.Android = time.Since(androidStart).Milliseconds()
+
 	if bundleEnabled {
 		if !bundleHit {
 			_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, &crossFileResult.Findings)
@@ -468,15 +519,16 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	}
 
 	hits1, misses1 := parseCacheCounters(host.ParseCache)
-	return ProjectResult{
-		FinalFindings:     outResult.FinalFindings,
+	return ProjectAnalysisResult{
+		ParseResult:       parseResult,
+		IndexResult:       indexResult,
+		DispatchResult:    dispatchResult,
+		CrossFileResult:   crossFileResult,
 		FilesScanned:      len(parseResult.KotlinFiles) + len(parseResult.JavaFiles),
-		FindingsCount:     outResult.FinalFindings.Len(),
 		ParseErrors:       parseResult.ParseErrors,
 		Stats:             dispatchResult.Stats,
 		ParseHits:         hits1 - hits0,
 		ParseMisses:       misses1 - misses0,
-		Fixup:             fixupView,
 		FindingsBundleHit: bundleHit,
 		PhaseTimingsMs:    phaseTimings,
 	}, nil
@@ -518,18 +570,42 @@ func awaitAnalysisCacheFuture(host ProjectHostState) ProjectHostState {
 }
 
 func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan, parseResult ParseResult) (IndexResult, error) {
+	hasIndexBackedCrossFileRule, hasParsedFilesRule, hasModuleAwareRule := ClassifyCrossFileNeeds(args.ActiveRules)
+	var crossTracker perf.Tracker
+	if host.Tracker != nil && (hasIndexBackedCrossFileRule || hasParsedFilesRule) {
+		crossTracker = host.Tracker.Serial("crossFileAnalysis")
+	}
+	var moduleTracker perf.Tracker
+	if host.Tracker != nil && hasModuleAwareRule {
+		moduleTracker = host.Tracker.Serial("moduleAwareAnalysis")
+	}
+	scanRoot := "."
+	if len(args.Paths) > 0 {
+		scanRoot = args.Paths[0]
+	}
 	indexInput := IndexInput{
-		ParseResult:           parseResult,
-		PrebuiltResolver:      host.PrebuiltResolver,
-		PrebuiltLibraryFacts:  host.PrebuiltLibraryFacts,
-		LibraryFactsCache:     host.LibraryFactsCache,
-		CodeIndexCache:        host.CodeIndexCache,
-		ResolverCache:         host.ResolverCache,
-		CrossFileCacheDir:     host.CrossFileCacheDir,
-		CrossFindingsCacheDir: host.CrossFindingsCacheDir,
-		TypeIndexCacheDir:     host.TypeIndexCacheDir,
-		Reporter:              host.Reporter,
-		Tracker:               host.Tracker,
+		ParseResult:            parseResult,
+		PrebuiltResolver:       host.PrebuiltResolver,
+		PrebuiltLibraryFacts:   host.PrebuiltLibraryFacts,
+		LibraryFactsCache:      host.LibraryFactsCache,
+		CodeIndexCache:         host.CodeIndexCache,
+		ResolverCache:          host.ResolverCache,
+		CrossFileCacheDir:      host.CrossFileCacheDir,
+		CrossFindingsCacheDir:  host.CrossFindingsCacheDir,
+		TypeIndexCacheDir:      host.TypeIndexCacheDir,
+		Reporter:               host.Reporter,
+		Tracker:                host.Tracker,
+		Verbose:                host.Reporter.VerboseEnabled(),
+		BuildCodeIndex:         hasIndexBackedCrossFileRule,
+		CrossFileParentTracker: crossTracker,
+		CrossFileJobsFlag:      args.Workers,
+		CrossFileJavaPaths:     args.JavaPaths,
+		ParseCache:             host.ParseCache,
+		BuildModuleIndex:       hasModuleAwareRule,
+		ModuleParentTracker:    moduleTracker,
+		ModuleScanRoot:         scanRoot,
+		ModuleJobsFlag:         args.Workers,
+		ModuleHasAwareRule:     hasModuleAwareRule,
 	}
 	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
 	if warm.result == nil {
@@ -539,8 +615,23 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 	if err != nil {
 		return IndexResult{}, err
 	}
+	if moduleTracker != nil && (indexResult.Graph == nil || len(indexResult.Graph.Modules) == 0) {
+		moduleTracker.End()
+		moduleTracker = nil
+	}
+	indexResult.CrossFileParentTracker = crossTracker
+	indexResult.ModuleParentTracker = moduleTracker
 	completeRunProjectIndexResult(args, host, warm, &indexResult)
 	return indexResult, nil
+}
+
+func endProjectAnalysisTrackers(indexResult IndexResult) {
+	if indexResult.CrossFileParentTracker != nil {
+		indexResult.CrossFileParentTracker.End()
+	}
+	if indexResult.ModuleParentTracker != nil {
+		indexResult.ModuleParentTracker.End()
+	}
 }
 
 func completeRunProjectIndexResult(args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan, indexResult *IndexResult) {
@@ -551,6 +642,11 @@ func completeRunProjectIndexResult(args ProjectArgs, host ProjectHostState, warm
 		indexResult.Daemon = host.OracleDaemon
 	}
 	indexResult.Cache = host.AnalysisCache
+	indexResult.Jobs = args.Workers
+	indexResult.ProfileDispatch = args.ProfileDispatch
+	indexResult.EmitPerFileStats = args.EmitPerFileStats
+	indexResult.Reporter = host.Reporter
+	indexResult.Tracker = host.Tracker
 	if warm.result != nil {
 		indexResult.CacheResult = warm.result
 		indexResult.RuleHash = warm.ruleHash
@@ -567,6 +663,27 @@ func completeRunProjectIndexResult(args ProjectArgs, host ProjectHostState, warm
 	if indexResult.RuleHash == "" {
 		indexResult.RuleHash = projectRuleHash(args.ActiveRules, args.Config)
 	}
+}
+
+func loadJavaSemanticFacts(ctx context.Context, args ProjectArgs, host ProjectHostState, javaFiles []*scanner.File, indexResult *IndexResult) error {
+	if host.JavaSemanticFacts != nil {
+		indexResult.JavaSemanticFacts = host.JavaSemanticFacts
+		return nil
+	}
+	if host.JavaSemanticFactsLoader == nil || !api.NeedsJavaFacts(args.ActiveRules) || len(javaFiles) == 0 {
+		return nil
+	}
+	facts, warning, err := host.JavaSemanticFactsLoader(ctx, args.Paths, javaFiles, indexResult.LibraryFacts, host.Tracker)
+	if err != nil {
+		return fmt.Errorf("java semantic facts: %w", err)
+	}
+	if warning != "" {
+		host.Reporter.Warnf("warning: %s\n", warning)
+	} else if facts != nil {
+		host.Reporter.Verbosef("verbose: Java semantic facts loaded (%d calls, %d classes)\n", len(facts.Calls), len(facts.Classes))
+	}
+	indexResult.JavaSemanticFacts = facts
+	return nil
 }
 
 func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan) (ParseResult, error) {
@@ -605,7 +722,7 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		KotlinPaths:        kotlinPaths,
 		JavaPaths:          javaPaths,
 		Workers:            args.Workers,
-		SkipJavaCollection: !NeedsJavaBeforeDispatch(args.ActiveRules),
+		SkipJavaCollection: false,
 		Reporter:           host.Reporter,
 		Tracker:            host.Tracker,
 		ParseCache:         host.ParseCache,
@@ -942,7 +1059,7 @@ func saveDeltaManifest(host ProjectHostState, m deltaManifestData, runFP scanner
 // A nil/empty project, no Android-needing rules, or a dispatcher-less
 // run returns without mutating the findings. Mirrors the CLI runner's
 // androidPhase step.
-func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, indexResult IndexResult, crossFileResult *CrossFileResult, bundleHit bool) error {
+func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host ProjectHostState, indexResult IndexResult, crossFileResult *CrossFileResult, bundleHit bool) error {
 	if bundleHit {
 		return nil
 	}
@@ -958,9 +1075,14 @@ func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, indexResult 
 		ActiveRules:         args.ActiveRules,
 		Dispatcher:          dispatcher,
 		SourceFiles:         indexResult.SourceFiles(),
+		SourcePaths:         androidSourcePaths(args, indexResult),
+		SourceHashes:        CachedHashesOrNil(indexResult.CacheResult),
+		Providers:           host.AndroidProviders,
 		RuleHash:            indexResult.RuleHash,
 		LibraryFactsFP:      indexResult.LibraryFacts.Fingerprint(),
 		JavaSemanticFactsFP: indexResult.JavaSemanticFacts.Fingerprint(),
+		CacheDir:            host.AndroidCacheDir,
+		CacheWriter:         host.AndroidCacheWriter,
 	})
 	if err != nil {
 		return fmt.Errorf("android: %w", err)
@@ -973,6 +1095,22 @@ func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, indexResult 
 	merged.AppendColumns(&res.Findings)
 	crossFileResult.Findings = *merged.Columns()
 	return nil
+}
+
+func androidSourcePaths(args ProjectArgs, indexResult IndexResult) []string {
+	kotlinPaths := args.KotlinPaths
+	if kotlinPaths == nil {
+		kotlinPaths = indexResult.KotlinPaths
+	}
+	javaPaths := args.JavaPaths
+	if javaPaths == nil {
+		for _, f := range indexResult.JavaFiles {
+			if f != nil {
+				javaPaths = append(javaPaths, f.Path)
+			}
+		}
+	}
+	return warmCacheFilePaths(args, kotlinPaths, javaPaths)
 }
 
 // dispatchTimings is the per-phase wall-time slice returned from

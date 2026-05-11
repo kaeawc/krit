@@ -318,6 +318,59 @@ func (p IndexPhase) buildTypeResolver(in IndexInput, resolverForOracle typeinfer
 	return nil
 }
 
+func (p IndexPhase) indexPrebuiltResolver(in IndexInput, caps api.Capabilities) {
+	if in.PrebuiltResolver == nil || p.SkipResolverIndex || !caps.Has(api.NeedsResolver) || len(in.KotlinFiles) == 0 {
+		return
+	}
+	workers := p.Workers
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
+	if in.TypeIndexCacheDir != "" {
+		if cached, ok := in.PrebuiltResolver.(interface {
+			IndexFilesParallelCachedWithTracker([]*scanner.File, int, string, perf.Tracker) (int, int)
+		}); ok {
+			var hits, misses int
+			if in.Tracker != nil {
+				child := in.Tracker.Serial("typeIndex")
+				hits, misses = cached.IndexFilesParallelCachedWithTracker(in.KotlinFiles, workers, in.TypeIndexCacheDir, child)
+				perf.AddEntryDetails(child, "cacheSummary", 0, map[string]int64{
+					"hits":   int64(hits),
+					"misses": int64(misses),
+				}, nil)
+				child.End()
+			} else {
+				hits, misses = cached.IndexFilesParallelCachedWithTracker(in.KotlinFiles, workers, in.TypeIndexCacheDir, nil)
+			}
+			in.logf("verbose: Indexed %d Kotlin files for type resolution (typeIndex cache: %d hits, %d misses)", len(in.KotlinFiles), hits, misses)
+			return
+		}
+	}
+	if indexer, ok := in.PrebuiltResolver.(interface {
+		IndexFilesParallelWithTracker([]*scanner.File, int, perf.Tracker)
+	}); ok {
+		var child perf.Tracker
+		if in.Tracker != nil {
+			child = in.Tracker.Serial("typeIndex")
+		}
+		indexer.IndexFilesParallelWithTracker(in.KotlinFiles, workers, child)
+		if child != nil {
+			child.End()
+		}
+		in.logf("verbose: Indexed %d Kotlin files for type resolution", len(in.KotlinFiles))
+		return
+	}
+	if indexer, ok := in.PrebuiltResolver.(interface {
+		IndexFilesParallel([]*scanner.File, int)
+	}); ok {
+		_ = in.trackSerial("typeIndex", func() error {
+			indexer.IndexFilesParallel(in.KotlinFiles, workers)
+			return nil
+		})
+		in.logf("verbose: Indexed %d Kotlin files for type resolution", len(in.KotlinFiles))
+	}
+}
+
 // buildBaseResolver constructs (or fetches from the cache) the source-level
 // resolver that runOracle wraps. Pulled out of buildTypeResolver so the
 // resolver-building work happens before the oracle gate — IndexPhase.Run
@@ -487,6 +540,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		}
 		resolverForOracle = built
 	}
+	p.indexPrebuiltResolver(in, caps)
 	if !in.SkipOracle && in.OracleEnabled && resolverForOracle != nil && len(rules.KotlinOracleRulesV2(in.ActiveRules)) > 0 {
 		resolverForOracle = p.runOracle(in, resolverForOracle, &result)
 	}

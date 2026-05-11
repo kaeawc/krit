@@ -2,6 +2,7 @@ package rules
 
 import (
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func registerI18nPluralsRules() {
@@ -16,7 +17,7 @@ func registerI18nPluralsRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"if_expression"}, Confidence: r.Confidence(), Implementation: r,
+			NodeTypes: []string{"if_expression"}, Languages: []scanner.Language{scanner.LangKotlin}, Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: true,
 		})

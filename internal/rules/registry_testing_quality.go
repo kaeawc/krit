@@ -490,7 +490,7 @@ func registerTestingQualityTestNameContainsUnderscore() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: 0.6, Implementation: r,
+		NodeTypes: []string{"function_declaration"}, Confidence: 0.6, Fix: api.FixCosmetic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !testingQualityIsTestFunction(file, idx) {
@@ -503,9 +503,34 @@ func registerTestingQualityTestNameContainsUnderscore() {
 			if strings.HasPrefix(name, "`") {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Test name uses underscores; consider backtick-quoted names.")
+			f := r.Finding(file, int(file.FlatRow(idx))+1, int(file.FlatCol(idx))+1,
+				"Test name uses underscores; consider backtick-quoted names.")
+			if fix := testNameUnderscoreFix(file, idx, name); fix != nil {
+				f.Fix = fix
+			}
+			ctx.Emit(f)
 		},
 	})
+}
+
+// testNameUnderscoreFix returns a byte-mode Fix that replaces the
+// function's simple_identifier child with the same name rewritten as a
+// backtick-quoted identifier with underscores swapped for spaces. Returns
+// nil when the identifier byte range cannot be located.
+func testNameUnderscoreFix(file *scanner.File, fnIdx uint32, name string) *scanner.Fix {
+	for child := file.FlatFirstChild(fnIdx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "simple_identifier", "identifier":
+			replacement := "`" + strings.ReplaceAll(name, "_", " ") + "`"
+			return &scanner.Fix{
+				ByteMode:    true,
+				StartByte:   int(file.FlatStartByte(child)),
+				EndByte:     int(file.FlatEndByte(child)),
+				Replacement: replacement,
+			}
+		}
+	}
+	return nil
 }
 
 func registerTestingQualitySharedMutableStateInObject() {

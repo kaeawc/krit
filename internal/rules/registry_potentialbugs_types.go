@@ -394,7 +394,7 @@ func registerPotentialbugsTypesRules() {
 		r := &ElseCaseInsteadOfExhaustiveWhenRule{BaseRule: BaseRule{RuleName: "ElseCaseInsteadOfExhaustiveWhen", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects when expressions on sealed classes or enums that use an else branch instead of exhaustive matching."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"when_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"when_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
 			Needs: api.NeedsResolver,
 			Tags:  []string{"precompile"},
 			Check: func(ctx *api.Context) {
@@ -432,8 +432,10 @@ func registerPotentialbugsTypesRules() {
 				if len(coveredTypes) == 0 || !whenVariantsCoveredFlat(coveredTypes, variants) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				f := r.Finding(file, int(file.FlatRow(idx))+1, int(file.FlatCol(idx))+1,
 					fmt.Sprintf("When expression on sealed type '%s' uses 'else' but all variants are covered. Remove the else branch.", subjectTypeName))
+				f.Fix = whenElseBranchDeletionFix(file, idx)
+				ctx.Emit(f)
 			},
 		})
 	}

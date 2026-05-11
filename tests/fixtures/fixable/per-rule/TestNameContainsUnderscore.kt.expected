@@ -1,0 +1,10 @@
+package testing
+
+import org.junit.Test
+
+class ExampleTest {
+    @Test
+    fun `test does something useful`() {
+        check(true)
+    }
+}

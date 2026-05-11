@@ -1144,6 +1144,52 @@ type ElseCaseInsteadOfExhaustiveWhenRule struct {
 // roadmap/17.
 func (r *ElseCaseInsteadOfExhaustiveWhenRule) Confidence() float64 { return 0.75 }
 
+// whenElseBranchDeletionFix returns a byte-mode Fix that removes the
+// `else -> ...` when_entry from a when_expression along with surrounding
+// whitespace. Returns nil when no else entry is found. The fix preserves
+// the surrounding closing brace and indentation by trimming the trailing
+// newline only when present.
+func whenElseBranchDeletionFix(file *scanner.File, idx uint32) *scanner.Fix {
+	for entry := file.FlatFirstChild(idx); entry != 0; entry = file.FlatNextSib(entry) {
+		if file.FlatType(entry) != "when_entry" {
+			continue
+		}
+		isElse := false
+		for child := file.FlatFirstChild(entry); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "else" {
+				isElse = true
+				break
+			}
+		}
+		if !isElse {
+			continue
+		}
+		start := int(file.FlatStartByte(entry))
+		end := int(file.FlatEndByte(entry))
+		// Pull leading indentation back to (but not past) the previous
+		// newline so the entry's leading whitespace is removed.
+		for start > 0 {
+			c := file.Content[start-1]
+			if c == ' ' || c == '\t' {
+				start--
+				continue
+			}
+			break
+		}
+		// Consume the trailing newline so the line collapses entirely.
+		if end < len(file.Content) && file.Content[end] == '\n' {
+			end++
+		}
+		return &scanner.Fix{
+			ByteMode:    true,
+			StartByte:   start,
+			EndByte:     end,
+			Replacement: "",
+		}
+	}
+	return nil
+}
+
 // whenHasElseBranchFlat returns true when the when_expression at idx has
 // an `else ->` branch. A when_entry for the else branch has an `else`
 // token child in place of a when_condition.

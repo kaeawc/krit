@@ -493,38 +493,24 @@ func (r *CommentedOutImportRule) checkNode(ctx *api.Context) {
 	ctx.Emit(f)
 }
 
+// deleteLineFix returns a byte-mode Fix that removes a single 0-indexed
+// row, including its trailing newline (or the preceding newline when the
+// line is the last in the file). Returns nil when the row is out of range.
+func deleteLineFix(file *scanner.File, row int) *scanner.Fix {
+	return deleteLineRangeFix(file, row, row)
+}
+
 // deleteLineRangeFix returns a byte-mode Fix that removes lines
 // [startRow, endRow] (inclusive, 0-indexed) along with their trailing
-// newlines. Returns nil when the range is out of bounds.
+// newlines. When the range reaches the end of the file with no trailing
+// newline, the preceding newline is consumed instead so neighboring lines
+// stay separated. Returns nil when the range is out of bounds.
 func deleteLineRangeFix(file *scanner.File, startRow, endRow int) *scanner.Fix {
 	if startRow < 0 || endRow < startRow || endRow >= len(file.Lines) {
 		return nil
 	}
 	start := file.LineOffset(startRow)
 	end := file.LineOffset(endRow) + len(file.Lines[endRow])
-	if end < len(file.Content) && file.Content[end] == '\n' {
-		end++
-	} else if start > 0 && file.Content[start-1] == '\n' {
-		start--
-	}
-	return &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   start,
-		EndByte:     end,
-		Replacement: "",
-	}
-}
-
-// deleteLineFix returns a byte-mode Fix that removes the file's row at the
-// given 0-indexed line, including its trailing newline (or the preceding
-// newline when the line is the last in the file). Returns nil when the
-// line is out of range.
-func deleteLineFix(file *scanner.File, row int) *scanner.Fix {
-	if row < 0 || row >= len(file.Lines) {
-		return nil
-	}
-	start := file.LineOffset(row)
-	end := start + len(file.Lines[row])
 	if end < len(file.Content) && file.Content[end] == '\n' {
 		end++
 	} else if start > 0 && file.Content[start-1] == '\n' {

@@ -245,7 +245,7 @@ func buildDeprecatedBlockTagFix(file *scanner.File, kdocIdx uint32, kdocText str
 	if !ok {
 		return nil
 	}
-	if flatHasDeprecatedAnnotation(file, target) {
+	if hasAnnotationNamed(file, target, "Deprecated") {
 		return nil
 	}
 	message, cleanedKDoc, okExtract := stripDeprecatedKDocTag(kdocText)
@@ -253,16 +253,12 @@ func buildDeprecatedBlockTagFix(file *scanner.File, kdocIdx uint32, kdocText str
 		return nil
 	}
 
-	// Compute the declaration's start byte and column. We replace the
-	// span [kdocStart, declStart) with cleanedKDoc + newline + indent +
-	// @Deprecated(...) + newline + indent so the declaration's existing
-	// indentation is preserved.
 	kdocStart := int(file.FlatStartByte(kdocIdx))
 	declStart := int(file.FlatStartByte(target))
 	if declStart <= kdocStart || declStart > len(file.Content) {
 		return nil
 	}
-	indent := flatLineIndentBefore(file, declStart)
+	indent := detectIndent(file.Content, declStart)
 	annotation := buildDeprecatedAnnotation(message)
 	replacement := cleanedKDoc + "\n" + indent + annotation + "\n" + indent
 	return &scanner.Fix{
@@ -293,24 +289,6 @@ func flatDeclarationAfter(file *scanner.File, idx uint32) (uint32, bool) {
 		}
 	}
 	return 0, false
-}
-
-// flatHasDeprecatedAnnotation reports whether the declaration already carries
-// a `@Deprecated(...)` annotation in its modifier list.
-func flatHasDeprecatedAnnotation(file *scanner.File, decl uint32) bool {
-	mods, ok := file.FlatFindChild(decl, "modifiers")
-	if !ok {
-		return false
-	}
-	for c := file.FlatFirstChild(mods); c != 0; c = file.FlatNextSib(c) {
-		if file.FlatType(c) != "annotation" {
-			continue
-		}
-		if annotationFinalName(file, c) == "Deprecated" {
-			return true
-		}
-	}
-	return false
 }
 
 // stripDeprecatedKDocTag removes the `@deprecated` line (and continuation
@@ -360,25 +338,6 @@ func stripDeprecatedKDocTag(text string) (message, cleaned string, ok bool) {
 		return "", "", false
 	}
 	return strings.Join(msgParts, " "), strings.Join(out, "\n"), true
-}
-
-// flatLineIndentBefore returns the leading whitespace of the line containing
-// the byte at pos. Used to align an inserted annotation with the following
-// declaration.
-func flatLineIndentBefore(file *scanner.File, pos int) string {
-	if pos <= 0 || pos > len(file.Content) {
-		return ""
-	}
-	start := pos - 1
-	for start >= 0 && file.Content[start] != '\n' {
-		start--
-	}
-	start++
-	end := start
-	for end < pos && (file.Content[end] == ' ' || file.Content[end] == '\t') {
-		end++
-	}
-	return string(file.Content[start:end])
 }
 
 // buildDeprecatedAnnotation renders a `@Deprecated("...")` annotation,

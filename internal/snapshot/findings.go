@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/cacheutil"
@@ -127,18 +126,6 @@ func RunFindings(ctx context.Context, repoRoot, commitSHA string, opts FindingsR
 	if len(activeRules) == 0 {
 		activeRules = rules.ActiveRulesV2(nil, nil, false, false)
 	}
-	if len(activeRules) == 0 {
-		// Empty registry — nothing to dispatch, but still emit a sidecar
-		// so simulate / diff can detect an explicit zero rather than a
-		// missing capture.
-		return &Findings{
-			SchemaVersion: FindingsSchemaVersion,
-			CommitSHA:     commitSHA,
-			RuleSetHash:   ruleSetHash(activeRules, cfg),
-			ByRule:        map[string]int{},
-			ByRuleFile:    map[string]map[string]int{},
-		}, nil
-	}
 
 	res, err := pipeline.RunProject(ctx, pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{
@@ -190,6 +177,7 @@ func collectFindings(cols *scanner.FindingColumns, repoRoot string, dst *Finding
 
 // ruleSetHash computes the same fingerprint the cache layer uses so a
 // findings sidecar can be cross-checked against a fresh active set.
+// ComputeConfigHash sorts its input, so we don't need to here.
 func ruleSetHash(activeRules []*api.Rule, cfg *config.Config) string {
 	names := make([]string, 0, len(activeRules))
 	for _, r := range activeRules {
@@ -197,6 +185,5 @@ func ruleSetHash(activeRules []*api.Rule, cfg *config.Config) string {
 			names = append(names, r.ID)
 		}
 	}
-	sort.Strings(names)
 	return cache.ComputeConfigHash(names, cfg, false)
 }

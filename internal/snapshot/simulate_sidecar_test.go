@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -61,7 +62,7 @@ func TestSimulateUsesSidecarFastPath(t *testing.T) {
 		t.Fatalf("expected %d points, got %d", len(shas), len(res.Points))
 	}
 	for _, p := range res.Points {
-		if p.Source != "sidecar" {
+		if p.Source != SimulateSourceSidecar {
 			t.Fatalf("expected source=sidecar, got %q for %s", p.Source, p.CommitSHA)
 		}
 		if p.Findings == 0 {
@@ -110,7 +111,7 @@ func TestSimulateNoSidecarHonored(t *testing.T) {
 		t.Fatalf("Simulate: %v", err)
 	}
 	for _, p := range res.Points {
-		if p.Source == "sidecar" {
+		if p.Source == SimulateSourceSidecar {
 			t.Fatalf("expected NoSidecar to bypass sidecar, got %+v", p)
 		}
 		if p.Findings == 999 {
@@ -128,22 +129,5 @@ func listAllSHAs(t *testing.T, repo string) []string {
 	if err != nil {
 		t.Fatalf("git log: %v", err)
 	}
-	return splitNonEmptyLines(string(out))
-}
-
-func splitNonEmptyLines(s string) []string {
-	var out []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			if i > start {
-				out = append(out, s[start:i])
-			}
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		out = append(out, s[start:])
-	}
-	return out
+	return strings.Fields(string(out))
 }

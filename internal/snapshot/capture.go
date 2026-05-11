@@ -25,9 +25,6 @@ type CaptureOptions struct {
 	// worktree and attaches a per-rule findings rollup to Result. The
 	// scan dominates capture wall-time, so this is opt-in.
 	WithFindings bool
-	// FindingsRun, when non-nil, overrides the FindingsRunOptions passed
-	// to RunFindings. Ignored when WithFindings is false.
-	FindingsRun *FindingsRunOptions
 }
 
 // Result pairs the structural blob with the metrics rollup derived from
@@ -92,17 +89,10 @@ func Capture(opts CaptureOptions) (*Result, error) {
 	result := &Result{Blob: blob, Metrics: metrics}
 
 	if opts.WithFindings {
-		runOpts := FindingsRunOptions{RepoRelativeTo: root, Workers: workers}
-		if opts.FindingsRun != nil {
-			runOpts = *opts.FindingsRun
-			if runOpts.RepoRelativeTo == "" {
-				runOpts.RepoRelativeTo = root
-			}
-			if runOpts.Workers == 0 {
-				runOpts.Workers = workers
-			}
-		}
-		findings, err := RunFindings(context.Background(), root, opts.CommitSHA, runOpts)
+		findings, err := RunFindings(context.Background(), root, opts.CommitSHA, FindingsRunOptions{
+			RepoRelativeTo: root,
+			Workers:        workers,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("snapshot: findings: %w", err)
 		}

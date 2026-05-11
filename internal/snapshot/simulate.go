@@ -47,14 +47,21 @@ type SimulateEvent struct {
 	Error     error
 }
 
+// SimulateSource identifies how a SimulatePoint was scored.
+type SimulateSource string
+
+const (
+	// SimulateSourceSidecar marks counts read from a persisted findings.gob.zst.
+	SimulateSourceSidecar SimulateSource = "sidecar"
+	// SimulateSourceScan marks counts produced by the shell-out fallback.
+	SimulateSourceScan SimulateSource = "scan"
+)
+
 type SimulatePoint struct {
-	CommitSHA   string `json:"commit_sha"`
-	CommittedAt int64  `json:"committed_at"`
-	Findings    int    `json:"findings"`
-	// Source identifies where the count came from: "sidecar" when read
-	// from a persisted findings.gob.zst, "scan" when produced by a
-	// shell-out fallback.
-	Source string `json:"source,omitempty"`
+	CommitSHA   string         `json:"commit_sha"`
+	CommittedAt int64          `json:"committed_at"`
+	Findings    int            `json:"findings"`
+	Source      SimulateSource `json:"source,omitempty"`
 }
 
 type SimulateResult struct {
@@ -109,14 +116,13 @@ func Simulate(opts SimulateOptions) (*SimulateResult, error) {
 	var sidecarPoints []SimulatePoint
 	var remaining []commitMeta
 	if !opts.NoSidecar {
-		sidecarPoints, remaining = collectSidecarPoints(root, opts.Rule, commits, opts.Reporter)
+		sidecarPoints, remaining = collectSidecarPoints(root, opts.Rule, commits, workers, opts.Reporter)
 	} else {
 		remaining = commits
 	}
 	if len(remaining) == 0 {
-		points := append([]SimulatePoint{}, sidecarPoints...)
-		sort.Slice(points, func(i, j int) bool { return points[i].CommittedAt > points[j].CommittedAt })
-		return &SimulateResult{Rule: opts.Rule, Points: points}, nil
+		sort.Slice(sidecarPoints, func(i, j int) bool { return sidecarPoints[i].CommittedAt > sidecarPoints[j].CommittedAt })
+		return &SimulateResult{Rule: opts.Rule, Points: sidecarPoints}, nil
 	}
 
 	scratch, err := os.MkdirTemp("", "krit-simulate-*")
@@ -179,7 +185,7 @@ func Simulate(opts SimulateOptions) (*SimulateResult, error) {
 			CommitSHA:   sha,
 			CommittedAt: timestampBySHA[sha],
 			Findings:    count,
-			Source:      "scan",
+			Source:      SimulateSourceScan,
 		})
 	}
 	points = append(points, sidecarPoints...)
@@ -189,34 +195,71 @@ func Simulate(opts SimulateOptions) (*SimulateResult, error) {
 }
 
 // collectSidecarPoints opens each commit's findings sidecar (if any)
-// and reads opts.Rule's count. Commits without a sidecar — or with one
-// missing the rule's RuleSetHash — fall through unmodified so the
-// caller can shell out for them.
-//
-// snapshotsRoot is .krit/snapshots under repoRoot; we recompute it
-// locally because the caller has only the absolute repo path.
-func collectSidecarPoints(repoRoot, rule string, commits []commitMeta, reporter func(SimulateEvent)) ([]SimulatePoint, []commitMeta) {
+// and reads rule's count. Commits without a sidecar fall through
+// unmodified so the caller can shell out for them. LoadFindings is
+// IO + zstd-decompress + gob-decode bound, so we fan out across
+// workers.
+func collectSidecarPoints(repoRoot, rule string, commits []commitMeta, workers int, reporter func(SimulateEvent)) ([]SimulatePoint, []commitMeta) {
 	root := SnapshotsDir(repoRoot)
 	if _, err := os.Stat(root); err != nil {
 		return nil, commits
 	}
-	points := make([]SimulatePoint, 0)
-	remaining := make([]commitMeta, 0, len(commits))
-	for _, c := range commits {
-		f, err := LoadFindings(root, c.SHA)
-		if err != nil || f == nil {
-			remaining = append(remaining, c)
-			continue
-		}
-		count := f.ByRule[rule]
-		points = append(points, SimulatePoint{
-			CommitSHA:   c.SHA,
-			CommittedAt: c.CommittedAt,
-			Findings:    count,
-			Source:      "sidecar",
-		})
-		if reporter != nil {
-			reporter(SimulateEvent{Kind: "scored", CommitSHA: c.SHA, Findings: count})
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
+	if workers > len(commits) {
+		workers = len(commits)
+	}
+	if workers < 1 {
+		workers = 1
+	}
+
+	type slot struct {
+		point *SimulatePoint
+		miss  *commitMeta
+	}
+	slots := make([]slot, len(commits))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for w := 0; w < workers; w++ {
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				c := commits[i]
+				f, err := LoadFindings(root, c.SHA)
+				if err != nil || f == nil {
+					m := c
+					slots[i] = slot{miss: &m}
+					continue
+				}
+				count := f.ByRule[rule]
+				slots[i] = slot{point: &SimulatePoint{
+					CommitSHA:   c.SHA,
+					CommittedAt: c.CommittedAt,
+					Findings:    count,
+					Source:      SimulateSourceSidecar,
+				}}
+			}
+		}()
+	}
+	for i := range commits {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+
+	points := make([]SimulatePoint, 0, len(commits))
+	remaining := make([]commitMeta, 0)
+	for _, s := range slots {
+		switch {
+		case s.point != nil:
+			points = append(points, *s.point)
+			if reporter != nil {
+				reporter(SimulateEvent{Kind: "scored", CommitSHA: s.point.CommitSHA, Findings: s.point.Findings})
+			}
+		case s.miss != nil:
+			remaining = append(remaining, *s.miss)
 		}
 	}
 	return points, remaining

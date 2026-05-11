@@ -4,11 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/config"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // TestRunProject_AnalysisCacheLookup_ByteEqualAcrossRuns is the
@@ -117,6 +119,164 @@ func TestRunProject_AnalysisCacheLookup_DisabledByDefault(t *testing.T) {
 	}
 	if res.FindingsCount != 1 {
 		t.Errorf("FindingsCount = %d, want 1 (rule must dispatch when lookup disabled)", res.FindingsCount)
+	}
+}
+
+func TestRunProject_AnalysisCacheLookup_FullyWarmSkipsParseAndDispatch(t *testing.T) {
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "krit.cache")
+	for _, name := range []string{"A.kt", "B.kt"} {
+		if err := os.WriteFile(filepath.Join(dir, name),
+			[]byte("package test\n\nclass "+name[:1]+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var calls int64
+	rule := api.FakeRule("ClassDecl",
+		api.WithNodeTypes("class_declaration"),
+		api.WithSeverity(api.SeverityWarning),
+		api.WithCheck(func(ctx *api.Context) {
+			atomic.AddInt64(&calls, 1)
+			ctx.EmitAt(int(ctx.Node.StartRow)+1, 1, "class declared")
+		}),
+	)
+
+	run := func(t *testing.T) ProjectResult {
+		t.Helper()
+		res, err := RunProject(context.Background(), ProjectInput{
+			Args: ProjectArgs{
+				Config:      config.NewConfig(),
+				Paths:       []string{dir},
+				ActiveRules: []*api.Rule{rule},
+				Format:      "json",
+				Version:     "test",
+			},
+			Host: ProjectHostState{
+				AnalysisCache:         cache.Load(cachePath),
+				AnalysisCacheFilePath: cachePath,
+				AnalysisCacheLookup:   true,
+			},
+		})
+		if err != nil {
+			t.Fatalf("RunProject: %v", err)
+		}
+		return res
+	}
+
+	first := run(t)
+	if first.FilesScanned != 2 || atomic.LoadInt64(&calls) != 2 {
+		t.Fatalf("cold run scanned=%d calls=%d, want scanned=2 calls=2", first.FilesScanned, calls)
+	}
+	second := run(t)
+	if second.FilesScanned != 2 {
+		t.Fatalf("warm run FilesScanned=%d, want 2", second.FilesScanned)
+	}
+	if got := atomic.LoadInt64(&calls); got != 2 {
+		t.Fatalf("warm run dispatched cached files; calls=%d want 2", got)
+	}
+}
+
+func TestRunProject_AnalysisCacheLookup_ParsesOnlyMisses(t *testing.T) {
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "krit.cache")
+	aPath := filepath.Join(dir, "A.kt")
+	bPath := filepath.Join(dir, "B.kt")
+	if err := os.WriteFile(aPath, []byte("package test\n\nclass A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bPath, []byte("package test\n\nclass B\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls int64
+	rule := api.FakeRule("ClassDecl",
+		api.WithNodeTypes("class_declaration"),
+		api.WithSeverity(api.SeverityWarning),
+		api.WithCheck(func(ctx *api.Context) {
+			atomic.AddInt64(&calls, 1)
+			ctx.EmitAt(int(ctx.Node.StartRow)+1, 1, "class declared")
+		}),
+	)
+	run := func(t *testing.T) {
+		t.Helper()
+		_, err := RunProject(context.Background(), ProjectInput{
+			Args: ProjectArgs{
+				Config:      config.NewConfig(),
+				Paths:       []string{dir},
+				ActiveRules: []*api.Rule{rule},
+				Format:      "json",
+				Version:     "test",
+			},
+			Host: ProjectHostState{
+				AnalysisCache:         cache.Load(cachePath),
+				AnalysisCacheFilePath: cachePath,
+				AnalysisCacheLookup:   true,
+			},
+		})
+		if err != nil {
+			t.Fatalf("RunProject: %v", err)
+		}
+	}
+
+	run(t)
+	if err := os.WriteFile(bPath, []byte("package test\n\nclass B2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t)
+	if got := atomic.LoadInt64(&calls); got != 3 {
+		t.Fatalf("second run should dispatch only the edited file; calls=%d want 3", got)
+	}
+}
+
+func TestRunProject_WarmCrossFindingsSkipCrossRules(t *testing.T) {
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "krit.cache")
+	crossCacheDir := scanner.CrossFileCacheDir(dir)
+	crossFindingsDir := scanner.CrossFindingsCacheDir(dir)
+	if err := os.WriteFile(filepath.Join(dir, "A.kt"), []byte("package test\n\nclass A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var crossCalls int64
+	rule := api.FakeRule("CrossRule", api.WithNeeds(api.NeedsCrossFile), api.WithCheck(func(ctx *api.Context) {
+		atomic.AddInt64(&crossCalls, 1)
+		ctx.Emit(scanner.Finding{File: filepath.Join(dir, "A.kt"), Line: 1, Col: 1, Message: "cross"})
+	}))
+	run := func(t *testing.T) ProjectResult {
+		t.Helper()
+		res, err := RunProject(context.Background(), ProjectInput{
+			Args: ProjectArgs{
+				Config:      config.NewConfig(),
+				Paths:       []string{dir},
+				ActiveRules: []*api.Rule{rule},
+				Format:      "json",
+				Version:     "test",
+			},
+			Host: ProjectHostState{
+				AnalysisCache:         cache.Load(cachePath),
+				AnalysisCacheFilePath: cachePath,
+				AnalysisCacheLookup:   true,
+				CrossFileCacheDir:     crossCacheDir,
+				CrossFindingsCacheDir: crossFindingsDir,
+			},
+		})
+		if err != nil {
+			t.Fatalf("RunProject: %v", err)
+		}
+		return res
+	}
+
+	first := run(t)
+	if first.FindingsCount != 1 || atomic.LoadInt64(&crossCalls) != 1 {
+		t.Fatalf("cold run findings=%d crossCalls=%d, want 1/1", first.FindingsCount, crossCalls)
+	}
+	second := run(t)
+	if second.FindingsCount != 1 {
+		t.Fatalf("warm run findings=%d, want 1", second.FindingsCount)
+	}
+	if got := atomic.LoadInt64(&crossCalls); got != 1 {
+		t.Fatalf("warm run re-ran cross rule; calls=%d want 1", got)
 	}
 }
 

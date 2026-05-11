@@ -276,6 +276,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			ResolverCache:           s.workspace,
 			OracleFilterCache:       s.workspace,
 			CrossFileCacheDir:       scanner.CrossFileCacheDir(repoDir),
+			CrossFindingsCacheDir:   scanner.CrossFindingsCacheDir(repoDir),
 			TypeIndexCacheDir:       typeinfer.TypeIndexCacheDir(repoDir),
 			AnalysisCache:           analysisCache,
 			AnalysisCacheFilePath:   analysisCachePath,

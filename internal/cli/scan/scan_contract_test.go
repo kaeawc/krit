@@ -19,8 +19,8 @@ import (
 )
 
 // TestScanRunMatchesAnalyzeProjectVerb pins the CLI-vs-RunProject
-// byte-equal contract: scan.Run (with caches, FIR, profiling, and
-// the oracle disabled — the subset RunProject already covers) and
+// byte-equal contract: scan.Run (with FIR, profiling, cross-file cache,
+// and the oracle disabled — the subset RunProject already covers) and
 // pipeline.RunProject called directly must produce identical
 // findings JSON after stripping the perf/caches/timing/version
 // envelope. A divergence means the two paths have drifted on rule
@@ -34,7 +34,6 @@ func TestScanRunMatchesAnalyzeProjectVerb(t *testing.T) {
 
 	cliJSON := runScanCLI(t, []string{
 		"krit",
-		"--no-cache",
 		"--no-cross-file-cache",
 		"--no-fir",
 		"--no-type-oracle",
@@ -177,7 +176,7 @@ func stripVariableFields(t *testing.T, raw []byte) map[string]any {
 	for _, key := range []string{
 		"durationMs", "wall_seconds", "wallSeconds",
 		"perf", "perfTimings", "perfRuleStats",
-		"caches", "cacheStats", "cacheBudget",
+		"cache", "caches", "cacheStats", "cacheBudget",
 		"startTime", "timing", "timings",
 		// version stamp comes from a compile-time var on the CLI side
 		// and is caller-provided on the direct side. The contract is

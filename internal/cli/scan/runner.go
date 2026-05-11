@@ -340,7 +340,7 @@ func (r *runner) filterRules() (handled bool, code int) {
 		enabledSet := clishared.ParseRuleNameSetCSV(*r.f.EnableRules)
 		experimental := *r.f.Experimental || r.cfg.GetTopLevelBool("experimental", false)
 		r.activeRules = rules.ActiveRulesV2(disabledSet, enabledSet, *r.f.AllRules, experimental)
-		if rulesNeedProjectModel(r.activeRules) {
+		if pipeline.RulesNeedProjectModel(r.activeRules) {
 			r.ensureProjectModel()
 		}
 
@@ -472,7 +472,7 @@ func (r *runner) runOracleIndex() (int, error) {
 // setupAndroidProviders builds the project providers used by AndroidPhase.
 func (r *runner) setupAndroidProviders() {
 	r.tracker.TrackVoid("setupAndroidProviders", func() {
-		if !rulesNeedAndroidProject(r.activeRules) {
+		if !pipeline.RulesNeedAndroidProject(r.activeRules) {
 			return
 		}
 		deps := pipeline.CollectAndroidDependenciesV2(r.activeRules)
@@ -490,7 +490,7 @@ func (r *runner) setupParseCaches() {
 
 		// Android findings cache is needed even when the source parse is skipped:
 		// AndroidPhase uses the writer as the cacheability gate for cache loads.
-		if rulesNeedAndroidProject(r.activeRules) && !*r.f.NoCache && repoDir != "" {
+		if pipeline.RulesNeedAndroidProject(r.activeRules) && !*r.f.NoCache && repoDir != "" {
 			r.androidCacheDir = scanner.AndroidFindingsCacheDir(repoDir)
 			r.androidCacheWriter = scanner.NewAndroidCacheWriter(*r.f.Jobs)
 		}
@@ -504,7 +504,7 @@ func (r *runner) setupParseCaches() {
 			} else if *r.f.Verbose {
 				fmt.Fprintf(os.Stderr, "verbose: parse cache disabled: %v\n", pcErr)
 			}
-			if rulesNeedAndroidProject(r.activeRules) {
+			if pipeline.RulesNeedAndroidProject(r.activeRules) {
 				if xmlPC, xmlErr := android.NewXMLParseCacheWithCap(repoDir, capBytes); xmlErr == nil {
 					r.xmlParseCache = xmlPC
 				} else if *r.f.Verbose {
@@ -550,8 +550,8 @@ func (r *runner) parsePhase() (int, error) {
 	kotlinPaths := r.files
 	allowCrossFileDelta := r.canUseWarmCrossFindingsDelta()
 	allowResourceSourceDelta := r.canUseWarmAndroidResourceSourceDelta()
-	if canParseOnlyCacheMisses(r.activeRules, r.cacheResult, r.useCache, allowCrossFileDelta, allowResourceSourceDelta) {
-		kotlinPaths = cacheMissPaths(r.files, r.cacheResult)
+	if pipeline.CanParseOnlyCacheMisses(r.activeRules, r.cacheResult, r.useCache, allowCrossFileDelta, allowResourceSourceDelta) {
+		kotlinPaths = pipeline.CacheMissPaths(r.files, r.cacheResult)
 		if *r.f.Verbose {
 			fmt.Fprintf(os.Stderr, "verbose: Parsing %d cache-miss files; findings cache covers %d/%d files\n", len(kotlinPaths), r.cacheResult.TotalCached, r.cacheResult.TotalFiles)
 		}
@@ -628,11 +628,11 @@ func (r *runner) canSkipParsePhase() bool {
 	}
 	canUseCrossFileCache := resolveCrossFileCacheDir(r.paths, noCrossFileCache) != ""
 	warmAndroidSourceCache := r.canUseWarmAndroidResourceSourceCache()
-	if rulesNeedParsedSource(r.activeRules, canUseCrossFileCache, warmAndroidSourceCache) {
-		r.logParseSkipBlocked("active rule requires parsed source: " + parsedSourceBlockReason(r.activeRules, canUseCrossFileCache, warmAndroidSourceCache))
+	if pipeline.RulesNeedParsedSource(r.activeRules, canUseCrossFileCache, warmAndroidSourceCache) {
+		r.logParseSkipBlocked("active rule requires parsed source: " + pipeline.ParsedSourceBlockReason(r.activeRules, canUseCrossFileCache, warmAndroidSourceCache))
 		return false
 	}
-	if canUseCrossFileCache && rulesNeedCrossOrParsedFiles(r.activeRules) {
+	if canUseCrossFileCache && pipeline.RulesNeedCrossOrParsedFiles(r.activeRules) {
 		if !r.loadWarmCrossFindings() {
 			r.logParseSkipBlocked("cross-file findings cache miss")
 			return false
@@ -652,7 +652,7 @@ func (r *runner) canUseWarmAndroidResourceSourceCache() bool {
 	if r == nil || r.androidProject == nil || r.androidProject.IsEmpty() || r.androidCacheDir == "" || r.androidCacheWriter == nil || r.ruleHash == "" {
 		return false
 	}
-	if !hasResourceSourceRulesForSkip(r.activeRules) {
+	if !pipeline.HasResourceSourceRules(r.activeRules) {
 		return true
 	}
 	if r.cacheResult != nil && len(r.cacheResult.CachedHashes) > 0 {
@@ -680,7 +680,7 @@ func (r *runner) canUseWarmAndroidResourceSourceDelta() bool {
 	if r == nil || r.androidProject == nil || r.androidProject.IsEmpty() || r.androidCacheDir == "" || r.androidCacheWriter == nil || r.ruleHash == "" {
 		return false
 	}
-	if !hasResourceSourceRulesForSkip(r.activeRules) {
+	if !pipeline.HasResourceSourceRules(r.activeRules) {
 		return true
 	}
 	return pipeline.HasWarmResourceSourceBundleManifest(
@@ -694,7 +694,7 @@ func (r *runner) canUseWarmAndroidResourceSourceDelta() bool {
 }
 
 func (r *runner) canUseWarmCrossFindingsDelta() bool {
-	if r == nil || !rulesNeedCrossOrParsedFiles(r.activeRules) {
+	if r == nil || !pipeline.RulesNeedCrossOrParsedFiles(r.activeRules) {
 		return true
 	}
 	if r.f != nil && r.f.NoCrossFileCache != nil && *r.f.NoCrossFileCache {
@@ -896,7 +896,7 @@ func (r *runner) dispatch() (int, error) {
 // nesting both indexing children from IndexPhase and rule-execution
 // siblings from CrossFilePhase) is preserved bit-for-bit.
 func (r *runner) crossFile() (int, error) {
-	hasIndexBackedCrossFileRule, hasParsedFilesRule, hasModuleAwareRule := classifyCrossFileNeeds(r.activeRules)
+	hasIndexBackedCrossFileRule, hasParsedFilesRule, hasModuleAwareRule := pipeline.ClassifyCrossFileNeeds(r.activeRules)
 	crossFindingsCacheHit := r.prepareCrossFileTrackers(hasIndexBackedCrossFileRule, hasParsedFilesRule, hasModuleAwareRule)
 
 	scanRoot := "."
@@ -961,7 +961,7 @@ func (r *runner) crossFile() (int, error) {
 	dispatchForCross.IndexResult = idx2
 	dispatchForCross.ActiveRules = r.activeRules
 	if crossFindingsCacheHit {
-		dispatchForCross.ActiveRules = moduleOnlyRules(r.activeRules)
+		dispatchForCross.ActiveRules = pipeline.ModuleOnlyRules(r.activeRules)
 	}
 	dispatchForCross.Reporter = r.reporter
 	dispatchForCross.Tracker = r.tracker
@@ -1030,7 +1030,7 @@ func (r *runner) mergeWarmCrossFindings() {
 // androidPhase runs the project-level AndroidPhase (manifests, res
 // dirs, Gradle, icons) and merges its findings into r.allFindings.
 func (r *runner) androidPhase() (int, error) {
-	if !rulesNeedAndroidProject(r.activeRules) || r.androidProject == nil || r.androidProject.IsEmpty() {
+	if !pipeline.RulesNeedAndroidProject(r.activeRules) || r.androidProject == nil || r.androidProject.IsEmpty() {
 		return 0, nil
 	}
 	androidStart := time.Now()
@@ -1044,7 +1044,7 @@ func (r *runner) androidPhase() (int, error) {
 		Dispatcher:          dispatcher,
 		SourceFiles:         r.sourceFiles,
 		SourcePaths:         r.cacheFilePaths,
-		SourceHashes:        cachedHashesOrNil(r.cacheResult),
+		SourceHashes:        pipeline.CachedHashesOrNil(r.cacheResult),
 		Providers:           r.androidProviders,
 		Tracker:             androidTracker,
 		RuleHash:            r.ruleHash,

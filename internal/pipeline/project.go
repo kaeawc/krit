@@ -42,6 +42,14 @@ type ProjectArgs struct {
 	Config *config.Config
 	// Paths are the scan target paths (files or directories). Required.
 	Paths []string
+	// KotlinPaths, when non-nil, are the already-collected Kotlin
+	// sources for this run. Supplying them lets RunProject perform
+	// pre-parse cache lookup and parse only cache misses.
+	KotlinPaths []string
+	// JavaPaths, when non-nil, are the already-collected Java sources
+	// for this run. Supplying them keeps Java cache lookup and parse
+	// inputs aligned with the caller's file walk.
+	JavaPaths []string
 	// ActiveRules is the rule set to dispatch. Required and non-empty.
 	ActiveRules []*api.Rule
 	// Format is the output format ("json", "plain", "sarif",
@@ -60,6 +68,10 @@ type ProjectArgs struct {
 	WarningsAsErrors bool
 	// IncludeGenerated retains files under */generated/* during parse.
 	IncludeGenerated bool
+	// EditorConfigEnabled participates in the analysis-cache rule hash.
+	// CLI callers set this from --editorconfig; false preserves the
+	// daemon's existing hash contract.
+	EditorConfigEnabled bool
 	// Workers overrides per-phase worker counts. Zero falls back to
 	// runtime.NumCPU().
 	Workers int
@@ -166,6 +178,10 @@ type ProjectHostState struct {
 	// daemon restarts, while the in-memory cache survives within a
 	// single daemon's lifetime.
 	CrossFileCacheDir string
+	// CrossFindingsCacheDir, when non-empty, enables the on-disk
+	// cross-rule findings cache. RunProject can replay it on fully warm
+	// analysis-cache runs without parsing source files.
+	CrossFindingsCacheDir string
 	// TypeIndexCacheDir, when non-empty, enables the per-file
 	// FileTypeInfo on-disk cache so warm runs skip per-file
 	// extraction for unchanged files. Empty disables the cache (the
@@ -219,6 +235,17 @@ type ProjectHostState struct {
 	// changes skip source discovery on a manifest-backed bundle hit.
 	// False keeps RunProject conservative by re-collecting source paths.
 	SourceSetClean bool
+}
+
+type warmAnalysisCachePlan struct {
+	cache       *cache.Cache
+	result      *cache.Result
+	stats       *cache.Stats
+	ruleHash    string
+	filePaths   []string
+	kotlinPaths []string
+	javaPaths   []string
+	cross       *scanner.FindingColumns
 }
 
 // ProjectInput is the value type that drives RunProject. The split
@@ -343,72 +370,24 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		return res, err
 	}
 	host = awaitAnalysisCacheFuture(host)
+	warmPlan := buildWarmAnalysisCachePlan(args, host)
+	if warmPlan.cache != nil {
+		host.AnalysisCache = warmPlan.cache
+	}
 
 	// Phase 1: parse.
 	parseStart := time.Now()
-	parseResult, err := ParsePhase{Workers: args.Workers}.Run(ctx, ParseInput{
-		Config:           args.Config,
-		Paths:            args.Paths,
-		ActiveRules:      args.ActiveRules,
-		IncludeGenerated: args.IncludeGenerated,
-		Workers:          args.Workers,
-		Reporter:         host.Reporter,
-		Tracker:          host.Tracker,
-		ParseCache:       host.ParseCache,
-	})
+	parseResult, err := runProjectParsePhase(ctx, args, host, warmPlan)
 	phaseTimings.Parse = time.Since(parseStart).Milliseconds()
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("parse: %w", err)
 	}
 
-	// Phase 2: index. Builds resolver, library facts, code index, module
-	// graph, and (when an oracle handle is supplied) wires it through.
-	indexInput := IndexInput{
-		ParseResult:          parseResult,
-		PrebuiltResolver:     host.PrebuiltResolver,
-		PrebuiltLibraryFacts: host.PrebuiltLibraryFacts,
-		LibraryFactsCache:    host.LibraryFactsCache,
-		CodeIndexCache:       host.CodeIndexCache,
-		ResolverCache:        host.ResolverCache,
-		CrossFileCacheDir:    host.CrossFileCacheDir,
-		TypeIndexCacheDir:    host.TypeIndexCacheDir,
-		Reporter:             host.Reporter,
-		Tracker:              host.Tracker,
-	}
-	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
-	wireAnalysisCacheLookup(&indexInput, args, host)
 	indexStart := time.Now()
-	indexResult, err := IndexPhase{Workers: args.Workers}.Run(ctx, indexInput)
+	indexResult, err := runProjectIndexPhase(ctx, args, host, warmPlan, parseResult)
 	phaseTimings.Index = time.Since(indexStart).Milliseconds()
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("index: %w", err)
-	}
-	// The daemon-resident oracle handle is wired in here rather than
-	// reconstructed inside IndexPhase. Today IndexPhase does not accept
-	// a prebuilt oracle on its input; expose the handles via the result
-	// so DispatchPhase / CrossFilePhase see the resident state. When
-	// IndexInput is later extended to accept a prebuilt oracle this
-	// fallback becomes obsolete.
-	if host.Oracle != nil && indexResult.Oracle == nil {
-		indexResult.Oracle = host.Oracle
-	}
-	if host.OracleDaemon != nil && indexResult.Daemon == nil {
-		indexResult.Daemon = host.OracleDaemon
-	}
-	indexResult.Cache = host.AnalysisCache
-	if host.AnalysisCache != nil {
-		// Wire the dispatch-side write-back fields so writeCacheBack
-		// can update the cache and persist it on each call. Lookup-side
-		// (file-skip on hit) requires CacheResult population in
-		// IndexPhase.runCacheLoad and stays out of scope for this
-		// promotion — populating the cache without skipping is safe
-		// (no output drift) and benefits subsequent CLI runs.
-		indexResult.CacheFilePath = host.AnalysisCacheFilePath
-		indexResult.CacheScanPaths = args.Paths
-		indexResult.Version = args.Version
-		if indexResult.RuleHash == "" {
-			indexResult.RuleHash = projectRuleHash(args.ActiveRules, args.Config)
-		}
 	}
 
 	runFP, bundleEnabled := computeRunFingerprint(args, host, parseResult, indexResult)
@@ -538,6 +517,210 @@ func awaitAnalysisCacheFuture(host ProjectHostState) ProjectHostState {
 	return host
 }
 
+func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan, parseResult ParseResult) (IndexResult, error) {
+	indexInput := IndexInput{
+		ParseResult:           parseResult,
+		PrebuiltResolver:      host.PrebuiltResolver,
+		PrebuiltLibraryFacts:  host.PrebuiltLibraryFacts,
+		LibraryFactsCache:     host.LibraryFactsCache,
+		CodeIndexCache:        host.CodeIndexCache,
+		ResolverCache:         host.ResolverCache,
+		CrossFileCacheDir:     host.CrossFileCacheDir,
+		CrossFindingsCacheDir: host.CrossFindingsCacheDir,
+		TypeIndexCacheDir:     host.TypeIndexCacheDir,
+		Reporter:              host.Reporter,
+		Tracker:               host.Tracker,
+	}
+	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
+	if warm.result == nil {
+		wireAnalysisCacheLookup(&indexInput, args, host)
+	}
+	indexResult, err := IndexPhase{Workers: args.Workers}.Run(ctx, indexInput)
+	if err != nil {
+		return IndexResult{}, err
+	}
+	completeRunProjectIndexResult(args, host, warm, &indexResult)
+	return indexResult, nil
+}
+
+func completeRunProjectIndexResult(args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan, indexResult *IndexResult) {
+	if host.Oracle != nil && indexResult.Oracle == nil {
+		indexResult.Oracle = host.Oracle
+	}
+	if host.OracleDaemon != nil && indexResult.Daemon == nil {
+		indexResult.Daemon = host.OracleDaemon
+	}
+	indexResult.Cache = host.AnalysisCache
+	if warm.result != nil {
+		indexResult.CacheResult = warm.result
+		indexResult.RuleHash = warm.ruleHash
+		indexResult.CacheFilePath = host.AnalysisCacheFilePath
+		indexResult.CacheStats = warm.stats
+		indexResult.WarmCrossFindings = warm.cross
+	}
+	if host.AnalysisCache == nil {
+		return
+	}
+	indexResult.CacheFilePath = host.AnalysisCacheFilePath
+	indexResult.CacheScanPaths = args.Paths
+	indexResult.Version = args.Version
+	if indexResult.RuleHash == "" {
+		indexResult.RuleHash = projectRuleHash(args.ActiveRules, args.Config)
+	}
+}
+
+func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan) (ParseResult, error) {
+	kotlinPaths := args.KotlinPaths
+	if kotlinPaths == nil {
+		kotlinPaths = warm.kotlinPaths
+	}
+	javaPaths := args.JavaPaths
+	if javaPaths == nil {
+		javaPaths = warm.javaPaths
+	}
+	if canSkipRunProjectParse(args, host, warm) {
+		host.Reporter.Verbosef("verbose: Skipped parse; findings cache covers %d files and no active phase needs parsed sources\n", len(warm.filePaths))
+		if host.Tracker != nil {
+			host.Tracker.TrackVoid("parse", func() {})
+		}
+		return ParseResult{
+			Config:      args.Config,
+			ActiveRules: args.ActiveRules,
+			KotlinFiles: filesForPaths(kotlinPaths, scanner.LangKotlin),
+			KotlinPaths: append([]string(nil), kotlinPaths...),
+			JavaFiles:   filesForPaths(javaPaths, scanner.LangJava),
+			Paths:       args.Paths,
+		}, nil
+	}
+	allowCrossFile, _ := loadWarmCrossFindings(args, host, warm)
+	if CanParseOnlyCacheMisses(args.ActiveRules, warm.result, warm.result != nil, allowCrossFile, false) {
+		kotlinPaths = CacheMissPaths(kotlinPaths, warm.result)
+		host.Reporter.Verbosef("verbose: Parsing %d cache-miss files; findings cache covers %d/%d files\n", len(kotlinPaths), warm.result.TotalCached, warm.result.TotalFiles)
+	}
+	return ParsePhase{Workers: args.Workers}.Run(ctx, ParseInput{
+		Config:             args.Config,
+		Paths:              args.Paths,
+		ActiveRules:        args.ActiveRules,
+		IncludeGenerated:   args.IncludeGenerated,
+		KotlinPaths:        kotlinPaths,
+		JavaPaths:          javaPaths,
+		Workers:            args.Workers,
+		SkipJavaCollection: !NeedsJavaBeforeDispatch(args.ActiveRules),
+		Reporter:           host.Reporter,
+		Tracker:            host.Tracker,
+		ParseCache:         host.ParseCache,
+	})
+}
+
+func buildWarmAnalysisCachePlan(args ProjectArgs, host ProjectHostState) warmAnalysisCachePlan {
+	if host.AnalysisCache == nil || !host.AnalysisCacheLookup {
+		return warmAnalysisCachePlan{}
+	}
+	kotlinPaths, javaPaths := warmSourcePaths(args)
+	filePaths := warmCacheFilePaths(args, kotlinPaths, javaPaths)
+	ruleHash := projectRuleHashWithEditorConfig(args.ActiveRules, args.Config, args.EditorConfigEnabled)
+	start := time.Now()
+	result := host.AnalysisCache.CheckFiles(filePaths, ruleHash, args.Paths...)
+	stats := &cache.Stats{
+		Cached:    result.TotalCached,
+		Total:     result.TotalFiles,
+		LoadDurMs: 0,
+	}
+	if result.TotalFiles > 0 {
+		stats.HitRate = float64(result.TotalCached) / float64(result.TotalFiles)
+	}
+	host.Reporter.Verbosef("verbose: Cache: %d/%d files cached (%d%% hit rate)\n",
+		result.TotalCached, result.TotalFiles, cacheHitPercent(result))
+	if host.Tracker != nil {
+		perf.AddEntry(host.Tracker, "cacheCheck", time.Since(start))
+	}
+	plan := warmAnalysisCachePlan{
+		cache:       host.AnalysisCache,
+		result:      result,
+		stats:       stats,
+		ruleHash:    ruleHash,
+		filePaths:   filePaths,
+		kotlinPaths: kotlinPaths,
+		javaPaths:   javaPaths,
+	}
+	if ok, cols := loadWarmCrossFindings(args, host, plan); ok {
+		plan.cross = cols
+	}
+	return plan
+}
+
+func cacheHitPercent(result *cache.Result) int {
+	if result == nil || result.TotalFiles == 0 {
+		return 0
+	}
+	return 100 * result.TotalCached / result.TotalFiles
+}
+
+func warmSourcePaths(args ProjectArgs) ([]string, []string) {
+	kotlinPaths := args.KotlinPaths
+	if kotlinPaths == nil {
+		if collected, err := scanner.CollectKotlinFiles(args.Paths, nil); err == nil {
+			kotlinPaths = collected
+		}
+	}
+	kotlinPaths = filterGeneratedSourcePaths(kotlinPaths, args.IncludeGenerated)
+	javaPaths := args.JavaPaths
+	if javaPaths == nil && NeedsJavaBeforeDispatch(args.ActiveRules) {
+		if collected, err := scanner.CollectJavaFiles(args.Paths, nil); err == nil {
+			javaPaths = collected
+		}
+	}
+	javaPaths = filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated)
+	return kotlinPaths, javaPaths
+}
+
+func warmCacheFilePaths(args ProjectArgs, kotlinPaths, javaPaths []string) []string {
+	filePaths := make([]string, 0, len(kotlinPaths)+len(javaPaths))
+	filePaths = append(filePaths, kotlinPaths...)
+	if NeedsJavaBeforeDispatch(args.ActiveRules) {
+		filePaths = append(filePaths, javaPaths...)
+	}
+	return filePaths
+}
+
+func canSkipRunProjectParse(args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan) bool {
+	if warm.result == nil || warm.result.TotalFiles == 0 || warm.result.TotalCached != warm.result.TotalFiles {
+		return false
+	}
+	if len(warm.result.CachedPaths) != len(warm.filePaths) {
+		return false
+	}
+	allowCrossFile := warm.cross != nil
+	if !allowCrossFile {
+		var loaded *scanner.FindingColumns
+		allowCrossFile, loaded = loadWarmCrossFindings(args, host, warm)
+		warm.cross = loaded
+	}
+	if RulesNeedParsedSource(args.ActiveRules, allowCrossFile, false) {
+		host.Reporter.Verbosef("verbose: Parse skip unavailable: active rule requires parsed source: %s\n", ParsedSourceBlockReason(args.ActiveRules, allowCrossFile, false))
+		return false
+	}
+	return true
+}
+
+func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan) (bool, *scanner.FindingColumns) {
+	if !RulesNeedCrossOrParsedFiles(args.ActiveRules) {
+		return true, nil
+	}
+	if host.CrossFileCacheDir == "" || host.CrossFindingsCacheDir == "" || warm.ruleHash == "" {
+		return false, nil
+	}
+	meta, ok := scanner.LoadCurrentCrossFileCacheMeta(host.CrossFileCacheDir)
+	if !ok {
+		return false, nil
+	}
+	cols, ok := scanner.LoadCrossFindings(host.CrossFindingsCacheDir, scanner.CrossFindingsKey(meta.Fingerprint, warm.ruleHash))
+	if !ok {
+		return false, nil
+	}
+	return true, &cols
+}
+
 // runFixupPhase invokes FixupPhase when one of the fix knobs is set.
 // Fixup runs after Android merge so cached/delta findings paths
 // receive on-disk fixes too — symmetric with the CLI's ordering.
@@ -607,13 +790,17 @@ func parseCacheCounters(pc *scanner.ParseCache) (int64, int64) {
 // subsequent CLI lookups reject the cache when the rule set / config
 // has drifted.
 func projectRuleHash(activeRules []*api.Rule, cfg *config.Config) string {
+	return projectRuleHashWithEditorConfig(activeRules, cfg, false)
+}
+
+func projectRuleHashWithEditorConfig(activeRules []*api.Rule, cfg *config.Config, editorConfigEnabled bool) string {
 	ruleNames := make([]string, 0, len(activeRules))
 	for _, r := range activeRules {
 		if r != nil {
 			ruleNames = append(ruleNames, r.ID)
 		}
 	}
-	return cache.ComputeConfigHash(ruleNames, cfg, false)
+	return cache.ComputeConfigHash(ruleNames, cfg, editorConfigEnabled)
 }
 
 // wireAnalysisCacheLookup turns on IndexPhase.runCacheLoad when the
@@ -636,6 +823,7 @@ func wireAnalysisCacheLookup(in *IndexInput, args ProjectArgs, host ProjectHostS
 	in.CacheFilePath = host.AnalysisCacheFilePath
 	in.CacheScanPaths = args.Paths
 	in.CacheConfig = args.Config
+	in.CacheEditorConfigEnabled = args.EditorConfigEnabled
 	ruleNames := make([]string, 0, len(args.ActiveRules))
 	for _, r := range args.ActiveRules {
 		if r != nil {

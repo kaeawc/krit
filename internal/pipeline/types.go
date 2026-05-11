@@ -295,6 +295,9 @@ type IndexResult struct {
 	// pass on warm calls. Nil means no in-memory cache. *WorkspaceState
 	// satisfies this interface.
 	CodeIndexCache CodeIndexCache
+	// WarmCrossFindings carries cross-rule findings loaded before
+	// parsing on an all-files analysis-cache hit.
+	WarmCrossFindings *scanner.FindingColumns
 }
 
 // CodeIndexCache lets a long-lived host (typically *WorkspaceState)

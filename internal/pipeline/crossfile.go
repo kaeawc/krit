@@ -152,7 +152,13 @@ func (p CrossFilePhase) runCrossPhase(ctx context.Context, in DispatchResult, co
 
 	crossFindingsKey, crossFindingsCacheable := crossFindingsCacheKey(codeIndex, parsedFiles, in.RuleHash)
 	var crossFindingsCacheHit bool
-	if crossFindingsCacheable && in.CrossFindingsCacheDir != "" {
+	if in.WarmCrossFindings != nil {
+		crossCollector.AppendColumns(in.WarmCrossFindings)
+		crossFindingsCacheHit = true
+		if in.Reporter != nil {
+			in.Reporter.Verbosef("verbose: Cross-file findings cache: HIT (%d findings)\n", in.WarmCrossFindings.Len())
+		}
+	} else if crossFindingsCacheable && in.CrossFindingsCacheDir != "" {
 		if cached, ok := scanner.LoadCrossFindings(in.CrossFindingsCacheDir, crossFindingsKey); ok {
 			crossCollector.AppendColumns(&cached)
 			crossFindingsCacheHit = true

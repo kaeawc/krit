@@ -27,7 +27,7 @@ func registerStyleAbstractClassCanBeConcreteClass() {
 	r := &AbstractClassCanBeConcreteClassRule{BaseRule: BaseRule{RuleName: "AbstractClassCanBeConcreteClass", RuleSetName: "style", Sev: "warning", Desc: "Detects abstract classes that have no abstract members and could be made concrete."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixNone, Implementation: r,
 		Needs: api.NeedsResolver,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
@@ -143,7 +143,7 @@ func registerStyleAbstractClassCanBeInterface() {
 	r := &AbstractClassCanBeInterfaceRule{BaseRule: BaseRule{RuleName: "AbstractClassCanBeInterface", RuleSetName: "style", Sev: "warning", Desc: "Detects abstract classes with no state that could be converted to interfaces."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixNone, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !file.FlatHasModifier(idx, "abstract") {
@@ -183,64 +183,6 @@ func registerStyleAbstractClassCanBeInterface() {
 			name := extractIdentifierFlat(file, idx)
 			f := r.Finding(file, file.FlatRow(idx)+1, 1,
 				fmt.Sprintf("Abstract class '%s' has no state and could be an interface.", name))
-			type replEntry struct {
-				start, end int
-				repl       string
-			}
-			var repls []replEntry
-			abstractNode := file.FlatFindModifierNode(idx, "abstract")
-			if abstractNode != 0 {
-				endByte := int(file.FlatEndByte(abstractNode))
-				for endByte < int(file.FlatEndByte(idx)) && (file.Content[endByte] == ' ' || file.Content[endByte] == '\t') {
-					endByte++
-				}
-				repls = append(repls, replEntry{int(file.FlatStartByte(abstractNode)), endByte, ""})
-			}
-			for i := 0; i < file.FlatChildCount(idx); i++ {
-				child := file.FlatChild(idx, i)
-				if file.FlatNodeTextEquals(child, "class") {
-					repls = append(repls, replEntry{int(file.FlatStartByte(child)), int(file.FlatEndByte(child)), "interface"})
-					break
-				}
-			}
-			if body != 0 {
-				file.FlatWalkAllNodes(body, func(member uint32) {
-					if t := file.FlatType(member); t == "function_declaration" || t == "property_declaration" {
-						absNode := file.FlatFindModifierNode(member, "abstract")
-						if absNode != 0 {
-							endByte := int(file.FlatEndByte(absNode))
-							for endByte < int(file.FlatEndByte(member)) && (file.Content[endByte] == ' ' || file.Content[endByte] == '\t') {
-								endByte++
-							}
-							repls = append(repls, replEntry{int(file.FlatStartByte(absNode)), endByte, ""})
-						}
-					}
-				})
-			}
-			if len(repls) > 0 {
-				for i := 0; i < len(repls); i++ {
-					for j := i + 1; j < len(repls); j++ {
-						if repls[j].start > repls[i].start {
-							repls[i], repls[j] = repls[j], repls[i]
-						}
-					}
-				}
-				nodeText := file.FlatNodeText(idx)
-				base := int(file.FlatStartByte(idx))
-				for _, rr := range repls {
-					relStart := rr.start - base
-					relEnd := rr.end - base
-					if relStart >= 0 && relEnd <= len(nodeText) {
-						nodeText = nodeText[:relStart] + rr.repl + nodeText[relEnd:]
-					}
-				}
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   int(file.FlatStartByte(idx)),
-					EndByte:     int(file.FlatEndByte(idx)),
-					Replacement: nodeText,
-				}
-			}
 			ctx.Emit(f)
 		},
 	})
@@ -250,7 +192,7 @@ func registerStyleDataClassShouldBeImmutable() {
 	r := &DataClassShouldBeImmutableRule{BaseRule: BaseRule{RuleName: "DataClassShouldBeImmutable", RuleSetName: "style", Sev: "warning", Desc: "Detects data class properties declared as var instead of val."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
 		Needs: api.NeedsResolver,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
@@ -352,7 +294,7 @@ func registerStyleProtectedMemberInFinalClass() {
 	r := &ProtectedMemberInFinalClassRule{BaseRule: BaseRule{RuleName: "ProtectedMemberInFinalClass", RuleSetName: "style", Sev: "warning", Desc: "Detects protected members in final classes where they should be private."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
 		Needs: api.NeedsResolver,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
@@ -472,7 +414,7 @@ func registerStyleUtilityClassWithPublicConstructor() {
 	r := &UtilityClassWithPublicConstructorRule{BaseRule: BaseRule{RuleName: "UtilityClassWithPublicConstructor", RuleSetName: "style", Sev: "warning", Desc: "Detects utility classes that have a public constructor instead of a private one."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			nodeText := file.FlatNodeText(idx)
@@ -726,7 +668,7 @@ func registerStyleSerialVersionUIDInSerializableClass() {
 	r := &SerialVersionUIDInSerializableClassRule{BaseRule: BaseRule{RuleName: "SerialVersionUIDInSerializableClass", RuleSetName: "style", Sev: "warning", Desc: "Detects Serializable classes that are missing a serialVersionUID field."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
 		Needs: api.NeedsResolver,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File

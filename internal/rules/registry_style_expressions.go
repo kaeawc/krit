@@ -625,7 +625,7 @@ func registerStyleFunctionOnlyReturningConstant() {
 	r := &FunctionOnlyReturningConstantRule{BaseRule: BaseRule{RuleName: "FunctionOnlyReturningConstant", RuleSetName: "style", Sev: "warning", Desc: "Detects functions whose body only returns a constant value that could be a const val."}, IgnoreOverridableFunction: true, IgnoreActualFunction: true}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"function_declaration"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if r.IgnoreOverridableFunction &&

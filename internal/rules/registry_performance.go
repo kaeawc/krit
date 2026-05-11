@@ -349,7 +349,7 @@ func registerPerformanceRules() {
 		r := &UnnecessaryTypeCastingRule{BaseRule: BaseRule{RuleName: "UnnecessaryTypeCasting", RuleSetName: "performance", Sev: "warning", Desc: "Detects safe casts immediately compared with null and redundant casts to an already-known type."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"equality_expression", "as_expression"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+			NodeTypes: []string{"equality_expression", "as_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
 			Needs: api.NeedsResolver,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File

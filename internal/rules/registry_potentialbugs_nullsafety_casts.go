@@ -45,7 +45,7 @@ func registerPotentialbugsNullsafetyCastsRules() {
 		r := &CastNullableToNonNullableTypeRule{BaseRule: BaseRule{RuleName: "CastNullableToNonNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects casting a nullable expression to a non-nullable type using 'as Type'."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: api.FixSemantic,
+			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic,
 			Needs:          api.NeedsResolver,
 			TypeInfo:       api.TypeInfoHint{PreferBackend: api.PreferResolver, Required: true},
 			Implementation: r,
@@ -56,7 +56,7 @@ func registerPotentialbugsNullsafetyCastsRules() {
 		r := &CastToNullableTypeRule{BaseRule: BaseRule{RuleName: "CastToNullableType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects casts to nullable types like 'as Type?' which always succeed and may hide bugs."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+			NodeTypes: []string{"as_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
 			Check: r.check,
 		})
 	}

@@ -70,7 +70,7 @@ func registerCoroutinesGlobalCoroutineUsage() {
 	r := &GlobalCoroutineUsageRule{BaseRule: BaseRule{RuleName: "GlobalCoroutineUsage", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects GlobalScope.launch/async usage instead of structured concurrency with a proper CoroutineScope."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression", "navigation_expression"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"call_expression", "navigation_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			switch file.FlatType(idx) {
@@ -429,7 +429,7 @@ func registerCoroutinesSuspendFunSwallowedCancellation() {
 	r := &SuspendFunSwallowedCancellationRule{BaseRule: BaseRule{RuleName: "SuspendFunSwallowedCancellation", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects catch blocks that catch CancellationException without rethrowing, breaking structured concurrency."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"catch_block"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"catch_block"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
 		Needs: api.NeedsTypeInfo |
 			api.NeedsOracleCallTargets |
 			api.NeedsOracleSuspendMarkers,

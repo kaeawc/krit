@@ -1,4 +1,0 @@
-package fixtures.positive.emptyblocks
-
-fun loopNothing() {
-}

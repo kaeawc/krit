@@ -142,7 +142,7 @@ func registerExceptionsRules() {
 		r := &ReturnFromFinallyRule{BaseRule: BaseRule{RuleName: "ReturnFromFinally", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects return statements inside finally blocks that can swallow exceptions from the try/catch."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"finally_block", "finally_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+			NodeTypes: []string{"finally_block", "finally_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Fix: api.FixNone, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				returnTypes := []string{"jump_expression"}
@@ -164,18 +164,6 @@ func registerExceptionsRules() {
 						}
 						f := r.Finding(file, file.FlatRow(jumpNode)+1, file.FlatCol(jumpNode)+1,
 							"Return from finally block. This can swallow exceptions from try/catch.")
-						lineIdx := file.FlatRow(jumpNode)
-						lineStart := file.LineOffset(lineIdx)
-						lineEnd := lineStart + len(file.Lines[lineIdx]) + 1
-						if lineEnd > len(file.Content) {
-							lineEnd = len(file.Content)
-						}
-						f.Fix = &scanner.Fix{
-							ByteMode:    true,
-							StartByte:   lineStart,
-							EndByte:     lineEnd,
-							Replacement: "",
-						}
 						ctx.Emit(f)
 					})
 				}
@@ -200,24 +188,12 @@ func registerExceptionsRules() {
 		r := &ThrowingExceptionFromFinallyRule{BaseRule: BaseRule{RuleName: "ThrowingExceptionFromFinally", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects throw statements inside finally blocks that can mask exceptions from the try/catch."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"finally_block", "finally_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+			NodeTypes: []string{"finally_block", "finally_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.75, Fix: api.FixNone, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				walkThrowExpressionsFlat(file, idx, func(throwNode uint32) {
 					f := r.Finding(file, file.FlatRow(throwNode)+1, file.FlatCol(throwNode)+1,
 						"Exception thrown inside finally block. This can swallow exceptions from try/catch.")
-					lineIdx := file.FlatRow(throwNode)
-					lineStart := file.LineOffset(lineIdx)
-					lineEnd := lineStart + len(file.Lines[lineIdx]) + 1
-					if lineEnd > len(file.Content) {
-						lineEnd = len(file.Content)
-					}
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   lineStart,
-						EndByte:     lineEnd,
-						Replacement: "",
-					}
 					ctx.Emit(f)
 				})
 			},

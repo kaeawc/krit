@@ -23,6 +23,15 @@ type Blob struct {
 	Modules []Module
 	Files   []File
 	Symbols []Symbol
+
+	// Redacted is true when the blob's symbol names, owner/package
+	// strings, signatures, and file paths have been replaced with
+	// stable one-way hashes via Redact. Snapshots captured with
+	// CaptureOptions.Redact = true (or post-processed through
+	// RedactBlob) flip this flag. Diff guards against comparing
+	// redacted vs non-redacted blobs because the join keys
+	// (FQN / Signature / Path) live in different namespaces.
+	Redacted bool
 }
 
 type Module struct {

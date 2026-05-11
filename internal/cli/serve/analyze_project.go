@@ -35,7 +35,7 @@ var errDaemonNotWarm = errors.New("daemon not warm yet")
 // and the dispatcher — a verified DATA RACE under -race. Loosening
 // the lock requires making the rules config state per-call or
 // initialising it once at daemon startup. See issue #53.
-func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawMessage) (any, error) {
+func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMessage) (any, error) {
 	var args daemon.AnalyzeProjectArgs
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &args); err != nil {

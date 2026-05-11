@@ -179,7 +179,7 @@ func registerExceptionsRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes:      []string{"catch_block"},
 			Confidence:     0.75,
-			Fix:            api.FixSemantic,
+			Fix:            api.FixIdiomatic,
 			Implementation: r,
 			Check:          r.checkSwallowedException,
 		})

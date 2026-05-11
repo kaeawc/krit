@@ -8657,7 +8657,7 @@
           }
         },
         "SwallowedException": {
-          "description": "Detects catch blocks that silently swallow the caught exception without logging, handling, or rethrowing. [fixable: semantic]",
+          "description": "Detects catch blocks that silently swallow the caught exception without logging, handling, or rethrowing. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10787,7 +10787,7 @@
           }
         },
         "AvoidReferentialEquality": {
-          "description": "Detects usage of referential equality operators === or !== which compare object identity instead of value. [fixable: semantic]",
+          "description": "Detects usage of referential equality operators === or !== which compare object identity instead of value. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10913,7 +10913,7 @@
           }
         },
         "DoubleMutabilityForCollection": {
-          "description": "Detects var declarations with mutable collection types, creating double mutability. [fixable: semantic]",
+          "description": "Detects var declarations with mutable collection types, creating double mutability. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11758,7 +11758,7 @@
           }
         },
         "WrongEqualsTypeParameter": {
-          "description": "Detects equals() with a parameter type other than Any?, which does not properly override the contract. [fixable: semantic]",
+          "description": "Detects equals() with a parameter type other than Any?, which does not properly override the contract. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14056,7 +14056,7 @@
           }
         },
         "ExplicitItLambdaMultipleParameters": {
-          "description": "Detects multi-parameter lambdas that use it as a parameter name. [fixable: cosmetic]",
+          "description": "Detects multi-parameter lambdas that use it as a parameter name.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14363,7 +14363,7 @@
           }
         },
         "FunctionOnlyReturningConstant": {
-          "description": "Detects functions whose body only returns a constant value that could be a const val. [fixable: idiomatic]",
+          "description": "Detects functions whose body only returns a constant value that could be a const val.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15357,7 +15357,7 @@
           }
         },
         "UnnecessaryFullyQualifiedName": {
-          "description": "Detects fully qualified names that are unnecessary because the type is already imported. [fixable: idiomatic]",
+          "description": "Detects fully qualified names that are unnecessary because the type is already imported.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15722,7 +15722,7 @@
           }
         },
         "UseDataClass": {
-          "description": "Detects classes with only properties in the constructor that could be data classes. [fixable: idiomatic]",
+          "description": "Detects classes with only properties in the constructor that could be data classes.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15827,7 +15827,7 @@
           }
         },
         "UseLet": {
-          "description": "Detects null checks that could be replaced with ?.let {} scope function. [fixable: idiomatic]",
+          "description": "Detects null checks that could be replaced with ?.let {} scope function.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

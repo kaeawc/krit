@@ -1,0 +1,10 @@
+package comments
+
+class Example {
+    /**
+     * Processes the input.
+     */
+    fun process(y: Int): Int {
+        return y * 2
+    }
+}

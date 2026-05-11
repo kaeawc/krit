@@ -1,0 +1,6 @@
+package style
+
+internal class Outer {
+    class Nested
+    object NestedObject
+}

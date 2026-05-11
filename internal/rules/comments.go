@@ -28,6 +28,53 @@ func flatKdocText(file *scanner.File, idx uint32) string {
 	return strings.Join(lines, "\n")
 }
 
+// endOfSentenceInsertOffsetFlat finds the byte offset (within file.Content)
+// where a `.` should be inserted to terminate the KDoc's first sentence. It
+// walks the raw KDoc text line by line, skipping blank/asterisk-only lines and
+// `@tag` lines, then returns the offset just after the last non-whitespace
+// character of the first content line — placed before any trailing ` */` or
+// newline. Returns -1 if no suitable line is found.
+func endOfSentenceInsertOffsetFlat(file *scanner.File, idx uint32) int {
+	startByte := int(file.FlatStartByte(idx))
+	endByte := int(file.FlatEndByte(idx))
+	if startByte < 0 || endByte > len(file.Content) || startByte >= endByte {
+		return -1
+	}
+	raw := file.Content[startByte:endByte]
+	pos := 0
+	for pos < len(raw) {
+		nl := pos
+		for nl < len(raw) && raw[nl] != '\n' {
+			nl++
+		}
+		line := raw[pos:nl]
+		stripped := strings.TrimSpace(string(line))
+		stripped = strings.TrimPrefix(stripped, "/**")
+		stripped = strings.TrimSpace(stripped)
+		stripped = strings.TrimPrefix(stripped, "*")
+		stripped = strings.TrimSuffix(stripped, "*/")
+		stripped = strings.TrimSpace(stripped)
+		if stripped == "" || strings.HasPrefix(stripped, "@") {
+			pos = nl + 1
+			continue
+		}
+		// Compute insertion offset within `line`: skip trailing whitespace,
+		// then strip a trailing `*/` and any whitespace before it.
+		e := len(line)
+		for e > 0 && (line[e-1] == ' ' || line[e-1] == '\t') {
+			e--
+		}
+		if e >= 2 && line[e-2] == '*' && line[e-1] == '/' {
+			e -= 2
+			for e > 0 && (line[e-1] == ' ' || line[e-1] == '\t') {
+				e--
+			}
+		}
+		return startByte + pos + e
+	}
+	return -1
+}
+
 type kdocLinkToken struct {
 	Target string
 	Offset int

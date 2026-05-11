@@ -1,0 +1,9 @@
+package fixtures.positive.potentialbugs
+
+class UnusedUnaryOperator {
+    fun standalone(x: Int) {
+    }
+
+    fun standaloneMinus(x: Int) {
+    }
+}

@@ -193,7 +193,7 @@ func registerPotentialbugsPropertiesRules() {
 		r := &UnusedUnaryOperatorRule{BaseRule: BaseRule{RuleName: "UnusedUnaryOperator", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects standalone unary +x or -x expressions whose result is never used."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"prefix_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"prefix_expression"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatChildCount(idx) < 2 {
@@ -233,8 +233,17 @@ func registerPotentialbugsPropertiesRules() {
 
 				row := file.FlatRow(idx) + 1
 				col := file.FlatCol(idx) + 1
-				ctx.EmitAt(row, col,
+				f := r.Finding(file, row, col,
 					fmt.Sprintf("Unused unary operator. The result of '%s' is not used.", text))
+				lineStart, lineEnd := nodeLineRange(file.Content,
+					int(file.FlatStartByte(topExpr)), int(file.FlatEndByte(topExpr)))
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   lineStart,
+					EndByte:     lineEnd,
+					Replacement: "",
+				}
+				ctx.Emit(f)
 			},
 		})
 	}

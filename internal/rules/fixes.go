@@ -247,6 +247,17 @@ func (r *MissingSuperCallRule) IsFixable() bool              { return true }
 // Performance rules (new fixable)
 func (r *ForEachOnRangeRule) IsFixable() bool { return true }
 
+// Style classes / data class (new fixable)
+func (r *NestedClassesVisibilityRule) IsFixable() bool   { return true }
+func (r *DataClassContainsFunctionsRule) IsFixable() bool { return true }
+
+// Comments quality (new fixable)
+func (r *EndOfSentenceFormatRule) IsFixable() bool   { return true }
+func (r *OutdatedDocumentationRule) IsFixable() bool { return true }
+
+// Potential-bugs (new fixable)
+func (r *UnusedUnaryOperatorRule) IsFixable() bool { return true }
+
 // Style2 not fixable — too many edge cases
 func (r *StringShouldBeRawStringRule) IsFixable() bool    { return false } // too complex: escape handling edge cases
 func (r *MultilineLambdaItParameterRule) IsFixable() bool { return false } // too complex: it-reference disambiguation

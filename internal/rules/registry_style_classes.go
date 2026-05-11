@@ -315,7 +315,7 @@ func registerStyleDataClassContainsFunctions() {
 	r := &DataClassContainsFunctionsRule{BaseRule: BaseRule{RuleName: "DataClassContainsFunctions", RuleSetName: "style", Sev: "warning", Desc: "Detects data classes that contain function members."}, ConversionFunctionPrefix: []string{"to"}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !file.FlatHasModifier(idx, "data") {
@@ -327,8 +327,22 @@ func registerStyleDataClassContainsFunctions() {
 			}
 			if dataClassHasNonConversionFunctionFlat(file, body, r.ConversionFunctionPrefix) {
 				name := extractIdentifierFlat(file, idx)
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
 					fmt.Sprintf("Data class '%s' contains functions. Consider using a regular class.", name))
+				if modNode := file.FlatFindModifierNode(idx, "data"); modNode != 0 {
+					startByte := int(file.FlatStartByte(modNode))
+					endByte := int(file.FlatEndByte(modNode))
+					for endByte < len(file.Content) && (file.Content[endByte] == ' ' || file.Content[endByte] == '\t') {
+						endByte++
+					}
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   startByte,
+						EndByte:     endByte,
+						Replacement: "",
+					}
+				}
+				ctx.Emit(f)
 			}
 		},
 	})
@@ -392,7 +406,7 @@ func registerStyleNestedClassesVisibility() {
 	r := &NestedClassesVisibilityRule{BaseRule: BaseRule{RuleName: "NestedClassesVisibility", RuleSetName: "style", Sev: "warning", Desc: "Detects nested classes with explicit public modifier inside internal parent classes."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: 0.75, Fix: api.FixCosmetic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			parent, ok := file.FlatParent(idx)
@@ -433,8 +447,22 @@ func registerStyleNestedClassesVisibility() {
 					continue
 				}
 				name := extractIdentifierFlat(file, child)
-				ctx.EmitAt(file.FlatRow(child)+1, 1,
+				f := r.Finding(file, file.FlatRow(child)+1, 1,
 					fmt.Sprintf("The nested class '%s' has an explicit public modifier. Within an internal class this is misleading, as the nested class is still internal.", name))
+				if modNode := file.FlatFindModifierNode(child, "public"); modNode != 0 {
+					startByte := int(file.FlatStartByte(modNode))
+					endByte := int(file.FlatEndByte(modNode))
+					for endByte < len(file.Content) && (file.Content[endByte] == ' ' || file.Content[endByte] == '\t') {
+						endByte++
+					}
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   startByte,
+						EndByte:     endByte,
+						Replacement: "",
+					}
+				}
+				ctx.Emit(f)
 			}
 		},
 	})

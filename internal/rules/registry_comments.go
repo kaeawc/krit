@@ -100,7 +100,7 @@ func registerCommentsRules() {
 		r := &EndOfSentenceFormatRule{BaseRule: BaseRule{RuleName: "EndOfSentenceFormat", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc first sentences that do not end with proper punctuation."}, Pattern: regexp.MustCompile(`([.?!][ \t\n\r])|([.?!]$)`)}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"multiline_comment"}, Confidence: 0.95, Implementation: r,
+			NodeTypes: []string{"multiline_comment"}, Confidence: 0.95, Fix: api.FixCosmetic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if scanner.IsTestFile(file.Path) || isGradleBuildScript(file.Path) {
@@ -117,10 +117,20 @@ func registerCommentsRules() {
 				if strings.HasPrefix(firstLine, "@") {
 					return
 				}
-				if !r.Pattern.MatchString(firstLine) {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"KDoc first sentence should end with proper punctuation.")
+				if r.Pattern.MatchString(firstLine) {
+					return
 				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"KDoc first sentence should end with proper punctuation.")
+				if insertAt := endOfSentenceInsertOffsetFlat(file, idx); insertAt >= 0 {
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   insertAt,
+						EndByte:     insertAt,
+						Replacement: ".",
+					}
+				}
+				ctx.Emit(f)
 			},
 		})
 	}
@@ -183,7 +193,7 @@ func registerCommentsRules() {
 		r := &OutdatedDocumentationRule{BaseRule: BaseRule{RuleName: "OutdatedDocumentation", RuleSetName: "comments", Sev: "warning", Desc: "Detects @param tags in KDoc that do not match the actual function parameters."}, MatchDeclarationsOrder: true, MatchTypeParameters: true}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Implementation: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.95, Fix: api.FixCosmetic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				prev, ok := flatPrecedingKDoc(file, idx)
@@ -191,8 +201,8 @@ func registerCommentsRules() {
 					return
 				}
 				kdoc := file.FlatNodeText(prev)
-				docParams := paramTagRe.FindAllStringSubmatch(kdoc, -1)
-				if len(docParams) == 0 {
+				docParamIdx := paramTagRe.FindAllStringSubmatchIndex(kdoc, -1)
+				if len(docParamIdx) == 0 {
 					return
 				}
 				summary := getFunctionDeclSummaryFlat(file, idx)
@@ -214,12 +224,38 @@ func registerCommentsRules() {
 						orderedNames = append(orderedNames, param.name)
 					}
 				}
-				for _, dp := range docParams {
-					name := dp[1]
-					if !actualParams[name] {
-						ctx.EmitAt(file.FlatRow(prev)+1, 1,
-							"KDoc @param \""+name+"\" does not match any actual parameter.")
+				kdocStart := int(file.FlatStartByte(prev))
+				for _, m := range docParamIdx {
+					name := kdoc[m[2]:m[3]]
+					if actualParams[name] {
+						continue
 					}
+					f := r.Finding(file, file.FlatRow(prev)+1, 1,
+						"KDoc @param \""+name+"\" does not match any actual parameter.")
+					// Delete the full line containing this @param tag from the KDoc.
+					tagStart := m[0]
+					lineStart := tagStart
+					for lineStart > 0 && kdoc[lineStart-1] != '\n' {
+						lineStart--
+					}
+					lineEnd := m[1]
+					for lineEnd < len(kdoc) && kdoc[lineEnd] != '\n' {
+						lineEnd++
+					}
+					if lineEnd < len(kdoc) && kdoc[lineEnd] == '\n' {
+						lineEnd++
+					}
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   kdocStart + lineStart,
+						EndByte:     kdocStart + lineEnd,
+						Replacement: "",
+					}
+					ctx.Emit(f)
+				}
+				docParams := make([][]string, 0, len(docParamIdx))
+				for _, m := range docParamIdx {
+					docParams = append(docParams, []string{kdoc[m[0]:m[1]], kdoc[m[2]:m[3]]})
 				}
 				// MatchDeclarationsOrder: ensure the @param tags that
 				// reference real (or — when MatchTypeParameters is on —

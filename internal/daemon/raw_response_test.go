@@ -16,7 +16,7 @@ type rawResponseFake struct {
 	called  *bool
 }
 
-func (r *rawResponseFake) WriteRawResponse(w io.Writer) error {
+func (r *rawResponseFake) WriteRawResponse(_ context.Context, w io.Writer) error {
 	if r.called != nil {
 		*r.called = true
 	}

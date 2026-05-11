@@ -68,12 +68,9 @@ type ProjectArgs struct {
 	// ExperimentNames are the active experiment flag names echoed in
 	// JSON output.
 	ExperimentNames []string
-	// JSONCompact, when true and Format=="json", disables JSON pretty-
-	// printing in the OutputPhase. The daemon's streaming response
-	// path (#60) sets this so the wire-level JSON has no internal
-	// newlines (the line-delimited daemon protocol breaks on the
-	// first '\n'). The CLI keeps it false so human-readable output
-	// stays indented.
+	// JSONCompact mirrors OutputInput.JSONCompact: when true the
+	// "json" formatter omits indentation. The daemon's streaming
+	// response path (#60) sets this; the CLI leaves it false.
 	JSONCompact bool
 	// OracleEnabled, when true, runs the oracle pipeline inside
 	// IndexPhase (auto-detect / --input-types / --daemon paths). The

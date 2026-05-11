@@ -235,6 +235,162 @@ type DeprecatedBlockTagRule struct {
 	BaseRule
 }
 
+// buildDeprecatedBlockTagFix returns a single byte-range Fix that rewrites
+// the KDoc and inserts a `@Deprecated("<message>")` annotation in front of
+// the following declaration. Returns nil when the surrounding shape is not
+// safe to rewrite (no following declaration, declaration already annotated,
+// or message extraction fails).
+func buildDeprecatedBlockTagFix(file *scanner.File, kdocIdx uint32, kdocText string) *scanner.Fix {
+	target, ok := flatDeclarationAfter(file, kdocIdx)
+	if !ok {
+		return nil
+	}
+	if flatHasDeprecatedAnnotation(file, target) {
+		return nil
+	}
+	message, cleanedKDoc, okExtract := stripDeprecatedKDocTag(kdocText)
+	if !okExtract {
+		return nil
+	}
+
+	// Compute the declaration's start byte and column. We replace the
+	// span [kdocStart, declStart) with cleanedKDoc + newline + indent +
+	// @Deprecated(...) + newline + indent so the declaration's existing
+	// indentation is preserved.
+	kdocStart := int(file.FlatStartByte(kdocIdx))
+	declStart := int(file.FlatStartByte(target))
+	if declStart <= kdocStart || declStart > len(file.Content) {
+		return nil
+	}
+	indent := flatLineIndentBefore(file, declStart)
+	annotation := buildDeprecatedAnnotation(message)
+	replacement := cleanedKDoc + "\n" + indent + annotation + "\n" + indent
+	return &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   kdocStart,
+		EndByte:     declStart,
+		Replacement: replacement,
+	}
+}
+
+// flatDeclarationAfter returns the next sibling that looks like a declaration
+// the KDoc is documenting. Skips intervening line comments and whitespace
+// siblings.
+func flatDeclarationAfter(file *scanner.File, idx uint32) (uint32, bool) {
+	for sib, ok := file.FlatNextSibling(idx); ok; sib, ok = file.FlatNextSibling(sib) {
+		switch file.FlatType(sib) {
+		case "line_comment", "multiline_comment":
+			continue
+		case "class_declaration",
+			"object_declaration",
+			"function_declaration",
+			"property_declaration",
+			"type_alias",
+			"secondary_constructor":
+			return sib, true
+		default:
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+// flatHasDeprecatedAnnotation reports whether the declaration already carries
+// a `@Deprecated(...)` annotation in its modifier list.
+func flatHasDeprecatedAnnotation(file *scanner.File, decl uint32) bool {
+	mods, ok := file.FlatFindChild(decl, "modifiers")
+	if !ok {
+		return false
+	}
+	for c := file.FlatFirstChild(mods); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) != "annotation" {
+			continue
+		}
+		if annotationFinalName(file, c) == "Deprecated" {
+			return true
+		}
+	}
+	return false
+}
+
+// stripDeprecatedKDocTag removes the `@deprecated` line (and continuation
+// lines that belong to the same tag) from a KDoc block, returning the
+// extracted message text and the cleaned KDoc body. Continuation lines are
+// any subsequent ` * ...` lines that do not start with another `@<tag>`
+// and are not the closing `*/`.
+func stripDeprecatedKDocTag(text string) (message, cleaned string, ok bool) {
+	lines := strings.Split(text, "\n")
+	var msgParts []string
+	var out []string
+	inTag := false
+	found := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Strip leading "*" / "* " for tag detection.
+		body := trimmed
+		if strings.HasPrefix(body, "*") && !strings.HasPrefix(body, "*/") {
+			body = strings.TrimPrefix(body, "*")
+			body = strings.TrimPrefix(body, " ")
+		}
+		if !inTag && strings.HasPrefix(body, "@deprecated") {
+			found = true
+			inTag = true
+			rest := strings.TrimSpace(strings.TrimPrefix(body, "@deprecated"))
+			if rest != "" {
+				msgParts = append(msgParts, rest)
+			}
+			continue
+		}
+		if inTag {
+			// End the tag when we hit another @tag, the closing */, or a
+			// blank-looking continuation that's empty.
+			if strings.HasPrefix(body, "@") || strings.HasPrefix(trimmed, "*/") || trimmed == "*" || trimmed == "" {
+				inTag = false
+				// Fall through so this line is preserved.
+			} else {
+				if body != "" {
+					msgParts = append(msgParts, body)
+				}
+				continue
+			}
+		}
+		out = append(out, line)
+	}
+	if !found {
+		return "", "", false
+	}
+	return strings.Join(msgParts, " "), strings.Join(out, "\n"), true
+}
+
+// flatLineIndentBefore returns the leading whitespace of the line containing
+// the byte at pos. Used to align an inserted annotation with the following
+// declaration.
+func flatLineIndentBefore(file *scanner.File, pos int) string {
+	if pos <= 0 || pos > len(file.Content) {
+		return ""
+	}
+	start := pos - 1
+	for start >= 0 && file.Content[start] != '\n' {
+		start--
+	}
+	start++
+	end := start
+	for end < pos && (file.Content[end] == ' ' || file.Content[end] == '\t') {
+		end++
+	}
+	return string(file.Content[start:end])
+}
+
+// buildDeprecatedAnnotation renders a `@Deprecated("...")` annotation,
+// escaping embedded quotes and backslashes in the message. When the message
+// is empty the annotation still receives an empty string argument so the
+// resulting annotation compiles.
+func buildDeprecatedAnnotation(message string) string {
+	escaped := strings.ReplaceAll(message, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	return `@Deprecated("` + escaped + `")`
+}
+
 // Confidence holds the 0.95 dispatch default. Documentation/comment rule. Detection checks presence and
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.

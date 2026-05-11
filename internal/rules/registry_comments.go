@@ -23,7 +23,7 @@ func registerCommentsRules() {
 		r := &DeprecatedBlockTagRule{BaseRule: BaseRule{RuleName: "DeprecatedBlockTag", RuleSetName: "comments", Sev: "warning", Desc: "Detects @deprecated KDoc tags that should use the @Deprecated annotation instead."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"multiline_comment"}, Confidence: 0.95, Implementation: r,
+			NodeTypes: []string{"multiline_comment"}, Confidence: 0.95, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if scanner.IsTestFile(file.Path) || isGradleBuildScript(file.Path) {
@@ -33,10 +33,15 @@ func registerCommentsRules() {
 					return
 				}
 				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "@deprecated") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Use @Deprecated annotation instead of @deprecated KDoc tag.")
+				if !strings.Contains(text, "@deprecated") {
+					return
 				}
+				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+					"Use @Deprecated annotation instead of @deprecated KDoc tag.")
+				if fix := buildDeprecatedBlockTagFix(file, idx, text); fix != nil {
+					f.Fix = fix
+				}
+				ctx.Emit(f)
 			},
 		})
 	}

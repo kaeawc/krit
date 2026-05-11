@@ -150,12 +150,34 @@ func (r *CopyrightYearOutdatedRule) check(ctx *api.Context) {
 			return
 		}
 
-		ctx.Emit(r.Finding(
+		f := r.Finding(
 			file,
 			i+1,
 			match[2]+1,
 			fmt.Sprintf("Copyright year %d looks outdated for files changed after %d.", year, r.RecentYearCutoff-1),
-		))
+		)
+		lineStart := file.LineOffset(i)
+		hasRange := match[4] != -1 && match[5] != -1
+		var startByte, endByte int
+		var replacement string
+		if hasRange {
+			// Bump the trailing year of the range to the cutoff.
+			startByte = lineStart + match[4]
+			endByte = lineStart + match[5]
+			replacement = strconv.Itoa(r.RecentYearCutoff)
+		} else {
+			// Extend the single year into a range ending at the cutoff.
+			startByte = lineStart + match[2]
+			endByte = lineStart + match[3]
+			replacement = fmt.Sprintf("%d-%d", year, r.RecentYearCutoff)
+		}
+		f.Fix = &scanner.Fix{
+			ByteMode:    true,
+			StartByte:   startByte,
+			EndByte:     endByte,
+			Replacement: replacement,
+		}
+		ctx.Emit(f)
 		return
 	}
 }

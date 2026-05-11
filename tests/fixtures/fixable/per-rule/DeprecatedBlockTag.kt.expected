@@ -1,0 +1,11 @@
+package comments
+
+class Example {
+    /**
+     * Some function.
+     */
+    @Deprecated("use newFoo instead")
+    fun foo() {
+        println("hello")
+    }
+}

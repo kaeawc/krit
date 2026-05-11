@@ -15,7 +15,7 @@ func registerLicensingRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			Needs: api.NeedsLinePass, Implementation: r,
+			Needs: api.NeedsLinePass, Fix: api.FixCosmetic, Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
 		})

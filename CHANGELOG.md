@@ -4,6 +4,8 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-11
+
 ### Added
 - Broad lint-rule coverage across detekt-style, Android Lint-style, and Krit-specific checks
 - LSP server for editor diagnostics and code intelligence

@@ -164,15 +164,15 @@ func (r *UselessPostfixExpressionRule) checkUselessPostfixFlat(ctx *api.Context)
 	varName := file.FlatNodeText(target)
 	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 		"Useless postfix expression in return statement. The increment/decrement has no effect.")
-	// Replace the jump_expression's bytes (which start at `return`, so the
-	// leading indent on the line is preserved). The second line is emitted
-	// without indent — matching the rule's original behavior and its fix
-	// fixture, which an external formatter is expected to re-indent.
+	indent := ""
+	if row := file.FlatRow(idx); row >= 0 && row < len(file.Lines) {
+		indent = leadingIndent(file.Lines[row])
+	}
 	f.Fix = &scanner.Fix{
 		ByteMode:    true,
 		StartByte:   int(file.FlatStartByte(idx)),
 		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: varName + opText + "\n" + "return " + varName,
+		Replacement: varName + opText + "\n" + indent + "return " + varName,
 	}
 	ctx.Emit(f)
 }

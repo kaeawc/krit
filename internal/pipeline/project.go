@@ -77,6 +77,28 @@ type ProjectArgs struct {
 	// daemon sets this true when ensureOracleDaemon found a
 	// krit-types JAR; the CLI sets it from --type-oracle.
 	OracleEnabled bool
+	// Fix, when true, applies safe text auto-fixes to disk between
+	// cross-file analysis and output. The set of applied fixes is
+	// capped by MaxFixLevel. False (default) leaves files untouched.
+	// Mirrors the CLI's --fix flag.
+	Fix bool
+	// FixBinary, when true, additionally applies binary-format fixes
+	// (file renames, resource moves). Independent of Fix.
+	FixBinary bool
+	// FixSuffix, when non-empty, writes fixed content to
+	// "<path><suffix>" rather than in place. Mirrors --fix-suffix.
+	FixSuffix string
+	// DryRun, when true, runs FixupPhase in count-only mode: no text
+	// fixes are applied, but FixableCount and StrippedByLevel still
+	// reflect what would have been done. Also forwards a "dry run"
+	// signal to binary fix application via FixupInput.DryRunBinary.
+	// Mirrors --dry-run.
+	DryRun bool
+	// MaxFixLevel caps which fix levels FixupPhase applies. Zero
+	// (default) means "apply everything FixupPhase would otherwise
+	// apply"; the CLI sets this from --fix-level (defaulting to
+	// FixIdiomatic when --fix or --dry-run is set).
+	MaxFixLevel rules.FixLevel
 }
 
 // ProjectHostState is the long-lived subset of ProjectInput: state a
@@ -218,6 +240,10 @@ type ProjectResult struct {
 	// the input ran without a parse cache.
 	ParseHits   int64
 	ParseMisses int64
+	// Fixup is the FixupPhase output for the run. Populated only when
+	// the caller set one of the fix knobs in ProjectArgs (Fix,
+	// FixBinary, DryRun). Zero-valued otherwise.
+	Fixup FixupResult
 }
 
 // RunProject runs the core scan pipeline against the given input and
@@ -340,10 +366,17 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		return ProjectResult{}, err
 	}
 
+	// Phase 4.6: fixup. Opt-in via Args.Fix/FixBinary/DryRun. When
+	// none are set, FixupPhase is a no-op and fixupView is a thin
+	// wrapper around crossFileResult — preserving the pre-#70 Step B
+	// behaviour for callers that don't request fixes.
+	fixupView, err := runFixupPhase(ctx, args, crossFileResult)
+	if err != nil {
+		return ProjectResult{}, err
+	}
 	// Phase 5: output. Writes formatted bytes directly to the
 	// caller-provided writer; #60 lets the daemon stream this into
 	// the response socket without an intermediate 27 MB copy.
-	fixupView := FixupResult{CrossFileResult: crossFileResult}
 	outResult, err := OutputPhase{}.Run(ctx, OutputInput{
 		FixupResult:      fixupView,
 		Writer:           out,
@@ -380,7 +413,37 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		Stats:         dispatchResult.Stats,
 		ParseHits:     hits1 - hits0,
 		ParseMisses:   misses1 - misses0,
+		Fixup:         fixupView,
 	}, nil
+}
+
+// runFixupPhase invokes FixupPhase when the caller opted in via one
+// of the fix knobs in ProjectArgs (Fix, FixBinary, DryRun). When none
+// are set the function is a no-op: it returns a thin FixupResult
+// wrapper that carries the upstream CrossFileResult unchanged so the
+// OutputPhase sees the same column set as the pre-fixup pipeline.
+//
+// Fix application has on-disk side effects (text edits, file
+// renames). RunProject runs fixup after Android merge so cached /
+// delta findings paths benefit from fixes too — symmetric with the
+// CLI's runFixup ordering.
+func runFixupPhase(ctx context.Context, args ProjectArgs, crossFile CrossFileResult) (FixupResult, error) {
+	if !args.Fix && !args.FixBinary && !args.DryRun {
+		return FixupResult{CrossFileResult: crossFile}, nil
+	}
+	res, err := FixupPhase{}.Run(ctx, FixupInput{
+		CrossFileResult: crossFile,
+		Apply:           args.Fix && !args.DryRun,
+		ApplyBinary:     args.FixBinary,
+		Suffix:          args.FixSuffix,
+		MaxFixLevel:     args.MaxFixLevel,
+		DryRunBinary:    args.DryRun,
+		CountOnly:       args.DryRun,
+	})
+	if err != nil {
+		return FixupResult{}, fmt.Errorf("fixup: %w", err)
+	}
+	return res, nil
 }
 
 // validateAndDefaultStreaming checks RunProjectStreaming's preconditions

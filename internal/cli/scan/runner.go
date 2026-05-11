@@ -62,7 +62,7 @@ type runner struct {
 	// off as soon as cacheFilePath is known, in parallel with
 	// collectFiles / projectModel / filterRules. nil when no preload
 	// was scheduled (--no-cache, --oracle-filter-fingerprint).
-	analysisCacheLoadFuture *AnalysisCacheLoadFuture
+	analysisCacheLoadFuture *pipeline.AnalysisCacheLoadFuture
 
 	// File collection
 	files                []string
@@ -260,7 +260,7 @@ func newRunner(f *scanFlags) (*runner, int, bool) {
 	// short-circuit needs file collection to fire and isn't worth a
 	// pre-walk just to save the wasted load.
 	if !*f.NoCache && cacheFilePath != "" && !*f.OracleFilterFingerprint {
-		r.analysisCacheLoadFuture = NewAnalysisCacheLoadFuture(func() *cache.Cache {
+		r.analysisCacheLoadFuture = pipeline.NewAnalysisCacheLoadFuture(func() *cache.Cache {
 			return cache.Load(cacheFilePath)
 		})
 		r.analysisCacheLoadFuture.Start()

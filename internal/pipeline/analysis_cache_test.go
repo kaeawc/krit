@@ -78,3 +78,95 @@ func TestRunProject_AnalysisCacheWriteBack(t *testing.T) {
 		t.Errorf("Version = %q, want \"test\"", reloaded.Version)
 	}
 }
+
+func TestRunProject_AnalysisCacheLoadFutureWriteBack(t *testing.T) {
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "krit.cache")
+	src := filepath.Join(dir, "Sample.kt")
+	if err := os.WriteFile(src, []byte("package test\n\nclass Sample\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rule := api.FakeRule("ProjectSmokeClassDecl",
+		api.WithNodeTypes("class_declaration"),
+		api.WithSeverity(api.SeverityWarning),
+		api.WithCheck(func(ctx *api.Context) {
+			ctx.EmitAt(int(ctx.Node.StartRow)+1, 1, "class declared")
+		}),
+	)
+
+	calls := 0
+	future := NewAnalysisCacheLoadFuture(func() *cache.Cache {
+		calls++
+		return cache.Load(cachePath)
+	})
+	future.Start()
+
+	res, err := RunProject(context.Background(), ProjectInput{
+		Args: ProjectArgs{
+			Config:      config.NewConfig(),
+			Paths:       []string{dir},
+			ActiveRules: []*api.Rule{rule},
+			Format:      "json",
+			Version:     "test",
+		},
+		Host: ProjectHostState{
+			AnalysisCacheLoadFuture: future,
+			AnalysisCacheFilePath:   cachePath,
+		},
+	})
+	if err != nil {
+		t.Fatalf("RunProject: %v", err)
+	}
+	if res.FindingsCount != 1 {
+		t.Errorf("FindingsCount = %d, want 1", res.FindingsCount)
+	}
+	if calls != 1 {
+		t.Errorf("future load calls = %d, want 1", calls)
+	}
+	if reloaded := cache.Load(cachePath); reloaded == nil || len(reloaded.Files) == 0 {
+		t.Fatalf("expected future-loaded cache to be persisted, got %#v", reloaded)
+	}
+}
+
+func TestRunProject_AnalysisCacheLoadFutureFallbackOnPanic(t *testing.T) {
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "krit.cache")
+	src := filepath.Join(dir, "Sample.kt")
+	if err := os.WriteFile(src, []byte("package test\n\nclass Sample\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rule := api.FakeRule("ProjectSmokeClassDecl",
+		api.WithNodeTypes("class_declaration"),
+		api.WithSeverity(api.SeverityWarning),
+		api.WithCheck(func(ctx *api.Context) {
+			ctx.EmitAt(int(ctx.Node.StartRow)+1, 1, "class declared")
+		}),
+	)
+
+	res, err := RunProject(context.Background(), ProjectInput{
+		Args: ProjectArgs{
+			Config:      config.NewConfig(),
+			Paths:       []string{dir},
+			ActiveRules: []*api.Rule{rule},
+			Format:      "json",
+			Version:     "test",
+		},
+		Host: ProjectHostState{
+			AnalysisCacheLoadFuture: NewAnalysisCacheLoadFuture(func() *cache.Cache {
+				panic("boom")
+			}),
+			AnalysisCacheFilePath: cachePath,
+		},
+	})
+	if err != nil {
+		t.Fatalf("RunProject: %v", err)
+	}
+	if res.FindingsCount != 1 {
+		t.Errorf("FindingsCount = %d, want 1", res.FindingsCount)
+	}
+	if reloaded := cache.Load(cachePath); reloaded == nil || len(reloaded.Files) == 0 {
+		t.Fatalf("expected fallback-loaded cache to be persisted, got %#v", reloaded)
+	}
+}

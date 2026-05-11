@@ -182,6 +182,10 @@ type ProjectHostState struct {
 	// saves the result to AnalysisCacheFilePath after dispatch. Nil
 	// disables cache write-back entirely.
 	AnalysisCache *cache.Cache
+	// AnalysisCacheLoadFuture supplies AnalysisCache after a background
+	// load. RunProject awaits it before IndexPhase so hosts can overlap
+	// disk cache load with their own setup work.
+	AnalysisCacheLoadFuture *AnalysisCacheLoadFuture
 	// AnalysisCacheFilePath is where AnalysisCache is persisted on
 	// dispatch write-back. Required when AnalysisCache is non-nil. The
 	// daemon derives this from cache.FilePath(cacheDir, scanPaths).
@@ -338,6 +342,7 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	if res, ok, err := tryLoadFindingsBundleBeforeParse(ctx, startTime, format, args, host, out, &phaseTimings); ok || err != nil {
 		return res, err
 	}
+	host = awaitAnalysisCacheFuture(host)
 
 	// Phase 1: parse.
 	parseStart := time.Now()
@@ -516,6 +521,21 @@ func capturePerfOutputs(args ProjectArgs, host ProjectHostState) ([]perf.TimingE
 	caches := cacheutil.AllStats()
 	b := cacheutil.Budget(capBytes)
 	return timings, caches, &b
+}
+
+func awaitAnalysisCacheFuture(host ProjectHostState) ProjectHostState {
+	if host.AnalysisCache != nil || host.AnalysisCacheLoadFuture == nil {
+		return host
+	}
+	host.AnalysisCache = host.AnalysisCacheLoadFuture.Await()
+	if host.AnalysisCache == nil && host.AnalysisCacheFilePath != "" {
+		host.AnalysisCache = cache.Load(host.AnalysisCacheFilePath)
+	}
+	if host.Tracker != nil {
+		perf.AddEntry(host.Tracker, "cacheLoadAsync", host.AnalysisCacheLoadFuture.Duration())
+	}
+	host.AnalysisCacheLoadFuture = nil
+	return host
 }
 
 // runFixupPhase invokes FixupPhase when one of the fix knobs is set.

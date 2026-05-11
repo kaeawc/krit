@@ -1,4 +1,4 @@
-package scan
+package pipeline
 
 import (
 	"testing"
@@ -30,7 +30,7 @@ func TestAnalysisCacheLoadFuture_RecoversPanic(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("Await deadlocked after panic — recover did not fire")
+		t.Fatal("Await deadlocked after panic")
 	}
 }
 
@@ -39,7 +39,7 @@ func TestAnalysisCacheLoadFuture_AwaitAutoStarts(t *testing.T) {
 	f := NewAnalysisCacheLoadFuture(func() *cache.Cache { return want })
 	got := f.Await()
 	if got != want {
-		t.Fatalf("got %p; want %p (Await did not auto-start)", got, want)
+		t.Fatalf("got %p; want %p", got, want)
 	}
 }
 

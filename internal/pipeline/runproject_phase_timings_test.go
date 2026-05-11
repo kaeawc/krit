@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -173,5 +174,49 @@ func TestRunProject_PhaseTimings_BundleHitAtSyntheticScale(t *testing.T) {
 	if second.ParseHits != 0 || second.ParseMisses != 0 {
 		t.Errorf("pre-parse bundle hit must not consult parse cache; got hits=%d misses=%d",
 			second.ParseHits, second.ParseMisses)
+	}
+}
+
+func TestRunProject_BundleHitDoesNotAwaitAnalysisCacheFuture(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Foo.kt"),
+		[]byte("package demo\n\nclass Foo\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	rule := findV2RuleForTest(t, "UnnecessaryInheritance")
+	args := ProjectArgs{
+		Config:      config.NewConfig(),
+		Paths:       []string{root},
+		ActiveRules: []*api.Rule{rule},
+		Format:      "json",
+		Version:     "test",
+	}
+	host := ProjectHostState{
+		FindingsBundleStore:     scanner.DiskFindingsBundleStore{},
+		FindingsBundleCacheRoot: root,
+	}
+	first, err := RunProject(context.Background(), ProjectInput{Args: args, Host: host})
+	if err != nil {
+		t.Fatalf("first RunProject: %v", err)
+	}
+	if first.FindingsBundleHit {
+		t.Fatal("first call must miss the bundle")
+	}
+
+	calls := 0
+	future := NewAnalysisCacheLoadFuture(func() *cache.Cache {
+		calls++
+		return &cache.Cache{}
+	})
+	host.AnalysisCacheLoadFuture = future
+	second, err := RunProject(context.Background(), ProjectInput{Args: args, Host: host})
+	if err != nil {
+		t.Fatalf("second RunProject: %v", err)
+	}
+	if !second.FindingsBundleHit {
+		t.Fatal("second call must hit the bundle")
+	}
+	if calls != 0 {
+		t.Fatalf("analysis cache future was awaited on bundle hit; calls=%d", calls)
 	}
 }

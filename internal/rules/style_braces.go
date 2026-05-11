@@ -16,6 +16,47 @@ func controlBodyHasBraces(file *scanner.File, body uint32) bool {
 	return first != 0 && file.FlatType(first) == "{"
 }
 
+// leadingIndent returns the leading whitespace (spaces and tabs) of s.
+func leadingIndent(s string) string {
+	for i := 0; i < len(s); i++ {
+		if s[i] != ' ' && s[i] != '\t' {
+			return s[:i]
+		}
+	}
+	return s
+}
+
+// buildBraceWrapFix produces a ktfmt-compatible brace wrap around a
+// single-statement control body. It places the opening brace on the control
+// header line, indents the body to its existing column (or one step deeper
+// than the header for inline forms), and aligns the closing brace with the
+// header.
+func buildBraceWrapFix(file *scanner.File, control, body uint32) *scanner.Fix {
+	bodyTrimmed := strings.TrimSpace(file.FlatNodeText(body))
+
+	controlRow := file.FlatRow(control)
+	var parentIndent string
+	if controlRow >= 0 && controlRow < len(file.Lines) {
+		parentIndent = leadingIndent(file.Lines[controlRow])
+	}
+	bodyIndent := parentIndent + "    "
+	if bodyRow := file.FlatRow(body); bodyRow != controlRow && bodyRow >= 0 && bodyRow < len(file.Lines) {
+		bodyIndent = leadingIndent(file.Lines[bodyRow])
+	}
+
+	startByte := int(file.FlatStartByte(body))
+	if prev, ok := file.FlatPrevSibling(body); ok {
+		startByte = int(file.FlatEndByte(prev))
+	}
+
+	return &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   startByte,
+		EndByte:     int(file.FlatEndByte(body)),
+		Replacement: " {\n" + bodyIndent + bodyTrimmed + "\n" + parentIndent + "}",
+	}
+}
+
 // BracesOnIfStatementsRule enforces braces on if statements.
 type BracesOnIfStatementsRule struct {
 	FlatDispatchBase
@@ -72,12 +113,7 @@ func (r *BracesOnIfStatementsRule) check(ctx *api.Context) {
 		msg = "Single-line if statement should use braces."
 	}
 	f := r.Finding(file, startLine+1, 1, msg)
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(body)),
-		EndByte:     int(file.FlatEndByte(body)),
-		Replacement: "{\n" + strings.TrimSpace(file.FlatNodeText(body)) + "\n}",
-	}
+	f.Fix = buildBraceWrapFix(file, idx, body)
 	ctx.Emit(f)
 }
 
@@ -208,13 +244,7 @@ func (r *BracesOnWhenStatementsRule) check(ctx *api.Context) {
 		msg = "Single-line when branch should use braces."
 	}
 	f := r.Finding(file, startLine+1, 1, msg)
-	raw := file.FlatNodeText(body)
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(body)),
-		EndByte:     int(file.FlatEndByte(body)),
-		Replacement: "{\n" + strings.TrimSpace(raw) + "\n}",
-	}
+	f.Fix = buildBraceWrapFix(file, idx, body)
 	ctx.Emit(f)
 }
 
@@ -292,13 +322,7 @@ func (r *MandatoryBracesLoopsRule) check(ctx *api.Context) {
 	if !controlBodyHasBraces(file, body) {
 		f := r.Finding(file, file.FlatRow(idx)+1, 1,
 			"Loop body should use braces.")
-		raw := file.FlatNodeText(body)
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   int(file.FlatStartByte(body)),
-			EndByte:     int(file.FlatEndByte(body)),
-			Replacement: "{\n" + strings.TrimSpace(raw) + "\n}",
-		}
+		f.Fix = buildBraceWrapFix(file, idx, body)
 		ctx.Emit(f)
 		return
 	}

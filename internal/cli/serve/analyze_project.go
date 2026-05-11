@@ -105,17 +105,18 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 	xfile := r.state.workspace.CrossFileStats()
 
 	statsBytes, err := json.Marshal(daemon.AnalyzeProjectStats{
-		FilesScanned:    res.FilesScanned,
-		FindingsCount:   res.FindingsCount,
-		WallSeconds:     time.Since(r.start).Seconds(),
-		CodeIndexHit:    xfile.HasCodeIndex,
-		LibraryFactsHit: xfile.HasLibraryFacts,
-		ResolverHit:     xfile.HasResolver,
-		OracleFilterHit: xfile.HasOracleFilter,
-		DirtyFiles:      r.dirtyN,
-		Cold:            r.cold,
-		ParseHits:       res.ParseHits,
-		ParseMisses:     res.ParseMisses,
+		FilesScanned:      res.FilesScanned,
+		FindingsCount:     res.FindingsCount,
+		WallSeconds:       time.Since(r.start).Seconds(),
+		CodeIndexHit:      xfile.HasCodeIndex,
+		LibraryFactsHit:   xfile.HasLibraryFacts,
+		ResolverHit:       xfile.HasResolver,
+		OracleFilterHit:   xfile.HasOracleFilter,
+		DirtyFiles:        r.dirtyN,
+		Cold:              r.cold,
+		ParseHits:         res.ParseHits,
+		ParseMisses:       res.ParseMisses,
+		FindingsBundleHit: res.FindingsBundleHit,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal stats: %w", err)

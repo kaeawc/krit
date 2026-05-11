@@ -262,6 +262,13 @@ type ProjectResult struct {
 	// the caller set one of the fix knobs in ProjectArgs (Fix,
 	// FixBinary, DryRun). Zero-valued otherwise.
 	Fixup FixupResult
+	// FindingsBundleHit is true when the whole-run findings cache
+	// (host.FindingsBundleStore) served the result without redoing
+	// dispatch or cross-file analysis. False covers cache-miss runs,
+	// hosts without a bundle store, and runs where the conservative
+	// delta planner ran a partial dispatch instead of a full reuse.
+	// Useful observability for #139 warm-cache investigations.
+	FindingsBundleHit bool
 }
 
 // RunProject runs the core scan pipeline against the given input and
@@ -450,10 +457,11 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		FilesScanned:  len(parseResult.KotlinFiles) + len(parseResult.JavaFiles),
 		FindingsCount: outResult.FinalFindings.Len(),
 		ParseErrors:   parseResult.ParseErrors,
-		Stats:         dispatchResult.Stats,
-		ParseHits:     hits1 - hits0,
-		ParseMisses:   misses1 - misses0,
-		Fixup:         fixupView,
+		Stats:             dispatchResult.Stats,
+		ParseHits:         hits1 - hits0,
+		ParseMisses:       misses1 - misses0,
+		Fixup:             fixupView,
+		FindingsBundleHit: bundleHit,
 	}, nil
 }
 

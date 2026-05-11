@@ -164,10 +164,7 @@ func (r *UselessPostfixExpressionRule) checkUselessPostfixFlat(ctx *api.Context)
 	varName := file.FlatNodeText(target)
 	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 		"Useless postfix expression in return statement. The increment/decrement has no effect.")
-	indent := ""
-	if row := file.FlatRow(idx); row >= 0 && row < len(file.Lines) {
-		indent = leadingIndent(file.Lines[row])
-	}
+	indent := detectIndent(file.Content, int(file.FlatStartByte(idx)))
 	f.Fix = &scanner.Fix{
 		ByteMode:    true,
 		StartByte:   int(file.FlatStartByte(idx)),

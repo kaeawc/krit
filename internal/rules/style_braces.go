@@ -16,32 +16,16 @@ func controlBodyHasBraces(file *scanner.File, body uint32) bool {
 	return first != 0 && file.FlatType(first) == "{"
 }
 
-// leadingIndent returns the leading whitespace (spaces and tabs) of s.
-func leadingIndent(s string) string {
-	for i := 0; i < len(s); i++ {
-		if s[i] != ' ' && s[i] != '\t' {
-			return s[:i]
-		}
-	}
-	return s
-}
-
-// buildBraceWrapFix produces a ktfmt-compatible brace wrap around a
-// single-statement control body. It places the opening brace on the control
-// header line, indents the body to its existing column (or one step deeper
-// than the header for inline forms), and aligns the closing brace with the
-// header.
+// buildBraceWrapFix wraps a single-statement control body in braces while
+// preserving the column the body already sits at (or one step deeper than
+// the header for inline forms) so the result stays ktfmt-compatible.
 func buildBraceWrapFix(file *scanner.File, control, body uint32) *scanner.Fix {
 	bodyTrimmed := strings.TrimSpace(file.FlatNodeText(body))
 
-	controlRow := file.FlatRow(control)
-	var parentIndent string
-	if controlRow >= 0 && controlRow < len(file.Lines) {
-		parentIndent = leadingIndent(file.Lines[controlRow])
-	}
+	parentIndent := detectIndent(file.Content, int(file.FlatStartByte(control)))
 	bodyIndent := parentIndent + "    "
-	if bodyRow := file.FlatRow(body); bodyRow != controlRow && bodyRow >= 0 && bodyRow < len(file.Lines) {
-		bodyIndent = leadingIndent(file.Lines[bodyRow])
+	if file.FlatRow(body) != file.FlatRow(control) {
+		bodyIndent = detectIndent(file.Content, int(file.FlatStartByte(body)))
 	}
 
 	startByte := int(file.FlatStartByte(body))

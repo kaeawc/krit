@@ -26,12 +26,18 @@ import (
 const findingsBundleManifestVersion = 1
 
 type FindingsBundleManifest struct {
-	Version       int               `json:"version"`
-	Key           string            `json:"key"`
-	BundleKey     string            `json:"bundleKey"`
-	Fingerprint   RunFingerprint    `json:"fingerprint"`
-	ContentHashes map[string]string `json:"contentHashes"`
-	StructuralFPs map[string]string `json:"structuralFps,omitempty"`
+	Version       int                 `json:"version"`
+	Key           string              `json:"key"`
+	BundleKey     string              `json:"bundleKey"`
+	Fingerprint   RunFingerprint      `json:"fingerprint"`
+	ContentHashes map[string]string   `json:"contentHashes"`
+	StructuralFPs map[string]string   `json:"structuralFps,omitempty"`
+	FileStats     map[string]FileStat `json:"fileStats,omitempty"`
+}
+
+type FileStat struct {
+	Size            int64 `json:"size"`
+	ModTimeUnixNano int64 `json:"modTimeUnixNano"`
 }
 
 // FindingsBundleManifestKey derives a stable manifest identifier from

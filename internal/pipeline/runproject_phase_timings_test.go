@@ -63,9 +63,15 @@ func TestRunProject_PhaseTimings_BundleHitSkipsDispatchAndCrossfile(t *testing.T
 		t.Fatalf("write fixture: %v", err)
 	}
 	rule := findV2RuleForTest(t, "UnnecessaryInheritance")
+	pc, err := scanner.NewParseCacheWithCap(root, -1)
+	if err != nil {
+		t.Fatalf("ParseCache: %v", err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
 	host := ProjectHostState{
 		FindingsBundleStore:     scanner.DiskFindingsBundleStore{},
 		FindingsBundleCacheRoot: root,
+		ParseCache:              pc,
 	}
 	args := ProjectArgs{
 		Config:      config.NewConfig(),
@@ -163,5 +169,9 @@ func TestRunProject_PhaseTimings_BundleHitAtSyntheticScale(t *testing.T) {
 	if second.PhaseTimingsMs.Dispatch != 0 || second.PhaseTimingsMs.CrossFile != 0 {
 		t.Errorf("bundle hit must bypass dispatch+crossfile; got dispatch=%dms crossfile=%dms",
 			second.PhaseTimingsMs.Dispatch, second.PhaseTimingsMs.CrossFile)
+	}
+	if second.ParseHits != 0 || second.ParseMisses != 0 {
+		t.Errorf("pre-parse bundle hit must not consult parse cache; got hits=%d misses=%d",
+			second.ParseHits, second.ParseMisses)
 	}
 }

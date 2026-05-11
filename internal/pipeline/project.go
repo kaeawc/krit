@@ -5,10 +5,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
@@ -208,6 +211,10 @@ type ProjectHostState struct {
 	// cache even if a store is set. The daemon supplies this from
 	// scanner.FindingsBundleCacheDir's parent (the repo dir).
 	FindingsBundleCacheRoot string
+	// SourceSetClean lets a long-lived host that already tracks file
+	// changes skip source discovery on a manifest-backed bundle hit.
+	// False keeps RunProject conservative by re-collecting source paths.
+	SourceSetClean bool
 }
 
 // ProjectInput is the value type that drives RunProject. The split
@@ -328,6 +335,9 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	hits0, misses0 := parseCacheCounters(host.ParseCache)
 
 	var phaseTimings PhaseTimingsMs
+	if res, ok, err := tryLoadFindingsBundleBeforeParse(ctx, startTime, format, args, host, out, &phaseTimings); ok || err != nil {
+		return res, err
+	}
 
 	// Phase 1: parse.
 	parseStart := time.Now()
@@ -466,8 +476,10 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	// already on disk under the same key. Best-effort: save errors
 	// are not surfaced — the verb already succeeded and the run's
 	// output is unaffected.
-	if bundleEnabled && !bundleHit {
-		_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, &crossFileResult.Findings)
+	if bundleEnabled {
+		if !bundleHit {
+			_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, &crossFileResult.Findings)
+		}
 		_ = saveDeltaManifest(host, manifestData, runFP, &crossFileResult.Findings)
 	}
 
@@ -643,6 +655,7 @@ type deltaManifestData struct {
 	manifestKey   string
 	contentHashes map[string]string
 	structuralFPs map[string]string
+	fileStats     map[string]scanner.FileStat
 }
 
 // buildManifestData prepares per-file content + structural fingerprints
@@ -654,12 +667,16 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 	}
 	contentHashes := make(map[string]string, len(parseResult.KotlinFiles)+len(parseResult.JavaFiles))
 	structuralFPs := make(map[string]string, len(parseResult.KotlinFiles)+len(parseResult.JavaFiles))
+	fileStats := make(map[string]scanner.FileStat, len(parseResult.KotlinFiles)+len(parseResult.JavaFiles))
 	for _, f := range parseResult.KotlinFiles {
 		if f == nil {
 			continue
 		}
 		contentHashes[f.Path] = hashutil.Default().HashContent(f.Path, f.Content)
 		structuralFPs[f.Path] = scanner.FileStructuralFingerprint(f)
+		if stat, ok := statForPath(f.Path); ok {
+			fileStats[f.Path] = stat
+		}
 	}
 	for _, f := range parseResult.JavaFiles {
 		if f == nil {
@@ -667,12 +684,16 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 		}
 		contentHashes[f.Path] = hashutil.Default().HashContent(f.Path, f.Content)
 		structuralFPs[f.Path] = scanner.FileStructuralFingerprint(f)
+		if stat, ok := statForPath(f.Path); ok {
+			fileStats[f.Path] = stat
+		}
 	}
 	return deltaManifestData{
 		enabled:       true,
 		manifestKey:   scanner.FindingsBundleManifestKey(host.FindingsBundleCacheRoot, args.Paths),
 		contentHashes: contentHashes,
 		structuralFPs: structuralFPs,
+		fileStats:     fileStats,
 	}
 }
 
@@ -688,6 +709,7 @@ func saveDeltaManifest(host ProjectHostState, m deltaManifestData, runFP scanner
 		Fingerprint:   runFP,
 		ContentHashes: m.contentHashes,
 		StructuralFPs: m.structuralFPs,
+		FileStats:     m.fileStats,
 	})
 }
 
@@ -823,6 +845,233 @@ func runFingerprintDiffFields(prior, current scanner.RunFingerprint) []string {
 	add("android", prior.Android, current.Android)
 	add("libraryFacts", prior.LibraryFacts, current.LibraryFacts)
 	return changed
+}
+
+func tryLoadFindingsBundleBeforeParse(
+	ctx context.Context,
+	startTime time.Time,
+	format string,
+	args ProjectArgs,
+	host ProjectHostState,
+	out io.Writer,
+	phaseTimings *PhaseTimingsMs,
+) (ProjectResult, bool, error) {
+	if args.Fix || args.FixBinary || args.DryRun || host.FindingsBundleStore == nil || host.FindingsBundleCacheRoot == "" {
+		return ProjectResult{}, false, nil
+	}
+	start := time.Now()
+	fp, kotlinFiles, javaFiles, ok := preparseBundleFingerprint(args, host)
+	if phaseTimings != nil {
+		phaseTimings.Parse = time.Since(start).Milliseconds()
+	}
+	if !ok {
+		return ProjectResult{}, false, nil
+	}
+	cached, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, fp)
+	if !ok || cached == nil {
+		return ProjectResult{}, false, nil
+	}
+
+	perfTimings, caches, budget := capturePerfOutputs(args, host)
+	outputStart := time.Now()
+	outResult, err := OutputPhase{}.Run(ctx, OutputInput{
+		FixupResult: FixupResult{
+			CrossFileResult: CrossFileResult{
+				DispatchResult: DispatchResult{
+					IndexResult: IndexResult{
+						ParseResult: ParseResult{
+							KotlinFiles: kotlinFiles,
+							JavaFiles:   javaFiles,
+							Paths:       args.Paths,
+							ActiveRules: args.ActiveRules,
+						},
+					},
+					Findings: *cached,
+				},
+			},
+		},
+		Writer:           out,
+		Format:           format,
+		BaselinePath:     args.BaselinePath,
+		DiffRef:          args.DiffRef,
+		BasePath:         args.BasePath,
+		StartTime:        startTime,
+		Version:          args.Version,
+		ExperimentNames:  args.ExperimentNames,
+		WarningsAsErrors: args.WarningsAsErrors,
+		MinConfidence:    args.MinConfidence,
+		JSONCompact:      args.JSONCompact,
+		ShowPerf:         args.ShowPerf,
+		PerfTimings:      perfTimings,
+		Caches:           caches,
+		CacheBudget:      budget,
+	})
+	if phaseTimings != nil {
+		phaseTimings.Output = time.Since(outputStart).Milliseconds()
+	}
+	if err != nil {
+		return ProjectResult{}, true, fmt.Errorf("output: %w", err)
+	}
+	return ProjectResult{
+		FinalFindings:     outResult.FinalFindings,
+		FilesScanned:      len(kotlinFiles) + len(javaFiles),
+		FindingsCount:     outResult.FinalFindings.Len(),
+		FindingsBundleHit: true,
+		PhaseTimingsMs:    *phaseTimings,
+	}, true, nil
+}
+
+func preparseBundleFingerprint(args ProjectArgs, host ProjectHostState) (scanner.RunFingerprint, []*scanner.File, []*scanner.File, bool) {
+	key := scanner.FindingsBundleManifestKey(host.FindingsBundleCacheRoot, args.Paths)
+	if key == "" {
+		return scanner.RunFingerprint{}, nil, nil, false
+	}
+	prior, ok := scanner.LoadFindingsBundleManifest(host.FindingsBundleCacheRoot, key)
+	if !ok || len(prior.StructuralFPs) == 0 {
+		return scanner.RunFingerprint{}, nil, nil, false
+	}
+
+	kotlinPaths, javaPaths, ok := preparseSourcePaths(args, host, prior)
+	if !ok {
+		return scanner.RunFingerprint{}, nil, nil, false
+	}
+	paths := append(append([]string(nil), kotlinPaths...), javaPaths...)
+	if !fileStatsMatch(paths, prior.FileStats) {
+		return scanner.RunFingerprint{}, nil, nil, false
+	}
+	rulesHash := projectRuleHash(args.ActiveRules, args.Config)
+	androidFP, libraryFactsFP := preparseProjectFingerprints(args, host)
+	fp := scanner.RunFingerprint{
+		Version:      args.Version,
+		Rules:        rulesHash,
+		Config:       rulesHash,
+		SourceSet:    fingerprintPathHashMap(prior.ContentHashes),
+		CrossFile:    fingerprintPathHashMap(prior.StructuralFPs),
+		Android:      androidFP,
+		LibraryFacts: libraryFactsFP,
+	}
+	if fp != prior.Fingerprint {
+		return scanner.RunFingerprint{}, nil, nil, false
+	}
+	return fp, filesForPaths(kotlinPaths, scanner.LangKotlin), filesForPaths(javaPaths, scanner.LangJava), true
+}
+
+func preparseSourcePaths(args ProjectArgs, host ProjectHostState, prior scanner.FindingsBundleManifest) ([]string, []string, bool) {
+	if host.SourceSetClean {
+		kotlinPaths, javaPaths := pathsFromManifest(prior.ContentHashes)
+		return kotlinPaths, javaPaths, true
+	}
+	kotlinPaths, err := scanner.CollectKotlinFiles(args.Paths, nil)
+	if err != nil {
+		return nil, nil, false
+	}
+	kotlinPaths = filterGeneratedSourcePaths(kotlinPaths, args.IncludeGenerated)
+	javaPaths, err := collectJavaPathsForFingerprint(args)
+	if err != nil {
+		return nil, nil, false
+	}
+	javaPaths = filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated)
+	return kotlinPaths, javaPaths, true
+}
+
+func pathsFromManifest(hashes map[string]string) ([]string, []string) {
+	var kotlinPaths, javaPaths []string
+	for path := range hashes {
+		if strings.HasSuffix(path, ".java") {
+			javaPaths = append(javaPaths, path)
+		} else {
+			kotlinPaths = append(kotlinPaths, path)
+		}
+	}
+	sort.Strings(kotlinPaths)
+	sort.Strings(javaPaths)
+	return kotlinPaths, javaPaths
+}
+
+func collectJavaPathsForFingerprint(args ProjectArgs) ([]string, error) {
+	caps := unionNeeds(args.ActiveRules)
+	if !caps.Has(api.NeedsCrossFile) && !caps.Has(api.NeedsParsedFiles) && !NeedsJavaSourceDispatch(args.ActiveRules) {
+		return nil, nil
+	}
+	return scanner.CollectJavaFiles(args.Paths, nil)
+}
+
+func filterGeneratedSourcePaths(paths []string, includeGenerated bool) []string {
+	if includeGenerated {
+		return paths
+	}
+	filtered := paths[:0]
+	for _, path := range paths {
+		if !strings.Contains(filepath.ToSlash(path), "/generated/") {
+			filtered = append(filtered, path)
+		}
+	}
+	return filtered
+}
+
+func fileStatsMatch(paths []string, prior map[string]scanner.FileStat) bool {
+	if len(paths) != len(prior) {
+		return false
+	}
+	for _, path := range paths {
+		current, ok := statForPath(path)
+		if !ok || prior[path] != current {
+			return false
+		}
+	}
+	return true
+}
+
+func statForPath(path string) (scanner.FileStat, bool) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return scanner.FileStat{}, false
+	}
+	return scanner.FileStat{
+		Size:            info.Size(),
+		ModTimeUnixNano: info.ModTime().UnixNano(),
+	}, true
+}
+
+func filesForPaths(paths []string, lang scanner.Language) []*scanner.File {
+	files := make([]*scanner.File, 0, len(paths))
+	for _, path := range paths {
+		files = append(files, &scanner.File{Path: path, Language: lang})
+	}
+	return files
+}
+
+func preparseProjectFingerprints(args ProjectArgs, host ProjectHostState) (string, string) {
+	if host.PrebuiltLibraryFacts != nil {
+		project := android.DetectProject(args.Paths)
+		androidFP := ""
+		if project != nil {
+			androidFP = libraryFactsFingerprint(project.GradlePaths)
+		}
+		return androidFP, host.PrebuiltLibraryFacts.Fingerprint()
+	}
+	project := android.DetectProject(args.Paths)
+	if project == nil {
+		return "", ""
+	}
+	gradle := project.GradlePaths
+	build := func() *librarymodel.Facts {
+		return librarymodel.FactsForProfile(librarymodel.ProfileFromGradlePaths(gradle))
+	}
+	if host.LibraryFactsCache != nil && len(gradle) > 0 {
+		androidFP := libraryFactsFingerprint(gradle)
+		return androidFP, host.LibraryFactsCache.LibraryFacts(androidFP, build).Fingerprint()
+	}
+	return libraryFactsFingerprint(gradle), build().Fingerprint()
+}
+
+func fingerprintPathHashMap(values map[string]string) string {
+	entries := make([]string, 0, len(values))
+	for path, hash := range values {
+		entries = append(entries, path+"\x00"+hash)
+	}
+	sort.Strings(entries)
+	return hashutil.HashHex([]byte(strings.Join(entries, "\x01")))
 }
 
 // tryDeltaDispatch attempts the ConservativeDeltaPlanner's single-file

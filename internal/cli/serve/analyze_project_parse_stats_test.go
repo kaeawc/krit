@@ -17,9 +17,9 @@ func kotlinFixture(name string) string {
 
 // TestAnalyzeProject_ParseCacheStatsReportPerCallDelta asserts the
 // parse-cache hit/miss counts on AnalyzeProjectStats reflect the
-// per-call work, not cumulative-since-daemon-startup. First call
-// over a 3-file fixture should populate misses; the second call
-// over the same content should be all hits.
+// per-call work, not cumulative-since-daemon-startup. First call over
+// a 3-file fixture should populate misses; the second call should be
+// served by the findings bundle before parse-cache decode.
 func TestAnalyzeProject_ParseCacheStatsReportPerCallDelta(t *testing.T) {
 	socket, state := startServerForTest(t)
 	writeKotlinFile(t, state.root, "A.kt", kotlinFixture("A"))
@@ -40,14 +40,10 @@ func TestAnalyzeProject_ParseCacheStatsReportPerCallDelta(t *testing.T) {
 		daemon.AnalyzeProjectArgs{}, &second); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
-	// The second call's delta should not include the first call's
-	// misses (proves ParseHits/ParseMisses are per-call deltas, not
-	// cumulative). On a warm cache we expect hits to dominate.
-	if second.Stats.ParseMisses >= first.Stats.ParseMisses {
-		t.Errorf("second call's ParseMisses (%d) should be lower than the first's (%d) once the cache is warm — looks like cumulative, not delta",
-			second.Stats.ParseMisses, first.Stats.ParseMisses)
+	if !second.Stats.FindingsBundleHit {
+		t.Fatalf("second call should hit the findings bundle; got Stats=%+v", second.Stats)
 	}
-	if second.Stats.ParseHits == 0 {
-		t.Errorf("second call should record parse hits against the warm cache; got Stats=%+v", second.Stats)
+	if second.Stats.ParseHits != 0 || second.Stats.ParseMisses != 0 {
+		t.Errorf("bundle hit should bypass parse cache; got Stats=%+v", second.Stats)
 	}
 }

@@ -62,6 +62,7 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		state.analyzeMu.Unlock()
 		return nil, err
 	}
+	in.Host.SourceSetClean = !cold && len(dirty) == 0
 
 	// Defer pipeline execution into WriteRawResponse so the
 	// OutputPhase JSON streams directly into the connection instead

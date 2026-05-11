@@ -707,6 +707,36 @@ apply(plugin = "com.android.application")
 			t.Fatalf("expected 0 findings for settings file, got %d", len(settingsFindings))
 		}
 	})
+
+	t.Run("fix removes duplicate apply line", func(t *testing.T) {
+		content := `plugins {
+    id("com.android.application")
+}
+
+apply(plugin = "com.android.application")
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		fix := findings[0].Fix
+		if fix == nil {
+			t.Fatalf("expected fix on finding, got nil")
+		}
+		if !fix.ByteMode {
+			t.Fatalf("expected byte-mode fix")
+		}
+		got := content[:fix.StartByte] + fix.Replacement + content[fix.EndByte:]
+		want := `plugins {
+    id("com.android.application")
+}
+
+`
+		if got != want {
+			t.Fatalf("fix output mismatch:\n--- got ---\n%q\n--- want ---\n%q", got, want)
+		}
+	})
 }
 
 func TestConfigurationsAllSideEffect(t *testing.T) {

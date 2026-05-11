@@ -286,6 +286,11 @@ func truncate(s string, max int) string {
 }
 
 var knownFixableRulesWithoutPerRuleFixture = map[string]bool{
+	// ApplyPluginTwice fires only on Gradle build scripts; the per-rule
+	// fixable harness loads .kt/.kts/.java via the standard parser and
+	// does not wire up a Gradle context. Coverage lives in
+	// TestApplyPluginTwice's "fix removes duplicate apply line" subtest.
+	"ApplyPluginTwice":                   true,
 	"BooleanPropertyNaming":              true,
 	"ExplicitItLambdaMultipleParameters": true,
 	"FunctionOnlyReturningConstant":      true,

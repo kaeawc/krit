@@ -1,0 +1,6 @@
+package release
+
+
+import com.example.live.Bar
+
+fun use(bar: Bar) = bar

@@ -453,7 +453,7 @@ func (r *ApplyPluginTwiceRule) check(ctx *api.Context) {
 		return
 	}
 	for _, duplicate := range findApplyPluginTwice(content) {
-		ctx.Emit(scanner.Finding{
+		finding := scanner.Finding{
 			File:       path,
 			Line:       duplicate.line,
 			Col:        1,
@@ -462,7 +462,45 @@ func (r *ApplyPluginTwiceRule) check(ctx *api.Context) {
 			Severity:   r.Sev,
 			Message:    fmt.Sprintf("Plugin %q is applied in both plugins { } and apply(plugin = ...). Keep a single application form.", duplicate.id),
 			Confidence: r.Confidence(),
-		})
+		}
+		finding.Fix = deleteContentLineFix(content, duplicate.line)
+		ctx.Emit(finding)
+	}
+}
+
+// deleteContentLineFix returns a byte-mode Fix that removes the 1-indexed
+// line from a raw text buffer. Used by Gradle rules that operate on
+// ctx.GradleContent rather than a parsed scanner.File. Returns nil when
+// the line number is out of range.
+func deleteContentLineFix(content string, line int) *scanner.Fix {
+	if line < 1 {
+		return nil
+	}
+	currentLine := 1
+	start := 0
+	for start < len(content) && currentLine < line {
+		if content[start] == '\n' {
+			currentLine++
+		}
+		start++
+	}
+	if currentLine != line {
+		return nil
+	}
+	end := start
+	for end < len(content) && content[end] != '\n' {
+		end++
+	}
+	if end < len(content) && content[end] == '\n' {
+		end++
+	} else if start > 0 && content[start-1] == '\n' {
+		start--
+	}
+	return &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   start,
+		EndByte:     end,
+		Replacement: "",
 	}
 }
 

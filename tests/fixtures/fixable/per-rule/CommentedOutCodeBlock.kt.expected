@@ -1,0 +1,6 @@
+package release
+
+fun example() {
+    val live = 1
+    println(live)
+}

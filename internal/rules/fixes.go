@@ -51,6 +51,9 @@ func (r *DocumentationOverPrivateFunctionRule) IsFixable() bool { return true }
 func (r *DocumentationOverPrivatePropertyRule) IsFixable() bool { return true }
 func (r *DeprecatedBlockTagRule) IsFixable() bool               { return true }
 func (r *CopyrightYearOutdatedRule) IsFixable() bool            { return true }
+func (r *CommentedOutImportRule) IsFixable() bool               { return true }
+func (r *CommentedOutCodeBlockRule) IsFixable() bool            { return true }
+func (r *ApplyPluginTwiceRule) IsFixable() bool                 { return true }
 
 // Empty-blocks rules
 func (r *EmptyDefaultConstructorRule) IsFixable() bool   { return true }

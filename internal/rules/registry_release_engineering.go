@@ -266,7 +266,7 @@ func registerReleaseEngineeringRules() {
 		r := &CommentedOutCodeBlockRule{BaseRule: BaseRule{RuleName: "CommentedOutCodeBlock", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects consecutive lines of commented-out Kotlin code that should be deleted or restored."}, MinLines: 3}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			Needs: api.NeedsLinePass, Implementation: r,
+			Needs: api.NeedsLinePass, Fix: api.FixIdiomatic, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -282,7 +282,7 @@ func registerReleaseEngineeringRules() {
 		r := &CommentedOutImportRule{BaseRule: BaseRule{RuleName: "CommentedOutImport", RuleSetName: releaseEngineeringRuleSet, Sev: "info", Desc: "Detects commented-out import statements that are either dead code or incomplete refactors."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"line_comment"}, Confidence: r.Confidence(), Implementation: r,
+			NodeTypes: []string{"line_comment"}, Confidence: r.Confidence(), Fix: api.FixIdiomatic, Implementation: r,
 			Check: r.checkNode,
 		})
 	}

@@ -99,6 +99,24 @@ type ProjectArgs struct {
 	// apply"; the CLI sets this from --fix-level (defaulting to
 	// FixIdiomatic when --fix or --dry-run is set).
 	MaxFixLevel rules.FixLevel
+	// BasePath is the base for relative paths in the formatted
+	// output. Empty (default) means OutputPhase falls back to the
+	// first scan path — sufficient for the daemon, while the CLI
+	// sets this explicitly from --base-path.
+	BasePath string
+	// ShowPerf, when true, snapshots the host tracker + cache state
+	// at OutputPhase time and forwards the result through
+	// OutputInput.PerfTimings/Caches/CacheBudget. False (the daemon
+	// default) keeps the JSON header lean.
+	ShowPerf bool
+	// PerfRules, when true, forwards the dispatcher's sorted per-rule
+	// execution stats through OutputInput.PerfRuleStats. False (the
+	// daemon default) skips the sort and trims the JSON payload.
+	PerfRules bool
+	// ParseCacheCapBytes is the effective parse-cache cap used when
+	// ShowPerf builds OutputInput.CacheBudget. Zero falls back to
+	// cacheutil.DefaultParseCacheCapBytes. Mirrors --parse-cache-cap-mb.
+	ParseCacheCapBytes int64
 }
 
 // ProjectHostState is the long-lived subset of ProjectInput: state a
@@ -377,18 +395,40 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	// Phase 5: output. Writes formatted bytes directly to the
 	// caller-provided writer; #60 lets the daemon stream this into
 	// the response socket without an intermediate 27 MB copy.
+	perfTimings, caches, budget := capturePerfOutputs(args, host)
+	var perfRuleStats []rules.RuleExecutionStat
+	if args.PerfRules {
+		perfRuleStats = rules.SortedRuleExecutionStats(dispatchResult.Stats)
+	}
+	// CacheStats is gated on ShowPerf rather than auto-forwarded:
+	// today the daemon's analyze-project verb does NOT include the
+	// "cache" JSON key (the verb's tests assume it absent). Exposing
+	// it whenever IndexPhase happens to populate stats would silently
+	// change the daemon's wire format. ShowPerf-gated forwarding lets
+	// the CLI opt in once it migrates to RunProject (Step E).
+	var cacheStatsOut *cache.Stats
+	if args.ShowPerf {
+		cacheStatsOut = indexResult.CacheStats
+	}
 	outResult, err := OutputPhase{}.Run(ctx, OutputInput{
 		FixupResult:      fixupView,
 		Writer:           out,
 		Format:           format,
 		BaselinePath:     args.BaselinePath,
 		DiffRef:          args.DiffRef,
+		BasePath:         args.BasePath,
 		StartTime:        startTime,
 		Version:          args.Version,
 		ExperimentNames:  args.ExperimentNames,
 		WarningsAsErrors: args.WarningsAsErrors,
 		MinConfidence:    args.MinConfidence,
 		JSONCompact:      args.JSONCompact,
+		ShowPerf:         args.ShowPerf,
+		PerfTimings:      perfTimings,
+		PerfRuleStats:    perfRuleStats,
+		CacheStats:       cacheStatsOut,
+		Caches:           caches,
+		CacheBudget:      budget,
 	})
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("output: %w", err)
@@ -415,6 +455,28 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		ParseMisses:   misses1 - misses0,
 		Fixup:         fixupView,
 	}, nil
+}
+
+// capturePerfOutputs snapshots the host tracker plus the global
+// cacheutil stats so OutputPhase can emit them in the JSON header.
+// Returns (nil, nil, nil) when args.ShowPerf is false — the daemon's
+// default. Mirrors the CLI's capturePerfSnapshot helper so a daemon
+// caller that opts in sees the same output shape.
+func capturePerfOutputs(args ProjectArgs, host ProjectHostState) ([]perf.TimingEntry, []cacheutil.NamedCacheStats, *cacheutil.BudgetReport) {
+	if !args.ShowPerf {
+		return nil, nil, nil
+	}
+	var timings []perf.TimingEntry
+	if host.Tracker != nil && host.Tracker.IsEnabled() {
+		timings = host.Tracker.GetTimings()
+	}
+	capBytes := args.ParseCacheCapBytes
+	if capBytes == 0 {
+		capBytes = cacheutil.DefaultParseCacheCapBytes
+	}
+	caches := cacheutil.AllStats()
+	b := cacheutil.Budget(capBytes)
+	return timings, caches, &b
 }
 
 // runFixupPhase invokes FixupPhase when the caller opted in via one

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -67,6 +68,13 @@ type ProjectArgs struct {
 	// ExperimentNames are the active experiment flag names echoed in
 	// JSON output.
 	ExperimentNames []string
+	// JSONCompact, when true and Format=="json", disables JSON pretty-
+	// printing in the OutputPhase. The daemon's streaming response
+	// path (#60) sets this so the wire-level JSON has no internal
+	// newlines (the line-delimited daemon protocol breaks on the
+	// first '\n'). The CLI keeps it false so human-readable output
+	// stays indented.
+	JSONCompact bool
 	// OracleEnabled, when true, runs the oracle pipeline inside
 	// IndexPhase (auto-detect / --input-types / --daemon paths). The
 	// daemon sets this true when ensureOracleDaemon found a
@@ -190,7 +198,10 @@ type ProjectInput struct {
 // ProjectResult is the value type returned from RunProject.
 type ProjectResult struct {
 	// JSON is the formatted output bytes (in the requested Format).
-	// Suitable for inclusion verbatim in a daemon response payload.
+	// Populated only by RunProject; RunProjectStreaming leaves this
+	// nil because the bytes are already written to the caller's
+	// io.Writer. Suitable for inclusion verbatim in a daemon
+	// response payload when populated.
 	JSON []byte
 	// FinalFindings is the set of findings actually emitted (after
 	// baseline / diff / min-confidence filters).
@@ -224,6 +235,28 @@ type ProjectResult struct {
 // Callers that need any of the above continue to use scan.Run (the CLI
 // front door) or compose the phase types directly.
 func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
+	var buf bytes.Buffer
+	res, err := RunProjectStreaming(ctx, in, &buf)
+	if err != nil {
+		return ProjectResult{}, err
+	}
+	res.JSON = buf.Bytes()
+	return res, nil
+}
+
+// RunProjectStreaming is the streaming form of RunProject (#60). It runs
+// the same scan pipeline but writes the OutputPhase's formatted bytes
+// directly into out instead of buffering them on the heap. The returned
+// ProjectResult.JSON is nil — callers that need the bytes in memory
+// should wrap a bytes.Buffer (RunProject does exactly that).
+//
+// On the JetBrains/kotlin corpus the OutputPhase JSON is ~27 MB;
+// streaming it lets the daemon write directly into the response socket
+// without allocating an intermediate copy per call.
+func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (ProjectResult, error) {
+	if out == nil {
+		return ProjectResult{}, fmt.Errorf("RunProjectStreaming: out writer is nil")
+	}
 	if err := ctx.Err(); err != nil {
 		return ProjectResult{}, err
 	}
@@ -330,12 +363,13 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		return ProjectResult{}, err
 	}
 
-	// Phase 5: output to an in-memory buffer.
-	var buf bytes.Buffer
+	// Phase 5: output. Writes formatted bytes directly to the
+	// caller-provided writer; #60 lets the daemon stream this into
+	// the response socket without an intermediate 27 MB copy.
 	fixupView := FixupResult{CrossFileResult: crossFileResult}
 	outResult, err := OutputPhase{}.Run(ctx, OutputInput{
 		FixupResult:      fixupView,
-		Writer:           &buf,
+		Writer:           out,
 		Format:           format,
 		BaselinePath:     args.BaselinePath,
 		DiffRef:          args.DiffRef,
@@ -344,6 +378,7 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		ExperimentNames:  args.ExperimentNames,
 		WarningsAsErrors: args.WarningsAsErrors,
 		MinConfidence:    args.MinConfidence,
+		JSONCompact:      args.JSONCompact,
 	})
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("output: %w", err)
@@ -361,7 +396,6 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 
 	hits1, misses1 := parseCacheCounters(host.ParseCache)
 	return ProjectResult{
-		JSON:          buf.Bytes(),
 		FinalFindings: outResult.FinalFindings,
 		FilesScanned:  len(parseResult.KotlinFiles) + len(parseResult.JavaFiles),
 		FindingsCount: outResult.FinalFindings.Len(),

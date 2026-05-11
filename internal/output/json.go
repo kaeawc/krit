@@ -56,7 +56,8 @@ type JSONSummary struct {
 	Fixable   int            `json:"fixable"`
 }
 
-// FormatJSONColumns writes columnar findings as JSON.
+// FormatJSONColumns writes columnar findings as JSON with two-space
+// indentation. CLI consumers see the indented form.
 func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version string,
 	fileCount, ruleCount int, start time.Time,
 	perfTimings []perf.TimingEntry, activeRules []*api.Rule,
@@ -64,6 +65,38 @@ func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version str
 	cacheStats *cache.Stats,
 	caches []cacheutil.NamedCacheStats,
 	cacheBudget *cacheutil.BudgetReport,
+	perfRuleStats ...[]rules.RuleExecutionStat) error {
+	return formatJSONColumnsImpl(w, columns, version, fileCount, ruleCount, start,
+		perfTimings, activeRules, experiments, cacheStats, caches, cacheBudget, true,
+		perfRuleStats...)
+}
+
+// FormatJSONColumnsCompact writes columnar findings as JSON with no
+// indentation or internal newlines. The daemon's streaming response
+// path uses this so the wire-level JSON sits cleanly inside the
+// line-delimited daemon protocol (a single embedded '\n' would let
+// the client's bufio.Reader.ReadBytes('\n') return a truncated body).
+func FormatJSONColumnsCompact(w io.Writer, columns *scanner.FindingColumns, version string,
+	fileCount, ruleCount int, start time.Time,
+	perfTimings []perf.TimingEntry, activeRules []*api.Rule,
+	experiments []string,
+	cacheStats *cache.Stats,
+	caches []cacheutil.NamedCacheStats,
+	cacheBudget *cacheutil.BudgetReport,
+	perfRuleStats ...[]rules.RuleExecutionStat) error {
+	return formatJSONColumnsImpl(w, columns, version, fileCount, ruleCount, start,
+		perfTimings, activeRules, experiments, cacheStats, caches, cacheBudget, false,
+		perfRuleStats...)
+}
+
+func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version string,
+	fileCount, ruleCount int, start time.Time,
+	perfTimings []perf.TimingEntry, activeRules []*api.Rule,
+	experiments []string,
+	cacheStats *cache.Stats,
+	caches []cacheutil.NamedCacheStats,
+	cacheBudget *cacheutil.BudgetReport,
+	indent bool,
 	perfRuleStats ...[]rules.RuleExecutionStat) error {
 
 	cols := normalizedFindingColumns(columns)
@@ -125,7 +158,9 @@ func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version str
 	}
 
 	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
+	if indent {
+		enc.SetIndent("", "  ")
+	}
 	return enc.Encode(report)
 }
 

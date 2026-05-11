@@ -20,7 +20,26 @@ import (
 // Handler runs a single verb. It receives the raw JSON args and returns a
 // JSON-marshalable result or an error. Handlers may be invoked concurrently;
 // the verb implementation is responsible for any internal locking.
+//
+// A handler may return a value that implements RawResponseWriter to skip
+// the default json.Marshal envelope and stream the response directly into
+// the connection. This is the streaming path issue #60 added so the
+// analyze-project verb avoids buffering the multi-megabyte findings JSON
+// in memory.
 type Handler func(ctx context.Context, args json.RawMessage) (any, error)
+
+// RawResponseWriter is the optional interface a Handler result can
+// implement to bypass the json.Marshal + Response envelope path. When
+// present the dispatch loop hands the connection writer directly to
+// WriteRawResponse; the implementation is responsible for writing a
+// complete `{"ok":true,"data":...}\n` line (or its error variant).
+//
+// Used by analyze-project to stream the OutputPhase JSON directly into
+// the socket, avoiding the ~27 MB allocation that the prior buffer +
+// double-marshal path paid per call on the JetBrains/kotlin corpus.
+type RawResponseWriter interface {
+	WriteRawResponse(w io.Writer) error
+}
 
 // Server is a long-lived process that accepts daemon Requests on a Unix
 // socket and dispatches each to a registered Handler.
@@ -210,8 +229,7 @@ func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
 			writeResponse(conn, errorResponse("invalid request: "+err.Error()))
 			continue
 		}
-		resp := s.dispatch(ctx, req)
-		if !writeResponse(conn, resp) {
+		if !s.dispatchAndWrite(ctx, req, conn) {
 			return
 		}
 		if req.Verb == VerbShutdown {
@@ -230,23 +248,34 @@ func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
 	}
 }
 
-func (s *Server) dispatch(ctx context.Context, req Request) Response {
+// dispatchAndWrite resolves the verb and writes the response directly
+// into w. Returns false when the connection should be closed (write
+// error). When the handler result implements RawResponseWriter the
+// streaming path is taken; otherwise the standard json.Marshal +
+// Response envelope is written via writeResponse.
+func (s *Server) dispatchAndWrite(ctx context.Context, req Request, w io.Writer) bool {
 	s.lastActivity.Store(time.Now().UnixNano())
 	s.mu.RLock()
 	h, ok := s.handlers[req.Verb]
 	s.mu.RUnlock()
 	if !ok {
-		return errorResponse(fmt.Sprintf("unknown verb %q", req.Verb))
+		return writeResponse(w, errorResponse(fmt.Sprintf("unknown verb %q", req.Verb)))
 	}
 	result, err := h(ctx, req.Args)
 	if err != nil {
-		return errorResponse(err.Error())
+		return writeResponse(w, errorResponse(err.Error()))
+	}
+	if rw, ok := result.(RawResponseWriter); ok {
+		if err := rw.WriteRawResponse(w); err != nil {
+			return false
+		}
+		return true
 	}
 	data, err := json.Marshal(result)
 	if err != nil {
-		return errorResponse("marshal result: " + err.Error())
+		return writeResponse(w, errorResponse("marshal result: "+err.Error()))
 	}
-	return Response{OK: true, Data: data}
+	return writeResponse(w, Response{OK: true, Data: data})
 }
 
 func errorResponse(msg string) Response { return Response{OK: false, Error: msg} }

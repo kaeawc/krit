@@ -462,6 +462,12 @@ type OutputInput struct {
 	// MinConfidence, when >0, drops findings whose confidence is below
 	// the threshold before format dispatch.
 	MinConfidence float64
+	// JSONCompact, when true, disables JSON pretty-printing in the
+	// "json" formatter. The daemon's streaming response path sets
+	// this so the wire-level JSON has no internal newlines (the
+	// line-delimited daemon protocol breaks on the first '\n'). The
+	// CLI keeps it false so human-readable output stays indented.
+	JSONCompact bool
 }
 
 // OutputResult captures post-Output metadata.

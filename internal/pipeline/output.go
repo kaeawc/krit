@@ -77,7 +77,11 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 
 	switch in.Format {
 	case "json":
-		if err := output.FormatJSONColumns(
+		jsonFormatter := output.FormatJSONColumns
+		if in.JSONCompact {
+			jsonFormatter = output.FormatJSONColumnsCompact
+		}
+		if err := jsonFormatter(
 			in.Writer,
 			columns,
 			in.Version,

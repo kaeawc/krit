@@ -117,6 +117,15 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 		ParseHits:         res.ParseHits,
 		ParseMisses:       res.ParseMisses,
 		FindingsBundleHit: res.FindingsBundleHit,
+		PhaseTimingsMs: daemon.PhaseTimingsMs{
+			Parse:     res.PhaseTimingsMs.Parse,
+			Index:     res.PhaseTimingsMs.Index,
+			Dispatch:  res.PhaseTimingsMs.Dispatch,
+			CrossFile: res.PhaseTimingsMs.CrossFile,
+			Android:   res.PhaseTimingsMs.Android,
+			Fixup:     res.PhaseTimingsMs.Fixup,
+			Output:    res.PhaseTimingsMs.Output,
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("marshal stats: %w", err)

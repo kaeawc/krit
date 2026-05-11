@@ -178,6 +178,11 @@ func SaveResult(root string, res *Result, repoRoot, kritVersion string) (string,
 			return "", err
 		}
 	}
+	if res.Findings != nil {
+		if _, err := SaveFindings(root, res.Findings); err != nil {
+			return "", err
+		}
+	}
 	if _, err := CaptureManifest(root, res, repoRoot, kritVersion); err != nil {
 		return "", err
 	}
@@ -212,6 +217,9 @@ func buildManifest(res *Result, repoRoot, kritVersion string) *Manifest {
 	}
 	if res.Metrics != nil {
 		m.MetricsSchema = res.Metrics.SchemaVersion
+	}
+	if res.Findings != nil {
+		m.RuleSetHash = res.Findings.RuleSetHash
 	}
 	return m
 }

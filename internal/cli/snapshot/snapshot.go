@@ -36,6 +36,7 @@ const usage = `usage: krit snapshot <capture|backfill|status|timeline|info|diff|
 Capture flags:
   --repo PATH       repo root (default: cwd)
   --output PATH     write blob path on success to PATH (default: stderr)
+  --with-findings   run rules and persist per-rule findings sidecar (slower)
 
 Timeline flags:
   --repo PATH       repo root (default: cwd)
@@ -104,6 +105,7 @@ func runCapture(args []string) int {
 	fs.SetOutput(os.Stderr)
 	repoFlag := fs.String("repo", "", "repository root (default: cwd)")
 	outputFlag := fs.String("output", "", "write blob path to this file on success")
+	withFindings := fs.Bool("with-findings", false, "also run rules and persist a per-rule findings sidecar")
 
 	positional, rest := clishared.SplitPositional(args, 1)
 	if err := fs.Parse(rest); err != nil {
@@ -126,9 +128,10 @@ func runCapture(args []string) int {
 	}
 
 	res, err := snap.Capture(snap.CaptureOptions{
-		RepoRoot:    repoRoot,
-		CommitSHA:   sha,
-		KritVersion: Version,
+		RepoRoot:     repoRoot,
+		CommitSHA:    sha,
+		KritVersion:  Version,
+		WithFindings: *withFindings,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

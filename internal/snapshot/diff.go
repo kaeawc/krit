@@ -25,6 +25,16 @@ type DiffResult struct {
 
 	RepoMetrics   map[string]MetricDelta            `json:"repo_metrics,omitempty"`
 	ModuleMetrics map[string]map[string]MetricDelta `json:"module_metrics,omitempty"`
+
+	// FindingsByRule is populated only when both snapshots carry a
+	// findings sidecar AND share a RuleSetHash. Cross-rule-set
+	// comparisons stay nil so callers don't mistake an apples-to-oranges
+	// delta for a real drift signal.
+	FindingsByRule map[string]MetricDelta `json:"findings_by_rule,omitempty"`
+	// FindingsRuleSetMismatch is set when both sides have findings
+	// sidecars whose RuleSetHash differs. Consumers should refuse to
+	// report a findings delta in that case.
+	FindingsRuleSetMismatch bool `json:"findings_rule_set_mismatch,omitempty"`
 }
 
 // DiffSide identifies one end of a diff and tags it with the krit and
@@ -108,7 +118,37 @@ func Diff(root, fromSHA, toSHA string) (*DiffResult, error) {
 		result.ModuleMetrics = diffModuleMetrics(fromMetrics, toMetrics)
 	}
 
+	fromFindings, _ := LoadFindings(root, fromSHA)
+	toFindings, _ := LoadFindings(root, toSHA)
+	if fromFindings != nil && toFindings != nil {
+		if fromFindings.RuleSetHash != "" && toFindings.RuleSetHash != "" && fromFindings.RuleSetHash != toFindings.RuleSetHash {
+			result.FindingsRuleSetMismatch = true
+		} else {
+			result.FindingsByRule = diffFindingsByRule(fromFindings, toFindings)
+		}
+	}
+
 	return result, nil
+}
+
+func diffFindingsByRule(from, to *Findings) map[string]MetricDelta {
+	rules := make(map[string]bool, len(from.ByRule)+len(to.ByRule))
+	for r := range from.ByRule {
+		rules[r] = true
+	}
+	for r := range to.ByRule {
+		rules[r] = true
+	}
+	out := make(map[string]MetricDelta, len(rules))
+	for r := range rules {
+		fv := float64(from.ByRule[r])
+		tv := float64(to.ByRule[r])
+		if fv == 0 && tv == 0 {
+			continue
+		}
+		out[r] = MetricDelta{From: fv, To: tv, Delta: tv - fv}
+	}
+	return out
 }
 
 func diffFiles(from, to []File) (added, removed []FileRef) {

@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -20,13 +21,22 @@ type CaptureOptions struct {
 	Workers     int
 	// Now allows tests to inject a deterministic capture time.
 	Now func() time.Time
+	// WithFindings, when true, runs krit's rule pipeline against the
+	// worktree and attaches a per-rule findings rollup to Result. The
+	// scan dominates capture wall-time, so this is opt-in.
+	WithFindings bool
+	// FindingsRun, when non-nil, overrides the FindingsRunOptions passed
+	// to RunFindings. Ignored when WithFindings is false.
+	FindingsRun *FindingsRunOptions
 }
 
 // Result pairs the structural blob with the metrics rollup derived from
-// the same parse.
+// the same parse. Findings is populated only when CaptureOptions.WithFindings
+// is set.
 type Result struct {
-	Blob    *Blob
-	Metrics *Metrics
+	Blob     *Blob
+	Metrics  *Metrics
+	Findings *Findings
 }
 
 func Capture(opts CaptureOptions) (*Result, error) {
@@ -79,7 +89,27 @@ func Capture(opts CaptureOptions) (*Result, error) {
 	allFiles = append(allFiles, ktFiles...)
 	allFiles = append(allFiles, javaFiles...)
 	metrics := computeMetrics(blob, allFiles)
-	return &Result{Blob: blob, Metrics: metrics}, nil
+	result := &Result{Blob: blob, Metrics: metrics}
+
+	if opts.WithFindings {
+		runOpts := FindingsRunOptions{RepoRelativeTo: root, Workers: workers}
+		if opts.FindingsRun != nil {
+			runOpts = *opts.FindingsRun
+			if runOpts.RepoRelativeTo == "" {
+				runOpts.RepoRelativeTo = root
+			}
+			if runOpts.Workers == 0 {
+				runOpts.Workers = workers
+			}
+		}
+		findings, err := RunFindings(context.Background(), root, opts.CommitSHA, runOpts)
+		if err != nil {
+			return nil, fmt.Errorf("snapshot: findings: %w", err)
+		}
+		result.Findings = findings
+	}
+
+	return result, nil
 }
 
 // collectSources walks each module's source roots once via

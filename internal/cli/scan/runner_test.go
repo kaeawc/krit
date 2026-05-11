@@ -82,57 +82,6 @@ func TestClassifyCrossFileNeeds(t *testing.T) {
 	}
 }
 
-func TestCanSkipParsePhase_AllFindingsCachedAndNoParsedConsumers(t *testing.T) {
-	r := parseSkipTestRunner([]string{"A.kt", "B.kt"}, []*api.Rule{
-		{ID: "LineRule", Description: "d"},
-	})
-	if !r.canSkipParsePhase() {
-		t.Fatal("expected parse skip when findings cache covers every file and no rule needs parsed sources")
-	}
-}
-
-func TestCanSkipParsePhase_BlockedByCacheMiss(t *testing.T) {
-	r := parseSkipTestRunner([]string{"A.kt", "B.kt"}, []*api.Rule{
-		{ID: "LineRule", Description: "d"},
-	})
-	r.cacheResult.TotalCached = 1
-	delete(r.cacheResult.CachedPaths, "B.kt")
-	if r.canSkipParsePhase() {
-		t.Fatal("parse skip should require every file to hit the findings cache")
-	}
-}
-
-func TestCanSkipParsePhase_BlockedByParsedConsumers(t *testing.T) {
-	cases := []struct {
-		name string
-		rule *api.Rule
-	}{
-		{name: "cross-file", rule: &api.Rule{ID: "Cross", Needs: api.NeedsCrossFile}},
-		{name: "parsed-files", rule: &api.Rule{ID: "Parsed", Needs: api.NeedsParsedFiles}},
-		{name: "aggregate", rule: &api.Rule{ID: "Aggregate", Needs: api.NeedsAggregate}},
-		{name: "resource source", rule: &api.Rule{ID: "ResourceSource", Needs: api.NeedsResources, NodeTypes: []string{"call_expression"}, Languages: []scanner.Language{scanner.LangKotlin}}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			r := parseSkipTestRunner([]string{"A.kt"}, []*api.Rule{tc.rule})
-			if r.canSkipParsePhase() {
-				t.Fatalf("parse skip should be blocked by %s", tc.name)
-			}
-		})
-	}
-}
-
-func TestCanSkipParsePhase_AllowsPerFileResolverAndModuleRulesWhenCached(t *testing.T) {
-	r := parseSkipTestRunner([]string{"A.kt"}, []*api.Rule{
-		{ID: "Resolver", Needs: api.NeedsResolver},
-		{ID: "Module", Needs: api.NeedsModuleIndex},
-		{ID: "Java", NodeTypes: []string{"identifier"}, Languages: []scanner.Language{scanner.LangJava}},
-	})
-	if !r.canSkipParsePhase() {
-		t.Fatal("expected parse skip for per-file resolver/module/Java rules covered by warm findings")
-	}
-}
-
 func TestCanParseOnlyCacheMisses(t *testing.T) {
 	result := &cache.Result{
 		CachedPaths: map[string]bool{"A.kt": true, "C.kt": true},
@@ -232,50 +181,21 @@ func TestShouldOpenResourceIndexCache(t *testing.T) {
 	androidRule := []*api.Rule{{ID: "Resources", Needs: api.NeedsResources}}
 	plainRule := []*api.Rule{{ID: "Plain"}}
 	cases := []struct {
-		name                     string
-		rules                    []*api.Rule
-		noResourceCache          bool
-		skipSourceParse          bool
-		androidFindingsCacheable bool
-		want                     bool
+		name            string
+		rules           []*api.Rule
+		noResourceCache bool
+		want            bool
 	}{
 		{name: "plain rules never open", rules: plainRule},
 		{name: "disabled by flag", rules: androidRule, noResourceCache: true},
 		{name: "cold android analysis opens", rules: androidRule, want: true},
-		{name: "incremental source parse opens", rules: androidRule, androidFindingsCacheable: true, want: true},
-		{name: "warm findings cache skips resource index cache", rules: androidRule, skipSourceParse: true, androidFindingsCacheable: true},
-		{name: "warm without findings cache keeps resource index cache", rules: androidRule, skipSourceParse: true, want: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := shouldOpenResourceIndexCache(tc.rules, tc.noResourceCache, tc.skipSourceParse, tc.androidFindingsCacheable)
+			got := shouldOpenResourceIndexCache(tc.rules, tc.noResourceCache)
 			if got != tc.want {
 				t.Fatalf("shouldOpenResourceIndexCache = %v, want %v", got, tc.want)
 			}
 		})
-	}
-}
-
-func parseSkipTestRunner(paths []string, activeRules []*api.Rule) *runner {
-	verbose, fir, noFir, noCrossFileCache := false, false, true, false
-	cachedPaths := make(map[string]bool, len(paths))
-	for _, path := range paths {
-		cachedPaths[path] = true
-	}
-	return &runner{
-		f: &scanFlags{
-			Verbose:          &verbose,
-			Fir:              &fir,
-			NoFir:            &noFir,
-			NoCrossFileCache: &noCrossFileCache,
-		},
-		useCache:       true,
-		cacheFilePaths: append([]string(nil), paths...),
-		cacheResult: &cache.Result{
-			CachedPaths: cachedPaths,
-			TotalCached: len(paths),
-			TotalFiles:  len(paths),
-		},
-		activeRules: activeRules,
 	}
 }

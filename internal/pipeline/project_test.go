@@ -10,6 +10,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/config"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // TestRunProject_RoundTrip exercises the full new entry point:
@@ -126,5 +127,44 @@ func TestRunProject_DefaultsFormatToJSON(t *testing.T) {
 	var probe map[string]any
 	if err := json.Unmarshal(res.JSON, &probe); err != nil {
 		t.Fatalf("Output is not JSON when Format empty: %v\n%s", err, res.JSON)
+	}
+}
+
+func TestRunProjectAnalysis_RunsTargetedResolutionBeforeDispatch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "S.kt")
+	if err := os.WriteFile(path, []byte("package p\nfun f() { val x = 1 }\n"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	resolver := &fakeResolver{}
+	rule := &api.Rule{
+		ID:            "ExprSelector",
+		Category:      "test",
+		Description:   "fake rule for testing",
+		ExprPositions: func(*scanner.File) []uint32 { return []uint32{0} },
+		Check:         func(*api.Context) {},
+	}
+	_, err := RunProjectAnalysis(context.Background(), ProjectInput{
+		Args: ProjectArgs{
+			Config:             config.NewConfig(),
+			Paths:              []string{dir},
+			KotlinPaths:        []string{path},
+			ActiveRules:        []*api.Rule{rule},
+			TargetedResolution: true,
+		},
+		Host: ProjectHostState{
+			TargetedExpressionResolver: resolver,
+			TargetedExpressionSink:     newFakeSink(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("RunProjectAnalysis: %v", err)
+	}
+	if len(resolver.calls) != 1 {
+		t.Fatalf("expected targeted resolver to run once; got %d", len(resolver.calls))
+	}
+	if len(resolver.calls[0][path]) == 0 {
+		t.Fatalf("expected resolver request for %s; got %v", path, resolver.calls[0])
 	}
 }

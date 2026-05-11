@@ -6,11 +6,8 @@ import (
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
-func shouldOpenResourceIndexCache(activeRules []*api.Rule, noResourceCache bool, skipSourceParse bool, androidFindingsCacheable bool) bool {
+func shouldOpenResourceIndexCache(activeRules []*api.Rule, noResourceCache bool) bool {
 	if noResourceCache || !pipeline.RulesNeedAndroidProject(activeRules) {
-		return false
-	}
-	if skipSourceParse && androidFindingsCacheable {
 		return false
 	}
 	return true

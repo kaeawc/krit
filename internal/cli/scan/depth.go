@@ -94,8 +94,8 @@ func applyDepthPreset(depth DepthPreset, f *scanFlags, fs *flag.FlagSet) {
 		// that only need lexical/AST signals continue to fire.
 		setBoolIfNotExplicit(f.NoTypeOracle, true, "no-type-oracle", explicit)
 	case DepthBalanced, DepthThorough:
-		// Today these behave identically. Future fact-expansion knobs
-		// will branch on DepthThorough here.
+		// Both keep the oracle eligible; RunProject receives the
+		// additional thorough-only analysis knob after setup.
 	}
 }
 

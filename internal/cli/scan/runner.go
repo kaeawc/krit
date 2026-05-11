@@ -14,9 +14,6 @@ import (
 )
 
 func (r *runner) runProjectAnalysis() (int, error) {
-	if r.depthPreset == DepthThorough {
-		return r.runLegacyAnalysis()
-	}
 	r.ruleStart = r.start
 	analysis, err := pipeline.RunProjectAnalysis(context.Background(), r.projectInput())
 	if err != nil {
@@ -25,22 +22,6 @@ func (r *runner) runProjectAnalysis() (int, error) {
 	}
 	r.applyProjectAnalysis(analysis)
 	return 0, nil
-}
-
-func (r *runner) runLegacyAnalysis() (int, error) {
-	if code, err := r.parsePhase(); err != nil {
-		return code, err
-	}
-	if code, err := r.targetedResolution(); err != nil {
-		return code, err
-	}
-	if code, err := r.dispatch(); err != nil {
-		return code, err
-	}
-	if code, err := r.crossFile(); err != nil {
-		return code, err
-	}
-	return r.androidPhase()
 }
 
 func (r *runner) projectInput() pipeline.ProjectInput {
@@ -81,6 +62,7 @@ func (r *runner) projectInput() pipeline.ProjectInput {
 			Version:             Version,
 			ExperimentNames:     experiment.Current().Names(),
 			OracleEnabled:       false,
+			TargetedResolution:  r.depthPreset == DepthThorough,
 			ProfileDispatch:     *r.f.ProfileDispatch,
 			EmitPerFileStats:    true,
 		},
@@ -93,12 +75,9 @@ func (r *runner) applyProjectAnalysis(analysis pipeline.ProjectAnalysisResult) {
 	r.parsedFiles = analysis.ParseResult.KotlinFiles
 	r.sourceFiles = analysis.ParseResult.SourceFiles()
 	r.javaSemanticFacts = analysis.IndexResult.JavaSemanticFacts
-	r.indexResult2 = analysis.IndexResult
-	r.codeIndex = analysis.IndexResult.CodeIndex
-	r.parsedJavaFiles = analysis.IndexResult.JavaFiles
 	r.outputJavaFiles = analysis.ParseResult.JavaFiles
-	if len(r.parsedJavaFiles) > 0 {
-		r.outputJavaFiles = r.parsedJavaFiles
+	if len(analysis.IndexResult.JavaFiles) > 0 {
+		r.outputJavaFiles = analysis.IndexResult.JavaFiles
 	}
 	r.moduleGraph = analysis.IndexResult.Graph
 	r.pmi = analysis.IndexResult.ModuleIndex

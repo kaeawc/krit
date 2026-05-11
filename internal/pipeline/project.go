@@ -93,6 +93,11 @@ type ProjectArgs struct {
 	// daemon sets this true when ensureOracleDaemon found a
 	// krit-types JAR; the CLI sets it from --type-oracle.
 	OracleEnabled bool
+	// TargetedResolution, when true, runs active rules' expression
+	// selectors through the configured expression resolver before
+	// dispatch. The pass is optional: missing resolver/sink or a rule
+	// set with no selectors is treated as no work.
+	TargetedResolution bool
 	// Fix, when true, applies safe text auto-fixes to disk between
 	// cross-file analysis and output. The set of applied fixes is
 	// capped by MaxFixLevel. False (default) leaves files untouched.
@@ -211,6 +216,11 @@ type ProjectHostState struct {
 	// OracleDaemon, when non-nil, is the long-lived krit-types JVM
 	// daemon handle (used only when Oracle is also set).
 	OracleDaemon *oracle.Daemon
+	// TargetedExpressionResolver and TargetedExpressionSink override
+	// the daemon/oracle pair used by TargetedResolution. Tests and
+	// embedders can supply narrow fakes without standing up a JVM.
+	TargetedExpressionResolver api.ExpressionTypeResolver
+	TargetedExpressionSink     api.ExpressionFactSink
 	// AnalysisCache, when non-nil, drives the incremental findings
 	// cache. DispatchPhase merges new per-file findings into it and
 	// saves the result to AnalysisCacheFilePath after dispatch. Nil
@@ -495,6 +505,7 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	if err := loadJavaSemanticFacts(ctx, args, host, parseResult.JavaFiles, &indexResult); err != nil {
 		return ProjectAnalysisResult{}, err
 	}
+	runProjectTargetedResolution(args, host, parseResult.KotlinFiles, indexResult)
 
 	runFP, bundleEnabled := computeRunFingerprint(args, host, parseResult, indexResult)
 	manifestData := buildManifestData(args, host, parseResult, runFP, bundleEnabled)
@@ -684,6 +695,32 @@ func loadJavaSemanticFacts(ctx context.Context, args ProjectArgs, host ProjectHo
 	}
 	indexResult.JavaSemanticFacts = facts
 	return nil
+}
+
+func runProjectTargetedResolution(args ProjectArgs, host ProjectHostState, files []*scanner.File, indexResult IndexResult) {
+	if !args.TargetedResolution {
+		return
+	}
+	resolver := host.TargetedExpressionResolver
+	if resolver == nil && indexResult.Daemon != nil {
+		resolver = DaemonExpressionResolver{Daemon: indexResult.Daemon}
+	}
+	sink := host.TargetedExpressionSink
+	if sink == nil {
+		sink = indexResult.Oracle
+	}
+	if resolver == nil || sink == nil {
+		host.Reporter.Verbosef("verbose: targeted expression resolution skipped (resolver unavailable)\n")
+		return
+	}
+	if err := RunTargetedResolutionPass(TargetedResolutionInput{
+		ActiveRules: args.ActiveRules,
+		Files:       files,
+		Resolver:    resolver,
+		Sink:        sink,
+	}); err != nil {
+		host.Reporter.Warnf("warning: targeted expression resolution failed: %v\n", err)
+	}
 }
 
 func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan) (ParseResult, error) {

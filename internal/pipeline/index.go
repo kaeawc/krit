@@ -65,6 +65,10 @@ type IndexInput struct {
 	// rule contexts instead of being rebuilt from detected Gradle files.
 	// Highest precedence — wins over LibraryFactsCache.
 	PrebuiltLibraryFacts *librarymodel.Facts
+	// PrebuiltAndroidProject, when non-nil, is used as the detected Android
+	// project layout. CLI callers already discover this during projectModel,
+	// so reusing it avoids a second repository file listing.
+	PrebuiltAndroidProject *android.Project
 	// LibraryFactsCache, when non-nil and PrebuiltLibraryFacts is nil,
 	// memoizes the constructed Facts across calls. The fingerprint key
 	// is derived from the discovered Gradle paths; the host's watcher
@@ -481,7 +485,11 @@ func (p IndexPhase) detectAndroidProject(in IndexInput, result *IndexResult) {
 	if p.SkipAndroid {
 		return
 	}
-	result.AndroidProject = android.DetectProject(in.Paths)
+	if in.PrebuiltAndroidProject != nil {
+		result.AndroidProject = in.PrebuiltAndroidProject
+	} else {
+		result.AndroidProject = android.DetectProject(in.Paths)
+	}
 	if result.LibraryFacts == nil && result.AndroidProject != nil {
 		gradle := result.AndroidProject.GradlePaths
 		build := func() *librarymodel.Facts {

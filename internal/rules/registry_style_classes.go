@@ -345,6 +345,19 @@ func registerStyleProtectedMemberInFinalClass() {
 			if file.FlatHasModifier(idx, "open") || file.FlatHasModifier(idx, "abstract") || file.FlatHasModifier(idx, "sealed") {
 				return
 			}
+			body, _ := file.FlatFindChild(idx, "class_body")
+			if body == 0 {
+				return
+			}
+			hasProtectedMember := false
+			forEachDirectClassMemberFlat(file, body, func(member uint32) {
+				if member != 0 && file.FlatHasModifier(member, "protected") {
+					hasProtectedMember = true
+				}
+			})
+			if !hasProtectedMember {
+				return
+			}
 			if ctx.Resolver != nil {
 				name := extractIdentifierFlat(file, idx)
 				if name != "" {
@@ -353,10 +366,6 @@ func registerStyleProtectedMemberInFinalClass() {
 						return
 					}
 				}
-			}
-			body, _ := file.FlatFindChild(idx, "class_body")
-			if body == 0 {
-				return
 			}
 			forEachDirectClassMemberFlat(file, body, func(member uint32) {
 				if member == 0 || !file.FlatHasModifier(member, "protected") {

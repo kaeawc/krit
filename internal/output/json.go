@@ -115,7 +115,7 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 	byRuleSet := make(map[string]int)
 	byRule := make(map[string]int)
 	fixableCount := 0
-	findingsJSON, err := buildJSONFindings(columns, fixLevels, byRuleSet, byRule, &fixableCount)
+	findingsJSON, err := buildJSONFindings(columns, fixLevels, byRuleSet, byRule, &fixableCount, indent)
 	if err != nil {
 		return fmt.Errorf("marshal findings: %w", err)
 	}
@@ -164,7 +164,7 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 	return enc.Encode(report)
 }
 
-func buildJSONFindings(columns *scanner.FindingColumns, fixLevels map[string]string, byRuleSet, byRule map[string]int, fixableCount *int) (json.RawMessage, error) {
+func buildJSONFindings(columns *scanner.FindingColumns, fixLevels map[string]string, byRuleSet, byRule map[string]int, fixableCount *int, indent bool) (json.RawMessage, error) {
 	cols := normalizedFindingColumns(columns)
 	if cols.Len() == 0 {
 		return json.RawMessage("[]"), nil
@@ -172,14 +172,20 @@ func buildJSONFindings(columns *scanner.FindingColumns, fixLevels map[string]str
 
 	var buf bytes.Buffer
 	var marshalErr error
-	buf.WriteString("[\n")
+	buf.WriteByte('[')
+	if indent {
+		buf.WriteByte('\n')
+	}
 	first := true
 	cols.VisitSortedByFileLine(func(row int) {
 		if marshalErr != nil {
 			return
 		}
 		if !first {
-			buf.WriteString(",\n")
+			buf.WriteByte(',')
+			if indent {
+				buf.WriteByte('\n')
+			}
 		}
 		first = false
 
@@ -217,12 +223,17 @@ func buildJSONFindings(columns *scanner.FindingColumns, fixLevels map[string]str
 			marshalErr = err
 			return
 		}
-		buf.WriteString("    ")
+		if indent {
+			buf.WriteString("    ")
+		}
 		buf.Write(encoded)
 	})
 	if marshalErr != nil {
 		return nil, marshalErr
 	}
-	buf.WriteString("\n  ]")
+	if indent {
+		buf.WriteString("\n  ")
+	}
+	buf.WriteByte(']')
 	return json.RawMessage(buf.Bytes()), nil
 }

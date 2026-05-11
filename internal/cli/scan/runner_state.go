@@ -132,19 +132,7 @@ type runner struct {
 // Returns ok=false (with an exit code) when CPU profile creation fails;
 // other early-exit guards inside the function call os.Exit directly.
 func newRunner(f *scanFlags) (*runner, int, bool) {
-	// Resolve output format: --report takes precedence over -f. If no
-	// format is explicitly set and stdout is a TTY, auto-promote to
-	// "plain" (respecting NO_COLOR and the -o file redirect).
-	effectiveFormat := *f.Format
-	if *f.Report != "" {
-		effectiveFormat = *f.Report
-	} else if *f.Format == "json" && *f.Output == "" {
-		if _, noColor := os.LookupEnv("NO_COLOR"); !noColor {
-			if fi, err := os.Stdout.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
-				effectiveFormat = "plain"
-			}
-		}
-	}
+	effectiveFormat := resolveEffectiveFormat(f)
 
 	runVersionFlag(*f.Version, Version)
 	runClearMatrixCacheFlag(*f.ClearMatrixCache)
@@ -156,18 +144,7 @@ func newRunner(f *scanFlags) (*runner, int, bool) {
 	runDoctorFlag(*f.Doctor, Version)
 	runGenerateSchemaFlag(*f.GenerateSchema)
 
-	defaultCfgPath := config.FindDefaultConfig()
-	userCfgPath := *f.Config
-	if userCfgPath == "" {
-		userCfgPath = detectConfigForScanArgs(flag.Args())
-	}
-	cfg, cfgErr := config.LoadAndMerge(userCfgPath, defaultCfgPath)
-	if cfgErr != nil {
-		fmt.Fprintf(os.Stderr, "warning: config: %v\n", cfgErr)
-	}
-	if cfg == nil {
-		cfg = config.NewConfig()
-	}
+	cfg := loadScanConfig(f)
 	scanner.InitTestPaths(cfg.TestSourcePaths(), cfg.TestSourcePathsOverride())
 	rules.ApplyConfig(cfg)
 
@@ -184,14 +161,9 @@ func newRunner(f *scanFlags) (*runner, int, bool) {
 
 	runListRulesFlag(*f.List, *f.Verbose)
 
-	maxFixLevel := rules.FixIdiomatic
-	if *f.Fix || *f.DryRun {
-		if parsed, ok := rules.ParseFixLevel(*f.FixLevel); ok {
-			maxFixLevel = parsed
-		} else {
-			fmt.Fprintf(os.Stderr, "error: invalid fix level '%s'. Use: cosmetic, idiomatic, semantic\n", *f.FixLevel)
-			return nil, 2, false
-		}
+	maxFixLevel, ok := resolveMaxFixLevel(f)
+	if !ok {
+		return nil, 2, false
 	}
 
 	paths := flag.Args()
@@ -246,18 +218,86 @@ func newRunner(f *scanFlags) (*runner, int, bool) {
 		libraryFacts:    librarymodel.DefaultFacts(),
 		cacheFilePath:   cacheFilePath,
 	}
-	// Skip the preload on early-exit paths that never reach
-	// runOracleIndex. --oracle-filter-fingerprint is the only one
-	// detectable here without doing the file walk first; the empty-repo
-	// short-circuit needs file collection to fire and isn't worth a
-	// pre-walk just to save the wasted load.
-	if !*f.NoCache && cacheFilePath != "" && !*f.OracleFilterFingerprint {
-		r.analysisCacheLoadFuture = pipeline.NewAnalysisCacheLoadFuture(func() *cache.Cache {
-			return cache.Load(cacheFilePath)
-		})
-		r.analysisCacheLoadFuture.Start()
-	}
+	r.preloadOracleTypes()
+	r.startAnalysisCachePreload()
 	return r, 0, true
+}
+
+func resolveEffectiveFormat(f *scanFlags) string {
+	// Resolve output format: --report takes precedence over -f. If no
+	// format is explicitly set and stdout is a TTY, auto-promote to
+	// "plain" (respecting NO_COLOR and the -o file redirect).
+	effectiveFormat := *f.Format
+	if *f.Report != "" {
+		return *f.Report
+	}
+	if *f.Format == "json" && *f.Output == "" {
+		if _, noColor := os.LookupEnv("NO_COLOR"); !noColor {
+			if fi, err := os.Stdout.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
+				effectiveFormat = "plain"
+			}
+		}
+	}
+	return effectiveFormat
+}
+
+func loadScanConfig(f *scanFlags) *config.Config {
+	defaultCfgPath := config.FindDefaultConfig()
+	userCfgPath := *f.Config
+	if userCfgPath == "" {
+		userCfgPath = detectConfigForScanArgs(flag.Args())
+	}
+	cfg, cfgErr := config.LoadAndMerge(userCfgPath, defaultCfgPath)
+	if cfgErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: config: %v\n", cfgErr)
+	}
+	if cfg == nil {
+		cfg = config.NewConfig()
+	}
+	return cfg
+}
+
+func resolveMaxFixLevel(f *scanFlags) (rules.FixLevel, bool) {
+	if !*f.Fix && !*f.DryRun {
+		return rules.FixIdiomatic, true
+	}
+	parsed, ok := rules.ParseFixLevel(*f.FixLevel)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "error: invalid fix level '%s'. Use: cosmetic, idiomatic, semantic\n", *f.FixLevel)
+		return rules.FixIdiomatic, false
+	}
+	return parsed, true
+}
+
+func (r *runner) preloadOracleTypes() {
+	if *r.f.NoTypeOracle || *r.f.NoCacheOracle {
+		return
+	}
+	oraclePath := *r.f.InputTypes
+	if oraclePath == "" {
+		oraclePath = oracle.CachePath(r.paths)
+	}
+	if oraclePath == "" {
+		return
+	}
+	if _, err := os.Stat(oraclePath); err == nil {
+		oracle.PreloadPath(oraclePath)
+	}
+}
+
+func (r *runner) startAnalysisCachePreload() {
+	// Skip the preload on early-exit paths that never reach runOracleIndex.
+	// --oracle-filter-fingerprint is the only one detectable here without
+	// doing the file walk first; the empty-repo short-circuit needs file
+	// collection to fire and isn't worth a pre-walk just to save the wasted
+	// load.
+	if *r.f.NoCache || r.cacheFilePath == "" || *r.f.OracleFilterFingerprint {
+		return
+	}
+	r.analysisCacheLoadFuture = pipeline.NewAnalysisCacheLoadFuture(func() *cache.Cache {
+		return cache.Load(r.cacheFilePath)
+	})
+	r.analysisCacheLoadFuture.Start()
 }
 
 // collectFiles walks the scan paths once for both Kotlin and Java files,
@@ -395,15 +435,6 @@ func (r *runner) runOracleIndex() (int, error) {
 	var res pipeline.IndexResult
 	var err error
 	var preloadedCache *cache.Cache
-	if r.useCache && r.analysisCacheLoadFuture != nil {
-		preloadedCache = r.analysisCacheLoadFuture.Await()
-		// Surface the actual load wall-time as a perf entry so warm
-		// runs don't read 0ms cacheLoad — the pipeline's trackSerial
-		// wraps the receive, which is near-instant on the preloaded
-		// path (see #67/#84).
-		perf.AddEntry(r.tracker, "cacheLoadAsync", r.analysisCacheLoadFuture.Duration())
-		r.analysisCacheLoadFuture = nil
-	}
 	r.tracker.TrackVoid("oracleIndex", func() {
 		in := pipeline.IndexInput{
 			ParseResult:       pipeline.ParseResult{ActiveRules: r.activeRules},
@@ -422,14 +453,7 @@ func (r *runner) runOracleIndex() (int, error) {
 			OracleCacheWriter: r.oracleCacheWriter,
 			Verbose:           *r.f.Verbose,
 
-			CacheEnabled:             r.useCache,
-			CacheFilePath:            r.cacheFilePath,
-			CacheDirExplicit:         *r.f.CacheDir != "",
-			CacheScanPaths:           r.paths,
-			CacheFilePaths:           r.cacheFilePaths,
-			CacheConfig:              r.cfg,
-			CacheEditorConfigEnabled: *r.f.EditorConfig,
-			PreloadedAnalysisCache:   preloadedCache,
+			PreloadedAnalysisCache: nil,
 		}
 		res, err = (pipeline.IndexPhase{
 			SkipModules:       true,
@@ -437,6 +461,15 @@ func (r *runner) runOracleIndex() (int, error) {
 			SkipResolverIndex: true,
 		}).Run(context.Background(), in)
 	})
+	if r.useCache && r.analysisCacheLoadFuture != nil {
+		preloadedCache = r.analysisCacheLoadFuture.Await()
+		// Surface the actual load wall-time as a perf entry so warm
+		// runs don't read 0ms cacheLoad — the pipeline's trackSerial
+		// wraps the receive, which is near-instant on the preloaded
+		// path (see #67/#84).
+		perf.AddEntry(r.tracker, "cacheLoadAsync", r.analysisCacheLoadFuture.Duration())
+		r.analysisCacheLoadFuture = nil
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 2, err
@@ -449,10 +482,10 @@ func (r *runner) runOracleIndex() (int, error) {
 	}
 	r.typeOracle = res.Oracle
 	if r.useCache {
-		r.analysisCache = res.Cache
-		r.cacheResult = res.CacheResult
-		r.ruleHash = res.RuleHash
-		r.cacheStats = res.CacheStats
+		r.analysisCache = preloadedCache
+		if r.analysisCache == nil {
+			r.analysisCache = cache.Load(r.cacheFilePath)
+		}
 	}
 	return 0, nil
 }
@@ -800,6 +833,7 @@ func (r *runner) outputPhase() int {
 		StartTime:        r.start,
 		Version:          Version,
 		ExperimentNames:  experiment.Current().Names(),
+		JSONCompact:      *r.f.Output != "",
 		PerfTimings:      perfSnap.Timings,
 		PerfRuleStats:    r.perfRuleStats,
 		CacheStats:       r.cacheStats,

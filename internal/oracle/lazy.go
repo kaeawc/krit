@@ -7,6 +7,46 @@ import (
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
+type preloadState struct {
+	once   sync.Once
+	done   chan struct{}
+	loaded *Oracle
+	err    error
+}
+
+var (
+	preloadMu     sync.Mutex
+	preloadByPath = map[string]*preloadState{}
+)
+
+// PreloadPath kicks off oracle JSON deserialization for path and keeps the
+// result available for any later LazyLookup created for the same file.
+func PreloadPath(path string) {
+	if path == "" {
+		return
+	}
+	state := preloadStateFor(path)
+	go state.load(path)
+}
+
+func preloadStateFor(path string) *preloadState {
+	preloadMu.Lock()
+	defer preloadMu.Unlock()
+	if state := preloadByPath[path]; state != nil {
+		return state
+	}
+	state := &preloadState{done: make(chan struct{})}
+	preloadByPath[path] = state
+	return state
+}
+
+func (s *preloadState) load(path string) {
+	s.once.Do(func() {
+		s.loaded, s.err = Load(path)
+		close(s.done)
+	})
+}
+
 // LazyLookup defers oracle JSON deserialization until the first semantic
 // lookup. Warm runs with complete findings-cache hits can carry this through
 // the resolver without paying jsonLoad at all.
@@ -37,7 +77,10 @@ func (l *LazyLookup) get() *Oracle {
 // Pulled out as a method so Preload can hand it to once.Do without
 // allocating a fresh closure per call.
 func (l *LazyLookup) load() {
-	l.loaded, l.err = Load(l.path)
+	state := preloadStateFor(l.path)
+	state.load(l.path)
+	<-state.done
+	l.loaded, l.err = state.loaded, state.err
 	if l.err != nil && l.onError != nil {
 		l.onError(l.err)
 	}
@@ -55,6 +98,7 @@ func (l *LazyLookup) Preload() {
 	if l == nil || l.path == "" {
 		return
 	}
+	PreloadPath(l.path)
 	go l.once.Do(l.load)
 }
 

@@ -123,6 +123,22 @@ func LoadCrossFindings(cacheDir, key string) (FindingColumns, bool) {
 	if cacheDir == "" || key == "" {
 		return FindingColumns{}, false
 	}
+	return loadCrossFindings(cacheDir, key, true)
+}
+
+// LoadLastCrossFindings reads the single on-disk cross-findings snapshot
+// without requiring the caller to know its key. This is for warm-delta
+// planning: the cache file is intentionally a last-value slot, so a
+// body-only edit can reuse the previous snapshot before the current
+// content fingerprint is available.
+func LoadLastCrossFindings(cacheDir string) (FindingColumns, bool) {
+	if cacheDir == "" {
+		return FindingColumns{}, false
+	}
+	return loadCrossFindings(cacheDir, "", false)
+}
+
+func loadCrossFindings(cacheDir, key string, requireKey bool) (FindingColumns, bool) {
 	path := filepath.Join(cacheDir, crossFindingsCacheFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -156,7 +172,7 @@ func LoadCrossFindings(cacheDir, key string) (FindingColumns, bool) {
 		crossFindingsMisses.Add(1)
 		return FindingColumns{}, false
 	}
-	if string(storedKey) != key {
+	if requireKey && string(storedKey) != key {
 		crossFindingsMisses.Add(1)
 		return FindingColumns{}, false
 	}

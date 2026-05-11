@@ -159,6 +159,9 @@ type ProjectHostState struct {
 	// contexts instead of being rebuilt from detected Gradle files.
 	// Highest precedence — wins over LibraryFactsCache.
 	PrebuiltLibraryFacts *librarymodel.Facts
+	// PrebuiltAndroidProject, when non-nil, is forwarded to IndexPhase and
+	// preparse fingerprint helpers instead of redetecting Android layout.
+	PrebuiltAndroidProject *android.Project
 	// JavaSemanticFacts, when non-nil, supplies javac-backed facts for
 	// Java rules that request them.
 	JavaSemanticFacts *javafacts.Facts
@@ -243,6 +246,12 @@ type ProjectHostState struct {
 	// true after #126 lands. See issue #126 for the drift-risk
 	// analysis (baseline/diff, MinConfidence, RuleHash drift).
 	AnalysisCacheLookup bool
+	// AnalysisCacheResult carries a cache lookup already performed by
+	// the caller for the same paths/rules/config. CLI uses this to avoid
+	// repeating the warm CheckFiles pass after oracle bootstrap.
+	AnalysisCacheResult   *cache.Result
+	AnalysisCacheStats    *cache.Stats
+	AnalysisCacheRuleHash string
 	// FindingsBundleStore, when non-nil, enables the whole-run findings
 	// cache (#55). RunProject computes a RunFingerprint from rules +
 	// config + source set + cross-file state + Android + library
@@ -594,10 +603,16 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 	if len(args.Paths) > 0 {
 		scanRoot = args.Paths[0]
 	}
+	moduleNeeds := rules.CollectModuleAwareNeeds(args.ActiveRules)
+	buildCodeIndex := hasIndexBackedCrossFileRule && warm.cross == nil
+	if moduleNeeds.NeedsIndex {
+		buildCodeIndex = true
+	}
 	indexInput := IndexInput{
 		ParseResult:            parseResult,
 		PrebuiltResolver:       host.PrebuiltResolver,
 		PrebuiltLibraryFacts:   host.PrebuiltLibraryFacts,
+		PrebuiltAndroidProject: host.PrebuiltAndroidProject,
 		LibraryFactsCache:      host.LibraryFactsCache,
 		CodeIndexCache:         host.CodeIndexCache,
 		ResolverCache:          host.ResolverCache,
@@ -607,7 +622,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		Reporter:               host.Reporter,
 		Tracker:                host.Tracker,
 		Verbose:                host.Reporter.VerboseEnabled(),
-		BuildCodeIndex:         hasIndexBackedCrossFileRule,
+		BuildCodeIndex:         buildCodeIndex,
 		CrossFileParentTracker: crossTracker,
 		CrossFileJobsFlag:      args.Workers,
 		CrossFileJavaPaths:     args.JavaPaths,
@@ -746,11 +761,20 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 			Paths:       args.Paths,
 		}, nil
 	}
-	allowCrossFile, _ := loadWarmCrossFindings(args, host, warm)
-	if CanParseOnlyCacheMisses(args.ActiveRules, warm.result, warm.result != nil, allowCrossFile, false) {
-		kotlinPaths = CacheMissPaths(kotlinPaths, warm.result)
-		host.Reporter.Verbosef("verbose: Parsing %d cache-miss files; findings cache covers %d/%d files\n", len(kotlinPaths), warm.result.TotalCached, warm.result.TotalFiles)
+	allowCrossFile := warm.cross != nil
+	if !allowCrossFile {
+		allowCrossFile, _ = loadWarmCrossFindings(args, host, warm)
 	}
+	allowResourceSource := allowWarmResourceSourceDelta(args, host, warm)
+	if CanParseOnlyCacheMisses(args.ActiveRules, warm.result, warm.result != nil, allowCrossFile, allowResourceSource) {
+		kotlinPaths = CacheMissPaths(kotlinPaths, warm.result)
+		javaPaths = CacheMissPaths(javaPaths, warm.result)
+		host.Reporter.Verbosef("verbose: Parsing %d cache-miss files; findings cache covers %d/%d files\n", len(kotlinPaths), warm.result.TotalCached, warm.result.TotalFiles)
+	} else if warm.result != nil && warm.result.TotalCached > 0 {
+		host.Reporter.Verbosef("verbose: Parse miss-only unavailable: %s (cross=%t resourceSource=%t)\n",
+			ParsedSourceBlockReason(args.ActiveRules, allowCrossFile, allowResourceSource), allowCrossFile, allowResourceSource)
+	}
+	skipJavaCollection := len(javaPaths) == 0 && allowCrossFile
 	return ParsePhase{Workers: args.Workers}.Run(ctx, ParseInput{
 		Config:             args.Config,
 		Paths:              args.Paths,
@@ -759,11 +783,50 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		KotlinPaths:        kotlinPaths,
 		JavaPaths:          javaPaths,
 		Workers:            args.Workers,
-		SkipJavaCollection: false,
+		SkipJavaCollection: skipJavaCollection,
 		Reporter:           host.Reporter,
 		Tracker:            host.Tracker,
 		ParseCache:         host.ParseCache,
 	})
+}
+
+func allowWarmResourceSourceDelta(args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan) bool {
+	if !HasResourceSourceRules(args.ActiveRules) || warm.result == nil || len(warm.filePaths) == 0 {
+		return true
+	}
+	if host.AndroidCacheDir == "" || warm.ruleHash == "" {
+		return false
+	}
+	project := host.PrebuiltAndroidProject
+	if project == nil {
+		project = android.DetectProject(args.Paths)
+	}
+	if project == nil || project.IsEmpty() || len(project.ResDirs) == 0 {
+		return false
+	}
+	_, libraryFactsFP := preparseProjectFingerprints(args, host)
+	if len(warm.result.CachedHashes) > 0 {
+		return true
+	}
+	if EnsureWarmResourceSourceBundleWithHashes(
+		host.AndroidCacheDir,
+		warm.filePaths,
+		project.ResDirs,
+		warm.result.CachedHashes,
+		warm.ruleHash,
+		libraryFactsFP,
+		host.JavaSemanticFacts.Fingerprint(),
+	) {
+		return true
+	}
+	return HasWarmResourceSourceBundleManifest(
+		host.AndroidCacheDir,
+		warm.filePaths,
+		project.ResDirs,
+		warm.ruleHash,
+		libraryFactsFP,
+		host.JavaSemanticFacts.Fingerprint(),
+	)
 }
 
 func buildWarmAnalysisCachePlan(args ProjectArgs, host ProjectHostState) warmAnalysisCachePlan {
@@ -773,6 +836,39 @@ func buildWarmAnalysisCachePlan(args ProjectArgs, host ProjectHostState) warmAna
 	kotlinPaths, javaPaths := warmSourcePaths(args)
 	filePaths := warmCacheFilePaths(args, kotlinPaths, javaPaths)
 	ruleHash := projectRuleHashWithEditorConfig(args.ActiveRules, args.Config, args.EditorConfigEnabled)
+	result, stats := warmAnalysisCacheResult(args, host, filePaths, ruleHash)
+	plan := warmAnalysisCachePlan{
+		cache:       host.AnalysisCache,
+		result:      result,
+		stats:       stats,
+		ruleHash:    ruleHash,
+		filePaths:   filePaths,
+		kotlinPaths: kotlinPaths,
+		javaPaths:   javaPaths,
+	}
+	if ok, cols := loadWarmCrossFindings(args, host, plan); ok {
+		plan.cross = cols
+	}
+	return plan
+}
+
+func warmAnalysisCacheResult(args ProjectArgs, host ProjectHostState, filePaths []string, ruleHash string) (*cache.Result, *cache.Stats) {
+	if host.AnalysisCacheResult != nil && host.AnalysisCacheRuleHash == ruleHash && host.AnalysisCacheResult.TotalFiles == len(filePaths) {
+		stats := host.AnalysisCacheStats
+		if stats == nil {
+			stats = &cache.Stats{
+				Cached:    host.AnalysisCacheResult.TotalCached,
+				Total:     host.AnalysisCacheResult.TotalFiles,
+				LoadDurMs: 0,
+			}
+			if stats.Total > 0 {
+				stats.HitRate = float64(stats.Cached) / float64(stats.Total)
+			}
+		}
+		host.Reporter.Verbosef("verbose: Cache: %d/%d files cached (%d%% hit rate, reused)\n",
+			host.AnalysisCacheResult.TotalCached, host.AnalysisCacheResult.TotalFiles, cacheHitPercent(host.AnalysisCacheResult))
+		return host.AnalysisCacheResult, stats
+	}
 	start := time.Now()
 	result := host.AnalysisCache.CheckFiles(filePaths, ruleHash, args.Paths...)
 	stats := &cache.Stats{
@@ -788,19 +884,7 @@ func buildWarmAnalysisCachePlan(args ProjectArgs, host ProjectHostState) warmAna
 	if host.Tracker != nil {
 		perf.AddEntry(host.Tracker, "cacheCheck", time.Since(start))
 	}
-	plan := warmAnalysisCachePlan{
-		cache:       host.AnalysisCache,
-		result:      result,
-		stats:       stats,
-		ruleHash:    ruleHash,
-		filePaths:   filePaths,
-		kotlinPaths: kotlinPaths,
-		javaPaths:   javaPaths,
-	}
-	if ok, cols := loadWarmCrossFindings(args, host, plan); ok {
-		plan.cross = cols
-	}
-	return plan
+	return result, stats
 }
 
 func cacheHitPercent(result *cache.Result) int {
@@ -850,8 +934,9 @@ func canSkipRunProjectParse(args ProjectArgs, host ProjectHostState, warm warmAn
 		allowCrossFile, loaded = loadWarmCrossFindings(args, host, warm)
 		warm.cross = loaded
 	}
-	if RulesNeedParsedSource(args.ActiveRules, allowCrossFile, false) {
-		host.Reporter.Verbosef("verbose: Parse skip unavailable: active rule requires parsed source: %s\n", ParsedSourceBlockReason(args.ActiveRules, allowCrossFile, false))
+	allowResourceSource := allowWarmResourceSourceDelta(args, host, warm)
+	if RulesNeedParsedSource(args.ActiveRules, allowCrossFile, allowResourceSource) {
+		host.Reporter.Verbosef("verbose: Parse skip unavailable: active rule requires parsed source: %s\n", ParsedSourceBlockReason(args.ActiveRules, allowCrossFile, allowResourceSource))
 		return false
 	}
 	return true
@@ -862,6 +947,16 @@ func loadWarmCrossFindings(args ProjectArgs, host ProjectHostState, warm warmAna
 		return true, nil
 	}
 	if host.CrossFileCacheDir == "" || host.CrossFindingsCacheDir == "" || warm.ruleHash == "" {
+		return false, nil
+	}
+	if warm.result != nil && warm.result.TotalFiles > 0 && warm.result.TotalCached != warm.result.TotalFiles {
+		missPaths := CacheMissPaths(warm.filePaths, warm.result)
+		if canReuseCrossFindingsForLexicallyIrrelevantMisses(args.ActiveRules, missPaths) {
+			cols, ok := scanner.LoadLastCrossFindings(host.CrossFindingsCacheDir)
+			if ok {
+				return true, &cols
+			}
+		}
 		return false, nil
 	}
 	meta, ok := scanner.LoadCurrentCrossFileCacheMeta(host.CrossFileCacheDir)
@@ -1425,15 +1520,17 @@ func filesForPaths(paths []string, lang scanner.Language) []*scanner.File {
 }
 
 func preparseProjectFingerprints(args ProjectArgs, host ProjectHostState) (string, string) {
+	project := host.PrebuiltAndroidProject
 	if host.PrebuiltLibraryFacts != nil {
-		project := android.DetectProject(args.Paths)
 		androidFP := ""
 		if project != nil {
 			androidFP = libraryFactsFingerprint(project.GradlePaths)
 		}
 		return androidFP, host.PrebuiltLibraryFacts.Fingerprint()
 	}
-	project := android.DetectProject(args.Paths)
+	if project == nil {
+		project = android.DetectProject(args.Paths)
+	}
 	if project == nil {
 		return "", ""
 	}

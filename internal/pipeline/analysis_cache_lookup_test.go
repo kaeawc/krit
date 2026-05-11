@@ -280,6 +280,65 @@ func TestRunProject_WarmCrossFindingsSkipCrossRules(t *testing.T) {
 	}
 }
 
+func TestRunProject_WarmCrossFindingsDirtyEditsRerunCrossRule(t *testing.T) {
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "krit.cache")
+	crossCacheDir := scanner.CrossFileCacheDir(dir)
+	crossFindingsDir := scanner.CrossFindingsCacheDir(dir)
+	src := filepath.Join(dir, "A.kt")
+	if err := os.WriteFile(src, []byte("package test\n\nclass A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var crossCalls int64
+	rule := api.FakeRule("CrossRule", api.WithNeeds(api.NeedsCrossFile), api.WithCheck(func(ctx *api.Context) {
+		atomic.AddInt64(&crossCalls, 1)
+		ctx.Emit(scanner.Finding{File: src, Line: 1, Col: 1, Message: "cross"})
+	}))
+	run := func(t *testing.T) ProjectResult {
+		t.Helper()
+		res, err := RunProject(context.Background(), ProjectInput{
+			Args: ProjectArgs{
+				Config:      config.NewConfig(),
+				Paths:       []string{dir},
+				ActiveRules: []*api.Rule{rule},
+				Format:      "json",
+				Version:     "test",
+			},
+			Host: ProjectHostState{
+				AnalysisCache:         cache.Load(cachePath),
+				AnalysisCacheFilePath: cachePath,
+				AnalysisCacheLookup:   true,
+				CrossFileCacheDir:     crossCacheDir,
+				CrossFindingsCacheDir: crossFindingsDir,
+			},
+		})
+		if err != nil {
+			t.Fatalf("RunProject: %v", err)
+		}
+		return res
+	}
+
+	if first := run(t); first.FindingsCount != 1 {
+		t.Fatalf("cold run findings=%d, want 1", first.FindingsCount)
+	}
+	for i := 0; i < 4; i++ {
+		body := []byte("package test\n\nclass A\n\n// unique body edit " + string(rune('a'+i)) + "\n")
+		if err := os.WriteFile(src, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if res := run(t); res.FindingsCount != 1 {
+			t.Fatalf("warm edit %d findings=%d, want 1", i+1, res.FindingsCount)
+		}
+		if err := os.WriteFile(src, []byte("package test\n\nclass A\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := atomic.LoadInt64(&crossCalls); got != 5 {
+		t.Fatalf("dirty edits must rerun cross rule; calls=%d want 5", got)
+	}
+}
+
 // stripFindingTimestamps drops timing-related JSON fields that change
 // across runs so byte-equal comparisons exercise just the findings,
 // not the wall-clock fluctuations.

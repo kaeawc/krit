@@ -323,6 +323,13 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 		return ProjectResult{}, err
 	}
 
+	// Phase 4.5: Android project analysis. The findings-bundle hit
+	// returns a pre-merged set (Android findings were merged before the
+	// save on the original miss), so we only run AndroidPhase on misses.
+	if err := runAndroidPhaseAndMerge(ctx, args, indexResult, &crossFileResult, bundleHit); err != nil {
+		return ProjectResult{}, err
+	}
+
 	// Phase 5: output to an in-memory buffer.
 	var buf bytes.Buffer
 	fixupView := FixupResult{CrossFileResult: crossFileResult}
@@ -512,6 +519,45 @@ func saveDeltaManifest(host ProjectHostState, m deltaManifestData, runFP scanner
 // The delta path is the load-bearing #55 perf win for body-only edits:
 // per-file rule dispatch is the dominant warm-call cost and the delta
 // path runs it on just one file.
+
+// runAndroidPhaseAndMerge runs AndroidPhase against the detected
+// project (if any) and folds its findings into crossFileResult.Findings.
+// A nil/empty project, no Android-needing rules, or a dispatcher-less
+// run returns without mutating the findings. Mirrors the CLI runner's
+// androidPhase step.
+func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, indexResult IndexResult, crossFileResult *CrossFileResult, bundleHit bool) error {
+	if bundleHit {
+		return nil
+	}
+	project := indexResult.AndroidProject
+	if project == nil || project.IsEmpty() {
+		return nil
+	}
+	dispatcher := rules.NewDispatcher(args.ActiveRules, indexResult.Resolver)
+	dispatcher.SetLibraryFacts(indexResult.LibraryFacts)
+	dispatcher.SetJavaSemanticFacts(indexResult.JavaSemanticFacts)
+	res, err := (AndroidPhase{}).Run(ctx, AndroidInput{
+		Project:             project,
+		ActiveRules:         args.ActiveRules,
+		Dispatcher:          dispatcher,
+		SourceFiles:         indexResult.SourceFiles(),
+		RuleHash:            indexResult.RuleHash,
+		LibraryFactsFP:      indexResult.LibraryFacts.Fingerprint(),
+		JavaSemanticFactsFP: indexResult.JavaSemanticFacts.Fingerprint(),
+	})
+	if err != nil {
+		return fmt.Errorf("android: %w", err)
+	}
+	if res.Findings.Len() == 0 {
+		return nil
+	}
+	merged := scanner.NewFindingCollector(crossFileResult.Findings.Len() + res.Findings.Len())
+	merged.AppendColumns(&crossFileResult.Findings)
+	merged.AppendColumns(&res.Findings)
+	crossFileResult.Findings = *merged.Columns()
+	return nil
+}
+
 func runDispatchOrLoadBundle(
 	ctx context.Context,
 	args ProjectArgs,

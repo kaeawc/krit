@@ -1,0 +1,10 @@
+package fixtures.positive.emptyblocks;
+
+class EmptyIfBlockFixture {
+    void check(int x) {
+        doMore();
+    }
+
+    void doMore() {
+    }
+}

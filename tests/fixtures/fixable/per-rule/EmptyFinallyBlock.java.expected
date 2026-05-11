@@ -1,0 +1,17 @@
+package fixtures.positive.emptyblocks;
+
+class EmptyFinallyBlockFixture {
+    void run() {
+        try {
+            work();
+        } catch (Exception e) {
+            handle(e);
+        }
+    }
+
+    void work() {
+    }
+
+    void handle(Exception e) {
+    }
+}

@@ -68,7 +68,7 @@ func registerEmptyblocksEmptyClassBlock() {
 	r := &EmptyClassBlockRule{BaseRule: BaseRule{RuleName: "EmptyClassBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects class declarations with an empty body that can have their braces removed."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_body"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"class_body"}, Languages: []scanner.Language{scanner.LangKotlin}, Confidence: 0.95, Fix: api.FixSemantic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if scanner.IsTestFile(file.Path) {

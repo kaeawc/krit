@@ -1,0 +1,9 @@
+package fixtures.positive.emptyblocks;
+
+class EmptyTryBlockFixture {
+    void run() {
+    }
+
+    void handle(Exception e) {
+    }
+}

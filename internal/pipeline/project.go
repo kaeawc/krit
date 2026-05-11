@@ -251,32 +251,12 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 // streaming it lets the daemon write directly into the response socket
 // without allocating an intermediate copy per call.
 func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (ProjectResult, error) {
-	if out == nil {
-		return ProjectResult{}, fmt.Errorf("RunProjectStreaming: out writer is nil")
-	}
-	if err := ctx.Err(); err != nil {
+	startTime, format, err := validateAndDefaultStreaming(ctx, in, out)
+	if err != nil {
 		return ProjectResult{}, err
 	}
 	args := in.Args
 	host := in.Host
-	if args.Config == nil {
-		return ProjectResult{}, fmt.Errorf("RunProject: Config is required")
-	}
-	if len(args.ActiveRules) == 0 {
-		return ProjectResult{}, fmt.Errorf("RunProject: ActiveRules is empty")
-	}
-	if len(args.Paths) == 0 {
-		return ProjectResult{}, fmt.Errorf("RunProject: Paths is empty")
-	}
-
-	startTime := args.StartTime
-	if startTime.IsZero() {
-		startTime = time.Now()
-	}
-	format := args.Format
-	if format == "" {
-		format = "json"
-	}
 
 	// Snapshot the parse-cache counters at the start of the run so the
 	// post-run delta is the per-call hit/miss accounting we report back
@@ -401,6 +381,37 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		ParseHits:     hits1 - hits0,
 		ParseMisses:   misses1 - misses0,
 	}, nil
+}
+
+// validateAndDefaultStreaming checks RunProjectStreaming's preconditions
+// and resolves the StartTime / Format defaults. Extracted to keep the
+// orchestrator under the gocyclo budget.
+func validateAndDefaultStreaming(ctx context.Context, in ProjectInput, out io.Writer) (time.Time, string, error) {
+	if out == nil {
+		return time.Time{}, "", fmt.Errorf("RunProjectStreaming: out writer is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return time.Time{}, "", err
+	}
+	args := in.Args
+	if args.Config == nil {
+		return time.Time{}, "", fmt.Errorf("RunProject: Config is required")
+	}
+	if len(args.ActiveRules) == 0 {
+		return time.Time{}, "", fmt.Errorf("RunProject: ActiveRules is empty")
+	}
+	if len(args.Paths) == 0 {
+		return time.Time{}, "", fmt.Errorf("RunProject: Paths is empty")
+	}
+	startTime := args.StartTime
+	if startTime.IsZero() {
+		startTime = time.Now()
+	}
+	format := args.Format
+	if format == "" {
+		format = "json"
+	}
+	return startTime, format, nil
 }
 
 // parseCacheCounters extracts the cumulative Hits/Misses pair from a

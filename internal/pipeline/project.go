@@ -1170,22 +1170,6 @@ func saveDeltaManifest(host ProjectHostState, m deltaManifestData, runFP scanner
 	})
 }
 
-// runDispatchOrLoadBundle resolves dispatch + cross-file findings via
-// three increasingly conservative paths:
-//
-//  1. Full-fingerprint Load. RunFingerprint identical to a prior run →
-//     replay cached bundle, skip dispatch + cross-file entirely.
-//  2. Delta path. Prior manifest exists, planner says exactly 1 file
-//     changed + every non-SourceSet fingerprint field is stable →
-//     dispatch only on the changed file, optionally re-run cross-file
-//     rules (no scope savings there), filter replacement to the
-//     changed path, ApplyDelta against the prior bundle.
-//  3. Full dispatch. Normal DispatchPhase + CrossFilePhase.
-//
-// The delta path is the load-bearing #55 perf win for body-only edits:
-// per-file rule dispatch is the dominant warm-call cost and the delta
-// path runs it on just one file.
-
 // runAndroidPhaseAndMerge runs AndroidPhase against the detected
 // project (if any) and folds its findings into crossFileResult.Findings.
 // A nil/empty project, no Android-needing rules, or a dispatcher-less
@@ -1254,6 +1238,25 @@ type dispatchTimings struct {
 	crossFileMs int64
 }
 
+// runDispatchOrLoadBundle resolves dispatch + cross-file findings via
+// four increasingly conservative paths:
+//
+//  1. Full-fingerprint Load. RunFingerprint identical to a prior run →
+//     replay cached bundle, skip dispatch + cross-file entirely.
+//  2. Structural reuse. Prior manifest exists, planner says exactly 1 file
+//     changed + every non-SourceSet fingerprint field is stable →
+//     load the prior bundle, save an alias under the current content
+//     fingerprint, and skip dispatch + cross-file entirely.
+//  3. Delta path fallback. If structural reuse cannot save the alias,
+//     dispatch only on the changed file, re-run cross-file, filter
+//     replacement to the changed path, ApplyDelta against the prior
+//     bundle.
+//  4. Full dispatch. Normal DispatchPhase + CrossFilePhase.
+//
+// Structural reuse is the load-bearing #55 perf win for body-only
+// Kotlin edits: the source content hash moves, but the cross-file
+// structural fingerprint remains stable, so the whole findings bundle
+// can be replayed.
 func runDispatchOrLoadBundle(
 	ctx context.Context,
 	args ProjectArgs,
@@ -1266,6 +1269,10 @@ func runDispatchOrLoadBundle(
 ) (DispatchResult, CrossFileResult, bool, dispatchTimings, error) {
 	if bundleEnabled {
 		if cached, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, runFP); ok && cached != nil {
+			d := DispatchResult{IndexResult: indexResult, Findings: *cached}
+			return d, CrossFileResult{DispatchResult: d}, true, dispatchTimings{}, nil
+		}
+		if cached, ok := tryLoadStructurallyStableBundle(host, runFP, manifest); ok && cached != nil {
 			d := DispatchResult{IndexResult: indexResult, Findings: *cached}
 			return d, CrossFileResult{DispatchResult: d}, true, dispatchTimings{}, nil
 		}
@@ -1289,6 +1296,41 @@ func runDispatchOrLoadBundle(
 		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, fmt.Errorf("crossfile: %w", err)
 	}
 	return d, c, false, dispatchTimings{dispatchMs: dispatchMs, crossFileMs: crossMs}, nil
+}
+
+func tryLoadStructurallyStableBundle(host ProjectHostState, runFP scanner.RunFingerprint, manifest deltaManifestData) (*scanner.FindingColumns, bool) {
+	if !manifest.enabled || manifest.manifestKey == "" {
+		return nil, false
+	}
+	prior, ok := scanner.LoadFindingsBundleManifest(host.FindingsBundleCacheRoot, manifest.manifestKey)
+	if !ok {
+		return nil, false
+	}
+	changedPaths := diffContentHashes(prior.ContentHashes, manifest.contentHashes)
+	plan := scanner.ConservativeDeltaPlanner{}.Plan(prior.Fingerprint, runFP, changedPaths)
+	if !plan.ReusePrevious || len(plan.ChangedPaths) != 1 || !bodyOnlyKotlinChange(plan.ChangedPaths[0], prior.StructuralFPs, manifest.structuralFPs) {
+		return nil, false
+	}
+	priorBundle, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, prior.Fingerprint)
+	if !ok || priorBundle == nil {
+		return nil, false
+	}
+	if err := host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, priorBundle); err != nil {
+		host.Reporter.Verbosef("verbose: Findings bundle structural reuse skipped: save alias failed: %v\n", err)
+		return nil, false
+	}
+	host.Reporter.Verbosef("verbose: Findings bundle cache: HIT (structural reuse: %s)\n", plan.ChangedPaths[0])
+	return priorBundle, true
+}
+
+func bodyOnlyKotlinChange(path string, prior, current map[string]string) bool {
+	if !strings.HasSuffix(path, ".kt") && !strings.HasSuffix(path, ".kts") {
+		return false
+	}
+	if len(prior) == 0 || len(current) == 0 {
+		return false
+	}
+	return prior[path] != "" && prior[path] == current[path]
 }
 
 func reportFindingsBundleMiss(host ProjectHostState, manifest deltaManifestData, runFP scanner.RunFingerprint) {
@@ -1698,12 +1740,10 @@ func scopeParseResult(p ParseResult, only *scanner.File) ParseResult {
 //   - Android: sorted Gradle paths from the detected Android project.
 //   - LibraryFacts: indexResult.LibraryFacts.Fingerprint when present.
 //
-// The function is deliberately conservative: any input change
-// produces a fresh fingerprint and forces a fresh dispatch. The
-// delta planner's "exactly 1 file changed and cross-file is stable"
-// optimisation is out of scope for this PR (#55 PR-A) — that path
-// requires a structural CrossFile fingerprint that doesn't move with
-// every byte change. Pending follow-up.
+// The byte-level SourceSet keeps direct bundle loads precise for
+// identical input. Body-only Kotlin edits that move SourceSet but keep
+// CrossFile stable are handled by runDispatchOrLoadBundle's structural
+// reuse path.
 func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult ParseResult, indexResult IndexResult) (scanner.RunFingerprint, bool) {
 	if host.FindingsBundleStore == nil || host.FindingsBundleCacheRoot == "" {
 		return scanner.RunFingerprint{}, false

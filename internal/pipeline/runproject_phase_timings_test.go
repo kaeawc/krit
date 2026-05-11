@@ -105,6 +105,64 @@ func TestRunProject_PhaseTimings_BundleHitSkipsDispatchAndCrossfile(t *testing.T
 	}
 }
 
+func TestRunProject_BodyOnlyEditReusesFindingsBundle(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "Foo.kt")
+	if err := os.WriteFile(src,
+		[]byte("package demo\n\nclass Foo {\n    fun answer() = 1\n}\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	rule := api.FakeRule("ClassDecl",
+		api.WithNodeTypes("class_declaration"),
+		api.WithSeverity(api.SeverityWarning),
+		api.WithCheck(func(ctx *api.Context) {
+			ctx.EmitAt(int(ctx.Node.StartRow)+1, 1, "class declared")
+		}),
+	)
+	host := ProjectHostState{
+		FindingsBundleStore:     scanner.DiskFindingsBundleStore{},
+		FindingsBundleCacheRoot: root,
+	}
+	args := ProjectArgs{
+		Config:      config.NewConfig(),
+		Paths:       []string{root},
+		ActiveRules: []*api.Rule{rule},
+		Format:      "json",
+		Version:     "test",
+	}
+
+	first, err := RunProject(context.Background(), ProjectInput{Args: args, Host: host})
+	if err != nil {
+		t.Fatalf("first RunProject: %v", err)
+	}
+	if first.FindingsBundleHit {
+		t.Fatalf("first call must miss the bundle; got hit=true")
+	}
+	if first.FindingsCount != 1 {
+		t.Fatalf("first call findings = %d, want 1", first.FindingsCount)
+	}
+
+	if err := os.WriteFile(src,
+		[]byte("package demo\n\nclass Foo {\n    fun answer() = 22\n}\n"), 0o644); err != nil {
+		t.Fatalf("write body edit: %v", err)
+	}
+
+	second, err := RunProject(context.Background(), ProjectInput{Args: args, Host: host})
+	if err != nil {
+		t.Fatalf("second RunProject: %v", err)
+	}
+	if !second.FindingsBundleHit {
+		t.Fatalf("body-only edit with stable structural fingerprint must hit the bundle; got timings=%+v", second.PhaseTimingsMs)
+	}
+	if second.FindingsCount != first.FindingsCount {
+		t.Fatalf("body-only bundle replay changed finding count: first=%d second=%d", first.FindingsCount, second.FindingsCount)
+	}
+	if second.PhaseTimingsMs.Dispatch != 0 || second.PhaseTimingsMs.CrossFile != 0 {
+		t.Errorf("body-only bundle hit must bypass dispatch+crossfile; got dispatch=%dms crossfile=%dms",
+			second.PhaseTimingsMs.Dispatch, second.PhaseTimingsMs.CrossFile)
+	}
+}
+
 // TestRunProject_PhaseTimings_BundleHitAtSyntheticScale is the
 // scale-side companion to TestAnalyzeProject_BundleHitOnIdentical
 // SecondCall in the serve package: the 2-file fixture proved the

@@ -261,6 +261,27 @@ type ProjectResult struct {
 	// hosts without a bundle store, and runs where the conservative
 	// delta planner ran a partial dispatch instead of a full reuse.
 	FindingsBundleHit bool
+	// PhaseTimingsMs reports per-phase wall-time in milliseconds for
+	// the run. Phases that were skipped on a bundle-cache hit (dispatch,
+	// crossfile, android) report 0. Useful for diagnosing which phase
+	// dominates warm-call latency without a full pprof capture.
+	PhaseTimingsMs PhaseTimingsMs
+}
+
+// PhaseTimingsMs carries per-phase wall-time deltas captured around
+// each phase call in RunProjectStreaming. Zero values mean the phase
+// was skipped (most often on a findings-bundle hit) or completed in
+// under a millisecond. Sum-of-phases is less than ProjectResult's
+// total because Output writes asynchronously into the caller's
+// writer and phase boundaries here exclude phase wiring overhead.
+type PhaseTimingsMs struct {
+	Parse     int64 `json:"parse"`
+	Index     int64 `json:"index"`
+	Dispatch  int64 `json:"dispatch"`
+	CrossFile int64 `json:"crossfile"`
+	Android   int64 `json:"android"`
+	Fixup     int64 `json:"fixup"`
+	Output    int64 `json:"output"`
 }
 
 // RunProject runs the core scan pipeline against the given input and
@@ -306,7 +327,10 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	// to daemon clients. nil ParseCache returns the zero value.
 	hits0, misses0 := parseCacheCounters(host.ParseCache)
 
+	var phaseTimings PhaseTimingsMs
+
 	// Phase 1: parse.
+	parseStart := time.Now()
 	parseResult, err := ParsePhase{Workers: args.Workers}.Run(ctx, ParseInput{
 		Config:           args.Config,
 		Paths:            args.Paths,
@@ -317,6 +341,7 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		Tracker:          host.Tracker,
 		ParseCache:       host.ParseCache,
 	})
+	phaseTimings.Parse = time.Since(parseStart).Milliseconds()
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("parse: %w", err)
 	}
@@ -337,7 +362,9 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	}
 	wireOracleHandles(&indexInput, args, host, parseResult.KotlinFiles)
 	wireAnalysisCacheLookup(&indexInput, args, host)
+	indexStart := time.Now()
 	indexResult, err := IndexPhase{Workers: args.Workers}.Run(ctx, indexInput)
+	phaseTimings.Index = time.Since(indexStart).Milliseconds()
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("index: %w", err)
 	}
@@ -371,19 +398,25 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 
 	runFP, bundleEnabled := computeRunFingerprint(args, host, parseResult, indexResult)
 	manifestData := buildManifestData(args, host, parseResult, runFP, bundleEnabled)
-	dispatchResult, crossFileResult, bundleHit, err := runDispatchOrLoadBundle(ctx, args, host, indexResult, parseResult, runFP, bundleEnabled, manifestData)
+	dispatchResult, crossFileResult, bundleHit, dispatchTimes, err := runDispatchOrLoadBundle(ctx, args, host, indexResult, parseResult, runFP, bundleEnabled, manifestData)
 	if err != nil {
 		return ProjectResult{}, err
 	}
+	phaseTimings.Dispatch = dispatchTimes.dispatchMs
+	phaseTimings.CrossFile = dispatchTimes.crossFileMs
 
 	// Phase 4.5: Android project analysis. The findings-bundle hit
 	// returns a pre-merged set (Android findings were merged before the
 	// save on the original miss), so we only run AndroidPhase on misses.
+	androidStart := time.Now()
 	if err := runAndroidPhaseAndMerge(ctx, args, indexResult, &crossFileResult, bundleHit); err != nil {
 		return ProjectResult{}, err
 	}
+	phaseTimings.Android = time.Since(androidStart).Milliseconds()
 
+	fixupStart := time.Now()
 	fixupView, err := runFixupPhase(ctx, args, crossFileResult)
+	phaseTimings.Fixup = time.Since(fixupStart).Milliseconds()
 	if err != nil {
 		return ProjectResult{}, err
 	}
@@ -402,6 +435,7 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	if args.ShowPerf {
 		cacheStatsOut = indexResult.CacheStats
 	}
+	outputStart := time.Now()
 	outResult, err := OutputPhase{}.Run(ctx, OutputInput{
 		FixupResult:      fixupView,
 		Writer:           out,
@@ -422,6 +456,7 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		Caches:           caches,
 		CacheBudget:      budget,
 	})
+	phaseTimings.Output = time.Since(outputStart).Milliseconds()
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("output: %w", err)
 	}
@@ -447,6 +482,7 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		ParseMisses:       misses1 - misses0,
 		Fixup:             fixupView,
 		FindingsBundleHit: bundleHit,
+		PhaseTimingsMs:    phaseTimings,
 	}, nil
 }
 
@@ -709,6 +745,15 @@ func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, indexResult 
 	return nil
 }
 
+// dispatchTimings is the per-phase wall-time slice returned from
+// runDispatchOrLoadBundle so RunProjectStreaming can populate
+// PhaseTimingsMs even on the bundle/delta paths where the phase
+// boundaries are inside this helper.
+type dispatchTimings struct {
+	dispatchMs  int64
+	crossFileMs int64
+}
+
 func runDispatchOrLoadBundle(
 	ctx context.Context,
 	args ProjectArgs,
@@ -718,27 +763,31 @@ func runDispatchOrLoadBundle(
 	runFP scanner.RunFingerprint,
 	bundleEnabled bool,
 	manifest deltaManifestData,
-) (DispatchResult, CrossFileResult, bool, error) {
+) (DispatchResult, CrossFileResult, bool, dispatchTimings, error) {
 	if bundleEnabled {
 		if cached, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, runFP); ok && cached != nil {
 			d := DispatchResult{IndexResult: indexResult, Findings: *cached}
-			return d, CrossFileResult{DispatchResult: d}, true, nil
+			return d, CrossFileResult{DispatchResult: d}, true, dispatchTimings{}, nil
 		}
 		if d, c, ok, err := tryDeltaDispatch(ctx, args, host, indexResult, parseResult, runFP, manifest); err != nil {
-			return DispatchResult{}, CrossFileResult{}, false, err
+			return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, err
 		} else if ok {
-			return d, c, false, nil
+			return d, c, false, dispatchTimings{}, nil
 		}
 	}
+	dispatchStart := time.Now()
 	d, err := DispatchPhase{}.Run(ctx, indexResult)
+	dispatchMs := time.Since(dispatchStart).Milliseconds()
 	if err != nil {
-		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("dispatch: %w", err)
+		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, fmt.Errorf("dispatch: %w", err)
 	}
+	crossStart := time.Now()
 	c, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, d)
+	crossMs := time.Since(crossStart).Milliseconds()
 	if err != nil {
-		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("crossfile: %w", err)
+		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, fmt.Errorf("crossfile: %w", err)
 	}
-	return d, c, false, nil
+	return d, c, false, dispatchTimings{dispatchMs: dispatchMs, crossFileMs: crossMs}, nil
 }
 
 // tryDeltaDispatch attempts the ConservativeDeltaPlanner's single-file

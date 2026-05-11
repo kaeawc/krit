@@ -209,4 +209,22 @@ type AnalyzeProjectStats struct {
 	// A true value means the call was a structural reuse of a prior
 	// identical-input run.
 	FindingsBundleHit bool `json:"findings_bundle_hit"`
+	// PhaseTimingsMs is the per-phase wall-time breakdown for this
+	// call. Phases skipped on a findings-bundle hit (dispatch,
+	// crossfile, android) report 0. Useful for diagnosing which phase
+	// dominates a slow warm call without a full pprof capture.
+	PhaseTimingsMs PhaseTimingsMs `json:"phase_timings_ms"`
+}
+
+// PhaseTimingsMs mirrors pipeline.PhaseTimingsMs on the wire so
+// daemon clients can introspect per-phase cost without a separate
+// fetch. All values are wall-clock milliseconds.
+type PhaseTimingsMs struct {
+	Parse     int64 `json:"parse"`
+	Index     int64 `json:"index"`
+	Dispatch  int64 `json:"dispatch"`
+	CrossFile int64 `json:"crossfile"`
+	Android   int64 `json:"android"`
+	Fixup     int64 `json:"fixup"`
+	Output    int64 `json:"output"`
 }

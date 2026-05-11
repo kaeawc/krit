@@ -1,0 +1,8 @@
+package fixtures.positive.emptyblocks;
+
+class EmptyDoWhileBlockFixture {
+    void run() {
+        int i = 0;
+        do { } while (++i < 10);
+    }
+}

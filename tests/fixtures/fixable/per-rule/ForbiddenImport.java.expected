@@ -1,0 +1,9 @@
+package style;
+
+import java.util.Date;
+
+class ForbiddenImportFixture {
+    Date when() {
+        return new Date();
+    }
+}

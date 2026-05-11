@@ -119,6 +119,9 @@ class Foo {
 }
 
 func TestEmptyClassBlock_Java(t *testing.T) {
+	// Java requires `{}` on a class declaration — `class Empty` without a
+	// body is a syntax error, so the rule's "remove the empty body" fix
+	// can't apply. The rule is Kotlin-only.
 	findings := runRuleByNameOnJava(t, "EmptyClassBlock", `
 package test;
 class Empty {}
@@ -126,8 +129,8 @@ class NonEmpty {
   int value;
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 Java empty class finding, got %d", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 Java empty class findings (rule is Kotlin-only), got %d", len(findings))
 	}
 }
 

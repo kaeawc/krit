@@ -1,0 +1,14 @@
+package fixtures.positive.exceptions;
+
+class ReturnFromFinallyFixture {
+    int run() {
+        try {
+            return work();
+        } finally {
+        }
+    }
+
+    int work() {
+        return 1;
+    }
+}

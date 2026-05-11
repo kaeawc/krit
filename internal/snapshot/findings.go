@@ -36,6 +36,11 @@ type Findings struct {
 	// ByRuleFile maps rule ID -> (repo-relative file path -> count).
 	// Optional; consumers that only need per-rule totals can ignore it.
 	ByRuleFile map[string]map[string]int
+	// Redacted is true when ByRuleFile's path keys have been replaced
+	// with stable one-way hashes by RedactFindings. Rule IDs stay in
+	// clear text because they are public krit identifiers. Mirrors
+	// Blob.Redacted so a snapshot is wholly redacted or wholly raw.
+	Redacted bool
 }
 
 // FindingsPath returns the on-disk location for a snapshot's findings

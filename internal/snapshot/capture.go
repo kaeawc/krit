@@ -25,6 +25,18 @@ type CaptureOptions struct {
 	// worktree and attaches a per-rule findings rollup to Result. The
 	// scan dominates capture wall-time, so this is opt-in.
 	WithFindings bool
+	// Redact, when true, post-processes the captured blob (and the
+	// findings rollup, if WithFindings) through RedactBlob /
+	// RedactFindings before returning. Use this for repos with
+	// strict-secrecy requirements: snapshots persist Symbol.FQN /
+	// Owner / Package / Signature plus File.Path, all of which can
+	// embed proprietary identifiers. Redact replaces them with
+	// stable one-way hashes so the snapshot still supports diff /
+	// timeline / metrics but cannot be reverse-engineered to a
+	// source identifier. The flag is captured into Blob.Redacted /
+	// Findings.Redacted / Manifest.Redacted so Diff can guard
+	// against comparing redacted vs raw.
+	Redact bool
 }
 
 // Result pairs the structural blob with the metrics rollup derived from
@@ -97,6 +109,13 @@ func Capture(opts CaptureOptions) (*Result, error) {
 			return nil, fmt.Errorf("snapshot: findings: %w", err)
 		}
 		result.Findings = findings
+	}
+
+	if opts.Redact {
+		RedactBlob(result.Blob)
+		if result.Findings != nil {
+			RedactFindings(result.Findings)
+		}
 	}
 
 	return result, nil

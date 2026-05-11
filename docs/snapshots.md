@@ -81,6 +81,51 @@ Available metrics depend on scope:
 Snapshots that don't carry the requested target produce a sparse series
 (no zero-fill), mirroring git history rather than fabricating points.
 
+## Redaction
+
+Captured blobs persist `Symbol.FQN`, `Symbol.Owner`, `Symbol.Package`,
+`Symbol.Signature`, and repo-relative `File.Path` — all of which can
+embed proprietary identifiers, secret-shaped strings, or business
+logic implied by names. The findings sidecar additionally records
+per-file rollups keyed by path. Manifests are JSON and greppable.
+
+Snapshots live entirely under `.krit/snapshots/` and are **local-only
+by default**: do not commit the directory, do not sync it across
+machines, and do not include it in build artefacts that leave the
+device. `krit snapshot install-hook` appends the directory to the
+repo's `.gitignore` automatically as a guardrail.
+
+For repos with stricter requirements, capture can run in **redacted
+mode**: every source identifier on the blob and every per-file key on
+the findings sidecar is replaced with a stable one-way hash. Diff,
+timeline, and CI gates still work — the join keys remain stable
+across snapshots — but the snapshot cannot be reverse-engineered to
+a source name.
+
+```go
+snapshot.Capture(snapshot.CaptureOptions{
+    RepoRoot:     repoRoot,
+    CommitSHA:    sha,
+    KritVersion:  kritVersion,
+    Redact:       true,    // hash names and paths before persisting
+    WithFindings: true,    // also redacts the findings sidecar
+})
+```
+
+Redaction is captured into `Blob.Redacted`, `Findings.Redacted`, and
+`Manifest.Redacted` (the latter exposed as `"redacted": true` in the
+JSON manifest). `snapshot.Diff` refuses to compare a redacted
+snapshot against a raw one — the join keys live in different
+namespaces, so a delta would be meaningless. Findings diffs degrade
+gracefully across mixed redaction: per-rule totals still surface,
+but `FindingsRuleSetMismatch` flags the per-file rollup as
+incomparable.
+
+Hashing uses SHA-256 truncated to 64 bits, prefixed with
+`krit-redacted:` so a reader can distinguish a hash from a
+legitimate identifier. Module paths (gradle coordinates) and rule
+IDs (public krit identifiers) stay in clear text.
+
 ## Diff
 
 ```sh

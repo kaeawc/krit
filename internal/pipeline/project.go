@@ -77,6 +77,39 @@ type ProjectArgs struct {
 	// daemon sets this true when ensureOracleDaemon found a
 	// krit-types JAR; the CLI sets it from --type-oracle.
 	OracleEnabled bool
+	// Fix, when true, applies safe text auto-fixes to disk between
+	// cross-file analysis and output. The set of applied fixes is
+	// capped by MaxFixLevel. False (default) leaves files untouched.
+	Fix bool
+	// FixBinary, when true, additionally applies binary-format fixes
+	// (file renames, resource moves). Independent of Fix.
+	FixBinary bool
+	// FixSuffix, when non-empty, writes fixed content to
+	// "<path><suffix>" rather than in place.
+	FixSuffix string
+	// DryRun, when true, runs FixupPhase in count-only mode: no text
+	// fixes are applied, but FixableCount and StrippedByLevel still
+	// reflect what would have been done. Also forwards a "dry run"
+	// signal to binary fix application via FixupInput.DryRunBinary.
+	DryRun bool
+	// MaxFixLevel caps which fix levels FixupPhase applies. Zero
+	// means "apply everything FixupPhase would otherwise apply".
+	MaxFixLevel rules.FixLevel
+	// BasePath is the base for relative paths in the formatted
+	// output. Empty means OutputPhase falls back to the first scan
+	// path.
+	BasePath string
+	// ShowPerf, when true, snapshots the host tracker + cache state
+	// at OutputPhase time and forwards the result through
+	// OutputInput.PerfTimings/Caches/CacheBudget.
+	ShowPerf bool
+	// PerfRules, when true, forwards the dispatcher's sorted per-rule
+	// execution stats through OutputInput.PerfRuleStats.
+	PerfRules bool
+	// ParseCacheCapBytes is the effective parse-cache cap used when
+	// ShowPerf builds OutputInput.CacheBudget. Zero falls back to
+	// cacheutil.DefaultParseCacheCapBytes.
+	ParseCacheCapBytes int64
 }
 
 // ProjectHostState is the long-lived subset of ProjectInput: state a
@@ -218,6 +251,16 @@ type ProjectResult struct {
 	// the input ran without a parse cache.
 	ParseHits   int64
 	ParseMisses int64
+	// Fixup is the FixupPhase output for the run. Populated only when
+	// the caller set one of the fix knobs in ProjectArgs (Fix,
+	// FixBinary, DryRun). Zero-valued otherwise.
+	Fixup FixupResult
+	// FindingsBundleHit is true when the whole-run findings cache
+	// (host.FindingsBundleStore) served the result without redoing
+	// dispatch or cross-file analysis. False covers cache-miss runs,
+	// hosts without a bundle store, and runs where the conservative
+	// delta planner ran a partial dispatch instead of a full reuse.
+	FindingsBundleHit bool
 }
 
 // RunProject runs the core scan pipeline against the given input and
@@ -340,22 +383,44 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		return ProjectResult{}, err
 	}
 
+	fixupView, err := runFixupPhase(ctx, args, crossFileResult)
+	if err != nil {
+		return ProjectResult{}, err
+	}
 	// Phase 5: output. Writes formatted bytes directly to the
 	// caller-provided writer; #60 lets the daemon stream this into
 	// the response socket without an intermediate 27 MB copy.
-	fixupView := FixupResult{CrossFileResult: crossFileResult}
+	perfTimings, caches, budget := capturePerfOutputs(args, host)
+	var perfRuleStats []rules.RuleExecutionStat
+	if args.PerfRules {
+		perfRuleStats = rules.SortedRuleExecutionStats(dispatchResult.Stats)
+	}
+	// CacheStats is gated on ShowPerf so the daemon's analyze-project
+	// JSON keeps omitting the "cache" key by default; auto-forwarding
+	// would silently widen the daemon's wire format.
+	var cacheStatsOut *cache.Stats
+	if args.ShowPerf {
+		cacheStatsOut = indexResult.CacheStats
+	}
 	outResult, err := OutputPhase{}.Run(ctx, OutputInput{
 		FixupResult:      fixupView,
 		Writer:           out,
 		Format:           format,
 		BaselinePath:     args.BaselinePath,
 		DiffRef:          args.DiffRef,
+		BasePath:         args.BasePath,
 		StartTime:        startTime,
 		Version:          args.Version,
 		ExperimentNames:  args.ExperimentNames,
 		WarningsAsErrors: args.WarningsAsErrors,
 		MinConfidence:    args.MinConfidence,
 		JSONCompact:      args.JSONCompact,
+		ShowPerf:         args.ShowPerf,
+		PerfTimings:      perfTimings,
+		PerfRuleStats:    perfRuleStats,
+		CacheStats:       cacheStatsOut,
+		Caches:           caches,
+		CacheBudget:      budget,
 	})
 	if err != nil {
 		return ProjectResult{}, fmt.Errorf("output: %w", err)
@@ -377,10 +442,54 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		FilesScanned:  len(parseResult.KotlinFiles) + len(parseResult.JavaFiles),
 		FindingsCount: outResult.FinalFindings.Len(),
 		ParseErrors:   parseResult.ParseErrors,
-		Stats:         dispatchResult.Stats,
-		ParseHits:     hits1 - hits0,
-		ParseMisses:   misses1 - misses0,
+		Stats:             dispatchResult.Stats,
+		ParseHits:         hits1 - hits0,
+		ParseMisses:       misses1 - misses0,
+		Fixup:             fixupView,
+		FindingsBundleHit: bundleHit,
 	}, nil
+}
+
+// capturePerfOutputs snapshots the host tracker plus the global
+// cacheutil stats so OutputPhase can emit them in the JSON header.
+// Returns (nil, nil, nil) when args.ShowPerf is false.
+func capturePerfOutputs(args ProjectArgs, host ProjectHostState) ([]perf.TimingEntry, []cacheutil.NamedCacheStats, *cacheutil.BudgetReport) {
+	if !args.ShowPerf {
+		return nil, nil, nil
+	}
+	var timings []perf.TimingEntry
+	if host.Tracker != nil && host.Tracker.IsEnabled() {
+		timings = host.Tracker.GetTimings()
+	}
+	capBytes := args.ParseCacheCapBytes
+	if capBytes == 0 {
+		capBytes = cacheutil.DefaultParseCacheCapBytes
+	}
+	caches := cacheutil.AllStats()
+	b := cacheutil.Budget(capBytes)
+	return timings, caches, &b
+}
+
+// runFixupPhase invokes FixupPhase when one of the fix knobs is set.
+// Fixup runs after Android merge so cached/delta findings paths
+// receive on-disk fixes too — symmetric with the CLI's ordering.
+func runFixupPhase(ctx context.Context, args ProjectArgs, crossFile CrossFileResult) (FixupResult, error) {
+	if !args.Fix && !args.FixBinary && !args.DryRun {
+		return FixupResult{CrossFileResult: crossFile}, nil
+	}
+	res, err := FixupPhase{}.Run(ctx, FixupInput{
+		CrossFileResult: crossFile,
+		Apply:           args.Fix && !args.DryRun,
+		ApplyBinary:     args.FixBinary,
+		Suffix:          args.FixSuffix,
+		MaxFixLevel:     args.MaxFixLevel,
+		DryRunBinary:    args.DryRun,
+		CountOnly:       args.DryRun,
+	})
+	if err != nil {
+		return FixupResult{}, fmt.Errorf("fixup: %w", err)
+	}
+	return res, nil
 }
 
 // validateAndDefaultStreaming checks RunProjectStreaming's preconditions

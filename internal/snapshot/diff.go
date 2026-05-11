@@ -98,6 +98,9 @@ func Diff(root, fromSHA, toSHA string) (*DiffResult, error) {
 	if from.SchemaVersion != to.SchemaVersion {
 		return nil, fmt.Errorf("snapshot: incompatible blob schemas (from=%d, to=%d)", from.SchemaVersion, to.SchemaVersion)
 	}
+	if from.Redacted != to.Redacted {
+		return nil, fmt.Errorf("snapshot: refusing to diff redacted vs raw blob (from.Redacted=%v, to.Redacted=%v)", from.Redacted, to.Redacted)
+	}
 
 	result := &DiffResult{
 		From: DiffSide{CommitSHA: from.CommitSHA, CapturedAt: from.CapturedAt, KritVersion: from.KritVersion, BlobSchema: from.SchemaVersion},
@@ -121,7 +124,13 @@ func Diff(root, fromSHA, toSHA string) (*DiffResult, error) {
 	fromFindings, _ := LoadFindings(root, fromSHA)
 	toFindings, _ := LoadFindings(root, toSHA)
 	if fromFindings != nil && toFindings != nil {
-		if fromFindings.RuleSetHash != "" && toFindings.RuleSetHash != "" && fromFindings.RuleSetHash != toFindings.RuleSetHash {
+		// Mixed redaction is treated like a rule-set mismatch: the
+		// per-rule totals stay comparable (rule IDs are public), but
+		// any per-file rollup would join across incompatible
+		// namespaces. We surface the mismatch and keep ByRule.
+		if fromFindings.Redacted != toFindings.Redacted {
+			result.FindingsRuleSetMismatch = true
+		} else if fromFindings.RuleSetHash != "" && toFindings.RuleSetHash != "" && fromFindings.RuleSetHash != toFindings.RuleSetHash {
 			result.FindingsRuleSetMismatch = true
 		} else {
 			result.FindingsByRule = diffFindingsByRule(fromFindings, toFindings)

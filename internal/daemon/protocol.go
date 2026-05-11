@@ -204,4 +204,9 @@ type AnalyzeProjectStats struct {
 	// no parse cache is attached.
 	ParseHits   int64 `json:"parse_hits"`
 	ParseMisses int64 `json:"parse_misses"`
+	// FindingsBundleHit is true when the whole-run findings cache
+	// served the result without redoing dispatch or cross-file work.
+	// A true value means the call was a structural reuse of a prior
+	// identical-input run.
+	FindingsBundleHit bool `json:"findings_bundle_hit"`
 }

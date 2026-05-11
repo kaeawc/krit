@@ -61,6 +61,12 @@ type Manifest struct {
 	Modules     int            `json:"modules"`
 	Counts      ManifestCounts `json:"counts"`
 	RuleSetHash string         `json:"rule_set_hash,omitempty"`
+	// Redacted mirrors Blob.Redacted (and Findings.Redacted, which
+	// must agree). When true the snapshot's symbol names, FQNs,
+	// owners, packages, signatures, and file paths are one-way
+	// hashes rather than source identifiers. Diff refuses to compare
+	// a redacted manifest against a raw one.
+	Redacted bool `json:"redacted,omitempty"`
 }
 
 func manifestPath(root, sha string) (string, error) {
@@ -210,10 +216,11 @@ func buildManifest(res *Result, repoRoot, kritVersion string) *Manifest {
 		KritVersion:   kritVersion,
 		BlobSchema:    res.Blob.SchemaVersion,
 		// Flat fields kept for v1 reader compatibility; mirror Counts.
-		Files:   counts.Files,
-		Symbols: counts.Symbols,
-		Modules: counts.Modules,
-		Counts:  counts,
+		Files:    counts.Files,
+		Symbols:  counts.Symbols,
+		Modules:  counts.Modules,
+		Counts:   counts,
+		Redacted: res.Blob.Redacted,
 	}
 	if res.Metrics != nil {
 		m.MetricsSchema = res.Metrics.SchemaVersion

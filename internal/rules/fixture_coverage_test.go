@@ -47,6 +47,9 @@ func TestFixtureCoverage(t *testing.T) {
 			continue
 		}
 		seenIDs[r.ID] = true
+		if r.Category == api.CategoryPrecompile {
+			continue
+		}
 
 		for _, kind := range []string{"positive", "negative"} {
 			has := posIndex[r.ID]

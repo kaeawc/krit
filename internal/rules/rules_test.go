@@ -274,7 +274,7 @@ func fixtureNames(t *testing.T, dir string) map[string]bool {
 // excluded because the existing TestPositiveFixtures/TestNegativeFixtures
 // already skip them. Rules in the "android-lint" category (AndroidDeps != 0
 // or Category == "android-lint") are tracked separately in the android-lint
-// cluster.
+// cluster. Precompile rules have their own category-specific fixture harness.
 func TestNonAndroidRulesHaveFixtures(t *testing.T) {
 	root := fixtureRoot(t)
 	positiveFixtures := fixtureNames(t, filepath.Join(root, "positive"))
@@ -284,6 +284,9 @@ func TestNonAndroidRulesHaveFixtures(t *testing.T) {
 	for _, r := range api.Registry {
 		// Skip Android-specific rules (by explicit deps or category).
 		if r.AndroidDeps != 0 || r.Category == "android-lint" {
+			continue
+		}
+		if r.Category == api.CategoryPrecompile {
 			continue
 		}
 		// Skip rules that require multi-file analysis.

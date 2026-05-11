@@ -282,7 +282,7 @@ func registerAndroidRules() {
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
-		api.Register(&api.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev), Needs: api.NeedsLinePass, Confidence: r.Confidence(), Implementation: r, Check: r.check})
+		api.Register(&api.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev), NodeTypes: []string{"class_declaration"}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
 	{
 		r := &PrivateKeyRule{AndroidRule: AndroidRule{

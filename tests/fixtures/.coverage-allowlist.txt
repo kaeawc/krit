@@ -57,7 +57,6 @@ negative DuplicateIncludedIdsResource
 negative DuplicateUsesFeatureManifest
 negative DynamicVersion
 negative ExportedPreferenceActivityManifest
-negative ExportedService
 negative ExportedServiceManifest
 negative ExportedWithoutPermission
 negative ExtraTextResource
@@ -286,7 +285,6 @@ positive DuplicateIncludedIdsResource
 positive DuplicateUsesFeatureManifest
 positive DynamicVersion
 positive ExportedPreferenceActivityManifest
-positive ExportedService
 positive ExportedServiceManifest
 positive ExportedWithoutPermission
 positive ExtraTextResource

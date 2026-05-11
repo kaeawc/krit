@@ -166,9 +166,9 @@ type SetJavaScriptEnabledRule struct {
 // Classified per roadmap/17.
 func (r *SetJavaScriptEnabledRule) Confidence() float64 { return 0.75 }
 
-// ExportedServiceRule detects exported services/receivers without permission.
+// ExportedServiceRule detects exported services without permission.
 type ExportedServiceRule struct {
-	LineBase
+	FlatDispatchBase
 	AndroidRule
 }
 
@@ -180,8 +180,16 @@ type ExportedServiceRule struct {
 // Classified per roadmap/17.
 func (r *ExportedServiceRule) Confidence() float64 { return 0.75 }
 
-func (r *ExportedServiceRule) check(_ *api.Context) {
-	// This is primarily an XML check, but we can detect registration in Kotlin
+func (r *ExportedServiceRule) check(ctx *api.Context) {
+	file, idx := ctx.File, ctx.Idx
+	if !exportedClassExtendsAndroid(file, idx, "Service", "android.app.Service") {
+		return
+	}
+	if exportedPermissionEnforcedInClass(file, idx) {
+		return
+	}
+	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"Service subclass may be exported without permission. Ensure permissions are enforced.")
 }
 
 // PrivateKeyRule detects private key content in source.

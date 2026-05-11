@@ -1970,6 +1970,58 @@ class MyService {
 	})
 }
 
+func TestExportedService(t *testing.T) {
+	t.Run("triggers on Service subclass", func(t *testing.T) {
+		findings := runRuleByName(t, "ExportedService", `
+package test
+import android.app.Service
+class MyService : Service() {
+    override fun onBind(intent: Intent) = null
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected findings")
+		}
+	})
+	t.Run("permission enforced passes", func(t *testing.T) {
+		findings := runRuleByName(t, "ExportedService", `
+package test
+import android.app.Service
+class SecureService : Service() {
+    override fun onBind(intent: Intent): IBinder? {
+        enforceCallingPermission("p", "no")
+        return null
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("non-service class passes", func(t *testing.T) {
+		findings := runRuleByName(t, "ExportedService", `
+package test
+class NotAService {
+    fun doWork() {}
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("missing import passes", func(t *testing.T) {
+		findings := runRuleByName(t, "ExportedService", `
+package test
+class MyService : Service() {
+    override fun onBind(intent: Intent) = null
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings without import, got %d", len(findings))
+		}
+	})
+}
+
 func TestGrantAllUris(t *testing.T) {
 	t.Run("triggers on grantUriPermission", func(t *testing.T) {
 		findings := runRuleByName(t, "GrantAllUris", `

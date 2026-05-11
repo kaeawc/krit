@@ -1,0 +1,13 @@
+package potentialbugs
+
+import java.util.Locale
+
+class ImplicitDefaultLocale {
+    fun shout(s: String): String {
+        return s.toUpperCase(Locale.getDefault())
+    }
+
+    fun whisper(s: String): String {
+        return s.toLowerCase(Locale.getDefault())
+    }
+}

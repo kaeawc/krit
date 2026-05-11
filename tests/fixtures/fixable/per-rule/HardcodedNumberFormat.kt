@@ -1,0 +1,8 @@
+package potentialbugs
+
+import java.text.NumberFormat
+import java.util.Locale
+
+class HardcodedNumberFormat {
+    val formatter: NumberFormat = NumberFormat.getInstance()
+}

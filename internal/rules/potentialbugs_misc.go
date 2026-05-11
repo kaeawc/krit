@@ -1398,6 +1398,25 @@ var implicitLocaleMethods = map[string]bool{
 	"decapitalize": true,
 }
 
+// implicitLocaleAcceptsLocaleArg lists the methods in implicitLocaleMethods
+// that have a Locale-taking overload on String. `capitalize` / `decapitalize`
+// do not, so they cannot be autofixed by appending `Locale.ROOT`.
+var implicitLocaleAcceptsLocaleArg = map[string]bool{
+	"toLowerCase": true,
+	"toUpperCase": true,
+}
+
+// implicitLocaleFileHasLocaleImport returns true when the file imports
+// java.util.Locale (or a wildcard that covers it). Used to gate the
+// `Locale.ROOT` autofix so we never reference an unimported symbol.
+func implicitLocaleFileHasLocaleImport(file *scanner.File) bool {
+	if file == nil {
+		return false
+	}
+	return sourceImportsOrMentions(file, "java.util.Locale") ||
+		sourceImportsOrMentions(file, "java.util.*")
+}
+
 func fileDeclaresStringFormatExtension(file *scanner.File) bool {
 	if file == nil {
 		return false

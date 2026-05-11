@@ -311,7 +311,7 @@ func registerPotentialbugsMiscRules() {
 		r := &ImplicitDefaultLocaleRule{BaseRule: BaseRule{RuleName: "ImplicitDefaultLocale", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects locale-sensitive string methods called without an explicit Locale argument."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
 			Needs: api.NeedsTypeInfo,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
@@ -348,8 +348,24 @@ func registerPotentialbugsMiscRules() {
 							return
 						}
 					}
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 						fmt.Sprintf("'%s()' called without explicit Locale. Use '%s(Locale.ROOT)' or '%s(Locale.getDefault())' to be explicit.", methodName, methodName, methodName))
+					if args != 0 && implicitLocaleAcceptsLocaleArg[methodName] && implicitLocaleFileHasLocaleImport(file) {
+						argsEnd := int(file.FlatEndByte(args))
+						if argsEnd > 0 && argsEnd <= len(file.Content) && file.Content[argsEnd-1] == ')' {
+							// Use Locale.getDefault() to preserve the
+							// pre-fix runtime behavior (Locale.ROOT would
+							// silently change formatting/case behavior on
+							// non-default locales).
+							f.Fix = &scanner.Fix{
+								ByteMode:    true,
+								StartByte:   argsEnd - 1,
+								EndByte:     argsEnd - 1,
+								Replacement: "Locale.getDefault()",
+							}
+						}
+					}
+					ctx.Emit(f)
 					return
 				}
 
@@ -462,7 +478,7 @@ func registerPotentialbugsMiscRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes:  []string{"call_expression"},
 			Languages:  []scanner.Language{scanner.LangKotlin},
-			Confidence: r.Confidence(), Implementation: r,
+			Confidence: r.Confidence(), Fix: api.FixSemantic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				navExpr, args := flatCallExpressionParts(file, idx)
@@ -487,8 +503,20 @@ func registerPotentialbugsMiscRules() {
 				if receiverText == "DateTimeFormatter" && !sourceImportsOrMentions(file, "java.time.format.DateTimeFormatter") {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"DateTimeFormatter.ofPattern(pattern) without explicit Locale. Pass Locale.ROOT for machine-readable formats or Locale.getDefault() to be explicit.")
+				if implicitLocaleFileHasLocaleImport(file) {
+					argsEnd := int(file.FlatEndByte(args))
+					if argsEnd > 0 && argsEnd <= len(file.Content) && file.Content[argsEnd-1] == ')' {
+						f.Fix = &scanner.Fix{
+							ByteMode:    true,
+							StartByte:   argsEnd - 1,
+							EndByte:     argsEnd - 1,
+							Replacement: ", Locale.getDefault()",
+						}
+					}
+				}
+				ctx.Emit(f)
 			},
 		})
 	}
@@ -498,7 +526,7 @@ func registerPotentialbugsMiscRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes:  []string{"call_expression"},
 			Languages:  []scanner.Language{scanner.LangKotlin},
-			Confidence: r.Confidence(), Implementation: r,
+			Confidence: r.Confidence(), Fix: api.FixSemantic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				navExpr, args := flatCallExpressionParts(file, idx)
@@ -522,8 +550,20 @@ func registerPotentialbugsMiscRules() {
 					if argCount != 0 {
 						return
 					}
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 						"NumberFormat.getInstance() without explicit Locale. Pass a Locale to produce stable, locale-aware formatting.")
+					if args != 0 && implicitLocaleFileHasLocaleImport(file) {
+						argsEnd := int(file.FlatEndByte(args))
+						if argsEnd > 0 && argsEnd <= len(file.Content) && file.Content[argsEnd-1] == ')' {
+							f.Fix = &scanner.Fix{
+								ByteMode:    true,
+								StartByte:   argsEnd - 1,
+								EndByte:     argsEnd - 1,
+								Replacement: "Locale.getDefault()",
+							}
+						}
+					}
+					ctx.Emit(f)
 					return
 				}
 

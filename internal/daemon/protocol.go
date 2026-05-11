@@ -207,7 +207,6 @@ type AnalyzeProjectStats struct {
 	// FindingsBundleHit is true when the whole-run findings cache
 	// served the result without redoing dispatch or cross-file work.
 	// A true value means the call was a structural reuse of a prior
-	// identical-input run; #139 uses this to diagnose why warm calls
-	// still cost ~40s on JetBrains/kotlin.
+	// identical-input run.
 	FindingsBundleHit bool `json:"findings_bundle_hit"`
 }

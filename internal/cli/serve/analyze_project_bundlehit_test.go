@@ -6,16 +6,11 @@ import (
 	"github.com/kaeawc/krit/internal/daemon"
 )
 
-// TestAnalyzeProject_BundleHitOnIdenticalSecondCall is observability
-// for #139: the daemon's whole-run findings cache should fire on the
-// second of two byte-identical analyze-project calls. If it doesn't,
-// the warm path is paying full dispatch+cross-file cost every call —
-// the leading hypothesis on the kotlin-corpus regression.
-//
-// The test pins the contract through the wire format
-// (AnalyzeProjectStats.FindingsBundleHit) so a regression in the
-// bundle key derivation surfaces in CI rather than at benchmark
-// time.
+// TestAnalyzeProject_BundleHitOnIdenticalSecondCall pins the
+// contract that the daemon's whole-run findings cache fires on the
+// second of two byte-identical analyze-project calls. A regression
+// in the bundle key derivation would surface here rather than at
+// benchmark time.
 func TestAnalyzeProject_BundleHitOnIdenticalSecondCall(t *testing.T) {
 	socket, state := startServerForTest(t)
 	writeKotlinFile(t, state.root, "A.kt",
@@ -39,7 +34,7 @@ func TestAnalyzeProject_BundleHitOnIdenticalSecondCall(t *testing.T) {
 	}
 	if !second.Stats.FindingsBundleHit {
 		t.Errorf("identical second call must report FindingsBundleHit=true; got %+v\n"+
-			"if this fails, the bundle key is drifting across calls — see #139",
+			"a false here means the bundle key drifts across identical calls",
 			second.Stats)
 	}
 	if second.Stats.FindingsCount != first.Stats.FindingsCount {

@@ -80,42 +80,35 @@ type ProjectArgs struct {
 	// Fix, when true, applies safe text auto-fixes to disk between
 	// cross-file analysis and output. The set of applied fixes is
 	// capped by MaxFixLevel. False (default) leaves files untouched.
-	// Mirrors the CLI's --fix flag.
 	Fix bool
 	// FixBinary, when true, additionally applies binary-format fixes
 	// (file renames, resource moves). Independent of Fix.
 	FixBinary bool
 	// FixSuffix, when non-empty, writes fixed content to
-	// "<path><suffix>" rather than in place. Mirrors --fix-suffix.
+	// "<path><suffix>" rather than in place.
 	FixSuffix string
 	// DryRun, when true, runs FixupPhase in count-only mode: no text
 	// fixes are applied, but FixableCount and StrippedByLevel still
 	// reflect what would have been done. Also forwards a "dry run"
 	// signal to binary fix application via FixupInput.DryRunBinary.
-	// Mirrors --dry-run.
 	DryRun bool
 	// MaxFixLevel caps which fix levels FixupPhase applies. Zero
-	// (default) means "apply everything FixupPhase would otherwise
-	// apply"; the CLI sets this from --fix-level (defaulting to
-	// FixIdiomatic when --fix or --dry-run is set).
+	// means "apply everything FixupPhase would otherwise apply".
 	MaxFixLevel rules.FixLevel
 	// BasePath is the base for relative paths in the formatted
-	// output. Empty (default) means OutputPhase falls back to the
-	// first scan path — sufficient for the daemon, while the CLI
-	// sets this explicitly from --base-path.
+	// output. Empty means OutputPhase falls back to the first scan
+	// path.
 	BasePath string
 	// ShowPerf, when true, snapshots the host tracker + cache state
 	// at OutputPhase time and forwards the result through
-	// OutputInput.PerfTimings/Caches/CacheBudget. False (the daemon
-	// default) keeps the JSON header lean.
+	// OutputInput.PerfTimings/Caches/CacheBudget.
 	ShowPerf bool
 	// PerfRules, when true, forwards the dispatcher's sorted per-rule
-	// execution stats through OutputInput.PerfRuleStats. False (the
-	// daemon default) skips the sort and trims the JSON payload.
+	// execution stats through OutputInput.PerfRuleStats.
 	PerfRules bool
 	// ParseCacheCapBytes is the effective parse-cache cap used when
 	// ShowPerf builds OutputInput.CacheBudget. Zero falls back to
-	// cacheutil.DefaultParseCacheCapBytes. Mirrors --parse-cache-cap-mb.
+	// cacheutil.DefaultParseCacheCapBytes.
 	ParseCacheCapBytes int64
 }
 
@@ -267,7 +260,6 @@ type ProjectResult struct {
 	// dispatch or cross-file analysis. False covers cache-miss runs,
 	// hosts without a bundle store, and runs where the conservative
 	// delta planner ran a partial dispatch instead of a full reuse.
-	// Useful observability for #139 warm-cache investigations.
 	FindingsBundleHit bool
 }
 
@@ -391,10 +383,6 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		return ProjectResult{}, err
 	}
 
-	// Phase 4.6: fixup. Opt-in via Args.Fix/FixBinary/DryRun. When
-	// none are set, FixupPhase is a no-op and fixupView is a thin
-	// wrapper around crossFileResult — preserving the pre-#70 Step B
-	// behaviour for callers that don't request fixes.
 	fixupView, err := runFixupPhase(ctx, args, crossFileResult)
 	if err != nil {
 		return ProjectResult{}, err
@@ -407,12 +395,9 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	if args.PerfRules {
 		perfRuleStats = rules.SortedRuleExecutionStats(dispatchResult.Stats)
 	}
-	// CacheStats is gated on ShowPerf rather than auto-forwarded:
-	// today the daemon's analyze-project verb does NOT include the
-	// "cache" JSON key (the verb's tests assume it absent). Exposing
-	// it whenever IndexPhase happens to populate stats would silently
-	// change the daemon's wire format. ShowPerf-gated forwarding lets
-	// the CLI opt in once it migrates to RunProject (Step E).
+	// CacheStats is gated on ShowPerf so the daemon's analyze-project
+	// JSON keeps omitting the "cache" key by default; auto-forwarding
+	// would silently widen the daemon's wire format.
 	var cacheStatsOut *cache.Stats
 	if args.ShowPerf {
 		cacheStatsOut = indexResult.CacheStats
@@ -467,9 +452,7 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 
 // capturePerfOutputs snapshots the host tracker plus the global
 // cacheutil stats so OutputPhase can emit them in the JSON header.
-// Returns (nil, nil, nil) when args.ShowPerf is false — the daemon's
-// default. Mirrors the CLI's capturePerfSnapshot helper so a daemon
-// caller that opts in sees the same output shape.
+// Returns (nil, nil, nil) when args.ShowPerf is false.
 func capturePerfOutputs(args ProjectArgs, host ProjectHostState) ([]perf.TimingEntry, []cacheutil.NamedCacheStats, *cacheutil.BudgetReport) {
 	if !args.ShowPerf {
 		return nil, nil, nil
@@ -487,16 +470,9 @@ func capturePerfOutputs(args ProjectArgs, host ProjectHostState) ([]perf.TimingE
 	return timings, caches, &b
 }
 
-// runFixupPhase invokes FixupPhase when the caller opted in via one
-// of the fix knobs in ProjectArgs (Fix, FixBinary, DryRun). When none
-// are set the function is a no-op: it returns a thin FixupResult
-// wrapper that carries the upstream CrossFileResult unchanged so the
-// OutputPhase sees the same column set as the pre-fixup pipeline.
-//
-// Fix application has on-disk side effects (text edits, file
-// renames). RunProject runs fixup after Android merge so cached /
-// delta findings paths benefit from fixes too — symmetric with the
-// CLI's runFixup ordering.
+// runFixupPhase invokes FixupPhase when one of the fix knobs is set.
+// Fixup runs after Android merge so cached/delta findings paths
+// receive on-disk fixes too — symmetric with the CLI's ordering.
 func runFixupPhase(ctx context.Context, args ProjectArgs, crossFile CrossFileResult) (FixupResult, error) {
 	if !args.Fix && !args.FixBinary && !args.DryRun {
 		return FixupResult{CrossFileResult: crossFile}, nil

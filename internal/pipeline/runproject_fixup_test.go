@@ -11,19 +11,23 @@ import (
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
-// TestRunProject_FixupNoOpByDefault is the contract that the new
-// fixup wiring (#70 Step B) stays inert for callers that don't set
-// any fix knob. The daemon's analyze-project verb relies on this:
-// it must produce identical output before and after Step B.
-func TestRunProject_FixupNoOpByDefault(t *testing.T) {
+const fixupFixtureContent = "package demo\n\nclass Foo : Any()\n"
+
+// setupFixupFixture writes a single-file Kotlin fixture that
+// triggers UnnecessaryInheritance (FixIdiomatic) and returns the
+// tempdir root, the file path, and the active rule.
+func setupFixupFixture(t *testing.T) (string, string, *api.Rule) {
+	t.Helper()
 	root := t.TempDir()
 	file := filepath.Join(root, "Foo.kt")
-	const content = "package demo\n\nclass Foo : Any()\n"
-	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(file, []byte(fixupFixtureContent), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
+	return root, file, findV2RuleForTest(t, "UnnecessaryInheritance")
+}
 
-	rule := findV2RuleForTest(t, "UnnecessaryInheritance")
+func TestRunProject_FixupNoOpByDefault(t *testing.T) {
+	root, file, rule := setupFixupFixture(t)
 	res, err := RunProject(context.Background(), ProjectInput{
 		Args: ProjectArgs{
 			Config:      config.NewConfig(),
@@ -42,28 +46,17 @@ func TestRunProject_FixupNoOpByDefault(t *testing.T) {
 	if res.Fixup.FixableCount != 0 {
 		t.Errorf("default RunProject must not count fixes; FixableCount=%d", res.Fixup.FixableCount)
 	}
-	// Fixture file must be untouched.
 	got, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	if string(got) != content {
-		t.Errorf("file was modified without --fix:\nwant=%q\ngot =%q", content, got)
+	if string(got) != fixupFixtureContent {
+		t.Errorf("file was modified without --fix:\nwant=%q\ngot =%q", fixupFixtureContent, got)
 	}
 }
 
-// TestRunProject_DryRunCountsButDoesNotApply asserts that
-// Args.DryRun causes FixupPhase to count fixable findings without
-// touching the filesystem. Mirrors the CLI's `--dry-run` semantics.
 func TestRunProject_DryRunCountsButDoesNotApply(t *testing.T) {
-	root := t.TempDir()
-	file := filepath.Join(root, "Foo.kt")
-	const content = "package demo\n\nclass Foo : Any()\n"
-	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-
-	rule := findV2RuleForTest(t, "UnnecessaryInheritance")
+	root, file, rule := setupFixupFixture(t)
 	res, err := RunProject(context.Background(), ProjectInput{
 		Args: ProjectArgs{
 			Config:      config.NewConfig(),
@@ -89,23 +82,13 @@ func TestRunProject_DryRunCountsButDoesNotApply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	if string(got) != content {
-		t.Errorf("file was modified during --dry-run:\nwant=%q\ngot =%q", content, got)
+	if string(got) != fixupFixtureContent {
+		t.Errorf("file was modified during --dry-run:\nwant=%q\ngot =%q", fixupFixtureContent, got)
 	}
 }
 
-// TestRunProject_FixAppliesText confirms that Args.Fix=true causes
-// FixupPhase to actually rewrite the file on disk and report the
-// applied count back through ProjectResult.Fixup.
 func TestRunProject_FixAppliesText(t *testing.T) {
-	root := t.TempDir()
-	file := filepath.Join(root, "Foo.kt")
-	const content = "package demo\n\nclass Foo : Any()\n"
-	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-
-	rule := findV2RuleForTest(t, "UnnecessaryInheritance")
+	root, file, rule := setupFixupFixture(t)
 	res, err := RunProject(context.Background(), ProjectInput{
 		Args: ProjectArgs{
 			Config:      config.NewConfig(),
@@ -127,7 +110,7 @@ func TestRunProject_FixAppliesText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	if string(got) == content {
-		t.Errorf("file was NOT modified despite --fix:\n%s", content)
+	if string(got) == fixupFixtureContent {
+		t.Errorf("file was NOT modified despite --fix:\n%s", fixupFixtureContent)
 	}
 }

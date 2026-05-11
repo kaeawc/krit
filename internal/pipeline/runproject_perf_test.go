@@ -12,10 +12,10 @@ import (
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
-// TestRunProject_ShowPerfPopulatesOutputExtras asserts the #70 Step C
-// wiring: when Args.ShowPerf=true and a tracker is attached, the JSON
-// output carries a perf subtree and a caches subtree. When ShowPerf
-// is false the JSON header omits both — the daemon's default.
+// TestRunProject_ShowPerfPopulatesOutputExtras: when Args.ShowPerf
+// is true and a tracker is attached, the JSON output carries perf
+// and caches subtrees. When false, the daemon-default header omits
+// both.
 func TestRunProject_ShowPerfPopulatesOutputExtras(t *testing.T) {
 	root := t.TempDir()
 	file := filepath.Join(root, "Foo.kt")

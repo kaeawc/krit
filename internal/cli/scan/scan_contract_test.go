@@ -18,26 +18,13 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// TestScanRunMatchesAnalyzeProjectVerb is the CLI-vs-RunProject byte-
-// equal contract test that issue #70 calls for. It runs the same
-// fixture through two paths:
-//
-//   - scan.Run (the CLI front door, with caches, FIR, profiling all
-//     disabled so the runner reduces to parse → index → dispatch →
-//     cross-file → android → output — the same shape RunProject
-//     already covers)
-//   - pipeline.RunProject called directly
-//
-// Both findings JSON payloads must be equal after stripping fields
-// that legitimately vary between runs (perf subtree, caches subtree,
-// startTime, durationMs, version). A divergence here means the CLI
-// and the shared pipeline path have drifted on rule output, file
-// enumeration, suppression, or format dispatch.
-//
-// Steps B-E of #70 widen RunProject to cover the remaining runner
-// concerns (fixup, baselines, FIR, output extras). Each of those
-// steps strengthens this test by removing a flag from the "disable"
-// list. The byte-equal harness itself does not change.
+// TestScanRunMatchesAnalyzeProjectVerb pins the CLI-vs-RunProject
+// byte-equal contract: scan.Run (with caches, FIR, profiling, and
+// the oracle disabled — the subset RunProject already covers) and
+// pipeline.RunProject called directly must produce identical
+// findings JSON after stripping the perf/caches/timing/version
+// envelope. A divergence means the two paths have drifted on rule
+// output, file enumeration, suppression, or format dispatch.
 func TestScanRunMatchesAnalyzeProjectVerb(t *testing.T) {
 	dir := t.TempDir()
 	writeContractFile(t, filepath.Join(dir, "Foo.kt"),

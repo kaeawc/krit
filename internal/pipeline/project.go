@@ -473,10 +473,10 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 
 	hits1, misses1 := parseCacheCounters(host.ParseCache)
 	return ProjectResult{
-		FinalFindings: outResult.FinalFindings,
-		FilesScanned:  len(parseResult.KotlinFiles) + len(parseResult.JavaFiles),
-		FindingsCount: outResult.FinalFindings.Len(),
-		ParseErrors:   parseResult.ParseErrors,
+		FinalFindings:     outResult.FinalFindings,
+		FilesScanned:      len(parseResult.KotlinFiles) + len(parseResult.JavaFiles),
+		FindingsCount:     outResult.FinalFindings.Len(),
+		ParseErrors:       parseResult.ParseErrors,
 		Stats:             dispatchResult.Stats,
 		ParseHits:         hits1 - hits0,
 		ParseMisses:       misses1 - misses0,
@@ -769,6 +769,7 @@ func runDispatchOrLoadBundle(
 			d := DispatchResult{IndexResult: indexResult, Findings: *cached}
 			return d, CrossFileResult{DispatchResult: d}, true, dispatchTimings{}, nil
 		}
+		reportFindingsBundleMiss(host, manifest, runFP)
 		if d, c, ok, err := tryDeltaDispatch(ctx, args, host, indexResult, parseResult, runFP, manifest); err != nil {
 			return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, err
 		} else if ok {
@@ -788,6 +789,40 @@ func runDispatchOrLoadBundle(
 		return DispatchResult{}, CrossFileResult{}, false, dispatchTimings{}, fmt.Errorf("crossfile: %w", err)
 	}
 	return d, c, false, dispatchTimings{dispatchMs: dispatchMs, crossFileMs: crossMs}, nil
+}
+
+func reportFindingsBundleMiss(host ProjectHostState, manifest deltaManifestData, runFP scanner.RunFingerprint) {
+	if host.Reporter == nil || !host.Reporter.VerboseEnabled() || !manifest.enabled || manifest.manifestKey == "" {
+		return
+	}
+	prior, ok := scanner.LoadFindingsBundleManifest(host.FindingsBundleCacheRoot, manifest.manifestKey)
+	if !ok {
+		host.Reporter.Verbosef("verbose: Findings bundle cache: MISS (no prior manifest)\n")
+		return
+	}
+	changed := runFingerprintDiffFields(prior.Fingerprint, runFP)
+	if len(changed) == 0 {
+		host.Reporter.Verbosef("verbose: Findings bundle cache: MISS (prior bundle missing)\n")
+		return
+	}
+	host.Reporter.Verbosef("verbose: Findings bundle cache: MISS (changed: %s)\n", strings.Join(changed, ","))
+}
+
+func runFingerprintDiffFields(prior, current scanner.RunFingerprint) []string {
+	var changed []string
+	add := func(name, a, b string) {
+		if a != b {
+			changed = append(changed, name)
+		}
+	}
+	add("version", prior.Version, current.Version)
+	add("rules", prior.Rules, current.Rules)
+	add("config", prior.Config, current.Config)
+	add("sourceSet", prior.SourceSet, current.SourceSet)
+	add("crossFile", prior.CrossFile, current.CrossFile)
+	add("android", prior.Android, current.Android)
+	add("libraryFacts", prior.LibraryFacts, current.LibraryFacts)
+	return changed
 }
 
 // tryDeltaDispatch attempts the ConservativeDeltaPlanner's single-file

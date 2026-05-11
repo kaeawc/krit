@@ -1,12 +1,15 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/diag"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -184,5 +187,57 @@ func TestRunProject_FindingsBundleCache_RebuildsOnEdit(t *testing.T) {
 	run(t) // fingerprint differs → miss → save again
 	if bundle.saveCalls != 2 {
 		t.Errorf("after content edit, saveCalls = %d, want 2 (fingerprint mismatch should force a fresh save)", bundle.saveCalls)
+	}
+}
+
+func TestRunProject_FindingsBundleCache_ReportsMissComponent(t *testing.T) {
+	dir := t.TempDir()
+	cacheRoot := t.TempDir()
+	src := filepath.Join(dir, "Sample.kt")
+	if err := os.WriteFile(src, []byte("package test\n\nclass Sample { fun value() = 1 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rule := api.FakeRule("ClassDecl",
+		api.WithNodeTypes("class_declaration"),
+		api.WithSeverity(api.SeverityWarning),
+		api.WithCheck(func(ctx *api.Context) {
+			ctx.EmitAt(int(ctx.Node.StartRow)+1, 1, "class declared")
+		}),
+	)
+
+	var verbose bytes.Buffer
+	run := func(t *testing.T) {
+		t.Helper()
+		if _, err := RunProject(context.Background(), ProjectInput{
+			Args: ProjectArgs{
+				Config:      config.NewConfig(),
+				Paths:       []string{dir},
+				ActiveRules: []*api.Rule{rule},
+				Format:      "json",
+				Version:     "test",
+			},
+			Host: ProjectHostState{
+				Reporter:                &diag.Reporter{Verbose: &verbose},
+				FindingsBundleStore:     scanner.DiskFindingsBundleStore{},
+				FindingsBundleCacheRoot: cacheRoot,
+			},
+		}); err != nil {
+			t.Fatalf("RunProject: %v", err)
+		}
+	}
+
+	run(t)
+	verbose.Reset()
+	if err := os.WriteFile(src, []byte("package test\n\nclass Sample { fun value() = 2 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t)
+
+	got := verbose.String()
+	if !strings.Contains(got, "Findings bundle cache: MISS") {
+		t.Fatalf("verbose output missing bundle miss: %q", got)
+	}
+	if !strings.Contains(got, "sourceSet") {
+		t.Fatalf("verbose output missing changed component: %q", got)
 	}
 }

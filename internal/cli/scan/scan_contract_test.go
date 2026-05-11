@@ -36,7 +36,6 @@ func TestScanRunMatchesAnalyzeProjectVerb(t *testing.T) {
 		"krit",
 		"--no-cache",
 		"--no-cross-file-cache",
-		"--no-parse-cache",
 		"--no-fir",
 		"--no-type-oracle",
 		"-f", "json",

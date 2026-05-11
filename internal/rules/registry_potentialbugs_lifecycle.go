@@ -59,6 +59,14 @@ func registerPotentialbugsLifecycleRules() {
 				for startByte > 0 && file.Content[startByte-1] != '\n' {
 					startByte--
 				}
+				// Consume trailing whitespace + statement terminator (;) for Java
+				// so removing the call doesn't leave a dangling `;` on its own line.
+				for endByte < len(file.Content) && (file.Content[endByte] == ' ' || file.Content[endByte] == '\t') {
+					endByte++
+				}
+				if endByte < len(file.Content) && file.Content[endByte] == ';' {
+					endByte++
+				}
 				if endByte < len(file.Content) && file.Content[endByte] == '\n' {
 					endByte++
 				}

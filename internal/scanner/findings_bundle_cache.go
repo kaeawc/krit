@@ -153,6 +153,109 @@ func ClearFindingsBundleCache(dir string) error {
 	return nil
 }
 
+// FileStructuralFingerprint hashes a single file's contribution to the
+// cross-file CodeIndex: its declared Symbols (sorted by FQN + Name +
+// Kind + Visibility + Signature) and its References (sorted by Name +
+// InComment flag). Per-line positions are deliberately excluded —
+// line-number drift from intra-file body edits should not invalidate
+// cross-file findings for unchanged files.
+//
+// Mismatches are precise: any added/removed/renamed declaration moves
+// the fingerprint, any added/removed reference moves it, but a body
+// edit that touches no Symbols and no References (whitespace, comment,
+// constant value, local variable rename) keeps it stable. The
+// ConservativeDeltaPlanner's "CrossFile stable" gate uses the
+// aggregate of per-file structural fps to decide whether the delta
+// path is safe — see pipeline.crossFileStructuralFingerprint.
+func FileStructuralFingerprint(file *File) string {
+	if file == nil {
+		return ""
+	}
+	symbols, references := indexFileForFingerprint(file)
+	return hashFileStructural(symbols, references)
+}
+
+func indexFileForFingerprint(file *File) ([]Symbol, []Reference) {
+	if file == nil || file.FlatTree == nil {
+		return nil, nil
+	}
+	var symbols []Symbol
+	var references []Reference
+	if file.Language == LangJava {
+		collectJavaDeclarationsFlat(file, &symbols)
+		collectJavaReferencesFlat(file, &references)
+	} else {
+		collectDeclarationsFlat(file, &symbols)
+		collectReferencesFlat(file, &references)
+	}
+	return symbols, references
+}
+
+func hashFileStructural(symbols []Symbol, references []Reference) string {
+	type symKey struct {
+		fqn, name, kind, vis, sig string
+	}
+	symKeys := make([]symKey, 0, len(symbols))
+	for _, s := range symbols {
+		symKeys = append(symKeys, symKey{fqn: s.FQN, name: s.Name, kind: s.Kind, vis: s.Visibility, sig: s.Signature})
+	}
+	sort.Slice(symKeys, func(i, j int) bool {
+		a, b := symKeys[i], symKeys[j]
+		if a.fqn != b.fqn {
+			return a.fqn < b.fqn
+		}
+		if a.name != b.name {
+			return a.name < b.name
+		}
+		if a.kind != b.kind {
+			return a.kind < b.kind
+		}
+		if a.vis != b.vis {
+			return a.vis < b.vis
+		}
+		return a.sig < b.sig
+	})
+
+	type refKey struct {
+		name      string
+		inComment bool
+	}
+	refKeys := make([]refKey, 0, len(references))
+	for _, r := range references {
+		refKeys = append(refKeys, refKey{name: r.Name, inComment: r.InComment})
+	}
+	sort.Slice(refKeys, func(i, j int) bool {
+		a, b := refKeys[i], refKeys[j]
+		if a.name != b.name {
+			return a.name < b.name
+		}
+		return !a.inComment && b.inComment
+	})
+
+	h := hashutil.Hasher().New()
+	for _, k := range symKeys {
+		_, _ = h.Write([]byte(k.fqn))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(k.name))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(k.kind))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(k.vis))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(k.sig))
+		_, _ = h.Write([]byte{1})
+	}
+	_, _ = h.Write([]byte{2})
+	for _, k := range refKeys {
+		_, _ = h.Write([]byte(k.name))
+		if k.inComment {
+			_, _ = h.Write([]byte{'c'})
+		}
+		_, _ = h.Write([]byte{3})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 func FindingsBundleKey(fp RunFingerprint) string {
 	h := hashutil.Hasher().New()
 	var v [4]byte

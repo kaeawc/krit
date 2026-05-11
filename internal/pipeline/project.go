@@ -317,7 +317,8 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 	}
 
 	runFP, bundleEnabled := computeRunFingerprint(args, host, parseResult, indexResult)
-	dispatchResult, crossFileResult, bundleHit, err := runDispatchOrLoadBundle(ctx, args, host, indexResult, runFP, bundleEnabled)
+	manifestData := buildManifestData(args, host, parseResult, runFP, bundleEnabled)
+	dispatchResult, crossFileResult, bundleHit, err := runDispatchOrLoadBundle(ctx, args, host, indexResult, parseResult, runFP, bundleEnabled, manifestData)
 	if err != nil {
 		return ProjectResult{}, err
 	}
@@ -348,6 +349,7 @@ func RunProject(ctx context.Context, in ProjectInput) (ProjectResult, error) {
 	// output is unaffected.
 	if bundleEnabled && !bundleHit {
 		_ = host.FindingsBundleStore.Save(host.FindingsBundleCacheRoot, runFP, &crossFileResult.Findings)
+		_ = saveDeltaManifest(host, manifestData, runFP, &crossFileResult.Findings)
 	}
 
 	hits1, misses1 := parseCacheCounters(host.ParseCache)
@@ -439,22 +441,96 @@ func wireOracleHandles(in *IndexInput, args ProjectArgs, host ProjectHostState, 
 	})
 }
 
-// runDispatchOrLoadBundle resolves dispatch + cross-file findings,
-// either by reusing a cached bundle (full RunFingerprint hit) or by
-// running the normal DispatchPhase + CrossFilePhase. Extracted from
-// RunProject to keep cyclomatic budget in check.
+// deltaManifestData carries the precomputed per-file inputs the delta
+// planner needs. Populated by buildManifestData before dispatch so
+// runDispatchOrLoadBundle can quickly compare against the prior run.
+type deltaManifestData struct {
+	enabled       bool
+	manifestKey   string
+	contentHashes map[string]string
+	structuralFPs map[string]string
+}
+
+// buildManifestData prepares per-file content + structural fingerprints
+// for the delta planner. Returns the inputs whether or not the bundle
+// cache is enabled — callers gate on enabled before persisting.
+func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult ParseResult, _ scanner.RunFingerprint, bundleEnabled bool) deltaManifestData {
+	if !bundleEnabled {
+		return deltaManifestData{}
+	}
+	contentHashes := make(map[string]string, len(parseResult.KotlinFiles)+len(parseResult.JavaFiles))
+	structuralFPs := make(map[string]string, len(parseResult.KotlinFiles)+len(parseResult.JavaFiles))
+	for _, f := range parseResult.KotlinFiles {
+		if f == nil {
+			continue
+		}
+		contentHashes[f.Path] = hashutil.Default().HashContent(f.Path, f.Content)
+		structuralFPs[f.Path] = scanner.FileStructuralFingerprint(f)
+	}
+	for _, f := range parseResult.JavaFiles {
+		if f == nil {
+			continue
+		}
+		contentHashes[f.Path] = hashutil.Default().HashContent(f.Path, f.Content)
+		structuralFPs[f.Path] = scanner.FileStructuralFingerprint(f)
+	}
+	return deltaManifestData{
+		enabled:       true,
+		manifestKey:   scanner.FindingsBundleManifestKey(host.FindingsBundleCacheRoot, args.Paths),
+		contentHashes: contentHashes,
+		structuralFPs: structuralFPs,
+	}
+}
+
+// saveDeltaManifest persists the current run's manifest entry so a
+// future run can detect single-file changes for the delta path.
+// Best-effort — manifest write failures don't fail the verb.
+func saveDeltaManifest(host ProjectHostState, m deltaManifestData, runFP scanner.RunFingerprint, _ *scanner.FindingColumns) error {
+	if !m.enabled || m.manifestKey == "" {
+		return nil
+	}
+	return scanner.SaveFindingsBundleManifest(host.FindingsBundleCacheRoot, m.manifestKey, scanner.FindingsBundleManifest{
+		BundleKey:     scanner.FindingsBundleKey(runFP),
+		Fingerprint:   runFP,
+		ContentHashes: m.contentHashes,
+		StructuralFPs: m.structuralFPs,
+	})
+}
+
+// runDispatchOrLoadBundle resolves dispatch + cross-file findings via
+// three increasingly conservative paths:
+//
+//  1. Full-fingerprint Load. RunFingerprint identical to a prior run →
+//     replay cached bundle, skip dispatch + cross-file entirely.
+//  2. Delta path. Prior manifest exists, planner says exactly 1 file
+//     changed + every non-SourceSet fingerprint field is stable →
+//     dispatch only on the changed file, optionally re-run cross-file
+//     rules (no scope savings there), filter replacement to the
+//     changed path, ApplyDelta against the prior bundle.
+//  3. Full dispatch. Normal DispatchPhase + CrossFilePhase.
+//
+// The delta path is the load-bearing #55 perf win for body-only edits:
+// per-file rule dispatch is the dominant warm-call cost and the delta
+// path runs it on just one file.
 func runDispatchOrLoadBundle(
 	ctx context.Context,
 	args ProjectArgs,
 	host ProjectHostState,
 	indexResult IndexResult,
+	parseResult ParseResult,
 	runFP scanner.RunFingerprint,
 	bundleEnabled bool,
+	manifest deltaManifestData,
 ) (DispatchResult, CrossFileResult, bool, error) {
 	if bundleEnabled {
 		if cached, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, runFP); ok && cached != nil {
 			d := DispatchResult{IndexResult: indexResult, Findings: *cached}
 			return d, CrossFileResult{DispatchResult: d}, true, nil
+		}
+		if d, c, ok, err := tryDeltaDispatch(ctx, args, host, indexResult, parseResult, runFP, manifest); err != nil {
+			return DispatchResult{}, CrossFileResult{}, false, err
+		} else if ok {
+			return d, c, false, nil
 		}
 	}
 	d, err := DispatchPhase{}.Run(ctx, indexResult)
@@ -466,6 +542,129 @@ func runDispatchOrLoadBundle(
 		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("crossfile: %w", err)
 	}
 	return d, c, false, nil
+}
+
+// tryDeltaDispatch attempts the ConservativeDeltaPlanner's single-file
+// delta path. Returns (_, _, false, nil) when the prior manifest is
+// missing, the planner refuses (multi-file change, non-SourceSet
+// fingerprint drift, etc.), or any other safety check fails. The
+// caller falls back to full dispatch in that case.
+//
+// On a successful delta:
+//   - DispatchPhase runs against an IndexResult scoped to just the
+//     changed file. Per-file rules see only the dirty file.
+//   - CrossFilePhase still runs with the full IndexResult.CodeIndex
+//     because cross-file rule outputs depend on the aggregate
+//     structural state, which the planner gate guarantees is stable.
+//     The replacement is filtered to the changed path post-hoc.
+//   - scanner.ApplyDelta(prior, replacement, [changedPath]) produces
+//     the merged FindingColumns.
+func tryDeltaDispatch(
+	ctx context.Context,
+	args ProjectArgs,
+	host ProjectHostState,
+	indexResult IndexResult,
+	parseResult ParseResult,
+	runFP scanner.RunFingerprint,
+	manifest deltaManifestData,
+) (DispatchResult, CrossFileResult, bool, error) {
+	if !manifest.enabled || manifest.manifestKey == "" {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+	prior, ok := scanner.LoadFindingsBundleManifest(host.FindingsBundleCacheRoot, manifest.manifestKey)
+	if !ok {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+	changedPaths := diffContentHashes(prior.ContentHashes, manifest.contentHashes)
+	plan := scanner.ConservativeDeltaPlanner{}.Plan(prior.Fingerprint, runFP, changedPaths)
+	if !plan.ReusePrevious || len(plan.ChangedPaths) != 1 {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+	priorBundle, ok := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, prior.Fingerprint)
+	if !ok || priorBundle == nil {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+
+	changedPath := plan.ChangedPaths[0]
+	changedFile := findFileByPath(parseResult, changedPath)
+	if changedFile == nil {
+		return DispatchResult{}, CrossFileResult{}, false, nil
+	}
+
+	scoped := indexResult
+	scoped.ParseResult = scopeParseResult(parseResult, changedFile)
+	d, err := DispatchPhase{}.Run(ctx, scoped)
+	if err != nil {
+		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("dispatch (delta): %w", err)
+	}
+	c, err := CrossFilePhase{Workers: args.Workers}.Run(ctx, d)
+	if err != nil {
+		return DispatchResult{}, CrossFileResult{}, false, fmt.Errorf("crossfile (delta): %w", err)
+	}
+
+	replacement := scanner.FilterColumnsByFilePaths(&c.Findings, map[string]bool{changedPath: true})
+	merged := scanner.ApplyDelta(priorBundle, &replacement, []string{changedPath})
+
+	d.Findings = merged
+	c.DispatchResult = d
+	c.Findings = merged
+	return d, c, true, nil
+}
+
+// diffContentHashes returns the sorted list of paths where the
+// current content hash differs from the prior, OR where a file
+// exists in only one side (treated as a change). Empty if the two
+// maps describe an identical file set with matching hashes.
+func diffContentHashes(prior, current map[string]string) []string {
+	seen := make(map[string]bool, len(prior)+len(current))
+	for path := range prior {
+		seen[path] = true
+	}
+	for path := range current {
+		seen[path] = true
+	}
+	changed := make([]string, 0)
+	for path := range seen {
+		if prior[path] != current[path] {
+			changed = append(changed, path)
+		}
+	}
+	sort.Strings(changed)
+	return changed
+}
+
+func findFileByPath(p ParseResult, path string) *scanner.File {
+	for _, f := range p.KotlinFiles {
+		if f != nil && f.Path == path {
+			return f
+		}
+	}
+	for _, f := range p.JavaFiles {
+		if f != nil && f.Path == path {
+			return f
+		}
+	}
+	return nil
+}
+
+// scopeParseResult returns a copy of p with KotlinFiles + JavaFiles
+// narrowed to the single supplied file. The narrowed result feeds
+// DispatchPhase + CrossFilePhase in the delta path so per-file rules
+// only run on the dirty file. IndexResult.CodeIndex retains the full
+// project index (cross-file rules need the aggregate view).
+func scopeParseResult(p ParseResult, only *scanner.File) ParseResult {
+	scoped := p
+	scoped.KotlinFiles = nil
+	scoped.JavaFiles = nil
+	if only == nil {
+		return scoped
+	}
+	if only.Language == scanner.LangJava {
+		scoped.JavaFiles = []*scanner.File{only}
+	} else {
+		scoped.KotlinFiles = []*scanner.File{only}
+	}
+	return scoped
 }
 
 // computeRunFingerprint builds a scanner.RunFingerprint from the run's
@@ -506,9 +705,7 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 		Config:    rulesHash,
 		SourceSet: sourceSetFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles),
 	}
-	if indexResult.CodeIndex != nil {
-		fp.CrossFile = indexResult.CodeIndex.Fingerprint
-	}
+	fp.CrossFile = crossFileStructuralFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles)
 	if indexResult.AndroidProject != nil {
 		fp.Android = libraryFactsFingerprint(indexResult.AndroidProject.GradlePaths)
 	}
@@ -516,6 +713,36 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 		fp.LibraryFacts = indexResult.LibraryFacts.Fingerprint()
 	}
 	return fp, true
+}
+
+// crossFileStructuralFingerprint hashes sorted (path, structural-fp)
+// pairs of every parsed Kotlin and Java file. The per-file structural
+// fingerprint excludes body content (positions, whitespace, comments
+// that aren't KDoc references) so intra-file body edits — the steady-
+// state dev-loop case — keep the aggregate CrossFile fp stable. That
+// stability is the gate the ConservativeDeltaPlanner needs to take
+// the single-file delta path.
+//
+// Any change to a file's Symbols (added/removed/renamed/visibility/
+// signature) or References (added/removed names) moves its structural
+// fp, which moves the aggregate, which makes the planner refuse the
+// delta and fall back to full dispatch. Safe-by-default.
+func crossFileStructuralFingerprint(kotlinFiles, javaFiles []*scanner.File) string {
+	entries := make([]string, 0, len(kotlinFiles)+len(javaFiles))
+	add := func(f *scanner.File) {
+		if f == nil {
+			return
+		}
+		entries = append(entries, f.Path+"\x00"+scanner.FileStructuralFingerprint(f))
+	}
+	for _, f := range kotlinFiles {
+		add(f)
+	}
+	for _, f := range javaFiles {
+		add(f)
+	}
+	sort.Strings(entries)
+	return hashutil.HashHex([]byte(strings.Join(entries, "\x01")))
 }
 
 // sourceSetFingerprint hashes sorted (path, content-hash) tuples of

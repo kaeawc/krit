@@ -432,7 +432,7 @@ func registerPotentialbugsTypesRules() {
 				if len(coveredTypes) == 0 || !whenVariantsCoveredFlat(coveredTypes, variants) {
 					return
 				}
-				f := r.Finding(file, int(file.FlatRow(idx))+1, int(file.FlatCol(idx))+1,
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					fmt.Sprintf("When expression on sealed type '%s' uses 'else' but all variants are covered. Remove the else branch.", subjectTypeName))
 				f.Fix = whenElseBranchDeletionFix(file, idx)
 				ctx.Emit(f)

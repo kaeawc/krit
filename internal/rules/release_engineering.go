@@ -487,9 +487,9 @@ func (r *CommentedOutImportRule) checkNode(ctx *api.Context) {
 		return
 	}
 	row := file.FlatRow(ctx.Idx)
-	f := r.Finding(file, int(row)+1, 1,
+	f := r.Finding(file, row+1, 1,
 		"Commented-out import; remove it or restore it as a live import.")
-	f.Fix = deleteLineFix(file, int(row))
+	f.Fix = deleteLineFix(file, row)
 	ctx.Emit(f)
 }
 

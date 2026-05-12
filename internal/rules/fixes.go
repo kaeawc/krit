@@ -55,7 +55,7 @@ func (r *CommentedOutImportRule) IsFixable() bool               { return true }
 func (r *CommentedOutCodeBlockRule) IsFixable() bool            { return true }
 func (r *ApplyPluginTwiceRule) IsFixable() bool                 { return true }
 func (r *TestNameContainsUnderscoreRule) IsFixable() bool       { return true }
-func (r *ElseCaseInsteadOfExhaustiveWhenRule) IsFixable() bool   { return true }
+func (r *ElseCaseInsteadOfExhaustiveWhenRule) IsFixable() bool  { return true }
 
 // Empty-blocks rules
 func (r *EmptyDefaultConstructorRule) IsFixable() bool   { return true }

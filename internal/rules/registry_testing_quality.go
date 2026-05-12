@@ -503,7 +503,7 @@ func registerTestingQualityTestNameContainsUnderscore() {
 			if strings.HasPrefix(name, "`") {
 				return
 			}
-			f := r.Finding(file, int(file.FlatRow(idx))+1, int(file.FlatCol(idx))+1,
+			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 				"Test name uses underscores; consider backtick-quoted names.")
 			if fix := testNameUnderscoreFix(file, idx, name); fix != nil {
 				f.Fix = fix

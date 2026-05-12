@@ -2261,6 +2261,64 @@ class HttpClient {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+	t.Run("triggers on empty X509TrustManager object", func(t *testing.T) {
+		findings := runRuleByName(t, "TrustedServer", `
+package test
+import javax.net.ssl.X509TrustManager
+class HttpClient {
+    val tm = object : X509TrustManager {
+        override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+        override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+        override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+    }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected finding for empty X509TrustManager override")
+		}
+	})
+	t.Run("X509TrustManager as generic argument is not a supertype", func(t *testing.T) {
+		findings := runRuleByName(t, "TrustedServer", `
+package test
+import javax.net.ssl.X509TrustManager
+interface Provider<T>
+class GenericArgOnly : Provider<X509TrustManager> {
+    fun checkClientTrusted() {}
+    fun checkServerTrusted() {}
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for generic-arg-only X509TrustManager, got %d", len(findings))
+		}
+	})
+	t.Run("qualified X509TrustManager as generic argument is not a supertype", func(t *testing.T) {
+		findings := runRuleByName(t, "TrustedServer", `
+package test
+interface Provider<T>
+class GenericArgOnly : Provider<javax.net.ssl.X509TrustManager> {
+    fun checkClientTrusted() {}
+    fun checkServerTrusted() {}
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for qualified generic-arg-only X509TrustManager, got %d", len(findings))
+		}
+	})
+	t.Run("qualified X509TrustManager supertype with empty overrides still fires", func(t *testing.T) {
+		findings := runRuleByName(t, "TrustedServer", `
+package test
+class HttpClient {
+    val tm = object : javax.net.ssl.X509TrustManager {
+        override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+        override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+        override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+    }
+}
+`)
+		if len(findings) == 0 {
+			t.Fatal("expected finding for qualified X509TrustManager supertype with empty overrides")
+		}
+	})
 }
 
 func TestWorldReadableFiles(t *testing.T) {

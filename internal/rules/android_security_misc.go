@@ -94,19 +94,17 @@ func trustedServerDeclaresX509(file *scanner.File, decl uint32) bool {
 		if file.FlatType(child) != "delegation_specifier" {
 			continue
 		}
-		found := false
-		file.FlatWalkAllNodes(child, func(n uint32) {
-			if found {
-				return
+		userType, _ := file.FlatFindChild(child, "user_type")
+		if userType == 0 {
+			if ctor, ok := file.FlatFindChild(child, "constructor_invocation"); ok {
+				userType, _ = file.FlatFindChild(ctor, "user_type")
 			}
-			switch file.FlatType(n) {
-			case "type_identifier", "simple_identifier":
-				if file.FlatNodeText(n) == "X509TrustManager" {
-					found = true
-				}
-			}
-		})
-		if found {
+		}
+		if userType == 0 {
+			continue
+		}
+		ident := flatLastChildOfType(file, userType, "type_identifier")
+		if ident != 0 && file.FlatNodeText(ident) == "X509TrustManager" {
 			return true
 		}
 	}

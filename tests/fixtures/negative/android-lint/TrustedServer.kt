@@ -20,3 +20,10 @@ class SecureClient {
         override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
     }
 }
+
+// X509TrustManager appearing only as a generic argument is not a declaration of it.
+interface Provider<T>
+class GenericArgOnly : Provider<javax.net.ssl.X509TrustManager> {
+    fun checkClientTrusted() {}
+    fun checkServerTrusted() {}
+}

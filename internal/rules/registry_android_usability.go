@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func registerAndroidUsabilityRules() {
@@ -100,6 +101,28 @@ func registerAndroidUsabilityRules() {
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"fun "+name+"(...) should be declared with `override` in Activity/Fragment subclasses.")
 			},
+		})
+	}
+	{
+		r := &RequiresApiViolationRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "RequiresApiViolation", RuleSetName: androidRuleSet, Sev: "error",
+				Desc: "Detects calls to APIs annotated with @RequiresApi(N) (or @TargetApi(N)) when N is greater than the project's minSdk and the call is not SDK_INT guarded."},
+			IssueID: "RequiresApiViolation", Brief: "Calling an API above the module's minSdk",
+			Category: ALCUnknown, ALSeverity: ALSError, Priority: 6,
+			Origin: "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			NodeTypes:  []string{"call_expression", "navigation_expression", "user_type"},
+			Languages:  []scanner.Language{scanner.LangKotlin},
+			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Confidence: r.Confidence(), Implementation: r,
+			NeedsLibraryFacts: true,
+			OracleCallTargets: &api.OracleCallTargetFilter{
+				AnnotatedIdentifiers: []string{"RequiresApi", "TargetApi"},
+			},
+			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
+			Check:                  r.check,
 		})
 	}
 	{

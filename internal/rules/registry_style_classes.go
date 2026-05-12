@@ -122,17 +122,6 @@ func registerStyleAbstractClassCanBeConcreteClass() {
 				name := extractIdentifierFlat(file, idx)
 				f := r.Finding(file, file.FlatRow(idx)+1, 1,
 					fmt.Sprintf("Abstract class '%s' has no abstract members. Make it concrete.", name))
-				modsText2 := file.FlatNodeText(mods)
-				newMods := strings.Replace(modsText2, "abstract ", "", 1)
-				if newMods == modsText2 {
-					newMods = strings.Replace(modsText2, "abstract", "", 1)
-				}
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   int(file.FlatStartByte(mods)),
-					EndByte:     int(file.FlatEndByte(mods)),
-					Replacement: newMods,
-				}
 				ctx.Emit(f)
 			}
 		},

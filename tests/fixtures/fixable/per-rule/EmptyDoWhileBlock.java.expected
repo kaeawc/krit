@@ -1,7 +1,0 @@
-package fixtures.positive.emptyblocks;
-
-class EmptyDoWhileBlockFixture {
-    void run() {
-        int i = 0;
-    }
-}

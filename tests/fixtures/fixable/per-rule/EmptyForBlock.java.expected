@@ -1,6 +1,0 @@
-package fixtures.positive.emptyblocks;
-
-class EmptyForBlockFixture {
-    void run() {
-    }
-}

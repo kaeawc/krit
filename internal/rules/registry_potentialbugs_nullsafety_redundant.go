@@ -45,6 +45,20 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		})
 	}
 	{
+		r := &UselessElvisOnNonNullRule{BaseRule: BaseRule{RuleName: "UselessElvisOnNonNull", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects the ?: elvis operator applied to expressions that are already non-nullable, making the fallback dead code."}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
+			NodeTypes:              []string{"elvis_expression"},
+			Confidence:             0.85,
+			Fix:                    api.FixSemantic,
+			Needs:                  api.NeedsTypeInfo | api.NeedsOracleExprType,
+			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
+			Implementation:         r,
+			Check:                  r.check,
+			ExprPositions:          r.ExpressionPositions,
+		})
+	}
+	{
 		r := &NullableToStringCallRule{BaseRule: BaseRule{RuleName: "NullableToStringCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects .toString() calls on nullable receivers that may produce the string \"null\"."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),

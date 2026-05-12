@@ -46,3 +46,12 @@ func (r *UnnecessarySafeCallRule) Meta() api.RuleDescriptor {
 		FixLevel:      "semantic",
 	}
 }
+
+func (r *UselessElvisOnNonNullRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "UselessElvisOnNonNull",
+		RuleSet:       "potential-bugs",
+		DefaultActive: true,
+		FixLevel:      "semantic",
+	}
+}

@@ -10767,6 +10767,25 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "AbstractMemberNotImplemented": {
+          "description": "Detects concrete classes that fail to implement abstract members declared on a supertype.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable AbstractMemberNotImplemented (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "AvoidReferentialEquality": {
           "description": "Detects usage of referential equality operators === or !== which compare object identity instead of value. [fixable: semantic]",
           "type": "object",
@@ -11300,6 +11319,25 @@
             }
           }
         },
+        "MissingReturn": {
+          "description": "Detects block-bodied functions with a non-Unit return type whose body does not terminate on every path.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MissingReturn (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "MissingSuperCall": {
           "description": "Detects override functions that do not call the corresponding super method. [fixable: semantic]",
           "type": "object",
@@ -11336,6 +11374,25 @@
           "properties": {
             "active": {
               "description": "Enable MissingUseCall (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "NoElseInWhenSealed": {
+          "description": "Detects when expressions on sealed classes or enums that are missing variants and have no else branch.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable NoElseInWhenSealed (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -11386,6 +11443,25 @@
             }
           }
         },
+        "OverrideSignatureMismatch": {
+          "description": "Detects 'override' functions whose parameter count does not match any supertype member with the same name.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable OverrideSignatureMismatch (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "PropertyUsedBeforeDeclaration": {
           "description": "Detects class properties referenced in initializers or init blocks before they are declared.",
           "type": "object",
@@ -11393,6 +11469,25 @@
           "properties": {
             "active": {
               "description": "Enable PropertyUsedBeforeDeclaration (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "SmartCastInvalidated": {
+          "description": "Detects smart-cast variables that are reassigned and then used without re-checking, which the compiler reports as SMARTCAST_IMPOSSIBLE.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable SmartCastInvalidated (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -11624,6 +11719,25 @@
             }
           }
         },
+        "UselessElvisOnNonNull": {
+          "description": "Detects the ?: elvis operator applied to expressions that are already non-nullable, making the fallback dead code. [fixable: semantic]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UselessElvisOnNonNull (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "UselessPostfixExpression": {
           "description": "Detects postfix increment or decrement in return statements where the operation has no effect. [fixable: idiomatic]",
           "type": "object",
@@ -11664,6 +11778,56 @@
         },
         "active": {
           "description": "Enable or disable the entire potential-bugs ruleset.",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "precompile": {
+      "description": "Configuration for the precompile ruleset.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "K0101-UnreachableCode": {
+          "description": "Detects statements that follow an unconditional jump (return, throw, break, continue) in the same block. Mirrors kotlinc's UNREACHABLE_CODE.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable K0101-UnreachableCode (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "K0108-DuplicateLabel": {
+          "description": "Detects repeated constant labels in a subject-bearing `when` expression. Mirrors kotlinc's DUPLICATE_LABEL_IN_WHEN.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable K0108-DuplicateLabel (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "active": {
+          "description": "Enable or disable the entire precompile ruleset.",
           "type": "boolean",
           "default": true
         }
@@ -13790,7 +13954,7 @@
           }
         },
         "DoubleNegativeLambda": {
-          "description": "Detects double negative lambda patterns like filterNot { !predicate } that should use filter.",
+          "description": "Detects double negative lambda patterns like filterNot { !predicate } that should use filter. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

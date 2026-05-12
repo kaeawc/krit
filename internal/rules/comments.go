@@ -28,12 +28,6 @@ func flatKdocText(file *scanner.File, idx uint32) string {
 	return strings.Join(lines, "\n")
 }
 
-// endOfSentenceInsertOffsetFlat finds the byte offset (within file.Content)
-// where a `.` should be inserted to terminate the KDoc's first sentence. It
-// walks the raw KDoc text line by line, skipping blank/asterisk-only lines and
-// `@tag` lines, then returns the offset just after the last non-whitespace
-// character of the first content line — placed before any trailing ` */` or
-// newline. Returns -1 if no suitable line is found.
 func endOfSentenceInsertOffsetFlat(file *scanner.File, idx uint32) int {
 	startByte := int(file.FlatStartByte(idx))
 	endByte := int(file.FlatEndByte(idx))

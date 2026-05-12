@@ -353,10 +353,7 @@ func registerPotentialbugsMiscRules() {
 					if args != 0 && implicitLocaleAcceptsLocaleArg[methodName] && implicitLocaleFileHasLocaleImport(file) {
 						argsEnd := int(file.FlatEndByte(args))
 						if argsEnd > 0 && argsEnd <= len(file.Content) && file.Content[argsEnd-1] == ')' {
-							// Use Locale.getDefault() to preserve the
-							// pre-fix runtime behavior (Locale.ROOT would
-							// silently change formatting/case behavior on
-							// non-default locales).
+							// getDefault() preserves pre-fix behavior; ROOT would silently change case rules.
 							f.Fix = &scanner.Fix{
 								ByteMode:    true,
 								StartByte:   argsEnd - 1,

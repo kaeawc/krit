@@ -7,6 +7,46 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
+// isStatementPositionExpr reports whether the given expression node appears
+// in statement position. Kotlin's grammar uses if_expression / when_expression
+// for both statements (`if (x) foo()`, `when (x) { ... }`) and expression-
+// position uses (`val r = if (...) y else z`, `val r = when (x) { ... }`,
+// `return if (...) ...`, arguments, etc.). Wrapping the body of an
+// expression-position if/when in braces is syntactically valid but visually
+// broken and is never what the brace-wrap rules intend.
+//
+// An expression is in statement position when its parent is a `statements`
+// block. Statement-position control constructs may nest (else-if chains
+// encoded as control_structure_body, or a when inside an if body); walk up
+// through those wrappers and check the outermost parent.
+func isStatementPositionExpr(file *scanner.File, idx uint32) bool {
+	cur := idx
+	for {
+		p, ok := file.FlatParent(cur)
+		if !ok {
+			return false
+		}
+		switch file.FlatType(p) {
+		case "statements":
+			return true
+		case "control_structure_body":
+			gp, ok2 := file.FlatParent(p)
+			if !ok2 {
+				return false
+			}
+			switch file.FlatType(gp) {
+			case "if_expression", "when_expression",
+				"for_statement", "while_statement", "do_while_statement":
+				cur = gp
+			default:
+				return false
+			}
+		default:
+			return false
+		}
+	}
+}
+
 // controlBodyHasBraces returns true when the control_structure_body node
 // at body has an opening brace token as its first child — i.e. the body is
 // a `{ ... }` block. A body without a brace child is a single expression
@@ -102,6 +142,10 @@ func (r *BracesOnIfStatementsRule) Confidence() float64 { return 0.75 }
 func (r *BracesOnIfStatementsRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
 	if scanner.IsTestFile(file.Path) || isGradleBuildScript(file.Path) {
+		return
+	}
+
+	if !isStatementPositionExpr(file, idx) {
 		return
 	}
 
@@ -234,6 +278,18 @@ func (r *BracesOnWhenStatementsRule) Confidence() float64 { return 0.75 }
 func (r *BracesOnWhenStatementsRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
 	if scanner.IsTestFile(file.Path) {
+		return
+	}
+
+	// idx is a when_entry; walk up to the enclosing when_expression and
+	// require it to be in statement position. `val r = when (...) { ... }`
+	// must not be flagged — wrapping its branch bodies in braces would
+	// transform the expression-position when into a visually-broken block.
+	whenExpr, ok := file.FlatParent(idx)
+	if !ok || file.FlatType(whenExpr) != "when_expression" {
+		return
+	}
+	if !isStatementPositionExpr(file, whenExpr) {
 		return
 	}
 

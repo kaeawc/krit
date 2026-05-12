@@ -221,8 +221,8 @@ func TestBracesOnWhenStatements_Consistent_MixedFlags(t *testing.T) {
 	// Some entries have braces, some don't -> should flag
 	findings := runBracesWhenRule(t, "consistent", "consistent", `
 package test
-fun example(x: Int): String {
-    return when (x) {
+fun example(x: Int) {
+    when (x) {
         1 -> { "one" }
         2 -> "two"
         else -> { "other" }
@@ -242,8 +242,8 @@ func TestBracesOnWhenStatements_Consistent_AllWithoutBraces(t *testing.T) {
 	// All entries without braces -> consistent, no finding
 	findings := runBracesWhenRule(t, "consistent", "consistent", `
 package test
-fun example(x: Int): String {
-    return when (x) {
+fun example(x: Int) {
+    when (x) {
         1 -> "one"
         2 -> "two"
         else -> "other"
@@ -258,8 +258,8 @@ func TestBracesOnWhenStatements_Consistent_AllWithBraces(t *testing.T) {
 	// All entries with braces -> consistent, no finding
 	findings := runBracesWhenRule(t, "consistent", "consistent", `
 package test
-fun example(x: Int): String {
-    return when (x) {
+fun example(x: Int) {
+    when (x) {
         1 -> { "one" }
         2 -> { "two" }
         else -> { "other" }
@@ -278,8 +278,8 @@ func TestBracesOnWhenStatements_IgnoresTestSources(t *testing.T) {
 	}
 	file := parseBracesPath(t, "src/test/kotlin/FooTest.kt", `
 package test
-fun example(x: Int): String {
-    return when (x) {
+fun example(x: Int) {
+    when (x) {
         1 -> "one"
         else -> "other"
     }
@@ -314,25 +314,20 @@ func applyFixes(src string, cols scanner.FindingColumns) string {
 	return string(out)
 }
 
-// TestBuildBraceWrapFix_InlineRHS_NoFix verifies the helper does not emit a
-// fix when the control header is not the first non-whitespace on its line.
-// Wrapping `val r = if (x) y` with the parent line's indent puts the closing
-// brace flush-left under `val r =` instead of aligned with `if`, which is
-// not ktfmt-compatible — better to flag and let the user resolve.
-func TestBuildBraceWrapFix_InlineRHS_NoFix(t *testing.T) {
+// TestBracesOnIfStatements_ExpressionPosition_NoFinding verifies the rule
+// skips expression-position ifs entirely. `val r = if (x) y else z` is an
+// expression, not a statement — "should use braces" does not apply, and
+// wrapping its body produces visually-broken output regardless of how the
+// fix derives its indentation.
+func TestBracesOnIfStatements_ExpressionPosition_NoFinding(t *testing.T) {
 	findings := runBracesIfRule(t, "always", "always", `
 package test
 fun example(x: Boolean): Int {
     val r = if (x) 1 else 2
     return r
 }`)
-	if findings.Len() == 0 {
-		t.Fatal("expected at least one finding for inline RHS if")
-	}
-	for i := 0; i < findings.Len(); i++ {
-		if findings.FixAt(i) != nil {
-			t.Errorf("expected no fix for inline RHS if at finding %d, got fix=%+v", i, findings.FixAt(i))
-		}
+	if findings.Len() != 0 {
+		t.Errorf("expected no findings for expression-position if, got %d", findings.Len())
 	}
 }
 

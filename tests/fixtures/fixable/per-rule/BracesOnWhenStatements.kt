@@ -1,12 +1,12 @@
 package style
 
-fun example(x: Int): String {
-    return when (x) {
+fun example(x: Int) {
+    when (x) {
         1 ->
-            "one"
+            println("one")
         2 ->
-            "two"
+            println("two")
         else ->
-            "other"
+            println("other")
     }
 }

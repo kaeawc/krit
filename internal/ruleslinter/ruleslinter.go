@@ -536,7 +536,8 @@ func analyzeRegisterCall(fset *token.FileSet, funcs map[funcKey]funcInfo, file *
 	if !ok {
 		return nil
 	}
-	usage := scanBodyUsage(funcs, info.Body, info.CtxParam, info.RecvName, info.RecvType, map[funcKey]bool{})
+	sc := &scanCtx{funcs: funcs, visited: map[funcKey]bool{}}
+	usage := scanBodyUsage(sc, info)
 	return capabilityViolations(reg, usage, fset.Position(call.Pos()))
 }
 
@@ -759,7 +760,17 @@ func usageFromSelector(e *ast.SelectorExpr, ctxName string) bodyUsage {
 	return u
 }
 
-func usageFromCall(funcs map[funcKey]funcInfo, e *ast.CallExpr, selfName, selfType string, visited map[funcKey]bool) bodyUsage {
+// scanCtx bundles the per-scan state threaded through scanBodyUsage
+// and usageFromCall to avoid parameter sprawl.
+type scanCtx struct {
+	funcs    map[funcKey]funcInfo
+	ctxName  string // name of the *api.Context parameter
+	selfName string // name of the method receiver (e.g. "r")
+	selfType string // type of the method receiver (e.g. "FooRule")
+	visited  map[funcKey]bool
+}
+
+func usageFromCall(sc *scanCtx, e *ast.CallExpr) bodyUsage {
 	var u bodyUsage
 	if sel, ok := e.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Oracle" && len(e.Args) == 0 {
 		u.oracle = true
@@ -770,22 +781,22 @@ func usageFromCall(funcs map[funcKey]funcInfo, e *ast.CallExpr, selfName, selfTy
 	switch fn := e.Fun.(type) {
 	case *ast.Ident:
 		key := funcKey{Name: fn.Name}
-		if info, ok := funcs[key]; ok && !visited[key] {
-			visited[key] = true
-			u = u.merge(scanBodyUsage(funcs, info.Body, info.CtxParam, info.RecvName, info.RecvType, visited))
+		if info, ok := sc.funcs[key]; ok && !sc.visited[key] {
+			sc.visited[key] = true
+			u = u.merge(scanBodyUsage(sc, info))
 		}
 	case *ast.SelectorExpr:
 		recv := guessReceiverType(fn)
-		if recv == "" && selfName != "" && selfType != "" {
-			if id, ok := fn.X.(*ast.Ident); ok && id.Name == selfName {
-				recv = selfType
+		if recv == "" && sc.selfName != "" && sc.selfType != "" {
+			if id, ok := fn.X.(*ast.Ident); ok && id.Name == sc.selfName {
+				recv = sc.selfType
 			}
 		}
 		if recv != "" {
 			key := funcKey{Receiver: recv, Name: fn.Sel.Name}
-			if info, ok := funcs[key]; ok && !visited[key] {
-				visited[key] = true
-				u = u.merge(scanBodyUsage(funcs, info.Body, info.CtxParam, info.RecvName, info.RecvType, visited))
+			if info, ok := sc.funcs[key]; ok && !sc.visited[key] {
+				sc.visited[key] = true
+				u = u.merge(scanBodyUsage(sc, info))
 			}
 		}
 	}
@@ -801,19 +812,24 @@ func usageFromCall(funcs map[funcKey]funcInfo, e *ast.CallExpr, selfName, selfTy
 // The concurrent-state signal set is intentionally narrow: it matches
 // the exact primitives the cross-file concurrent dispatcher uses to manage
 // per-worker collectors. False negatives are preferred over false positives.
-func scanBodyUsage(funcs map[funcKey]funcInfo, body *ast.BlockStmt, ctxName, selfName, selfType string, visited map[funcKey]bool) bodyUsage {
+func scanBodyUsage(sc *scanCtx, info funcInfo) bodyUsage {
 	var usage bodyUsage
-	if body == nil {
+	if info.Body == nil {
 		return usage
 	}
-	ast.Inspect(body, func(n ast.Node) bool {
+	prevCtx, prevName, prevType := sc.ctxName, sc.selfName, sc.selfType
+	sc.ctxName = info.CtxParam
+	sc.selfName = info.RecvName
+	sc.selfType = info.RecvType
+	defer func() { sc.ctxName, sc.selfName, sc.selfType = prevCtx, prevName, prevType }()
+	ast.Inspect(info.Body, func(n ast.Node) bool {
 		switch e := n.(type) {
 		case *ast.GoStmt:
 			usage.concurrent = true
 		case *ast.SelectorExpr:
-			usage = usage.merge(usageFromSelector(e, ctxName))
+			usage = usage.merge(usageFromSelector(e, sc.ctxName))
 		case *ast.CallExpr:
-			usage = usage.merge(usageFromCall(funcs, e, selfName, selfType, visited))
+			usage = usage.merge(usageFromCall(sc, e))
 		case *ast.AssignStmt:
 			if assignmentTargetsFix(e) {
 				usage.fixAssigned = true
@@ -833,7 +849,7 @@ func assignmentTargetsFix(stmt *ast.AssignStmt) bool {
 		if !ok {
 			continue
 		}
-		if sel.Sel != nil && sel.Sel.Name == "Fix" {
+		if sel.Sel.Name == "Fix" {
 			return true
 		}
 	}

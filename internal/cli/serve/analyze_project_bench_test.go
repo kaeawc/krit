@@ -59,6 +59,7 @@ func BenchmarkAnalyzeProjectCold(b *testing.B) {
 		b.ReportMetric(got.Stats.WallSeconds, "wall_seconds")
 		b.ReportMetric(float64(got.Stats.FilesScanned), "files_scanned")
 		b.ReportMetric(float64(got.Stats.FindingsCount), "findings_count")
+		reportPhaseTimings(b, got.Stats)
 	}
 }
 
@@ -85,8 +86,27 @@ func BenchmarkAnalyzeProjectWarm(b *testing.B) {
 		}
 		if i == b.N-1 {
 			b.ReportMetric(got.Stats.WallSeconds, "wall_seconds")
+			reportPhaseTimings(b, got.Stats)
 		}
 	}
+}
+
+// reportPhaseTimings emits the per-phase wall-time breakdown so cold
+// vs warm runs are directly comparable when a daemon perf regression
+// shows up: total wall_seconds tells you something got slower,
+// phase_*_ms tells you which phase to blame (parse, index, dispatch,
+// crossfile, android, fixup, output). Phases that skip on a findings-
+// bundle hit report 0.
+func reportPhaseTimings(b *testing.B, s daemon.AnalyzeProjectStats) {
+	b.Helper()
+	p := s.PhaseTimingsMs
+	b.ReportMetric(float64(p.Parse), "phase_parse_ms")
+	b.ReportMetric(float64(p.Index), "phase_index_ms")
+	b.ReportMetric(float64(p.Dispatch), "phase_dispatch_ms")
+	b.ReportMetric(float64(p.CrossFile), "phase_crossfile_ms")
+	b.ReportMetric(float64(p.Android), "phase_android_ms")
+	b.ReportMetric(float64(p.Fixup), "phase_fixup_ms")
+	b.ReportMetric(float64(p.Output), "phase_output_ms")
 }
 
 // BenchmarkAnalyzeProjectLeak measures heap growth across many

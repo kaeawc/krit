@@ -238,6 +238,58 @@ func (s Scope) String() string {
 	}
 }
 
+// RuleLevel categorizes a rule by the analytical scope it requires.
+// Independent of dispatcher routing (Scope) and capability bits (Needs):
+// Level is a coarse, filterable label for docs, dashboards, CLI filters,
+// and IDE pickers. Originally introduced for the precompile taxonomy
+// (see docs/precompile/taxonomy.md), but applicable to any rule.
+type RuleLevel int8
+
+const (
+	// LevelUnset is the zero value: the rule has not declared a Level.
+	LevelUnset RuleLevel = iota
+	// LevelFunction: function-local analysis, no cross-file or external
+	// resolution required.
+	LevelFunction
+	// LevelFile: single-file analysis, may require an in-process source
+	// resolver (NeedsResolver) but no cross-file index.
+	LevelFile
+	// LevelModule: cross-file, source-only analysis using the project's
+	// CodeIndex.
+	LevelModule
+	// LevelExternal: requires binary/library resolution via the JVM
+	// oracle (NeedsOracle*).
+	LevelExternal
+	// LevelGenerated: generated sources or build-system surface
+	// (annotation processors, Gradle outputs).
+	LevelGenerated
+	// LevelMeta: infrastructure signals (budget exceeded, oracle
+	// unavailable). Exempt from category severity floors because they
+	// describe analyzer state, not user defects.
+	LevelMeta
+)
+
+// String returns a stable lowercase label for the level, suitable for
+// CLI flags, config keys, and JSON output.
+func (l RuleLevel) String() string {
+	switch l {
+	case LevelFunction:
+		return "function"
+	case LevelFile:
+		return "file"
+	case LevelModule:
+		return "module"
+	case LevelExternal:
+		return "external"
+	case LevelGenerated:
+		return "generated"
+	case LevelMeta:
+		return "meta"
+	default:
+		return "unset"
+	}
+}
+
 // NeedsTypeInfo is a source type-information alias for NeedsResolver only:
 // rules that need KAA must declare NeedsOracle or explicit oracle metadata
 // (Oracle, OracleCallTargets, OracleDeclarationNeeds, diagnostics). This keeps
@@ -549,6 +601,19 @@ type Rule struct {
 	// MaturityStable. Experimental and deprecated rules are
 	// default-inactive; see the Maturity type docs for the full contract.
 	Maturity Maturity
+
+	// Level categorizes the rule's analytical scope (function, file,
+	// module, external, generated, meta). Filterable metadata for docs,
+	// CLI filters, dashboards, and IDE pickers; the dispatcher does not
+	// key behavior on it. Zero value (LevelUnset) means the rule has
+	// not declared a level.
+	Level RuleLevel
+
+	// KotlincAnalog names the closest standard kotlinc diagnostic that
+	// this rule approximates, e.g. "UNREACHABLE_CODE". Informational
+	// only — krit is not bug-for-bug compatible with kotlinc. Empty
+	// when there is no analog.
+	KotlincAnalog string
 
 	// RunAfter declares rule IDs that must run before this rule within
 	// the dispatcher. The dispatcher topologically sorts active rules by

@@ -6,7 +6,7 @@ labels: bug
 
 ## Rule
 
-<!-- Which rule produced the incorrect finding? e.g., MagicNumber, UnreachableCode -->
+<!-- Which rule produced the incorrect finding? e.g., MagicNumber, EmptyBlock -->
 
 ## Expected behavior
 

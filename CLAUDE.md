@@ -15,8 +15,15 @@ can opt into JVM-backed Kotlin Analysis API/FIR helper facts (`tools/krit-types/
 
 - Keep analyzer and rule work in Go. Edit Kotlin/Gradle only for
   `krit-gradle-plugin/` or `tools/krit-*/`.
-- After implementation changes, run `go build -o krit ./cmd/krit/ && go vet ./...`.
-- Run `go test ./... -count=1` for full validation; use focused package tests while iterating.
+- After implementation changes, run all four:
+  `go build -o krit ./cmd/krit/ && go vet ./... && golangci-lint run ./... && go test ./... -count=1`.
+- **`golangci-lint run ./...` is required** — `go vet` does not catch
+  gofmt drift, unused functions/imports, or many other lint classes that
+  CI enforces. Skipping it just causes a CI round-trip. It's especially
+  easy to forget after a refactor or deletion that leaves orphan helpers;
+  make it part of every validation pass.
+- Run `go test ./... -count=1` for full test validation; use focused
+  package tests while iterating.
 - Use tree-sitter AST/flat nodes for structural analysis and regex only for
   line-oriented checks.
 - New rules use the v2 pipeline: implement the local rule struct with the

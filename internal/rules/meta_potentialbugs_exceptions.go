@@ -62,12 +62,3 @@ func (r *UnreachableCatchBlockRule) Meta() api.RuleDescriptor {
 		DefaultActive: true,
 	}
 }
-
-func (r *UnreachableCodeRule) Meta() api.RuleDescriptor {
-	return api.RuleDescriptor{
-		ID:            "UnreachableCode",
-		RuleSet:       "potential-bugs",
-		DefaultActive: true,
-		FixLevel:      "semantic",
-	}
-}

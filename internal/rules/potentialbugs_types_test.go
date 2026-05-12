@@ -69,34 +69,6 @@ class Foo {
 	}
 }
 
-// --- UnreachableCode ---
-
-func TestUnreachableCode_Positive(t *testing.T) {
-	findings := runRuleByName(t, "UnreachableCode", `
-package test
-fun foo(): Int {
-    return 1
-    println("unreachable")
-}`)
-	if len(findings) == 0 {
-		t.Error("expected finding for code after return")
-	}
-}
-
-func TestUnreachableCode_Negative(t *testing.T) {
-	findings := runRuleByName(t, "UnreachableCode", `
-package test
-fun foo(): Int {
-    println("reachable")
-    return 1
-}`)
-	for _, f := range findings {
-		if f.Rule == "UnreachableCode" {
-			t.Error("should not flag reachable code")
-		}
-	}
-}
-
 // --- DontDowncastCollectionTypes ---
 
 func TestDontDowncastCollectionTypes_Positive(t *testing.T) {

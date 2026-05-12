@@ -6,7 +6,7 @@ import (
 
 func registerPrecompileUnreachableCodeRules() {
 	r := &PrecompileUnreachableCodeRule{BaseRule: BaseRule{
-		RuleName:    "K0101-UnreachableCode",
+		RuleName:    "UnreachableCode",
 		RuleSetName: api.CategoryPrecompile,
 		Sev:         string(api.SeverityError),
 		Desc:        "Detects statements that follow an unconditional jump (return, throw, break, continue) in the same block. Mirrors kotlinc's UNREACHABLE_CODE.",
@@ -18,6 +18,8 @@ func registerPrecompileUnreachableCodeRules() {
 		Sev:            api.Severity(r.Sev),
 		NodeTypes:      []string{"jump_expression"},
 		Confidence:     r.Confidence(),
+		Level:          api.LevelFunction,
+		KotlincAnalog:  "UNREACHABLE_CODE",
 		Implementation: r,
 		Check:          r.check,
 		DefaultActive:  false,

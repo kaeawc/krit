@@ -11,10 +11,9 @@ tests/fixtures/precompile/
   fixable/<RuleID>/<n>.kt    -> must produce >=1 finding with a Fix payload
 ```
 
-`<RuleID>` is the full rule identifier including the `K####-` prefix,
-e.g. `K0101-UnreachableCode`. Fixture filenames are conventional,
-typically `1.kt`, `2.kt`, ..., but any `.kt` file under the rule directory
-is picked up.
+`<RuleID>` is the rule identifier, e.g. `UnreachableCode`. Fixture filenames
+are conventional, typically `1.kt`, `2.kt`, ..., but any `.kt` file under the
+rule directory is picked up.
 
 ## Running
 
@@ -40,7 +39,7 @@ go test ./internal/rules/ -run TestPrecompileFixtures -count=1
 
 ## Adding fixtures for a new rule
 
-1. Add the rule to `docs/precompile/taxonomy.md` with its `K####` code.
+1. Add the rule to `docs/precompile/taxonomy.md` under the appropriate level.
 2. Implement the rule under `internal/rules/precompile_<name>.go`.
 3. Create `positive/<RuleID>/`, `negative/<RuleID>/`, and (if fixable)
    `fixable/<RuleID>/` directories.

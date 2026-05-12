@@ -247,7 +247,6 @@ func (r *DontDowncastCollectionTypesRule) IsFixable() bool   { return true }
 func (r *CastNullableToNonNullableTypeRule) IsFixable() bool { return true }
 func (r *InvalidRangeRule) IsFixable() bool                  { return true }
 func (r *WrongEqualsTypeParameterRule) IsFixable() bool      { return true }
-func (r *UnreachableCodeRule) IsFixable() bool               { return true }
 func (r *MissingSuperCallRule) IsFixable() bool              { return true }
 
 // Performance rules (new fixable)

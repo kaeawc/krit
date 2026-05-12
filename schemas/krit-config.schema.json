@@ -11657,25 +11657,6 @@
             }
           }
         },
-        "UnreachableCode": {
-          "description": "Detects code after return, throw, break, or continue statements that can never execute. [fixable: idiomatic]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable UnreachableCode (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "UnsafeCallOnNullableType": {
           "description": "Detects usage of the !! not-null assertion operator which may throw NullPointerException.",
           "type": "object",
@@ -11826,70 +11807,70 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "K0101-UnreachableCode": {
-          "description": "Detects statements that follow an unconditional jump (return, throw, break, continue) in the same block. Mirrors kotlinc's UNREACHABLE_CODE.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable K0101-UnreachableCode (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "K0108-DuplicateLabel": {
-          "description": "Detects repeated constant labels in a subject-bearing `when` expression. Mirrors kotlinc's DUPLICATE_LABEL_IN_WHEN.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable K0108-DuplicateLabel (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "K0206-DuplicateDeclaration": {
-          "description": "Detects two top-level fun/class/val declarations in one file with the same name and (for functions) matching parameter type signature. Mirrors kotlinc's CONFLICTING_OVERLOADS / REDECLARATION for the file-local subset.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable K0206-DuplicateDeclaration (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "K0403-DeprecatedSymbolUsedError": {
+        "DeprecatedSymbolUsedError": {
           "description": "Detects references to symbols annotated with @Deprecated(level = DeprecationLevel.ERROR). Mirrors kotlinc's DEPRECATION_ERROR.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "active": {
-              "description": "Enable K0403-DeprecatedSymbolUsedError (default: false).",
+              "description": "Enable DeprecatedSymbolUsedError (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "DuplicateDeclaration": {
+          "description": "Detects two top-level fun/class/val declarations in one file with the same name and (for functions) matching parameter type signature. Mirrors kotlinc's CONFLICTING_OVERLOADS / REDECLARATION for the file-local subset.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable DuplicateDeclaration (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "DuplicateLabel": {
+          "description": "Detects repeated constant labels in a subject-bearing `when` expression. Mirrors kotlinc's DUPLICATE_LABEL_IN_WHEN.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable DuplicateLabel (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnreachableCode": {
+          "description": "Detects statements that follow an unconditional jump (return, throw, break, continue) in the same block. Mirrors kotlinc's UNREACHABLE_CODE.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnreachableCode (default: false).",
               "type": "boolean",
               "default": false
             },

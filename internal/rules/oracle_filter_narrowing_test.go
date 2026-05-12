@@ -23,7 +23,6 @@ func TestOracleFilterNarrowingForAuditedRules(t *testing.T) {
 		{"IgnoredReturnValue", []string{"Sequence", "Flow", "Stream", "Function", "->", "CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}, []string{"CheckReturnValue", "CheckResult", "CanIgnoreReturnValue"}},
 		{"NullableToStringCall", []string{"toString", "$"}, []string{"toString"}},
 		{"ObjectAnimatorBinding", []string{"ObjectAnimator", "ofFloat", "ofInt", "ofObject"}, nil},
-		{"UnreachableCode", []string{"return", "throw", "break", "continue"}, nil},
 		{"UseIsNullOrEmpty", []string{"isEmpty", "count", ".size", ".length", "\"\""}, nil},
 		{"UnsafeCast", []string{" as ", " as?"}, nil},
 	}

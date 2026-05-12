@@ -661,7 +661,6 @@ func AllMetaProviders() []api.MetaProvider {
 		(*UnprotectedDynamicReceiverRule)(nil),
 		(*UnprotectedSMSBroadcastReceiverManifestRule)(nil),
 		(*UnreachableCatchBlockRule)(nil),
-		(*UnreachableCodeRule)(nil),
 		(*UnsafeCallOnNullableTypeRule)(nil),
 		(*UnsafeCastRule)(nil),
 		(*UnsafeProtectedBroadcastReceiverManifestRule)(nil),

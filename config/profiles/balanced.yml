@@ -545,8 +545,6 @@ potential-bugs:
     active: true
   UnreachableCatchBlock:
     active: true
-  UnreachableCode:
-    active: true
   UnsafeCallOnNullableType:
     active: true
     excludes:

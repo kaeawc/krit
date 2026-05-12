@@ -15,10 +15,10 @@ func TestPrecompileConventions(t *testing.T) {
 		}
 		r := r
 		t.Run(r.ID, func(t *testing.T) {
-			if !api.IsPrecompileID(r.ID) {
-				t.Errorf("rule ID %q does not match precompile pattern %s", r.ID, api.PrecompileIDPattern)
+			if r.Level == api.LevelUnset {
+				t.Errorf("rule %s has no Level set; precompile rules must declare a RuleLevel", r.ID)
 			}
-			if api.IsPrecompileMetaID(r.ID) {
+			if r.Level == api.LevelMeta {
 				if r.Sev != api.SeverityError && r.Sev != api.SeverityWarning {
 					t.Errorf("meta rule %s severity %q must be error or warning", r.ID, r.Sev)
 				}

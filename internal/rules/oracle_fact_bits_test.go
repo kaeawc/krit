@@ -119,7 +119,7 @@ func TestOracleFactUnion_LegacyMetadataLifted(t *testing.T) {
 // for diagnostic-consuming rules has been removed. The matching rules
 // must declare NeedsOracleDiagnostics on Needs to opt in.
 func TestOracleFactUnion_NoLegacyIDLift(t *testing.T) {
-	for _, id := range []string{"UnsafeCast", "UnreachableCode"} {
+	for _, id := range []string{"UnsafeCast"} {
 		r := &api.Rule{ID: id}
 		got := OracleFactUnion([]*api.Rule{r})
 		if got.HasAny(api.NeedsOracleDiagnostics) {
@@ -317,7 +317,7 @@ func TestOracleNarrowing_EndToEnd(t *testing.T) {
 
 	// Diagnostic-only rule.
 	diagOnly := &api.Rule{
-		ID:    "UnreachableCode",
+		ID:    "DiagnosticOnlyRule",
 		Needs: api.NeedsOracleDiagnostics,
 	}
 

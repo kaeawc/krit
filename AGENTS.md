@@ -20,10 +20,11 @@ Krit is a Go-first static analyzer for Kotlin, Java, and Android projects. It pa
 ```bash
 go build -o krit ./cmd/krit/   # Build CLI
 go vet ./...                    # Lint Go code
+golangci-lint run ./...         # Lint (gofmt, unused, etc.) — REQUIRED, easy to forget
 go test ./... -count=1          # Full Go test suite
 ```
 
-After implementation changes, run `go build -o krit ./cmd/krit/ && go vet ./...`. Run `go test ./... -count=1` for test validation; use focused package tests while iterating.
+After implementation changes, run all four: `go build -o krit ./cmd/krit/`, `go vet ./...`, `golangci-lint run ./...`, and `go test ./... -count=1`. CI runs `golangci-lint`, so missing a gofmt/unused/lint issue locally just causes a CI round-trip — always run it before pushing. Use focused package tests while iterating.
 
 Rule metadata and registry entries are checked-in Go source. Update the
 relevant `internal/rules/registry_*.go` file and `Meta()` descriptor directly.

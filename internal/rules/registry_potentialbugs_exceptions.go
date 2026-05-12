@@ -73,24 +73,6 @@ func registerPotentialbugsExceptionsRules() {
 		})
 	}
 	{
-		r := &UnreachableCodeRule{BaseRule: BaseRule{RuleName: "UnreachableCode", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects code after return, throw, break, or continue statements that can never execute."}}
-		api.Register(&api.Rule{
-			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"statements"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
-			Needs: api.NeedsTypeInfo | api.NeedsOracleDiagnostics,
-			Tags:  []string{"precompile"},
-			// Narrow by the four jump keywords the rule actually dispatches
-			// on. Without any jump keyword a file cannot produce an
-			// UNREACHABLE_CODE finding; USELESS_ELVIS diagnostics in files
-			// lacking all four keywords are a documented trade-off.
-			Oracle: &api.OracleFilter{Identifiers: []string{"return", "throw", "break", "continue"}},
-			// Consumes file-level compiler diagnostics (UNREACHABLE_CODE,
-			// USELESS_ELVIS) via LookupDiagnostics; never reads declarations.
-			OracleDeclarationNeeds: &api.OracleDeclarationProfile{},
-			Check:                  r.checkNode,
-		})
-	}
-	{
 		r := &MissingReturnRule{BaseRule: BaseRule{RuleName: "MissingReturn", RuleSetName: "potential-bugs", Sev: "error", Desc: "Detects block-bodied functions with a non-Unit return type whose body does not terminate on every path."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),

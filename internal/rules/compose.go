@@ -659,7 +659,7 @@ func composeModifierTextHasPreviewAnnotation(text string) bool {
 			}
 			break
 		}
-		if end > start && strings.Contains(text[start:end], "Preview") {
+		if end > start && strings.HasSuffix(text[start:end], "Preview") {
 			return true
 		}
 	}

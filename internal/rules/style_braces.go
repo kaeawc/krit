@@ -19,18 +19,34 @@ func controlBodyHasBraces(file *scanner.File, body uint32) bool {
 // buildBraceWrapFix wraps a single-statement control body in braces while
 // preserving the column the body already sits at (or one step deeper than
 // the header for inline forms) so the result stays ktfmt-compatible.
+// Returns nil when the control header is not the first non-whitespace on
+// its line (e.g. inline RHS `val r = if (x) y else z`): the surrounding
+// indentation is not strong enough to derive a safe placement for the
+// closing brace, so we emit only the finding without a fix.
 func buildBraceWrapFix(file *scanner.File, control, body uint32) *scanner.Fix {
+	controlStart := int(file.FlatStartByte(control))
+	if !isFirstNonWSOnLine(file.Content, controlStart) {
+		return nil
+	}
 	bodyTrimmed := strings.TrimSpace(file.FlatNodeText(body))
 
-	parentIndent := detectIndent(file.Content, int(file.FlatStartByte(control)))
-	bodyIndent := parentIndent + "    "
+	parentIndent := detectIndent(file.Content, controlStart)
+	bodyIndent := parentIndent + indentStep(parentIndent)
 	if file.FlatRow(body) != file.FlatRow(control) {
 		bodyIndent = detectIndent(file.Content, int(file.FlatStartByte(body)))
 	}
 
+	// Extend the replacement range back from body's start byte over plain
+	// whitespace only so the new `{` lands on the header line. Stop at any
+	// non-whitespace byte (including the end of a comment that sits between
+	// the header `)` and the body) so we never delete that text.
 	startByte := int(file.FlatStartByte(body))
-	if prev, ok := file.FlatPrevSibling(body); ok {
-		startByte = int(file.FlatEndByte(prev))
+	for startByte > 0 {
+		c := file.Content[startByte-1]
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			break
+		}
+		startByte--
 	}
 
 	return &scanner.Fix{
@@ -39,6 +55,35 @@ func buildBraceWrapFix(file *scanner.File, control, body uint32) *scanner.Fix {
 		EndByte:     int(file.FlatEndByte(body)),
 		Replacement: " {\n" + bodyIndent + bodyTrimmed + "\n" + parentIndent + "}",
 	}
+}
+
+// isFirstNonWSOnLine distinguishes statement-position control flow from
+// inline RHS forms where wrapping with our derived indent would misalign.
+func isFirstNonWSOnLine(content []byte, byteOffset int) bool {
+	if byteOffset < 0 || byteOffset >= len(content) {
+		return false
+	}
+	for i := byteOffset - 1; i >= 0; i-- {
+		c := content[i]
+		if c == '\n' {
+			return true
+		}
+		if c != ' ' && c != '\t' {
+			return false
+		}
+	}
+	return true
+}
+
+// indentStep returns the indentation unit (tab or 4 spaces) to add for one
+// nesting level. Uses tab when the parent indent itself is tab-based so we
+// stay consistent with the file's indentation style; otherwise defaults to
+// 4 spaces (ktfmt-kotlinlang default).
+func indentStep(parentIndent string) string {
+	if strings.ContainsRune(parentIndent, '\t') {
+		return "\t"
+	}
+	return "    "
 }
 
 // BracesOnIfStatementsRule enforces braces on if statements.

@@ -27,13 +27,10 @@ import (
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
-// LibraryFactsCache lets a long-lived host (typically *WorkspaceState)
-// memoize *librarymodel.Facts across RunProject calls so the daemon
-// doesn't repay Gradle/version-catalog discovery on every analyze.
-// build is invoked on a fingerprint mismatch.
-type LibraryFactsCache interface {
-	LibraryFacts(fingerprint string, build func() *librarymodel.Facts) *librarymodel.Facts
-}
+// LibraryFactsCache memoizes *librarymodel.Facts across RunProject
+// calls so the daemon doesn't repay Gradle/version-catalog discovery
+// on every analyze.
+type LibraryFactsCache = XFileCache[*librarymodel.Facts]
 
 // ProjectArgs is the per-call subset of ProjectInput: caller-provided
 // knobs that mirror a small, stable subset of CLI flags. These change
@@ -1098,7 +1095,7 @@ func wireOracleHandles(in *IndexInput, args ProjectArgs, host ProjectHostState, 
 		return
 	}
 	fp := oracleFilterFingerprint(args.ActiveRules, kotlinFiles)
-	in.PrebuiltOracleCallFilter = host.OracleFilterCache.OracleFilter(fp, func() *oracle.CallTargetFilterSummary {
+	in.PrebuiltOracleCallFilter = host.OracleFilterCache(fp, func() *oracle.CallTargetFilterSummary {
 		summary := rules.BuildOracleCallTargetFilterV2ForFiles(args.ActiveRules, kotlinFiles)
 		return &summary
 	})
@@ -1582,7 +1579,7 @@ func preparseProjectFingerprints(args ProjectArgs, host ProjectHostState) (strin
 	}
 	if host.LibraryFactsCache != nil && len(gradle) > 0 {
 		androidFP := libraryFactsFingerprint(gradle)
-		return androidFP, host.LibraryFactsCache.LibraryFacts(androidFP, build).Fingerprint()
+		return androidFP, host.LibraryFactsCache(androidFP, build).Fingerprint()
 	}
 	return libraryFactsFingerprint(gradle), build().Fingerprint()
 }

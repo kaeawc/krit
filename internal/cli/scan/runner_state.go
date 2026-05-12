@@ -15,6 +15,7 @@ import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/experiment"
+	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
@@ -553,11 +554,20 @@ func (r *runner) setupParseCaches() {
 // and finalizes findings into the columnar form used by output.
 func (r *runner) firCheckAndCollect() {
 	r.tracker.TrackVoid("firCheckAndCollect", func() {
+		enabled := *r.f.Fir && !*r.f.NoFir
+		var checker firchecks.FirChecker
+		if enabled {
+			checker = &firchecks.ProductionFirChecker{
+				JarPath:   firchecks.FindFirJar(r.paths),
+				RepoDir:   oracle.FindRepoDir(r.paths),
+				UseDaemon: !*r.f.NoFirDaemon,
+				Verbose:   *r.f.Verbose,
+			}
+		}
 		r.allFindings = runFIRCheckerPass(firCheckerOpts{
-			Enabled:     *r.f.Fir && !*r.f.NoFir,
-			UseDaemon:   !*r.f.NoFirDaemon,
+			Enabled:     enabled,
+			Checker:     checker,
 			Verbose:     *r.f.Verbose,
-			Paths:       r.paths,
 			ActiveRules: r.activeRules,
 			ParsedFiles: r.parsedFiles,
 			Tracker:     r.tracker,

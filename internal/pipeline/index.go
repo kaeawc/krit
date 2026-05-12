@@ -428,7 +428,7 @@ func (p IndexPhase) buildBaseResolver(ctx context.Context, in IndexInput, caps a
 		return r
 	}
 	if in.ResolverCache != nil {
-		return in.ResolverCache.Resolver(resolverFingerprint(in.KotlinFiles), build), nil
+		return in.ResolverCache(resolverFingerprint(in.KotlinFiles), build), nil
 	}
 	return build(), nil
 }
@@ -496,7 +496,7 @@ func (p IndexPhase) detectAndroidProject(in IndexInput, result *IndexResult) {
 			return librarymodel.FactsForProfile(librarymodel.ProfileFromGradlePaths(gradle))
 		}
 		if in.LibraryFactsCache != nil && len(gradle) > 0 {
-			result.LibraryFacts = in.LibraryFactsCache.LibraryFacts(libraryFactsFingerprint(gradle), build)
+			result.LibraryFacts = in.LibraryFactsCache(libraryFactsFingerprint(gradle), build)
 		} else {
 			result.LibraryFacts = build()
 		}

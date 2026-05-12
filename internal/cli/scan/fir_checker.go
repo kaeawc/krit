@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/firchecks"
-	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -17,10 +16,13 @@ import (
 // firCheckerOpts groups every flag and runtime input runFIRCheckerPass
 // needs. Pulled out so the call site reads as one struct literal.
 type firCheckerOpts struct {
-	Enabled     bool // typically *firFlag && !*noFirFlag
-	UseDaemon   bool // typically !*noFirDaemonFlag
+	Enabled bool // typically *firFlag && !*noFirFlag
+	// Checker is the FirChecker that runs the actual subprocess or
+	// daemon invocation. Production callers pass *ProductionFirChecker;
+	// tests inject FakeFirChecker. When nil the pass is a no-op even if
+	// Enabled is true.
+	Checker     firchecks.FirChecker
 	Verbose     bool
-	Paths       []string
 	ActiveRules []*api.Rule
 	ParsedFiles []*scanner.File
 	Tracker     perf.Tracker
@@ -77,17 +79,15 @@ func activeRuleIDs(rules []*api.Rule) []string {
 // emits a one-line summary of timing, finding counts, file selection,
 // and the FIR cache stats.
 func runFIRCheckerPass(opts firCheckerOpts, base []scanner.Finding) []scanner.Finding {
-	if !opts.Enabled {
+	if !opts.Enabled || opts.Checker == nil {
 		return base
 	}
 	start := time.Now()
 	subTracker := opts.Tracker.Serial("firCheck")
-	jar := firchecks.FindFirJar(opts.Paths)
 	active := firchecks.ActiveFirRules(activeRuleIDs(opts.ActiveRules))
 	summary := firchecks.CollectFirCheckFiles(active.Filters, opts.ParsedFiles)
 	ktFiles := resolveFIRTargetFiles(summary, opts.ParsedFiles)
-	repoDir := oracle.FindRepoDir(opts.Paths)
-	result, err := firchecks.InvokeCached(jar, ktFiles, nil, nil, active.Names, repoDir, opts.UseDaemon, opts.Verbose)
+	result, err := opts.Checker.Check(ktFiles, nil, nil, active.Names)
 	subTracker.End()
 
 	if err != nil {

@@ -9,7 +9,7 @@ import (
 	"github.com/kaeawc/krit/internal/librarymodel"
 )
 
-// countingLibraryFactsCache is a test fake implementing LibraryFactsCache
+// countingLibraryFactsCache is a test fake providing a LibraryFactsCache
 // that counts how often build() actually fires versus how often the cached
 // pointer is returned.
 type countingLibraryFactsCache struct {
@@ -18,7 +18,7 @@ type countingLibraryFactsCache struct {
 	builds int
 }
 
-func (c *countingLibraryFactsCache) LibraryFacts(fingerprint string, build func() *librarymodel.Facts) *librarymodel.Facts {
+func (c *countingLibraryFactsCache) Get(fingerprint string, build func() *librarymodel.Facts) *librarymodel.Facts {
 	if c.cached != nil && c.fp == fingerprint {
 		return c.cached
 	}
@@ -38,7 +38,7 @@ func TestIndexPhase_LibraryFactsCache_BuildsOnceAcrossRuns(t *testing.T) {
 	cache := &countingLibraryFactsCache{}
 	in := IndexInput{
 		ParseResult:       ParseResult{Paths: []string{dir}},
-		LibraryFactsCache: cache,
+		LibraryFactsCache: cache.Get,
 	}
 
 	r1, err := IndexPhase{SkipModules: true, SkipResolverIndex: true}.Run(context.Background(), in)

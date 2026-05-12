@@ -11,7 +11,7 @@ import (
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
-// countingResolverCache is a test fake implementing ResolverCache that
+// countingResolverCache is a test fake providing a ResolverCache that
 // counts how often build() actually fires versus how often the cached
 // pointer is returned.
 type countingResolverCache struct {
@@ -20,7 +20,7 @@ type countingResolverCache struct {
 	builds int
 }
 
-func (c *countingResolverCache) Resolver(fingerprint string, build func() typeinfer.TypeResolver) typeinfer.TypeResolver {
+func (c *countingResolverCache) Get(fingerprint string, build func() typeinfer.TypeResolver) typeinfer.TypeResolver {
 	if c.cached != nil && c.fp == fingerprint {
 		return c.cached
 	}
@@ -54,7 +54,7 @@ func TestIndexPhase_ResolverCache_BuildsOnceAcrossRuns(t *testing.T) {
 			KotlinFiles: []*scanner.File{parsed},
 			ActiveRules: []*api.Rule{rule},
 		},
-		ResolverCache: cache,
+		ResolverCache: cache.Get,
 	}
 
 	r1, err := IndexPhase{SkipModules: true, SkipAndroid: true}.Run(context.Background(), in)
@@ -105,7 +105,7 @@ func TestIndexPhase_ResolverCache_RebuildsOnContentChange(t *testing.T) {
 				KotlinFiles: []*scanner.File{file},
 				ActiveRules: []*api.Rule{rule},
 			},
-			ResolverCache: cache,
+			ResolverCache: cache.Get,
 		}
 	}
 

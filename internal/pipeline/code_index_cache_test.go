@@ -10,7 +10,7 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// countingCodeIndexCache is a test fake implementing CodeIndexCache
+// countingCodeIndexCache is a test fake providing a CodeIndexCache
 // that counts how often build() actually fires versus how often the
 // cached pointer is returned.
 type countingCodeIndexCache struct {
@@ -19,7 +19,7 @@ type countingCodeIndexCache struct {
 	builds int
 }
 
-func (c *countingCodeIndexCache) CodeIndex(fingerprint string, build func() *scanner.CodeIndex) *scanner.CodeIndex {
+func (c *countingCodeIndexCache) Get(fingerprint string, build func() *scanner.CodeIndex) *scanner.CodeIndex {
 	if c.cached != nil && c.fp == fingerprint {
 		return c.cached
 	}
@@ -56,7 +56,7 @@ func TestCrossFilePhase_CodeIndexCache_BuildsOnceAcrossRuns(t *testing.T) {
 				KotlinFiles: []*scanner.File{parsed},
 				ActiveRules: []*api.Rule{rule},
 			},
-			CodeIndexCache: cache,
+			CodeIndexCache: cache.Get,
 		},
 	}
 

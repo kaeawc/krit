@@ -84,7 +84,7 @@ func (p CrossFilePhase) buildOrReuseCodeIndex(in DispatchResult, hasIndexBacked 
 		return scanner.BuildIndex(in.KotlinFiles, workers, in.JavaFiles...)
 	}
 	if in.CodeIndexCache != nil {
-		return in.CodeIndexCache.CodeIndex(codeIndexFingerprint(in.KotlinFiles, in.JavaFiles), build)
+		return in.CodeIndexCache(codeIndexFingerprint(in.KotlinFiles, in.JavaFiles), build)
 	}
 	return build()
 }

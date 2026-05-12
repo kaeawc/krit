@@ -300,40 +300,35 @@ type IndexResult struct {
 	WarmCrossFindings *scanner.FindingColumns
 }
 
-// CodeIndexCache lets a long-lived host (typically *WorkspaceState)
-// memoize *scanner.CodeIndex across RunProject calls. The host is
-// responsible for invalidating its slot when the underlying file set
-// changes; the watcher's InvalidateCodeIndex call covers the daemon.
-// Fingerprint mismatches force a rebuild via build.
-type CodeIndexCache interface {
-	CodeIndex(fingerprint string, build func() *scanner.CodeIndex) *scanner.CodeIndex
-}
+// XFileCache memoizes a single value of type T across RunProject
+// calls, keyed by an opaque fingerprint string. A nil value disables
+// caching; an empty fingerprint must also bypass the cache (callers
+// rely on this to opt out without a type-side change). The host is
+// responsible for invalidating its slot when underlying inputs
+// change; mismatched fingerprints force build to fire.
+type XFileCache[T any] func(fingerprint string, build func() T) T
 
-// ResolverCache lets a long-lived host (typically *WorkspaceState)
-// memoize a typeinfer.TypeResolver across RunProject calls. Same
-// shape and contract as CodeIndexCache: build fires on a fingerprint
-// mismatch; the watcher's InvalidateResolver call covers the daemon.
-//
-// Fingerprint must capture every input that affects resolver state:
-// today the sorted (path, content-hash) pairs of every Kotlin file
-// indexed. Mismatches force a fresh resolver — no stale entries from
-// removed/renamed files leak across the boundary.
-type ResolverCache interface {
-	Resolver(fingerprint string, build func() typeinfer.TypeResolver) typeinfer.TypeResolver
-}
+// CodeIndexCache memoizes *scanner.CodeIndex across RunProject calls.
+// The watcher's InvalidateCodeIndex call covers the daemon.
+type CodeIndexCache = XFileCache[*scanner.CodeIndex]
 
-// OracleFilterCache lets a long-lived host (typically *WorkspaceState)
-// memoize the oracle *CallTargetFilterSummary across RunProject calls.
-// The filter classification scans every Kotlin file for annotated
-// identifiers; without caching it dominates the warm oracle cost.
+// ResolverCache memoizes a typeinfer.TypeResolver across RunProject
+// calls. Fingerprint must capture every input that affects resolver
+// state: today the sorted (path, content-hash) pairs of every Kotlin
+// file indexed. Mismatches force a fresh resolver — no stale entries
+// from removed/renamed files leak across the boundary.
+type ResolverCache = XFileCache[typeinfer.TypeResolver]
+
+// OracleFilterCache memoizes the oracle *CallTargetFilterSummary
+// across RunProject calls. The filter classification scans every
+// Kotlin file for annotated identifiers; without caching it dominates
+// the warm oracle cost.
 //
 // Fingerprint must include the active rule IDs (the filter is keyed
 // on rule capabilities + AnnotatedIdentifier specs) and the sorted
 // (path, content-hash) pairs of every Kotlin file. Mismatches force a
 // fresh classification.
-type OracleFilterCache interface {
-	OracleFilter(fingerprint string, build func() *oracle.CallTargetFilterSummary) *oracle.CallTargetFilterSummary
-}
+type OracleFilterCache = XFileCache[*oracle.CallTargetFilterSummary]
 
 // FileTiming captures per-file dispatch timing recorded when
 // IndexResult.ProfileDispatch is set.

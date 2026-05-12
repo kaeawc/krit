@@ -559,6 +559,121 @@ func init() {
 	}
 }
 
+func TestAnalyzeSource_FlagsDeclaredFixWithoutAssignment(t *testing.T) {
+	// A rule that declares Fix: api.FixSemantic but whose Check body
+	// never assigns f.Fix is lying to --fix UX and SARIF metadata.
+	src := `package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+func init() {
+	api.Register(&api.Rule{
+		ID:          "EmptyFixRule",
+		Description: "advertises a fix but does not produce one",
+		Fix:         api.FixSemantic,
+		Check: func(ctx *api.Context) {
+			ctx.EmitAt(1, 1, "no fix attached")
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "emptyfix.go", src)
+	if len(violations) != 1 {
+		t.Fatalf("want 1 violation, got %d: %v", len(violations), violations)
+	}
+	if !strings.Contains(violations[0].Message, "FixSemantic") {
+		t.Fatalf("want FixSemantic in message, got %q", violations[0].Message)
+	}
+}
+
+func TestAnalyzeSource_AcceptsFixAssignmentInCheckBody(t *testing.T) {
+	src := `package rules
+
+import (
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+func init() {
+	api.Register(&api.Rule{
+		ID:          "InlineFixRule",
+		Description: "sets f.Fix directly in the check body",
+		Fix:         api.FixIdiomatic,
+		Check: func(ctx *api.Context) {
+			f := ctx.Finding(1, 1, "msg")
+			f.Fix = &scanner.Fix{ByteMode: true}
+			ctx.Emit(f)
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "inlinefix.go", src)
+	if len(violations) != 0 {
+		t.Fatalf("want 0 violations, got %d: %v", len(violations), violations)
+	}
+}
+
+func TestAnalyzeSource_AcceptsFixAssignmentInRuleHelperMethod(t *testing.T) {
+	// The fix lives on a helper method bound to the rule receiver.
+	// The linter must thread the method's receiver through call
+	// resolution so it can follow r.helper() into the helper body.
+	src := `package rules
+
+import (
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+type DelegatedFixRule struct{}
+
+func (r *DelegatedFixRule) emit(ctx *api.Context) {
+	f := ctx.Finding(1, 1, "msg")
+	f.Fix = &scanner.Fix{ByteMode: true}
+	ctx.Emit(f)
+}
+
+func (r *DelegatedFixRule) check(ctx *api.Context) {
+	r.emit(ctx)
+}
+
+func init() {
+	r := &DelegatedFixRule{}
+	api.Register(&api.Rule{
+		ID:          "DelegatedFixRule",
+		Description: "fix is set in a helper method on the rule receiver",
+		Fix:         api.FixIdiomatic,
+		Check:       r.check,
+	})
+}
+`
+	violations := analyzeSource(t, "delegatedfix.go", src)
+	if len(violations) != 0 {
+		t.Fatalf("want 0 violations, got %d: %v", len(violations), violations)
+	}
+}
+
+func TestAnalyzeSource_FixNoneSkipsGate(t *testing.T) {
+	src := `package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+func init() {
+	api.Register(&api.Rule{
+		ID:          "NoFixRule",
+		Description: "explicitly declares no fix",
+		Fix:         api.FixNone,
+		Check: func(ctx *api.Context) {
+			ctx.EmitAt(1, 1, "msg")
+		},
+	})
+}
+`
+	violations := analyzeSource(t, "nofix.go", src)
+	if len(violations) != 0 {
+		t.Fatalf("want 0 violations, got %d: %v", len(violations), violations)
+	}
+}
+
 func analyzeSource(t *testing.T, name, src string) []Violation {
 	t.Helper()
 	fset := token.NewFileSet()

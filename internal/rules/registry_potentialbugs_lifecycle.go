@@ -54,27 +54,44 @@ func registerPotentialbugsLifecycleRules() {
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"Do not call garbage collector explicitly. It is rarely necessary and can degrade performance.")
-				startByte := int(file.FlatStartByte(idx))
-				endByte := int(file.FlatEndByte(idx))
-				for startByte > 0 && file.Content[startByte-1] != '\n' {
-					startByte--
+				callStart := int(file.FlatStartByte(idx))
+				callEnd := int(file.FlatEndByte(idx))
+				// Only autofix when the call stands alone as a statement on its
+				// own line. Otherwise (e.g. `foo(System.gc())`,
+				// `if (cond) System.gc();`) removing the line would delete
+				// surrounding code.
+				lineStart := callStart
+				for lineStart > 0 && file.Content[lineStart-1] != '\n' {
+					lineStart--
 				}
-				// Consume trailing whitespace + statement terminator (;) for Java
-				// so removing the call doesn't leave a dangling `;` on its own line.
-				for endByte < len(file.Content) && (file.Content[endByte] == ' ' || file.Content[endByte] == '\t') {
-					endByte++
+				prefixOnlyWS := true
+				for i := lineStart; i < callStart; i++ {
+					if file.Content[i] != ' ' && file.Content[i] != '\t' {
+						prefixOnlyWS = false
+						break
+					}
 				}
-				if endByte < len(file.Content) && file.Content[endByte] == ';' {
-					endByte++
+				cursor := callEnd
+				for cursor < len(file.Content) && (file.Content[cursor] == ' ' || file.Content[cursor] == '\t') {
+					cursor++
 				}
-				if endByte < len(file.Content) && file.Content[endByte] == '\n' {
-					endByte++
+				if cursor < len(file.Content) && file.Content[cursor] == ';' {
+					cursor++
 				}
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   startByte,
-					EndByte:     endByte,
-					Replacement: "",
+				for cursor < len(file.Content) && (file.Content[cursor] == ' ' || file.Content[cursor] == '\t' || file.Content[cursor] == '\r') {
+					cursor++
+				}
+				atLineEnd := cursor >= len(file.Content) || file.Content[cursor] == '\n'
+				if prefixOnlyWS && atLineEnd {
+					if cursor < len(file.Content) && file.Content[cursor] == '\n' {
+						cursor++
+					}
+					f.Fix = &scanner.Fix{
+						ByteMode:    true,
+						StartByte:   lineStart,
+						EndByte:     cursor,
+						Replacement: "",
+					}
 				}
 				ctx.Emit(f)
 			},

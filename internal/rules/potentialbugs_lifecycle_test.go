@@ -213,6 +213,121 @@ class Example {
 	}
 }
 
+func TestExplicitGarbageCollectionCall_JavaFixIsLineDeletion(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ExplicitGarbageCollectionCall", `package test;
+class Example {
+  void cleanup() {
+    System.gc();
+  }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	f := findings[0].Fix
+	if f == nil || !f.ByteMode {
+		t.Fatalf("expected byte-mode Fix, got %#v", f)
+	}
+	if f.Replacement != "" {
+		t.Fatalf("expected empty replacement, got %q", f.Replacement)
+	}
+}
+
+// Regression: when System.gc() appears as a sub-expression (here, an
+// argument), the fix must NOT extend back to line start or eat a trailing
+// `;`/`\n` — doing so would delete surrounding code on the line. The rule
+// should still report a finding, but should not emit a Fix.
+func TestExplicitGarbageCollectionCall_NoFixForInExpressionPosition(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ExplicitGarbageCollectionCall", `package test;
+class Example {
+  void foo(Object x) {}
+  void cleanup() {
+    foo(System.gc());
+  }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix != nil {
+		t.Fatalf("expected no Fix for in-expression System.gc(), got %#v", findings[0].Fix)
+	}
+}
+
+// Regression: multiple statements on the same line.
+// `foo(); System.gc(); bar();` must not collapse — the fix would otherwise
+// destroy `foo()` and `bar()`.
+func TestExplicitGarbageCollectionCall_NoFixWithMultipleStatementsOnLine(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ExplicitGarbageCollectionCall", `package test;
+class Example {
+  void foo() {}
+  void bar() {}
+  void cleanup() {
+    foo(); System.gc(); bar();
+  }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix != nil {
+		t.Fatalf("expected no Fix when other statements share the line, got %#v", findings[0].Fix)
+	}
+}
+
+// Regression: `{ System.gc(); }` on a single line must not delete the
+// leading brace.
+func TestExplicitGarbageCollectionCall_NoFixForSingleLineBlock(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ExplicitGarbageCollectionCall", `package test;
+class Example {
+  void cleanup() { System.gc(); }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix != nil {
+		t.Fatalf("expected no Fix for single-line block, got %#v", findings[0].Fix)
+	}
+}
+
+// Regression: Kotlin `val x = System.gc()` has no trailing `;`, so the
+// pre-fix logic would eat the newline and join with the next line. The
+// guard must reject this position (prefix is not whitespace-only).
+func TestExplicitGarbageCollectionCall_NoFixForKotlinAssignment(t *testing.T) {
+	findings := runRuleByName(t, "ExplicitGarbageCollectionCall", `
+package test
+fun cleanup() {
+    val x = System.gc()
+    println(x)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix != nil {
+		t.Fatalf("expected no Fix for Kotlin assignment of System.gc(), got %#v", findings[0].Fix)
+	}
+}
+
+// Regression: when System.gc() shares a line with preceding code (e.g.
+// `if (cond) System.gc();`), the fix must not eat the leading code.
+func TestExplicitGarbageCollectionCall_NoFixWhenSharingLineWithLeadingCode(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ExplicitGarbageCollectionCall", `package test;
+class Example {
+  void cleanup(boolean cond) {
+    if (cond) System.gc();
+  }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Fix != nil {
+		t.Fatalf("expected no Fix when call shares a line with leading code, got %#v", findings[0].Fix)
+	}
+}
+
 // --- InvalidRange ---
 
 func TestInvalidRange_Positive(t *testing.T) {

@@ -113,6 +113,9 @@ func (r *LogOfSharedPreferenceReadRule) check(ctx *api.Context) {
 	if !isLogReceiver(receiver) {
 		return
 	}
+	if logReceiverIsLocalShadow(ctx, idx, receiver) {
+		return
+	}
 
 	_, args := flatCallExpressionParts(file, idx)
 	if args == 0 {
@@ -185,4 +188,20 @@ func isLogReceiver(receiver string) bool {
 		return true
 	}
 	return false
+}
+
+// logReceiverIsLocalShadow reports whether `receiver` at `callIdx` is a value
+// (val/var/parameter) that happens to share the simple name of the Log/Timber
+// class. Only consulted when a resolver is available (e.g. --depth=thorough).
+// A class/object named Log or Timber resolves with the same simple name, so
+// only a mismatched Name indicates a real value-shadow.
+func logReceiverIsLocalShadow(ctx *api.Context, callIdx uint32, receiver string) bool {
+	if ctx == nil || ctx.Resolver == nil || ctx.File == nil {
+		return false
+	}
+	t := ctx.Resolver.ResolveByNameFlat(receiver, callIdx, ctx.File)
+	if t == nil {
+		return false
+	}
+	return t.Name != "" && t.Name != receiver
 }

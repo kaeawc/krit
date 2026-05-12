@@ -12,6 +12,12 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
+// pluralsIfElseCountNames is intentionally narrower than pluralsCountNames:
+// this rule only fires on identifiers that strongly imply a localizable
+// count. Compound names like itemCount, userCount, or messageQuantity are
+// not matched — we prefer precision over recall here because the
+// if/else-to-getQuantityString suggestion is intrusive and noisy when
+// wrong (DB row counts, log tags, JSON sizes).
 var pluralsIfElseCountNames = map[string]bool{
 	"count": true, "quantity": true,
 }

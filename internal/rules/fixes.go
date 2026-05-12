@@ -248,7 +248,7 @@ func (r *MissingSuperCallRule) IsFixable() bool              { return true }
 func (r *ForEachOnRangeRule) IsFixable() bool { return true }
 
 // Style classes / data class (new fixable)
-func (r *NestedClassesVisibilityRule) IsFixable() bool   { return true }
+func (r *NestedClassesVisibilityRule) IsFixable() bool    { return true }
 func (r *DataClassContainsFunctionsRule) IsFixable() bool { return true }
 
 // Comments quality (new fixable)

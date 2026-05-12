@@ -382,7 +382,7 @@ func registerStyleUnnecessaryRules() {
 		r := &UnnecessaryFullyQualifiedNameRule{BaseRule: BaseRule{RuleName: "UnnecessaryFullyQualifiedName", RuleSetName: "style", Sev: "warning", Desc: "Detects fully qualified names that are unnecessary because the type is already imported."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: 0.95, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"navigation_expression"}, Confidence: 0.95, Fix: api.FixNone, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				text := file.FlatNodeText(idx)

@@ -17,6 +17,14 @@
 // scanBodyUsage below — and errs toward false negatives over false
 // positives.
 //
+// A third gate enforces Fix-declaration fidelity: a rule that declares
+// Fix: api.FixSemantic / FixIdiomatic / FixCosmetic must populate a
+// Fix on at least one finding it emits (either directly in the Check
+// body or in a same-package helper / rule-receiver method that the
+// body transitively calls). The check exists because a Fix declaration
+// flows into SARIF "fixable" metadata and into `krit fix` UX — a rule
+// that says it can be fixed but never produces a fix corrupts both.
+//
 // Scope is intentionally conservative:
 //   - Analyzes one Go package (typically internal/rules) at a time.
 //   - Resolves the Check expression to a single function body: a FuncLit,
@@ -289,6 +297,8 @@ type funcKey struct {
 type funcInfo struct {
 	Body     *ast.BlockStmt
 	CtxParam string // name of the parameter typed *api.Context, if any
+	RecvName string // name of the receiver parameter, if any (e.g. "r")
+	RecvType string // type of the receiver, stripped of leading '*' (e.g. "FooRule")
 }
 
 func analyzeFiles(fset *token.FileSet, files []*ast.File) []Violation {
@@ -303,6 +313,8 @@ func analyzeFiles(fset *token.FileSet, files []*ast.File) []Violation {
 			funcs[funcKey{Receiver: recv, Name: fn.Name.Name}] = funcInfo{
 				Body:     fn.Body,
 				CtxParam: ctxParamName(fn.Type),
+				RecvName: receiverParamName(fn),
+				RecvType: recv,
 			}
 		}
 	}
@@ -329,6 +341,19 @@ func analyzeFiles(fset *token.FileSet, files []*ast.File) []Violation {
 		return violations[i].Position.Offset < violations[j].Position.Offset
 	})
 	return violations
+}
+
+// receiverParamName returns the name of the method receiver parameter,
+// or "" if the function is not a method or the receiver is unnamed.
+func receiverParamName(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return ""
+	}
+	names := fn.Recv.List[0].Names
+	if len(names) == 0 {
+		return ""
+	}
+	return names[0].Name
 }
 
 func receiverTypeName(fn *ast.FuncDecl) string {
@@ -404,6 +429,7 @@ type registration struct {
 	NeedsNames   map[string]bool // set of capability constant names found in Needs
 	CheckExpr    ast.Expr
 	HasOracleCfg bool
+	FixLevel     string // name of api.Fix* constant, e.g. "FixNone" / "FixSemantic"
 }
 
 func parseRegistration(lit *ast.CompositeLit) registration {
@@ -426,9 +452,24 @@ func parseRegistration(lit *ast.CompositeLit) registration {
 			reg.CheckExpr = kv.Value
 		case "Oracle":
 			reg.HasOracleCfg = true
+		case "Fix":
+			reg.FixLevel = fixLevelName(kv.Value)
 		}
 	}
 	return reg
+}
+
+// fixLevelName returns the trailing identifier of an api.Fix* selector
+// expression (e.g. "FixSemantic" for `api.FixSemantic`). Returns ""
+// when the expression is not a recognisable Fix constant.
+func fixLevelName(expr ast.Expr) string {
+	switch v := expr.(type) {
+	case *ast.SelectorExpr:
+		return v.Sel.Name
+	case *ast.Ident:
+		return v.Name
+	}
+	return ""
 }
 
 func capabilityViolations(reg registration, usage bodyUsage, pos token.Position) []Violation {
@@ -465,6 +506,13 @@ func capabilityViolations(reg registration, usage bodyUsage, pos token.Position)
 			Message:  "declares NeedsConcurrent in Meta() but does not use concurrent state (goroutines, sync.WaitGroup, or scanner.MergeCollectors)",
 		})
 	}
+	if reg.FixLevel != "" && reg.FixLevel != "FixNone" && !usage.fixAssigned {
+		out = append(out, Violation{
+			RuleID:   reg.ID,
+			Position: pos,
+			Message:  "declares Fix: api." + reg.FixLevel + " but Check body never assigns a Fix to the finding; set Fix to api.FixNone or implement the fix",
+		})
+	}
 	return out
 }
 
@@ -484,11 +532,12 @@ func analyzeRegisterCall(fset *token.FileSet, funcs map[funcKey]funcInfo, file *
 	if reg.CheckExpr == nil {
 		return nil
 	}
-	body, ctxName, ok := resolveCheckBody(funcs, file, call, reg.CheckExpr)
+	info, ok := resolveCheckBody(funcs, file, call, reg.CheckExpr)
 	if !ok {
 		return nil
 	}
-	usage := scanBodyUsage(funcs, body, ctxName, map[funcKey]bool{})
+	sc := &scanCtx{funcs: funcs, visited: map[funcKey]bool{}}
+	usage := scanBodyUsage(sc, info)
 	return capabilityViolations(reg, usage, fset.Position(call.Pos()))
 }
 
@@ -573,26 +622,26 @@ func collectCapabilityNames(expr ast.Expr, out map[string]bool) {
 }
 
 // resolveCheckBody resolves the Check expression to a function body and
-// the name of its *api.Context parameter. The third return reports
-// whether resolution succeeded.
-func resolveCheckBody(funcs map[funcKey]funcInfo, file *ast.File, call *ast.CallExpr, expr ast.Expr) (*ast.BlockStmt, string, bool) {
+// the metadata of its *api.Context parameter and method receiver. The
+// second return reports whether resolution succeeded.
+func resolveCheckBody(funcs map[funcKey]funcInfo, file *ast.File, call *ast.CallExpr, expr ast.Expr) (funcInfo, bool) {
 	switch e := expr.(type) {
 	case *ast.FuncLit:
-		return e.Body, ctxParamName(e.Type), true
+		return funcInfo{Body: e.Body, CtxParam: ctxParamName(e.Type)}, true
 	case *ast.Ident:
 		if info, ok := funcs[funcKey{Name: e.Name}]; ok {
-			return info.Body, info.CtxParam, true
+			return info, true
 		}
 	case *ast.SelectorExpr:
 		recv, ok := receiverTypeForSelector(file, call, e)
 		if !ok {
-			return nil, "", false
+			return funcInfo{}, false
 		}
 		if info, ok := funcs[funcKey{Receiver: recv, Name: e.Sel.Name}]; ok {
-			return info.Body, info.CtxParam, true
+			return info, true
 		}
 	}
-	return nil, "", false
+	return funcInfo{}, false
 }
 
 // receiverTypeForSelector figures out the concrete receiver type for an
@@ -681,16 +730,18 @@ func enclosingBlock(file *ast.File, pos token.Pos) *ast.BlockStmt {
 // bodyUsage bundles the capability-usage signals scanBodyUsage detects
 // in a Check body (and its transitively-called same-package helpers).
 type bodyUsage struct {
-	resolver   bool
-	oracle     bool
-	concurrent bool
+	resolver    bool
+	oracle      bool
+	concurrent  bool
+	fixAssigned bool // any `<x>.Fix = <expr>` assignment seen
 }
 
 func (u bodyUsage) merge(other bodyUsage) bodyUsage {
 	return bodyUsage{
-		resolver:   u.resolver || other.resolver,
-		oracle:     u.oracle || other.oracle,
-		concurrent: u.concurrent || other.concurrent,
+		resolver:    u.resolver || other.resolver,
+		oracle:      u.oracle || other.oracle,
+		concurrent:  u.concurrent || other.concurrent,
+		fixAssigned: u.fixAssigned || other.fixAssigned,
 	}
 }
 
@@ -709,7 +760,17 @@ func usageFromSelector(e *ast.SelectorExpr, ctxName string) bodyUsage {
 	return u
 }
 
-func usageFromCall(funcs map[funcKey]funcInfo, e *ast.CallExpr, visited map[funcKey]bool) bodyUsage {
+// scanCtx bundles the per-scan state threaded through scanBodyUsage
+// and usageFromCall to avoid parameter sprawl.
+type scanCtx struct {
+	funcs    map[funcKey]funcInfo
+	ctxName  string // name of the *api.Context parameter
+	selfName string // name of the method receiver (e.g. "r")
+	selfType string // type of the method receiver (e.g. "FooRule")
+	visited  map[funcKey]bool
+}
+
+func usageFromCall(sc *scanCtx, e *ast.CallExpr) bodyUsage {
 	var u bodyUsage
 	if sel, ok := e.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Oracle" && len(e.Args) == 0 {
 		u.oracle = true
@@ -720,16 +781,22 @@ func usageFromCall(funcs map[funcKey]funcInfo, e *ast.CallExpr, visited map[func
 	switch fn := e.Fun.(type) {
 	case *ast.Ident:
 		key := funcKey{Name: fn.Name}
-		if info, ok := funcs[key]; ok && !visited[key] {
-			visited[key] = true
-			u = u.merge(scanBodyUsage(funcs, info.Body, info.CtxParam, visited))
+		if info, ok := sc.funcs[key]; ok && !sc.visited[key] {
+			sc.visited[key] = true
+			u = u.merge(scanBodyUsage(sc, info))
 		}
 	case *ast.SelectorExpr:
-		if recv := guessReceiverType(fn); recv != "" {
+		recv := guessReceiverType(fn)
+		if recv == "" && sc.selfName != "" && sc.selfType != "" {
+			if id, ok := fn.X.(*ast.Ident); ok && id.Name == sc.selfName {
+				recv = sc.selfType
+			}
+		}
+		if recv != "" {
 			key := funcKey{Receiver: recv, Name: fn.Sel.Name}
-			if info, ok := funcs[key]; ok && !visited[key] {
-				visited[key] = true
-				u = u.merge(scanBodyUsage(funcs, info.Body, info.CtxParam, visited))
+			if info, ok := sc.funcs[key]; ok && !sc.visited[key] {
+				sc.visited[key] = true
+				u = u.merge(scanBodyUsage(sc, info))
 			}
 		}
 	}
@@ -745,23 +812,48 @@ func usageFromCall(funcs map[funcKey]funcInfo, e *ast.CallExpr, visited map[func
 // The concurrent-state signal set is intentionally narrow: it matches
 // the exact primitives the cross-file concurrent dispatcher uses to manage
 // per-worker collectors. False negatives are preferred over false positives.
-func scanBodyUsage(funcs map[funcKey]funcInfo, body *ast.BlockStmt, ctxName string, visited map[funcKey]bool) bodyUsage {
+func scanBodyUsage(sc *scanCtx, info funcInfo) bodyUsage {
 	var usage bodyUsage
-	if body == nil {
+	if info.Body == nil {
 		return usage
 	}
-	ast.Inspect(body, func(n ast.Node) bool {
+	prevCtx, prevName, prevType := sc.ctxName, sc.selfName, sc.selfType
+	sc.ctxName = info.CtxParam
+	sc.selfName = info.RecvName
+	sc.selfType = info.RecvType
+	defer func() { sc.ctxName, sc.selfName, sc.selfType = prevCtx, prevName, prevType }()
+	ast.Inspect(info.Body, func(n ast.Node) bool {
 		switch e := n.(type) {
 		case *ast.GoStmt:
 			usage.concurrent = true
 		case *ast.SelectorExpr:
-			usage = usage.merge(usageFromSelector(e, ctxName))
+			usage = usage.merge(usageFromSelector(e, sc.ctxName))
 		case *ast.CallExpr:
-			usage = usage.merge(usageFromCall(funcs, e, visited))
+			usage = usage.merge(usageFromCall(sc, e))
+		case *ast.AssignStmt:
+			if assignmentTargetsFix(e) {
+				usage.fixAssigned = true
+			}
 		}
 		return true
 	})
 	return usage
+}
+
+// assignmentTargetsFix reports whether any LHS of `stmt` is a selector
+// expression ending in `.Fix` (e.g. `f.Fix = ...`, `finding.Fix = ...`).
+// Used to detect rules that actually populate a Fix on the finding.
+func assignmentTargetsFix(stmt *ast.AssignStmt) bool {
+	for _, lhs := range stmt.Lhs {
+		sel, ok := lhs.(*ast.SelectorExpr)
+		if !ok {
+			continue
+		}
+		if sel.Sel.Name == "Fix" {
+			return true
+		}
+	}
+	return false
 }
 
 // isMergeCollectorsCall matches both the qualified call

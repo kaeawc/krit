@@ -76,7 +76,7 @@ func registerPotentialbugsExceptionsRules() {
 		r := &UnreachableCodeRule{BaseRule: BaseRule{RuleName: "UnreachableCode", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects code after return, throw, break, or continue statements that can never execute."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"statements"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+			NodeTypes: []string{"statements"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
 			Needs: api.NeedsTypeInfo | api.NeedsOracleDiagnostics,
 			Tags:  []string{"precompile"},
 			// Narrow by the four jump keywords the rule actually dispatches

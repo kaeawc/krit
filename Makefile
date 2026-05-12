@@ -14,9 +14,11 @@ test:
 vet:
 	go vet ./...
 
-# lint-rules enforces the NeedsResolver / NeedsOracle capability-declaration
-# gate: any rule whose Check body calls ctx.Resolver or (*CompositeResolver).Oracle()
-# must declare the matching capability in its v2.Rule registration.
+# lint-rules enforces static gates against the rules package (all run
+# inside TestRulesPackageHasNoCapabilityDrift via the shared Analyze pass):
+#   - capability-declaration: ctx.Resolver / .Oracle() needs NeedsResolver / NeedsOracle
+#   - concurrent-state: go/WaitGroup/MergeCollectors needs NeedsConcurrent
+#   - fix-drift: Fix != FixNone requires an f.Fix assignment in the Check body
 lint-rules:
 	go test ./internal/ruleslinter/ -run 'TestRulesPackageHasNoCapabilityDrift|TestRulesPackageHasNoNewAdHocCaches' -count=1
 

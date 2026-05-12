@@ -155,7 +155,7 @@ func registerEmptyblocksEmptyDoWhileBlock() {
 	r := &EmptyDoWhileBlockRule{BaseRule: BaseRule{RuleName: "EmptyDoWhileBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects do-while loops with an empty body."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"do_while_statement", "do_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"do_while_statement", "do_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixNone, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !isBlockEmptyFlat(file, idx) {
@@ -163,13 +163,6 @@ func registerEmptyblocksEmptyDoWhileBlock() {
 			}
 			f := r.Finding(file, file.FlatRow(idx)+1, 1,
 				"Empty do-while block detected.")
-			doS, doE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   doS,
-				EndByte:     doE,
-				Replacement: "",
-			}
 			ctx.Emit(f)
 		},
 	})
@@ -260,7 +253,7 @@ func registerEmptyblocksEmptyFinallyBlock() {
 	r := &EmptyFinallyBlockRule{BaseRule: BaseRule{RuleName: "EmptyFinallyBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects finally blocks with an empty body that serve no purpose."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"finally_block", "finally_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"finally_block", "finally_clause"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixNone, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !isBlockEmptyFlat(file, idx) {
@@ -268,16 +261,6 @@ func registerEmptyblocksEmptyFinallyBlock() {
 			}
 			f := r.Finding(file, file.FlatRow(idx)+1, 1,
 				"Empty finally block detected.")
-			startByte := int(file.FlatStartByte(idx))
-			for startByte > 0 && (file.Content[startByte-1] == ' ' || file.Content[startByte-1] == '\t' || file.Content[startByte-1] == '\n' || file.Content[startByte-1] == '\r') {
-				startByte--
-			}
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   startByte,
-				EndByte:     int(file.FlatEndByte(idx)),
-				Replacement: "",
-			}
 			ctx.Emit(f)
 		},
 	})
@@ -287,7 +270,7 @@ func registerEmptyblocksEmptyForBlock() {
 	r := &EmptyForBlockRule{BaseRule: BaseRule{RuleName: "EmptyForBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects for loops with an empty body."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"for_statement", "enhanced_for_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"for_statement", "enhanced_for_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixNone, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if file.Language == scanner.LangJava {
@@ -296,13 +279,6 @@ func registerEmptyblocksEmptyForBlock() {
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, 1,
 					"Empty for block detected.")
-				forS, forE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   forS,
-					EndByte:     forE,
-					Replacement: "",
-				}
 				ctx.Emit(f)
 				return
 			}
@@ -319,13 +295,6 @@ func registerEmptyblocksEmptyForBlock() {
 			}
 			f := r.Finding(file, file.FlatRow(idx)+1, 1,
 				"Empty for block detected.")
-			forS, forE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   forS,
-				EndByte:     forE,
-				Replacement: "",
-			}
 			ctx.Emit(f)
 		},
 	})
@@ -437,7 +406,7 @@ func registerEmptyblocksEmptyIfBlock() {
 	r := &EmptyIfBlockRule{BaseRule: BaseRule{RuleName: "EmptyIfBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects if blocks with an empty body."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"if_expression", "if_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"if_expression", "if_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixNone, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			text := file.FlatNodeText(idx)
@@ -464,13 +433,6 @@ func registerEmptyblocksEmptyIfBlock() {
 			if strings.TrimSpace(cleaned) == "" {
 				f := r.Finding(file, file.FlatRow(idx)+1, 1,
 					"Empty if block detected.")
-				ifS, ifE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   ifS,
-					EndByte:     ifE,
-					Replacement: "",
-				}
 				ctx.Emit(f)
 			}
 		},
@@ -548,7 +510,7 @@ func registerEmptyblocksEmptyTryBlock() {
 	r := &EmptyTryBlockRule{BaseRule: BaseRule{RuleName: "EmptyTryBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects try blocks with an empty body."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"try_expression", "try_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"try_expression", "try_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixNone, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			text := file.FlatNodeText(idx)
@@ -582,13 +544,6 @@ func registerEmptyblocksEmptyTryBlock() {
 			if strings.TrimSpace(cleaned) == "" {
 				f := r.Finding(file, file.FlatRow(idx)+1, 1,
 					"Empty try block detected.")
-				tryS, tryE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   tryS,
-					EndByte:     tryE,
-					Replacement: "",
-				}
 				ctx.Emit(f)
 			}
 		},
@@ -599,7 +554,7 @@ func registerEmptyblocksEmptyWhenBlock() {
 	r := &EmptyWhenBlockRule{BaseRule: BaseRule{RuleName: "EmptyWhenBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects when expressions with no entries."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"when_expression"}, Confidence: 0.95, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"when_expression"}, Confidence: 0.95, Fix: api.FixNone, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			hasEntries := false
@@ -615,13 +570,6 @@ func registerEmptyblocksEmptyWhenBlock() {
 			if isBlockEmptyFlat(file, idx) {
 				f := r.Finding(file, file.FlatRow(idx)+1, 1,
 					"Empty when block detected.")
-				whenS, whenE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   whenS,
-					EndByte:     whenE,
-					Replacement: "",
-				}
 				ctx.Emit(f)
 			}
 		},
@@ -632,7 +580,7 @@ func registerEmptyblocksEmptyWhileBlock() {
 	r := &EmptyWhileBlockRule{BaseRule: BaseRule{RuleName: "EmptyWhileBlock", RuleSetName: "empty-blocks", Sev: "warning", Desc: "Detects while loops with an empty body."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"while_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"while_statement"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: 0.95, Fix: api.FixNone, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !isBlockEmptyFlat(file, idx) {
@@ -640,13 +588,6 @@ func registerEmptyblocksEmptyWhileBlock() {
 			}
 			f := r.Finding(file, file.FlatRow(idx)+1, 1,
 				"Empty while block detected.")
-			whileS, whileE := nodeLineRange(file.Content, int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx)))
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   whileS,
-				EndByte:     whileE,
-				Replacement: "",
-			}
 			ctx.Emit(f)
 		},
 	})

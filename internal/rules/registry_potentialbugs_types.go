@@ -19,7 +19,7 @@ func registerPotentialbugsTypesRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+			NodeTypes: []string{"equality_expression"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
 			Needs: api.NeedsResolver,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
@@ -138,7 +138,7 @@ func registerPotentialbugsTypesRules() {
 		r := &DoubleMutabilityForCollectionRule{BaseRule: BaseRule{RuleName: "DoubleMutabilityForCollection", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects var declarations with mutable collection types, creating double mutability."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Fix: api.FixSemantic, Implementation: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: 0.75, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if scanner.IsTestFile(file.Path) {
@@ -274,7 +274,7 @@ func registerPotentialbugsTypesRules() {
 		r := &WrongEqualsTypeParameterRule{BaseRule: BaseRule{RuleName: "WrongEqualsTypeParameter", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects equals() with a parameter type other than Any?, which does not properly override the contract."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: 0.85, Fix: api.FixSemantic, Implementation: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: 0.85, Fix: api.FixIdiomatic, Implementation: r,
 			Check: r.check,
 		})
 	}

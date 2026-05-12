@@ -6760,7 +6760,7 @@
           }
         },
         "GlobalCoroutineUsage": {
-          "description": "Flags use of GlobalScope for launching coroutines. Coroutines in GlobalScope are not tied to any lifecycle and can leak if not cancelled. Prefer a structured CoroutineScope. [fixable: semantic]",
+          "description": "Flags use of GlobalScope for launching coroutines. Coroutines in GlobalScope are not tied to any lifecycle and can leak if not cancelled. Prefer a structured CoroutineScope. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7020,7 +7020,7 @@
           }
         },
         "SuspendFunSwallowedCancellation": {
-          "description": "Detects catch blocks that catch CancellationException without rethrowing, breaking structured concurrency. [fixable: semantic]",
+          "description": "Detects catch blocks that catch CancellationException without rethrowing, breaking structured concurrency. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8261,7 +8261,7 @@
           }
         },
         "EmptyDoWhileBlock": {
-          "description": "Detects do-while loops with an empty body. [fixable: semantic]",
+          "description": "Detects do-while loops with an empty body.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8299,7 +8299,7 @@
           }
         },
         "EmptyFinallyBlock": {
-          "description": "Detects finally blocks with an empty body that serve no purpose. [fixable: semantic]",
+          "description": "Detects finally blocks with an empty body that serve no purpose.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8318,7 +8318,7 @@
           }
         },
         "EmptyForBlock": {
-          "description": "Detects for loops with an empty body. [fixable: semantic]",
+          "description": "Detects for loops with an empty body.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8361,7 +8361,7 @@
           }
         },
         "EmptyIfBlock": {
-          "description": "Detects if blocks with an empty body. [fixable: semantic]",
+          "description": "Detects if blocks with an empty body.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8437,7 +8437,7 @@
           }
         },
         "EmptyTryBlock": {
-          "description": "Detects try blocks with an empty body. [fixable: semantic]",
+          "description": "Detects try blocks with an empty body.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8456,7 +8456,7 @@
           }
         },
         "EmptyWhenBlock": {
-          "description": "Detects when expressions with no entries. [fixable: semantic]",
+          "description": "Detects when expressions with no entries.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8475,7 +8475,7 @@
           }
         },
         "EmptyWhileBlock": {
-          "description": "Detects while loops with an empty body. [fixable: semantic]",
+          "description": "Detects while loops with an empty body.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8652,7 +8652,7 @@
           }
         },
         "ReturnFromFinally": {
-          "description": "Detects return statements inside finally blocks that can swallow exceptions from the try/catch. [fixable: semantic]",
+          "description": "Detects return statements inside finally blocks that can swallow exceptions from the try/catch.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8676,7 +8676,7 @@
           }
         },
         "SwallowedException": {
-          "description": "Detects catch blocks that silently swallow the caught exception without logging, handling, or rethrowing. [fixable: semantic]",
+          "description": "Detects catch blocks that silently swallow the caught exception without logging, handling, or rethrowing. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8713,7 +8713,7 @@
           }
         },
         "ThrowingExceptionFromFinally": {
-          "description": "Detects throw statements inside finally blocks that can mask exceptions from the try/catch. [fixable: semantic]",
+          "description": "Detects throw statements inside finally blocks that can mask exceptions from the try/catch.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10756,7 +10756,7 @@
           }
         },
         "UnnecessaryTypeCasting": {
-          "description": "Detects safe casts immediately compared with null and redundant casts to an already-known type. [fixable: semantic]",
+          "description": "Detects safe casts immediately compared with null and redundant casts to an already-known type. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10806,7 +10806,7 @@
           }
         },
         "AvoidReferentialEquality": {
-          "description": "Detects usage of referential equality operators === or !== which compare object identity instead of value. [fixable: semantic]",
+          "description": "Detects usage of referential equality operators === or !== which compare object identity instead of value. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10832,7 +10832,7 @@
           }
         },
         "CastNullableToNonNullableType": {
-          "description": "Detects casting a nullable expression to a non-nullable type using 'as Type'. [fixable: semantic]",
+          "description": "Detects casting a nullable expression to a non-nullable type using 'as Type'. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10851,7 +10851,7 @@
           }
         },
         "CastToNullableType": {
-          "description": "Detects casts to nullable types like 'as Type?' which always succeed and may hide bugs. [fixable: semantic]",
+          "description": "Detects casts to nullable types like 'as Type?' which always succeed and may hide bugs. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10932,7 +10932,7 @@
           }
         },
         "DoubleMutabilityForCollection": {
-          "description": "Detects var declarations with mutable collection types, creating double mutability. [fixable: semantic]",
+          "description": "Detects var declarations with mutable collection types, creating double mutability. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11301,7 +11301,7 @@
           }
         },
         "MapGetWithNotNullAssertionOperator": {
-          "description": "Detects map[key]!! usage and suggests getValue() or safe alternatives. [fixable: semantic]",
+          "description": "Detects map[key]!! usage and suggests getValue() or safe alternatives. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11358,7 +11358,7 @@
           }
         },
         "MissingSuperCall": {
-          "description": "Detects override functions that do not call the corresponding super method. [fixable: semantic]",
+          "description": "Detects override functions that do not call the corresponding super method. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11658,7 +11658,7 @@
           }
         },
         "UnreachableCode": {
-          "description": "Detects code after return, throw, break, or continue statements that can never execute. [fixable: semantic]",
+          "description": "Detects code after return, throw, break, or continue statements that can never execute. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11796,7 +11796,7 @@
           }
         },
         "WrongEqualsTypeParameter": {
-          "description": "Detects equals() with a parameter type other than Any?, which does not properly override the contract. [fixable: semantic]",
+          "description": "Detects equals() with a parameter type other than Any?, which does not properly override the contract. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13742,7 +13742,7 @@
       "additionalProperties": false,
       "properties": {
         "AbstractClassCanBeConcreteClass": {
-          "description": "Detects abstract classes that have no abstract members and could be made concrete. [fixable: semantic]",
+          "description": "Detects abstract classes that have no abstract members and could be made concrete.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13761,7 +13761,7 @@
           }
         },
         "AbstractClassCanBeInterface": {
-          "description": "Detects abstract classes with no state that could be converted to interfaces. [fixable: semantic]",
+          "description": "Detects abstract classes with no state that could be converted to interfaces.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13964,7 +13964,7 @@
           }
         },
         "DataClassShouldBeImmutable": {
-          "description": "Detects data class properties declared as var instead of val. [fixable: semantic]",
+          "description": "Detects data class properties declared as var instead of val. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14113,7 +14113,7 @@
           }
         },
         "ExplicitItLambdaMultipleParameters": {
-          "description": "Detects multi-parameter lambdas that use it as a parameter name. [fixable: cosmetic]",
+          "description": "Detects multi-parameter lambdas that use it as a parameter name.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14278,7 +14278,7 @@
           }
         },
         "ForbiddenMethodCall": {
-          "description": "Detects calls to methods that are configured as forbidden. [fixable: semantic]",
+          "description": "Detects calls to methods that are configured as forbidden. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14420,7 +14420,7 @@
           }
         },
         "FunctionOnlyReturningConstant": {
-          "description": "Detects functions whose body only returns a constant value that could be a const val. [fixable: semantic]",
+          "description": "Detects functions whose body only returns a constant value that could be a const val.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14963,7 +14963,7 @@
           }
         },
         "ProtectedMemberInFinalClass": {
-          "description": "Detects protected members in final classes where they should be private. [fixable: semantic]",
+          "description": "Detects protected members in final classes where they should be private. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15146,7 +15146,7 @@
           }
         },
         "SerialVersionUIDInSerializableClass": {
-          "description": "Detects Serializable classes that are missing a serialVersionUID field. [fixable: semantic]",
+          "description": "Detects Serializable classes that are missing a serialVersionUID field. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15414,7 +15414,7 @@
           }
         },
         "UnnecessaryFullyQualifiedName": {
-          "description": "Detects fully qualified names that are unnecessary because the type is already imported. [fixable: idiomatic]",
+          "description": "Detects fully qualified names that are unnecessary because the type is already imported.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15552,7 +15552,7 @@
           }
         },
         "UnusedParameter": {
-          "description": "Detects function parameters that are never used in the function body. [fixable: semantic]",
+          "description": "Detects function parameters that are never used in the function body.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15577,7 +15577,7 @@
           }
         },
         "UnusedPrivateClass": {
-          "description": "Detects private classes that are never referenced in the file. [fixable: semantic]",
+          "description": "Detects private classes that are never referenced in the file.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15596,7 +15596,7 @@
           }
         },
         "UnusedPrivateFunction": {
-          "description": "Detects private functions that are never called in the file. [fixable: semantic]",
+          "description": "Detects private functions that are never called in the file.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15621,7 +15621,7 @@
           }
         },
         "UnusedPrivateMember": {
-          "description": "Detects private members (classes, functions, properties) that are never used. [fixable: semantic]",
+          "description": "Detects private members (classes, functions, properties) that are never used.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15653,7 +15653,7 @@
           }
         },
         "UnusedPrivateProperty": {
-          "description": "Detects private properties that are never referenced in the file. [fixable: semantic]",
+          "description": "Detects private properties that are never referenced in the file.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15678,7 +15678,7 @@
           }
         },
         "UnusedVariable": {
-          "description": "Detects local variables that are declared but never used. [fixable: semantic]",
+          "description": "Detects local variables that are declared but never used.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15779,7 +15779,7 @@
           }
         },
         "UseDataClass": {
-          "description": "Detects classes with only properties in the constructor that could be data classes. [fixable: semantic]",
+          "description": "Detects classes with only properties in the constructor that could be data classes.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15884,7 +15884,7 @@
           }
         },
         "UseLet": {
-          "description": "Detects null checks that could be replaced with ?.let {} scope function. [fixable: idiomatic]",
+          "description": "Detects null checks that could be replaced with ?.let {} scope function.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15998,7 +15998,7 @@
           }
         },
         "UtilityClassWithPublicConstructor": {
-          "description": "Detects utility classes that have a public constructor instead of a private one. [fixable: semantic]",
+          "description": "Detects utility classes that have a public constructor instead of a private one. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

@@ -3,6 +3,7 @@ package rules
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -288,6 +289,88 @@ fun example(x: Int): String {
 	findings := d.Run(file)
 	if findings.Len() != 0 {
 		t.Fatalf("expected no findings for test sources, got %d", findings.Len())
+	}
+}
+
+func applyFixes(src string, cols scanner.FindingColumns) string {
+	type edit struct {
+		start, end int
+		repl       string
+	}
+	var edits []edit
+	for i := 0; i < cols.Len(); i++ {
+		fx := cols.FixAt(i)
+		if fx == nil || !fx.ByteMode {
+			continue
+		}
+		edits = append(edits, edit{fx.StartByte, fx.EndByte, fx.Replacement})
+	}
+	// Descending order so earlier edits don't shift later byte offsets.
+	sort.Slice(edits, func(i, j int) bool { return edits[i].start > edits[j].start })
+	out := []byte(src)
+	for _, e := range edits {
+		out = append(out[:e.start], append([]byte(e.repl), out[e.end:]...)...)
+	}
+	return string(out)
+}
+
+// TestBuildBraceWrapFix_InlineRHS_NoFix verifies the helper does not emit a
+// fix when the control header is not the first non-whitespace on its line.
+// Wrapping `val r = if (x) y` with the parent line's indent puts the closing
+// brace flush-left under `val r =` instead of aligned with `if`, which is
+// not ktfmt-compatible — better to flag and let the user resolve.
+func TestBuildBraceWrapFix_InlineRHS_NoFix(t *testing.T) {
+	findings := runBracesIfRule(t, "always", "always", `
+package test
+fun example(x: Boolean): Int {
+    val r = if (x) 1 else 2
+    return r
+}`)
+	if findings.Len() == 0 {
+		t.Fatal("expected at least one finding for inline RHS if")
+	}
+	for i := 0; i < findings.Len(); i++ {
+		if findings.FixAt(i) != nil {
+			t.Errorf("expected no fix for inline RHS if at finding %d, got fix=%+v", i, findings.FixAt(i))
+		}
+	}
+}
+
+// TestBuildBraceWrapFix_PreservesCommentBetweenHeaderAndBody verifies that a
+// comment sitting between `)` and the body is not swallowed by the
+// replacement range. Previously the helper extended back to the prev
+// sibling's end byte, which deleted any intervening comment.
+func TestBuildBraceWrapFix_PreservesCommentBetweenHeaderAndBody(t *testing.T) {
+	src := `package test
+fun example(x: Boolean) {
+    if (x) /* keep me */
+        println("ok")
+}
+`
+	findings := runBracesIfRule(t, "always", "always", src)
+	if findings.Len() == 0 {
+		t.Fatal("expected finding for unbraced if")
+	}
+	out := applyFixes(src, findings)
+	if !strings.Contains(out, "/* keep me */") {
+		t.Errorf("comment between header and body was lost. Output:\n%s", out)
+	}
+}
+
+// TestBuildBraceWrapFix_TabIndentedFile verifies the body indent uses a tab
+// step when the surrounding file is tab-indented, instead of hardcoding
+// four spaces (which would mix tabs and spaces).
+func TestBuildBraceWrapFix_TabIndentedFile(t *testing.T) {
+	src := "package test\nfun example(x: Boolean) {\n\tif (x) println(\"ok\")\n}\n"
+	findings := runBracesIfRule(t, "always", "always", src)
+	if findings.Len() == 0 {
+		t.Fatal("expected finding for unbraced if")
+	}
+	out := applyFixes(src, findings)
+	// Body line should start with two tabs (one for the surrounding fun, one
+	// for the new brace nesting), not a tab followed by spaces.
+	if !strings.Contains(out, "\n\t\tprintln(") {
+		t.Errorf("expected tab-stepped body indent in tab-indented file. Output:\n%q", out)
 	}
 }
 

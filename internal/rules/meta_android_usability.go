@@ -28,6 +28,14 @@ func (r *OverrideRule) Meta() api.RuleDescriptor {
 	}
 }
 
+func (r *RequiresAPIViolationRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "RequiresApiViolation",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+	}
+}
+
 func (r *UnusedResourcesRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "UnusedResources",

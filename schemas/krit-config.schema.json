@@ -3418,6 +3418,25 @@
             }
           }
         },
+        "RequiresApiViolation": {
+          "description": "Calling an API above the module's minSdk",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RequiresApiViolation (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ResAutoResource": {
           "description": "Namespace used in resource files should be res-auto",
           "type": "object",
@@ -11405,6 +11424,25 @@
             }
           }
         },
+        "NonExhaustiveWhen": {
+          "description": "Detects 'when' used as an expression on a sealed/enum/Boolean subject without an else branch and missing one or more variants.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable NonExhaustiveWhen (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "NullCheckOnMutableProperty": {
           "description": "Detects null checks on mutable var properties that may be changed by another thread between the check and use.",
           "type": "object",
@@ -11814,6 +11852,25 @@
           "properties": {
             "active": {
               "description": "Enable K0108-DuplicateLabel (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "K0206-DuplicateDeclaration": {
+          "description": "Detects two top-level fun/class/val declarations in one file with the same name and (for functions) matching parameter type signature. Mirrors kotlinc's CONFLICTING_OVERLOADS / REDECLARATION for the file-local subset.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable K0206-DuplicateDeclaration (default: false).",
               "type": "boolean",
               "default": false
             },

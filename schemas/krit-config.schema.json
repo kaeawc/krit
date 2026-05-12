@@ -5390,7 +5390,7 @@
           }
         },
         "DeprecatedBlockTag": {
-          "description": "Detects @deprecated KDoc tags that should use the @Deprecated annotation instead.",
+          "description": "Detects @deprecated KDoc tags that should use the @Deprecated annotation instead. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5447,7 +5447,7 @@
           }
         },
         "EndOfSentenceFormat": {
-          "description": "Detects KDoc first sentences that do not end with proper punctuation.",
+          "description": "Detects KDoc first sentences that do not end with proper punctuation. [fixable: cosmetic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5510,7 +5510,7 @@
           }
         },
         "OutdatedDocumentation": {
-          "description": "Detects @param tags in KDoc that do not match the actual function parameters.",
+          "description": "Detects @param tags in KDoc that do not match the actual function parameters. [fixable: cosmetic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -9137,7 +9137,7 @@
       "additionalProperties": false,
       "properties": {
         "CopyrightYearOutdated": {
-          "description": "Detects stale copyright years in file header comments.",
+          "description": "Detects stale copyright years in file header comments. [fixable: cosmetic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10939,7 +10939,7 @@
           }
         },
         "ElseCaseInsteadOfExhaustiveWhen": {
-          "description": "Detects when expressions on sealed classes or enums that use an else branch instead of exhaustive matching.",
+          "description": "Detects when expressions on sealed classes or enums that use an else branch instead of exhaustive matching. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11034,7 +11034,7 @@
           }
         },
         "HardcodedDateFormat": {
-          "description": "Detects DateTimeFormatter.ofPattern constructed without an explicit Locale.",
+          "description": "Detects DateTimeFormatter.ofPattern constructed without an explicit Locale. [fixable: semantic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11053,7 +11053,7 @@
           }
         },
         "HardcodedNumberFormat": {
-          "description": "Detects DecimalFormat or NumberFormat.getInstance constructed without an explicit Locale.",
+          "description": "Detects DecimalFormat or NumberFormat.getInstance constructed without an explicit Locale. [fixable: semantic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11143,7 +11143,7 @@
           }
         },
         "ImplicitDefaultLocale": {
-          "description": "Detects locale-sensitive string methods called without an explicit Locale argument.",
+          "description": "Detects locale-sensitive string methods called without an explicit Locale argument. [fixable: semantic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11701,7 +11701,7 @@
           }
         },
         "UnusedUnaryOperator": {
-          "description": "Detects standalone unary +x or -x expressions whose result is never used.",
+          "description": "Detects standalone unary +x or -x expressions whose result is never used. [fixable: semantic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11814,6 +11814,25 @@
           "properties": {
             "active": {
               "description": "Enable K0108-DuplicateLabel (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "K0403-DeprecatedSymbolUsedError": {
+          "description": "Detects references to symbols annotated with @Deprecated(level = DeprecationLevel.ERROR). Mirrors kotlinc's DEPRECATION_ERROR.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable K0403-DeprecatedSymbolUsedError (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -12174,7 +12193,7 @@
           }
         },
         "CommentedOutCodeBlock": {
-          "description": "Detects consecutive lines of commented-out Kotlin code that should be deleted or restored.",
+          "description": "Detects consecutive lines of commented-out Kotlin code that should be deleted or restored. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12193,7 +12212,7 @@
           }
         },
         "CommentedOutImport": {
-          "description": "Detects commented-out import statements that are either dead code or incomplete refactors.",
+          "description": "Detects commented-out import statements that are either dead code or incomplete refactors. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13862,7 +13881,7 @@
           }
         },
         "DataClassContainsFunctions": {
-          "description": "Detects data classes that contain function members.",
+          "description": "Detects data classes that contain function members. [fixable: semantic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14737,7 +14756,7 @@
           }
         },
         "NestedClassesVisibility": {
-          "description": "Detects nested classes with explicit public modifier inside internal parent classes.",
+          "description": "Detects nested classes with explicit public modifier inside internal parent classes. [fixable: cosmetic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16008,7 +16027,7 @@
       "additionalProperties": false,
       "properties": {
         "ApplyPluginTwice": {
-          "description": "Detects a Gradle plugin applied in both plugins { } and apply(plugin = ...) in the same build file.",
+          "description": "Detects a Gradle plugin applied in both plugins { } and apply(plugin = ...) in the same build file. [fixable: idiomatic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16732,7 +16751,7 @@
           }
         },
         "TestNameContainsUnderscore": {
-          "description": "Detects test function names using underscores where backtick-quoted names are preferred.",
+          "description": "Detects test function names using underscores where backtick-quoted names are preferred. [fixable: cosmetic]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

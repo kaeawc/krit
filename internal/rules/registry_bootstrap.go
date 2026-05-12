@@ -95,6 +95,7 @@ func init() {
 	registerPotentialbugsTypesRules()
 	registerPrecompileUnreachableCodeRules()
 	registerPrecompileDuplicateLabelRules()
+	registerPrecompileDeprecatedSymbolUsedErrorRules()
 	registerCorrectnessOverrideRules()
 	registerCorrectnessAbstractRules()
 	registerPrivacyAnalyticsRules()

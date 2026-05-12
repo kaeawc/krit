@@ -170,6 +170,9 @@ type AnalyzeProjectArgs struct {
 	// EnableRules / DisableRules are comma-separated rule-id lists.
 	EnableRules  string `json:"enable_rules,omitempty"`
 	DisableRules string `json:"disable_rules,omitempty"`
+	// CustomRuleJars are Kotlin custom-rule plugin jars loaded by the
+	// resident krit-types daemon.
+	CustomRuleJars []string `json:"custom_rule_jars,omitempty"`
 	// RequireWarm, when true, makes the verb fail fast (with a typed
 	// error) instead of paying cold-warm cost. Clients that want a
 	// hard SLA set this — useful for IDE workflows that can show a

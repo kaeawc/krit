@@ -328,6 +328,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			OracleEnabled:    oracleDaemon != nil,
 			ShowPerf:         args.ShowPerf || args.PerfRules,
 			PerfRules:        args.PerfRules,
+			CustomRuleJars:   args.CustomRuleJars,
 			// Wire is line-delimited; compact JSON keeps the body
 			// free of internal newlines.
 			JSONCompact: true,

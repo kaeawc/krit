@@ -1,5 +1,6 @@
 package dev.krit.gradle
 
+import org.gradle.api.Project
 import org.gradle.testfixtures.ProjectBuilder
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -14,13 +15,17 @@ class KritPluginTest {
     @TempDir
     lateinit var projectDir: File
 
-    @Test
-    fun `plugin can be applied to a project`() {
+    private fun newProject(): Project {
         val project = ProjectBuilder.builder()
             .withProjectDir(projectDir)
             .build()
+        project.pluginManager.apply(KritPlugin::class.java)
+        return project
+    }
 
-        project.plugins
+    @Test
+    fun `plugin can be applied to a project`() {
+        val project = newProject()
 
         val extension = project.extensions.findByName("krit")
         assertNotNull(extension, "krit extension should be registered")
@@ -28,11 +33,7 @@ class KritPluginTest {
 
     @Test
     fun `kritCheck task is registered`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         val task = project.tasks.findByName("kritCheck")
         assertNotNull(task, "kritCheck task should be registered")
@@ -41,11 +42,7 @@ class KritPluginTest {
 
     @Test
     fun `kritFormat task is registered`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         val task = project.tasks.findByName("kritFormat")
         assertNotNull(task, "kritFormat task should be registered")
@@ -54,11 +51,7 @@ class KritPluginTest {
 
     @Test
     fun `kritBaseline task is registered`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         val task = project.tasks.findByName("kritBaseline")
         assertNotNull(task, "kritBaseline task should be registered")
@@ -67,11 +60,7 @@ class KritPluginTest {
 
     @Test
     fun `extension has correct default values`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         val extension = project.extensions.getByType(KritExtension::class.java)
         assertEquals(KritPlugin.KRIT_DEFAULT_VERSION, extension.toolVersion.get())
@@ -85,11 +74,7 @@ class KritPluginTest {
 
     @Test
     fun `extension properties are configurable`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         val extension = project.extensions.getByType(KritExtension::class.java)
 
@@ -113,6 +98,31 @@ class KritPluginTest {
 
         extension.typeInference.set(false)
         assertEquals(false, extension.typeInference.get())
+    }
+
+    @Test
+    fun `custom rules file notation is configurable`() {
+        val project = newProject()
+
+        val extension = project.extensions.getByType(KritExtension::class.java)
+        val rulesJar = project.file("build-logic/krit-rules/build/libs/krit-rules.jar")
+
+        extension.customRules(rulesJar)
+
+        assertTrue(extension.customRuleJars.files.contains(rulesJar))
+    }
+
+    @Test
+    fun `kritCheck task receives custom rule jars from extension`() {
+        val project = newProject()
+
+        val extension = project.extensions.getByType(KritExtension::class.java)
+        val task = project.tasks.getByName("kritCheck") as KritCheckTask
+        val rulesJar = project.file("build-logic/krit-rules/build/libs/krit-rules.jar")
+
+        extension.customRules(rulesJar)
+
+        assertTrue(task.customRuleJars.files.contains(rulesJar))
     }
 
     @Test
@@ -141,11 +151,7 @@ class KritPluginTest {
 
     @Test
     fun `kritFormat task has correct description and group`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         val task = project.tasks.getByName("kritFormat") as KritFormatTask
         assertEquals("Apply krit auto-fixes to Kotlin sources", task.description)
@@ -154,11 +160,7 @@ class KritPluginTest {
 
     @Test
     fun `kritBaseline task has correct description and group`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         val task = project.tasks.getByName("kritBaseline") as KritBaselineTask
         assertEquals("Create a krit baseline file from current findings", task.description)
@@ -167,11 +169,7 @@ class KritPluginTest {
 
     @Test
     fun `kritBaseline task has default output file`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         val task = project.tasks.getByName("kritBaseline") as KritBaselineTask
         val baselinePath = task.baselineFile.get().asFile.absolutePath
@@ -183,11 +181,7 @@ class KritPluginTest {
 
     @Test
     fun `reports DSL has correct defaults`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         val extension = project.extensions.getByType(KritExtension::class.java)
 
@@ -205,11 +199,7 @@ class KritPluginTest {
 
     @Test
     fun `reports DSL has correct default output locations`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         val extension = project.extensions.getByType(KritExtension::class.java)
 
@@ -232,11 +222,7 @@ class KritPluginTest {
 
     @Test
     fun `reports DSL is configurable`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         val extension = project.extensions.getByType(KritExtension::class.java)
 
@@ -252,18 +238,14 @@ class KritPluginTest {
 
     @Test
     fun `reports DSL configurable via action block`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         val extension = project.extensions.getByType(KritExtension::class.java)
 
         extension.reports {
-            it.sarif.required.set(false)
-            it.json.required.set(true)
-            it.checkstyle.required.set(true)
+            sarif.required.set(false)
+            json.required.set(true)
+            checkstyle.required.set(true)
         }
 
         assertFalse(extension.reports.sarif.required.get())
@@ -273,11 +255,7 @@ class KritPluginTest {
 
     @Test
     fun `kritCheck task receives report conventions from extension`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         val task = project.tasks.getByName("kritCheck") as KritCheckTask
 
@@ -290,11 +268,7 @@ class KritPluginTest {
 
     @Test
     fun `kritCheck task report conventions follow extension changes`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         val extension = project.extensions.getByType(KritExtension::class.java)
         extension.reports.json.required.set(true)
@@ -309,11 +283,7 @@ class KritPluginTest {
 
     @Test
     fun `per-source-set tasks are not registered without kotlin jvm plugin`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         // Without Kotlin JVM plugin, only the aggregate kritCheck should exist
         assertNotNull(project.tasks.findByName("kritCheck"))
@@ -324,11 +294,7 @@ class KritPluginTest {
 
     @Test
     fun `per-variant tasks are not registered without android plugin`() {
-        val project = ProjectBuilder.builder()
-            .withProjectDir(projectDir)
-            .build()
-
-        project.plugins
+        val project = newProject()
 
         // Without Android plugin, no variant-specific tasks
         assertEquals(null, project.tasks.findByName("kritCheckDebug"))

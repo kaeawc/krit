@@ -6,6 +6,8 @@ plugins {
 val kotlinVersion = "2.3.21"
 
 dependencies {
+    implementation(project(":krit-rule-api"))
+
     // Kotlin compiler (non-embeddable, full APIs)
     implementation("org.jetbrains.kotlin:kotlin-compiler:$kotlinVersion")
 

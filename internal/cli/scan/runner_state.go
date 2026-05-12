@@ -158,7 +158,7 @@ func newRunner(f *scanFlags, sess *Session) (*runner, int, bool) {
 
 	applyEditorConfigOverrides(cfg, *f.EditorConfig, flag.Args())
 
-	runListRulesFlag(*f.List, *f.Verbose, *f.Maturity, *f.ListRulesCWE)
+	runListRulesFlag(*f.List, *f.Verbose, *f.Maturity, *f.ListRulesCWE, parseCustomRuleJars(*f.CustomRuleJars), flag.Args())
 
 	maxFixLevel, ok := resolveMaxFixLevel(f)
 	if !ok {
@@ -510,6 +510,16 @@ func (r *runner) runOracleIndex() (int, error) {
 	}
 	if res.Daemon != nil {
 		r.sess.OracleDaemon = res.Daemon
+	}
+	if len(parseCustomRuleJars(*r.f.CustomRuleJars)) > 0 && r.sess.OracleDaemon == nil {
+		var daemonErr error
+		r.tracker.TrackVoid("customRuleDaemonStart", func() {
+			r.sess.OracleDaemon, daemonErr = oracle.InvokeDaemon(r.paths, *r.f.Verbose)
+		})
+		if daemonErr != nil {
+			fmt.Fprintf(os.Stderr, "error: custom-rule daemon: %v\n", daemonErr)
+			return 2, daemonErr
+		}
 	}
 	r.typeOracle = res.Oracle
 	if r.useCache {

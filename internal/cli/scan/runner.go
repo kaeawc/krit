@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/kaeawc/krit/internal/experiment"
@@ -67,12 +68,28 @@ func (r *runner) projectInput() pipeline.ProjectInput {
 			ExperimentNames:     experiment.Current().Names(),
 			JSONCompact:         *r.f.Output != "",
 			OracleEnabled:       false,
+			CustomRuleJars:      parseCustomRuleJars(*r.f.CustomRuleJars),
 			TargetedResolution:  r.depthPreset == DepthThorough,
 			ProfileDispatch:     *r.f.ProfileDispatch,
 			EmitPerFileStats:    true,
 		},
 		Host: host,
 	}
+}
+
+func parseCustomRuleJars(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func (r *runner) applyProjectAnalysis(analysis pipeline.ProjectAnalysisResult) {

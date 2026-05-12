@@ -90,6 +90,9 @@ type ProjectArgs struct {
 	// daemon sets this true when ensureOracleDaemon found a
 	// krit-types JAR; the CLI sets it from --type-oracle.
 	OracleEnabled bool
+	// CustomRuleJars are Kotlin custom-rule plugin jars loaded by the
+	// krit-types daemon and merged into the standard finding stream.
+	CustomRuleJars []string
 	// TargetedResolution, when true, runs active rules' expression
 	// selectors through the configured expression resolver before
 	// dispatch. The pass is optional: missing resolver/sink or a rule
@@ -603,6 +606,9 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 
 	androidStart := time.Now()
 	if err := runAndroidPhaseAndMerge(ctx, args, host, indexResult, &crossFileResult, bundleHit); err != nil {
+		return ProjectAnalysisResult{}, err
+	}
+	if err := runKotlinPluginRulesAndMerge(ctx, args, host, indexResult, &crossFileResult, bundleHit); err != nil {
 		return ProjectAnalysisResult{}, err
 	}
 	phaseTimings.Android = time.Since(androidStart).Milliseconds()
@@ -1554,7 +1560,7 @@ func tryLoadFindingsBundleBeforeParse(
 	out io.Writer,
 	phaseTimings *PhaseTimingsMs,
 ) (ProjectResult, bool, error) {
-	if args.Fix || args.FixBinary || args.DryRun || host.FindingsBundleStore == nil || host.FindingsBundleCacheRoot == "" {
+	if args.Fix || args.FixBinary || args.DryRun || len(args.CustomRuleJars) > 0 || host.FindingsBundleStore == nil || host.FindingsBundleCacheRoot == "" {
 		return ProjectResult{}, false, nil
 	}
 	start := time.Now()
@@ -2020,6 +2026,9 @@ func scopeParseResult(p ParseResult, only *scanner.File) ParseResult {
 // reuse path.
 func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult ParseResult, indexResult IndexResult) (scanner.RunFingerprint, bool) {
 	if host.FindingsBundleStore == nil || host.FindingsBundleCacheRoot == "" {
+		return scanner.RunFingerprint{}, false
+	}
+	if len(args.CustomRuleJars) > 0 {
 		return scanner.RunFingerprint{}, false
 	}
 	rulesHash := projectRuleHash(args.ActiveRules, args.Config)

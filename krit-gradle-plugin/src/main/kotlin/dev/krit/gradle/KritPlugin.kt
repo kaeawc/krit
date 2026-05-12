@@ -74,16 +74,16 @@ class KritPlugin : Plugin<Project> {
         val binaryResolver = project.gradle.sharedServices.registerIfAbsent(
             "kritBinaryResolver",
             KritBinaryResolver::class.java,
-        ) { spec ->
-            spec.parameters.version.set(extension.toolVersion)
-            spec.parameters.cacheDir.set(
+        ) {
+            parameters.version.set(extension.toolVersion)
+            parameters.cacheDir.set(
                 project.layout.dir(
                     project.provider {
                         File(System.getProperty("user.home"), ".gradle/krit")
                     }
                 )
             )
-            spec.maxParallelUsages.set(1)
+            maxParallelUsages.set(1)
         }
 
         // Shared convention for resolving the krit binary
@@ -92,70 +92,71 @@ class KritPlugin : Plugin<Project> {
         )
 
         // Wire task defaults for all KritCheckTask instances
-        project.tasks.withType(KritCheckTask::class.java).configureEach { task ->
-            task.kritBinary.convention(kritBinaryFile)
-            task.allRules.convention(extension.allRules)
-            task.ignoreFailures.convention(extension.ignoreFailures)
-            task.config.convention(extension.config)
-            task.baseline.convention(extension.baseline)
-            task.parallel.convention(extension.parallel)
-            task.noCache.convention(extension.noCache)
-            task.typeInference.convention(extension.typeInference)
+        project.tasks.withType(KritCheckTask::class.java).configureEach {
+            kritBinary.convention(kritBinaryFile)
+            allRules.convention(extension.allRules)
+            ignoreFailures.convention(extension.ignoreFailures)
+            config.convention(extension.config)
+            baseline.convention(extension.baseline)
+            parallel.convention(extension.parallel)
+            noCache.convention(extension.noCache)
+            typeInference.convention(extension.typeInference)
+            customRuleJars.from(extension.customRuleJars)
             // Wire reports from extension
-            task.sarifRequired.convention(extension.reports.sarif.required)
-            task.sarifOutput.convention(extension.reports.sarif.outputLocation)
-            task.jsonRequired.convention(extension.reports.json.required)
-            task.jsonOutput.convention(extension.reports.json.outputLocation)
-            task.plainRequired.convention(extension.reports.plain.required)
-            task.plainOutput.convention(extension.reports.plain.outputLocation)
-            task.checkstyleRequired.convention(extension.reports.checkstyle.required)
-            task.checkstyleOutput.convention(extension.reports.checkstyle.outputLocation)
+            sarifRequired.convention(extension.reports.sarif.required)
+            sarifOutput.convention(extension.reports.sarif.outputLocation)
+            jsonRequired.convention(extension.reports.json.required)
+            jsonOutput.convention(extension.reports.json.outputLocation)
+            plainRequired.convention(extension.reports.plain.required)
+            plainOutput.convention(extension.reports.plain.outputLocation)
+            checkstyleRequired.convention(extension.reports.checkstyle.required)
+            checkstyleOutput.convention(extension.reports.checkstyle.outputLocation)
         }
 
         // Wire task defaults for all KritFormatTask instances
-        project.tasks.withType(KritFormatTask::class.java).configureEach { task ->
-            task.kritBinary.convention(kritBinaryFile)
-            task.config.convention(extension.config)
-            task.fixLevel.convention(extension.fixLevel)
-            task.parallel.convention(extension.parallel)
-            task.noCache.convention(extension.noCache)
-            task.typeInference.convention(extension.typeInference)
+        project.tasks.withType(KritFormatTask::class.java).configureEach {
+            kritBinary.convention(kritBinaryFile)
+            config.convention(extension.config)
+            fixLevel.convention(extension.fixLevel)
+            parallel.convention(extension.parallel)
+            noCache.convention(extension.noCache)
+            typeInference.convention(extension.typeInference)
         }
 
         // Wire task defaults for all KritBaselineTask instances
-        project.tasks.withType(KritBaselineTask::class.java).configureEach { task ->
-            task.kritBinary.convention(kritBinaryFile)
-            task.config.convention(extension.config)
-            task.allRules.convention(extension.allRules)
-            task.parallel.convention(extension.parallel)
-            task.noCache.convention(extension.noCache)
-            task.typeInference.convention(extension.typeInference)
+        project.tasks.withType(KritBaselineTask::class.java).configureEach {
+            kritBinary.convention(kritBinaryFile)
+            config.convention(extension.config)
+            allRules.convention(extension.allRules)
+            parallel.convention(extension.parallel)
+            noCache.convention(extension.noCache)
+            typeInference.convention(extension.typeInference)
         }
 
         // Register the aggregate kritCheck task
-        project.tasks.register("kritCheck", KritCheckTask::class.java) { task ->
-            task.setSource(extension.source)
-            task.description = "Run krit analysis on all Kotlin sources"
+        project.tasks.register("kritCheck", KritCheckTask::class.java) {
+            setSource(extension.source)
+            description = "Run krit analysis on all Kotlin sources"
         }
 
         // Register the kritFormat task
-        project.tasks.register("kritFormat", KritFormatTask::class.java) { task ->
-            task.source.setFrom(extension.source)
-            task.description = "Apply krit auto-fixes to Kotlin sources"
+        project.tasks.register("kritFormat", KritFormatTask::class.java) {
+            source.setFrom(extension.source)
+            description = "Apply krit auto-fixes to Kotlin sources"
         }
 
         // Register the kritBaseline task
-        project.tasks.register("kritBaseline", KritBaselineTask::class.java) { task ->
-            task.source.setFrom(extension.source)
-            task.baselineFile.convention(
+        project.tasks.register("kritBaseline", KritBaselineTask::class.java) {
+            source.setFrom(extension.source)
+            baselineFile.convention(
                 project.layout.buildDirectory.file("reports/krit/baseline.xml")
             )
-            task.description = "Create a krit baseline file from current findings"
+            description = "Create a krit baseline file from current findings"
         }
 
         // Wire kritCheck into the check lifecycle if available
         project.plugins.withType(org.gradle.language.base.plugins.LifecycleBasePlugin::class.java) {
-            project.tasks.named("check") { it.dependsOn("kritCheck") }
+            project.tasks.named("check") { dependsOn("kritCheck") }
         }
 
         // Register per-source-set tasks for Kotlin JVM projects
@@ -204,9 +205,9 @@ class KritPlugin : Plugin<Project> {
                         if (kotlinDirs != null) {
                             val taskName = "kritCheck${name.replaceFirstChar { it.uppercase() }}"
                             if (project.tasks.findByName(taskName) == null) {
-                                project.tasks.register(taskName, KritCheckTask::class.java) { task ->
-                                    task.setSource(project.files(kotlinDirs))
-                                    task.description = "Run krit analysis on the '$name' source set"
+                                project.tasks.register(taskName, KritCheckTask::class.java) {
+                                    setSource(project.files(kotlinDirs))
+                                    description = "Run krit analysis on the '$name' source set"
                                 }
                             }
                         }
@@ -284,9 +285,9 @@ class KritPlugin : Plugin<Project> {
                         if (sourceDirs.isNotEmpty()) {
                             val taskName = "kritCheck${variantName.replaceFirstChar { it.uppercase() }}"
                             if (project.tasks.findByName(taskName) == null) {
-                                project.tasks.register(taskName, KritCheckTask::class.java) { task ->
-                                    task.setSource(project.files(sourceDirs))
-                                    task.description =
+                                project.tasks.register(taskName, KritCheckTask::class.java) {
+                                    setSource(project.files(sourceDirs))
+                                    description =
                                         "Run krit analysis on the '$variantName' variant sources"
                                 }
                             }

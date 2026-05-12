@@ -174,6 +174,99 @@ func (d *Daemon) DecompileJar(jarPath, fqn string) (string, error) {
 	return resp.Text, nil
 }
 
+// PluginRuleDescriptor is the daemon-reported metadata for one Kotlin
+// custom rule loaded from a plugin jar.
+type PluginRuleDescriptor struct {
+	RuleID     string   `json:"ruleId"`
+	Category   string   `json:"category"`
+	Severity   string   `json:"severity"`
+	Maturity   string   `json:"maturity"`
+	Languages  []string `json:"languages"`
+	Needs      []string `json:"needs"`
+	SDKVersion string   `json:"sdkVersion,omitempty"`
+}
+
+// ListPluginsResult is the result payload for the krit-types listPlugins verb.
+type ListPluginsResult struct {
+	Rules []PluginRuleDescriptor `json:"rules"`
+}
+
+// AnalyzePluginFileResult is the result payload for the krit-types analyzeFile verb.
+type AnalyzePluginFileResult struct {
+	Findings []PluginFinding   `json:"findings"`
+	Errors   map[string]string `json:"errors,omitempty"`
+}
+
+// PluginFinding is a custom Kotlin rule finding before conversion into
+// scanner.FindingColumns by the Go pipeline.
+type PluginFinding struct {
+	File       string     `json:"file"`
+	Line       int        `json:"line"`
+	Column     int        `json:"column"`
+	StartByte  int        `json:"startByte,omitempty"`
+	EndByte    int        `json:"endByte,omitempty"`
+	RuleSet    string     `json:"ruleSet"`
+	RuleID     string     `json:"ruleId"`
+	Severity   string     `json:"severity"`
+	Message    string     `json:"message"`
+	Confidence float64    `json:"confidence,omitempty"`
+	Fix        *PluginFix `json:"fix,omitempty"`
+}
+
+// PluginFix is a line-oriented text edit produced by a Kotlin custom rule.
+type PluginFix struct {
+	StartLine   int    `json:"startLine"`
+	EndLine     int    `json:"endLine"`
+	Replacement string `json:"replacement"`
+	Safety      string `json:"safety,omitempty"`
+}
+
+// ListPlugins loads plugin jars into the daemon and returns their descriptors.
+func (d *Daemon) ListPlugins(jars []string) (ListPluginsResult, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	result, err := d.sendResult("listPlugins", map[string]interface{}{
+		"jars": jars,
+	})
+	if err != nil {
+		return ListPluginsResult{}, err
+	}
+	if result == nil {
+		return ListPluginsResult{}, fmt.Errorf("listPlugins returned nil result")
+	}
+	var out ListPluginsResult
+	if err := json.Unmarshal(*result, &out); err != nil {
+		return ListPluginsResult{}, fmt.Errorf("unmarshal listPlugins response: %w", err)
+	}
+	return out, nil
+}
+
+// AnalyzePluginFile runs selected Kotlin custom rules against one source file.
+func (d *Daemon) AnalyzePluginFile(jars []string, path string, source []byte, ruleIDs []string) (AnalyzePluginFileResult, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	params := map[string]interface{}{
+		"jars":    jars,
+		"path":    path,
+		"source":  string(source),
+		"ruleIds": ruleIDs,
+	}
+	result, err := d.sendResult("analyzeFile", params)
+	if err != nil {
+		return AnalyzePluginFileResult{}, err
+	}
+	if result == nil {
+		return AnalyzePluginFileResult{}, fmt.Errorf("analyzeFile returned nil result")
+	}
+	var out AnalyzePluginFileResult
+	if err := json.Unmarshal(*result, &out); err != nil {
+		return AnalyzePluginFileResult{}, fmt.Errorf("unmarshal analyzeFile response: %w", err)
+	}
+	return out, nil
+}
+
 // AnalyzeWithDeps is the cache-aware variant of Analyze. It asks the
 // daemon to run analysis with a DepTracker instrumented per file and
 // returns both the Data AND the per-file dep closure the Go-side

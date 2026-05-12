@@ -1,0 +1,106 @@
+package pipeline
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host ProjectHostState, indexResult IndexResult, crossFileResult *CrossFileResult, bundleHit bool) error {
+	if len(args.CustomRuleJars) == 0 || bundleHit {
+		return nil
+	}
+	daemon := indexResult.Daemon
+	if daemon == nil {
+		daemon = host.OracleDaemon
+	}
+	if daemon == nil {
+		return fmt.Errorf("kotlin custom rules require the krit-types daemon; pass --daemon and ensure tools/krit-types/build/libs/krit-types.jar exists")
+	}
+
+	list, err := daemon.ListPlugins(args.CustomRuleJars)
+	if err != nil {
+		return fmt.Errorf("list Kotlin custom rules: %w", err)
+	}
+	ruleIDs := make([]string, 0, len(list.Rules))
+	for _, rule := range list.Rules {
+		if rule.RuleID != "" {
+			ruleIDs = append(ruleIDs, rule.RuleID)
+		}
+	}
+	if len(ruleIDs) == 0 {
+		return nil
+	}
+
+	collector := scanner.NewFindingCollector(crossFileResult.Findings.Len())
+	collector.AppendColumns(&crossFileResult.Findings)
+	for _, file := range indexResult.KotlinFiles {
+		if file == nil {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		result, err := daemon.AnalyzePluginFile(args.CustomRuleJars, file.Path, file.Content, ruleIDs)
+		if err != nil {
+			return fmt.Errorf("run Kotlin custom rules on %s: %w", file.Path, err)
+		}
+		if len(result.Errors) > 0 {
+			return fmt.Errorf("run Kotlin custom rules on %s: %s", file.Path, formatPluginErrors(result.Errors))
+		}
+		cols := pluginFindingsToColumns(result.Findings)
+		cols = applySuppressionColumns(&cols, indexResult.SourceFiles())
+		collector.AppendColumns(&cols)
+	}
+	crossFileResult.Findings = *collector.Columns()
+	return nil
+}
+
+func pluginFindingsToColumns(findings []oracle.PluginFinding) scanner.FindingColumns {
+	if len(findings) == 0 {
+		return scanner.FindingColumns{}
+	}
+	out := make([]scanner.Finding, 0, len(findings))
+	for _, finding := range findings {
+		out = append(out, scanner.Finding{
+			File:       finding.File,
+			Line:       finding.Line,
+			Col:        finding.Column,
+			StartByte:  finding.StartByte,
+			EndByte:    finding.EndByte,
+			RuleSet:    finding.RuleSet,
+			Rule:       finding.RuleID,
+			Severity:   finding.Severity,
+			Message:    finding.Message,
+			Confidence: finding.Confidence,
+			Fix:        pluginFixToScanner(finding.Fix),
+		})
+	}
+	return scanner.CollectFindings(out)
+}
+
+func pluginFixToScanner(fix *oracle.PluginFix) *scanner.Fix {
+	if fix == nil {
+		return nil
+	}
+	return &scanner.Fix{
+		StartLine:   fix.StartLine,
+		EndLine:     fix.EndLine,
+		Replacement: fix.Replacement,
+	}
+}
+
+func formatPluginErrors(errors map[string]string) string {
+	parts := make([]string, 0, len(errors))
+	for ruleID, message := range errors {
+		parts = append(parts, ruleID+": "+message)
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "; ")
+}

@@ -64,6 +64,11 @@ abstract class KritCheckTask @Inject constructor(
     @get:Input
     abstract val typeInference: Property<Boolean>
 
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val customRuleJars: org.gradle.api.file.ConfigurableFileCollection
+
     @get:Internal
     abstract val cacheDir: DirectoryProperty
 
@@ -144,14 +149,15 @@ abstract class KritCheckTask @Inject constructor(
             if (noCache.get()) add("--no-cache")
             if (!typeInference.get()) add("--no-type-inference")
             if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
+            addCustomRuleJarArgs()
             add("-q")
             source.files.forEach { add(it.absolutePath) }
         }
 
-        val result = execOps.exec { spec ->
-            spec.executable = kritBinary.get().asFile.absolutePath
-            spec.args = args
-            spec.isIgnoreExitValue = true
+        val result = execOps.exec {
+            executable = kritBinary.get().asFile.absolutePath
+            args(args)
+            isIgnoreExitValue = true
         }
 
         // Run additional report formats if more than one is enabled
@@ -167,14 +173,15 @@ abstract class KritCheckTask @Inject constructor(
                 if (noCache.get()) add("--no-cache")
                 if (!typeInference.get()) add("--no-type-inference")
                 if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
+                addCustomRuleJarArgs()
                 add("-q")
                 source.files.forEach { add(it.absolutePath) }
             }
 
-            execOps.exec { spec ->
-                spec.executable = kritBinary.get().asFile.absolutePath
-                spec.args = extraArgs
-                spec.isIgnoreExitValue = true
+            execOps.exec {
+                executable = kritBinary.get().asFile.absolutePath
+                args(extraArgs)
+                isIgnoreExitValue = true
             }
         }
 
@@ -210,5 +217,13 @@ abstract class KritCheckTask @Inject constructor(
         }
 
         return reports
+    }
+
+    private fun MutableList<String>.addCustomRuleJarArgs() {
+        val jars = customRuleJars.files
+        if (jars.isNotEmpty()) {
+            add("--custom-rule-jars")
+            add(jars.joinToString(",") { it.absolutePath })
+        }
     }
 }

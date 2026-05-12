@@ -1,11 +1,13 @@
 package dev.krit.gradle
 
 import org.gradle.api.Action
+import org.gradle.api.Project
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.Property
+import org.gradle.jvm.tasks.Jar
 import javax.inject.Inject
 
 /**
@@ -44,6 +46,9 @@ abstract class KritExtension @Inject constructor(objects: ObjectFactory) {
     /** Source directories to analyze. */
     abstract val source: ConfigurableFileCollection
 
+    /** Kotlin custom-rule jars to load through krit-types. */
+    abstract val customRuleJars: ConfigurableFileCollection
+
     /** Reports output directory. */
     abstract val reportsDir: DirectoryProperty
 
@@ -68,5 +73,18 @@ abstract class KritExtension @Inject constructor(objects: ObjectFactory) {
     /** Configure reports via DSL block. */
     fun reports(action: Action<KritReports>) {
         action.execute(reports)
+    }
+
+    /** Add Kotlin custom-rule jars or projects that produce a jar task. */
+    fun customRules(vararg notations: Any) {
+        notations.forEach { notation ->
+            if (notation is Project) {
+                val jarTask = notation.tasks.named("jar", Jar::class.java)
+                customRuleJars.from(jarTask.flatMap { it.archiveFile })
+                customRuleJars.builtBy(jarTask)
+            } else {
+                customRuleJars.from(notation)
+            }
+        }
     }
 }

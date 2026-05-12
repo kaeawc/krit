@@ -1,5 +1,8 @@
 rootProject.name = "krit-types"
 
+include(":krit-rule-api")
+project(":krit-rule-api").projectDir = file("../krit-rule-api")
+
 dependencyResolutionManagement {
     repositories {
         mavenCentral()

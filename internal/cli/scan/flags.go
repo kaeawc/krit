@@ -59,6 +59,7 @@ type scanFlags struct {
 	NoTypeOracle             *bool
 	NoCacheOracle            *bool
 	NoCrossFileCache         *bool
+	CustomRuleJars           *string
 	Daemon                   *bool
 	NoOracleFilter           *bool
 	OracleDiagnostics        *bool
@@ -165,6 +166,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.NoTypeOracle = fs.Bool("no-type-oracle", false, "Skip the JVM type oracle entirely (faster, less precise)")
 	f.NoCacheOracle = fs.Bool("no-cache-oracle", false, "Disable the on-disk incremental oracle cache (forces a full JVM run)")
 	f.NoCrossFileCache = fs.Bool("no-cross-file-cache", false, "Disable the on-disk cross-file index cache (forces a full crossFileAnalysis rebuild)")
+	f.CustomRuleJars = fs.String("custom-rule-jars", "", "Comma-separated Kotlin custom-rule jars to load through the krit-types daemon (experimental)")
 	f.Daemon = fs.Bool("daemon", false, "Use long-lived krit-types daemon instead of one-shot invocation")
 	f.NoOracleFilter = fs.Bool("no-oracle-filter", false, "Disable the rule-classification oracle filter (feeds every file to krit-types, matching the pre-filter baseline; used to validate findings-equivalence)")
 	f.OracleDiagnostics = fs.Bool("oracle-diagnostics", false, "Collect Kotlin compiler diagnostics in the type oracle (slower; enables diagnostic-backed oracle findings)")

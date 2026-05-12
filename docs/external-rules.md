@@ -52,11 +52,42 @@ External rules participate in every analyzer feature on equal footing:
 The `--list-rules` output, JSON/SARIF emitters, baseline files, and
 LSP/MCP servers see externals identically to built-ins.
 
-## Open design questions for true out-of-tree loading
+## Kotlin rule jars (experimental)
+
+Krit now has the first daemon-backed path for Kotlin-authored rule
+jars. A rule jar exposes `dev.krit.api.KritRule` through
+`META-INF/services/dev.krit.api.KritRule`; the `krit-types` daemon
+loads the jar, reads `@KritRuleInfo` metadata, runs the selected rules
+per Kotlin file, and returns findings that Krit merges into the normal
+JSON/SARIF/baseline output path.
+
+The Gradle plugin also exposes the jar collection as:
+
+```kotlin
+krit {
+  customRules(project(":build-logic:krit-rules"))
+}
+```
+
+For local smoke tests without Gradle wiring, build `tools/krit-types`
+and pass jars explicitly:
+
+```bash
+cd tools/krit-types && ./gradlew shadowJar
+krit --custom-rule-jars build-logic/krit-rules/build/libs/krit-rules.jar .
+```
+
+The current annotation is named `@KritRuleInfo` because Kotlin cannot
+define an annotation class and a ServiceLoader interface both named
+`KritRule` in the same package. The ServiceLoader interface keeps the
+stable `dev.krit.api.KritRule` name.
+
+## Open design questions for out-of-tree loading
 
 In-process registration requires recompiling Krit's binary. ktlint
 takes a different path — JARs discovered via `ServiceLoader`,
-loaded with `ktlint -R`. For Krit, every option has trade-offs:
+loaded with `ktlint -R`. Krit's JVM rule jars now cover that direction
+for Kotlin rules, while these broader loader options remain open:
 
 - **Go plugins** (`-buildmode=plugin`): supported on Linux/macOS but
   notoriously brittle (toolchain pinning, race-detector incompatibility,
@@ -70,6 +101,5 @@ loaded with `ktlint -R`. For Krit, every option has trade-offs:
 - **Embedded scripting** (Starlark, Lua): cheaper to integrate; only
   expresses lexical/AST checks. Insufficient for type-aware rules.
 
-Until one of these lands, embedding via `pkg/extension` is the
-supported path. Open a discussion on the repo if your project has a
-strong opinion on which loader to invest in next.
+Embedding via `pkg/extension` remains the stable path while the Kotlin
+SDK stabilizes.

@@ -206,6 +206,8 @@ fun handleRequestLine(
             "analyze" -> RequestResult.Response(session.handleAnalyze(request))
             "analyzeAll" -> RequestResult.Response(session.handleAnalyzeAll(request))
             "analyzeWithDeps" -> RequestResult.Response(session.handleAnalyzeWithDeps(request))
+            "listPlugins" -> RequestResult.Response(session.handleListPlugins(request))
+            "analyzeFile" -> RequestResult.Response(session.handleAnalyzeFileWithPlugins(request))
             "decompileJar" -> RequestResult.Response(session.handleDecompileJar(request))
             "resolveExpressionTypes" -> RequestResult.Response(session.handleResolveExpressionTypes(request))
             "rebuild" -> {
@@ -648,7 +650,11 @@ data class DaemonRequest(
     // every other method.
     val expressionPositions: Map<String, List<RequestExpressionPosition>>? = null,
     val jarPath: String? = null,
-    val fqn: String? = null
+    val fqn: String? = null,
+    val pluginJars: List<String>? = null,
+    val ruleIds: List<String>? = null,
+    val path: String? = null,
+    val source: String? = null
 )
 
 /** 1-based line/col tuple used in resolveExpressionTypes requests. */
@@ -678,7 +684,11 @@ fun parseRequest(json: String): DaemonRequest {
     val expressionPositions = extractJsonExpressionPositionsMap(json, "expressionPositions")
     val jarPath = extractJsonString(json, "jarPath")
     val fqn = extractJsonString(json, "fqn")
-    return DaemonRequest(id, method, files, timings, callFilter, declarationProfile, expressionPositions, jarPath, fqn)
+    val pluginJars = extractJsonStringArray(json, "jars")
+    val ruleIds = extractJsonStringArray(json, "ruleIds")
+    val path = extractJsonString(json, "path")
+    val source = extractJsonString(json, "source")
+    return DaemonRequest(id, method, files, timings, callFilter, declarationProfile, expressionPositions, jarPath, fqn, pluginJars, ruleIds, path, source)
 }
 
 /**

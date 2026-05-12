@@ -274,17 +274,17 @@ func computeListRulesSummary(registry []*api.Rule) listRulesSummary {
 	return s
 }
 
-func runListRulesFlag(listFlag, verboseFlag bool, maturityFilter, taxonomyID string) {
+func runListRulesFlag(listFlag, verboseFlag bool, maturityFilter, taxonomyID string, customRuleJars []string, paths []string) {
 	if !listFlag {
 		return
 	}
-	printListRules(os.Stdout, verboseFlag, maturityFilter, taxonomyID)
+	printListRules(os.Stdout, verboseFlag, maturityFilter, taxonomyID, customRuleJars, paths)
 	os.Exit(0)
 }
 
 // printListRules writes the --list-rules output. Split from
 // runListRulesFlag so tests can drive it without the os.Exit.
-func printListRules(w io.Writer, verboseFlag bool, maturityFilter, taxonomyID string) {
+func printListRules(w io.Writer, verboseFlag bool, maturityFilter, taxonomyID string, customRuleJars []string, paths []string) {
 	var maturity api.Maturity
 	maturityFilterSet := false
 	if maturityFilter != "" {
@@ -346,8 +346,46 @@ func printListRules(w io.Writer, verboseFlag bool, maturityFilter, taxonomyID st
 			}
 		}
 	}
-	fmt.Fprintf(w, "\nTotal: %d rules (%d active by default, %d fixable)\n", len(registry), active, fixable)
+	pluginRules := listPluginRuleDescriptors(customRuleJars, paths)
+	for _, r := range pluginRules {
+		if verboseFlag {
+			sdk := r.SDKVersion
+			if sdk == "" {
+				sdk = "unknown"
+			}
+			fmt.Fprintf(w, "  P  %-40s [%-15s] %s (plugin sdk: %s, maturity: %s)\n", r.RuleID, r.Category, r.Severity, sdk, r.Maturity)
+		} else {
+			fmt.Fprintf(w, "  P  %-40s [%-15s] %s\n", r.RuleID, r.Category, r.Severity)
+		}
+	}
+	total := len(registry) + len(pluginRules)
+	if len(pluginRules) > 0 {
+		fmt.Fprintf(w, "\nTotal: %d rules (%d active by default, %d fixable, %d plugin)\n", total, active, fixable, len(pluginRules))
+	} else {
+		fmt.Fprintf(w, "\nTotal: %d rules (%d active by default, %d fixable)\n", total, active, fixable)
+	}
 	fmt.Fprintln(w, "A=active by default, F=fixable. Use -v for fix levels, --all-rules to enable all, --maturity to filter by lifecycle.")
+}
+
+func listPluginRuleDescriptors(customRuleJars []string, paths []string) []oracle.PluginRuleDescriptor {
+	if len(customRuleJars) == 0 {
+		return nil
+	}
+	if len(paths) == 0 {
+		paths = []string{"."}
+	}
+	d, err := oracle.InvokeDaemon(paths, false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: custom-rule daemon: %v\n", err)
+		os.Exit(2)
+	}
+	defer d.Close()
+	list, err := d.ListPlugins(customRuleJars)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: custom-rule plugins: %v\n", err)
+		os.Exit(2)
+	}
+	return list.Rules
 }
 
 // outputTypesOpts bundles the flag values runOutputTypesFlag needs.

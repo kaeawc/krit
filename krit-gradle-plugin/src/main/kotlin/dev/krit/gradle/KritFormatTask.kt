@@ -83,10 +83,10 @@ abstract class KritFormatTask @Inject constructor(
             sourceFiles.forEach { add(it.absolutePath) }
         }
 
-        val result = execOps.exec { spec ->
-            spec.executable = kritBinary.get().asFile.absolutePath
-            spec.args = args
-            spec.isIgnoreExitValue = true
+        val result = execOps.exec {
+            executable = kritBinary.get().asFile.absolutePath
+            args(args)
+            isIgnoreExitValue = true
         }
 
         if (result.exitValue != 0) {

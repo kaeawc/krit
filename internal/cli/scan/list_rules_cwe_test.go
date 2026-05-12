@@ -24,7 +24,7 @@ func TestCWEFilter(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	printListRules(&buf, false, "", "CWE-89")
+	printListRules(&buf, false, "", "CWE-89", nil, nil)
 	out := buf.String()
 
 	if !strings.Contains(out, "SqlInjectionRawQuery") {

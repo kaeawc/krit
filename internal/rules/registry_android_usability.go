@@ -104,7 +104,7 @@ func registerAndroidUsabilityRules() {
 		})
 	}
 	{
-		r := &RequiresApiViolationRule{AndroidRule: AndroidRule{
+		r := &RequiresAPIViolationRule{AndroidRule: AndroidRule{
 			BaseRule: BaseRule{RuleName: "RequiresApiViolation", RuleSetName: androidRuleSet, Sev: "error",
 				Desc: "Detects calls to APIs annotated with @RequiresApi(N) (or @TargetApi(N)) when N is greater than the project's minSdk and the call is not SDK_INT guarded."},
 			IssueID: "RequiresApiViolation", Brief: "Calling an API above the module's minSdk",

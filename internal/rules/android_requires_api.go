@@ -11,18 +11,18 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-type RequiresApiViolationRule struct {
+type RequiresAPIViolationRule struct {
 	FlatDispatchBase
 	AndroidRule
 }
 
-func (r *RequiresApiViolationRule) Confidence() float64 { return 0.90 }
+func (r *RequiresAPIViolationRule) Confidence() float64 { return 0.90 }
 
-type requiresApiIndex struct {
+type requiresAPIIndex struct {
 	levels map[string]int
 }
 
-func isRequiresApiDeclType(typ string) bool {
+func isRequiresAPIDeclType(typ string) bool {
 	switch typ {
 	case "function_declaration", "property_declaration", "class_declaration", "object_declaration":
 		return true
@@ -30,16 +30,16 @@ func isRequiresApiDeclType(typ string) bool {
 	return false
 }
 
-func buildRequiresApiIndex(file *scanner.File) *requiresApiIndex {
-	idx := &requiresApiIndex{levels: map[string]int{}}
+func buildRequiresAPIIndex(file *scanner.File) *requiresAPIIndex {
+	idx := &requiresAPIIndex{levels: map[string]int{}}
 	if file == nil {
 		return idx
 	}
 	file.FlatWalkAllNodes(0, func(decl uint32) {
-		if !isRequiresApiDeclType(file.FlatType(decl)) {
+		if !isRequiresAPIDeclType(file.FlatType(decl)) {
 			return
 		}
-		level := requiresApiLevelForDeclFlat(file, decl)
+		level := requiresAPILevelForDeclFlat(file, decl)
 		if level <= 0 {
 			// Tree-sitter Kotlin sometimes parses top-level `@RequiresApi(26)`
 			// as a `prefix_expression` sibling rather than a modifier on the
@@ -68,7 +68,7 @@ func precedingPrefixAnnotationLevelFlat(file *scanner.File, decl uint32) int {
 	best := 0
 	for c := file.FlatFirstChild(parent); c != 0 && c != decl; c = file.FlatNextSib(c) {
 		typ := file.FlatType(c)
-		if isRequiresApiDeclType(typ) {
+		if isRequiresAPIDeclType(typ) {
 			best = 0
 			continue
 		}
@@ -99,7 +99,7 @@ func prefixExpressionAnnotationLevel(file *scanner.File, idx uint32) int {
 	if name != "RequiresApi" && name != "TargetApi" {
 		return 0
 	}
-	if level := requiresApiAnnotationLevel(file, annotationNode); level > 0 {
+	if level := requiresAPIAnnotationLevel(file, annotationNode); level > 0 {
 		return level
 	}
 	if parenNode == 0 {
@@ -112,13 +112,13 @@ func prefixExpressionAnnotationLevel(file *scanner.File, idx uint32) int {
 			}
 		}
 	}
-	return parseRequiresApiArgText(file.FlatNodeText(parenNode))
+	return parseRequiresAPIArgText(file.FlatNodeText(parenNode))
 }
 
-func requiresApiLevelForDeclFlat(file *scanner.File, decl uint32) int {
+func requiresAPILevelForDeclFlat(file *scanner.File, decl uint32) int {
 	best := 0
 	if mods, ok := file.FlatFindChild(decl, "modifiers"); ok {
-		if l := extractRequiresApiLevelFromModifiers(file, mods); l > best {
+		if l := extractRequiresAPILevelFromModifiers(file, mods); l > best {
 			best = l
 		}
 	}
@@ -126,7 +126,7 @@ func requiresApiLevelForDeclFlat(file *scanner.File, decl uint32) int {
 		switch file.FlatType(p) {
 		case "class_declaration", "object_declaration":
 			if mods, ok := file.FlatFindChild(p, "modifiers"); ok {
-				if l := extractRequiresApiLevelFromModifiers(file, mods); l > best {
+				if l := extractRequiresAPILevelFromModifiers(file, mods); l > best {
 					best = l
 				}
 			}
@@ -137,28 +137,28 @@ func requiresApiLevelForDeclFlat(file *scanner.File, decl uint32) int {
 	return best
 }
 
-func extractRequiresApiLevelFromModifiers(file *scanner.File, mods uint32) int {
+func extractRequiresAPILevelFromModifiers(file *scanner.File, mods uint32) int {
 	best := 0
 	file.FlatWalkNodes(mods, "annotation", func(ann uint32) {
 		name := annotationFinalName(file, ann)
 		if name != "RequiresApi" && name != "TargetApi" {
 			return
 		}
-		if level := requiresApiAnnotationLevel(file, ann); level > best {
+		if level := requiresAPIAnnotationLevel(file, ann); level > best {
 			best = level
 		}
 	})
 	return best
 }
 
-func requiresApiAnnotationLevel(file *scanner.File, ann uint32) int {
+func requiresAPIAnnotationLevel(file *scanner.File, ann uint32) int {
 	if args, ok := file.FlatFindChild(ann, "value_arguments"); ok {
 		for i := 0; i < file.FlatChildCount(args); i++ {
 			arg := file.FlatChild(args, i)
 			if file.FlatType(arg) != "value_argument" {
 				continue
 			}
-			if n := parseRequiresApiArgText(file.FlatNodeText(arg)); n > 0 {
+			if n := parseRequiresAPIArgText(file.FlatNodeText(arg)); n > 0 {
 				return n
 			}
 		}
@@ -173,10 +173,10 @@ func requiresApiAnnotationLevel(file *scanner.File, ann uint32) int {
 	if end <= open {
 		return 0
 	}
-	return parseRequiresApiArgText(text[open+1 : end])
+	return parseRequiresAPIArgText(text[open+1 : end])
 }
 
-func parseRequiresApiArgText(text string) int {
+func parseRequiresAPIArgText(text string) int {
 	text = strings.TrimSpace(text)
 	if eq := strings.Index(text, "="); eq >= 0 {
 		text = strings.TrimSpace(text[eq+1:])
@@ -200,7 +200,7 @@ func projectMinSdk(ctx *api.Context) int {
 	return 1
 }
 
-func (r *RequiresApiViolationRule) check(ctx *api.Context) {
+func (r *RequiresAPIViolationRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
 	if file == nil || scanner.IsTestFile(file.Path) {
 		return
@@ -231,8 +231,8 @@ func (r *RequiresApiViolationRule) check(ctx *api.Context) {
 		return
 	}
 
-	index := filefacts.FileFact(ctx.Facts, file, "requiresApiIndex", func() *requiresApiIndex {
-		return buildRequiresApiIndex(file)
+	index := filefacts.FileFact(ctx.Facts, file, "requiresAPIIndex", func() *requiresAPIIndex {
+		return buildRequiresAPIIndex(file)
 	})
 	level, ok := index.levels[name]
 	if !ok || level <= 0 {

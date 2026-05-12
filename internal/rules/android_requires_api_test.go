@@ -11,9 +11,9 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// findRequiresApiViolationRule looks up the registered RequiresApiViolation
+// findRequiresAPIViolationRule looks up the registered RequiresApiViolation
 // descriptor so tests can run it through the same code path as production.
-func findRequiresApiViolationRule(t *testing.T) *api.Rule {
+func findRequiresAPIViolationRule(t *testing.T) *api.Rule {
 	t.Helper()
 	for _, r := range api.Registry {
 		if r.ID == "RequiresApiViolation" {
@@ -40,7 +40,7 @@ func runRequiresApi(t *testing.T, source string, minSdk int) []scanner.Finding {
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
-	rule := findRequiresApiViolationRule(t)
+	rule := findRequiresAPIViolationRule(t)
 	dispatcher := NewDispatcher([]*api.Rule{rule})
 	dispatcher.SetLibraryFacts(librarymodel.FactsForProfile(librarymodel.ProjectProfile{
 		MinSdkVersion: minSdk,
@@ -180,8 +180,8 @@ func TestRequiresApiViolation_ParseRequiresApiAnnotationLevel(t *testing.T) {
 		"value = \"26\"": 0, // non-numeric must not parse
 	}
 	for input, want := range cases {
-		if got := parseRequiresApiArgText(input); got != want {
-			t.Errorf("parseRequiresApiArgText(%q) = %d, want %d", input, got, want)
+		if got := parseRequiresAPIArgText(input); got != want {
+			t.Errorf("parseRequiresAPIArgText(%q) = %d, want %d", input, got, want)
 		}
 	}
 }

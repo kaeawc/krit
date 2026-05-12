@@ -1455,3 +1455,123 @@ func missingEnumEntries(covered map[string]bool, entries []string) []string {
 	}
 	return missing
 }
+
+// NonExhaustiveWhenRule flags `when` expressions used in a value-consuming
+// position on a sealed/enum/Boolean subject when one or more branches are
+// missing and there is no `else`. The statement form is left to
+// NoElseInWhenSealed.
+type NonExhaustiveWhenRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+func (r *NonExhaustiveWhenRule) Confidence() float64 { return 0.9 }
+
+// whenIsUsedAsExpression walks parents through transparent wrappers
+// (parenthesized_expression, annotated_expression) and inspects the
+// enclosing context. Returns false for statement positions (statements,
+// control_structure_body, block-bodied function_body) and true for value-
+// consuming positions (initializers, return, arguments, operands, ...).
+func whenIsUsedAsExpression(file *scanner.File, idx uint32) bool {
+	cur := idx
+	for {
+		parent, ok := file.FlatParent(cur)
+		if !ok {
+			return false
+		}
+		switch file.FlatType(parent) {
+		case "parenthesized_expression", "annotated_expression":
+			cur = parent
+			continue
+		case "statements", "control_structure_body":
+			return false
+		case "function_body":
+			// Expression body iff `=` precedes the when; block bodies start with `{`.
+			for c := file.FlatFirstChild(parent); c != 0; c = file.FlatNextSib(c) {
+				if c == cur {
+					return false
+				}
+				switch file.FlatType(c) {
+				case "=":
+					return true
+				case "{":
+					return false
+				}
+			}
+			return false
+		case "property_declaration", "variable_declaration",
+			"jump_expression", "value_argument", "value_arguments",
+			"assignment", "directly_assignable_expression",
+			"disjunction", "conjunction", "equality", "comparison",
+			"additive_expression", "multiplicative_expression", "range_expression",
+			"infix_expression", "as_expression", "elvis_expression",
+			"prefix_expression", "postfix_unary_expression", "spread_expression",
+			"check_expression",
+			"indexing_suffix", "call_suffix", "navigation_suffix",
+			"lambda_literal", "anonymous_function":
+			return true
+		default:
+			return false
+		}
+	}
+}
+
+func whenSubjectResolvesToBoolean(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) bool {
+	if resolver == nil {
+		return false
+	}
+	subject := whenSubjectExpressionFlat(file, idx)
+	if subject == 0 {
+		return false
+	}
+	for _, name := range whenSubjectTypeCandidatesFlat(file, subject, resolver) {
+		if name == "Boolean" || name == "kotlin.Boolean" {
+			return true
+		}
+	}
+	return false
+}
+
+func collectBooleanCoveredLiterals(file *scanner.File, idx uint32) (hasTrue, hasFalse bool) {
+	file.FlatForEachChild(idx, func(entry uint32) {
+		if file.FlatType(entry) != "when_entry" {
+			return
+		}
+		file.FlatForEachChild(entry, func(cond uint32) {
+			if file.FlatType(cond) != "when_condition" {
+				return
+			}
+			for c := file.FlatFirstChild(cond); c != 0; c = file.FlatNextSib(c) {
+				if file.FlatType(c) != "boolean_literal" {
+					continue
+				}
+				switch strings.TrimSpace(file.FlatNodeText(c)) {
+				case "true":
+					hasTrue = true
+				case "false":
+					hasFalse = true
+				}
+			}
+		})
+	})
+	return hasTrue, hasFalse
+}
+
+// missingWhenSealedOrEnumVariants resolves the subject's sealed/enum kind
+// and returns the missing variant/entry names. Returns ("", "", nil) when
+// the subject doesn't resolve to a sealed hierarchy or enum, or when all
+// branches are covered.
+func missingWhenSealedOrEnumVariants(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) (kind, subjectName string, missing []string) {
+	kind, subjectName, variants := whenSubjectExhaustiveKindFlat(file, idx, resolver)
+	if kind == "" || len(variants) == 0 {
+		return "", "", nil
+	}
+	typeNames, entryNames := collectWhenCoveredVariants(file, idx)
+	switch kind {
+	case "sealed":
+		missing = missingSealedVariants(typeNames, variants)
+	case "enum":
+		missing = missingEnumEntries(entryNames, variants)
+	}
+	return kind, subjectName, missing
+}

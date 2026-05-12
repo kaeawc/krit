@@ -369,23 +369,61 @@ func registerPotentialbugsTypesRules() {
 				if _, ok := file.FlatFindChild(idx, "when_subject"); !ok {
 					return
 				}
-				kind, subjectName, variants := whenSubjectExhaustiveKindFlat(file, idx, ctx.Resolver)
-				if kind == "" || len(variants) == 0 {
-					return
-				}
-				typeNames, entryNames := collectWhenCoveredVariants(file, idx)
-				var missing []string
-				switch kind {
-				case "sealed":
-					missing = missingSealedVariants(typeNames, variants)
-				case "enum":
-					missing = missingEnumEntries(entryNames, variants)
-				}
-				if len(missing) == 0 {
+				kind, subjectName, missing := missingWhenSealedOrEnumVariants(file, idx, ctx.Resolver)
+				if kind == "" || len(missing) == 0 {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					fmt.Sprintf("'when' on %s '%s' is not exhaustive: missing %s. Add the missing branches or an 'else' clause.",
+						kind, subjectName, strings.Join(missing, ", ")))
+			},
+		})
+	}
+	{
+		r := &NonExhaustiveWhenRule{BaseRule: BaseRule{RuleName: "NonExhaustiveWhen", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects 'when' used as an expression on a sealed/enum/Boolean subject without an else branch and missing one or more variants."}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
+			NodeTypes: []string{"when_expression"}, Confidence: 0.9, Implementation: r,
+			Needs: api.NeedsResolver,
+			Tags:  []string{"precompile"},
+			Check: func(ctx *api.Context) {
+				idx, file := ctx.Idx, ctx.File
+				if ctx.Resolver == nil {
+					return
+				}
+				if whenHasElseBranchFlat(file, idx) {
+					return
+				}
+				if _, ok := file.FlatFindChild(idx, "when_subject"); !ok {
+					return
+				}
+				if !whenIsUsedAsExpression(file, idx) {
+					return
+				}
+				// Boolean subject: must cover both `true` and `false`.
+				if whenSubjectResolvesToBoolean(file, idx, ctx.Resolver) {
+					hasTrue, hasFalse := collectBooleanCoveredLiterals(file, idx)
+					if hasTrue && hasFalse {
+						return
+					}
+					var missing []string
+					if !hasTrue {
+						missing = append(missing, "true")
+					}
+					if !hasFalse {
+						missing = append(missing, "false")
+					}
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						fmt.Sprintf("'when' used as an expression on Boolean is not exhaustive: missing %s. Add the missing branches or an 'else' clause.",
+							strings.Join(missing, ", ")))
+					return
+				}
+				kind, subjectName, missing := missingWhenSealedOrEnumVariants(file, idx, ctx.Resolver)
+				if kind == "" || len(missing) == 0 {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("'when' used as an expression on %s '%s' is not exhaustive: missing %s. Add the missing branches or an 'else' clause.",
 						kind, subjectName, strings.Join(missing, ", ")))
 			},
 		})

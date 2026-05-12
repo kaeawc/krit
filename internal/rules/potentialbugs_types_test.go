@@ -988,3 +988,176 @@ fun classify(x: Int): String = when {
 		t.Fatalf("expected no findings on subject-less when, got %d", len(findings))
 	}
 }
+
+// --- NonExhaustiveWhen ---
+
+func TestNonExhaustiveWhen_ExpressionBody_MissingSealed_Positive(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NonExhaustiveWhen", `
+package test
+
+sealed class Result {
+    object Loading : Result()
+    data class Success(val v: String) : Result()
+    data class Failure(val e: Throwable) : Result()
+}
+
+fun render(r: Result): String = when (r) {
+    is Result.Loading -> "loading"
+    is Result.Success -> r.v
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for non-exhaustive when used as expression body")
+	}
+}
+
+func TestNonExhaustiveWhen_StatementForm_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NonExhaustiveWhen", `
+package test
+
+sealed class Result {
+    object Loading : Result()
+    data class Success(val v: String) : Result()
+    data class Failure(val e: Throwable) : Result()
+}
+
+fun handle(r: Result) {
+    when (r) {
+        is Result.Loading -> println("loading")
+        is Result.Success -> println(r.v)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for statement-form when, got %d", len(findings))
+	}
+}
+
+func TestNonExhaustiveWhen_PropertyInit_MissingEnum_Positive(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NonExhaustiveWhen", `
+package test
+
+enum class Color { RED, GREEN, BLUE }
+
+fun describe(c: Color): String {
+    val label: String = when (c) {
+        Color.RED -> "warm"
+        Color.BLUE -> "cool"
+    }
+    return label
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for non-exhaustive when in property initializer")
+	}
+}
+
+func TestNonExhaustiveWhen_Return_Positive(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NonExhaustiveWhen", `
+package test
+
+sealed class Result {
+    object Loading : Result()
+    data class Success(val v: String) : Result()
+    data class Failure(val e: Throwable) : Result()
+}
+
+fun pick(r: Result): Int {
+    return when (r) {
+        is Result.Loading -> 1
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for non-exhaustive when in return")
+	}
+}
+
+func TestNonExhaustiveWhen_BooleanMissingFalse_Positive(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NonExhaustiveWhen", `
+package test
+
+fun toInt(b: Boolean): Int = when (b) {
+    true -> 1
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for Boolean when missing false branch")
+	}
+}
+
+func TestNonExhaustiveWhen_BooleanFullyCovered_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NonExhaustiveWhen", `
+package test
+
+fun toInt(b: Boolean): Int = when (b) {
+    true -> 1
+    false -> 0
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when both Boolean branches present, got %d", len(findings))
+	}
+}
+
+func TestNonExhaustiveWhen_HasElse_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NonExhaustiveWhen", `
+package test
+
+sealed class Result {
+    object Loading : Result()
+    data class Success(val v: String) : Result()
+    data class Failure(val e: Throwable) : Result()
+}
+
+fun pick(r: Result): Int = when (r) {
+    is Result.Loading -> 1
+    else -> 0
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when else present, got %d", len(findings))
+	}
+}
+
+func TestNonExhaustiveWhen_AllVariantsCovered_Negative(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NonExhaustiveWhen", `
+package test
+
+sealed class Result {
+    object Loading : Result()
+    data class Success(val v: String) : Result()
+    data class Failure(val e: Throwable) : Result()
+}
+
+fun pick(r: Result): Int = when (r) {
+    is Result.Loading -> 1
+    is Result.Success -> 2
+    is Result.Failure -> 3
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when all sealed variants covered, got %d", len(findings))
+	}
+}
+
+func TestNonExhaustiveWhen_CallArgument_Positive(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NonExhaustiveWhen", `
+package test
+
+sealed class Result {
+    object Loading : Result()
+    data class Success(val v: String) : Result()
+    data class Failure(val e: Throwable) : Result()
+}
+
+fun log(r: Result) {
+    println(when (r) {
+        is Result.Loading -> "a"
+    })
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for when used as call argument")
+	}
+}

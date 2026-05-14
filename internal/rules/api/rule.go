@@ -725,6 +725,14 @@ type Rule struct {
 	// config activation today.
 	Tags []string
 
+	// Owners are GitHub handles or team aliases (e.g. "@kaeawc" or
+	// "@kaeawc/android") that maintain this rule. Surfaces in MCP
+	// `explain` so users know who to ping when a rule misfires; also
+	// pre-fills the `/cc @owner` line on issue templates and CI failure
+	// messages. Empty Owners on a registered rule falls back to
+	// DefaultRuleOwners when projected through MetaForRule.
+	Owners []string
+
 	// EnabledByDefaultSince records the krit version in which this rule
 	// became default-active (DefaultActive transitioned from false to
 	// true). Empty string means the rule has been default-active since
@@ -1165,6 +1173,14 @@ type RelationError struct {
 func (e *RelationError) Error() string {
 	return "rule " + e.Rule + " RelatedRules entry " + e.Reference + ": " + e.Reason
 }
+
+// DefaultRuleOwners is the fallback owner list used when a rule does
+// not declare its own Owners. It mirrors the project's CODEOWNERS
+// root entry ("* @kaeawc") so every registered rule has at least one
+// pingable maintainer surfaced through MetaForRule and MCP `explain`.
+//
+// Treat the slice as read-only.
+var DefaultRuleOwners = []string{"@kaeawc"}
 
 // Registry holds all registered v2 rules.
 var Registry []*Rule

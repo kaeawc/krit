@@ -73,6 +73,8 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 
 	active := rules.IsDefaultActive(r.ID)
 
+	desc, _ := rules.MetaForRule(r)
+
 	info := map[string]interface{}{
 		"name":         r.ID,
 		"description":  r.Description,
@@ -83,6 +85,8 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 		"precision":    rules.V2RulePrecision(r).String(),
 		"cost":         rules.CostFor(r).String(),
 		"capabilities": r.CapabilitiesList(),
+		"owners":       desc.Owners,
+		"maintainedBy": "Maintained by " + strings.Join(desc.Owners, ", "),
 	}
 	if fixLevel != "" {
 		info["fixLevel"] = fixLevel

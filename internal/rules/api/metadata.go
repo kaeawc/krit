@@ -192,6 +192,12 @@ type RuleDescriptor struct {
 	// descriptive and do not affect activation or dispatch.
 	Tags []string
 
+	// Owners are GitHub handles or team aliases that maintain this
+	// rule. See Rule.Owners for the full contract. MetaForRule always
+	// emits a non-empty Owners slice, falling back to DefaultRuleOwners
+	// when neither Rule.Owners nor a MetaProvider supplied one.
+	Owners []string
+
 	// Severity is "error", "warning", or "info".
 	Severity string
 

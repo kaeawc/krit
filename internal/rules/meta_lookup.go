@@ -100,8 +100,24 @@ func mergeRuleDescriptor(r *api.Rule, extra api.RuleDescriptor) api.RuleDescript
 	} else {
 		out.Tags = extra.Tags
 	}
+	out.Owners = resolveOwners(r, extra)
 	out.Precision = resolvePrecision(r, extra)
 	return out
+}
+
+// resolveOwners returns the owners published in the descriptor. Rules
+// may declare owners directly via Rule.Owners, via their MetaProvider
+// implementation, or rely on api.DefaultRuleOwners. The first non-empty
+// source wins; the fallback guarantees MetaForRule always emits at least
+// one pingable maintainer.
+func resolveOwners(r *api.Rule, extra api.RuleDescriptor) []string {
+	if len(r.Owners) > 0 {
+		return r.Owners
+	}
+	if len(extra.Owners) > 0 {
+		return extra.Owners
+	}
+	return api.DefaultRuleOwners
 }
 
 // resolvePrecision picks the tier returned in a descriptor. A

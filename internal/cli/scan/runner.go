@@ -28,22 +28,22 @@ func (r *runner) projectInput() pipeline.ProjectInput {
 	host := pipeline.ProjectHostState{
 		Reporter:                r.reporter,
 		Tracker:                 r.tracker,
-		ParseCache:              r.parseCache,
+		ParseCache:              r.sess.ParseCache,
 		PrebuiltResolver:        r.resolver,
-		PrebuiltLibraryFacts:    r.libraryFacts,
-		PrebuiltAndroidProject:  r.androidProject,
+		PrebuiltLibraryFacts:    r.sess.LibraryFacts,
+		PrebuiltAndroidProject:  r.sess.AndroidProject,
 		JavaSemanticFacts:       r.javaSemanticFacts,
 		JavaSemanticFactsLoader: runJavaSemanticFacts,
 		CrossFileCacheDir:       resolveCrossFileCacheDir(r.paths, *r.f.NoCrossFileCache),
 		CrossFindingsCacheDir:   resolveCrossFindingsCacheDir(r.paths, *r.f.NoCrossFileCache),
-		AnalysisCache:           r.analysisCache,
+		AnalysisCache:           r.sess.AnalysisCache,
 		AnalysisCacheFilePath:   r.cacheFilePath,
-		AnalysisCacheLookup:     r.useCache && r.analysisCache != nil,
+		AnalysisCacheLookup:     r.useCache && r.sess.AnalysisCache != nil,
 		AnalysisCacheResult:     r.cacheResult,
 		AnalysisCacheStats:      r.cacheStats,
 		AnalysisCacheRuleHash:   r.ruleHash,
 		Oracle:                  r.typeOracle,
-		OracleDaemon:            r.daemon,
+		OracleDaemon:            r.sess.OracleDaemon,
 		AndroidProviders:        r.androidProviders,
 		AndroidCacheDir:         r.androidCacheDir,
 		AndroidCacheWriter:      r.androidCacheWriter,
@@ -89,7 +89,7 @@ func (r *runner) applyProjectAnalysis(analysis pipeline.ProjectAnalysisResult) {
 	r.dispatchResult = analysis.DispatchResult
 	r.cacheStats = analysis.IndexResult.CacheStats
 	r.cacheResult = analysis.IndexResult.CacheResult
-	r.analysisCache = analysis.IndexResult.Cache
+	r.sess.AnalysisCache = analysis.IndexResult.Cache
 	r.ruleHash = analysis.IndexResult.RuleHash
 	if *r.f.PerfRules {
 		r.perfRuleStats = rules.SortedRuleExecutionStats(analysis.DispatchResult.Stats)

@@ -22,9 +22,6 @@ func (r *runner) close() {
 	}
 	r.flushCaches()
 	stopCPUProfile(r.cpuProfileFile)
-	if r.daemon != nil {
-		r.daemon.Close()
-	}
 }
 
 func (r *runner) flushCaches() {
@@ -32,9 +29,9 @@ func (r *runner) flushCaches() {
 		return
 	}
 	r.cachesClosed = true
-	hasParseCacheWrites := r.parseCache != nil && r.parseCache.HasWrites()
-	hasXMLParseCacheWrites := r.xmlParseCache != nil && r.xmlParseCache.HasWrites()
-	hasResourceCacheWrites := r.resourceCache != nil && r.resourceCache.HasWrites()
+	hasParseCacheWrites := r.sess.ParseCache != nil && r.sess.ParseCache.HasWrites()
+	hasXMLParseCacheWrites := r.sess.XMLParseCache != nil && r.sess.XMLParseCache.HasWrites()
+	hasResourceCacheWrites := r.sess.ResourceCache != nil && r.sess.ResourceCache.HasWrites()
 	hasOracleCacheWrites := r.oracleCacheWriter != nil && r.oracleCacheWriter.Stats().Queued > 0
 	hasAndroidCacheWrites := r.androidCacheWriter != nil && (r.androidCacheWriter.Stats().Queued+r.androidCacheWriter.Stats().SyncSaves) > 0
 	if !hasParseCacheWrites && !hasXMLParseCacheWrites && !hasResourceCacheWrites && !hasOracleCacheWrites && !hasAndroidCacheWrites {
@@ -79,30 +76,30 @@ func (r *runner) closeIdleCacheWriters() {
 }
 
 func (r *runner) closeIdleParseCache() {
-	if r.parseCache != nil {
-		_ = r.parseCache.CloseIdle()
+	if r.sess.ParseCache != nil {
+		_ = r.sess.ParseCache.CloseIdle()
 	}
 }
 
 func (r *runner) closeIdleXMLParseCache() {
-	if r.xmlParseCache != nil {
-		_ = r.xmlParseCache.CloseIdle()
+	if r.sess.XMLParseCache != nil {
+		_ = r.sess.XMLParseCache.CloseIdle()
 	}
 }
 
 func (r *runner) closeIdleResourceCache() {
-	if r.resourceCache != nil {
-		_ = r.resourceCache.CloseIdle()
+	if r.sess.ResourceCache != nil {
+		_ = r.sess.ResourceCache.CloseIdle()
 	}
 }
 
 func (r *runner) flushParseCache(parent perf.Tracker) {
-	if r.parseCache == nil {
+	if r.sess.ParseCache == nil {
 		return
 	}
 	parseFlushTracker := parent.Serial("parseCacheFlush")
-	closeErr := r.parseCache.Close()
-	r.parseCache.AddPerfEntries(parseFlushTracker)
+	closeErr := r.sess.ParseCache.Close()
+	r.sess.ParseCache.AddPerfEntries(parseFlushTracker)
 	parseFlushTracker.End()
 	if closeErr != nil && *r.f.Verbose {
 		fmt.Fprintf(os.Stderr, "verbose: parse cache flush failed: %v\n", closeErr)
@@ -110,22 +107,22 @@ func (r *runner) flushParseCache(parent perf.Tracker) {
 }
 
 func (r *runner) flushXMLParseCache(parent perf.Tracker) {
-	if r.xmlParseCache == nil {
+	if r.sess.XMLParseCache == nil {
 		return
 	}
 	start := time.Now()
-	if err := r.xmlParseCache.Close(); err != nil && *r.f.Verbose {
+	if err := r.sess.XMLParseCache.Close(); err != nil && *r.f.Verbose {
 		fmt.Fprintf(os.Stderr, "verbose: xml parse cache flush failed: %v\n", err)
 	}
 	perf.AddEntry(parent, "xmlParseCacheFlush", time.Since(start))
 }
 
 func (r *runner) flushResourceCache(parent perf.Tracker) {
-	if r.resourceCache == nil {
+	if r.sess.ResourceCache == nil {
 		return
 	}
 	start := time.Now()
-	if err := r.resourceCache.Close(); err != nil && *r.f.Verbose {
+	if err := r.sess.ResourceCache.Close(); err != nil && *r.f.Verbose {
 		fmt.Fprintf(os.Stderr, "verbose: resource cache flush failed: %v\n", err)
 	}
 	perf.AddEntry(parent, "resourceCacheFlush", time.Since(start))

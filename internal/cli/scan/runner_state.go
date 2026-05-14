@@ -52,9 +52,12 @@ type runner struct {
 	cpuProfileFile  *os.File
 	trackedFiles    trackedfiles.Index
 
+	// sess owns the long-lived caches, parse caches, project model, and
+	// oracle daemon. One-shot CLI builds a fresh sess in scan.Run; the
+	// daemon will reuse the same sess across requests.
+	sess *Session
+
 	// Project detection
-	androidProject     *android.Project
-	libraryFacts       *librarymodel.Facts
 	androidProviders   *pipeline.AndroidProjectProviders
 	projectModelLoaded bool
 	cacheFilePath      string
@@ -77,20 +80,15 @@ type runner struct {
 	// Resolver / oracle / cache
 	resolver          typeinfer.TypeResolver
 	reporter          *diag.Reporter
-	daemon            *oracle.Daemon
 	typeOracle        *oracle.Oracle
 	oracleStore       *store.FileStore
 	oracleCacheWriter *oracle.CacheWriter
-	analysisCache     *cache.Cache
 	cacheResult       *cache.Result
 	ruleHash          string
 	cacheStats        *cache.Stats
 	useCache          bool
 
 	// Parse caches
-	parseCache         *scanner.ParseCache
-	xmlParseCache      *android.XMLParseCache
-	resourceCache      *android.ResourceIndexCache
 	androidCacheWriter *scanner.AndroidCacheWriter
 	androidCacheDir    string
 	cachesClosed       bool
@@ -132,7 +130,7 @@ type runner struct {
 //
 // Returns ok=false (with an exit code) when CPU profile creation fails;
 // other early-exit guards inside the function call os.Exit directly.
-func newRunner(f *scanFlags) (*runner, int, bool) {
+func newRunner(f *scanFlags, sess *Session) (*runner, int, bool) {
 	effectiveFormat := resolveEffectiveFormat(f)
 
 	runVersionFlag(*f.Version, Version)
@@ -216,7 +214,7 @@ func newRunner(f *scanFlags) (*runner, int, bool) {
 		tracker:         tracker,
 		cpuProfileFile:  cpuProfileFile,
 		trackedFiles:    trackedfiles.NewGitIndex(),
-		libraryFacts:    librarymodel.DefaultFacts(),
+		sess:            sess,
 		cacheFilePath:   cacheFilePath,
 	}
 	r.preloadOracleTypes()
@@ -340,22 +338,22 @@ func (r *runner) ensureProjectModel() {
 		return
 	}
 	r.tracker.TrackVoid("projectModel", func() {
-		r.androidProject = android.DetectProjectWithIndex(r.paths, r.trackedFiles)
-		r.libraryFacts = librarymodel.DefaultFacts()
-		if r.androidProject != nil {
+		r.sess.AndroidProject = android.DetectProjectWithIndex(r.paths, r.trackedFiles)
+		r.sess.LibraryFacts = librarymodel.DefaultFacts()
+		if r.sess.AndroidProject != nil {
 			cacheDir := ""
 			if r.f != nil && r.f.NoCache != nil && !*r.f.NoCache {
 				cacheDir = librarymodel.ProjectProfileCacheDir(oracle.FindRepoDir(r.paths))
 			}
-			profile, ok := librarymodel.LoadProjectProfileCache(cacheDir, r.androidProject.GradlePaths)
+			profile, ok := librarymodel.LoadProjectProfileCache(cacheDir, r.sess.AndroidProject.GradlePaths)
 			if !ok {
-				profile = librarymodel.ProfileFromGradlePaths(r.androidProject.GradlePaths)
-				if err := librarymodel.SaveProjectProfileCache(cacheDir, r.androidProject.GradlePaths, profile); err != nil &&
+				profile = librarymodel.ProfileFromGradlePaths(r.sess.AndroidProject.GradlePaths)
+				if err := librarymodel.SaveProjectProfileCache(cacheDir, r.sess.AndroidProject.GradlePaths, profile); err != nil &&
 					r.f != nil && r.f.Verbose != nil && *r.f.Verbose {
 					fmt.Fprintf(os.Stderr, "verbose: library model cache save failed: %v\n", err)
 				}
 			}
-			r.libraryFacts = librarymodel.FactsForProfile(profile)
+			r.sess.LibraryFacts = librarymodel.FactsForProfile(profile)
 		}
 		r.projectModelLoaded = true
 	})
@@ -383,7 +381,7 @@ func (r *runner) filterRules() (handled bool, code int) {
 				r.javaPathsForDispatch = filterGeneratedPathStrings(r.javaPathsForDispatch)
 			}
 		}
-		androidProjectEmpty := r.androidProject == nil || r.androidProject.IsEmpty()
+		androidProjectEmpty := r.sess.AndroidProject == nil || r.sess.AndroidProject.IsEmpty()
 		if len(r.files) == 0 && len(r.javaPathsForDispatch) == 0 && androidProjectEmpty {
 			if !*r.f.Quiet {
 				fmt.Fprintln(os.Stderr, "info: No Kotlin, Java, or Android project files found.")
@@ -479,13 +477,13 @@ func (r *runner) runOracleIndex() (int, error) {
 		r.resolver = res.Resolver
 	}
 	if res.Daemon != nil {
-		r.daemon = res.Daemon
+		r.sess.OracleDaemon = res.Daemon
 	}
 	r.typeOracle = res.Oracle
 	if r.useCache {
-		r.analysisCache = preloadedCache
-		if r.analysisCache == nil {
-			r.analysisCache = cache.Load(r.cacheFilePath)
+		r.sess.AnalysisCache = preloadedCache
+		if r.sess.AnalysisCache == nil {
+			r.sess.AnalysisCache = cache.Load(r.cacheFilePath)
 		}
 	}
 	return 0, nil
@@ -502,7 +500,7 @@ func (r *runner) setupAndroidProviders() {
 			return
 		}
 		deps := pipeline.CollectAndroidDependenciesV2(r.activeRules)
-		r.androidProviders = pipeline.NewAndroidProjectProviders(r.androidProject, deps, *r.f.Jobs)
+		r.androidProviders = pipeline.NewAndroidProjectProviders(r.sess.AndroidProject, deps, *r.f.Jobs)
 	})
 }
 
@@ -524,14 +522,14 @@ func (r *runner) setupParseCaches() {
 		if !*r.f.NoParseCache {
 			capBytes := resolveParseCacheCap(*r.f.ParseCacheCapMB, r.cfg)
 			if pc, pcErr := scanner.NewParseCacheWithCap(repoDir, capBytes); pcErr == nil {
-				r.parseCache = pc
-				r.parseCache.SetAsyncWriter(newParseCacheAsyncWriter(parseWorkers))
+				r.sess.ParseCache = pc
+				r.sess.ParseCache.SetAsyncWriter(newParseCacheAsyncWriter(parseWorkers))
 			} else if *r.f.Verbose {
 				fmt.Fprintf(os.Stderr, "verbose: parse cache disabled: %v\n", pcErr)
 			}
 			if pipeline.RulesNeedAndroidProject(r.activeRules) {
 				if xmlPC, xmlErr := android.NewXMLParseCacheWithCap(repoDir, capBytes); xmlErr == nil {
-					r.xmlParseCache = xmlPC
+					r.sess.XMLParseCache = xmlPC
 				} else if *r.f.Verbose {
 					fmt.Fprintf(os.Stderr, "verbose: xml parse cache disabled: %v\n", xmlErr)
 				}
@@ -539,7 +537,7 @@ func (r *runner) setupParseCaches() {
 		}
 		if shouldOpenResourceIndexCache(r.activeRules, *r.f.NoResourceCache) {
 			if rc, rcErr := android.NewResourceIndexCache(oracle.FindRepoDir(r.paths)); rcErr == nil {
-				r.resourceCache = rc
+				r.sess.ResourceCache = rc
 				android.SetActiveResourceIndexCache(rc)
 			} else if *r.f.Verbose {
 				fmt.Fprintf(os.Stderr, "verbose: resource cache disabled: %v\n", rcErr)

@@ -286,36 +286,55 @@ func Run() int {
 		WireFile:    *f.NewExperimentWireFile,
 	})
 
-	r, code, ok := newRunner(f)
+	ctx := context.Background()
+	repoDir := oracle.FindRepoDir(flag.Args())
+	sess, err := NewSession(ctx, repoDir, f)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 2
+	}
+	defer sess.Close()
+
+	r, code, ok := newRunner(f, sess)
 	if !ok {
 		return code
 	}
 	defer r.close()
 
+	exitCode, _ := r.run(ctx)
+	return exitCode
+}
+
+// run executes the scan phases against r.sess. Long-lived caches, the
+// project model, and the oracle daemon flow through the session so
+// daemon callers reuse them across requests; one-shot CLI builds a
+// fresh Session and Close drains it on exit.
+func (r *runner) run(ctx context.Context) (int, error) {
+	_ = ctx
 	if code, err := r.collectFiles(); err != nil {
-		return code
+		return code, err
 	}
 	if handled, code := r.filterRules(); handled {
-		return code
+		return code, nil
 	}
 	r.bootstrapResolver()
 	if code, err := r.runOracleIndex(); err != nil {
-		return code
+		return code, err
 	}
 	r.printVerboseBanner()
 	r.setupAndroidProviders()
 	r.setupParseCaches()
 
 	if code, err := r.runProjectAnalysis(); err != nil {
-		return code
+		return code, err
 	}
 	r.firCheckAndCollect()
 
 	if handled, code := r.applyBaselinesAndDiff(); handled {
-		return code
+		return code, nil
 	}
 	if handled, code := r.runFixup(); handled {
-		return code
+		return code, nil
 	}
 
 	// close() is idempotent, so invoking it here flushes once before the
@@ -323,7 +342,7 @@ func Run() int {
 	r.flushCaches()
 
 	if code, err := r.openOutputWriter(); err != nil {
-		return code
+		return code, err
 	}
 	if r.w != nil && r.w != os.Stdout {
 		defer r.w.Close()
@@ -333,7 +352,7 @@ func Run() int {
 	r.flushCaches()
 
 	r.recordTotalTimingAndStopProfiles()
-	return r.outputPhase()
+	return r.outputPhase(), nil
 }
 
 // runLegacy remains as a no-op compile-time reference.

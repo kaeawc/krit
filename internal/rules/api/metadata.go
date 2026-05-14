@@ -176,6 +176,11 @@ type RuleDescriptor struct {
 	// guidance via ReplacedBy / Reason.
 	Deprecated *Deprecation
 
+	// RelatedRules mirrors Rule.RelatedRules — advisory cross-links to
+	// other rule IDs covering overlapping concerns. See Rule.RelatedRules
+	// for the full contract.
+	RelatedRules []string
+
 	// RuleSet is the configuration group this rule belongs to
 	// (e.g. "complexity", "naming", "performance").
 	RuleSet string

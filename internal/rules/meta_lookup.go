@@ -90,6 +90,11 @@ func mergeRuleDescriptor(r *api.Rule, extra api.RuleDescriptor) api.RuleDescript
 	} else {
 		out.Deprecated = extra.Deprecated
 	}
+	if len(r.RelatedRules) > 0 {
+		out.RelatedRules = r.RelatedRules
+	} else {
+		out.RelatedRules = extra.RelatedRules
+	}
 	if len(r.Tags) > 0 {
 		out.Tags = r.Tags
 	} else {

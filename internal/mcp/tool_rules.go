@@ -83,8 +83,29 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 	if fixLevel != "" {
 		info["fixLevel"] = fixLevel
 	}
+	if related := resolveRelatedRules(r); len(related) > 0 {
+		info["relatedRules"] = related
+	}
 
 	return jsonResult(info)
+}
+
+// resolveRelatedRules returns the rule IDs listed in r.RelatedRules,
+// filtered to those that still resolve in the registry. ValidateRelations
+// already rejects dangling references at NewDispatcher time; this filter
+// is a defensive guard for callers that introspect the registry without
+// having constructed a dispatcher.
+func resolveRelatedRules(r *api.Rule) []string {
+	if r == nil || len(r.RelatedRules) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(r.RelatedRules))
+	for _, id := range r.RelatedRules {
+		if findRule(id) != nil {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // rulesSearch performs a case-insensitive substring match over rule name,

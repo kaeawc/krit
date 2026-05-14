@@ -647,6 +647,19 @@ type Rule struct {
 	// user migrates.
 	Deprecated *Deprecation
 
+	// RelatedRules names other rule IDs that cover overlapping concerns —
+	// near-duplicates, narrower/broader variants, or alternative styles for
+	// the same defect class. Unlike Deprecated.ReplacedBy (which only
+	// applies to deprecated rules) this field is a general advisory link
+	// usable by all rules. Relations are directional hints and need not be
+	// symmetric. Consumers:
+	//   - MCP `explain` renders a "Related rules" cross-link section.
+	//   - `--disable-related` extends the disabled set with the related
+	//     IDs of every explicitly disabled rule (non-transitive).
+	// ValidateRelations enforces that every referenced ID exists in the
+	// registry at NewDispatcher time.
+	RelatedRules []string
+
 	// Dispatch routing.
 	//
 	// Scope, when set, declares the rule's primary dispatcher bucket
@@ -1008,6 +1021,51 @@ func NeedsJavaFacts(rules []*Rule) bool {
 		}
 	}
 	return false
+}
+
+// ValidateRelations checks that every ID listed in any rule's
+// RelatedRules exists in the supplied rule set. Relations are
+// directional advisory hints — symmetry is NOT required. Returns nil
+// when every reference resolves; otherwise an error naming the first
+// offending (rule, referenced ID) pair found in stable iteration order.
+//
+// Callers are expected to invoke this from NewDispatcher (or another
+// registry-construction boundary) so dangling references surface at
+// startup rather than via silent dead links in MCP output.
+func ValidateRelations(rules []*Rule) error {
+	ids := make(map[string]bool, len(rules))
+	for _, r := range rules {
+		if r == nil {
+			continue
+		}
+		ids[r.ID] = true
+	}
+	for _, r := range rules {
+		if r == nil {
+			continue
+		}
+		for _, ref := range r.RelatedRules {
+			if ref == r.ID {
+				return &RelationError{Rule: r.ID, Reference: ref, Reason: "rule cannot relate to itself"}
+			}
+			if !ids[ref] {
+				return &RelationError{Rule: r.ID, Reference: ref, Reason: "unknown rule ID"}
+			}
+		}
+	}
+	return nil
+}
+
+// RelationError describes an invalid RelatedRules entry surfaced by
+// ValidateRelations.
+type RelationError struct {
+	Rule      string
+	Reference string
+	Reason    string
+}
+
+func (e *RelationError) Error() string {
+	return "rule " + e.Rule + " RelatedRules entry " + e.Reference + ": " + e.Reason
 }
 
 // Registry holds all registered v2 rules.

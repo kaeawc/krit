@@ -141,6 +141,35 @@ func IsDeprecated(name string) bool {
 	return deprecatedRules[name]
 }
 
+// ExpandWithRelated mutates disabledSet in place, adding every rule ID
+// that appears in the RelatedRules metadata of any rule already in the
+// set. The expansion is non-transitive: only one hop is followed. A
+// related ID that is not present in registry is silently skipped — that
+// case is already rejected by ValidateRelations at dispatcher
+// construction, so a stale entry here means the user passed an unknown
+// rule ID via --disable-rules (which is its own diagnostic surface) or
+// the registry was filtered after validation.
+func ExpandWithRelated(disabledSet map[string]bool, registry []*api.Rule) {
+	if len(disabledSet) == 0 {
+		return
+	}
+	// Snapshot the initial set so the one-hop guarantee survives the
+	// in-place mutation below — iterating against the live map would
+	// promote second-hop relations as new entries are added.
+	seed := make(map[string]bool, len(disabledSet))
+	for id := range disabledSet {
+		seed[id] = true
+	}
+	for _, r := range registry {
+		if r == nil || !seed[r.ID] {
+			continue
+		}
+		for _, related := range r.RelatedRules {
+			disabledSet[related] = true
+		}
+	}
+}
+
 // ActiveRulesV2 filters api.Registry using config-driven activation.
 //
 // A rule is included when it is not in disabledSet AND either:

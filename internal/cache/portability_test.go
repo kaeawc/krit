@@ -178,11 +178,42 @@ func TestCacheBytes_PathIndependence(t *testing.T) {
 	a, _ := os.ReadFile(pA)
 	b, _ := os.ReadFile(pB)
 
-	// After substituting the project root, the two caches must be byte-equal.
-	normA := bytes.ReplaceAll(a, []byte(rootA), []byte("<ROOT>"))
-	normB := bytes.ReplaceAll(b, []byte(rootB), []byte("<ROOT>"))
+	// The compressed binary cache is not amenable to byte-level path
+	// substitution, so we normalise at the logical layer: load each cache,
+	// rewrite the project-root prefix in the Files map keys and the
+	// per-file finding columns, save back, and compare the resulting bytes.
+	normalize := func(src string, root string) []byte {
+		loaded := Load(src)
+		rewritten := make(map[string]FileEntry, len(loaded.Files))
+		for path, entry := range loaded.Files {
+			cols := entry.Columns.Clone()
+			for i, fp := range cols.Files {
+				cols.Files[i] = strings.Replace(fp, root, "<ROOT>", 1)
+			}
+			newPath := strings.Replace(path, root, "<ROOT>", 1)
+			rewritten[newPath] = FileEntry{
+				Hash:    entry.Hash,
+				ModTime: entry.ModTime,
+				Size:    entry.Size,
+				Columns: cols,
+			}
+		}
+		loaded.Files = rewritten
+		loaded.ScanPaths = append([]string(nil), loaded.ScanPaths...)
+		for i, p := range loaded.ScanPaths {
+			loaded.ScanPaths[i] = strings.Replace(p, root, "<ROOT>", 1)
+		}
+		out := filepath.Join(dir, "norm-"+filepath.Base(src))
+		if err := loaded.Save(out); err != nil {
+			t.Fatal(err)
+		}
+		data, _ := os.ReadFile(out)
+		return data
+	}
+	normA := normalize(pA, rootA)
+	normB := normalize(pB, rootB)
 	if !bytes.Equal(normA, normB) {
-		t.Fatalf("normalized cache bytes differ across roots\nA=%q\nB=%q", normA, normB)
+		t.Fatalf("normalised cache bytes differ across roots\nA len=%d\nB len=%d", len(normA), len(normB))
 	}
 
 	// Sanity check: the unsubstituted bytes must NOT match (otherwise the
@@ -288,17 +319,32 @@ func TestCache_CrossMachineRoundTrip(t *testing.T) {
 	}
 
 	// Simulate the CI-side path rewrite: load A's cache, rewrite the prefix
-	// onto the new tree, and save it where the new run will read it.
-	raw, err := os.ReadFile(cacheA)
-	if err != nil {
-		t.Fatal(err)
+	// onto the new tree at the logical layer (map keys + interned Files
+	// slice in each column), and save it where the new run will read it.
+	// Byte-level substitution is not safe against the compressed binary
+	// cache format, so callers must go through Load / Save.
+	cached := Load(cacheA)
+	rewritten := make(map[string]FileEntry, len(cached.Files))
+	for path, entry := range cached.Files {
+		cols := entry.Columns.Clone()
+		for i, fp := range cols.Files {
+			cols.Files[i] = strings.Replace(fp, rootA, rootB, 1)
+		}
+		newPath := strings.Replace(path, rootA, rootB, 1)
+		rewritten[newPath] = FileEntry{
+			Hash:    entry.Hash,
+			ModTime: entry.ModTime,
+			Size:    entry.Size,
+			Columns: cols,
+		}
 	}
-	rewritten := bytes.ReplaceAll(raw, []byte(rootA), []byte(rootB))
+	cached.Files = rewritten
+	cached.ScanPaths = []string{rootB}
 	cacheB := filepath.Join(rootB, ".krit", "cache", CacheFileName)
 	if err := os.MkdirAll(filepath.Dir(cacheB), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(cacheB, rewritten, 0644); err != nil {
+	if err := cached.Save(cacheB); err != nil {
 		t.Fatal(err)
 	}
 

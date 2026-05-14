@@ -157,6 +157,15 @@ func Load(cacheFilePath string) *Cache {
 	if err != nil {
 		return &Cache{Files: make(map[string]FileEntry)}
 	}
+	if hasBinaryMagic(data) {
+		if c, ok := decodeBinary(data); ok {
+			if c.Files == nil {
+				c.Files = make(map[string]FileEntry)
+			}
+			return c
+		}
+		return &Cache{Files: make(map[string]FileEntry)}
+	}
 	var c Cache
 	if err := json.Unmarshal(data, &c); err != nil {
 		return &Cache{Files: make(map[string]FileEntry)}
@@ -185,9 +194,9 @@ func (c *Cache) Save(cacheFilePath string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
 	}
-	data, err := json.Marshal(c)
+	data, err := encodeBinary(c)
 	if err != nil {
-		return fmt.Errorf("marshal cache: %w", err)
+		return fmt.Errorf("encode cache: %w", err)
 	}
 	if err := fsutil.WriteFileAtomic(cacheFilePath, data, 0644); err != nil {
 		return fmt.Errorf("write cache: %w", err)

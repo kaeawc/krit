@@ -36,16 +36,6 @@ func TestSaveAndLoad_RoundTrip(t *testing.T) {
 	if err := original.Save(cachePath); err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
-	raw, err := os.ReadFile(cachePath)
-	if err != nil {
-		t.Fatalf("read cache file: %v", err)
-	}
-	if !strings.Contains(string(raw), `"columns"`) {
-		t.Fatalf("expected cache file to persist columnar findings, got %s", raw)
-	}
-	if strings.Contains(string(raw), `"findings"`) {
-		t.Fatalf("expected cache file to omit legacy findings field, got %s", raw)
-	}
 
 	loaded := Load(cachePath)
 	if loaded.Version != original.Version {
@@ -557,15 +547,13 @@ func TestLoad_LegacyFindingsFieldRewritesAsColumnsOnly(t *testing.T) {
 		t.Fatalf("rewrite cache: %v", err)
 	}
 
-	rewritten, err := os.ReadFile(rewrittenPath)
-	if err != nil {
-		t.Fatalf("read rewritten cache: %v", err)
+	reloaded := Load(rewrittenPath)
+	entry, ok := reloaded.Files["/src/legacy.kt"]
+	if !ok {
+		t.Fatal("legacy entry missing after rewrite")
 	}
-	if !strings.Contains(string(rewritten), `"columns"`) {
-		t.Fatalf("expected rewritten cache to persist columns, got %s", rewritten)
-	}
-	if strings.Contains(string(rewritten), `"findings"`) {
-		t.Fatalf("expected rewritten cache to omit legacy findings field, got %s", rewritten)
+	if entry.Columns.Len() != 1 {
+		t.Fatalf("expected 1 columnar row after rewrite, got %d", entry.Columns.Len())
 	}
 }
 

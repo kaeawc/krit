@@ -7,6 +7,7 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o krit ./cmd/krit/
 	go build -ldflags "$(LDFLAGS)" -o krit-lsp ./cmd/krit-lsp/
 	go build -ldflags "$(LDFLAGS)" -o krit-mcp ./cmd/krit-mcp/
+	go build -ldflags "$(LDFLAGS)" -o krit-daemon ./cmd/krit-daemon/
 
 test:
 	go test ./... -count=1
@@ -33,7 +34,7 @@ schema: build
 	./krit --generate-schema > schemas/krit-config.schema.json
 
 clean:
-	rm -f krit krit-lsp krit-mcp
+	rm -f krit krit-lsp krit-mcp krit-daemon
 
 bench:
 	go test ./internal/... -bench=. -benchmem -count=3 -timeout 120s
@@ -57,6 +58,7 @@ install: build
 	install -m 755 krit $(DESTDIR)/usr/local/bin/krit
 	install -m 755 krit-lsp $(DESTDIR)/usr/local/bin/krit-lsp
 	install -m 755 krit-mcp $(DESTDIR)/usr/local/bin/krit-mcp
+	install -m 755 krit-daemon $(DESTDIR)/usr/local/bin/krit-daemon
 
 install-completions:
 	install -d $(HOME)/.local/share/bash-completion/completions

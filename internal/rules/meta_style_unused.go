@@ -15,7 +15,7 @@ func (r *UnusedImportRule) Meta() api.RuleDescriptor {
 		ID:            "UnusedImport",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }

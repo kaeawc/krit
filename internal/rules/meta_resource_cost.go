@@ -9,7 +9,7 @@ func (r *BufferedReadWithoutBufferRule) Meta() api.RuleDescriptor {
 		ID:            "BufferedReadWithoutBuffer",
 		RuleSet:       "resource-cost",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -58,7 +58,7 @@ func (r *ImageLoadedAtFullSizeInListRule) Meta() api.RuleDescriptor {
 		ID:            "ImageLoadedAtFullSizeInList",
 		RuleSet:       "resource-cost",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -67,7 +67,7 @@ func (r *ImageLoaderNoMemoryCacheRule) Meta() api.RuleDescriptor {
 		ID:            "ImageLoaderNoMemoryCache",
 		RuleSet:       "resource-cost",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *RecyclerAdapterStableIDsDefaultRule) Meta() api.RuleDescriptor {
 		ID:            "RecyclerAdapterStableIdsDefault",
 		RuleSet:       "resource-cost",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -149,7 +149,7 @@ func (r *WorkManagerNoBackoffRule) Meta() api.RuleDescriptor {
 		ID:            "WorkManagerNoBackoff",
 		RuleSet:       "resource-cost",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -158,6 +158,6 @@ func (r *WorkManagerUniquePolicyKeepButReplaceIntendedRule) Meta() api.RuleDescr
 		ID:            "WorkManagerUniquePolicyKeepButReplaceIntended",
 		RuleSet:       "resource-cost",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }

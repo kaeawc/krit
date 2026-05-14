@@ -25,7 +25,7 @@ func (r *ConventionPluginAppliedToWrongTargetRule) Meta() api.RuleDescriptor {
 		ID:            "ConventionPluginAppliedToWrongTarget",
 		RuleSet:       "supply-chain",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[ConventionPluginAppliedToWrongTargetRule]{
 				Name:        "pluginTargetMap",
@@ -42,7 +42,7 @@ func (r *ConfigurationsAllSideEffectRule) Meta() api.RuleDescriptor {
 		ID:            "ConfigurationsAllSideEffect",
 		RuleSet:       "supply-chain",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[ConfigurationsAllSideEffectRule]{
 				Name:        "allowInConventionPlugins",
@@ -141,7 +141,7 @@ func (r *DependencyWithoutGroupRule) Meta() api.RuleDescriptor {
 		ID:            "DependencyWithoutGroup",
 		RuleSet:       "supply-chain",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -166,7 +166,7 @@ func (r *GradleWrapperValidationActionRule) Meta() api.RuleDescriptor {
 		ID:            "GradleWrapperValidationAction",
 		RuleSet:       "supply-chain",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -191,7 +191,7 @@ func (r *MissingGradleChecksumsRule) Meta() api.RuleDescriptor {
 		ID:            "MissingGradleChecksums",
 		RuleSet:       "supply-chain",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -200,7 +200,7 @@ func (r *VersionCatalogBuildSrcMismatchRule) Meta() api.RuleDescriptor {
 		ID:            "VersionCatalogBuildSrcMismatch",
 		RuleSet:       "supply-chain",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -209,7 +209,7 @@ func (r *VersionCatalogDuplicateVersionRule) Meta() api.RuleDescriptor {
 		ID:            "VersionCatalogDuplicateVersion",
 		RuleSet:       "supply-chain",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -218,7 +218,7 @@ func (r *VersionCatalogRawVersionInBuildRule) Meta() api.RuleDescriptor {
 		ID:            "VersionCatalogRawVersionInBuild",
 		RuleSet:       "supply-chain",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -227,7 +227,7 @@ func (r *VersionCatalogUnusedRule) Meta() api.RuleDescriptor {
 		ID:            "VersionCatalogUnused",
 		RuleSet:       "supply-chain",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[VersionCatalogUnusedRule]{
 				Name:        "ignoredAliases",

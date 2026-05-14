@@ -12,7 +12,7 @@ func (r *AndroidGradlePluginVersionRule) Meta() api.RuleDescriptor {
 		ID:            "AndroidGradlePluginVersion",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -21,7 +21,7 @@ func (r *DeprecatedDependencyRule) Meta() api.RuleDescriptor {
 		ID:            "DeprecatedDependency",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -31,7 +31,7 @@ func (r *DynamicVersionRule) Meta() api.RuleDescriptor {
 		ID:            "DynamicVersion",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -40,7 +40,7 @@ func (r *GradleDeprecatedRule) Meta() api.RuleDescriptor {
 		ID:            "GradleDeprecated",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -49,7 +49,7 @@ func (r *GradleGetterRule) Meta() api.RuleDescriptor {
 		ID:            "GradleGetter",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -58,7 +58,7 @@ func (r *GradleIdeErrorRule) Meta() api.RuleDescriptor {
 		ID:            "GradleIdeError",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -67,7 +67,7 @@ func (r *GradleOldTargetAPIRule) Meta() api.RuleDescriptor {
 		ID:            "OldTargetApi",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[GradleOldTargetAPIRule]{
 				Name:        "threshold",
@@ -84,7 +84,7 @@ func (r *GradleOverridesRule) Meta() api.RuleDescriptor {
 		ID:            "GradleOverrides",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -93,7 +93,7 @@ func (r *GradlePathRule) Meta() api.RuleDescriptor {
 		ID:            "GradlePath",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -103,7 +103,7 @@ func (r *GradlePluginCompatibilityRule) Meta() api.RuleDescriptor {
 		ID:            "GradlePluginCompatibility",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -112,7 +112,7 @@ func (r *MavenLocalRule) Meta() api.RuleDescriptor {
 		ID:            "MavenLocal",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -121,7 +121,7 @@ func (r *MinSdkTooLowRule) Meta() api.RuleDescriptor {
 		ID:            "MinSdkTooLow",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[MinSdkTooLowRule]{
 				Name:        "threshold",
@@ -138,7 +138,7 @@ func (r *RemoteVersionRule) Meta() api.RuleDescriptor {
 		ID:            "RemoteVersion",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -148,6 +148,6 @@ func (r *StringIntegerRule) Meta() api.RuleDescriptor {
 		ID:            "StringInteger",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }

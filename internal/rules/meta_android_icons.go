@@ -9,7 +9,7 @@ func (r *ConvertToWebpRule) Meta() api.RuleDescriptor {
 		ID:            "ConvertToWebp",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -18,7 +18,7 @@ func (r *GifUsageRule) Meta() api.RuleDescriptor {
 		ID:            "GifUsage",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -27,7 +27,7 @@ func (r *IconDensitiesRule) Meta() api.RuleDescriptor {
 		ID:            "IconDensities",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -36,7 +36,7 @@ func (r *IconDipSizeRule) Meta() api.RuleDescriptor {
 		ID:            "IconDipSize",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -45,7 +45,7 @@ func (r *IconDuplicatesConfigRule) Meta() api.RuleDescriptor {
 		ID:            "IconDuplicatesConfig",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -54,7 +54,7 @@ func (r *IconDuplicatesRule) Meta() api.RuleDescriptor {
 		ID:            "IconDuplicates",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -63,7 +63,7 @@ func (r *IconExpectedSizeRule) Meta() api.RuleDescriptor {
 		ID:            "IconExpectedSize",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -72,7 +72,7 @@ func (r *IconExtensionRule) Meta() api.RuleDescriptor {
 		ID:            "IconExtension",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -81,7 +81,7 @@ func (r *IconLocationRule) Meta() api.RuleDescriptor {
 		ID:            "IconLocation",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -90,7 +90,7 @@ func (r *IconMixedNinePatchRule) Meta() api.RuleDescriptor {
 		ID:            "IconMixedNinePatch",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -99,7 +99,7 @@ func (r *IconMissingDensityFolderRule) Meta() api.RuleDescriptor {
 		ID:            "IconMissingDensityFolder",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *IconColorsRule) Meta() api.RuleDescriptor {
 		ID:            "IconColors",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -117,7 +117,7 @@ func (r *IconLauncherShapeRule) Meta() api.RuleDescriptor {
 		ID:            "IconLauncherShape",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -126,7 +126,7 @@ func (r *IconXMLAndPngRule) Meta() api.RuleDescriptor {
 		ID:            "IconXmlAndPng",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -135,6 +135,6 @@ func (r *IconNoDpiRule) Meta() api.RuleDescriptor {
 		ID:            "IconNoDpi",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }

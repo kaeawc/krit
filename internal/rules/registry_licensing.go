@@ -18,7 +18,7 @@ func registerLicensingRules() {
 			Needs: api.NeedsLinePass, Fix: api.FixCosmetic, Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
-			OptInReason: api.OptInReasonDomainSpecific,
+			OptInReason:   api.OptInReasonDomainSpecific,
 		})
 	}
 	{
@@ -31,7 +31,7 @@ func registerLicensingRules() {
 			Needs: api.NeedsLinePass, Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
-			OptInReason: api.OptInReasonDomainSpecific,
+			OptInReason:   api.OptInReasonDomainSpecific,
 		})
 	}
 	{
@@ -43,7 +43,7 @@ func registerLicensingRules() {
 			Needs: api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
-			OptInReason: api.OptInReasonDomainSpecific,
+			OptInReason:   api.OptInReasonDomainSpecific,
 		})
 	}
 	{
@@ -55,7 +55,7 @@ func registerLicensingRules() {
 			Needs: api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
-			OptInReason: api.OptInReasonDomainSpecific,
+			OptInReason:   api.OptInReasonDomainSpecific,
 			Options: []api.ConfigOption{
 				api.StringListOption(api.StringListOptionSpec[NoticeFileOutOfDateRule]{
 					Name:        "noticeRequiredArtifacts",
@@ -75,7 +75,7 @@ func registerLicensingRules() {
 			Needs: api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
-			OptInReason: api.OptInReasonDomainSpecific,
+			OptInReason:   api.OptInReasonDomainSpecific,
 		})
 	}
 	{
@@ -87,7 +87,7 @@ func registerLicensingRules() {
 			Needs: api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
-			OptInReason: api.OptInReasonDomainSpecific,
+			OptInReason:   api.OptInReasonDomainSpecific,
 			Options: []api.ConfigOption{
 				api.StringOption(api.StringOptionSpec[DependencyLicenseIncompatibleRule]{
 					Name:        "projectLicense",
@@ -107,7 +107,7 @@ func registerLicensingRules() {
 			NodeTypes: []string{"annotation"}, Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
-			OptInReason: api.OptInReasonDomainSpecific,
+			OptInReason:   api.OptInReasonDomainSpecific,
 			Options: []api.ConfigOption{
 				api.StringListOption(api.StringListOptionSpec[OptInMarkerNotRecognisedRule]{
 					Name:        "additionalMarkers",
@@ -157,7 +157,7 @@ func registerLicensingRules() {
 			NodeTypes: []string{"annotation"}, Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
-			OptInReason: api.OptInReasonDomainSpecific,
+			OptInReason:   api.OptInReasonDomainSpecific,
 		})
 	}
 	{
@@ -169,7 +169,7 @@ func registerLicensingRules() {
 			NodeTypes: []string{"annotation"}, Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
-			OptInReason: api.OptInReasonDomainSpecific,
+			OptInReason:   api.OptInReasonDomainSpecific,
 		})
 	}
 	{
@@ -181,7 +181,7 @@ func registerLicensingRules() {
 			NodeTypes: []string{"annotation"}, Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
-			OptInReason: api.OptInReasonDomainSpecific,
+			OptInReason:   api.OptInReasonDomainSpecific,
 		})
 	}
 	{
@@ -193,7 +193,7 @@ func registerLicensingRules() {
 			NodeTypes: []string{"class_declaration"}, Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
-			OptInReason: api.OptInReasonDomainSpecific,
+			OptInReason:   api.OptInReasonDomainSpecific,
 		})
 	}
 	{
@@ -205,7 +205,7 @@ func registerLicensingRules() {
 			Needs: api.NeedsLinePass, Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
-			OptInReason: api.OptInReasonDomainSpecific,
+			OptInReason:   api.OptInReasonDomainSpecific,
 			Options: []api.ConfigOption{
 				api.StringOption(api.StringOptionSpec[SpdxIdentifierMismatchWithProjectRule]{
 					Name:        "projectLicense",
@@ -225,7 +225,7 @@ func registerLicensingRules() {
 			Needs: api.NeedsLinePass, Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
-			OptInReason: api.OptInReasonDomainSpecific,
+			OptInReason:   api.OptInReasonDomainSpecific,
 			Options: []api.ConfigOption{
 				api.StringListOption(api.StringListOptionSpec[SpdxIdentifierInvalidRule]{
 					Name:        "additionalIdentifiers",
@@ -245,7 +245,7 @@ func registerLicensingRules() {
 			Needs: api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
-			OptInReason: api.OptInReasonDomainSpecific,
+			OptInReason:   api.OptInReasonDomainSpecific,
 			Options: []api.ConfigOption{
 				api.BoolOption(api.BoolOptionSpec[DependencyLicenseUnknownRule]{
 					Name:        "requireVerification",

@@ -25,7 +25,7 @@ func (r *InconsistentLayoutResourceRule) Meta() api.RuleDescriptor {
 		ID:            "InconsistentLayout",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -34,7 +34,7 @@ func (r *NestedScrollingResourceRule) Meta() api.RuleDescriptor {
 		ID:            "NestedScrollingResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -67,7 +67,7 @@ func (r *ScrollViewSizeResourceRule) Meta() api.RuleDescriptor {
 		ID:            "ScrollViewSizeResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -76,7 +76,7 @@ func (r *TooDeepLayoutResourceRule) Meta() api.RuleDescriptor {
 		ID:            "TooDeepLayoutResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -85,7 +85,7 @@ func (r *TooManyViewsResourceRule) Meta() api.RuleDescriptor {
 		ID:            "TooManyViewsResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -94,7 +94,7 @@ func (r *UseCompoundDrawablesResourceRule) Meta() api.RuleDescriptor {
 		ID:            "UseCompoundDrawablesResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -111,6 +111,6 @@ func (r *UselessParentResourceRule) Meta() api.RuleDescriptor {
 		ID:            "UselessParentResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }

@@ -9,7 +9,7 @@ func (r *AssertRule) Meta() api.RuleDescriptor {
 		ID:            "Assert",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -18,7 +18,7 @@ func (r *CheckResultRule) Meta() api.RuleDescriptor {
 		ID:            "CheckResult",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -27,7 +27,7 @@ func (r *CommitPrefEditsRule) Meta() api.RuleDescriptor {
 		ID:            "CommitPrefEdits",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -36,7 +36,7 @@ func (r *CommitTransactionRule) Meta() api.RuleDescriptor {
 		ID:            "CommitTransaction",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -45,7 +45,7 @@ func (r *DefaultLocaleRule) Meta() api.RuleDescriptor {
 		ID:            "DefaultLocale",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -54,7 +54,7 @@ func (r *NestedScrollingRule) Meta() api.RuleDescriptor {
 		ID:            "NestedScrolling",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -63,7 +63,7 @@ func (r *RegisteredRule) Meta() api.RuleDescriptor {
 		ID:            "Registered",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -72,7 +72,7 @@ func (r *SQLiteStringRule) Meta() api.RuleDescriptor {
 		ID:            "SQLiteString",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -81,7 +81,7 @@ func (r *ScrollViewCountRule) Meta() api.RuleDescriptor {
 		ID:            "ScrollViewCount",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -90,7 +90,7 @@ func (r *SetTextI18nRule) Meta() api.RuleDescriptor {
 		ID:            "SetTextI18n",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -99,7 +99,7 @@ func (r *ShiftFlagsRule) Meta() api.RuleDescriptor {
 		ID:            "ShiftFlags",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -108,7 +108,7 @@ func (r *SimpleDateFormatRule) Meta() api.RuleDescriptor {
 		ID:            "SimpleDateFormat",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -117,7 +117,7 @@ func (r *StopShipRule) Meta() api.RuleDescriptor {
 		ID:            "StopShip",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -126,7 +126,7 @@ func (r *UniqueConstantsRule) Meta() api.RuleDescriptor {
 		ID:            "UniqueConstants",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -135,7 +135,7 @@ func (r *WrongCallRule) Meta() api.RuleDescriptor {
 		ID:            "WrongCall",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -144,6 +144,6 @@ func (r *WrongThreadRule) Meta() api.RuleDescriptor {
 		ID:            "WrongThread",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }

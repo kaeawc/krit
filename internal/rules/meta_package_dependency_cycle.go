@@ -9,6 +9,6 @@ func (r *PackageDependencyCycleRule) Meta() api.RuleDescriptor {
 		ID:            "PackageDependencyCycle",
 		RuleSet:       "architecture",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonProjectPolicy,
+		OptInReason:   api.OptInReasonProjectPolicy,
 	}
 }

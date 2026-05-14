@@ -13,7 +13,7 @@ func (r *ContentProviderQueryWithSelectionInterpolationRule) Meta() api.RuleDesc
 		ID:            "ContentProviderQueryWithSelectionInterpolation",
 		RuleSet:       "security",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -22,7 +22,7 @@ func (r *SQLInjectionRawQueryRule) Meta() api.RuleDescriptor {
 		ID:            "SqlInjectionRawQuery",
 		RuleSet:       "security",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -31,7 +31,7 @@ func (r *RuntimeExecUnsafeShapeRule) Meta() api.RuleDescriptor {
 		ID:            "RuntimeExecUnsafeShape",
 		RuleSet:       "security",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -40,7 +40,7 @@ func (r *RoomRawQueryStringConcatRule) Meta() api.RuleDescriptor {
 		ID:            "RoomRawQueryStringConcat",
 		RuleSet:       "security",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -49,7 +49,7 @@ func (r *ProcessBuilderShellArgRule) Meta() api.RuleDescriptor {
 		ID:            "ProcessBuilderShellArg",
 		RuleSet:       "security",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -58,7 +58,7 @@ func (r *LogPiiRule) Meta() api.RuleDescriptor {
 		ID:            "LogPii",
 		RuleSet:       "security",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[LogPiiRule]{
 				Name:        "piiNamePattern",
@@ -75,7 +75,7 @@ func (r *JdbcStatementExecuteRule) Meta() api.RuleDescriptor {
 		ID:            "JdbcStatementExecute",
 		RuleSet:       "security",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -116,7 +116,7 @@ func (r *FileFromUntrustedPathRule) Meta() api.RuleDescriptor {
 		ID:            "FileFromUntrustedPath",
 		RuleSet:       "security",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -157,7 +157,7 @@ func (r *ZipSlipUncheckedRule) Meta() api.RuleDescriptor {
 		ID:            "ZipSlipUnchecked",
 		RuleSet:       "security",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -166,6 +166,6 @@ func (r *TempFileWorldReadableRule) Meta() api.RuleDescriptor {
 		ID:            "TempFileWorldReadable",
 		RuleSet:       "security",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }

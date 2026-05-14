@@ -9,7 +9,7 @@ func (r *CognitiveComplexMethodRule) Meta() api.RuleDescriptor {
 		ID:            "CognitiveComplexMethod",
 		RuleSet:       "complexity",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonThresholdTuning,
+		OptInReason:   api.OptInReasonThresholdTuning,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[CognitiveComplexMethodRule]{
 				Name:        "allowedComplexity",
@@ -44,7 +44,7 @@ func (r *ComplexInterfaceRule) Meta() api.RuleDescriptor {
 		ID:            "ComplexInterface",
 		RuleSet:       "complexity",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonThresholdTuning,
+		OptInReason:   api.OptInReasonThresholdTuning,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[ComplexInterfaceRule]{
 				Name:        "allowedDefinitions",
@@ -120,7 +120,7 @@ func (r *LabeledExpressionRule) Meta() api.RuleDescriptor {
 		ID:            "LabeledExpression",
 		RuleSet:       "complexity",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonThresholdTuning,
+		OptInReason:   api.OptInReasonThresholdTuning,
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[LabeledExpressionRule]{
 				Name:        "ignoredLabels",
@@ -210,7 +210,7 @@ func (r *MethodOverloadingRule) Meta() api.RuleDescriptor {
 		ID:            "MethodOverloading",
 		RuleSet:       "complexity",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonThresholdTuning,
+		OptInReason:   api.OptInReasonThresholdTuning,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[MethodOverloadingRule]{
 				Name:        "allowedOverloads",
@@ -228,7 +228,7 @@ func (r *NamedArgumentsRule) Meta() api.RuleDescriptor {
 		ID:            "NamedArguments",
 		RuleSet:       "complexity",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonThresholdTuning,
+		OptInReason:   api.OptInReasonThresholdTuning,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[NamedArgumentsRule]{
 				Name:        "allowedArguments",
@@ -263,7 +263,7 @@ func (r *NestedScopeFunctionsRule) Meta() api.RuleDescriptor {
 		ID:            "NestedScopeFunctions",
 		RuleSet:       "complexity",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonThresholdTuning,
+		OptInReason:   api.OptInReasonThresholdTuning,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[NestedScopeFunctionsRule]{
 				Name:        "allowedDepth",
@@ -286,7 +286,7 @@ func (r *ReplaceSafeCallChainWithRunRule) Meta() api.RuleDescriptor {
 		ID:            "ReplaceSafeCallChainWithRun",
 		RuleSet:       "complexity",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonThresholdTuning,
+		OptInReason:   api.OptInReasonThresholdTuning,
 	}
 }
 
@@ -295,7 +295,7 @@ func (r *StringLiteralDuplicationRule) Meta() api.RuleDescriptor {
 		ID:            "StringLiteralDuplication",
 		RuleSet:       "complexity",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonThresholdTuning,
+		OptInReason:   api.OptInReasonThresholdTuning,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[StringLiteralDuplicationRule]{
 				Name:        "allowedDuplications",

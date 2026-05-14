@@ -16,7 +16,7 @@ func (r *ForbiddenAnnotationRule) Meta() api.RuleDescriptor {
 		ID:            "ForbiddenAnnotation",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[ForbiddenAnnotationRule]{
@@ -56,7 +56,7 @@ func (r *ForbiddenMethodCallRule) Meta() api.RuleDescriptor {
 		ID:            "ForbiddenMethodCall",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[ForbiddenMethodCallRule]{
@@ -74,7 +74,7 @@ func (r *ForbiddenNamedParamRule) Meta() api.RuleDescriptor {
 		ID:            "ForbiddenNamedParam",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[ForbiddenNamedParamRule]{
 				Name:        "methods",
@@ -91,7 +91,7 @@ func (r *ForbiddenOptInRule) Meta() api.RuleDescriptor {
 		ID:            "ForbiddenOptIn",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[ForbiddenOptInRule]{
@@ -108,7 +108,7 @@ func (r *ForbiddenSuppressRule) Meta() api.RuleDescriptor {
 		ID:            "ForbiddenSuppress",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[ForbiddenSuppressRule]{

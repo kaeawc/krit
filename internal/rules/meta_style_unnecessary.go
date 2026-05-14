@@ -18,7 +18,7 @@ func (r *UnnecessaryAnyRule) Meta() api.RuleDescriptor {
 		ID:            "UnnecessaryAny",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -37,7 +37,7 @@ func (r *UnnecessaryBracesAroundTrailingLambdaRule) Meta() api.RuleDescriptor {
 		ID:            "UnnecessaryBracesAroundTrailingLambda",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 	}
 }
@@ -56,7 +56,7 @@ func (r *UnnecessaryFullyQualifiedNameRule) Meta() api.RuleDescriptor {
 		ID:            "UnnecessaryFullyQualifiedName",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -66,7 +66,7 @@ func (r *UnnecessaryLetRule) Meta() api.RuleDescriptor {
 		ID:            "UnnecessaryLet",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }

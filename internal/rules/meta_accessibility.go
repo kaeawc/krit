@@ -9,7 +9,7 @@ func (r *AnimatorDurationIgnoresScaleRule) Meta() api.RuleDescriptor {
 		ID:            "AnimatorDurationIgnoresScale",
 		RuleSet:       "a11y",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 

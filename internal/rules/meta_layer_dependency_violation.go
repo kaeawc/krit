@@ -23,7 +23,7 @@ func (r *LayerDependencyViolationRule) Meta() api.RuleDescriptor {
 		ID:            "LayerDependencyViolation",
 		RuleSet:       "architecture",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonProjectPolicy,
+		OptInReason:   api.OptInReasonProjectPolicy,
 		Options:       nil,
 		CustomApply: api.TypedCustomApply(func(rule *LayerDependencyViolationRule, cfg api.ConfigSource) {
 			// Only a real *ConfigAdapter can expose the underlying

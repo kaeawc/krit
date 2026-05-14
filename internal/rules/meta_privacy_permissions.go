@@ -9,7 +9,7 @@ func (r *AdMobInitializedBeforeConsentRule) Meta() api.RuleDescriptor {
 		ID:            "AdMobInitializedBeforeConsent",
 		RuleSet:       "privacy",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -18,7 +18,7 @@ func (r *BiometricAuthNotFallingBackToDeviceCredentialRule) Meta() api.RuleDescr
 		ID:            "BiometricAuthNotFallingBackToDeviceCredential",
 		RuleSet:       "privacy",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -27,7 +27,7 @@ func (r *ClipboardOnSensitiveInputTypeRule) Meta() api.RuleDescriptor {
 		ID:            "ClipboardOnSensitiveInputType",
 		RuleSet:       "privacy",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -36,7 +36,7 @@ func (r *ContactsAccessWithoutPermissionUIRule) Meta() api.RuleDescriptor {
 		ID:            "ContactsAccessWithoutPermissionUi",
 		RuleSet:       "privacy",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -45,7 +45,7 @@ func (r *LocationBackgroundWithoutRationaleRule) Meta() api.RuleDescriptor {
 		ID:            "LocationBackgroundWithoutRationale",
 		RuleSet:       "privacy",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonDomainSpecific,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 

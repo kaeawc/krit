@@ -20,7 +20,7 @@ func (r *NewerVersionAvailableRule) Meta() api.RuleDescriptor {
 		ID:            "NewerVersionAvailable",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonRequiresUserConfig,
+		OptInReason:   api.OptInReasonRequiresUserConfig,
 		Options: []api.ConfigOption{
 			// RecommendedVersions is []libMinVersion on the rule struct;
 			// YAML stores a []string of "group:name=version" specs.

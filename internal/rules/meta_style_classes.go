@@ -27,7 +27,7 @@ func (r *ClassOrderingRule) Meta() api.RuleDescriptor {
 		ID:            "ClassOrdering",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -36,7 +36,7 @@ func (r *DataClassContainsFunctionsRule) Meta() api.RuleDescriptor {
 		ID:            "DataClassContainsFunctions",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[DataClassContainsFunctionsRule]{
 				Name:        "conversionFunctionPrefix",
@@ -52,7 +52,7 @@ func (r *DataClassShouldBeImmutableRule) Meta() api.RuleDescriptor {
 		ID:            "DataClassShouldBeImmutable",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
 	}
 }

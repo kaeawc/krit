@@ -9,6 +9,6 @@ func (r *LocaleConfigMissingRule) Meta() api.RuleDescriptor {
 		ID:            "LocaleConfigMissing",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonAndroidOnly,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }

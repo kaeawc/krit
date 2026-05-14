@@ -9,7 +9,7 @@ func (r *CollapsibleIfStatementsRule) Meta() api.RuleDescriptor {
 		ID:            "CollapsibleIfStatements",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -37,7 +37,7 @@ func (r *ExpressionBodySyntaxRule) Meta() api.RuleDescriptor {
 		ID:            "ExpressionBodySyntax",
 		RuleSet:       "style",
 		DefaultActive: false,
-		OptInReason: api.OptInReasonOpinionated,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[ExpressionBodySyntaxRule]{

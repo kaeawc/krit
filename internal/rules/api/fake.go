@@ -78,6 +78,11 @@ func WithMaturity(m Maturity) FakeOption {
 	return func(r *Rule) { r.Maturity = m }
 }
 
+// WithPrecision sets the rule's evidence tier override.
+func WithPrecision(p Precision) FakeOption {
+	return func(r *Rule) { r.Precision = p }
+}
+
 // FakeContext creates a minimal context for testing with the given file.
 // A FindingCollector is pre-allocated; use ContextFindings(ctx) to read results.
 func FakeContext(file *scanner.File) *Context {

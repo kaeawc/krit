@@ -211,6 +211,12 @@ type RuleDescriptor struct {
 	// Confidence is the base confidence tier (0 = use family default).
 	Confidence float64
 
+	// Precision mirrors Rule.Precision — the rule's evidence tier
+	// (heuristic / AST-backed / project-structure / type-aware /
+	// policy). PrecisionUnset means MetaForRule should derive the tier
+	// from rule shape; otherwise this value is authoritative.
+	Precision Precision
+
 	// LanguageSupport records per-source-language support status for a rule.
 	// It is product/support metadata rather than dispatcher routing: Languages
 	// on Rule controls where a rule runs, while LanguageSupport explains whether

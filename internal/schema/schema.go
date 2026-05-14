@@ -17,6 +17,7 @@ type RuleMeta struct {
 	Active          bool // default active state
 	Fixable         bool
 	FixLevel        string // cosmetic/idiomatic/semantic or ""
+	Precision       string // heuristic/ast-backed/project-structure/type-aware/policy
 	LanguageSupport map[string]api.LanguageSupport
 	Options         []OptionMeta
 }
@@ -46,9 +47,11 @@ func CollectRuleMeta() []RuleMeta {
 
 		var opts []OptionMeta
 		var languageSupport map[string]api.LanguageSupport
+		precision := ""
 		if desc, ok := rules.MetaForRule(r); ok {
 			opts = descriptorOptions(desc)
 			languageSupport = copyLanguageSupport(desc.LanguageSupport)
+			precision = desc.Precision.String()
 		}
 
 		metas = append(metas, RuleMeta{
@@ -58,6 +61,7 @@ func CollectRuleMeta() []RuleMeta {
 			Active:          active,
 			Fixable:         fixable,
 			FixLevel:        fixLevel,
+			Precision:       precision,
 			LanguageSupport: languageSupport,
 			Options:         opts,
 		})
@@ -229,6 +233,9 @@ func ruleSchema(m RuleMeta) *jsonschema.Schema {
 	}
 	if m.Fixable {
 		desc += fmt.Sprintf(" [fixable: %s]", m.FixLevel)
+	}
+	if m.Precision != "" && m.Precision != "unset" {
+		desc += fmt.Sprintf(" [precision: %s]", m.Precision)
 	}
 
 	return jsonschema.Object(ruleProps).

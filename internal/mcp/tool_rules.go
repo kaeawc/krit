@@ -18,8 +18,9 @@ type rulesArgs struct {
 	Rule string `json:"rule"`
 
 	// operation=search
-	Query    string `json:"query"`
-	Category string `json:"category"`
+	Query     string `json:"query"`
+	Category  string `json:"category"`
+	Precision string `json:"precision"`
 
 	// operation=configure
 	Active   *bool  `json:"active"`
@@ -77,6 +78,7 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 		"severity":    string(r.Sev),
 		"active":      active,
 		"fixable":     fixable,
+		"precision":   rules.V2RulePrecision(r).String(),
 	}
 	if fixLevel != "" {
 		info["fixLevel"] = fixLevel
@@ -89,12 +91,22 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 // description, and category. Results are ranked by where the match landed
 // (name > description > category) then alphabetical.
 func (s *Server) rulesSearch(args rulesArgs) ToolResult {
-	if args.Query == "" {
-		return errorResult("'query' argument is required for operation=search")
+	if args.Query == "" && args.Precision == "" {
+		return errorResult("'query' or 'precision' argument is required for operation=search")
 	}
 
 	q := strings.ToLower(args.Query)
 	categoryFilter := strings.ToLower(args.Category)
+
+	var precisionFilter api.Precision
+	if args.Precision != "" {
+		p, ok := api.ParsePrecision(args.Precision)
+		if !ok {
+			return errorResult("unknown precision: " + args.Precision +
+				"; valid: heuristic/text-backed, ast-backed, project-structure-aware, type-aware, policy")
+		}
+		precisionFilter = p
+	}
 
 	type hit struct {
 		Name        string `json:"name"`
@@ -102,6 +114,7 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 		Severity    string `json:"severity"`
 		Active      bool   `json:"active"`
 		Fixable     bool   `json:"fixable"`
+		Precision   string `json:"precision"`
 		Description string `json:"description"`
 		Score       int    `json:"-"`
 	}
@@ -112,12 +125,23 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 			continue
 		}
 
+		precision := rules.V2RulePrecision(r)
+		if precisionFilter != api.PrecisionUnset && precision != precisionFilter {
+			continue
+		}
+
 		score := 0
 		nameMatch := strings.Contains(strings.ToLower(r.ID), q)
 		descMatch := strings.Contains(strings.ToLower(r.Description), q)
 		catMatch := strings.Contains(strings.ToLower(r.Category), q)
 
 		switch {
+		case q == "":
+			// Precision-only filter: no query text required.
+			if precisionFilter == api.PrecisionUnset {
+				continue
+			}
+			score = 1
 		case nameMatch:
 			score = 3
 		case descMatch:
@@ -135,6 +159,7 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 			Severity:    string(r.Sev),
 			Active:      rules.IsDefaultActive(r.ID),
 			Fixable:     fixable,
+			Precision:   precision.String(),
 			Description: r.Description,
 			Score:       score,
 		})
@@ -160,9 +185,10 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 	})
 }
 
-// rulesCategories returns each category with its rule count.
+// rulesCategories returns each category with its rule count, plus a
+// per-precision-tier breakdown of the registry.
 func (s *Server) rulesCategories(_ rulesArgs) ToolResult {
-	type categoryRow struct {
+	type bucketRow struct {
 		Name      string `json:"name"`
 		RuleCount int    `json:"ruleCount"`
 		Active    int    `json:"activeByDefault"`
@@ -170,16 +196,24 @@ func (s *Server) rulesCategories(_ rulesArgs) ToolResult {
 
 	counts := map[string]int{}
 	active := map[string]int{}
+	precCounts := map[api.Precision]int{}
+	precActive := map[api.Precision]int{}
 	for _, r := range api.Registry {
 		counts[r.Category]++
-		if rules.IsDefaultActive(r.ID) {
+		isActive := rules.IsDefaultActive(r.ID)
+		if isActive {
 			active[r.Category]++
+		}
+		p := rules.V2RulePrecision(r)
+		precCounts[p]++
+		if isActive {
+			precActive[p]++
 		}
 	}
 
-	rows := make([]categoryRow, 0, len(counts))
+	rows := make([]bucketRow, 0, len(counts))
 	for name, count := range counts {
-		rows = append(rows, categoryRow{
+		rows = append(rows, bucketRow{
 			Name:      name,
 			RuleCount: count,
 			Active:    active[name],
@@ -192,14 +226,35 @@ func (s *Server) rulesCategories(_ rulesArgs) ToolResult {
 		return rows[i].Name < rows[j].Name
 	})
 
+	tierOrder := []api.Precision{
+		api.PrecisionPolicy,
+		api.PrecisionTypeAware,
+		api.PrecisionProjectStructure,
+		api.PrecisionASTBacked,
+		api.PrecisionHeuristicTextBacked,
+	}
+	precisions := make([]bucketRow, 0, len(tierOrder))
+	for _, p := range tierOrder {
+		if precCounts[p] == 0 {
+			continue
+		}
+		precisions = append(precisions, bucketRow{
+			Name:      p.String(),
+			RuleCount: precCounts[p],
+			Active:    precActive[p],
+		})
+	}
+
 	type categoriesResult struct {
-		Total      int           `json:"total"`
-		Categories []categoryRow `json:"categories"`
+		Total      int         `json:"total"`
+		Categories []bucketRow `json:"categories"`
+		Precisions []bucketRow `json:"precisions"`
 	}
 
 	return jsonResult(categoriesResult{
 		Total:      len(rows),
 		Categories: rows,
+		Precisions: precisions,
 	})
 }
 

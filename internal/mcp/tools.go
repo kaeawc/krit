@@ -115,11 +115,12 @@ func rulesToolDef() ToolDefinition {
 			"operation": jsonschema.StringEnum(rulesOperations,
 				"explain: rule metadata; search: full-text concept search; categories: rule counts per category; configure: krit.yml YAML").
 				WithDefault(opRulesExplain),
-			"rule":     jsonschema.String("Rule name (operation=explain/configure)"),
-			"query":    jsonschema.String("Free-text search query (operation=search)"),
-			"category": jsonschema.String("Filter to one category (operation=search)"),
-			"active":   jsonschema.Boolean("Override active flag (operation=configure)"),
-			"severity": jsonschema.StringEnum([]string{"error", "warning", "info"}, "Override severity (operation=configure)"),
+			"rule":      jsonschema.String("Rule name (operation=explain/configure)"),
+			"query":     jsonschema.String("Free-text search query (operation=search)"),
+			"category":  jsonschema.String("Filter to one category (operation=search)"),
+			"precision": jsonschema.StringEnum([]string{"heuristic/text-backed", "ast-backed", "project-structure-aware", "type-aware", "policy"}, "Filter by precision tier (operation=search)"),
+			"active":    jsonschema.Boolean("Override active flag (operation=configure)"),
+			"severity":  jsonschema.StringEnum([]string{"error", "warning", "info"}, "Override severity (operation=configure)"),
 		}),
 	}
 }

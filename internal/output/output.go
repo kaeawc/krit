@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -136,7 +137,8 @@ type sarifRegion struct {
 }
 
 type sarifProperties struct {
-	Confidence float64 `json:"confidence"`
+	Confidence float64 `json:"confidence,omitempty"`
+	Precision  string  `json:"precision,omitempty"`
 }
 
 // FormatSARIFColumns writes columnar findings as SARIF 2.1.0 JSON.
@@ -145,11 +147,13 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 
 	// Build description map from rule registry.
 	descMap := make(map[string]string)
+	precisionMap := make(map[string]string)
 	for _, r := range api.Registry {
 		key := r.Category + "/" + r.ID
 		if r.Description != "" {
 			descMap[key] = r.Description
 		}
+		precisionMap[key] = rules.V2RulePrecision(r).String()
 	}
 
 	rulesSeen := make(map[string]bool)
@@ -189,8 +193,9 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 				},
 			}},
 		}
-		if confidence := cols.ConfidenceAt(row); confidence > 0 {
-			r.Properties = &sarifProperties{Confidence: confidence}
+		precision := precisionMap[ruleID]
+		if confidence := cols.ConfidenceAt(row); confidence > 0 || precision != "" {
+			r.Properties = &sarifProperties{Confidence: confidence, Precision: precision}
 		}
 		results = append(results, r)
 	})

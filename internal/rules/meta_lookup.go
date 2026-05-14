@@ -95,7 +95,21 @@ func mergeRuleDescriptor(r *api.Rule, extra api.RuleDescriptor) api.RuleDescript
 	} else {
 		out.Tags = extra.Tags
 	}
+	out.Precision = resolvePrecision(r, extra)
 	return out
+}
+
+// resolvePrecision picks the tier returned in a descriptor. A
+// MetaProvider-supplied extra.Precision only wins when the rule itself
+// declared no explicit override; otherwise V2RulePrecision is the
+// single source of truth (it already honors Rule.Precision and
+// PrecisionProvider). V2RulePrecision never returns PrecisionUnset, so
+// MetaForRule always emits a populated tier.
+func resolvePrecision(r *api.Rule, extra api.RuleDescriptor) api.Precision {
+	if r.Precision == api.PrecisionUnset && extra.Precision != api.PrecisionUnset {
+		return extra.Precision
+	}
+	return V2RulePrecision(r)
 }
 
 func withRuleLanguageSupport(r *api.Rule, m api.RuleDescriptor) api.RuleDescriptor {
@@ -138,9 +152,26 @@ func HasV2Implementation(r *api.Rule) bool {
 }
 
 // V2RulePrecision returns the dominant precision class for a rule.
+//
+// Resolution order:
+//  1. Rule.Precision when set (non-zero) — the rule has overridden the
+//     derived tier.
+//  2. Rule.Implementation when it implements api.PrecisionProvider —
+//     lets tests stub a tier without touching the Rule literal.
+//  3. Derived from rule shape (Needs / NodeTypes / known override maps).
 func V2RulePrecision(r *api.Rule) Precision {
 	if r == nil {
 		return PrecisionHeuristicTextBacked
+	}
+	if r.Precision != PrecisionUnset {
+		return r.Precision
+	}
+	if r.Implementation != nil {
+		if pp, ok := r.Implementation.(api.PrecisionProvider); ok {
+			if p := pp.Precision(); p != PrecisionUnset {
+				return p
+			}
+		}
 	}
 	if policyRuleNames[r.ID] {
 		return PrecisionPolicy

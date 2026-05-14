@@ -65,7 +65,7 @@ func rulesResource() (string, string, error) {
 			Description: r.Description,
 			RuleSet:     r.Category,
 			Severity:    string(r.Sev),
-			Precision:   string(rules.V2RulePrecision(r)),
+			Precision:   rules.V2RulePrecision(r).String(),
 			Active:      rules.IsDefaultActive(r.ID),
 			Fixable:     fixable,
 			FixLevel:    fixLevel,

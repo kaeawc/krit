@@ -686,6 +686,15 @@ type Rule struct {
 	// not declared a level.
 	Level RuleLevel
 
+	// Precision is the rule's evidence tier. When PrecisionUnset (the
+	// zero value), MetaForRule derives the tier from Needs / NodeTypes
+	// using V2RulePrecision. Rules may override when the derived value
+	// misclassifies them — for example, a rule keyed on AST shape but
+	// reporting a project policy decision can set PrecisionPolicy
+	// explicitly. The dispatcher does not key behavior on this field;
+	// it is filterable metadata for CLI, MCP, SARIF, and IDE consumers.
+	Precision Precision
+
 	// KotlincAnalog names the closest standard kotlinc diagnostic that
 	// this rule approximates, e.g. "UNREACHABLE_CODE". Informational
 	// only — krit is not bug-for-bug compatible with kotlinc. Empty

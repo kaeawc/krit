@@ -674,6 +674,145 @@ func init() {
 	}
 }
 
+// TestRulesPackageHasOptInReasons is the gate: every default-inactive
+// rule (DefaultActive: false, or DefaultActive omitted) in internal/rules
+// must declare an OptInReason in the same composite literal so the
+// registry can be audited by category. Default-active rules must NOT
+// carry a reason.
+func TestRulesPackageHasOptInReasons(t *testing.T) {
+	_, thisFile, _, _ := runtime.Caller(0)
+	rulesDir := filepath.Join(filepath.Dir(thisFile), "..", "rules")
+	violations, err := AnalyzeOptInReason(rulesDir)
+	if err != nil {
+		t.Fatalf("AnalyzeOptInReason(%q): %v", rulesDir, err)
+	}
+	if len(violations) == 0 {
+		return
+	}
+	var b strings.Builder
+	for _, v := range violations {
+		b.WriteString(v.String())
+		b.WriteByte('\n')
+	}
+	t.Fatalf("ruleslinter found %d OptInReason violation(s):\n%s", len(violations), b.String())
+}
+
+func TestAnalyzeOptInReason_FlagsMissingReason(t *testing.T) {
+	dir := t.TempDir()
+	src := `package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+func init() {
+	api.Register(&api.Rule{
+		ID:            "OptInNoReason",
+		DefaultActive: false,
+	})
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "rule.go"), []byte(src), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	violations, err := AnalyzeOptInReason(dir)
+	if err != nil {
+		t.Fatalf("AnalyzeOptInReason: %v", err)
+	}
+	if len(violations) != 1 {
+		t.Fatalf("want 1 violation, got %d: %v", len(violations), violations)
+	}
+	if violations[0].RuleID != "OptInNoReason" {
+		t.Fatalf("want rule ID OptInNoReason, got %q", violations[0].RuleID)
+	}
+	if !strings.Contains(violations[0].Message, "OptInReason") {
+		t.Fatalf("want OptInReason in message, got %q", violations[0].Message)
+	}
+}
+
+func TestAnalyzeOptInReason_AcceptsReason(t *testing.T) {
+	dir := t.TempDir()
+	src := `package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+func init() {
+	api.Register(&api.Rule{
+		ID:            "OptInWithReason",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
+	})
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "rule.go"), []byte(src), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	violations, err := AnalyzeOptInReason(dir)
+	if err != nil {
+		t.Fatalf("AnalyzeOptInReason: %v", err)
+	}
+	if len(violations) != 0 {
+		t.Fatalf("want 0 violations, got %d: %v", len(violations), violations)
+	}
+}
+
+func TestAnalyzeOptInReason_FlagsReasonOnActiveRule(t *testing.T) {
+	dir := t.TempDir()
+	src := `package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+func init() {
+	api.Register(&api.Rule{
+		ID:            "ActiveButHasReason",
+		DefaultActive: true,
+		OptInReason:   api.OptInReasonOpinionated,
+	})
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "rule.go"), []byte(src), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	violations, err := AnalyzeOptInReason(dir)
+	if err != nil {
+		t.Fatalf("AnalyzeOptInReason: %v", err)
+	}
+	if len(violations) != 1 {
+		t.Fatalf("want 1 violation, got %d: %v", len(violations), violations)
+	}
+	if !strings.Contains(violations[0].Message, "must not carry") {
+		t.Fatalf("want 'must not carry' in message, got %q", violations[0].Message)
+	}
+}
+
+func TestAnalyzeOptInReason_HandlesRuleDescriptor(t *testing.T) {
+	dir := t.TempDir()
+	src := `package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+type FooRule struct{}
+
+func (r *FooRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "Foo",
+		DefaultActive: false,
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "meta.go"), []byte(src), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	violations, err := AnalyzeOptInReason(dir)
+	if err != nil {
+		t.Fatalf("AnalyzeOptInReason: %v", err)
+	}
+	if len(violations) != 1 {
+		t.Fatalf("want 1 violation, got %d: %v", len(violations), violations)
+	}
+	if violations[0].RuleID != "Foo" {
+		t.Fatalf("want rule ID Foo, got %q", violations[0].RuleID)
+	}
+}
+
 func analyzeSource(t *testing.T, name, src string) []Violation {
 	t.Helper()
 	fset := token.NewFileSet()

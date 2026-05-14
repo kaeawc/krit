@@ -19,8 +19,9 @@ vet:
 #   - capability-declaration: ctx.Resolver / .Oracle() needs NeedsResolver / NeedsOracle
 #   - concurrent-state: go/WaitGroup/MergeCollectors needs NeedsConcurrent
 #   - fix-drift: Fix != FixNone requires an f.Fix assignment in the Check body
+#   - opt-in-reason: DefaultActive: false requires an OptInReason classification
 lint-rules:
-	go test ./internal/ruleslinter/ -run 'TestRulesPackageHasNoCapabilityDrift|TestRulesPackageHasNoNewAdHocCaches' -count=1
+	go test ./internal/ruleslinter/ -run 'TestRulesPackageHasNoCapabilityDrift|TestRulesPackageHasNoNewAdHocCaches|TestRulesPackageHasOptInReasons' -count=1
 
 lint: build
 	./krit .

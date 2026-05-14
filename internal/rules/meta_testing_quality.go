@@ -9,6 +9,7 @@ func (r *AssertEqualsArgumentOrderRule) Meta() api.RuleDescriptor {
 		ID:            "AssertEqualsArgumentOrder",
 		RuleSet:       "testing-quality",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -33,6 +34,7 @@ func (r *UntestedPublicAPIRule) Meta() api.RuleDescriptor {
 		ID:            "UntestedPublicApi",
 		RuleSet:       "testing-quality",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -41,6 +43,7 @@ func (r *MixedAssertionLibrariesRule) Meta() api.RuleDescriptor {
 		ID:            "MixedAssertionLibraries",
 		RuleSet:       "testing-quality",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -97,6 +100,7 @@ func (r *SpyOnDataClassRule) Meta() api.RuleDescriptor {
 		ID:            "SpyOnDataClass",
 		RuleSet:       "testing-quality",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -121,6 +125,7 @@ func (r *TestInheritanceDepthRule) Meta() api.RuleDescriptor {
 		ID:            "TestInheritanceDepth",
 		RuleSet:       "testing-quality",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonThresholdTuning,
 	}
 }
 
@@ -129,6 +134,7 @@ func (r *TestNameContainsUnderscoreRule) Meta() api.RuleDescriptor {
 		ID:            "TestNameContainsUnderscore",
 		RuleSet:       "testing-quality",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 

@@ -15,6 +15,7 @@ func (r *ExitOutsideMainRule) Meta() api.RuleDescriptor {
 		ID:            "ExitOutsideMain",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -57,6 +58,7 @@ func (r *LateinitUsageRule) Meta() api.RuleDescriptor {
 		ID:            "LateinitUsage",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[LateinitUsageRule]{
 				Name:        "ignoreOnClassesPattern",
@@ -73,6 +75,7 @@ func (r *MissingPackageDeclarationRule) Meta() api.RuleDescriptor {
 		ID:            "MissingPackageDeclaration",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 	}
 }
@@ -82,6 +85,7 @@ func (r *MissingSuperCallRule) Meta() api.RuleDescriptor {
 		ID:            "MissingSuperCall",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[MissingSuperCallRule]{
@@ -99,5 +103,6 @@ func (r *MissingUseCallRule) Meta() api.RuleDescriptor {
 		ID:            "MissingUseCall",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }

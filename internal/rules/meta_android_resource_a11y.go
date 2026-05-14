@@ -49,6 +49,7 @@ func (r *HardcodedValuesResourceRule) Meta() api.RuleDescriptor {
 		ID:            "HardcodedValuesResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -105,6 +106,7 @@ func (r *MissingContentDescriptionResourceRule) Meta() api.RuleDescriptor {
 		ID:            "MissingContentDescriptionResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }
 

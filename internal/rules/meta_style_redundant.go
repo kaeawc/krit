@@ -9,6 +9,7 @@ func (r *OptionalUnitRule) Meta() api.RuleDescriptor {
 		ID:            "OptionalUnit",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 	}
 }
@@ -18,6 +19,7 @@ func (r *RedundantConstructorKeywordRule) Meta() api.RuleDescriptor {
 		ID:            "RedundantConstructorKeyword",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 	}
 }
@@ -27,6 +29,7 @@ func (r *RedundantExplicitTypeRule) Meta() api.RuleDescriptor {
 		ID:            "RedundantExplicitType",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 	}
 }
@@ -36,6 +39,7 @@ func (r *RedundantVisibilityModifierRule) Meta() api.RuleDescriptor {
 		ID:            "RedundantVisibilityModifier",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 	}
 }
@@ -45,6 +49,7 @@ func (r *UnnecessaryBackticksRule) Meta() api.RuleDescriptor {
 		ID:            "UnnecessaryBackticks",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 	}
 }
@@ -63,6 +68,7 @@ func (r *UnnecessaryInnerClassRule) Meta() api.RuleDescriptor {
 		ID:            "UnnecessaryInnerClass",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -72,6 +78,7 @@ func (r *UnnecessaryParenthesesRule) Meta() api.RuleDescriptor {
 		ID:            "UnnecessaryParentheses",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[UnnecessaryParenthesesRule]{

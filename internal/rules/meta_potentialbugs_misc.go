@@ -9,6 +9,7 @@ func (r *DeprecationRule) Meta() api.RuleDescriptor {
 		ID:            "Deprecation",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDuplicatesCompiler,
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[DeprecationRule]{
 				Name:        "excludeImportStatements",

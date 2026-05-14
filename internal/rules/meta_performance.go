@@ -26,6 +26,7 @@ func (r *CouldBeSequenceRule) Meta() api.RuleDescriptor {
 		ID:            "CouldBeSequence",
 		RuleSet:       "performance",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[CouldBeSequenceRule]{
 				Name:        "allowedOperations",
@@ -60,6 +61,7 @@ func (r *UnnecessaryInitOnArrayRule) Meta() api.RuleDescriptor {
 		ID:            "UnnecessaryInitOnArray",
 		RuleSet:       "performance",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -69,6 +71,7 @@ func (r *UnnecessaryPartOfBinaryExpressionRule) Meta() api.RuleDescriptor {
 		ID:            "UnnecessaryPartOfBinaryExpression",
 		RuleSet:       "performance",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -87,6 +90,7 @@ func (r *UnnecessaryTypeCastingRule) Meta() api.RuleDescriptor {
 		ID:            "UnnecessaryTypeCasting",
 		RuleSet:       "performance",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
 	}
 }

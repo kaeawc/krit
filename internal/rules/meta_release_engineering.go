@@ -17,6 +17,7 @@ func (r *BuildConfigDebugInLibraryRule) Meta() api.RuleDescriptor {
 		ID:            "BuildConfigDebugInLibrary",
 		RuleSet:       "release-engineering",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -33,6 +34,7 @@ func (r *CommentedOutCodeBlockRule) Meta() api.RuleDescriptor {
 		ID:            "CommentedOutCodeBlock",
 		RuleSet:       "release-engineering",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -49,6 +51,7 @@ func (r *ConventionPluginDeadCodeRule) Meta() api.RuleDescriptor {
 		ID:            "ConventionPluginDeadCode",
 		RuleSet:       "release-engineering",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -57,6 +60,7 @@ func (r *ModuleTemplateConformanceRule) Meta() api.RuleDescriptor {
 		ID:            "ModuleTemplateConformance",
 		RuleSet:       "release-engineering",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonProjectPolicy,
 		CustomApply: api.TypedCustomApply(func(rule *ModuleTemplateConformanceRule, cfg api.ConfigSource) {
 			adapter, ok := cfg.(*ConfigAdapter)
 			if !ok {
@@ -80,6 +84,7 @@ func (r *GradleBuildContainsTodoRule) Meta() api.RuleDescriptor {
 		ID:            "GradleBuildContainsTodo",
 		RuleSet:       "release-engineering",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -104,6 +109,7 @@ func (r *HardcodedLogTagRule) Meta() api.RuleDescriptor {
 		ID:            "HardcodedLogTag",
 		RuleSet:       "release-engineering",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -120,6 +126,7 @@ func (r *NonASCIIIdentifierRule) Meta() api.RuleDescriptor {
 		ID:            "NonAsciiIdentifier",
 		RuleSet:       "release-engineering",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -128,6 +135,7 @@ func (r *OpenForTestingCallerInNonTestRule) Meta() api.RuleDescriptor {
 		ID:            "OpenForTestingCallerInNonTest",
 		RuleSet:       "release-engineering",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -168,6 +176,7 @@ func (r *TimberTreeNotPlantedRule) Meta() api.RuleDescriptor {
 		ID:            "TimberTreeNotPlanted",
 		RuleSet:       "release-engineering",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 

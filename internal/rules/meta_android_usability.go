@@ -9,6 +9,7 @@ func (r *InlinedAPIRule) Meta() api.RuleDescriptor {
 		ID:            "InlinedApi",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -17,6 +18,7 @@ func (r *NewAPIRule) Meta() api.RuleDescriptor {
 		ID:            "NewApi",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -25,6 +27,7 @@ func (r *OverrideRule) Meta() api.RuleDescriptor {
 		ID:            "Override",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -33,6 +36,7 @@ func (r *RequiresAPIViolationRule) Meta() api.RuleDescriptor {
 		ID:            "RequiresApiViolation",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -41,5 +45,6 @@ func (r *UnusedResourcesRule) Meta() api.RuleDescriptor {
 		ID:            "UnusedResources",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }

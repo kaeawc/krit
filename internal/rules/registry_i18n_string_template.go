@@ -21,6 +21,7 @@ func registerI18nStringTemplateRules() {
 			Implementation: r,
 			Check:          r.check,
 			DefaultActive:  false,
+			OptInReason: api.OptInReasonDomainSpecific,
 		})
 	}
 }

@@ -15,6 +15,7 @@ func (r *ErrorUsageWithThrowableRule) Meta() api.RuleDescriptor {
 		ID:            "ErrorUsageWithThrowable",
 		RuleSet:       "exceptions",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -47,6 +48,7 @@ func (r *NotImplementedDeclarationRule) Meta() api.RuleDescriptor {
 		ID:            "NotImplementedDeclaration",
 		RuleSet:       "exceptions",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -55,6 +57,7 @@ func (r *ObjectExtendsThrowableRule) Meta() api.RuleDescriptor {
 		ID:            "ObjectExtendsThrowable",
 		RuleSet:       "exceptions",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -125,6 +128,7 @@ func (r *ThrowingExceptionInMainRule) Meta() api.RuleDescriptor {
 		ID:            "ThrowingExceptionInMain",
 		RuleSet:       "exceptions",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 

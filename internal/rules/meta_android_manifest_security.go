@@ -17,6 +17,7 @@ func (r *BackupRulesRule) Meta() api.RuleDescriptor {
 		ID:            "BackupRules",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -25,6 +26,7 @@ func (r *CleartextTrafficRule) Meta() api.RuleDescriptor {
 		ID:            "CleartextTraffic",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -57,6 +59,7 @@ func (r *ExportedServiceManifestRule) Meta() api.RuleDescriptor {
 		ID:            "ExportedServiceManifest",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -97,6 +100,7 @@ func (r *ProtectedPermissionsManifestRule) Meta() api.RuleDescriptor {
 		ID:            "ProtectedPermissionsManifest",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -105,6 +109,7 @@ func (r *ServiceExportedManifestRule) Meta() api.RuleDescriptor {
 		ID:            "ServiceExportedManifest",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }
 

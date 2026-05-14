@@ -22,6 +22,7 @@ func registerI18nStringContainsHTMLWithoutCDATARules() {
 			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
+			OptInReason: api.OptInReasonDomainSpecific,
 		})
 	}
 }

@@ -9,6 +9,7 @@ func (r *NullCheckOnMutablePropertyRule) Meta() api.RuleDescriptor {
 		ID:            "NullCheckOnMutableProperty",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -17,6 +18,7 @@ func (r *NullableToStringCallRule) Meta() api.RuleDescriptor {
 		ID:            "NullableToStringCall",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -25,6 +27,7 @@ func (r *UnnecessaryNotNullCheckRule) Meta() api.RuleDescriptor {
 		ID:            "UnnecessaryNotNullCheck",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
 	}
 }

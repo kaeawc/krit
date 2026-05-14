@@ -19,6 +19,7 @@ func registerI18nUnicodeNormalizationRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
+			OptInReason: api.OptInReasonDomainSpecific,
 		})
 	}
 }

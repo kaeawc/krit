@@ -9,6 +9,7 @@ func (r *ForbiddenPublicDataClassRule) Meta() api.RuleDescriptor {
 		ID:            "ForbiddenPublicDataClass",
 		RuleSet:       "libraries",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -17,6 +18,7 @@ func (r *LibraryCodeMustSpecifyReturnTypeRule) Meta() api.RuleDescriptor {
 		ID:            "LibraryCodeMustSpecifyReturnType",
 		RuleSet:       "libraries",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -25,5 +27,6 @@ func (r *LibraryEntitiesShouldNotBePublicRule) Meta() api.RuleDescriptor {
 		ID:            "LibraryEntitiesShouldNotBePublic",
 		RuleSet:       "libraries",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 	}
 }

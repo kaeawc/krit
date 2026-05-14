@@ -9,5 +9,6 @@ func (r *PackageNamingConventionDriftRule) Meta() api.RuleDescriptor {
 		ID:            "PackageNamingConventionDrift",
 		RuleSet:       "architecture",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonProjectPolicy,
 	}
 }

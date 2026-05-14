@@ -17,6 +17,7 @@ func (r *CollectInOnCreateWithoutLifecycleRule) Meta() api.RuleDescriptor {
 		ID:            "CollectInOnCreateWithoutLifecycle",
 		RuleSet:       "coroutines",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -41,6 +42,7 @@ func (r *CoroutineLaunchedInTestWithoutRunTestRule) Meta() api.RuleDescriptor {
 		ID:            "CoroutineLaunchedInTestWithoutRunTest",
 		RuleSet:       "coroutines",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -65,6 +67,7 @@ func (r *FlowWithoutFlowOnRule) Meta() api.RuleDescriptor {
 		ID:            "FlowWithoutFlowOn",
 		RuleSet:       "coroutines",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -73,6 +76,7 @@ func (r *GlobalCoroutineUsageRule) Meta() api.RuleDescriptor {
 		ID:            "GlobalCoroutineUsage",
 		RuleSet:       "coroutines",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 		FixLevel:      "semantic",
 	}
 }
@@ -106,6 +110,7 @@ func (r *LaunchWithoutCoroutineExceptionHandlerRule) Meta() api.RuleDescriptor {
 		ID:            "LaunchWithoutCoroutineExceptionHandler",
 		RuleSet:       "coroutines",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -114,6 +119,7 @@ func (r *MainDispatcherInLibraryCodeRule) Meta() api.RuleDescriptor {
 		ID:            "MainDispatcherInLibraryCode",
 		RuleSet:       "coroutines",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -139,6 +145,7 @@ func (r *SharedFlowWithoutReplayRule) Meta() api.RuleDescriptor {
 		ID:            "SharedFlowWithoutReplay",
 		RuleSet:       "coroutines",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -156,6 +163,7 @@ func (r *StateFlowCompareByReferenceRule) Meta() api.RuleDescriptor {
 		ID:            "StateFlowCompareByReference",
 		RuleSet:       "coroutines",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -172,6 +180,7 @@ func (r *SupervisorScopeInEventHandlerRule) Meta() api.RuleDescriptor {
 		ID:            "SupervisorScopeInEventHandler",
 		RuleSet:       "coroutines",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -180,6 +189,7 @@ func (r *SuspendFunInFinallySectionRule) Meta() api.RuleDescriptor {
 		ID:            "SuspendFunInFinallySection",
 		RuleSet:       "coroutines",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -188,6 +198,7 @@ func (r *SuspendFunSwallowedCancellationRule) Meta() api.RuleDescriptor {
 		ID:            "SuspendFunSwallowedCancellation",
 		RuleSet:       "coroutines",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 		FixLevel:      "semantic",
 	}
 }
@@ -197,6 +208,7 @@ func (r *SuspendFunWithCoroutineScopeReceiverRule) Meta() api.RuleDescriptor {
 		ID:            "SuspendFunWithCoroutineScopeReceiver",
 		RuleSet:       "coroutines",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -238,5 +250,6 @@ func (r *WithContextInSuspendFunctionNoopRule) Meta() api.RuleDescriptor {
 		ID:            "WithContextInSuspendFunctionNoop",
 		RuleSet:       "coroutines",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonDomainSpecific,
 	}
 }

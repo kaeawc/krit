@@ -9,6 +9,7 @@ func (r *PropertyUsedBeforeDeclarationRule) Meta() api.RuleDescriptor {
 		ID:            "PropertyUsedBeforeDeclaration",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDuplicatesCompiler,
 	}
 }
 
@@ -17,6 +18,7 @@ func (r *UnconditionalJumpStatementInLoopRule) Meta() api.RuleDescriptor {
 		ID:            "UnconditionalJumpStatementInLoop",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -25,6 +27,7 @@ func (r *UnnamedParameterUseRule) Meta() api.RuleDescriptor {
 		ID:            "UnnamedParameterUse",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[UnnamedParameterUseRule]{
 				Name:        "allowSingleParamUse",

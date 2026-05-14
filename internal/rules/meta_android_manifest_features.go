@@ -25,6 +25,7 @@ func (r *DeviceAdminManifestRule) Meta() api.RuleDescriptor {
 		ID:            "DeviceAdminManifest",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -33,6 +34,7 @@ func (r *FullBackupContentManifestRule) Meta() api.RuleDescriptor {
 		ID:            "FullBackupContentManifest",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -73,6 +75,7 @@ func (r *MissingRegisteredManifestRule) Meta() api.RuleDescriptor {
 		ID:            "MissingRegisteredManifest",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonAndroidOnly,
 	}
 }
 

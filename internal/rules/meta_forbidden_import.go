@@ -16,6 +16,7 @@ func (r *ForbiddenImportRule) Meta() api.RuleDescriptor {
 		ID:            "ForbiddenImport",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason: api.OptInReasonRequiresUserConfig,
 		FixLevel:      "idiomatic",
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[ForbiddenImportRule]{

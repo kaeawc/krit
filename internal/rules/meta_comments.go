@@ -15,6 +15,7 @@ func (r *AbsentOrWrongFileLicenseRule) Meta() api.RuleDescriptor {
 		ID:            "AbsentOrWrongFileLicense",
 		RuleSet:       "comments",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 		Options: []api.ConfigOption{
 			api.StringOption(api.StringOptionSpec[AbsentOrWrongFileLicenseRule]{
@@ -38,6 +39,7 @@ func (r *DeprecatedBlockTagRule) Meta() api.RuleDescriptor {
 		ID:            "DeprecatedBlockTag",
 		RuleSet:       "comments",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -46,6 +48,7 @@ func (r *DocumentationOverPrivateFunctionRule) Meta() api.RuleDescriptor {
 		ID:            "DocumentationOverPrivateFunction",
 		RuleSet:       "comments",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 	}
 }
@@ -55,6 +58,7 @@ func (r *DocumentationOverPrivatePropertyRule) Meta() api.RuleDescriptor {
 		ID:            "DocumentationOverPrivateProperty",
 		RuleSet:       "comments",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 	}
 }
@@ -64,6 +68,7 @@ func (r *EndOfSentenceFormatRule) Meta() api.RuleDescriptor {
 		ID:            "EndOfSentenceFormat",
 		RuleSet:       "comments",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[EndOfSentenceFormatRule]{
 				Name:        "endOfSentenceFormat",
@@ -80,6 +85,7 @@ func (r *KDocReferencesNonPublicPropertyRule) Meta() api.RuleDescriptor {
 		ID:            "KDocReferencesNonPublicProperty",
 		RuleSet:       "comments",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -88,6 +94,7 @@ func (r *SampleAnnotationFreshnessRule) Meta() api.RuleDescriptor {
 		ID:            "SampleAnnotationFreshness",
 		RuleSet:       "comments",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -96,6 +103,7 @@ func (r *KdocLinkValidationRule) Meta() api.RuleDescriptor {
 		ID:            "KdocLinkValidation",
 		RuleSet:       "comments",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -104,6 +112,7 @@ func (r *OutdatedDocumentationRule) Meta() api.RuleDescriptor {
 		ID:            "OutdatedDocumentation",
 		RuleSet:       "comments",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[OutdatedDocumentationRule]{
 				Name:        "matchDeclarationsOrder",
@@ -126,6 +135,7 @@ func (r *UndocumentedPublicClassRule) Meta() api.RuleDescriptor {
 		ID:            "UndocumentedPublicClass",
 		RuleSet:       "comments",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[UndocumentedPublicClassRule]{
 				Name:        "searchInInnerClass",
@@ -160,6 +170,7 @@ func (r *UndocumentedPublicFunctionRule) Meta() api.RuleDescriptor {
 		ID:            "UndocumentedPublicFunction",
 		RuleSet:       "comments",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -168,5 +179,6 @@ func (r *UndocumentedPublicPropertyRule) Meta() api.RuleDescriptor {
 		ID:            "UndocumentedPublicProperty",
 		RuleSet:       "comments",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }

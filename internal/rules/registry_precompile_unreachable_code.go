@@ -21,5 +21,6 @@ func registerPrecompileUnreachableCodeRules() {
 		Implementation: r,
 		Check:          r.check,
 		DefaultActive:  false,
+		OptInReason: api.OptInReasonDuplicatesCompiler,
 	})
 }

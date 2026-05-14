@@ -405,6 +405,83 @@ func (m Maturity) String() string {
 	}
 }
 
+// OptInReason classifies *why* a default-inactive rule ships off by default.
+// It is required when DefaultActive == false and must remain unset
+// (OptInReasonUnspecified) when DefaultActive == true. The ruleslinter gate
+// enforces both directions so the registry can be analyzed by category
+// (e.g. "how many opinionated rules do we ship?", "which Android-only rules
+// could graduate to default once we detect an Android project?").
+//
+// The reason is orthogonal to Maturity: an Experimental rule still carries
+// a reason describing the *intent* of the rule (Opinionated, AndroidOnly,
+// etc.) — Maturity captures soak status, OptInReason captures intent.
+type OptInReason uint8
+
+const (
+	// OptInReasonUnspecified is the zero value. Required for
+	// DefaultActive == true rules; forbidden for DefaultActive == false.
+	OptInReasonUnspecified OptInReason = iota
+	// OptInReasonOpinionated marks style and house-preference rules that
+	// would generate split votes on review. Examples: braces on
+	// single-line ifs, idiomatic data-class shape, expression style.
+	OptInReasonOpinionated
+	// OptInReasonProjectPolicy marks architectural and conventions rules
+	// that only make sense once a project picks a layering / package /
+	// naming policy. Examples: layer-dependency violations, package
+	// cycles, package-naming drift, public-to-internal leaks.
+	OptInReasonProjectPolicy
+	// OptInReasonThresholdTuning marks rules whose primary signal is a
+	// numeric threshold the team must choose. Examples: cognitive
+	// complexity, complex interface, hotspot allowed-count.
+	OptInReasonThresholdTuning
+	// OptInReasonDomainSpecific marks rules that are real signal for some
+	// project domains and noise for others. Examples: observability,
+	// privacy/analytics, supply-chain, i18n, licensing, framework-specific
+	// (Compose, Coroutines, DI, DB) checks.
+	OptInReasonDomainSpecific
+	// OptInReasonAndroidOnly marks rules that only meaningfully apply to
+	// Android projects (manifest, resources, icons, Android-lint parity).
+	// They ship off so plain Kotlin/JVM projects don't see them.
+	OptInReasonAndroidOnly
+	// OptInReasonRequiresUserConfig marks rules that produce no findings
+	// (or wrong findings) without user-supplied option values. Examples:
+	// forbidden-imports list, recommended versions catalog.
+	OptInReasonRequiresUserConfig
+	// OptInReasonDuplicatesCompiler marks rules that approximate a
+	// kotlinc/javac diagnostic. They ship for IDE/LSP/precompile UX where
+	// running krit is cheaper than a full compile, but stay off by default
+	// so a project that already compiles doesn't see duplicate diagnostics.
+	OptInReasonDuplicatesCompiler
+	// OptInReasonExpensive marks rules whose project-wide analysis is
+	// heavy enough that defaulting them on would noticeably hurt run time
+	// even on projects that want them. Examples: module-aware dead-code.
+	OptInReasonExpensive
+)
+
+// String returns a human-readable label for the OptInReason value.
+func (r OptInReason) String() string {
+	switch r {
+	case OptInReasonOpinionated:
+		return "opinionated"
+	case OptInReasonProjectPolicy:
+		return "project-policy"
+	case OptInReasonThresholdTuning:
+		return "threshold-tuning"
+	case OptInReasonDomainSpecific:
+		return "domain-specific"
+	case OptInReasonAndroidOnly:
+		return "android-only"
+	case OptInReasonRequiresUserConfig:
+		return "requires-user-config"
+	case OptInReasonDuplicatesCompiler:
+		return "duplicates-compiler"
+	case OptInReasonExpensive:
+		return "expensive"
+	default:
+		return "unspecified"
+	}
+}
+
 // OracleFilter declares when a rule needs oracle type information.
 type OracleFilter struct {
 	Identifiers []string
@@ -656,6 +733,11 @@ type Rule struct {
 	// DefaultActive == false are opt-in (must be enabled via config or
 	// --all-rules).
 	DefaultActive bool
+
+	// OptInReason classifies *why* this rule is off by default. Required
+	// (and only meaningful) when DefaultActive == false; the ruleslinter
+	// gate enforces both directions. See OptInReason for enum values.
+	OptInReason OptInReason
 
 	// Options are the configurable fields the rule exposes via YAML.
 	Options []ConfigOption

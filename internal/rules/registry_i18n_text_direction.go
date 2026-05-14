@@ -19,6 +19,7 @@ func registerI18nTextDirectionRules() {
 			NodeTypes: []string{"string_literal"}, Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
+			OptInReason: api.OptInReasonDomainSpecific,
 		})
 	}
 }

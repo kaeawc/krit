@@ -25,6 +25,7 @@ func (r *CharArrayToStringCallRule) Meta() api.RuleDescriptor {
 		ID:            "CharArrayToStringCall",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -34,6 +35,7 @@ func (r *DontDowncastCollectionTypesRule) Meta() api.RuleDescriptor {
 		ID:            "DontDowncastCollectionTypes",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
 	}
 }
@@ -83,6 +85,7 @@ func (r *ImplicitUnitReturnTypeRule) Meta() api.RuleDescriptor {
 		ID:            "ImplicitUnitReturnType",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }

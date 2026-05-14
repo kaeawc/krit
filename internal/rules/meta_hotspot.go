@@ -9,6 +9,7 @@ func (r *FanInFanOutHotspotRule) Meta() api.RuleDescriptor {
 		ID:            "FanInFanOutHotspot",
 		RuleSet:       "architecture",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonThresholdTuning,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[FanInFanOutHotspotRule]{
 				Name:        "allowedFanIn",
@@ -32,5 +33,6 @@ func (r *GodClassOrModuleRule) Meta() api.RuleDescriptor {
 		ID:            "GodClassOrModule",
 		RuleSet:       "architecture",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonThresholdTuning,
 	}
 }

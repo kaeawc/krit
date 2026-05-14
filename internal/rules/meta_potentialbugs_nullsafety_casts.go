@@ -9,6 +9,7 @@ func (r *CastNullableToNonNullableTypeRule) Meta() api.RuleDescriptor {
 		ID:            "CastNullableToNonNullableType",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
 	}
 }
@@ -18,6 +19,7 @@ func (r *CastToNullableTypeRule) Meta() api.RuleDescriptor {
 		ID:            "CastToNullableType",
 		RuleSet:       "potential-bugs",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
 	}
 }

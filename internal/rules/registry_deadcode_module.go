@@ -16,6 +16,7 @@ func registerDeadcodeModuleRules() {
 			Needs: api.NeedsModuleIndex, Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
+			OptInReason:   api.OptInReasonExpensive,
 		})
 	}
 }

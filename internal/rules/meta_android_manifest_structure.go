@@ -33,6 +33,7 @@ func (r *IntentFilterExportRequiredRule) Meta() api.RuleDescriptor {
 		ID:            "IntentFilterExportRequired",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -57,6 +58,7 @@ func (r *ManifestTypoRule) Meta() api.RuleDescriptor {
 		ID:            "ManifestTypoManifest",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -65,6 +67,7 @@ func (r *MipmapLauncherRule) Meta() api.RuleDescriptor {
 		ID:            "MipmapLauncher",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -73,6 +76,7 @@ func (r *MissingApplicationIconRule) Meta() api.RuleDescriptor {
 		ID:            "MissingApplicationIconManifest",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -105,6 +109,7 @@ func (r *SystemPermissionRule) Meta() api.RuleDescriptor {
 		ID:            "SystemPermission",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -113,6 +118,7 @@ func (r *TargetNewerRule) Meta() api.RuleDescriptor {
 		ID:            "TargetNewer",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -121,6 +127,7 @@ func (r *UniquePermissionRule) Meta() api.RuleDescriptor {
 		ID:            "UniquePermission",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 

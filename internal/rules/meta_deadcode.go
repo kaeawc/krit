@@ -9,6 +9,7 @@ func (r *DeadCodeRule) Meta() api.RuleDescriptor {
 		ID:            "DeadCode",
 		RuleSet:       "dead-code",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonExpensive,
 		FixLevel:      "semantic",
 	}
 }

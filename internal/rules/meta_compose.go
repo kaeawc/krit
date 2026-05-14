@@ -49,6 +49,7 @@ func (r *ComposeModifierBackgroundAfterClipRule) Meta() api.RuleDescriptor {
 		ID:            "ComposeModifierBackgroundAfterClip",
 		RuleSet:       "compose",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -57,6 +58,7 @@ func (r *ComposeModifierClickableBeforePaddingRule) Meta() api.RuleDescriptor {
 		ID:            "ComposeModifierClickableBeforePadding",
 		RuleSet:       "compose",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -65,6 +67,7 @@ func (r *ComposeModifierFillAfterSizeRule) Meta() api.RuleDescriptor {
 		ID:            "ComposeModifierFillAfterSize",
 		RuleSet:       "compose",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -97,6 +100,7 @@ func (r *ComposePreviewAnnotationMissingRule) Meta() api.RuleDescriptor {
 		ID:            "ComposePreviewAnnotationMissing",
 		RuleSet:       "compose",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 

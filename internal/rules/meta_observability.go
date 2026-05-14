@@ -9,6 +9,7 @@ func (r *LogLevelGuardMissingRule) Meta() api.RuleDescriptor {
 		ID:            "LogLevelGuardMissing",
 		RuleSet:       "observability",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -17,6 +18,7 @@ func (r *LogWithoutCorrelationIDRule) Meta() api.RuleDescriptor {
 		ID:            "LogWithoutCorrelationId",
 		RuleSet:       "observability",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -25,6 +27,7 @@ func (r *WithContextWithoutTracingContextRule) Meta() api.RuleDescriptor {
 		ID:            "WithContextWithoutTracingContext",
 		RuleSet:       "observability",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[WithContextWithoutTracingContextRule]{
 				Name:        "allowedDispatchers",
@@ -49,6 +52,7 @@ func (r *SpanAttributeWithHighCardinalityRule) Meta() api.RuleDescriptor {
 		ID:            "SpanAttributeWithHighCardinality",
 		RuleSet:       "observability",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[SpanAttributeWithHighCardinalityRule]{
 				Name:        "keys",
@@ -65,6 +69,7 @@ func (r *NullableStructuredFieldRule) Meta() api.RuleDescriptor {
 		ID:            "NullableStructuredField",
 		RuleSet:       "observability",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -73,6 +78,7 @@ func (r *MetricTimerOutsideBlockRule) Meta() api.RuleDescriptor {
 		ID:            "MetricTimerOutsideBlock",
 		RuleSet:       "observability",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -153,6 +159,7 @@ func (r *TraceIDLoggedAsPlainMessageRule) Meta() api.RuleDescriptor {
 		ID:            "TraceIdLoggedAsPlainMessage",
 		RuleSet:       "observability",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[TraceIDLoggedAsPlainMessageRule]{
 				Name:        "identifiers",
@@ -169,6 +176,7 @@ func (r *StructuredLogKeyMixedCaseRule) Meta() api.RuleDescriptor {
 		ID:            "StructuredLogKeyMixedCase",
 		RuleSet:       "observability",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[StructuredLogKeyMixedCaseRule]{
 				Name:        "minKeys",

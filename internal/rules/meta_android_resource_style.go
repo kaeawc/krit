@@ -35,6 +35,7 @@ func (r *InefficientWeightResourceRule) Meta() api.RuleDescriptor {
 		ID:            "InefficientWeightResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -43,6 +44,7 @@ func (r *MergeRootFrameResourceRule) Meta() api.RuleDescriptor {
 		ID:            "MergeRootFrameResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -74,6 +76,7 @@ func (r *ObsoleteLayoutParamsResourceRule) Meta() api.RuleDescriptor {
 		ID:            "ObsoleteLayoutParamsResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -90,6 +93,7 @@ func (r *PxUsageResourceRule) Meta() api.RuleDescriptor {
 		ID:            "PxUsageResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 

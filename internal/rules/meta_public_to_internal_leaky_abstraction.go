@@ -19,6 +19,7 @@ func (r *PublicToInternalLeakyAbstractionRule) Meta() api.RuleDescriptor {
 		ID:            "PublicToInternalLeakyAbstraction",
 		RuleSet:       "architecture",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonProjectPolicy,
 		Options: []api.ConfigOption{
 			// YAML stores an int percent; the rule struct holds a
 			// float64 fraction. Only apply when the configured

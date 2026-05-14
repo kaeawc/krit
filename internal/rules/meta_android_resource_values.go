@@ -9,6 +9,7 @@ func (r *ExtraTextResourceRule) Meta() api.RuleDescriptor {
 		ID:            "ExtraTextResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -33,6 +34,7 @@ func (r *InconsistentArraysResourceRule) Meta() api.RuleDescriptor {
 		ID:            "InconsistentArraysResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -41,6 +43,7 @@ func (r *LocaleConfigStaleResourceRule) Meta() api.RuleDescriptor {
 		ID:            "LocaleConfigStale",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -97,6 +100,7 @@ func (r *StringTrailingWhitespaceResourceRule) Meta() api.RuleDescriptor {
 		ID:            "StringTrailingWhitespace",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -129,6 +133,7 @@ func (r *UnusedAttributeResourceRule) Meta() api.RuleDescriptor {
 		ID:            "UnusedAttributeResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -145,6 +150,7 @@ func (r *WebViewInScrollViewResourceRule) Meta() api.RuleDescriptor {
 		ID:            "WebViewInScrollViewResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -153,5 +159,6 @@ func (r *WrongRegionResourceRule) Meta() api.RuleDescriptor {
 		ID:            "WrongRegionResource",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }

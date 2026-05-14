@@ -9,6 +9,7 @@ func (r *AccidentalOctalRule) Meta() api.RuleDescriptor {
 		ID:            "AccidentalOctal",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -17,6 +18,7 @@ func (r *AppCompatMethodRule) Meta() api.RuleDescriptor {
 		ID:            "AppCompatMethod",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -25,6 +27,7 @@ func (r *CustomViewStyleableRule) Meta() api.RuleDescriptor {
 		ID:            "CustomViewStyleable",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -33,6 +36,7 @@ func (r *DeprecatedRule) Meta() api.RuleDescriptor {
 		ID:            "Deprecated",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -41,6 +45,7 @@ func (r *InnerclassSeparatorRule) Meta() api.RuleDescriptor {
 		ID:            "InnerclassSeparator",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -49,6 +54,7 @@ func (r *LocalSuppressRule) Meta() api.RuleDescriptor {
 		ID:            "LocalSuppress",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -57,6 +63,7 @@ func (r *ObjectAnimatorBindingRule) Meta() api.RuleDescriptor {
 		ID:            "ObjectAnimatorBinding",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -73,6 +80,7 @@ func (r *OverrideAbstractRule) Meta() api.RuleDescriptor {
 		ID:            "OverrideAbstract",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -81,6 +89,7 @@ func (r *ParcelCreatorRule) Meta() api.RuleDescriptor {
 		ID:            "ParcelCreator",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -89,6 +98,7 @@ func (r *PluralsCandidateRule) Meta() api.RuleDescriptor {
 		ID:            "PluralsCandidate",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -97,6 +107,7 @@ func (r *PropertyEscapeRule) Meta() api.RuleDescriptor {
 		ID:            "PropertyEscape",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -105,6 +116,7 @@ func (r *RangeRule) Meta() api.RuleDescriptor {
 		ID:            "Range",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -113,6 +125,7 @@ func (r *ResourceAsColorRule) Meta() api.RuleDescriptor {
 		ID:            "ResourceAsColor",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -121,6 +134,7 @@ func (r *ResourceTypeRule) Meta() api.RuleDescriptor {
 		ID:            "ResourceType",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -129,6 +143,7 @@ func (r *ShortAlarmRule) Meta() api.RuleDescriptor {
 		ID:            "ShortAlarm",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -137,6 +152,7 @@ func (r *SupportAnnotationUsageRule) Meta() api.RuleDescriptor {
 		ID:            "SupportAnnotationUsage",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -145,6 +161,7 @@ func (r *SwitchIntDefRule) Meta() api.RuleDescriptor {
 		ID:            "SwitchIntDef",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -153,6 +170,7 @@ func (r *TextViewEditsRule) Meta() api.RuleDescriptor {
 		ID:            "TextViewEdits",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -161,5 +179,6 @@ func (r *WrongViewCastRule) Meta() api.RuleDescriptor {
 		ID:            "WrongViewCast",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }

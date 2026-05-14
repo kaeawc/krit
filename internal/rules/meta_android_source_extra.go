@@ -9,6 +9,7 @@ func (r *GridLayoutRule) Meta() api.RuleDescriptor {
 		ID:            "GridLayout",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -17,6 +18,7 @@ func (r *InstantiatableRule) Meta() api.RuleDescriptor {
 		ID:            "Instantiatable",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -33,6 +35,7 @@ func (r *LibraryCustomViewRule) Meta() api.RuleDescriptor {
 		ID:            "LibraryCustomView",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -41,6 +44,7 @@ func (r *LocaleFolderRule) Meta() api.RuleDescriptor {
 		ID:            "LocaleFolder",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -49,6 +53,7 @@ func (r *MangledCRLFRule) Meta() api.RuleDescriptor {
 		ID:            "MangledCRLF",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -57,6 +62,7 @@ func (r *MissingPermissionRule) Meta() api.RuleDescriptor {
 		ID:            "MissingPermission",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -65,6 +71,7 @@ func (r *NfcTechWhitespaceRule) Meta() api.RuleDescriptor {
 		ID:            "NfcTechWhitespace",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -73,6 +80,7 @@ func (r *ProguardRule) Meta() api.RuleDescriptor {
 		ID:            "Proguard",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -81,6 +89,7 @@ func (r *ProguardSplitRule) Meta() api.RuleDescriptor {
 		ID:            "ProguardSplit",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -89,6 +98,7 @@ func (r *ResourceNameRule) Meta() api.RuleDescriptor {
 		ID:            "ResourceName",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -97,6 +107,7 @@ func (r *RtlAwareRule) Meta() api.RuleDescriptor {
 		ID:            "RtlAware",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -105,6 +116,7 @@ func (r *RtlFieldAccessRule) Meta() api.RuleDescriptor {
 		ID:            "RtlFieldAccess",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -113,6 +125,7 @@ func (r *TrulyRandomRule) Meta() api.RuleDescriptor {
 		ID:            "TrulyRandom",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -121,6 +134,7 @@ func (r *UnknownIDInLayoutRule) Meta() api.RuleDescriptor {
 		ID:            "UnknownIdInLayout",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -129,6 +143,7 @@ func (r *UseAlpha2Rule) Meta() api.RuleDescriptor {
 		ID:            "UseAlpha2",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -153,6 +168,7 @@ func (r *WrongConstantRule) Meta() api.RuleDescriptor {
 		ID:            "WrongConstant",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 

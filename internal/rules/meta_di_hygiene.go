@@ -33,6 +33,7 @@ func (r *DeadBindingsRule) Meta() api.RuleDescriptor {
 		ID:            "DeadBindings",
 		RuleSet:       "di-hygiene",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -43,6 +44,7 @@ func (r *DiCycleDetectionRule) Meta() api.RuleDescriptor {
 		Severity:      "warning",
 		Description:   "Detects cycles in the constructor-injected DI binding graph.",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		Confidence:    0.75,
 	}
 }
@@ -104,6 +106,7 @@ func (r *ModuleWithNonStaticProvidesRule) Meta() api.RuleDescriptor {
 		ID:            "ModuleWithNonStaticProvides",
 		RuleSet:       "di-hygiene",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -130,6 +133,7 @@ func (r *SubcomponentNotInstalledRule) Meta() api.RuleDescriptor {
 		Severity:      "warning",
 		Description:   "Detects @Subcomponent declarations not returned from any parent component method; the subcomponent is orphaned.",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		FixLevel:      "",
 		Confidence:    0.5,
 	}
@@ -166,6 +170,7 @@ func (r *ComponentMissingModuleRule) Meta() api.RuleDescriptor {
 		Severity:      "warning",
 		Description:   "Detects @Component(modules = [...]) declarations whose listed modules do not transitively cover every reachable binding.",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		FixLevel:      "",
 		Confidence:    0.5,
 	}
@@ -178,6 +183,7 @@ func (r *IntoMapDuplicateKeyRule) Meta() api.RuleDescriptor {
 		Severity:      "warning",
 		Description:   "Detects @IntoMap providers that share the same key in the same module/component; duplicate map keys create conflicting contributions.",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		FixLevel:      "",
 		Confidence:    0.7,
 	}
@@ -190,6 +196,7 @@ func (r *IntoSetDuplicateTypeRule) Meta() api.RuleDescriptor {
 		Severity:      "info",
 		Description:   "Detects @IntoSet providers that contribute the same concrete impl in the same module/component; the set dedupes, dropping contributions.",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		FixLevel:      "",
 		Confidence:    0.5,
 	}
@@ -202,6 +209,7 @@ func (r *ProviderInsteadOfLazyRule) Meta() api.RuleDescriptor {
 		Severity:      "info",
 		Description:   "Detects Provider<T> constructor params whose .get() is called exactly once; Lazy<T> matches the intent and is cheaper.",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		FixLevel:      "",
 		Confidence:    0.6,
 	}
@@ -214,6 +222,7 @@ func (r *LazyInsteadOfDirectRule) Meta() api.RuleDescriptor {
 		Severity:      "info",
 		Description:   "Detects Lazy<T> constructor params whose .get() is called eagerly at class init; direct injection is cheaper.",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 		FixLevel:      "",
 		Confidence:    0.6,
 	}

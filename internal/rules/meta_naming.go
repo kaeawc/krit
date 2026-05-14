@@ -15,6 +15,7 @@ func (r *BooleanPropertyNamingRule) Meta() api.RuleDescriptor {
 		ID:            "BooleanPropertyNaming",
 		RuleSet:       "naming",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[BooleanPropertyNamingRule]{
@@ -92,6 +93,7 @@ func (r *ForbiddenClassNameRule) Meta() api.RuleDescriptor {
 		ID:            "ForbiddenClassName",
 		RuleSet:       "naming",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonRequiresUserConfig,
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[ForbiddenClassNameRule]{
 				Name:        "forbiddenName",
@@ -108,6 +110,7 @@ func (r *FunctionNameMaxLengthRule) Meta() api.RuleDescriptor {
 		ID:            "FunctionNameMaxLength",
 		RuleSet:       "naming",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonThresholdTuning,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[FunctionNameMaxLengthRule]{
 				Name:        "maximumFunctionNameLength",
@@ -125,6 +128,7 @@ func (r *FunctionNameMinLengthRule) Meta() api.RuleDescriptor {
 		ID:            "FunctionNameMinLength",
 		RuleSet:       "naming",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonThresholdTuning,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[FunctionNameMinLengthRule]{
 				Name:        "minimumFunctionNameLength",
@@ -224,6 +228,7 @@ func (r *LambdaParameterNamingRule) Meta() api.RuleDescriptor {
 		ID:            "LambdaParameterNaming",
 		RuleSet:       "naming",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[LambdaParameterNamingRule]{
 				Name:        "parameterPattern",
@@ -286,6 +291,7 @@ func (r *NonBooleanPropertyPrefixedWithIsRule) Meta() api.RuleDescriptor {
 		ID:            "NonBooleanPropertyPrefixedWithIs",
 		RuleSet:       "naming",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -366,6 +372,7 @@ func (r *VariableMaxLengthRule) Meta() api.RuleDescriptor {
 		ID:            "VariableMaxLength",
 		RuleSet:       "naming",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonThresholdTuning,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[VariableMaxLengthRule]{
 				Name:        "maximumVariableNameLength",
@@ -383,6 +390,7 @@ func (r *VariableMinLengthRule) Meta() api.RuleDescriptor {
 		ID:            "VariableMinLength",
 		RuleSet:       "naming",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonThresholdTuning,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[VariableMinLengthRule]{
 				Name:        "minimumVariableNameLength",

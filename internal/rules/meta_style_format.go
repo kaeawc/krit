@@ -9,6 +9,7 @@ func (r *CascadingCallWrappingRule) Meta() api.RuleDescriptor {
 		ID:            "CascadingCallWrapping",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[CascadingCallWrappingRule]{
 				Name:        "includeElvis",
@@ -25,6 +26,7 @@ func (r *EqualsOnSignatureLineRule) Meta() api.RuleDescriptor {
 		ID:            "EqualsOnSignatureLine",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 	}
 }
@@ -34,6 +36,7 @@ func (r *MaxChainedCallsOnSameLineRule) Meta() api.RuleDescriptor {
 		ID:            "MaxChainedCallsOnSameLine",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[MaxChainedCallsOnSameLineRule]{
 				Name:        "maxChainedCalls",
@@ -101,6 +104,7 @@ func (r *NoTabsRule) Meta() api.RuleDescriptor {
 		ID:            "NoTabs",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[NoTabsRule]{
@@ -119,6 +123,7 @@ func (r *SpacingAfterPackageAndImportsRule) Meta() api.RuleDescriptor {
 		ID:            "SpacingAfterPackageAndImports",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 	}
 }
@@ -128,6 +133,7 @@ func (r *TrailingWhitespaceRule) Meta() api.RuleDescriptor {
 		ID:            "TrailingWhitespace",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 	}
 }
@@ -137,6 +143,7 @@ func (r *UnderscoresInNumericLiteralsRule) Meta() api.RuleDescriptor {
 		ID:            "UnderscoresInNumericLiterals",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[UnderscoresInNumericLiteralsRule]{

@@ -871,6 +871,162 @@ func isMergeCollectorsCall(call *ast.CallExpr) bool {
 	return false
 }
 
+// AnalyzeOptInReason scans every .go file in dir for api.Rule and
+// api.RuleDescriptor composite literals and enforces the OptInReason
+// invariant:
+//
+//   - DefaultActive: false  → OptInReason MUST be present and non-zero
+//     (i.e. not api.OptInReasonUnspecified). Every off-by-default rule
+//     must classify *why* it ships off so the registry can be audited.
+//   - DefaultActive: true   → OptInReason MUST be absent or set to
+//     api.OptInReasonUnspecified. The reason field only applies to
+//     opt-in rules; an active rule carrying one is a documentation bug.
+//   - DefaultActive omitted → treated as false (Go zero value).
+//
+// Test files are skipped.
+func AnalyzeOptInReason(dir string) ([]Violation, error) {
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("ruleslinter: read dir: %w", err)
+	}
+	var violations []Violation
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		if strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return nil, fmt.Errorf("ruleslinter: parse %s: %w", path, err)
+		}
+		violations = append(violations, scanOptInReason(fset, f)...)
+	}
+	sort.Slice(violations, func(i, j int) bool {
+		if violations[i].Position.Filename != violations[j].Position.Filename {
+			return violations[i].Position.Filename < violations[j].Position.Filename
+		}
+		return violations[i].Position.Offset < violations[j].Position.Offset
+	})
+	return violations, nil
+}
+
+func scanOptInReason(fset *token.FileSet, file *ast.File) []Violation {
+	var out []Violation
+	ast.Inspect(file, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		typeName := apiTypeName(lit.Type)
+		if typeName != "Rule" && typeName != "RuleDescriptor" {
+			return true
+		}
+		var (
+			id              string
+			idIsLiteral     bool
+			hasDefaultKey   bool
+			defaultActive   bool
+			hasReasonKey    bool
+			reasonName      string // e.g. "OptInReasonOpinionated"
+			reasonValuePos  token.Pos
+			defaultValuePos token.Pos
+		)
+		for _, elt := range lit.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			key, ok := kv.Key.(*ast.Ident)
+			if !ok {
+				continue
+			}
+			switch key.Name {
+			case "ID":
+				id = identOrLiteralString(kv.Value)
+				if _, ok := kv.Value.(*ast.BasicLit); ok {
+					idIsLiteral = true
+				}
+			case "DefaultActive":
+				hasDefaultKey = true
+				defaultValuePos = kv.Value.Pos()
+				if b, ok := kv.Value.(*ast.Ident); ok {
+					defaultActive = b.Name == "true"
+				}
+			case "OptInReason":
+				hasReasonKey = true
+				reasonValuePos = kv.Value.Pos()
+				reasonName = optInReasonName(kv.Value)
+			}
+		}
+		// Skip literals that are not concrete rule registrations:
+		//   - factory templates (ID is a variable / parameter, not a literal string)
+		//   - zero-value returns like `return api.RuleDescriptor{}` inside helpers
+		// In both cases the OptInReason classification cannot be made statically;
+		// the factory's caller is responsible for supplying it.
+		if !idIsLiteral || id == "" {
+			return true
+		}
+		// Treat omitted DefaultActive as the zero value (false).
+		_ = hasDefaultKey
+		if defaultActive {
+			if hasReasonKey && reasonName != "OptInReasonUnspecified" {
+				out = append(out, Violation{
+					RuleID:   id,
+					Position: fset.Position(reasonValuePos),
+					Message:  "DefaultActive: true must not carry an OptInReason (got api." + reasonName + "); remove the OptInReason field or set DefaultActive: false",
+				})
+			}
+			return true
+		}
+		// DefaultActive is false (explicit or omitted).
+		if !hasReasonKey || reasonName == "OptInReasonUnspecified" {
+			pos := defaultValuePos
+			if pos == token.NoPos {
+				pos = lit.Pos()
+			}
+			out = append(out, Violation{
+				RuleID:   id,
+				Position: fset.Position(pos),
+				Message:  "DefaultActive: false (or omitted) must declare an OptInReason in the same literal; pick one of api.OptInReason{Opinionated,ProjectPolicy,ThresholdTuning,DomainSpecific,AndroidOnly,RequiresUserConfig,DuplicatesCompiler,Expensive}",
+			})
+		}
+		return true
+	})
+	return out
+}
+
+// apiTypeName returns the trailing identifier of an api.<Name> selector
+// (e.g. "Rule" for api.Rule, "RuleDescriptor" for api.RuleDescriptor).
+// Returns "" when expr is not an api-qualified type reference.
+func apiTypeName(expr ast.Expr) string {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	id, ok := sel.X.(*ast.Ident)
+	if !ok || id.Name != "api" {
+		return ""
+	}
+	return sel.Sel.Name
+}
+
+// optInReasonName returns the trailing identifier of an api.OptInReason*
+// selector (e.g. "OptInReasonOpinionated"). Returns the empty string
+// when expr is not a recognisable OptInReason constant.
+func optInReasonName(expr ast.Expr) string {
+	switch v := expr.(type) {
+	case *ast.SelectorExpr:
+		return v.Sel.Name
+	case *ast.Ident:
+		return v.Name
+	}
+	return ""
+}
+
 // guessReceiverType looks at sel.X and returns the type name if it
 // resolves through AssignStmt object metadata. Best-effort: returns ""
 // when the type cannot be determined without full type checking.

@@ -9,6 +9,7 @@ func (r *CanBeNonNullableRule) Meta() api.RuleDescriptor {
 		ID:            "CanBeNonNullable",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -34,6 +35,7 @@ func (r *DoubleNegativeExpressionRule) Meta() api.RuleDescriptor {
 		ID:            "DoubleNegativeExpression",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -43,6 +45,7 @@ func (r *DoubleNegativeLambdaRule) Meta() api.RuleDescriptor {
 		ID:            "DoubleNegativeLambda",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[DoubleNegativeLambdaRule]{
 				Name:        "negativeFunctions",
@@ -58,6 +61,7 @@ func (r *MultilineLambdaItParameterRule) Meta() api.RuleDescriptor {
 		ID:            "MultilineLambdaItParameter",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -66,6 +70,7 @@ func (r *MultilineRawStringIndentationRule) Meta() api.RuleDescriptor {
 		ID:            "MultilineRawStringIndentation",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[MultilineRawStringIndentationRule]{
 				Name:        "indentSize",
@@ -87,6 +92,7 @@ func (r *NullableBooleanCheckRule) Meta() api.RuleDescriptor {
 		ID:            "NullableBooleanCheck",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -96,6 +102,7 @@ func (r *RangeUntilInsteadOfRangeToRule) Meta() api.RuleDescriptor {
 		ID:            "RangeUntilInsteadOfRangeTo",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -105,6 +112,7 @@ func (r *StringShouldBeRawStringRule) Meta() api.RuleDescriptor {
 		ID:            "StringShouldBeRawString",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[StringShouldBeRawStringRule]{
 				Name:        "maxEscapedCharacterCount",
@@ -122,6 +130,7 @@ func (r *TrimMultilineRawStringRule) Meta() api.RuleDescriptor {
 		ID:            "TrimMultilineRawString",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[TrimMultilineRawStringRule]{

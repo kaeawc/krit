@@ -198,6 +198,12 @@ type RuleDescriptor struct {
 	// --all-rules).
 	DefaultActive bool
 
+	// OptInReason classifies *why* a default-inactive rule is off by
+	// default. Required (and only meaningful) when DefaultActive == false;
+	// the ruleslinter gate enforces both directions. See OptInReason for
+	// the enum values and intent.
+	OptInReason OptInReason
+
 	// FixLevel is "", "cosmetic", "idiomatic", or "semantic".
 	// Empty string means the rule does not provide an auto-fix.
 	FixLevel string

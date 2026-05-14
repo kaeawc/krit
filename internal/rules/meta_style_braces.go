@@ -9,6 +9,7 @@ func (r *BracesOnIfStatementsRule) Meta() api.RuleDescriptor {
 		ID:            "BracesOnIfStatements",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 		Options: []api.ConfigOption{
 			api.StringOption(api.StringOptionSpec[BracesOnIfStatementsRule]{
@@ -32,6 +33,7 @@ func (r *BracesOnWhenStatementsRule) Meta() api.RuleDescriptor {
 		ID:            "BracesOnWhenStatements",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 		Options: []api.ConfigOption{
 			api.StringOption(api.StringOptionSpec[BracesOnWhenStatementsRule]{
@@ -55,6 +57,7 @@ func (r *MandatoryBracesLoopsRule) Meta() api.RuleDescriptor {
 		ID:            "MandatoryBracesLoops",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "cosmetic",
 	}
 }

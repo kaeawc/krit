@@ -19,6 +19,7 @@ func registerI18nStringConcatRules() {
 			NodeTypes: []string{"additive_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check:         r.check,
 			DefaultActive: false,
+			OptInReason:   api.OptInReasonDomainSpecific,
 		})
 	}
 }

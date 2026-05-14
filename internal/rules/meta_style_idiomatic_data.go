@@ -9,6 +9,7 @@ func (r *AlsoCouldBeApplyRule) Meta() api.RuleDescriptor {
 		ID:            "AlsoCouldBeApply",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
 	}
 }
@@ -27,6 +28,7 @@ func (r *ExplicitCollectionElementAccessMethodRule) Meta() api.RuleDescriptor {
 		ID:            "ExplicitCollectionElementAccessMethod",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -36,6 +38,7 @@ func (r *UseArrayLiteralsInAnnotationsRule) Meta() api.RuleDescriptor {
 		ID:            "UseArrayLiteralsInAnnotations",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -45,6 +48,7 @@ func (r *UseDataClassRule) Meta() api.RuleDescriptor {
 		ID:            "UseDataClass",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[UseDataClassRule]{
@@ -62,6 +66,7 @@ func (r *UseIfEmptyOrIfBlankRule) Meta() api.RuleDescriptor {
 		ID:            "UseIfEmptyOrIfBlank",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -71,6 +76,7 @@ func (r *UseIfInsteadOfWhenRule) Meta() api.RuleDescriptor {
 		ID:            "UseIfInsteadOfWhen",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[UseIfInsteadOfWhenRule]{
@@ -88,6 +94,7 @@ func (r *UseLetRule) Meta() api.RuleDescriptor {
 		ID:            "UseLet",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -97,6 +104,7 @@ func (r *UseSumOfInsteadOfFlatMapSizeRule) Meta() api.RuleDescriptor {
 		ID:            "UseSumOfInsteadOfFlatMapSize",
 		RuleSet:       "style",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }

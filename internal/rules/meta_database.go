@@ -9,6 +9,7 @@ func (r *DaoNotInterfaceRule) Meta() api.RuleDescriptor {
 		ID:            "DaoNotInterface",
 		RuleSet:       "database",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -25,6 +26,7 @@ func (r *EntityMutableColumnRule) Meta() api.RuleDescriptor {
 		ID:            "EntityMutableColumn",
 		RuleSet:       "database",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -81,6 +83,7 @@ func (r *RoomEntityChangedMigrationMissingRule) Meta() api.RuleDescriptor {
 		ID:            "RoomEntityChangedMigrationMissing",
 		RuleSet:       "database",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -105,6 +108,7 @@ func (r *RoomDatabaseVersionNotBumpedRule) Meta() api.RuleDescriptor {
 		ID:            "RoomDatabaseVersionNotBumped",
 		RuleSet:       "database",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -153,6 +157,7 @@ func (r *RoomFlowQueryWithoutDistinctRule) Meta() api.RuleDescriptor {
 		ID:            "RoomFlowQueryWithoutDistinct",
 		RuleSet:       "database",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 
@@ -161,6 +166,7 @@ func (r *RoomQueryWithLikeMissingEscapeRule) Meta() api.RuleDescriptor {
 		ID:            "RoomQueryWithLikeMissingEscape",
 		RuleSet:       "database",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonDomainSpecific,
 	}
 }
 

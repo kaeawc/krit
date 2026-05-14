@@ -9,6 +9,7 @@ func (r *AddJavascriptInterfaceRule) Meta() api.RuleDescriptor {
 		ID:            "AddJavascriptInterface",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -17,6 +18,7 @@ func (r *ByteOrderMarkRule) Meta() api.RuleDescriptor {
 		ID:            "ByteOrderMark",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -25,6 +27,7 @@ func (r *DrawAllocationRule) Meta() api.RuleDescriptor {
 		ID:            "DrawAllocation",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -33,6 +36,7 @@ func (r *EasterEggRule) Meta() api.RuleDescriptor {
 		ID:            "EasterEgg",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -41,6 +45,7 @@ func (r *ExportedContentProviderRule) Meta() api.RuleDescriptor {
 		ID:            "ExportedContentProvider",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -49,6 +54,7 @@ func (r *ExportedReceiverRule) Meta() api.RuleDescriptor {
 		ID:            "ExportedReceiver",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -57,6 +63,7 @@ func (r *FieldGetterRule) Meta() api.RuleDescriptor {
 		ID:            "FieldGetter",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -65,6 +72,7 @@ func (r *FloatMathRule) Meta() api.RuleDescriptor {
 		ID:            "FloatMath",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -73,6 +81,7 @@ func (r *GetInstanceRule) Meta() api.RuleDescriptor {
 		ID:            "GetInstance",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -81,6 +90,7 @@ func (r *GrantAllUrisRule) Meta() api.RuleDescriptor {
 		ID:            "GrantAllUris",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -89,6 +99,7 @@ func (r *UnprotectedDynamicReceiverRule) Meta() api.RuleDescriptor {
 		ID:            "UnprotectedDynamicReceiver",
 		RuleSet:       "security",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -113,6 +124,7 @@ func (r *HandlerLeakRule) Meta() api.RuleDescriptor {
 		ID:            "HandlerLeak",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -121,6 +133,7 @@ func (r *RecycleRule) Meta() api.RuleDescriptor {
 		ID:            "Recycle",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -129,6 +142,7 @@ func (r *SecureRandomRule) Meta() api.RuleDescriptor {
 		ID:            "SecureRandom",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -137,6 +151,7 @@ func (r *TrustedServerRule) Meta() api.RuleDescriptor {
 		ID:            "TrustedServer",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -145,6 +160,7 @@ func (r *WorldReadableFilesRule) Meta() api.RuleDescriptor {
 		ID:            "WorldReadableFiles",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -153,6 +169,7 @@ func (r *WorldWriteableFilesRule) Meta() api.RuleDescriptor {
 		ID:            "WorldWriteableFiles",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 

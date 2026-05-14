@@ -166,6 +166,12 @@ type RuleDescriptor struct {
 	// they publish other metadata.
 	Aliases []string
 
+	// IntroducedIn mirrors Rule.IntroducedIn — the krit version in
+	// which this rule first shipped. MetaForRule always returns a
+	// populated value (auto-filled with api.DefaultIntroducedIn when
+	// the rule literal does not declare one).
+	IntroducedIn string
+
 	// EnabledByDefaultSince mirrors Rule.EnabledByDefaultSince — the
 	// krit version in which this rule became default-active. Empty
 	// string means inception or unrecorded.

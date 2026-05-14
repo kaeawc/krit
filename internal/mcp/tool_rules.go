@@ -72,8 +72,7 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 	}
 
 	active := rules.IsDefaultActive(r.ID)
-
-	desc, _ := rules.MetaForRule(r)
+	meta, _ := rules.MetaForRule(r)
 
 	info := map[string]interface{}{
 		"name":         r.ID,
@@ -85,14 +84,23 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 		"precision":    rules.V2RulePrecision(r).String(),
 		"cost":         rules.CostFor(r).String(),
 		"capabilities": r.CapabilitiesList(),
-		"owners":       desc.Owners,
-		"maintainedBy": "Maintained by " + strings.Join(desc.Owners, ", "),
+		"owners":       meta.Owners,
+		"maintainedBy": "Maintained by " + strings.Join(meta.Owners, ", "),
 	}
 	if fixLevel != "" {
 		info["fixLevel"] = fixLevel
 	}
 	if related := resolveRelatedRules(r); len(related) > 0 {
 		info["relatedRules"] = related
+	}
+	if meta.IntroducedIn != "" {
+		info["introducedIn"] = meta.IntroducedIn
+	}
+	if meta.EnabledByDefaultSince != "" {
+		info["enabledByDefaultSince"] = meta.EnabledByDefaultSince
+	}
+	if lifecycle := formatLifecycle(meta.IntroducedIn, meta.EnabledByDefaultSince); lifecycle != "" {
+		info["lifecycle"] = lifecycle
 	}
 
 	return jsonResult(info)
@@ -114,6 +122,22 @@ func resolveRelatedRules(r *api.Rule) []string {
 		}
 	}
 	return out
+}
+
+// formatLifecycle renders a human-readable summary of when a rule first
+// shipped and (optionally) when it became default-active, e.g.
+// "Introduced in 0.2.0; default since 0.4.0".
+func formatLifecycle(introducedIn, enabledByDefaultSince string) string {
+	switch {
+	case introducedIn == "" && enabledByDefaultSince == "":
+		return ""
+	case introducedIn == "":
+		return "Default since " + enabledByDefaultSince
+	case enabledByDefaultSince == "":
+		return "Introduced in " + introducedIn
+	default:
+		return "Introduced in " + introducedIn + "; default since " + enabledByDefaultSince
+	}
 }
 
 // rulesSearch performs a case-insensitive substring match over rule name,

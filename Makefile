@@ -1,4 +1,4 @@
-.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression all install install-completions watch
+.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression daemon-verify all install install-completions watch
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
@@ -49,7 +49,14 @@ playground: build
 regression: build
 	bash scripts/regression-check.sh
 
-ci: build vet test integration regression
+# daemon-verify runs the divergence harness unit suite, which is the
+# correctness oracle for the daemon's resident-cache path. When daemon
+# strict-verify mode lands it will also drive the harness across the
+# fixture tree and any opt-in corpus pointed at by KRIT_CORPUS_DIR.
+daemon-verify:
+	go test ./internal/daemon/ -run 'TestCompare|TestDiff' -count=1
+
+ci: build vet test integration regression daemon-verify
 
 DESTDIR ?=
 

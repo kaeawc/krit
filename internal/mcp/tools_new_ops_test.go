@@ -50,6 +50,113 @@ func TestRulesSearchMissingQuery(t *testing.T) {
 	}
 }
 
+// TestRulesSearchWithoutOracle verifies the capability filter excludes
+// every rule with any NeedsOracle* bit when "without: [oracle]" is set.
+func TestRulesSearchWithoutOracle(t *testing.T) {
+	args, _ := json.Marshal(rulesArgs{Operation: "search", Without: []string{"oracle"}})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "rules", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].Text)
+	}
+
+	var parsed struct {
+		Total int `json:"total"`
+		Hits  []struct {
+			Name         string   `json:"name"`
+			Capabilities []string `json:"capabilities"`
+		} `json:"hits"`
+	}
+	if err := json.Unmarshal([]byte(result.Content[0].Text), &parsed); err != nil {
+		t.Fatalf("unmarshal hits: %v", err)
+	}
+	if parsed.Total == 0 {
+		t.Fatal("expected non-zero rules outside the oracle group")
+	}
+	for _, hit := range parsed.Hits {
+		for _, cap := range hit.Capabilities {
+			if strings.HasPrefix(cap, "oracle:") {
+				t.Errorf("rule %s leaked through Without:[oracle] with capability %s", hit.Name, cap)
+			}
+		}
+	}
+}
+
+// TestRulesSearchNeedsResolver verifies the Needs filter restricts to rules
+// that declare every requested capability.
+func TestRulesSearchNeedsResolver(t *testing.T) {
+	args, _ := json.Marshal(rulesArgs{Operation: "search", Needs: []string{"resolver"}})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "rules", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].Text)
+	}
+
+	var parsed struct {
+		Total int `json:"total"`
+		Hits  []struct {
+			Name         string   `json:"name"`
+			Capabilities []string `json:"capabilities"`
+		} `json:"hits"`
+	}
+	if err := json.Unmarshal([]byte(result.Content[0].Text), &parsed); err != nil {
+		t.Fatalf("unmarshal hits: %v", err)
+	}
+	if parsed.Total == 0 {
+		t.Fatal("expected at least one rule that declares NeedsResolver")
+	}
+	for _, hit := range parsed.Hits {
+		found := false
+		for _, cap := range hit.Capabilities {
+			if cap == "resolver" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("rule %s passed Needs:[resolver] without resolver capability: %v", hit.Name, hit.Capabilities)
+		}
+	}
+}
+
+// TestRulesSearchUnknownCapability verifies unknown capability labels
+// produce an error instead of a silent empty result.
+func TestRulesSearchUnknownCapability(t *testing.T) {
+	args, _ := json.Marshal(rulesArgs{Operation: "search", Needs: []string{"made-up"}})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "rules", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected error for unknown capability label")
+	}
+}
+
 // TestRulesCategories verifies categories returns at least one category with rule counts.
 func TestRulesCategories(t *testing.T) {
 	args, _ := json.Marshal(rulesArgs{Operation: "categories"})

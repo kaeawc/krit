@@ -3,6 +3,7 @@ package schema
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/kaeawc/krit/internal/jsonschema"
 	"github.com/kaeawc/krit/internal/rules"
@@ -18,6 +19,7 @@ type RuleMeta struct {
 	Fixable         bool
 	FixLevel        string // cosmetic/idiomatic/semantic or ""
 	Precision       string // heuristic/ast-backed/project-structure/type-aware/policy
+	Capabilities    []string
 	LanguageSupport map[string]api.LanguageSupport
 	Options         []OptionMeta
 }
@@ -62,6 +64,7 @@ func CollectRuleMeta() []RuleMeta {
 			Fixable:         fixable,
 			FixLevel:        fixLevel,
 			Precision:       precision,
+			Capabilities:    r.CapabilitiesList(),
 			LanguageSupport: languageSupport,
 			Options:         opts,
 		})
@@ -241,6 +244,9 @@ func ruleSchema(m RuleMeta) *jsonschema.Schema {
 	}
 	if m.Precision != "" && m.Precision != "unset" {
 		desc += fmt.Sprintf(" [precision: %s]", m.Precision)
+	}
+	if len(m.Capabilities) > 0 {
+		desc += fmt.Sprintf(" [capabilities: %s]", strings.Join(m.Capabilities, ", "))
 	}
 
 	return jsonschema.Object(ruleProps).

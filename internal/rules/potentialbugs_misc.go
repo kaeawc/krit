@@ -178,6 +178,12 @@ func extractDeprecationLevel(annText string) string {
 		return ""
 	}
 	rest = strings.TrimSpace(rest[eqIdx+1:])
+	// Confine the scan to the level value itself; otherwise sibling
+	// arguments like `replaceWith = ReplaceWith("... WARNING ...")` or
+	// the deprecation message could shadow the actual level.
+	if end := levelArgumentEnd(rest); end >= 0 {
+		rest = rest[:end]
+	}
 	// Could be DeprecationLevel.WARNING or just WARNING
 	for _, level := range []string{"WARNING", "ERROR", "HIDDEN"} {
 		if strings.Contains(rest, level) {
@@ -185,6 +191,45 @@ func extractDeprecationLevel(annText string) string {
 		}
 	}
 	return ""
+}
+
+// levelArgumentEnd returns the index in s at which the level value ends —
+// the first top-level `,` or `)`. The legitimate level values
+// (`DeprecationLevel.WARNING|ERROR|HIDDEN`, or the unqualified variants)
+// contain no parens, brackets, or string literals, so a depth/quote walk
+// is enough.
+func levelArgumentEnd(s string) int {
+	depth := 0
+	inStr := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if inStr {
+			if c == '\\' && i+1 < len(s) {
+				i++
+				continue
+			}
+			if c == '"' {
+				inStr = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inStr = true
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			if depth == 0 {
+				return i
+			}
+			depth--
+		case ',':
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // extractReplaceWith extracts the replaceWith expression from @Deprecated.

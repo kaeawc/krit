@@ -256,6 +256,26 @@ func loadScanConfig(f *scanFlags) *config.Config {
 	return cfg
 }
 
+// resolveMaxCost resolves the effective --max-cost / maxCost: filter.
+// CLI value wins; falls back to the top-level config key. Returns
+// (cost, true) when a filter should be applied. Unknown tokens log a
+// warning and disable the filter (ok=false).
+func resolveMaxCost(flagVal string, cfg *config.Config) (api.Cost, bool) {
+	raw := strings.TrimSpace(flagVal)
+	if raw == "" && cfg != nil {
+		raw = strings.TrimSpace(cfg.GetTopLevelKeyString("maxCost", ""))
+	}
+	if raw == "" {
+		return api.CostUnset, false
+	}
+	cost, ok := api.ParseCost(raw)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "warning: unknown --max-cost value %q; ignoring (valid: trivial, line, ast, crossfile, oracle, fir, fast, balanced, thorough)\n", raw)
+		return api.CostUnset, false
+	}
+	return cost, true
+}
+
 func resolveMaxFixLevel(f *scanFlags) (rules.FixLevel, bool) {
 	if !*f.Fix && !*f.DryRun {
 		return rules.FixIdiomatic, true
@@ -371,6 +391,14 @@ func (r *runner) filterRules() (handled bool, code int) {
 		enabledSet := clishared.ParseRuleNameSetCSV(*r.f.EnableRules)
 		experimental := *r.f.Experimental || r.cfg.GetTopLevelBool("experimental", false)
 		r.activeRules = rules.ActiveRulesV2(disabledSet, enabledSet, *r.f.AllRules, experimental)
+		if maxCost, ok := resolveMaxCost(*r.f.MaxCost, r.cfg); ok {
+			before := len(r.activeRules)
+			r.activeRules = rules.FilterByMaxCost(r.activeRules, maxCost)
+			if *r.f.Verbose && len(r.activeRules) != before {
+				fmt.Fprintf(os.Stderr, "verbose: --max-cost=%s filtered %d → %d rules\n",
+					maxCost, before, len(r.activeRules))
+			}
+		}
 		if pipeline.RulesNeedProjectModel(r.activeRules) {
 			r.ensureProjectModel()
 		}

@@ -9483,6 +9483,21 @@
         }
       }
     },
+    "maxCost": {
+      "description": "Maximum rule weight class to run. Filters the active rule set so higher-cost rules are skipped. Presets: fast≡ast, balanced≡crossfile, thorough≡fir.",
+      "type": "string",
+      "enum": [
+        "trivial",
+        "line",
+        "ast",
+        "crossfile",
+        "oracle",
+        "fir",
+        "fast",
+        "balanced",
+        "thorough"
+      ]
+    },
     "module_template": {
       "description": "Feature-module template conformance settings.",
       "type": "object",

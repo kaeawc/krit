@@ -8,6 +8,8 @@
 package api
 
 import (
+	"strings"
+
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/javafacts"
@@ -17,6 +19,8 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
+
+var costTokenReplacer = strings.NewReplacer("-", "", "_", "", " ", "")
 
 // Capabilities is a bitfield carrying both the rule's primary scope
 // (which dispatcher bucket it lands in) and its orthogonal aspects
@@ -408,6 +412,94 @@ func (l FixLevel) String() string {
 	}
 }
 
+// Cost is an ordinal weight class that lets users and the dispatcher
+// reason about how expensive a rule is to run. Costs are derived from
+// the rule's Needs bitfield when Rule.Cost is left at CostUnset; rules
+// may pin a specific tier when the derivation under-counts (e.g. a rule
+// that walks parsed files but only inspects identifiers).
+//
+// Values are monotonic: a higher Cost implies the rule's evidence
+// pipeline is a strict superset of the lower tiers, so --max-cost can
+// filter by inequality.
+type Cost uint8
+
+const (
+	// CostUnset is the zero value; readers should call CostFor / the
+	// derivation helper rather than assuming the rule actually runs at
+	// this tier.
+	CostUnset Cost = iota
+	// CostTrivial covers rules that do trivial work per file (regex on
+	// path, manifest presence checks). Rules in this tier are typically
+	// safe for every pre-commit hook.
+	CostTrivial
+	// CostLine covers rules dispatched through the line-pass family —
+	// one walk over file.Lines, no AST traversal.
+	CostLine
+	// CostAST covers rules dispatched against the per-file flat AST. No
+	// resolver, no cross-file index, no oracle calls.
+	CostAST
+	// CostCrossFile covers rules that consume the project-scope code or
+	// module index, including parsed-files and aggregate rules whose
+	// inputs require a cross-file build phase.
+	CostCrossFile
+	// CostOracle covers rules that require the Kotlin Analysis API
+	// oracle (any NeedsOracle* bit) or that pin a TypeInfo backend
+	// requiring resolved facts.
+	CostOracle
+	// CostFIR covers rules that require FIR / Java-facts helper
+	// subprocesses on top of the oracle.
+	CostFIR
+)
+
+// String returns the canonical lowercase token for a Cost. The token is
+// the same one users pass to --max-cost / maxCost.
+func (c Cost) String() string {
+	switch c {
+	case CostTrivial:
+		return "trivial"
+	case CostLine:
+		return "line"
+	case CostAST:
+		return "ast"
+	case CostCrossFile:
+		return "crossfile"
+	case CostOracle:
+		return "oracle"
+	case CostFIR:
+		return "fir"
+	default:
+		return "unset"
+	}
+}
+
+// ParseCost maps a user-facing token (case-insensitive, with the legacy
+// hyphenated "cross-file" form accepted) to a Cost. It also understands
+// the documented presets fast / balanced / thorough so configuration
+// surfaces can hand the same string to one parser. Returns CostUnset
+// and ok=false for unknown tokens.
+func ParseCost(s string) (Cost, bool) {
+	switch normalizeCostToken(s) {
+	case "trivial":
+		return CostTrivial, true
+	case "line":
+		return CostLine, true
+	case "ast", "fast":
+		return CostAST, true
+	case "crossfile", "balanced":
+		return CostCrossFile, true
+	case "oracle":
+		return CostOracle, true
+	case "fir", "thorough", "all":
+		return CostFIR, true
+	default:
+		return CostUnset, false
+	}
+}
+
+func normalizeCostToken(s string) string {
+	return costTokenReplacer.Replace(strings.ToLower(s))
+}
+
 // Severity levels.
 type Severity string
 
@@ -718,6 +810,12 @@ type Rule struct {
 
 	// Fix metadata
 	Fix FixLevel // FixNone → not fixable
+
+	// Cost is the rule's weight class. When left at CostUnset, the
+	// dispatcher derives a Cost from Needs / NodeTypes / JavaFacts via
+	// rules.CostFor. Rules may pin an explicit Cost when the derived
+	// value would under- or over-state the actual work performed.
+	Cost Cost
 
 	// Confidence tier (0 = use family default)
 	Confidence float64

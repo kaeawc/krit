@@ -164,6 +164,11 @@ func GenerateSchema(metas []RuleMeta) *jsonschema.Schema {
 		"warningsAsErrors": jsonschema.Boolean("").WithDefault(false),
 	}).WithDescription("Global krit configuration.").AdditionalPropertiesFalse()
 
+	props["maxCost"] = jsonschema.StringEnum(
+		[]string{"trivial", "line", "ast", "crossfile", "oracle", "fir", "fast", "balanced", "thorough"},
+		"Maximum rule weight class to run. Filters the active rule set so higher-cost rules are skipped. Presets: fast≡ast, balanced≡crossfile, thorough≡fir.",
+	)
+
 	props["module_template"] = jsonschema.Object(map[string]*jsonschema.Schema{
 		"feature_root":        jsonschema.String("Gradle path glob for feature root modules, for example feature:*."),
 		"required_submodules": jsonschema.Array(jsonschema.String(""), "Child module names required below each matching feature root."),

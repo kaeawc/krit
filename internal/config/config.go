@@ -428,6 +428,19 @@ func (c *Config) GetTopLevelInt(section, key string, defaultVal int) int {
 	return toInt(v, defaultVal)
 }
 
+// GetTopLevelKeyString returns a string value from a top-level config key.
+// For example, GetTopLevelKeyString("maxCost", "") reads config.maxCost.
+func (c *Config) GetTopLevelKeyString(key, defaultVal string) string {
+	if c == nil || c.data == nil {
+		return defaultVal
+	}
+	s, ok := c.data[key].(string)
+	if !ok {
+		return defaultVal
+	}
+	return s
+}
+
 // GetTopLevelBool returns a bool value from a top-level config key.
 // For example, GetTopLevelBool("warningsAsErrors", false) reads config.warningsAsErrors.
 func (c *Config) GetTopLevelBool(key string, defaultVal bool) bool {

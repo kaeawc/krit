@@ -101,9 +101,14 @@ type sarifDriver struct {
 }
 
 type sarifRule struct {
-	ID               string     `json:"id"`
-	ShortDescription sarifText  `json:"shortDescription"`
-	FullDescription  *sarifText `json:"fullDescription,omitempty"`
+	ID               string               `json:"id"`
+	ShortDescription sarifText            `json:"shortDescription"`
+	FullDescription  *sarifText           `json:"fullDescription,omitempty"`
+	Properties       *sarifRuleProperties `json:"properties,omitempty"`
+}
+
+type sarifRuleProperties struct {
+	Cost string `json:"cost,omitempty"`
 }
 
 type sarifText struct {
@@ -145,15 +150,16 @@ type sarifProperties struct {
 func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version string) error {
 	cols := normalizedFindingColumns(columns)
 
-	// Build description map from rule registry.
 	descMap := make(map[string]string)
 	precisionMap := make(map[string]string)
+	costMap := make(map[string]string)
 	for _, r := range api.Registry {
 		key := r.Category + "/" + r.ID
 		if r.Description != "" {
 			descMap[key] = r.Description
 		}
 		precisionMap[key] = rules.V2RulePrecision(r).String()
+		costMap[key] = rules.CostFor(r).String()
 	}
 
 	rulesSeen := make(map[string]bool)
@@ -170,6 +176,9 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 			}
 			if desc, ok := descMap[ruleID]; ok {
 				sr.FullDescription = &sarifText{Text: desc}
+			}
+			if cost, ok := costMap[ruleID]; ok && cost != "unset" {
+				sr.Properties = &sarifRuleProperties{Cost: cost}
 			}
 			sarifRules = append(sarifRules, sr)
 		}

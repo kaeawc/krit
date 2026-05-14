@@ -79,6 +79,7 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 		"active":      active,
 		"fixable":     fixable,
 		"precision":   rules.V2RulePrecision(r).String(),
+		"cost":        rules.CostFor(r).String(),
 	}
 	if fixLevel != "" {
 		info["fixLevel"] = fixLevel
@@ -115,6 +116,7 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 		Active      bool   `json:"active"`
 		Fixable     bool   `json:"fixable"`
 		Precision   string `json:"precision"`
+		Cost        string `json:"cost"`
 		Description string `json:"description"`
 		Score       int    `json:"-"`
 	}
@@ -160,6 +162,7 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 			Active:      rules.IsDefaultActive(r.ID),
 			Fixable:     fixable,
 			Precision:   precision.String(),
+			Cost:        rules.CostFor(r).String(),
 			Description: r.Description,
 			Score:       score,
 		})

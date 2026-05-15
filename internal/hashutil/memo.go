@@ -176,26 +176,37 @@ func (m *Memo) HashFileRaw(path string, provider func() ([]byte, error)) ([32]by
 // callers that already hold the file bytes (e.g. after reading once
 // into memory for parsing).
 func (m *Memo) HashContent(path string, content []byte) string {
-	hx := HashHex(content)
 	if m == nil || path == "" {
-		return hx
+		return HashHex(content)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return hx
+		return HashHex(content)
 	}
 	size := info.Size()
 	modNano := info.ModTime().UnixNano()
-	var raw [32]byte
-	b, _ := hex.DecodeString(hx)
-	copy(raw[:], b)
 
+	// Stat-first lookup: a hit returns the prior hex without ever
+	// re-hashing the content. On a 13k-file kotlin corpus that turns
+	// resolverFingerprint's per-file SHA-256 into a per-file stat
+	// (10x cheaper). Mismatch granularity is bounded by mtime — fsnotify
+	// edits flip mtime, so a stale entry can only survive content-only
+	// rewrites that don't touch mtime (rare; same risk class as parse
+	// cache).
 	m.mu.Lock()
 	if e, ok := m.entries[path]; ok && e.size == size && e.modNano == modNano && e.hex != "" {
 		m.mu.Unlock()
 		m.hits.Add(1)
 		return e.hex
 	}
+	m.mu.Unlock()
+
+	hx := HashHex(content)
+	var raw [32]byte
+	b, _ := hex.DecodeString(hx)
+	copy(raw[:], b)
+
+	m.mu.Lock()
 	m.entries[path] = memoEntry{size: size, modNano: modNano, hex: hx, raw: raw}
 	m.mu.Unlock()
 	m.misses.Add(1)

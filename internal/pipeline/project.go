@@ -1609,6 +1609,25 @@ func tryLoadFindingsBundleBeforeParse(
 		}
 		return ProjectResult{}, false, nil
 	}
+
+	// Fast-fast path: when the formatted-output cache already has
+	// bytes for this fingerprint we can skip the 30 MB
+	// FindingsBundleStore.Load entirely (~11 ms zstd+gob decode).
+	// The cached bytes are derived purely from the (FindingColumns,
+	// active rules) pair the fingerprint already encodes, so by
+	// definition they're valid for this request. Eligibility mirrors
+	// the format-cache fast path's filter preconditions below.
+	if canUseBundleOutputCache(args, host) {
+		if cachedOut := host.BundleOutput(scanner.FindingsBundleKey(fp)); cachedOut != nil {
+			if bundleTracker != nil {
+				bundleTracker.TrackVoid("bundleLoadSkipped", func() {})
+				bundleTracker.End()
+			}
+			return emitBundleHitOutput(ctx, args, host, out, format, startTime, phaseTimings,
+				fp, nil, kotlinFiles, javaFiles)
+		}
+	}
+
 	var cached *scanner.FindingColumns
 	loadFn := func() {
 		c, found := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, fp)
@@ -1762,7 +1781,12 @@ func serveBundleHitFromOutputCache(
 	}
 	out2 := host.BundleOutput(key)
 	if out2 == nil {
-		// Build once, cache, then write.
+		// Cache miss: must have the decoded FindingColumns to
+		// build the formatted bytes. Caller is responsible for
+		// loading the bundle before calling on a cache miss.
+		if cached == nil {
+			return ProjectResult{}, false, nil
+		}
 		built, ok := buildCachedBundleOutput(cached, args.ActiveRules)
 		if !ok {
 			return ProjectResult{}, false, nil
@@ -1782,8 +1806,17 @@ func serveBundleHitFromOutputCache(
 		durationMs, summary, out2.FindingsBytes, perfTimings, caches, cacheBudget); err != nil {
 		return ProjectResult{}, true, fmt.Errorf("output: %w", err)
 	}
+	// FinalFindings carries the decoded columns when available
+	// (cache miss path that just built them). On the fast-fast
+	// path where we skipped the bundle Load, the caller doesn't
+	// need the column data — only FindingsCount, which we read
+	// from out2.Total.
+	var finalFindings scanner.FindingColumns
+	if cached != nil {
+		finalFindings = *cached
+	}
 	return ProjectResult{
-		FinalFindings:     *cached,
+		FinalFindings:     finalFindings,
 		FilesScanned:      len(kotlinFiles) + len(javaFiles),
 		FindingsCount:     out2.Total,
 		FindingsBundleHit: true,

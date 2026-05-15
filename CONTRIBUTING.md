@@ -75,6 +75,27 @@ tools/krit-types/  JVM/KAA helper for compiler-backed type facts
 tools/krit-fir/    JVM/FIR helper for compiler checks
 ```
 
+## Rule Output Stability
+
+Each rule carries a `Stability` field (`api.Stability`) that describes
+its *output-shape* commitment — separate from `Maturity` (lifecycle).
+Consumers of krit JSON, SARIF, baseline files, and CI gates read this
+to decide whether the rule is safe to pin against:
+
+- `StabilityFrozen` — message text, finding location, and fix range
+  will not change.
+- `StabilityStable` — bug-fix changes only.
+- `StabilityEvolving` — shape may change between minor versions.
+
+The default for unannotated rules is `StabilityStable` (experimental
+rules default to `StabilityEvolving`). Promotions (Evolving → Stable →
+Frozen) are always allowed. **Downgrading a rule from `StabilityFrozen`
+to `StabilityEvolving` requires a major-version bump** — the field
+exists precisely so external baselines and dashboards can rely on it.
+
+`baseline-audit` warns when a baselined finding belongs to a rule whose
+effective stability is `StabilityEvolving`.
+
 ## PR Conventions
 
 - Keep PRs focused on a single change.

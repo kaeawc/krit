@@ -24,7 +24,7 @@ class KritExternalAnnotator : ExternalAnnotator<PsiFile, List<KritFinding>>() {
 
     override fun apply(file: PsiFile, annotationResult: List<KritFinding>?, holder: AnnotationHolder) {
         for (finding in annotationResult.orEmpty()) {
-            holder.newAnnotation(highlightSeverity(finding), finding.message)
+            holder.newAnnotation(highlightSeverity(finding), finding.displayMessage)
                 .range(KritRanges.rangeFor(file, finding))
                 .create()
         }

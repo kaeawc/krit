@@ -32,6 +32,7 @@ class KritJsonParserTest {
         val finding = report.findings.single()
         assertEquals("ExampleRule", finding.rule)
         assertEquals("warning", finding.severity)
+        assertEquals("Krit style/ExampleRule: Example message", finding.displayMessage)
         assertTrue(finding.fixable)
     }
 
@@ -51,4 +52,3 @@ class KritJsonParserTest {
         assertFalse(report.findings.single().fixable)
     }
 }
-

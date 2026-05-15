@@ -25,7 +25,7 @@ class KritInspection : LocalInspectionTool() {
                     val target = file.findElementAt(range.startOffset) ?: file
                     holder.registerProblem(
                         target,
-                        finding.message,
+                        finding.displayMessage,
                         problemHighlightType(finding),
                         *quickFixes(finding),
                     )

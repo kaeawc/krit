@@ -118,7 +118,7 @@ func (r *DependenciesInRootProjectRule) check(ctx *api.Context) {
 	}
 	allowed := rootDependencyAllowedConfigurations(r.AllowedConfigurations)
 	for _, block := range findRootProjectDependencyBlocks(content, allowed) {
-		ctx.Emit(scanner.Finding{
+		finding := scanner.Finding{
 			File:       path,
 			Line:       block.line,
 			Col:        1,
@@ -126,9 +126,10 @@ func (r *DependenciesInRootProjectRule) check(ctx *api.Context) {
 			Rule:       r.RuleName,
 			Severity:   r.Sev,
 			Message:    fmt.Sprintf("Root project dependencies block declares %s. Move project dependencies into an owning module or add legitimate root tooling configurations to allowedConfigurations.", strings.Join(block.configurations, ", ")),
-			Fix:        rootDependencyAllowedConfigurationsFix(path, r.AllowedConfigurations, block.configurations),
 			Confidence: r.Confidence(),
-		})
+		}
+		finding.Fix = rootDependencyAllowedConfigurationsFix(path, r.AllowedConfigurations, block.configurations)
+		ctx.Emit(finding)
 	}
 }
 
@@ -165,6 +166,7 @@ func rootKritConfigForFix(root string) (string, []byte, bool) {
 }
 
 func mergeRootDependencyAllowedConfigurations(content []byte, existingAllowed, missing []string) (string, bool) {
+	header := leadingYAMLCommentHeader(content)
 	root := make(map[string]any)
 	if len(strings.TrimSpace(string(content))) > 0 {
 		if err := yaml.Unmarshal(content, &root); err != nil {
@@ -192,7 +194,29 @@ func mergeRootDependencyAllowedConfigurations(content []byte, existingAllowed, m
 	if len(out) == 0 || out[len(out)-1] != '\n' {
 		out = append(out, '\n')
 	}
-	return string(out), true
+	return header + string(out), true
+}
+
+func leadingYAMLCommentHeader(content []byte) string {
+	text := string(content)
+	if !strings.HasPrefix(text, "#") {
+		return ""
+	}
+	offset := 0
+	for offset < len(text) {
+		next := strings.IndexByte(text[offset:], '\n')
+		lineEnd := len(text)
+		if next >= 0 {
+			lineEnd = offset + next + 1
+		}
+		line := text[offset:lineEnd]
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			return text[:offset]
+		}
+		offset = lineEnd
+	}
+	return text
 }
 
 func yamlMap(value any) map[string]any {

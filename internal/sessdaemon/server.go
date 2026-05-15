@@ -41,6 +41,12 @@ type Server struct {
 
 	session *scan.Session
 
+	// oracle owns lazy construction + crash recovery of the resident
+	// krit-types JVM. The Daemon handle itself lives on session.OracleDaemon
+	// (see #207) so Session.Close cleans it up on shutdown without an
+	// extra hook here.
+	oracle oracleDaemonState
+
 	listener net.Listener
 	startAt  time.Time
 
@@ -82,6 +88,7 @@ func NewServer(ctx context.Context, opts Options) (*Server, error) {
 		binaryHash: opts.BinaryHash,
 		pid:        os.Getpid(),
 		session:    sess,
+		oracle:     oracleDaemonState{starter: defaultOracleStarter{}},
 		stopped:    make(chan struct{}),
 	}, nil
 }

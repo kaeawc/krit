@@ -3,6 +3,7 @@ package dev.krit.intellij
 import com.intellij.codeInspection.LocalInspectionTool
 import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
+import com.intellij.openapi.components.service
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementVisitor
 
@@ -14,9 +15,13 @@ class KritInspection : LocalInspectionTool() {
                     return
                 }
                 val file = element.containingFile ?: return
-                for (finding in KritRunner.analyze(file)) {
+                val path = file.virtualFile?.path ?: return
+                val service = file.project.service<KritProjectService>()
+                for (finding in service.findingsFor(path)) {
+                    val range = KritRanges.rangeFor(file, finding)
+                    val target = file.findElementAt(range.startOffset) ?: file
                     holder.registerProblem(
-                        file,
+                        target,
                         finding.message,
                         problemHighlightType(finding),
                     )
@@ -41,4 +46,3 @@ class KritInspection : LocalInspectionTool() {
         }
     }
 }
-

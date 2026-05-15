@@ -2,21 +2,14 @@ package dev.krit.intellij
 
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.intellij.psi.PsiFile
 import java.io.File
 import java.util.concurrent.TimeUnit
 
 object KritRunner {
     private val log = Logger.getInstance(KritRunner::class.java)
 
-    fun analyze(file: PsiFile): List<KritFinding> {
-        val virtualFile = file.virtualFile ?: return emptyList()
-        val path = virtualFile.path
-        if (!path.endsWith(".kt") && !path.endsWith(".kts")) {
-            return emptyList()
-        }
-
-        val project = file.project
+    fun analyzeProject(project: Project): KritReport {
+        val projectDir = project.baseDir() ?: return KritReport()
         val output = File.createTempFile("krit-intellij-", ".json")
         return try {
             val command = mutableListOf(
@@ -25,31 +18,30 @@ object KritRunner {
                 "-o",
                 output.absolutePath,
                 "-q",
-                path,
+                projectDir.absolutePath,
             )
             val process = ProcessBuilder(command)
-                .directory(project.baseDir())
+                .directory(projectDir)
                 .redirectError(ProcessBuilder.Redirect.PIPE)
                 .start()
 
-            if (!process.waitFor(30, TimeUnit.SECONDS)) {
+            if (!process.waitFor(120, TimeUnit.SECONDS)) {
                 process.destroyForcibly()
-                log.warn("krit analysis timed out for $path")
-                return emptyList()
+                log.warn("krit project analysis timed out for ${projectDir.path}")
+                return KritReport()
             }
 
             val stderr = process.errorStream.bufferedReader().readText()
             val exit = process.exitValue()
             if (exit != 0 && !output.isFile) {
-                log.warn("krit failed for $path with exit $exit: $stderr")
-                return emptyList()
+                log.warn("krit failed for ${projectDir.path} with exit $exit: $stderr")
+                return KritReport()
             }
 
-            val report = KritJsonParser.parse(output.readText())
-            report.findings.filter { File(it.file).canonicalPath == File(path).canonicalPath }
+            KritJsonParser.parse(output.readText())
         } catch (t: Throwable) {
-            log.warn("krit analysis failed for $path", t)
-            emptyList()
+            log.warn("krit project analysis failed for ${projectDir.path}", t)
+            KritReport()
         } finally {
             output.delete()
         }
@@ -66,4 +58,3 @@ object KritRunner {
         return File(base)
     }
 }
-

@@ -12,6 +12,7 @@
   <depends>org.jetbrains.kotlin</depends>
 
   <extensions defaultExtensionNs="com.intellij">
+    <projectService serviceImplementation="dev.krit.intellij.KritProjectService"/>
     <externalAnnotator language="kotlin" implementationClass="dev.krit.intellij.KritExternalAnnotator"/>
     <localInspection
       language="kotlin"
@@ -24,4 +25,3 @@
       implementationClass="dev.krit.intellij.KritInspection"/>
   </extensions>
 </idea-plugin>
-

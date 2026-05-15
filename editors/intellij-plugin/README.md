@@ -11,6 +11,7 @@ annotations and inspections.
 - Live Kotlin highlighting through `ExternalAnnotator`
 - Inspect Code integration through `LocalInspectionTool`
 - Severity mapping for `error`, `warning`, and `info`
+- Project-wide background Krit runs every 5 seconds, skipping ticks while a prior run is active
 
 ## Local Development
 
@@ -29,4 +30,3 @@ The plugin resolves the Krit binary in this order:
 
 The plugin does not implement rules. It only translates Krit findings into
 JetBrains IDE diagnostics.
-

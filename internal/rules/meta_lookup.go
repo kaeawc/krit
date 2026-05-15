@@ -96,6 +96,7 @@ func mergeRuleDescriptor(r *api.Rule, extra api.RuleDescriptor) api.RuleDescript
 		out.Tags = extra.Tags
 	}
 	out.Precision = resolvePrecision(r, extra)
+	out.Effort = resolveEffort(r, extra)
 	return out
 }
 
@@ -110,6 +111,18 @@ func resolvePrecision(r *api.Rule, extra api.RuleDescriptor) api.Precision {
 		return extra.Precision
 	}
 	return V2RulePrecision(r)
+}
+
+// resolveEffort mirrors resolvePrecision for the Effort tier: an explicit
+// extra.Effort wins only when the Rule itself didn't declare a value;
+// otherwise V2RuleEffort (which honors Rule.Effort and EffortProvider)
+// owns the answer. V2RuleEffort never returns EffortUnset so MetaForRule
+// always emits a populated tier.
+func resolveEffort(r *api.Rule, extra api.RuleDescriptor) api.Effort {
+	if r.Effort == api.EffortUnset && extra.Effort != api.EffortUnset {
+		return extra.Effort
+	}
+	return V2RuleEffort(r)
 }
 
 func withRuleLanguageSupport(r *api.Rule, m api.RuleDescriptor) api.RuleDescriptor {

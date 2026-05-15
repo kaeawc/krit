@@ -79,6 +79,7 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 		"active":      active,
 		"fixable":     fixable,
 		"precision":   rules.V2RulePrecision(r).String(),
+		"effort":      rules.V2RuleEffort(r).String(),
 	}
 	if fixLevel != "" {
 		info["fixLevel"] = fixLevel

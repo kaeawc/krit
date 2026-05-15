@@ -698,6 +698,43 @@ func TestFormatJSON_SortsByFileLineAndLexicalTieBreakers(t *testing.T) {
 	}
 }
 
+// TestFormatSARIF_Effort verifies the SARIF effort property is wired
+// through from V2RuleEffort. The test registers a temporary rule so the
+// formatter's registry lookup picks up the effort tier, then restores
+// the registry to its prior state.
+func TestFormatSARIF_Effort(t *testing.T) {
+	savedRegistry := api.Registry
+	t.Cleanup(func() { api.Registry = savedRegistry })
+
+	r := &api.Rule{
+		ID: "EffortFixture", Category: "triage",
+		Description: "fixture", Sev: api.SeverityWarning,
+		NodeTypes: []string{"call_expression"},
+		Effort:    api.EffortArchitectural,
+		Check:     func(*api.Context) {},
+	}
+	api.Registry = append(append([]*api.Rule{}, savedRegistry...), r)
+
+	findings := []scanner.Finding{
+		{File: "a.kt", Line: 1, Col: 1, Severity: "warning",
+			RuleSet: "triage", Rule: "EffortFixture", Message: "m"},
+	}
+	var buf bytes.Buffer
+	FormatSARIF(&buf, findings, "1.0.0")
+	var sarif map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &sarif); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	results := sarif["runs"].([]interface{})[0].(map[string]interface{})["results"].([]interface{})
+	props, ok := results[0].(map[string]interface{})["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("missing properties; result=%v", results[0])
+	}
+	if got := props["effort"]; got != "architectural" {
+		t.Errorf("effort = %v, want architectural", got)
+	}
+}
+
 func TestFormatSARIF_MultipleRules(t *testing.T) {
 	findings := []scanner.Finding{
 		{File: "a.kt", Line: 1, Col: 1, Severity: "warning", RuleSet: "style", Rule: "R1", Message: "m1"},

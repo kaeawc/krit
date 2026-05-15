@@ -139,6 +139,7 @@ type sarifRegion struct {
 type sarifProperties struct {
 	Confidence float64 `json:"confidence,omitempty"`
 	Precision  string  `json:"precision,omitempty"`
+	Effort     string  `json:"effort,omitempty"`
 }
 
 // FormatSARIFColumns writes columnar findings as SARIF 2.1.0 JSON.
@@ -148,12 +149,14 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 	// Build description map from rule registry.
 	descMap := make(map[string]string)
 	precisionMap := make(map[string]string)
+	effortMap := make(map[string]string)
 	for _, r := range api.Registry {
 		key := r.Category + "/" + r.ID
 		if r.Description != "" {
 			descMap[key] = r.Description
 		}
 		precisionMap[key] = rules.V2RulePrecision(r).String()
+		effortMap[key] = rules.V2RuleEffort(r).String()
 	}
 
 	rulesSeen := make(map[string]bool)
@@ -194,8 +197,9 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 			}},
 		}
 		precision := precisionMap[ruleID]
-		if confidence := cols.ConfidenceAt(row); confidence > 0 || precision != "" {
-			r.Properties = &sarifProperties{Confidence: confidence, Precision: precision}
+		effort := effortMap[ruleID]
+		if confidence := cols.ConfidenceAt(row); confidence > 0 || precision != "" || effort != "" {
+			r.Properties = &sarifProperties{Confidence: confidence, Precision: precision, Effort: effort}
 		}
 		results = append(results, r)
 	})

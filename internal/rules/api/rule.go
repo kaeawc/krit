@@ -695,6 +695,15 @@ type Rule struct {
 	// it is filterable metadata for CLI, MCP, SARIF, and IDE consumers.
 	Precision Precision
 
+	// Effort estimates manual-fix difficulty for findings emitted by
+	// this rule. Orthogonal to Fix (auto-fix safety): a rule can be
+	// auto-fixable (FixCosmetic) and still EffortRefactor — the
+	// autofix runs across many files. When EffortUnset (the zero
+	// value), MetaForRule derives a tier from rule shape using
+	// V2RuleEffort. Filterable metadata for CLI (`triage --max-effort`),
+	// MCP `explain`, and SARIF triage dashboards.
+	Effort Effort
+
 	// KotlincAnalog names the closest standard kotlinc diagnostic that
 	// this rule approximates, e.g. "UNREACHABLE_CODE". Informational
 	// only — krit is not bug-for-bug compatible with kotlinc. Empty

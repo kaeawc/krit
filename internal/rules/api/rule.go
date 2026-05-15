@@ -808,6 +808,16 @@ type Rule struct {
 	// it is filterable metadata for CLI, MCP, SARIF, and IDE consumers.
 	Precision Precision
 
+	// Stability declares the rule's *output-shape* commitment — whether
+	// message text, finding location, or fix range may change between
+	// versions. Distinct from Maturity (which describes the rule's
+	// lifecycle). Consumers that pin findings (baseline files, CI gates,
+	// dashboards) read this to decide whether the rule is safe to depend
+	// on. The dispatcher does not key behavior on this field. Zero value
+	// (StabilityUnset) means the rule has not declared a tier and
+	// consumers should treat it conservatively.
+	Stability Stability
+
 	// KotlincAnalog names the closest standard kotlinc diagnostic that
 	// this rule approximates, e.g. "UNREACHABLE_CODE". Informational
 	// only — krit is not bug-for-bug compatible with kotlinc. Empty

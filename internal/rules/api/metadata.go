@@ -228,6 +228,12 @@ type RuleDescriptor struct {
 	// from rule shape; otherwise this value is authoritative.
 	Precision Precision
 
+	// Stability mirrors Rule.Stability — the rule's output-shape
+	// commitment (evolving / stable / frozen). StabilityUnset means
+	// the rule has not declared a tier; consumers should treat that
+	// conservatively. See Rule.Stability for the contract.
+	Stability Stability
+
 	// LanguageSupport records per-source-language support status for a rule.
 	// It is product/support metadata rather than dispatcher routing: Languages
 	// on Rule controls where a rule runs, while LanguageSupport explains whether

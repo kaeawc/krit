@@ -102,6 +102,7 @@ func mergeRuleDescriptor(r *api.Rule, extra api.RuleDescriptor) api.RuleDescript
 	}
 	out.Owners = resolveOwners(r, extra)
 	out.Precision = resolvePrecision(r, extra)
+	out.Stability = resolveStability(r, extra)
 	return out
 }
 
@@ -131,6 +132,49 @@ func resolvePrecision(r *api.Rule, extra api.RuleDescriptor) api.Precision {
 		return extra.Precision
 	}
 	return V2RulePrecision(r)
+}
+
+// resolveStability picks the tier returned in a descriptor. A
+// MetaProvider-supplied extra.Stability only wins when the rule itself
+// declared no explicit override; otherwise V2RuleStability is the
+// single source of truth (it already honors Rule.Stability and
+// StabilityProvider). V2RuleStability never returns StabilityUnset, so
+// MetaForRule always emits a populated tier.
+func resolveStability(r *api.Rule, extra api.RuleDescriptor) api.Stability {
+	if r.Stability == api.StabilityUnset && extra.Stability != api.StabilityUnset {
+		return extra.Stability
+	}
+	return V2RuleStability(r)
+}
+
+// V2RuleStability returns the rule's effective output-shape stability.
+//
+// Resolution order:
+//  1. Rule.Stability when set (non-zero) — the rule declared a tier.
+//  2. Rule.Implementation when it implements api.StabilityProvider —
+//     lets tests stub a tier without touching the Rule literal.
+//  3. Derived default: experimental rules are StabilityEvolving (their
+//     output is expected to change as they soak), every other rule
+//     defaults to StabilityStable. Rules that need the strongest
+//     "frozen" commitment must opt in explicitly.
+func V2RuleStability(r *api.Rule) api.Stability {
+	if r == nil {
+		return api.StabilityEvolving
+	}
+	if r.Stability != api.StabilityUnset {
+		return r.Stability
+	}
+	if r.Implementation != nil {
+		if sp, ok := r.Implementation.(api.StabilityProvider); ok {
+			if s := sp.Stability(); s != api.StabilityUnset {
+				return s
+			}
+		}
+	}
+	if r.Maturity == api.MaturityExperimental {
+		return api.StabilityEvolving
+	}
+	return api.StabilityStable
 }
 
 func withRuleLanguageSupport(r *api.Rule, m api.RuleDescriptor) api.RuleDescriptor {

@@ -83,6 +83,7 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 		"active":       active,
 		"fixable":      fixable,
 		"precision":    rules.V2RulePrecision(r).String(),
+		"stability":    rules.V2RuleStability(r).String(),
 		"cost":         rules.CostFor(r).String(),
 		"capabilities": r.CapabilitiesList(),
 		"owners":       desc.Owners,

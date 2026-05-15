@@ -9,6 +9,7 @@ Editor configurations for running `krit-lsp` as a language server.
 | VS Code | [`editors/vscode/`](vscode/) | Extension with auto-detection |
 | Neovim | [`editors/neovim/`](neovim/) | nvim-lspconfig custom server |
 | IntelliJ IDEA | [`editors/intellij/`](intellij/) | Built-in LSP (2024.2+) or LSP4IJ plugin |
+| IntelliJ IDEA / Android Studio | [`editors/intellij-plugin/`](intellij-plugin/) | Native plugin annotations and inspections |
 
 ## Building the LSP Server
 

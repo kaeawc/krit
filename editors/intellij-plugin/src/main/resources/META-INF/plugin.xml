@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<idea-plugin>
+  <id>dev.krit.intellij</id>
+  <name>Krit</name>
+  <vendor url="https://github.com/kaeawc/krit">Krit</vendor>
+  <description><![CDATA[
+    Native IntelliJ integration for Krit diagnostics.
+  ]]></description>
+
+  <depends>com.intellij.modules.platform</depends>
+  <depends>com.intellij.modules.java</depends>
+  <depends>org.jetbrains.kotlin</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <externalAnnotator language="kotlin" implementationClass="dev.krit.intellij.KritExternalAnnotator"/>
+    <localInspection
+      language="kotlin"
+      displayName="Krit"
+      groupPath="Krit"
+      groupName="Krit"
+      enabledByDefault="true"
+      level="WARNING"
+      shortName="Krit"
+      implementationClass="dev.krit.intellij.KritInspection"/>
+  </extensions>
+</idea-plugin>
+

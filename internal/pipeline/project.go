@@ -275,7 +275,48 @@ type ProjectHostState struct {
 	// changes skip source discovery on a manifest-backed bundle hit.
 	// False keeps RunProject conservative by re-collecting source paths.
 	SourceSetClean bool
+	// SourceSetDirty, when non-nil, lists the paths the host has
+	// observed touched since the last analyze. preparseSourcePaths can
+	// reuse the prior manifest's path list (skipping a 30-40s
+	// filesystem walk on cold-OS-dentry-cache kotlin-corpus scale)
+	// when every entry here also appears in the prior run's
+	// ContentHashes — i.e., every dirty file is an EDIT of a known
+	// path rather than an ADD or DELETE that would change the source
+	// SET. Empty slice means "no edits, source set is clean"; nil
+	// means "the host has no opinion, fall back to walking the
+	// filesystem."
+	SourceSetDirty []string
+	// FindingsBundleManifestLoader, when non-nil, overrides the disk
+	// load of the prior-run manifest. Daemon callers wire this to an
+	// in-memory cache so the 10.9 MB JSON file (kotlin-corpus scale)
+	// isn't re-read + JSON-unmarshalled on every analyze-project
+	// request — a 30-40s cold-OS-page-cache cost on kotlin. CLI callers
+	// leave it nil and fall through to scanner.LoadFindingsBundleManifest.
+	//
+	// The loader returns (manifest, ok=true) when a manifest matching
+	// the host's current scan set is available, (zero, false) when it
+	// isn't (cold daemon, watcher detected a divergence, etc.).
+	// Mismatches are conservative: the bundle-cache fingerprint check
+	// inside preparseBundleFingerprint catches stale entries even when
+	// the loader returns a value the host believes is current.
+	FindingsBundleManifestLoader FindingsBundleManifestLoader
+	// FindingsBundleManifestSaver, when non-nil, is called after a
+	// successful disk save of a new manifest so the host can keep its
+	// in-memory copy in sync. Same daemon-only motivation as
+	// FindingsBundleManifestLoader. CLI callers leave nil.
+	FindingsBundleManifestSaver FindingsBundleManifestSaver
 }
+
+// FindingsBundleManifestLoader resolves a manifest by its on-disk
+// path. Daemon callers wire this to a process-local cache keyed by
+// the manifest path so repeated analyze-project calls don't re-read
+// the multi-MB JSON file from disk.
+type FindingsBundleManifestLoader func(path string) (scanner.FindingsBundleManifest, bool)
+
+// FindingsBundleManifestSaver receives the freshly persisted manifest
+// so a daemon-side cache can replace its stored entry without
+// re-reading from disk.
+type FindingsBundleManifestSaver func(path string, manifest scanner.FindingsBundleManifest)
 
 type warmAnalysisCachePlan struct {
 	cache       *cache.Cache
@@ -1165,18 +1206,44 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 
 // saveDeltaManifest persists the current run's manifest entry so a
 // future run can detect single-file changes for the delta path.
-// Best-effort — manifest write failures don't fail the verb.
+// Best-effort — manifest write failures don't fail the verb. When
+// the host wired FindingsBundleManifestSaver, the in-memory cache is
+// updated after a successful disk save so the next analyze-project
+// call doesn't pay the multi-MB JSON re-parse.
 func saveDeltaManifest(host ProjectHostState, m deltaManifestData, runFP scanner.RunFingerprint, _ *scanner.FindingColumns) error {
 	if !m.enabled || m.manifestKey == "" {
 		return nil
 	}
-	return scanner.SaveFindingsBundleManifest(host.FindingsBundleCacheRoot, m.manifestKey, scanner.FindingsBundleManifest{
+	manifest := scanner.FindingsBundleManifest{
 		BundleKey:     scanner.FindingsBundleKey(runFP),
 		Fingerprint:   runFP,
 		ContentHashes: m.contentHashes,
 		StructuralFPs: m.structuralFPs,
 		FileStats:     m.fileStats,
-	})
+	}
+	if err := scanner.SaveFindingsBundleManifest(host.FindingsBundleCacheRoot, m.manifestKey, manifest); err != nil {
+		return err
+	}
+	if host.FindingsBundleManifestSaver != nil {
+		host.FindingsBundleManifestSaver(scanner.FindingsBundleManifestPath(host.FindingsBundleCacheRoot, m.manifestKey), manifest)
+	}
+	return nil
+}
+
+// loadBundleManifest reads the prior-run manifest, preferring the
+// host-supplied in-memory loader (daemon) when available. Falls back
+// to scanner.LoadFindingsBundleManifest so CLI callers see the
+// existing behaviour.
+func loadBundleManifest(host ProjectHostState, key string) (scanner.FindingsBundleManifest, bool) {
+	if host.FindingsBundleManifestLoader != nil {
+		path := scanner.FindingsBundleManifestPath(host.FindingsBundleCacheRoot, key)
+		if path != "" {
+			if m, ok := host.FindingsBundleManifestLoader(path); ok {
+				return m, true
+			}
+		}
+	}
+	return scanner.LoadFindingsBundleManifest(host.FindingsBundleCacheRoot, key)
 }
 
 // runAndroidPhaseAndMerge runs AndroidPhase against the detected
@@ -1311,7 +1378,7 @@ func tryLoadStructurallyStableBundle(host ProjectHostState, runFP scanner.RunFin
 	if !manifest.enabled || manifest.manifestKey == "" {
 		return nil, false
 	}
-	prior, ok := scanner.LoadFindingsBundleManifest(host.FindingsBundleCacheRoot, manifest.manifestKey)
+	prior, ok := loadBundleManifest(host, manifest.manifestKey)
 	if !ok {
 		return nil, false
 	}
@@ -1346,7 +1413,7 @@ func reportFindingsBundleMiss(host ProjectHostState, manifest deltaManifestData,
 	if host.Reporter == nil || !host.Reporter.VerboseEnabled() || !manifest.enabled || manifest.manifestKey == "" {
 		return
 	}
-	prior, ok := scanner.LoadFindingsBundleManifest(host.FindingsBundleCacheRoot, manifest.manifestKey)
+	prior, ok := loadBundleManifest(host, manifest.manifestKey)
 	if !ok {
 		host.Reporter.Verbosef("verbose: Findings bundle cache: MISS (no prior manifest)\n")
 		return
@@ -1455,11 +1522,10 @@ func preparseBundleFingerprint(args ProjectArgs, host ProjectHostState) (scanner
 	if key == "" {
 		return scanner.RunFingerprint{}, nil, nil, false
 	}
-	prior, ok := scanner.LoadFindingsBundleManifest(host.FindingsBundleCacheRoot, key)
+	prior, ok := loadBundleManifest(host, key)
 	if !ok || len(prior.StructuralFPs) == 0 {
 		return scanner.RunFingerprint{}, nil, nil, false
 	}
-
 	kotlinPaths, javaPaths, ok := preparseSourcePaths(args, host, prior)
 	if !ok {
 		return scanner.RunFingerprint{}, nil, nil, false
@@ -1486,7 +1552,7 @@ func preparseBundleFingerprint(args ProjectArgs, host ProjectHostState) (scanner
 }
 
 func preparseSourcePaths(args ProjectArgs, host ProjectHostState, prior scanner.FindingsBundleManifest) ([]string, []string, bool) {
-	if host.SourceSetClean {
+	if host.SourceSetClean || dirtyPathsAllInManifest(host.SourceSetDirty, prior.ContentHashes) {
 		kotlinPaths, javaPaths := pathsFromManifest(prior.ContentHashes)
 		return kotlinPaths, javaPaths, true
 	}
@@ -1501,6 +1567,32 @@ func preparseSourcePaths(args ProjectArgs, host ProjectHostState, prior scanner.
 	}
 	javaPaths = filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated)
 	return kotlinPaths, javaPaths, true
+}
+
+// dirtyPathsAllInManifest reports whether every path in dirty is also
+// a key in the prior manifest's ContentHashes — i.e., every recent
+// edit is an UPDATE of a previously-indexed file rather than an ADD
+// or DELETE that would change the source set. When that holds the
+// caller can reuse the prior manifest's path list and skip a fresh
+// filesystem walk, which costs 30-40s on kotlin-corpus scale when the
+// OS dentry cache is cold.
+//
+// nil dirty means "host has no opinion" and we return false so the
+// caller falls back to walking. Empty dirty is a clean source set,
+// also acceptable.
+func dirtyPathsAllInManifest(dirty []string, manifest map[string]string) bool {
+	if dirty == nil {
+		return false
+	}
+	if len(manifest) == 0 {
+		return len(dirty) == 0
+	}
+	for _, p := range dirty {
+		if _, ok := manifest[p]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func pathsFromManifest(hashes map[string]string) ([]string, []string) {
@@ -1632,7 +1724,7 @@ func tryDeltaDispatch(
 	if !manifest.enabled || manifest.manifestKey == "" {
 		return DispatchResult{}, CrossFileResult{}, false, nil
 	}
-	prior, ok := scanner.LoadFindingsBundleManifest(host.FindingsBundleCacheRoot, manifest.manifestKey)
+	prior, ok := loadBundleManifest(host, manifest.manifestKey)
 	if !ok {
 		return DispatchResult{}, CrossFileResult{}, false, nil
 	}

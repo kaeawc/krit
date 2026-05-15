@@ -67,6 +67,19 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		return nil, err
 	}
 	in.Host.SourceSetClean = !cold && len(dirty) == 0
+	if !cold {
+		// Hand the watcher's observed-dirty set to the pipeline so
+		// preparseSourcePaths can skip the 30-40s cold-OS-dentry-cache
+		// filesystem walk when every dirty path is an EDIT of an
+		// already-indexed file (not an ADD or DELETE). nil-vs-empty
+		// matters: empty means "I'm sure nothing changed", nil means
+		// "no opinion" and the pipeline walks.
+		if dirty == nil {
+			in.Host.SourceSetDirty = []string{}
+		} else {
+			in.Host.SourceSetDirty = dirty
+		}
+	}
 
 	// Defer pipeline execution into WriteRawResponse so the
 	// OutputPhase JSON streams directly into the connection instead
@@ -272,10 +285,21 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 		oracleDaemon = nil
 	}
 
+	// Prepopulate the source-path slices from the prior manifest when
+	// available so runProjectParsePhase doesn't walk the filesystem
+	// again on every analyze. The pipeline already trusts these as
+	// canonical when args.KotlinPaths is non-nil. fsnotify/manifest
+	// drift is caught at the bundle-fingerprint comparison, which
+	// runs whether or not we walk; bypassing the walk just saves the
+	// 30-40s cold-OS-dentry-cache cost on kotlin-corpus scale.
+	kotlinPaths, javaPaths := s.prepopulatedSourcePaths(repoDir, paths)
+
 	return pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{
 			Config:           cfg,
 			Paths:            paths,
+			KotlinPaths:      kotlinPaths,
+			JavaPaths:        javaPaths,
 			ActiveRules:      activeRules,
 			Format:           args.Format,
 			BaselinePath:     args.BaselinePath,
@@ -290,20 +314,22 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			JSONCompact: true,
 		},
 		Host: pipeline.ProjectHostState{
-			ParseCache:              parseCache,
-			LibraryFactsCache:       s.workspace.LibraryFacts,
-			CodeIndexCache:          s.workspace.CodeIndex,
-			ResolverCache:           s.workspace.Resolver,
-			OracleFilterCache:       s.workspace.OracleFilter,
-			CrossFileCacheDir:       scanner.CrossFileCacheDir(repoDir),
-			CrossFindingsCacheDir:   scanner.CrossFindingsCacheDir(repoDir),
-			TypeIndexCacheDir:       typeinfer.TypeIndexCacheDir(repoDir),
-			AnalysisCache:           analysisCache,
-			AnalysisCacheFilePath:   analysisCachePath,
-			AnalysisCacheLookup:     analysisCache != nil,
-			OracleDaemon:            oracleDaemon,
-			FindingsBundleStore:     scanner.DiskFindingsBundleStore{},
-			FindingsBundleCacheRoot: repoDir,
+			ParseCache:                   parseCache,
+			LibraryFactsCache:            s.workspace.LibraryFacts,
+			CodeIndexCache:               s.workspace.CodeIndex,
+			ResolverCache:                s.workspace.Resolver,
+			OracleFilterCache:            s.workspace.OracleFilter,
+			CrossFileCacheDir:            scanner.CrossFileCacheDir(repoDir),
+			CrossFindingsCacheDir:        scanner.CrossFindingsCacheDir(repoDir),
+			TypeIndexCacheDir:            typeinfer.TypeIndexCacheDir(repoDir),
+			AnalysisCache:                analysisCache,
+			AnalysisCacheFilePath:        analysisCachePath,
+			AnalysisCacheLookup:          analysisCache != nil,
+			OracleDaemon:                 oracleDaemon,
+			FindingsBundleStore:          scanner.DiskFindingsBundleStore{},
+			FindingsBundleCacheRoot:      repoDir,
+			FindingsBundleManifestLoader: s.loadManifest,
+			FindingsBundleManifestSaver:  s.saveManifest,
 		},
 	}, nil
 }

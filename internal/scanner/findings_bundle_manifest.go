@@ -63,6 +63,14 @@ func FindingsBundleManifestKey(repoDir string, scanPaths []string) string {
 	return hashutil.HashHex(h.Sum(nil))
 }
 
+// FindingsBundleManifestPath returns the on-disk location of the
+// manifest for the given (repoDir, key) pair. Exported so daemon
+// callers can build a key-by-path cache without re-implementing the
+// shard-prefix scheme.
+func FindingsBundleManifestPath(repoDir, key string) string {
+	return findingsBundleManifestPath(repoDir, key)
+}
+
 func findingsBundleManifestPath(repoDir, key string) string {
 	if repoDir == "" || key == "" {
 		return ""
@@ -82,6 +90,26 @@ func LoadFindingsBundleManifest(repoDir, key string) (FindingsBundleManifest, bo
 	if path == "" {
 		return FindingsBundleManifest{}, false
 	}
+	m, ok := LoadFindingsBundleManifestFromPath(path)
+	if !ok {
+		return FindingsBundleManifest{}, false
+	}
+	if m.Key != key {
+		return FindingsBundleManifest{}, false
+	}
+	return m, true
+}
+
+// LoadFindingsBundleManifestFromPath reads the manifest from an
+// already-resolved path. Daemon callers that maintain a path-keyed
+// cache use this entry point so the key-equality check (which only
+// the disk-key path can perform) is the caller's responsibility — the
+// daemon already knows the entry came from a path it generated for
+// the current scan set.
+func LoadFindingsBundleManifestFromPath(path string) (FindingsBundleManifest, bool) {
+	if path == "" {
+		return FindingsBundleManifest{}, false
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return FindingsBundleManifest{}, false
@@ -90,7 +118,7 @@ func LoadFindingsBundleManifest(repoDir, key string) (FindingsBundleManifest, bo
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return FindingsBundleManifest{}, false
 	}
-	if m.Version != findingsBundleManifestVersion || m.Key != key || len(m.ContentHashes) == 0 {
+	if m.Version != findingsBundleManifestVersion || len(m.ContentHashes) == 0 {
 		return FindingsBundleManifest{}, false
 	}
 	return m, true

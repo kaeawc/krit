@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -261,6 +262,19 @@ type daemonState struct {
 	// the implementation. Default false because the rerun roughly
 	// doubles per-request CPU.
 	strictVerify bool
+
+	// manifestCache holds parsed FindingsBundleManifest entries by
+	// on-disk path. The manifest is the 10 MB JSON that drives the
+	// bundle-cache short-circuit; reading + JSON-decoding it on
+	// every analyze costs 30-40s on kotlin-corpus scale when the OS
+	// page cache is cold (observed after each manifest rewrite).
+	// Holding parsed copies resident turns subsequent analyze-project
+	// calls back into sub-second responses. Wired into
+	// pipeline.RunProject via the host's
+	// FindingsBundleManifestLoader/Saver hooks. See issue #247
+	// follow-up benchmark notes.
+	manifestMu    sync.Mutex
+	manifestCache map[string]scanner.FindingsBundleManifest
 }
 
 func newDaemonState(root string) *daemonState {
@@ -275,7 +289,94 @@ func newDaemonState(root string) *daemonState {
 		analysisCacheByKey:  make(map[string]*analysisCacheEntry),
 		oracleDaemonByKey:   make(map[string]*oracleDaemonEntry),
 		oracleDaemonStarter: defaultOracleDaemonStarter{},
+		manifestCache:       make(map[string]scanner.FindingsBundleManifest),
 	}
+}
+
+// loadManifest is the daemon-side FindingsBundleManifestLoader. It
+// consults the in-memory cache first and falls back to a disk read
+// (and JSON parse) when the entry isn't resident. The cache is
+// populated on disk hits and on saveManifest calls so the
+// kotlin-corpus 30-40s cold-OS-page-cache cost is paid at most once
+// per daemon lifetime.
+func (s *daemonState) loadManifest(path string) (scanner.FindingsBundleManifest, bool) {
+	if path == "" {
+		return scanner.FindingsBundleManifest{}, false
+	}
+	s.manifestMu.Lock()
+	if m, ok := s.manifestCache[path]; ok {
+		s.manifestMu.Unlock()
+		return m, true
+	}
+	s.manifestMu.Unlock()
+
+	// Disk read happens outside the lock so concurrent loaders don't
+	// serialise on each other; if two callers miss simultaneously the
+	// second's store just overwrites with identical bytes.
+	m, ok := scanner.LoadFindingsBundleManifestFromPath(path)
+	if !ok {
+		return scanner.FindingsBundleManifest{}, false
+	}
+	s.manifestMu.Lock()
+	s.manifestCache[path] = m
+	s.manifestMu.Unlock()
+	return m, true
+}
+
+// saveManifest is the daemon-side FindingsBundleManifestSaver. Called
+// after pipeline.SaveFindingsBundleManifest persists a fresh manifest
+// to disk; the cache entry is replaced so the next analyze sees the
+// new contents without re-reading from disk.
+func (s *daemonState) saveManifest(path string, m scanner.FindingsBundleManifest) {
+	if path == "" {
+		return
+	}
+	s.manifestMu.Lock()
+	s.manifestCache[path] = m
+	s.manifestMu.Unlock()
+}
+
+// prepopulatedSourcePaths returns the resident manifest's kotlin/java
+// path lists when available so the daemon can hand them to
+// pipeline.ProjectArgs without forcing runProjectParsePhase to walk
+// the filesystem again. Returns (nil, nil) when no resident manifest
+// matches the request's scan paths — the pipeline falls back to its
+// existing collect-from-disk path in that case.
+//
+// The manifest's ContentHashes map is the source of truth for paths
+// here; it always reflects the file set the last successful analyze
+// indexed. If the watcher missed an add/delete, the bundle's
+// fingerprint check downstream rejects the cached entry and forces a
+// fresh walk anyway.
+func (s *daemonState) prepopulatedSourcePaths(repoDir string, paths []string) (kotlinPaths, javaPaths []string) {
+	key := scanner.FindingsBundleManifestKey(repoDir, paths)
+	if key == "" {
+		return nil, nil
+	}
+	manifestPath := scanner.FindingsBundleManifestPath(repoDir, key)
+	if manifestPath == "" {
+		return nil, nil
+	}
+	m, ok := s.loadManifest(manifestPath)
+	if !ok || len(m.ContentHashes) == 0 {
+		return nil, nil
+	}
+	kotlinPaths = make([]string, 0, len(m.ContentHashes))
+	javaPaths = make([]string, 0)
+	for p := range m.ContentHashes {
+		switch {
+		case strings.HasSuffix(p, ".kt") || strings.HasSuffix(p, ".kts"):
+			kotlinPaths = append(kotlinPaths, p)
+		case strings.HasSuffix(p, ".java"):
+			javaPaths = append(javaPaths, p)
+		}
+	}
+	// Sort so the pipeline's downstream deterministic-fingerprint
+	// helpers see a stable order — matters for the resolver/codeindex
+	// fingerprint caches that key on the sorted path list.
+	sort.Strings(kotlinPaths)
+	sort.Strings(javaPaths)
+	return kotlinPaths, javaPaths
 }
 
 // oracleDaemonStarter abstracts the JVM-subprocess construction so

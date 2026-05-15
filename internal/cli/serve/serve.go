@@ -336,6 +336,24 @@ func (s *daemonState) saveManifest(path string, m scanner.FindingsBundleManifest
 	s.manifestMu.Unlock()
 }
 
+// priorManifest returns the resident manifest for the request's scan
+// paths or (zero, false) when no entry is cached. Daemon callers use
+// this both to short-circuit filesystem walks (see prepopulatedSourcePaths)
+// and to short-circuit per-file hash/structural-fingerprint recompute
+// inside RunProjectAnalysis (see PriorContentHashes / PriorStructuralFPs
+// on pipeline.ProjectHostState).
+func (s *daemonState) priorManifest(repoDir string, paths []string) (scanner.FindingsBundleManifest, bool) {
+	key := scanner.FindingsBundleManifestKey(repoDir, paths)
+	if key == "" {
+		return scanner.FindingsBundleManifest{}, false
+	}
+	manifestPath := scanner.FindingsBundleManifestPath(repoDir, key)
+	if manifestPath == "" {
+		return scanner.FindingsBundleManifest{}, false
+	}
+	return s.loadManifest(manifestPath)
+}
+
 // prepopulatedSourcePaths returns the resident manifest's kotlin/java
 // path lists when available so the daemon can hand them to
 // pipeline.ProjectArgs without forcing runProjectParsePhase to walk
@@ -349,15 +367,7 @@ func (s *daemonState) saveManifest(path string, m scanner.FindingsBundleManifest
 // fingerprint check downstream rejects the cached entry and forces a
 // fresh walk anyway.
 func (s *daemonState) prepopulatedSourcePaths(repoDir string, paths []string) (kotlinPaths, javaPaths []string) {
-	key := scanner.FindingsBundleManifestKey(repoDir, paths)
-	if key == "" {
-		return nil, nil
-	}
-	manifestPath := scanner.FindingsBundleManifestPath(repoDir, key)
-	if manifestPath == "" {
-		return nil, nil
-	}
-	m, ok := s.loadManifest(manifestPath)
+	m, ok := s.priorManifest(repoDir, paths)
 	if !ok || len(m.ContentHashes) == 0 {
 		return nil, nil
 	}

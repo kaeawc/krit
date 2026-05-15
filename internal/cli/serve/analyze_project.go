@@ -293,6 +293,12 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 	// runs whether or not we walk; bypassing the walk just saves the
 	// 30-40s cold-OS-dentry-cache cost on kotlin-corpus scale.
 	kotlinPaths, javaPaths := s.prepopulatedSourcePaths(repoDir, paths)
+	// Pull the prior content-hash and structural-fp maps off the
+	// resident manifest so RunProjectAnalysis can short-circuit per-
+	// file fingerprint recomputation for the 16 k+ unchanged files of
+	// a kotlin-corpus scan. Returns nil maps when no prior is cached;
+	// in that case the pipeline falls back to recomputing per-file.
+	priorManifest, _ := s.priorManifest(repoDir, paths)
 
 	return pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{
@@ -330,6 +336,8 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 			FindingsBundleCacheRoot:      repoDir,
 			FindingsBundleManifestLoader: s.loadManifest,
 			FindingsBundleManifestSaver:  s.saveManifest,
+			PriorContentHashes:           priorManifest.ContentHashes,
+			PriorStructuralFPs:           priorManifest.StructuralFPs,
 		},
 	}, nil
 }

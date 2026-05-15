@@ -286,6 +286,18 @@ type ProjectHostState struct {
 	// means "the host has no opinion, fall back to walking the
 	// filesystem."
 	SourceSetDirty []string
+	// PriorContentHashes and PriorStructuralFPs, when non-nil, let
+	// sourceSetFingerprint / crossFileStructuralFingerprint /
+	// buildManifestData skip the ~3s per-call cost of recomputing
+	// per-file hashes and structural fingerprints across the 16 k+
+	// files of a kotlin-corpus scan. Entries for paths NOT in
+	// SourceSetDirty are reused verbatim; only dirty paths are
+	// rehashed and re-fingerprinted. Daemon callers populate these
+	// from the resident bundle manifest; CLI callers leave them nil
+	// and pay the recompute, which is only noticeable at very large
+	// repos and only when the bundle-fingerprint check needs them.
+	PriorContentHashes map[string]string
+	PriorStructuralFPs map[string]string
 	// FindingsBundleManifestLoader, when non-nil, overrides the disk
 	// load of the prior-run manifest. Daemon callers wire this to an
 	// in-memory cache so the 10.9 MB JSON file (kotlin-corpus scale)
@@ -1172,15 +1184,21 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 	if !bundleEnabled {
 		return deltaManifestData{}
 	}
-	contentHashes := make(map[string]string, len(parseResult.KotlinFiles)+len(parseResult.JavaFiles))
-	structuralFPs := make(map[string]string, len(parseResult.KotlinFiles)+len(parseResult.JavaFiles))
-	fileStats := make(map[string]scanner.FileStat, len(parseResult.KotlinFiles)+len(parseResult.JavaFiles))
+	total := len(parseResult.KotlinFiles) + len(parseResult.JavaFiles)
+	contentHashes := make(map[string]string, total)
+	structuralFPs := make(map[string]string, total)
+	fileStats := make(map[string]scanner.FileStat, total)
+	dirty := dirtyPathSet(host.SourceSetDirty)
 	for _, f := range parseResult.KotlinFiles {
 		if f == nil {
 			continue
 		}
-		contentHashes[f.Path] = hashutil.Default().HashContent(f.Path, f.Content)
-		structuralFPs[f.Path] = scanner.FileStructuralFingerprint(f)
+		contentHashes[f.Path] = priorOrCompute(host.PriorContentHashes, dirty, f.Path, func() string {
+			return hashutil.Default().HashContent(f.Path, f.Content)
+		})
+		structuralFPs[f.Path] = priorOrCompute(host.PriorStructuralFPs, dirty, f.Path, func() string {
+			return scanner.FileStructuralFingerprint(f)
+		})
 		if stat, ok := statForPath(f.Path); ok {
 			fileStats[f.Path] = stat
 		}
@@ -1189,8 +1207,12 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 		if f == nil {
 			continue
 		}
-		contentHashes[f.Path] = hashutil.Default().HashContent(f.Path, f.Content)
-		structuralFPs[f.Path] = scanner.FileStructuralFingerprint(f)
+		contentHashes[f.Path] = priorOrCompute(host.PriorContentHashes, dirty, f.Path, func() string {
+			return hashutil.Default().HashContent(f.Path, f.Content)
+		})
+		structuralFPs[f.Path] = priorOrCompute(host.PriorStructuralFPs, dirty, f.Path, func() string {
+			return scanner.FileStructuralFingerprint(f)
+		})
 		if stat, ok := statForPath(f.Path); ok {
 			fileStats[f.Path] = stat
 		}
@@ -1850,13 +1872,14 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 		return scanner.RunFingerprint{}, false
 	}
 	rulesHash := projectRuleHash(args.ActiveRules, args.Config)
+	dirty := dirtyPathSet(host.SourceSetDirty)
 	fp := scanner.RunFingerprint{
 		Version:   args.Version,
 		Rules:     rulesHash,
 		Config:    rulesHash,
-		SourceSet: sourceSetFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles),
+		SourceSet: sourceSetFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, dirty),
 	}
-	fp.CrossFile = crossFileStructuralFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles)
+	fp.CrossFile = crossFileStructuralFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorStructuralFPs, dirty)
 	if indexResult.AndroidProject != nil {
 		fp.Android = libraryFactsFingerprint(indexResult.AndroidProject.GradlePaths)
 	}
@@ -1878,13 +1901,23 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 // signature) or References (added/removed names) moves its structural
 // fp, which moves the aggregate, which makes the planner refuse the
 // delta and fall back to full dispatch. Safe-by-default.
-func crossFileStructuralFingerprint(kotlinFiles, javaFiles []*scanner.File) string {
+// crossFileStructuralFingerprint hashes sorted (path, structural-fp)
+// pairs of every parsed Kotlin and Java file. When the optional prior
+// map is non-nil, unchanged paths (per the dirty set) take their
+// fingerprint verbatim from prior instead of paying
+// scanner.FileStructuralFingerprint per file — a ~3s cost across
+// kotlin-corpus's 16 k+ files. CLI callers leave both prior and
+// dirty nil and pay the full recompute.
+func crossFileStructuralFingerprint(kotlinFiles, javaFiles []*scanner.File, prior map[string]string, dirty map[string]bool) string {
 	entries := make([]string, 0, len(kotlinFiles)+len(javaFiles))
 	add := func(f *scanner.File) {
 		if f == nil {
 			return
 		}
-		entries = append(entries, f.Path+"\x00"+scanner.FileStructuralFingerprint(f))
+		fp := priorOrCompute(prior, dirty, f.Path, func() string {
+			return scanner.FileStructuralFingerprint(f)
+		})
+		entries = append(entries, f.Path+"\x00"+fp)
 	}
 	for _, f := range kotlinFiles {
 		add(f)
@@ -1897,15 +1930,18 @@ func crossFileStructuralFingerprint(kotlinFiles, javaFiles []*scanner.File) stri
 }
 
 // sourceSetFingerprint hashes sorted (path, content-hash) tuples of
-// every parsed Kotlin and Java file. Any added, removed, renamed, or
-// edited file moves the fingerprint, forcing a bundle miss.
-func sourceSetFingerprint(kotlinFiles, javaFiles []*scanner.File) string {
+// every parsed Kotlin and Java file. Same prior/dirty short-circuit
+// shape as crossFileStructuralFingerprint.
+func sourceSetFingerprint(kotlinFiles, javaFiles []*scanner.File, prior map[string]string, dirty map[string]bool) string {
 	entries := make([]string, 0, len(kotlinFiles)+len(javaFiles))
 	add := func(f *scanner.File) {
 		if f == nil {
 			return
 		}
-		entries = append(entries, f.Path+"\x00"+hashutil.Default().HashContent(f.Path, f.Content))
+		hash := priorOrCompute(prior, dirty, f.Path, func() string {
+			return hashutil.Default().HashContent(f.Path, f.Content)
+		})
+		entries = append(entries, f.Path+"\x00"+hash)
 	}
 	for _, f := range kotlinFiles {
 		add(f)
@@ -1915,6 +1951,40 @@ func sourceSetFingerprint(kotlinFiles, javaFiles []*scanner.File) string {
 	}
 	sort.Strings(entries)
 	return hashutil.HashHex([]byte(strings.Join(entries, "\x01")))
+}
+
+// priorOrCompute returns prior[path] when the path is NOT in the
+// dirty set (meaning the watcher believes the file hasn't changed
+// since prior was computed). When the path IS dirty, the dirty set
+// is nil (no opinion), or the prior map lacks the entry, compute is
+// invoked. Used by buildManifestData and the *WithPrior fingerprint
+// helpers so daemon callers can skip ~3s per call of recomputing
+// per-file hashes / structural fingerprints across the unchanged
+// 16 k+ files of a kotlin-corpus scan.
+func priorOrCompute(prior map[string]string, dirty map[string]bool, path string, compute func() string) string {
+	if prior != nil {
+		if dirty == nil || !dirty[path] {
+			if v, ok := prior[path]; ok {
+				return v
+			}
+		}
+	}
+	return compute()
+}
+
+// dirtyPathSet materialises a host's SourceSetDirty slice into a
+// set for O(1) lookup. nil slice and empty slice are both treated
+// as "no dirty paths"; the caller's nil-vs-non-nil semantics on the
+// slice still drive whether priorOrCompute consults the prior map.
+func dirtyPathSet(dirty []string) map[string]bool {
+	if len(dirty) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(dirty))
+	for _, p := range dirty {
+		set[p] = true
+	}
+	return set
 }
 
 // oracleFilterFingerprint hashes the active rule IDs together with

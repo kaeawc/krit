@@ -95,6 +95,65 @@ func TestFakeRule_WithMaturity(t *testing.T) {
 	}
 }
 
+func TestParseMaturity(t *testing.T) {
+	tests := []struct {
+		in     string
+		want   Maturity
+		wantOk bool
+	}{
+		{"stable", MaturityStable, true},
+		{"experimental", MaturityExperimental, true},
+		{"deprecated", MaturityDeprecated, true},
+		{"", MaturityStable, false},
+		{"Stable", MaturityStable, false},
+		{"unknown", MaturityStable, false},
+	}
+	for _, tt := range tests {
+		got, ok := ParseMaturity(tt.in)
+		if got != tt.want || ok != tt.wantOk {
+			t.Errorf("ParseMaturity(%q) = (%v, %v), want (%v, %v)", tt.in, got, ok, tt.want, tt.wantOk)
+		}
+	}
+}
+
+func TestMaturityFilter(t *testing.T) {
+	rules := []*Rule{
+		FakeRule("a", WithMaturity(MaturityStable)),
+		FakeRule("b", WithMaturity(MaturityExperimental)),
+		FakeRule("c", WithMaturity(MaturityDeprecated)),
+		FakeRule("d", WithMaturity(MaturityExperimental)),
+		FakeRule("e"), // zero value = stable
+	}
+
+	exp := MaturityFilter(rules, MaturityExperimental)
+	if len(exp) != 2 || exp[0].ID != "b" || exp[1].ID != "d" {
+		t.Fatalf("MaturityFilter(experimental) = %v, want [b d]", ruleIDsForTest(exp))
+	}
+
+	stable := MaturityFilter(rules, MaturityStable)
+	if len(stable) != 2 || stable[0].ID != "a" || stable[1].ID != "e" {
+		t.Fatalf("MaturityFilter(stable) = %v, want [a e]", ruleIDsForTest(stable))
+	}
+
+	dep := MaturityFilter(rules, MaturityDeprecated)
+	if len(dep) != 1 || dep[0].ID != "c" {
+		t.Fatalf("MaturityFilter(deprecated) = %v, want [c]", ruleIDsForTest(dep))
+	}
+
+	none := MaturityFilter(nil, MaturityStable)
+	if none == nil || len(none) != 0 {
+		t.Fatalf("MaturityFilter(nil) = %v, want non-nil empty slice", none)
+	}
+}
+
+func ruleIDsForTest(rs []*Rule) []string {
+	out := make([]string, len(rs))
+	for i, r := range rs {
+		out[i] = r.ID
+	}
+	return out
+}
+
 func TestFixLevel_String(t *testing.T) {
 	tests := []struct {
 		level FixLevel

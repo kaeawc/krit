@@ -21,6 +21,7 @@ type rulesArgs struct {
 	Query     string   `json:"query"`
 	Category  string   `json:"category"`
 	Precision string   `json:"precision"`
+	Maturity  string   `json:"maturity"`
 	Needs     []string `json:"needs"`
 	Without   []string `json:"without"`
 
@@ -84,6 +85,7 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 		"precision":    rules.V2RulePrecision(r).String(),
 		"effort":       rules.V2RuleEffort(r).String(),
 		"stability":    rules.V2RuleStability(r).String(),
+		"maturity":     r.Maturity.String(),
 		"cost":         rules.CostFor(r).String(),
 		"capabilities": r.CapabilitiesList(),
 		"owners":       meta.Owners,
@@ -106,6 +108,19 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 	}
 	if lifecycle := formatLifecycle(meta.IntroducedIn, meta.EnabledByDefaultSince); lifecycle != "" {
 		info["lifecycle"] = lifecycle
+	}
+	if r.Deprecated != nil {
+		dep := map[string]interface{}{}
+		if r.Deprecated.Since != "" {
+			dep["since"] = r.Deprecated.Since
+		}
+		if r.Deprecated.ReplacedBy != "" {
+			dep["replacedBy"] = r.Deprecated.ReplacedBy
+		}
+		if r.Deprecated.Reason != "" {
+			dep["reason"] = r.Deprecated.Reason
+		}
+		info["deprecation"] = dep
 	}
 
 	return jsonResult(info)
@@ -145,33 +160,67 @@ func formatLifecycle(introducedIn, enabledByDefaultSince string) string {
 	}
 }
 
+// parseSearchFilters validates the precision/maturity filter arguments.
+// Returns a non-nil ToolResult pointer when validation fails.
+func parseSearchFilters(args rulesArgs) (api.Precision, api.Maturity, bool, *ToolResult) {
+	var precisionFilter api.Precision
+	if args.Precision != "" {
+		p, ok := api.ParsePrecision(args.Precision)
+		if !ok {
+			r := errorResult("unknown precision: " + args.Precision +
+				"; valid: heuristic/text-backed, ast-backed, project-structure-aware, type-aware, policy")
+			return 0, 0, false, &r
+		}
+		precisionFilter = p
+	}
+
+	var maturityFilter api.Maturity
+	maturityFilterSet := false
+	if args.Maturity != "" {
+		m, ok := api.ParseMaturity(args.Maturity)
+		if !ok {
+			r := errorResult("unknown maturity: " + args.Maturity + "; valid: stable, experimental, deprecated")
+			return 0, 0, false, &r
+		}
+		maturityFilter = m
+		maturityFilterSet = true
+	}
+	return precisionFilter, maturityFilter, maturityFilterSet, nil
+}
+
+// validateCapabilityArgs returns a non-nil ToolResult error when 'needs' or
+// 'without' contains an unknown capability label.
+func validateCapabilityArgs(needs, without []string) *ToolResult {
+	if _, unknown := api.ParseCapabilities(needs); len(unknown) > 0 {
+		r := errorResult("unknown capability label(s) in 'needs': " + strings.Join(unknown, ", "))
+		return &r
+	}
+	if _, unknown := api.ParseCapabilities(without); len(unknown) > 0 {
+		r := errorResult("unknown capability label(s) in 'without': " + strings.Join(unknown, ", "))
+		return &r
+	}
+	return nil
+}
+
 // rulesSearch performs a case-insensitive substring match over rule name,
 // description, and category. Results are ranked by where the match landed
 // (name > description > category) then alphabetical.
 func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 	capabilityFilter := api.CapabilityFilter{Require: args.Needs, Exclude: args.Without}
-	if args.Query == "" && args.Precision == "" && capabilityFilter.IsZero() {
-		return errorResult("'query', 'precision', 'needs', or 'without' argument is required for operation=search")
+	if args.Query == "" && args.Precision == "" && args.Maturity == "" && capabilityFilter.IsZero() {
+		return errorResult("'query', 'precision', 'maturity', 'needs', or 'without' argument is required for operation=search")
 	}
 
-	if _, unknown := api.ParseCapabilities(args.Needs); len(unknown) > 0 {
-		return errorResult("unknown capability label(s) in 'needs': " + strings.Join(unknown, ", "))
-	}
-	if _, unknown := api.ParseCapabilities(args.Without); len(unknown) > 0 {
-		return errorResult("unknown capability label(s) in 'without': " + strings.Join(unknown, ", "))
+	if errResult := validateCapabilityArgs(args.Needs, args.Without); errResult != nil {
+		return *errResult
 	}
 
 	q := strings.ToLower(args.Query)
 	categoryFilter := strings.ToLower(args.Category)
 
-	var precisionFilter api.Precision
-	if args.Precision != "" {
-		p, ok := api.ParsePrecision(args.Precision)
-		if !ok {
-			return errorResult("unknown precision: " + args.Precision +
-				"; valid: heuristic/text-backed, ast-backed, project-structure-aware, type-aware, policy")
-		}
-		precisionFilter = p
+	precisionFilter, maturityFilter, maturityFilterSet, errResult := parseSearchFilters(args)
+	if errResult != nil {
+		return *errResult
 	}
 
 	type hit struct {
@@ -181,6 +230,7 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 		Active       bool     `json:"active"`
 		Fixable      bool     `json:"fixable"`
 		Precision    string   `json:"precision"`
+		Maturity     string   `json:"maturity"`
 		Cost         string   `json:"cost"`
 		Capabilities []string `json:"capabilities"`
 		Description  string   `json:"description"`
@@ -198,6 +248,10 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 			continue
 		}
 
+		if maturityFilterSet && r.Maturity != maturityFilter {
+			continue
+		}
+
 		if !capabilityFilter.MatchRule(r) {
 			continue
 		}
@@ -209,8 +263,8 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 
 		switch {
 		case q == "":
-			// No query text: any of precision / needs / without acts as the
-			// filter. We've already applied those above, so anything that
+			// No query text: any of precision / maturity / needs / without acts
+			// as the filter. We've already applied those above, so anything that
 			// reaches here matches.
 			score = 1
 		case nameMatch:
@@ -231,6 +285,7 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 			Active:       rules.IsDefaultActive(r.ID),
 			Fixable:      fixable,
 			Precision:    precision.String(),
+			Maturity:     r.Maturity.String(),
 			Cost:         rules.CostFor(r).String(),
 			Capabilities: r.CapabilitiesList(),
 			Description:  r.Description,
@@ -271,6 +326,8 @@ func (s *Server) rulesCategories(_ rulesArgs) ToolResult {
 	active := map[string]int{}
 	precCounts := map[api.Precision]int{}
 	precActive := map[api.Precision]int{}
+	matCounts := map[api.Maturity]int{}
+	matActive := map[api.Maturity]int{}
 	for _, r := range api.Registry {
 		counts[r.Category]++
 		isActive := rules.IsDefaultActive(r.ID)
@@ -281,6 +338,10 @@ func (s *Server) rulesCategories(_ rulesArgs) ToolResult {
 		precCounts[p]++
 		if isActive {
 			precActive[p]++
+		}
+		matCounts[r.Maturity]++
+		if isActive {
+			matActive[r.Maturity]++
 		}
 	}
 
@@ -318,16 +379,28 @@ func (s *Server) rulesCategories(_ rulesArgs) ToolResult {
 		})
 	}
 
+	maturityOrder := []api.Maturity{api.MaturityStable, api.MaturityExperimental, api.MaturityDeprecated}
+	maturities := make([]bucketRow, 0, len(maturityOrder))
+	for _, m := range maturityOrder {
+		maturities = append(maturities, bucketRow{
+			Name:      m.String(),
+			RuleCount: matCounts[m],
+			Active:    matActive[m],
+		})
+	}
+
 	type categoriesResult struct {
 		Total      int         `json:"total"`
 		Categories []bucketRow `json:"categories"`
 		Precisions []bucketRow `json:"precisions"`
+		Maturities []bucketRow `json:"maturities"`
 	}
 
 	return jsonResult(categoriesResult{
 		Total:      len(rows),
 		Categories: rows,
 		Precisions: precisions,
+		Maturities: maturities,
 	})
 }
 

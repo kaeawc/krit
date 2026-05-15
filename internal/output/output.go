@@ -109,7 +109,9 @@ type sarifRule struct {
 }
 
 type sarifRuleProperties struct {
-	Cost string `json:"cost,omitempty"`
+	Maturity  string `json:"maturity,omitempty"`
+	Precision string `json:"precision,omitempty"`
+	Cost      string `json:"cost,omitempty"`
 }
 
 type sarifText struct {
@@ -159,6 +161,7 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 	effortMap := make(map[string]string)
 	costMap := make(map[string]string)
 	capabilityMap := make(map[string][]string)
+	maturityMap := make(map[string]string)
 	for _, r := range api.Registry {
 		key := r.Category + "/" + r.ID
 		if r.Description != "" {
@@ -173,6 +176,7 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 		if list := r.CapabilitiesList(); len(list) > 0 {
 			capabilityMap[key] = list
 		}
+		maturityMap[key] = r.Maturity.String()
 	}
 
 	rulesSeen := make(map[string]bool)
@@ -193,8 +197,14 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 			if uri, ok := helpURIMap[ruleID]; ok {
 				sr.HelpURI = uri
 			}
-			if cost, ok := costMap[ruleID]; ok && cost != "unset" {
-				sr.Properties = &sarifRuleProperties{Cost: cost}
+			maturity := maturityMap[ruleID]
+			precision := precisionMap[ruleID]
+			cost := costMap[ruleID]
+			if cost == "unset" {
+				cost = ""
+			}
+			if maturity != "" || precision != "" || cost != "" {
+				sr.Properties = &sarifRuleProperties{Maturity: maturity, Precision: precision, Cost: cost}
 			}
 			sarifRules = append(sarifRules, sr)
 		}

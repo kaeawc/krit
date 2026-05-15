@@ -549,6 +549,37 @@ func (m Maturity) String() string {
 	}
 }
 
+// ParseMaturity returns the Maturity matching the given label. Labels
+// accepted are exactly the canonical strings emitted by String() — keeping
+// the MCP schema enum, CLI flag parser, and downstream consumers in
+// lockstep. Unknown labels (and the empty string) return MaturityStable,
+// false.
+func ParseMaturity(s string) (Maturity, bool) {
+	switch s {
+	case "stable":
+		return MaturityStable, true
+	case "experimental":
+		return MaturityExperimental, true
+	case "deprecated":
+		return MaturityDeprecated, true
+	default:
+		return MaturityStable, false
+	}
+}
+
+// MaturityFilter returns rules whose Maturity matches the provided value.
+// Useful from production code (MCP/CLI filters) and tests alike. The
+// returned slice preserves input order and is always non-nil.
+func MaturityFilter(rules []*Rule, m Maturity) []*Rule {
+	out := make([]*Rule, 0, len(rules))
+	for _, r := range rules {
+		if r != nil && r.Maturity == m {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // OptInReason classifies *why* a default-inactive rule ships off by default.
 // It is required when DefaultActive == false and must remain unset
 // (OptInReasonUnspecified) when DefaultActive == true. The ruleslinter gate

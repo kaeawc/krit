@@ -21,6 +21,23 @@ annotations and inspections.
 ../../tools/krit-fir/gradlew runIde
 ```
 
+From the repository root, the AutoMobile-style helper scripts are:
+
+```bash
+scripts/ide-plugin/validate.sh
+scripts/ide-plugin/install_from_source.sh
+scripts/ide-plugin/watch_install.sh
+```
+
+`install_from_source.sh` builds the plugin zip, installs it into the detected
+IntelliJ IDEA or Android Studio plugins directory, and restarts the IDE unless
+`--no-restart` is passed. Set `KRIT_IDEA_PLUGINS_DIR`, `IDEA_PLUGINS_DIR`, or
+`ANDROID_STUDIO_PLUGINS_DIR` when auto-detection picks the wrong IDE.
+
+`watch_install.sh` rebuilds and reinstalls on plugin source changes. It is a
+restart-based loop for extension-point changes, not IntelliJ dynamic plugin
+reload.
+
 The plugin resolves the Krit binary in this order:
 
 1. `-Dkrit.binary=/absolute/path/to/krit`

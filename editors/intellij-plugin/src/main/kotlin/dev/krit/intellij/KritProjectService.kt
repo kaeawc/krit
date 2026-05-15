@@ -67,7 +67,7 @@ class KritProjectService(private val project: Project) : Disposable {
     private fun restartHighlighting() {
         ApplicationManager.getApplication().invokeLater {
             if (!project.isDisposed) {
-                DaemonCodeAnalyzer.getInstance(project).restart()
+                DaemonCodeAnalyzer.getInstance(project).settingsChanged()
             }
         }
     }

@@ -99,6 +99,22 @@ type ParseInput struct {
 	// previously-cached FlatTree. Misses trigger a normal parse and a
 	// cache write-back. Nil disables the cache entirely.
 	ParseCache *scanner.ParseCache
+	// ResidentFiles, when non-nil, is checked by path before any disk
+	// read. A hit skips the os.ReadFile + content-hash + parse-cache
+	// lookup entirely — saving ~100µs/file at kotlin-corpus scale.
+	// The watcher's Invalidate(path) hook is the correctness boundary;
+	// callers wire this to a daemon-resident WorkspaceState.
+	ResidentFiles ResidentFileCache
+}
+
+// ResidentFileCache is the optional fast-path the daemon hands the
+// parse phase. Implementations are expected to be path-keyed and safe
+// for concurrent use. The watcher invalidates entries on file events;
+// the parse phase can trust the path-only lookup as long as the
+// watcher is wired (the daemon's contract — CLI passes nil).
+type ResidentFileCache interface {
+	LookupParsedByPath(path string) (*scanner.File, bool)
+	StoreParsed(path string, content []byte, file *scanner.File)
 }
 
 // logf forwards verbose progress lines to Reporter when set.

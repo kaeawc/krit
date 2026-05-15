@@ -149,6 +149,10 @@ type ProjectHostState struct {
 	// cached FlatTree. The daemon constructs one at startup and reuses
 	// it across calls.
 	ParseCache *scanner.ParseCache
+	// ResidentFiles, when non-nil, is the daemon's per-path *scanner.File
+	// cache. ParsePhase checks it before any disk read. See
+	// ParseInput.ResidentFiles.
+	ResidentFiles ResidentFileCache
 	// PrebuiltResolver, when non-nil, short-circuits resolver
 	// construction inside IndexPhase. The daemon keeps one resident.
 	PrebuiltResolver typeinfer.TypeResolver
@@ -843,6 +847,7 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		Reporter:           host.Reporter,
 		Tracker:            host.Tracker,
 		ParseCache:         host.ParseCache,
+		ResidentFiles:      host.ResidentFiles,
 	})
 }
 

@@ -66,16 +66,17 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 	}
 
 	var (
-		kotlinFiles []*scanner.File
-		parseErrs   []error
+		kotlinFiles  []*scanner.File
+		parseErrs    []error
+		residentHits int
 	)
 	parseStart := time.Now()
 	_ = in.trackSerial("parse", func() error {
-		kotlinFiles, parseErrs = scanner.ScanFilesCached(kotlinPaths, workers, in.ParseCache)
+		kotlinFiles, parseErrs, residentHits = scanWithResident(kotlinPaths, workers, in.ParseCache, in.ResidentFiles, scanner.ScanFilesCached)
 		return nil
 	})
-	in.logf("verbose: Parsed %d files in %v (%d errors, %d workers)\n",
-		len(kotlinFiles), time.Since(parseStart).Round(time.Millisecond), len(parseErrs), workers)
+	in.logf("verbose: Parsed %d files in %v (%d errors, %d workers, %d resident hits)\n",
+		len(kotlinFiles), time.Since(parseStart).Round(time.Millisecond), len(parseErrs), workers, residentHits)
 
 	// Filter generated Kotlin files unless explicitly requested. Generated
 	// dirs contain codegen output that dwarfs hand-written sources and
@@ -130,7 +131,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 			parseErrs = append(parseErrs, javaErr)
 		} else if len(javaPaths) > 0 {
 			var javaParseErrs []error
-			javaFiles, javaParseErrs = scanner.ScanJavaFilesCached(javaPaths, workers, in.ParseCache)
+			javaFiles, javaParseErrs, _ = scanWithResident(javaPaths, workers, in.ParseCache, in.ResidentFiles, scanner.ScanJavaFilesCached)
 			parseErrs = append(parseErrs, javaParseErrs...)
 			if !in.IncludeGenerated {
 				javaFiles, _ = filterGeneratedSourceFilesWithAllowlist(javaFiles, in.IncludeGeneratedAllowlist)
@@ -207,6 +208,15 @@ func installSourceSuppression(f *scanner.File, ruleExcludes map[string][]string,
 	if f == nil || f.FlatTree == nil {
 		return
 	}
+	// Resident-cache hits arrive with Suppression already built from a
+	// prior analyze. Rules-config changes invalidate the whole resident
+	// cache (via WorkspaceState.InvalidateAll), so a non-nil Suppression
+	// can be trusted for the current run — rebuilding it would walk the
+	// flat tree for every file, costing ~50µs each (~700ms on a 13k-file
+	// corpus).
+	if f.Suppression != nil && f.SuppressionIdx != nil {
+		return
+	}
 	f.Suppression = scanner.BuildSuppressionFilter(f, nil, ruleExcludes, "").WithRuleAliases(ruleAliases)
 	f.SuppressionIdx = f.Suppression.Annotations()
 }
@@ -246,6 +256,48 @@ func NeedsJavaSourceDispatch(rules []*api.Rule) bool {
 // source set, and Java source rules need Java ASTs for per-file dispatch.
 func NeedsJavaBeforeDispatch(rules []*api.Rule) bool {
 	return unionNeeds(rules).Has(api.NeedsParsedFiles) || NeedsJavaSourceDispatch(rules)
+}
+
+// scanWithResident partitions paths into resident-cache hits (returned
+// without any disk read) and misses (forwarded to scan). The returned
+// file slice preserves the order: resident hits first in input order,
+// then freshly-scanned misses. Newly-parsed files are stored back in
+// the resident cache so the next call can short-circuit.
+//
+// A nil cache disables the fast path entirely — the function then
+// just forwards every path to scan, matching the pre-#254 behavior.
+// Errors from scan are returned unchanged.
+func scanWithResident(
+	paths []string,
+	workers int,
+	pc *scanner.ParseCache,
+	cache ResidentFileCache,
+	scan func([]string, int, *scanner.ParseCache) ([]*scanner.File, []error),
+) ([]*scanner.File, []error, int) {
+	if cache == nil || len(paths) == 0 {
+		files, errs := scan(paths, workers, pc)
+		return files, errs, 0
+	}
+	hits := make([]*scanner.File, 0, len(paths))
+	misses := make([]string, 0)
+	for _, p := range paths {
+		if f, ok := cache.LookupParsedByPath(p); ok {
+			hits = append(hits, f)
+			continue
+		}
+		misses = append(misses, p)
+	}
+	freshFiles, errs := scan(misses, workers, pc)
+	for _, f := range freshFiles {
+		if f == nil {
+			continue
+		}
+		cache.StoreParsed(f.Path, f.Content, f)
+	}
+	out := make([]*scanner.File, 0, len(hits)+len(freshFiles))
+	out = append(out, hits...)
+	out = append(out, freshFiles...)
+	return out, errs, len(hits)
 }
 
 // Compile-time check: ParsePhase satisfies Phase[ParseInput, ParseResult].

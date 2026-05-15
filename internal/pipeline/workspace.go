@@ -128,6 +128,48 @@ func (w *WorkspaceState) ParseFileWithHit(ctx context.Context, path string, cont
 	return file, false, nil
 }
 
+// LookupParsedByPath returns the cached *scanner.File for path
+// without re-reading or re-hashing content. The watcher's Invalidate
+// hook is the correctness boundary: if the file changed and fsnotify
+// missed the event, the caller will replay a stale parse — same
+// best-effort contract the watcher already promises.
+//
+// Returns (nil, false) when no entry exists for path. Pointer-stable:
+// repeated calls return the same *scanner.File until Invalidate
+// drops it.
+func (w *WorkspaceState) LookupParsedByPath(path string) (*scanner.File, bool) {
+	if w == nil {
+		return nil, false
+	}
+	key := normalizeKey(path)
+	w.mu.RLock()
+	entry, ok := w.parsed[key]
+	w.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	return entry.file, true
+}
+
+// StoreParsed records file as the cached entry for path. content is
+// hashed and stored alongside so ParseFileWithHit callers (LSP/MCP)
+// can still content-gate. Idempotent: a second StoreParsed for the
+// same (path, content hash) is a no-op.
+func (w *WorkspaceState) StoreParsed(path string, content []byte, file *scanner.File) {
+	if w == nil || file == nil {
+		return
+	}
+	key := normalizeKey(path)
+	hash := hashutil.Default().HashContent(key, content)
+	w.mu.Lock()
+	if existing, ok := w.parsed[key]; ok && existing.contentHash == hash {
+		w.mu.Unlock()
+		return
+	}
+	w.parsed[key] = parsedEntry{contentHash: hash, file: file}
+	w.mu.Unlock()
+}
+
 // Invalidate drops the cached entry for path. Safe to call when no
 // entry exists.
 func (w *WorkspaceState) Invalidate(path string) {

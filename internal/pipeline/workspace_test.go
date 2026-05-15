@@ -411,3 +411,59 @@ func TestWorkspaceState_InvalidateAllClearsDependents(t *testing.T) {
 		t.Error("InvalidateAll should clear Dependents")
 	}
 }
+
+// TestWorkspaceState_LookupAndStoreParsed verifies the path-only fast
+// path: StoreParsed populates the cache, LookupParsedByPath returns
+// the same *scanner.File pointer, and Invalidate drops it.
+func TestWorkspaceState_LookupAndStoreParsed(t *testing.T) {
+	w := NewWorkspaceState("")
+
+	if _, ok := w.LookupParsedByPath("/tmp/missing.kt"); ok {
+		t.Errorf("LookupParsedByPath on empty cache returned ok=true")
+	}
+
+	content := []byte("class Foo {}\n")
+	file, err := ParseSingle(context.Background(), "/tmp/foo.kt", content)
+	if err != nil {
+		t.Fatalf("ParseSingle: %v", err)
+	}
+	w.StoreParsed("/tmp/foo.kt", content, file)
+
+	got, ok := w.LookupParsedByPath("/tmp/foo.kt")
+	if !ok {
+		t.Fatalf("LookupParsedByPath after StoreParsed: ok=false")
+	}
+	if got != file {
+		t.Errorf("LookupParsedByPath returned different pointer than StoreParsed")
+	}
+
+	w.Invalidate("/tmp/foo.kt")
+	if _, ok := w.LookupParsedByPath("/tmp/foo.kt"); ok {
+		t.Errorf("LookupParsedByPath after Invalidate: ok=true")
+	}
+}
+
+// TestWorkspaceState_StoreParsedIdempotent verifies a second
+// StoreParsed for the same (path, content hash) does not replace the
+// existing entry — callers can race without losing pointer identity.
+func TestWorkspaceState_StoreParsedIdempotent(t *testing.T) {
+	w := NewWorkspaceState("")
+	content := []byte("class Foo {}\n")
+	first, err := ParseSingle(context.Background(), "/tmp/foo.kt", content)
+	if err != nil {
+		t.Fatalf("ParseSingle: %v", err)
+	}
+	w.StoreParsed("/tmp/foo.kt", content, first)
+
+	// Second store with same hash must keep the first pointer.
+	second, err := ParseSingle(context.Background(), "/tmp/foo.kt", content)
+	if err != nil {
+		t.Fatalf("ParseSingle: %v", err)
+	}
+	w.StoreParsed("/tmp/foo.kt", content, second)
+
+	got, _ := w.LookupParsedByPath("/tmp/foo.kt")
+	if got != first {
+		t.Errorf("StoreParsed replaced pointer for same content hash")
+	}
+}

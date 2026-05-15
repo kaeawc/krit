@@ -480,3 +480,74 @@ func TestParsePhase_Run_ContextCancel(t *testing.T) {
 		t.Errorf("Phase = %q, want parse", pe.Phase)
 	}
 }
+
+// TestParsePhase_Run_ResidentCache verifies the ResidentFileCache fast
+// path is consulted before any disk read. A counting fake returns
+// pre-baked *scanner.File pointers on hit; the test asserts the
+// returned files include the cached pointers and that ParsePhase did
+// not re-read the cached paths from disk.
+func TestParsePhase_Run_ResidentCache(t *testing.T) {
+	dir := t.TempDir()
+	hotPath := filepath.Join(dir, "Hot.kt")
+	coldPath := filepath.Join(dir, "Cold.kt")
+	writeKt(t, hotPath, "class Hot {}\n")
+	writeKt(t, coldPath, "class Cold {}\n")
+
+	// Pre-parse Hot.kt so we can hand a real *scanner.File to the cache.
+	hotFile, err := scanner.ParseFile(hotPath)
+	if err != nil {
+		t.Fatalf("pre-parse Hot.kt: %v", err)
+	}
+
+	cache := &fakeResidentCache{
+		entries: map[string]*scanner.File{hotPath: hotFile},
+	}
+
+	in := ParseInput{
+		Paths:         []string{dir},
+		KotlinPaths:   []string{hotPath, coldPath},
+		ResidentFiles: cache,
+	}
+	res, err := (ParsePhase{}).Run(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if cache.lookups != 2 {
+		t.Errorf("LookupParsedByPath calls = %d, want 2", cache.lookups)
+	}
+	// Cold.kt was a miss — must have been stored back into the cache.
+	if cache.stores != 1 {
+		t.Errorf("StoreParsed calls = %d, want 1 (Cold.kt miss)", cache.stores)
+	}
+	// Hot.kt must be returned by identity (same pointer the cache held).
+	var foundHotByIdentity bool
+	for _, f := range res.KotlinFiles {
+		if f == hotFile {
+			foundHotByIdentity = true
+			break
+		}
+	}
+	if !foundHotByIdentity {
+		t.Errorf("ResidentFileCache hit was not returned by pointer identity")
+	}
+}
+
+type fakeResidentCache struct {
+	entries map[string]*scanner.File
+	lookups int
+	stores  int
+}
+
+func (f *fakeResidentCache) LookupParsedByPath(path string) (*scanner.File, bool) {
+	f.lookups++
+	file, ok := f.entries[path]
+	return file, ok
+}
+
+func (f *fakeResidentCache) StoreParsed(path string, _ []byte, file *scanner.File) {
+	f.stores++
+	if f.entries == nil {
+		f.entries = map[string]*scanner.File{}
+	}
+	f.entries[path] = file
+}

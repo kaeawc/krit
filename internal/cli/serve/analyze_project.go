@@ -321,6 +321,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 		},
 		Host: pipeline.ProjectHostState{
 			ParseCache:                   parseCache,
+			ResidentFiles:                s.workspace,
 			LibraryFactsCache:            s.workspace.LibraryFacts,
 			CodeIndexCache:               s.workspace.CodeIndex,
 			ResolverCache:                s.workspace.Resolver,

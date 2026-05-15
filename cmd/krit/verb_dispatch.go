@@ -5,10 +5,13 @@ import (
 
 	climabihash "github.com/kaeawc/krit/internal/cli/abihash"
 	climapi "github.com/kaeawc/krit/internal/cli/api"
+	climbisect "github.com/kaeawc/krit/internal/cli/bisect"
 	climblastradius "github.com/kaeawc/krit/internal/cli/blastradius"
+	climbreakage "github.com/kaeawc/krit/internal/cli/breakage"
 	climcache "github.com/kaeawc/krit/internal/cli/cache"
 	climdaemoncmd "github.com/kaeawc/krit/internal/cli/daemoncmd"
 	climdeadcode "github.com/kaeawc/krit/internal/cli/deadcode"
+	climdeltarisk "github.com/kaeawc/krit/internal/cli/deltarisk"
 	climdigraph "github.com/kaeawc/krit/internal/cli/digraph"
 	climeditorconfigdrift "github.com/kaeawc/krit/internal/cli/editorconfigdrift"
 	climgen "github.com/kaeawc/krit/internal/cli/gen"
@@ -71,6 +74,9 @@ const (
 	verbDaemon
 	verbTriage
 	verbRules
+	verbBreakage
+	verbBisectStructure
+	verbDeltaRisk
 )
 
 var verbByName = map[string]subcommandVerb{
@@ -106,6 +112,9 @@ var verbByName = map[string]subcommandVerb{
 	"daemon":             verbDaemon,
 	"triage":             verbTriage,
 	"rules":              verbRules,
+	"breakage":           verbBreakage,
+	"bisect-structure":   verbBisectStructure,
+	"delta-risk":         verbDeltaRisk,
 }
 
 func classifyVerb(arg string) subcommandVerb {
@@ -190,6 +199,12 @@ func runVerbAndExitB(verb subcommandVerb, rest []string) bool {
 		os.Exit(climtriage.Run(rest))
 	case verbRules:
 		os.Exit(climrules.Run(rest))
+	case verbBreakage:
+		os.Exit(climbreakage.Run(rest))
+	case verbBisectStructure:
+		os.Exit(climbisect.Run(rest))
+	case verbDeltaRisk:
+		os.Exit(climdeltarisk.Run(rest))
 	}
 	return false
 }

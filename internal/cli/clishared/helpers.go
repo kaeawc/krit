@@ -3,6 +3,7 @@
 package clishared
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,46 @@ import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/snapshot"
 )
+
+// ResolveRepoRoot honors --repo, falling back to cwd. Returns the
+// resolved root and an exit code; non-zero exit means an error has
+// already been reported to stderr.
+func ResolveRepoRoot(flagValue string) (string, int) {
+	if flagValue != "" {
+		return flagValue, 0
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return "", 1
+	}
+	return cwd, 0
+}
+
+// ResolveCommitOrLiteral tries `git rev-parse ref` inside repoRoot and
+// falls back to the literal ref on failure. Captured snapshots may
+// outlive a branch, so a literal sha needs to keep working without
+// git.
+func ResolveCommitOrLiteral(repoRoot, ref string) string {
+	if ref == "" {
+		return ""
+	}
+	if sha, err := snapshot.ResolveCommitSHA(repoRoot, ref); err == nil {
+		return sha
+	}
+	return ref
+}
+
+// ShortSHA returns the first 12 chars of a commit sha, or the input
+// unchanged when shorter. Matches `git rev-parse --short=12`.
+func ShortSHA(sha string) string {
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
+}
 
 // FindConfigInDir probes dir for the first present file in
 // config.Filenames and returns its path, or "" when none is present

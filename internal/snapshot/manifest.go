@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/kaeawc/krit/internal/fsutil"
 )
@@ -191,6 +192,14 @@ func SaveResult(root string, res *Result, repoRoot, kritVersion string) (string,
 	}
 	if _, err := CaptureManifest(root, res, repoRoot, kritVersion); err != nil {
 		return "", err
+	}
+	// Self-bootstrap: any new finding produced at this commit relative to
+	// the previous capture becomes a synthetic breakage event. We do this
+	// after the manifest is written so the just-captured findings show up
+	// in subsequent reads. Errors here are non-fatal — capture must
+	// succeed even when the breakage store is unwritable.
+	if res.Findings != nil {
+		_, _ = SynthesizeFindingRegressions(root, res.Findings, time.Now())
 	}
 	return blobPath, nil
 }

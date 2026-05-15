@@ -251,6 +251,16 @@ type RuleDescriptor struct {
 	// conservatively. See Rule.Stability for the contract.
 	Stability Stability
 
+	// Noisiness mirrors Rule.Noisiness — the rule's declared
+	// false-positive tendency (quiet / normal / noisy). NoisinessUnset
+	// means MetaForRule should derive the tier from Precision via
+	// V2RuleNoisiness; otherwise this value is authoritative.
+	Noisiness Noisiness
+
+	// KnownLimitations mirrors Rule.KnownLimitations — short caveats
+	// surfaced under "caveats" in MCP `explain` output.
+	KnownLimitations []string
+
 	// LanguageSupport records per-source-language support status for a rule.
 	// It is product/support metadata rather than dispatcher routing: Languages
 	// on Rule controls where a rule runs, while LanguageSupport explains whether

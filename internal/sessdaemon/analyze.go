@@ -79,7 +79,7 @@ func (s *Server) handleAnalyze(ctx context.Context, w *bufio.Writer, req Request
 func (s *Server) buildProjectInput(paths []string) (pipeline.ProjectInput, error) {
 	cfg := config.NewConfig()
 	rules.ApplyConfig(cfg)
-	activeRules := rules.ActiveRulesV2(nil, nil, false, false)
+	activeRules := rules.ActiveRulesV2(nil, nil, false, false, false)
 
 	host := pipeline.ProjectHostState{}
 	if sess := s.session; sess != nil {

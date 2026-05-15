@@ -163,6 +163,10 @@ type AnalyzeProjectArgs struct {
 	// Experimental enables experimental flags whose default-off behavior
 	// the daemon would otherwise suppress.
 	Experimental bool `json:"experimental,omitempty"`
+	// Strict enables the strict preset: rules whose effective Noisiness
+	// is NoisinessNoisy are excluded unless explicitly named in
+	// EnableRules.
+	Strict bool `json:"strict,omitempty"`
 	// EnableRules / DisableRules are comma-separated rule-id lists.
 	EnableRules  string `json:"enable_rules,omitempty"`
 	DisableRules string `json:"disable_rules,omitempty"`

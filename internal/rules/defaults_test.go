@@ -39,7 +39,7 @@ func containsID(ss []string, s string) bool {
 // defaultInactive runs by default.
 func TestSelectActiveRules_StableDefault(t *testing.T) {
 	reg := []*api.Rule{fakeRule("Stable", api.MaturityStable)}
-	got := selectActiveRules(reg, nil, nil, false, false, nil, nil, nil)
+	got := selectActiveRules(reg, nil, nil, false, false, false, nil, nil, nil, nil)
 	if !containsID(ruleIDs(got), "Stable") {
 		t.Fatalf("stable rule should be active by default; got %v", ruleIDs(got))
 	}
@@ -52,12 +52,12 @@ func TestSelectActiveRules_ExperimentalOffByDefault(t *testing.T) {
 	exp := map[string]bool{"Exp": true}
 	inactive := map[string]bool{"Exp": true}
 
-	got := selectActiveRules(reg, nil, nil, false, false, exp, nil, inactive)
+	got := selectActiveRules(reg, nil, nil, false, false, false, exp, nil, nil, inactive)
 	if containsID(ruleIDs(got), "Exp") {
 		t.Fatalf("experimental rule should be off by default; got %v", ruleIDs(got))
 	}
 
-	got = selectActiveRules(reg, nil, nil, false, true, exp, nil, inactive)
+	got = selectActiveRules(reg, nil, nil, false, true, false, exp, nil, nil, inactive)
 	if !containsID(ruleIDs(got), "Exp") {
 		t.Fatalf("--experimental should re-enable experimental rules; got %v", ruleIDs(got))
 	}
@@ -82,7 +82,7 @@ func TestSelectActiveRules_DeprecatedNeverImplicitlyOn(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := selectActiveRules(reg, nil, nil, c.allRules, c.expFlg, nil, dep, inactive)
+			got := selectActiveRules(reg, nil, nil, c.allRules, c.expFlg, false, nil, dep, nil, inactive)
 			if containsID(ruleIDs(got), "Old") {
 				t.Errorf("deprecated rule must not be implicitly enabled by %s; got %v", c.name, ruleIDs(got))
 			}
@@ -90,7 +90,7 @@ func TestSelectActiveRules_DeprecatedNeverImplicitlyOn(t *testing.T) {
 	}
 
 	en := map[string]bool{"Old": true}
-	got := selectActiveRules(reg, nil, en, false, false, nil, dep, inactive)
+	got := selectActiveRules(reg, nil, en, false, false, false, nil, dep, nil, inactive)
 	if !containsID(ruleIDs(got), "Old") {
 		t.Fatalf("explicit enable should run a deprecated rule; got %v", ruleIDs(got))
 	}
@@ -103,7 +103,7 @@ func TestSelectActiveRules_DisabledAlwaysWins(t *testing.T) {
 	dis := map[string]bool{"X": true}
 	en := map[string]bool{"X": true}
 
-	got := selectActiveRules(reg, dis, en, true, true, nil, nil, nil)
+	got := selectActiveRules(reg, dis, en, true, true, false, nil, nil, nil, nil)
 	if containsID(ruleIDs(got), "X") {
 		t.Fatalf("disabledSet must override every other path; got %v", ruleIDs(got))
 	}
@@ -121,7 +121,7 @@ func TestSelectActiveRules_AllRulesIncludesExperimental(t *testing.T) {
 	dep := map[string]bool{"Old": true}
 	inactive := map[string]bool{"Exp": true, "Old": true}
 
-	got := ruleIDs(selectActiveRules(reg, nil, nil, true, false, exp, dep, inactive))
+	got := ruleIDs(selectActiveRules(reg, nil, nil, true, false, false, exp, dep, nil, inactive))
 	if !containsID(got, "Stable") || !containsID(got, "Exp") {
 		t.Errorf("--all-rules should include stable and experimental; got %v", got)
 	}
@@ -138,7 +138,7 @@ func TestSelectActiveRules_OptInStillRunsViaEnableSet(t *testing.T) {
 	inactive := map[string]bool{"OptIn": true}
 	en := map[string]bool{"OptIn": true}
 
-	got := selectActiveRules(reg, nil, en, false, false, nil, nil, inactive)
+	got := selectActiveRules(reg, nil, en, false, false, false, nil, nil, nil, inactive)
 	if !containsID(ruleIDs(got), "OptIn") {
 		t.Fatalf("explicit enable should run an opt-in rule; got %v", ruleIDs(got))
 	}

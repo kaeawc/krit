@@ -129,7 +129,7 @@ func RunFindings(ctx context.Context, repoRoot, commitSHA string, opts FindingsR
 	}
 	activeRules := opts.ActiveRules
 	if len(activeRules) == 0 {
-		activeRules = rules.ActiveRulesV2(nil, nil, false, false)
+		activeRules = rules.ActiveRulesV2(nil, nil, false, false, false)
 	}
 
 	res, err := pipeline.RunProject(ctx, pipeline.ProjectInput{

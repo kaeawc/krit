@@ -86,6 +86,7 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 		"effort":       rules.V2RuleEffort(r).String(),
 		"stability":    rules.V2RuleStability(r).String(),
 		"maturity":     r.Maturity.String(),
+		"noisiness":    rules.V2RuleNoisiness(r).String(),
 		"cost":         rules.CostFor(r).String(),
 		"capabilities": r.CapabilitiesList(),
 		"owners":       meta.Owners,
@@ -96,6 +97,9 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 	}
 	if fixLevel != "" {
 		info["fixLevel"] = fixLevel
+	}
+	if len(meta.KnownLimitations) > 0 {
+		info["caveats"] = meta.KnownLimitations
 	}
 	if related := resolveRelatedRules(r); len(related) > 0 {
 		info["relatedRules"] = related

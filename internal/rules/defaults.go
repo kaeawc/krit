@@ -33,6 +33,12 @@ var experimentalRules = map[string]bool{}
 // must name them explicitly via --enable-rules to run them.
 var deprecatedRules = map[string]bool{}
 
+// noisyRules lists rules whose effective Noisiness (Rule.Noisiness or
+// the value derived from Precision) is NoisinessNoisy. Used by the
+// "strict" preset to filter out high-FP rules without disturbing the
+// experimental / deprecated lifecycle filters.
+var noisyRules = map[string]bool{}
+
 var defaultInactiveOnce sync.Once
 
 // ensureDefaultInactive populates DefaultInactive from every registered
@@ -58,6 +64,9 @@ func ensureDefaultInactive() {
 			case api.MaturityDeprecated:
 				deprecatedRules[r.ID] = true
 				DefaultInactive[r.ID] = true
+			}
+			if V2RuleNoisiness(r) == NoisinessNoisy {
+				noisyRules[r.ID] = true
 			}
 			desc, ok := MetaForRule(r)
 			if !ok {
@@ -170,6 +179,15 @@ func ExpandWithRelated(disabledSet map[string]bool, registry []*api.Rule) {
 	}
 }
 
+// IsNoisy reports whether a rule's effective Noisiness is NoisinessNoisy
+// (declared on Rule or derived from Precision). Used by the "strict"
+// preset to skip noisy rules; returns false for rules outside the
+// registry.
+func IsNoisy(name string) bool {
+	ensureDefaultInactive()
+	return noisyRules[name]
+}
+
 // ActiveRulesV2 filters api.Registry using config-driven activation.
 //
 // A rule is included when it is not in disabledSet AND either:
@@ -182,9 +200,15 @@ func ExpandWithRelated(disabledSet map[string]bool, registry []*api.Rule) {
 // only path that re-enables a deprecated rule is naming it explicitly in
 // enabledSet. This keeps deprecated rules from coming back to life when
 // users flip broad opt-in flags.
-func ActiveRulesV2(disabledSet, enabledSet map[string]bool, allRules, experimental bool) []*api.Rule {
+//
+// When strict=true, rules whose effective Noisiness is NoisinessNoisy
+// are excluded UNLESS the user named them explicitly in enabledSet
+// (explicit opt-in always wins). Strict is independent of experimental
+// and allRules: --strict --all-rules still drops noisy rules so the
+// preset's contract holds.
+func ActiveRulesV2(disabledSet, enabledSet map[string]bool, allRules, experimental, strict bool) []*api.Rule {
 	ensureDefaultInactive()
-	return selectActiveRules(api.Registry, disabledSet, enabledSet, allRules, experimental, experimentalRules, deprecatedRules, DefaultInactive)
+	return selectActiveRules(api.Registry, disabledSet, enabledSet, allRules, experimental, strict, experimentalRules, deprecatedRules, noisyRules, DefaultInactive)
 }
 
 // selectActiveRules is the registry-agnostic core of ActiveRulesV2,
@@ -192,12 +216,15 @@ func ActiveRulesV2(disabledSet, enabledSet map[string]bool, allRules, experiment
 // without mutating the global api.Registry.
 //
 // defaultInactive carries the same semantics as the package-level
-// DefaultInactive map: presence means the rule is opt-in.
+// DefaultInactive map: presence means the rule is opt-in. noisySet
+// holds rules whose effective Noisiness is NoisinessNoisy; when
+// strict=true these are excluded unless the user named them in
+// enabledSet.
 func selectActiveRules(
 	reg []*api.Rule,
 	disabledSet, enabledSet map[string]bool,
-	allRules, experimental bool,
-	experimentalSet, deprecatedSet, defaultInactive map[string]bool,
+	allRules, experimental, strict bool,
+	experimentalSet, deprecatedSet, noisySet, defaultInactive map[string]bool,
 ) []*api.Rule {
 	var out []*api.Rule
 	for _, r := range reg {
@@ -209,6 +236,9 @@ func selectActiveRules(
 			continue
 		}
 		if deprecatedSet[r.ID] {
+			continue
+		}
+		if strict && noisySet[r.ID] {
 			continue
 		}
 		if allRules {

@@ -131,7 +131,7 @@ func runRunProjectDirect(t *testing.T, root string) []byte {
 
 	cfg := config.NewConfig()
 	rules.ApplyConfig(cfg)
-	activeRules := rules.ActiveRulesV2(map[string]bool{}, map[string]bool{}, false, false)
+	activeRules := rules.ActiveRulesV2(map[string]bool{}, map[string]bool{}, false, false, false)
 
 	repoDir := oracle.FindRepoDir([]string{root})
 	if repoDir == "" {

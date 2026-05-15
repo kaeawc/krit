@@ -85,7 +85,7 @@ func Build(paths []string, configPath string) ([]Row, error) {
 		cfg = config.NewConfig()
 	}
 	rules.ApplyConfig(cfg)
-	active := rules.ActiveRulesV2(nil, nil, false, false)
+	active := rules.ActiveRulesV2(nil, nil, false, false, false)
 	findings := runRules(files, active)
 
 	pmi := module.BuildPerModuleIndex(graph, files, runtime.NumCPU())

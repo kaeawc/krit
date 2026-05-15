@@ -10,6 +10,10 @@ func (r *ArrayPrimitiveRule) Meta() api.RuleDescriptor {
 		RuleSet:       "performance",
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
+		KnownLimitations: []string{
+			"Lexical type-token match: aliased types via typealias to Array<Int> are not detected.",
+			"Identifies the declared type only; runtime allocation patterns (e.g. Array(n) { it.toInt() }) are out of scope.",
+		},
 	}
 }
 
@@ -27,6 +31,10 @@ func (r *CouldBeSequenceRule) Meta() api.RuleDescriptor {
 		RuleSet:       "performance",
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"Counts chained calls by lexical name without confirming the receiver is a Collection: receivers exposing similarly named extensions on non-Iterable types may be flagged.",
+			"Threshold tuning is project-dependent; small chains on large collections may still benefit from .asSequence().",
+		},
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[CouldBeSequenceRule]{
 				Name:        "allowedOperations",

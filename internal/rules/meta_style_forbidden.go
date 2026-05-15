@@ -148,6 +148,10 @@ func (r *MagicNumberRule) Meta() api.RuleDescriptor {
 		ID:            "MagicNumber",
 		RuleSet:       "style",
 		DefaultActive: true,
+		KnownLimitations: []string{
+			"Heuristic literal scan: numeric arguments threaded through helper functions or builders may still be flagged at the call site.",
+			"Preview / Compose scaffolding annotations are excluded via ignoreAnnotated; custom annotation conventions may need additional configuration.",
+		},
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[MagicNumberRule]{
 				Name:        "ignoreAnnotated",

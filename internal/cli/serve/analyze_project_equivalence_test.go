@@ -48,7 +48,7 @@ func TestAnalyzeProject_OutputMatchesDirectRunProject(t *testing.T) {
 	// --- Direct path -----------------------------------------------
 	cfg := config.NewConfig()
 	rules.ApplyConfig(cfg)
-	activeRules := rules.ActiveRulesV2(map[string]bool{}, map[string]bool{}, false, false)
+	activeRules := rules.ActiveRulesV2(map[string]bool{}, map[string]bool{}, false, false, false)
 	repoDir := oracle.FindRepoDir([]string{state.root})
 	if repoDir == "" {
 		repoDir = state.root

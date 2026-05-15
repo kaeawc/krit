@@ -393,7 +393,8 @@ func (r *runner) filterRules() (handled bool, code int) {
 			rules.ExpandWithRelated(disabledSet, api.Registry)
 		}
 		experimental := *r.f.Experimental || r.cfg.GetTopLevelBool("experimental", false)
-		r.activeRules = rules.ActiveRulesV2(disabledSet, enabledSet, *r.f.AllRules, experimental)
+		strict := *r.f.Strict || r.cfg.GetTopLevelBool("strict", false)
+		r.activeRules = rules.ActiveRulesV2(disabledSet, enabledSet, *r.f.AllRules, experimental, strict)
 		if maxCost, ok := resolveMaxCost(*r.f.MaxCost, r.cfg); ok {
 			before := len(r.activeRules)
 			r.activeRules = rules.FilterByMaxCost(r.activeRules, maxCost)

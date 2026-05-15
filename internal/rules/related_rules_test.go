@@ -60,7 +60,7 @@ func TestActiveRulesV2_RespectsExpandedDisabledSet(t *testing.T) {
 	disabled := map[string]bool{"A": true}
 	ExpandWithRelated(disabled, registry)
 
-	got := selectActiveRules(registry, disabled, nil, false, false, nil, nil, nil)
+	got := selectActiveRules(registry, disabled, nil, false, false, false, nil, nil, nil, nil)
 	ids := ruleIDs(got)
 	if containsID(ids, "A") || containsID(ids, "B") {
 		t.Fatalf("A and its related rule B should be filtered out; got %v", ids)

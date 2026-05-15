@@ -43,7 +43,7 @@ func TestAnalyzeMatchesInProcessRunProject(t *testing.T) {
 
 	cfg := config.NewConfig()
 	rules.ApplyConfig(cfg)
-	active := rules.ActiveRulesV2(nil, nil, false, false)
+	active := rules.ActiveRulesV2(nil, nil, false, false, false)
 	directRes, err := pipeline.RunProjectAnalysis(context.Background(), pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{
 			Config:      cfg,

@@ -33,6 +33,7 @@ type scanFlags struct {
 	AllRules                 *bool
 	Experimental             *bool
 	Maturity                 *string
+	Strict                   *bool
 	Baseline                 *string
 	CreateBaseline           *string
 	BasePath                 *string
@@ -137,6 +138,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.Experimental = fs.Bool("experimental", false, "Enable rules whose Maturity is experimental (does not enable deprecated rules)")
 	fs.BoolVar(f.Experimental, "enable-experimental", false, "Alias for --experimental")
 	f.Maturity = fs.String("maturity", "", "With --list-rules: filter to rules whose Maturity matches (stable, experimental, or deprecated)")
+	f.Strict = fs.Bool("strict", false, "Strict preset: exclude rules declared NoisinessNoisy. Combine with config strict: true.")
 	f.Baseline = fs.String("baseline", "", "Baseline file to suppress known issues (XML or JSON)")
 	f.CreateBaseline = fs.String("create-baseline", "", "Create a baseline file from current findings")
 	f.BasePath = fs.String("base-path", "", "Base path for relative file paths in baselines and reports (default: first scan path)")

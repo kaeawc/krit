@@ -12,16 +12,18 @@ import (
 
 // RuleMeta describes a rule's configurable options for schema generation.
 type RuleMeta struct {
-	Name            string
-	Description     string
-	RuleSet         string
-	Active          bool // default active state
-	Fixable         bool
-	FixLevel        string // cosmetic/idiomatic/semantic or ""
-	Precision       string // heuristic/ast-backed/project-structure/type-aware/policy
-	Capabilities    []string
-	LanguageSupport map[string]api.LanguageSupport
-	Options         []OptionMeta
+	Name             string
+	Description      string
+	RuleSet          string
+	Active           bool // default active state
+	Fixable          bool
+	FixLevel         string // cosmetic/idiomatic/semantic or ""
+	Precision        string // heuristic/ast-backed/project-structure/type-aware/policy
+	Noisiness        string // quiet/normal/noisy
+	KnownLimitations []string
+	Capabilities     []string
+	LanguageSupport  map[string]api.LanguageSupport
+	Options          []OptionMeta
 }
 
 // OptionMeta describes one configurable option of a rule.
@@ -50,23 +52,29 @@ func CollectRuleMeta() []RuleMeta {
 		var opts []OptionMeta
 		var languageSupport map[string]api.LanguageSupport
 		precision := ""
+		noisiness := ""
+		var knownLimitations []string
 		if desc, ok := rules.MetaForRule(r); ok {
 			opts = descriptorOptions(desc)
 			languageSupport = copyLanguageSupport(desc.LanguageSupport)
 			precision = desc.Precision.String()
+			noisiness = desc.Noisiness.String()
+			knownLimitations = desc.KnownLimitations
 		}
 
 		metas = append(metas, RuleMeta{
-			Name:            r.ID,
-			Description:     r.Description,
-			RuleSet:         r.Category,
-			Active:          active,
-			Fixable:         fixable,
-			FixLevel:        fixLevel,
-			Precision:       precision,
-			Capabilities:    r.CapabilitiesList(),
-			LanguageSupport: languageSupport,
-			Options:         opts,
+			Name:             r.ID,
+			Description:      r.Description,
+			RuleSet:          r.Category,
+			Active:           active,
+			Fixable:          fixable,
+			FixLevel:         fixLevel,
+			Precision:        precision,
+			Noisiness:        noisiness,
+			KnownLimitations: knownLimitations,
+			Capabilities:     r.CapabilitiesList(),
+			LanguageSupport:  languageSupport,
+			Options:          opts,
 		})
 	}
 	return metas
@@ -245,8 +253,14 @@ func ruleSchema(m RuleMeta) *jsonschema.Schema {
 	if m.Precision != "" && m.Precision != "unset" {
 		desc += fmt.Sprintf(" [precision: %s]", m.Precision)
 	}
+	if m.Noisiness != "" && m.Noisiness != "unset" {
+		desc += fmt.Sprintf(" [noisiness: %s]", m.Noisiness)
+	}
 	if len(m.Capabilities) > 0 {
 		desc += fmt.Sprintf(" [capabilities: %s]", strings.Join(m.Capabilities, ", "))
+	}
+	for _, caveat := range m.KnownLimitations {
+		desc += "\nCaveat: " + caveat
 	}
 
 	return jsonschema.Object(ruleProps).

@@ -213,7 +213,8 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs) (pipelin
 	disabledSet := clishared.ParseRuleNameSetCSV(args.DisableRules)
 	enabledSet := clishared.ParseRuleNameSetCSV(args.EnableRules)
 	experimental := args.Experimental || cfg.GetTopLevelBool("experimental", false)
-	activeRules := rules.ActiveRulesV2(disabledSet, enabledSet, args.AllRules, experimental)
+	strict := args.Strict || cfg.GetTopLevelBool("strict", false)
+	activeRules := rules.ActiveRulesV2(disabledSet, enabledSet, args.AllRules, experimental, strict)
 
 	paths := args.Paths
 	if len(paths) == 0 {

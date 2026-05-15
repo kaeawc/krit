@@ -869,6 +869,23 @@ type Rule struct {
 	// consumers should treat it conservatively.
 	Stability Stability
 
+	// Noisiness declares the rule's false-positive tendency. When
+	// NoisinessUnset (the zero value), MetaForRule derives the tier
+	// from Precision via V2RuleNoisiness (heuristic/text-backed →
+	// NoisinessNoisy; everything else → NoisinessNormal). Rules may
+	// override when the author has direct evidence (e.g. a type-aware
+	// rule that still produces FPs due to incomplete library facts).
+	// The "strict" preset excludes NoisinessNoisy rules; the dispatcher
+	// does not otherwise key behavior on this field.
+	Noisiness Noisiness
+
+	// KnownLimitations are short bullet-style caveats describing cases
+	// the rule is known to miss or fire on incorrectly. MCP `explain`
+	// surfaces these under a "caveats" key so users can decide whether
+	// a finding is worth chasing. Keep each bullet under one line —
+	// they are summaries, not migration guides.
+	KnownLimitations []string
+
 	// KotlincAnalog names the closest standard kotlinc diagnostic that
 	// this rule approximates, e.g. "UNREACHABLE_CODE". Informational
 	// only — krit is not bug-for-bug compatible with kotlinc. Empty

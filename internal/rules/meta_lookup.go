@@ -119,6 +119,8 @@ func mergeRuleDescriptor(r *api.Rule, extra api.RuleDescriptor) api.RuleDescript
 	out.Precision = resolvePrecision(r, extra)
 	out.Effort = resolveEffort(r, extra)
 	out.Stability = resolveStability(r, extra)
+	out.Noisiness = resolveNoisiness(r, extra)
+	out.KnownLimitations = resolveKnownLimitations(r, extra)
 	return out
 }
 
@@ -203,6 +205,28 @@ func V2RuleStability(r *api.Rule) api.Stability {
 		return api.StabilityEvolving
 	}
 	return api.StabilityStable
+}
+
+// resolveNoisiness mirrors resolvePrecision for the Noisiness tier.
+// V2RuleNoisiness consults Rule.Noisiness and NoisinessProvider before
+// deriving from Precision, so a MetaProvider-supplied extra.Noisiness
+// only wins when the rule itself declared no explicit override.
+// V2RuleNoisiness never returns NoisinessUnset.
+func resolveNoisiness(r *api.Rule, extra api.RuleDescriptor) api.Noisiness {
+	if r.Noisiness == api.NoisinessUnset && extra.Noisiness != api.NoisinessUnset {
+		return extra.Noisiness
+	}
+	return V2RuleNoisiness(r)
+}
+
+// resolveKnownLimitations prefers the rule's inline KnownLimitations
+// when present and falls back to the MetaProvider value otherwise. The
+// returned slice is the underlying slice — callers must not mutate it.
+func resolveKnownLimitations(r *api.Rule, extra api.RuleDescriptor) []string {
+	if len(r.KnownLimitations) > 0 {
+		return r.KnownLimitations
+	}
+	return extra.KnownLimitations
 }
 
 func withRuleLanguageSupport(r *api.Rule, m api.RuleDescriptor) api.RuleDescriptor {

@@ -104,11 +104,14 @@ type sarifRule struct {
 	ID               string               `json:"id"`
 	ShortDescription sarifText            `json:"shortDescription"`
 	FullDescription  *sarifText           `json:"fullDescription,omitempty"`
+	HelpURI          string               `json:"helpUri,omitempty"`
 	Properties       *sarifRuleProperties `json:"properties,omitempty"`
 }
 
 type sarifRuleProperties struct {
-	Cost string `json:"cost,omitempty"`
+	Maturity  string `json:"maturity,omitempty"`
+	Precision string `json:"precision,omitempty"`
+	Cost      string `json:"cost,omitempty"`
 }
 
 type sarifText struct {
@@ -142,8 +145,10 @@ type sarifRegion struct {
 }
 
 type sarifProperties struct {
-	Confidence float64 `json:"confidence,omitempty"`
-	Precision  string  `json:"precision,omitempty"`
+	Confidence   float64  `json:"confidence,omitempty"`
+	Precision    string   `json:"precision,omitempty"`
+	Effort       string   `json:"effort,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // FormatSARIFColumns writes columnar findings as SARIF 2.1.0 JSON.
@@ -151,15 +156,27 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 	cols := normalizedFindingColumns(columns)
 
 	descMap := make(map[string]string)
+	helpURIMap := make(map[string]string)
 	precisionMap := make(map[string]string)
+	effortMap := make(map[string]string)
 	costMap := make(map[string]string)
+	capabilityMap := make(map[string][]string)
+	maturityMap := make(map[string]string)
 	for _, r := range api.Registry {
 		key := r.Category + "/" + r.ID
 		if r.Description != "" {
 			descMap[key] = r.Description
 		}
+		if uri := api.RuleDocsURL(r); uri != "" {
+			helpURIMap[key] = uri
+		}
 		precisionMap[key] = rules.V2RulePrecision(r).String()
+		effortMap[key] = rules.V2RuleEffort(r).String()
 		costMap[key] = rules.CostFor(r).String()
+		if list := r.CapabilitiesList(); len(list) > 0 {
+			capabilityMap[key] = list
+		}
+		maturityMap[key] = r.Maturity.String()
 	}
 
 	rulesSeen := make(map[string]bool)
@@ -177,8 +194,17 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 			if desc, ok := descMap[ruleID]; ok {
 				sr.FullDescription = &sarifText{Text: desc}
 			}
-			if cost, ok := costMap[ruleID]; ok && cost != "unset" {
-				sr.Properties = &sarifRuleProperties{Cost: cost}
+			if uri, ok := helpURIMap[ruleID]; ok {
+				sr.HelpURI = uri
+			}
+			maturity := maturityMap[ruleID]
+			precision := precisionMap[ruleID]
+			cost := costMap[ruleID]
+			if cost == "unset" {
+				cost = ""
+			}
+			if maturity != "" || precision != "" || cost != "" {
+				sr.Properties = &sarifRuleProperties{Maturity: maturity, Precision: precision, Cost: cost}
 			}
 			sarifRules = append(sarifRules, sr)
 		}
@@ -203,8 +229,10 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 			}},
 		}
 		precision := precisionMap[ruleID]
-		if confidence := cols.ConfidenceAt(row); confidence > 0 || precision != "" {
-			r.Properties = &sarifProperties{Confidence: confidence, Precision: precision}
+		effort := effortMap[ruleID]
+		caps := capabilityMap[ruleID]
+		if confidence := cols.ConfidenceAt(row); confidence > 0 || precision != "" || effort != "" || len(caps) > 0 {
+			r.Properties = &sarifProperties{Confidence: confidence, Precision: precision, Effort: effort, Capabilities: caps}
 		}
 		results = append(results, r)
 	})

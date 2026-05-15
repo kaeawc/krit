@@ -83,6 +83,11 @@ func WithPrecision(p Precision) FakeOption {
 	return func(r *Rule) { r.Precision = p }
 }
 
+// WithStability sets the rule's output-shape stability commitment.
+func WithStability(s Stability) FakeOption {
+	return func(r *Rule) { r.Stability = s }
+}
+
 // FakeContext creates a minimal context for testing with the given file.
 // A FindingCollector is pre-allocated; use ContextFindings(ctx) to read results.
 func FakeContext(file *scanner.File) *Context {

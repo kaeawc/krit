@@ -30,6 +30,7 @@ import (
 	climsuggestreviewers "github.com/kaeawc/krit/internal/cli/suggestreviewers"
 	climtestcoverage "github.com/kaeawc/krit/internal/cli/testcoverage"
 	climtransform "github.com/kaeawc/krit/internal/cli/transform"
+	climtriage "github.com/kaeawc/krit/internal/cli/triage"
 	climusedsymbols "github.com/kaeawc/krit/internal/cli/usedsymbols"
 )
 
@@ -67,6 +68,7 @@ const (
 	verbPrecommit
 	verbSnapshot
 	verbDaemon
+	verbTriage
 )
 
 var verbByName = map[string]subcommandVerb{
@@ -100,6 +102,7 @@ var verbByName = map[string]subcommandVerb{
 	"precommit":          verbPrecommit,
 	"snapshot":           verbSnapshot,
 	"daemon":             verbDaemon,
+	"triage":             verbTriage,
 }
 
 func classifyVerb(arg string) subcommandVerb {
@@ -180,6 +183,8 @@ func runVerbAndExitB(verb subcommandVerb, rest []string) bool {
 		os.Exit(climsnapshot.Run(rest))
 	case verbDaemon:
 		os.Exit(climdaemoncmd.Run(rest))
+	case verbTriage:
+		os.Exit(climtriage.Run(rest))
 	}
 	return false
 }

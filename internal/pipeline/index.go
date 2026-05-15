@@ -197,6 +197,12 @@ type IndexInput struct {
 	// receive instead of a serialized disk read.
 	PreloadedAnalysisCache *cache.Cache
 
+	// CacheDirty opts cacheCheck into CheckFilesIncremental: nil keeps
+	// the full CheckFiles pass, non-nil (possibly empty) means the
+	// caller has a continuously-running watcher and the listed paths
+	// are the only ones that need re-stat. See issue #206.
+	CacheDirty []string
+
 	// --- Oracle/cache bypass knobs. The CLI runs IndexPhase twice: once
 	// before ParsePhase for oracle + cache (pre-parse block) and once
 	// after ParsePhase for CodeIndex / module graph / Android. The second
@@ -635,7 +641,11 @@ func (p IndexPhase) runCacheLoad(in IndexInput, result *IndexResult) {
 	}
 	var cacheResult *cache.Result
 	_ = in.trackSerial("cacheCheck", func() error {
-		cacheResult = analysisCache.CheckFiles(filePaths, ruleHash, scanPaths...)
+		if in.CacheDirty != nil {
+			cacheResult = analysisCache.CheckFilesIncremental(filePaths, in.CacheDirty, ruleHash, scanPaths...)
+		} else {
+			cacheResult = analysisCache.CheckFiles(filePaths, ruleHash, scanPaths...)
+		}
 		return nil
 	})
 

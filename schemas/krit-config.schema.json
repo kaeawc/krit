@@ -12,7 +12,7 @@
       "additionalProperties": false,
       "properties": {
         "AnimatorDurationIgnoresScale": {
-          "description": "Detects animator durations that ignore the system ANIMATOR_DURATION_SCALE accessibility setting. [precision: type-aware]",
+          "description": "Detects animator durations that ignore the system ANIMATOR_DURATION_SCALE accessibility setting. [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -219,7 +219,7 @@
           }
         },
         "AdapterViewChildrenResource": {
-          "description": "AdapterView cannot have children in XML [precision: project-structure-aware]",
+          "description": "AdapterView cannot have children in XML [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -238,7 +238,7 @@
           }
         },
         "AddJavascriptInterface": {
-          "description": "addJavascriptInterface called [precision: type-aware]",
+          "description": "addJavascriptInterface called [precision: type-aware] [capabilities: oracle:call-targets, oracle:supertypes, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -257,7 +257,7 @@
           }
         },
         "AllowBackupManifest": {
-          "description": "Missing or true allowBackup attribute [precision: project-structure-aware]",
+          "description": "Missing or true allowBackup attribute [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -276,7 +276,7 @@
           }
         },
         "AlwaysShowActionResource": {
-          "description": "showAsAction=always can crowd the action bar [precision: project-structure-aware]",
+          "description": "showAsAction=always can crowd the action bar [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -295,7 +295,7 @@
           }
         },
         "AndroidGradlePluginVersion": {
-          "description": "AGP version too old [precision: project-structure-aware]",
+          "description": "AGP version too old [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -333,7 +333,7 @@
           }
         },
         "AppCompatResource": {
-          "description": "Using android:showAsAction instead of app:showAsAction [precision: project-structure-aware]",
+          "description": "Using android:showAsAction instead of app:showAsAction [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -352,7 +352,7 @@
           }
         },
         "AppIndexingErrorManifest": {
-          "description": "VIEW intent filter missing http/https data scheme [precision: project-structure-aware]",
+          "description": "VIEW intent filter missing http/https data scheme [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -371,7 +371,7 @@
           }
         },
         "AppIndexingWarningManifest": {
-          "description": "Browsable intent filter missing VIEW action [precision: project-structure-aware]",
+          "description": "Browsable intent filter missing VIEW action [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -409,7 +409,7 @@
           }
         },
         "BackButtonResource": {
-          "description": "Explicit back button in layout [precision: project-structure-aware]",
+          "description": "Explicit back button in layout [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -428,7 +428,7 @@
           }
         },
         "BackupRules": {
-          "description": "Missing backup configuration [precision: project-structure-aware]",
+          "description": "Missing backup configuration [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -447,7 +447,7 @@
           }
         },
         "ButtonCaseResource": {
-          "description": "OK/Cancel button with wrong capitalization [precision: project-structure-aware]",
+          "description": "OK/Cancel button with wrong capitalization [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -466,7 +466,7 @@
           }
         },
         "ButtonOrderResource": {
-          "description": "Cancel button should appear before OK button [precision: project-structure-aware]",
+          "description": "Cancel button should appear before OK button [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -485,7 +485,7 @@
           }
         },
         "ButtonStyleResource": {
-          "description": "Dialog button without borderless style [precision: project-structure-aware]",
+          "description": "Dialog button without borderless style [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -504,7 +504,7 @@
           }
         },
         "ByteOrderMark": {
-          "description": "Byte order mark (BOM) found in file [precision: heuristic/text-backed]",
+          "description": "Byte order mark (BOM) found in file [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -542,7 +542,7 @@
           }
         },
         "CleartextTraffic": {
-          "description": "usesCleartextTraffic enabled [precision: project-structure-aware]",
+          "description": "usesCleartextTraffic enabled [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -561,7 +561,7 @@
           }
         },
         "ClickableViewAccessibilityResource": {
-          "description": "Clickable view missing contentDescription [precision: project-structure-aware]",
+          "description": "Clickable view missing contentDescription [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -675,7 +675,7 @@
           }
         },
         "CutPasteIdResource": {
-          "description": "Likely cut \u0026 paste mistakes [precision: project-structure-aware]",
+          "description": "Likely cut \u0026 paste mistakes [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -694,7 +694,7 @@
           }
         },
         "DebuggableManifest": {
-          "description": "Hardcoded value of android:debuggable in manifest [precision: project-structure-aware]",
+          "description": "Hardcoded value of android:debuggable in manifest [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -751,7 +751,7 @@
           }
         },
         "DeprecatedDependency": {
-          "description": "Deprecated library dependency [precision: project-structure-aware]",
+          "description": "Deprecated library dependency [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -770,7 +770,7 @@
           }
         },
         "DeviceAdminManifest": {
-          "description": "Malformed Device Admin [precision: project-structure-aware]",
+          "description": "Malformed Device Admin [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -789,7 +789,7 @@
           }
         },
         "DisableBaselineAlignmentResource": {
-          "description": "Missing baselineAligned=false on weighted LinearLayout [precision: project-structure-aware]",
+          "description": "Missing baselineAligned=false on weighted LinearLayout [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -827,7 +827,7 @@
           }
         },
         "DuplicateActivityManifest": {
-          "description": "Activity registered more than once [precision: project-structure-aware]",
+          "description": "Activity registered more than once [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -846,7 +846,7 @@
           }
         },
         "DuplicateIdsResource": {
-          "description": "Duplicate android:id in layout [precision: project-structure-aware]",
+          "description": "Duplicate android:id in layout [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -865,7 +865,7 @@
           }
         },
         "DuplicateIncludedIdsResource": {
-          "description": "Duplicate ids across included layouts [precision: project-structure-aware]",
+          "description": "Duplicate ids across included layouts [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -884,7 +884,7 @@
           }
         },
         "DuplicateUsesFeatureManifest": {
-          "description": "Duplicate \u003cuses-feature\u003e declaration [precision: project-structure-aware]",
+          "description": "Duplicate \u003cuses-feature\u003e declaration [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -903,7 +903,7 @@
           }
         },
         "DynamicVersion": {
-          "description": "Dynamic dependency version with partial wildcard [precision: project-structure-aware]",
+          "description": "Dynamic dependency version with partial wildcard [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -922,7 +922,7 @@
           }
         },
         "EasterEgg": {
-          "description": "Code contains easter egg references [precision: heuristic/text-backed]",
+          "description": "Code contains easter egg references [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -960,7 +960,7 @@
           }
         },
         "ExportedPreferenceActivityManifest": {
-          "description": "Exported PreferenceActivity is vulnerable to fragment injection [precision: project-structure-aware]",
+          "description": "Exported PreferenceActivity is vulnerable to fragment injection [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1017,7 +1017,7 @@
           }
         },
         "ExportedServiceManifest": {
-          "description": "Exported service without required permission [precision: project-structure-aware]",
+          "description": "Exported service without required permission [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1036,7 +1036,7 @@
           }
         },
         "ExportedWithoutPermission": {
-          "description": "Exported component without required permission [precision: project-structure-aware]",
+          "description": "Exported component without required permission [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1055,7 +1055,7 @@
           }
         },
         "ExtraTextResource": {
-          "description": "Extraneous text in resource files [precision: project-structure-aware]",
+          "description": "Extraneous text in resource files [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1131,7 +1131,7 @@
           }
         },
         "FullBackupContentManifest": {
-          "description": "Invalid fullBackupContent or dataExtractionRules [precision: project-structure-aware]",
+          "description": "Invalid fullBackupContent or dataExtractionRules [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1207,7 +1207,7 @@
           }
         },
         "GoogleAppIndexingDeepLinkErrorManifest": {
-          "description": "Deep link data element with scheme but no host [precision: project-structure-aware]",
+          "description": "Deep link data element with scheme but no host [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1226,7 +1226,7 @@
           }
         },
         "GoogleAppIndexingWarningManifest": {
-          "description": "No activity with deep link support [precision: heuristic/text-backed]",
+          "description": "No activity with deep link support [precision: heuristic/text-backed] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1245,7 +1245,7 @@
           }
         },
         "GradleCompatible": {
-          "description": "Incompatible Gradle versions [precision: project-structure-aware]",
+          "description": "Incompatible Gradle versions [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1264,7 +1264,7 @@
           }
         },
         "GradleDependency": {
-          "description": "Obsolete Gradle dependency [precision: project-structure-aware]",
+          "description": "Obsolete Gradle dependency [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1289,7 +1289,7 @@
           }
         },
         "GradleDeprecated": {
-          "description": "Deprecated Gradle construct [precision: project-structure-aware]",
+          "description": "Deprecated Gradle construct [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1308,7 +1308,7 @@
           }
         },
         "GradleDynamicVersion": {
-          "description": "Gradle dynamic version [precision: project-structure-aware]",
+          "description": "Gradle dynamic version [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1327,7 +1327,7 @@
           }
         },
         "GradleGetter": {
-          "description": "Gradle implicit getter call [precision: project-structure-aware]",
+          "description": "Gradle implicit getter call [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1346,7 +1346,7 @@
           }
         },
         "GradleIdeError": {
-          "description": "Gradle IDE Support Issues [precision: project-structure-aware]",
+          "description": "Gradle IDE Support Issues [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1365,7 +1365,7 @@
           }
         },
         "GradleOverrides": {
-          "description": "Value overridden by Gradle build script [precision: project-structure-aware]",
+          "description": "Value overridden by Gradle build script [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1384,7 +1384,7 @@
           }
         },
         "GradleOverridesManifest": {
-          "description": "SDK version in manifest overridden by Gradle [precision: project-structure-aware]",
+          "description": "SDK version in manifest overridden by Gradle [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1403,7 +1403,7 @@
           }
         },
         "GradlePath": {
-          "description": "Gradle path issues [precision: project-structure-aware]",
+          "description": "Gradle path issues [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1422,7 +1422,7 @@
           }
         },
         "GradlePluginCompatibility": {
-          "description": "AGP version incompatible with Gradle version [precision: project-structure-aware]",
+          "description": "AGP version incompatible with Gradle version [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1441,7 +1441,7 @@
           }
         },
         "GrantAllUris": {
-          "description": "Overly broad URI permissions [precision: type-aware]",
+          "description": "Overly broad URI permissions [precision: type-aware] [capabilities: oracle:supertypes, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1479,7 +1479,7 @@
           }
         },
         "HandlerLeak": {
-          "description": "Handler reference leaks [precision: type-aware]",
+          "description": "Handler reference leaks [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1517,7 +1517,7 @@
           }
         },
         "HardcodedValuesResource": {
-          "description": "Hardcoded text in layout XML [precision: project-structure-aware]",
+          "description": "Hardcoded text in layout XML [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1783,7 +1783,7 @@
           }
         },
         "IllegalResourceRefResource": {
-          "description": "Name is not a valid resource reference format [precision: project-structure-aware]",
+          "description": "Name is not a valid resource reference format [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1802,7 +1802,7 @@
           }
         },
         "ImpliedQuantityResource": {
-          "description": "Plural 'one' without %d placeholder [precision: project-structure-aware]",
+          "description": "Plural 'one' without %d placeholder [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1821,7 +1821,7 @@
           }
         },
         "InOrMmUsageResource": {
-          "description": "Using in or mm dimension units [precision: project-structure-aware]",
+          "description": "Using in or mm dimension units [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1840,7 +1840,7 @@
           }
         },
         "IncludeLayoutParamResource": {
-          "description": "\u003cinclude\u003e with layout_width/height is ignored [precision: project-structure-aware]",
+          "description": "\u003cinclude\u003e with layout_width/height is ignored [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1859,7 +1859,7 @@
           }
         },
         "InconsistentArraysResource": {
-          "description": "Inconsistencies in array element counts [precision: project-structure-aware]",
+          "description": "Inconsistencies in array element counts [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1878,7 +1878,7 @@
           }
         },
         "InconsistentLayout": {
-          "description": "Inconsistent layouts in different configurations [precision: project-structure-aware]",
+          "description": "Inconsistent layouts in different configurations [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1897,7 +1897,7 @@
           }
         },
         "InefficientWeightResource": {
-          "description": "LinearLayout with weights missing orientation [precision: project-structure-aware]",
+          "description": "LinearLayout with weights missing orientation [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1916,7 +1916,7 @@
           }
         },
         "InlinedApi": {
-          "description": "Using inlined constants from newer API [precision: type-aware]",
+          "description": "Using inlined constants from newer API [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1954,7 +1954,7 @@
           }
         },
         "InsecureBaseConfigurationManifest": {
-          "description": "Missing networkSecurityConfig on API 28+ [precision: project-structure-aware]",
+          "description": "Missing networkSecurityConfig on API 28+ [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1992,7 +1992,7 @@
           }
         },
         "IntentFilterExportRequired": {
-          "description": "Component with intent-filter missing android:exported (API 31+) [precision: project-structure-aware]",
+          "description": "Component with intent-filter missing android:exported (API 31+) [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2011,7 +2011,7 @@
           }
         },
         "InvalidIdResource": {
-          "description": "Malformed android:id value [precision: project-structure-aware]",
+          "description": "Malformed android:id value [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2030,7 +2030,7 @@
           }
         },
         "InvalidResourceFolderResource": {
-          "description": "Invalid resource folder name [precision: project-structure-aware]",
+          "description": "Invalid resource folder name [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2049,7 +2049,7 @@
           }
         },
         "InvalidUsesTagAttributeManifest": {
-          "description": "Invalid android:required value on \u003cuses-feature\u003e [precision: project-structure-aware]",
+          "description": "Invalid android:required value on \u003cuses-feature\u003e [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2068,7 +2068,7 @@
           }
         },
         "LabelForResource": {
-          "description": "EditText without a corresponding labelFor [precision: project-structure-aware]",
+          "description": "EditText without a corresponding labelFor [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2087,7 +2087,7 @@
           }
         },
         "LayoutAutofillHintMismatch": {
-          "description": "inputType without matching autofillHints [precision: project-structure-aware]",
+          "description": "inputType without matching autofillHints [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2106,7 +2106,7 @@
           }
         },
         "LayoutClickableWithoutMinSize": {
-          "description": "Clickable view below 48dp [precision: project-structure-aware]",
+          "description": "Clickable view below 48dp [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2125,7 +2125,7 @@
           }
         },
         "LayoutEditTextMissingImportance": {
-          "description": "EditText missing importantForAutofill [precision: project-structure-aware]",
+          "description": "EditText missing importantForAutofill [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2144,7 +2144,7 @@
           }
         },
         "LayoutImportantForAccessibilityNo": {
-          "description": "Interactive view hidden from accessibility [precision: project-structure-aware]",
+          "description": "Interactive view hidden from accessibility [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2163,7 +2163,7 @@
           }
         },
         "LayoutInflation": {
-          "description": "Layout inflation without parent [precision: project-structure-aware]",
+          "description": "Layout inflation without parent [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2182,7 +2182,7 @@
           }
         },
         "LayoutMinTouchTargetInButtonRow": {
-          "description": "Button in row without 48dp min height [precision: project-structure-aware]",
+          "description": "Button in row without 48dp min height [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2239,7 +2239,7 @@
           }
         },
         "LocaleConfigMissing": {
-          "description": "android:localeConfig points at a missing XML resource [precision: project-structure-aware]",
+          "description": "android:localeConfig points at a missing XML resource [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2258,7 +2258,7 @@
           }
         },
         "LocaleConfigStale": {
-          "description": "locales_config.xml is out of sync with locale-specific values folders [precision: project-structure-aware]",
+          "description": "locales_config.xml is out of sync with locale-specific values folders [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2277,7 +2277,7 @@
           }
         },
         "LocaleFolder": {
-          "description": "Wrong locale folder naming [precision: heuristic/text-backed]",
+          "description": "Wrong locale folder naming [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2296,7 +2296,7 @@
           }
         },
         "LogConditional": {
-          "description": "Unconditional logging calls [precision: type-aware]",
+          "description": "Unconditional logging calls [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2353,7 +2353,7 @@
           }
         },
         "MangledCRLF": {
-          "description": "Mixed line endings in file [precision: heuristic/text-backed]",
+          "description": "Mixed line endings in file [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2372,7 +2372,7 @@
           }
         },
         "ManifestOrderManifest": {
-          "description": "\u003capplication\u003e appears before \u003cuses-permission\u003e or \u003cuses-sdk\u003e [precision: project-structure-aware]",
+          "description": "\u003capplication\u003e appears before \u003cuses-permission\u003e or \u003cuses-sdk\u003e [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2391,7 +2391,7 @@
           }
         },
         "ManifestTypoManifest": {
-          "description": "Typos in manifest element tags [precision: project-structure-aware]",
+          "description": "Typos in manifest element tags [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2410,7 +2410,7 @@
           }
         },
         "MavenLocal": {
-          "description": "mavenLocal() causes unreproducible builds [precision: project-structure-aware]",
+          "description": "mavenLocal() causes unreproducible builds [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2429,7 +2429,7 @@
           }
         },
         "MergeRootFrameResource": {
-          "description": "Root FrameLayout replaceable with merge tag [precision: project-structure-aware]",
+          "description": "Root FrameLayout replaceable with merge tag [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2448,7 +2448,7 @@
           }
         },
         "MinSdkTooLow": {
-          "description": "minSdkVersion below recommended minimum [precision: policy]",
+          "description": "minSdkVersion below recommended minimum [precision: policy] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2471,7 +2471,7 @@
           }
         },
         "MipmapLauncher": {
-          "description": "Launcher icon should use @mipmap/ not @drawable/ [precision: project-structure-aware]",
+          "description": "Launcher icon should use @mipmap/ not @drawable/ [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2490,7 +2490,7 @@
           }
         },
         "MissingApplicationIconManifest": {
-          "description": "Missing android:icon on \u003capplication\u003e [precision: project-structure-aware]",
+          "description": "Missing android:icon on \u003capplication\u003e [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2509,7 +2509,7 @@
           }
         },
         "MissingContentDescriptionResource": {
-          "description": "Image without contentDescription [precision: project-structure-aware]",
+          "description": "Image without contentDescription [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2528,7 +2528,7 @@
           }
         },
         "MissingExportedFlag": {
-          "description": "Component with intent-filter missing android:exported (API 31+) [precision: project-structure-aware]",
+          "description": "Component with intent-filter missing android:exported (API 31+) [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2547,7 +2547,7 @@
           }
         },
         "MissingIdResource": {
-          "description": "Fragments should specify an id or tag [precision: project-structure-aware]",
+          "description": "Fragments should specify an id or tag [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2566,7 +2566,7 @@
           }
         },
         "MissingLeanbackLauncherManifest": {
-          "description": "Leanback feature without LEANBACK_LAUNCHER activity [precision: project-structure-aware]",
+          "description": "Leanback feature without LEANBACK_LAUNCHER activity [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2585,7 +2585,7 @@
           }
         },
         "MissingLeanbackSupportManifest": {
-          "description": "Leanback feature without touchscreen opt-out [precision: project-structure-aware]",
+          "description": "Leanback feature without touchscreen opt-out [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2604,7 +2604,7 @@
           }
         },
         "MissingPermission": {
-          "description": "Missing permission check before API call [precision: type-aware]",
+          "description": "Missing permission check before API call [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2623,7 +2623,7 @@
           }
         },
         "MissingPrefixResource": {
-          "description": "Attribute missing android: namespace prefix [precision: project-structure-aware]",
+          "description": "Attribute missing android: namespace prefix [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2642,7 +2642,7 @@
           }
         },
         "MissingQuantityResource": {
-          "description": "Plural missing required quantity [precision: project-structure-aware]",
+          "description": "Plural missing required quantity [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2661,7 +2661,7 @@
           }
         },
         "MissingRegisteredManifest": {
-          "description": "Missing registered class [precision: project-structure-aware]",
+          "description": "Missing registered class [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2680,7 +2680,7 @@
           }
         },
         "MissingVersionManifest": {
-          "description": "Missing versionCode or versionName on \u003cmanifest\u003e [precision: project-structure-aware]",
+          "description": "Missing versionCode or versionName on \u003cmanifest\u003e [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2699,7 +2699,7 @@
           }
         },
         "MockLocationManifest": {
-          "description": "ACCESS_MOCK_LOCATION in non-debug manifest [precision: project-structure-aware]",
+          "description": "ACCESS_MOCK_LOCATION in non-debug manifest [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2718,7 +2718,7 @@
           }
         },
         "MultipleUsesSdkManifest": {
-          "description": "More than one \u003cuses-sdk\u003e element [precision: project-structure-aware]",
+          "description": "More than one \u003cuses-sdk\u003e element [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2737,7 +2737,7 @@
           }
         },
         "NamespaceTypoResource": {
-          "description": "Misspelled namespace URI [precision: project-structure-aware]",
+          "description": "Misspelled namespace URI [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2756,7 +2756,7 @@
           }
         },
         "NegativeMarginResource": {
-          "description": "Negative margin value [precision: project-structure-aware]",
+          "description": "Negative margin value [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2801,7 +2801,7 @@
           }
         },
         "NestedScrollingResource": {
-          "description": "ScrollView inside ScrollView [precision: project-structure-aware]",
+          "description": "ScrollView inside ScrollView [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2820,7 +2820,7 @@
           }
         },
         "NestedWeightsResource": {
-          "description": "Nested layout_weight causes exponential measure passes [precision: project-structure-aware]",
+          "description": "Nested layout_weight causes exponential measure passes [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2839,7 +2839,7 @@
           }
         },
         "NewApi": {
-          "description": "Calling new APIs on older versions [precision: type-aware]",
+          "description": "Calling new APIs on older versions [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2858,7 +2858,7 @@
           }
         },
         "NewerVersionAvailable": {
-          "description": "Newer library version available [precision: policy]",
+          "description": "Newer library version available [precision: policy] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2921,7 +2921,7 @@
           }
         },
         "NotSiblingResource": {
-          "description": "RelativeLayout Invalid Constraints [precision: project-structure-aware]",
+          "description": "RelativeLayout Invalid Constraints [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2940,7 +2940,7 @@
           }
         },
         "ObjectAnimatorBinding": {
-          "description": "Incorrect ObjectAnimator Property [precision: type-aware]",
+          "description": "Incorrect ObjectAnimator Property [precision: type-aware] [capabilities: oracle:call-targets, oracle:members, oracle:supertypes, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2959,7 +2959,7 @@
           }
         },
         "ObsoleteLayoutParam": {
-          "description": "Obsolete layout params [precision: type-aware]",
+          "description": "Obsolete layout params [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2978,7 +2978,7 @@
           }
         },
         "ObsoleteLayoutParamsResource": {
-          "description": "layout_weight on non-LinearLayout child [precision: project-structure-aware]",
+          "description": "layout_weight on non-LinearLayout child [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -2997,7 +2997,7 @@
           }
         },
         "OldTargetApi": {
-          "description": "targetSdkVersion below recommended minimum [precision: policy]",
+          "description": "targetSdkVersion below recommended minimum [precision: policy] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3020,7 +3020,7 @@
           }
         },
         "OnClick": {
-          "description": "android:onClick handler missing or has wrong signature [precision: project-structure-aware]",
+          "description": "android:onClick handler missing or has wrong signature [precision: project-structure-aware] [capabilities: parsed-files, resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3039,7 +3039,7 @@
           }
         },
         "OnClickResource": {
-          "description": "android:onClick in layout XML is discouraged [precision: project-structure-aware]",
+          "description": "android:onClick in layout XML is discouraged [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3058,7 +3058,7 @@
           }
         },
         "OrientationResource": {
-          "description": "LinearLayout missing explicit orientation [precision: project-structure-aware]",
+          "description": "LinearLayout missing explicit orientation [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3077,7 +3077,7 @@
           }
         },
         "OverdrawResource": {
-          "description": "Root and child layout both have background (overdraw) [precision: project-structure-aware]",
+          "description": "Root and child layout both have background (overdraw) [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3134,7 +3134,7 @@
           }
         },
         "PackagedPrivateKey": {
-          "description": "Packaged private key [precision: heuristic/text-backed]",
+          "description": "Packaged private key [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3172,7 +3172,7 @@
           }
         },
         "PermissionImpliesUnsupportedHardwareManifest": {
-          "description": "Permission implies hardware feature not declared optional [precision: project-structure-aware]",
+          "description": "Permission implies hardware feature not declared optional [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3229,7 +3229,7 @@
           }
         },
         "ProguardSplit": {
-          "description": "Proguard config should be split [precision: heuristic/text-backed]",
+          "description": "Proguard config should be split [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3267,7 +3267,7 @@
           }
         },
         "ProtectedPermissionsManifest": {
-          "description": "Using system app permission [precision: project-structure-aware]",
+          "description": "Using system app permission [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3286,7 +3286,7 @@
           }
         },
         "PxUsageResource": {
-          "description": "Using px instead of dp in dimensions [precision: project-structure-aware]",
+          "description": "Using px instead of dp in dimensions [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3305,7 +3305,7 @@
           }
         },
         "Range": {
-          "description": "Outside allowed range [precision: type-aware]",
+          "description": "Outside allowed range [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3343,7 +3343,7 @@
           }
         },
         "Registered": {
-          "description": "Class is not registered in the manifest [precision: type-aware]",
+          "description": "Class is not registered in the manifest [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3362,7 +3362,7 @@
           }
         },
         "RelativeOverlapResource": {
-          "description": "Views in RelativeLayout may overlap [precision: project-structure-aware]",
+          "description": "Views in RelativeLayout may overlap [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3381,7 +3381,7 @@
           }
         },
         "RemoteVersion": {
-          "description": "Non-deterministic dependency version (+ or latest) [precision: project-structure-aware]",
+          "description": "Non-deterministic dependency version (+ or latest) [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3400,7 +3400,7 @@
           }
         },
         "RequiredSizeResource": {
-          "description": "View missing layout_width or layout_height [precision: project-structure-aware]",
+          "description": "View missing layout_width or layout_height [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3419,7 +3419,7 @@
           }
         },
         "RequiresApiViolation": {
-          "description": "Calling an API above the module's minSdk [precision: type-aware]",
+          "description": "Calling an API above the module's minSdk [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3438,7 +3438,7 @@
           }
         },
         "ResAutoResource": {
-          "description": "Namespace used in resource files should be res-auto [precision: project-structure-aware]",
+          "description": "Namespace used in resource files should be res-auto [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3533,7 +3533,7 @@
           }
         },
         "RtlCompatManifest": {
-          "description": "Missing supportsRtl with targetSdkVersion \u003e= 17 [precision: project-structure-aware]",
+          "description": "Missing supportsRtl with targetSdkVersion \u003e= 17 [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3552,7 +3552,7 @@
           }
         },
         "RtlEnabledManifest": {
-          "description": "Missing supportsRtl=true on \u003capplication\u003e [precision: project-structure-aware]",
+          "description": "Missing supportsRtl=true on \u003capplication\u003e [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3590,7 +3590,7 @@
           }
         },
         "RtlHardcodedResource": {
-          "description": "Using left/right instead of start/end for RTL [precision: project-structure-aware]",
+          "description": "Using left/right instead of start/end for RTL [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3609,7 +3609,7 @@
           }
         },
         "RtlSuperscriptResource": {
-          "description": "Superscript/subscript may break in RTL [precision: project-structure-aware]",
+          "description": "Superscript/subscript may break in RTL [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3628,7 +3628,7 @@
           }
         },
         "RtlSymmetryResource": {
-          "description": "Asymmetric padding or margin (Left without Right or vice versa) [precision: project-structure-aware]",
+          "description": "Asymmetric padding or margin (Left without Right or vice versa) [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3685,7 +3685,7 @@
           }
         },
         "ScrollViewCountResource": {
-          "description": "ScrollView with more than one child [precision: project-structure-aware]",
+          "description": "ScrollView with more than one child [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3704,7 +3704,7 @@
           }
         },
         "ScrollViewSizeResource": {
-          "description": "ScrollView size validation [precision: project-structure-aware]",
+          "description": "ScrollView size validation [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3780,7 +3780,7 @@
           }
         },
         "ServiceExportedManifest": {
-          "description": "Exported service does not require permission [precision: project-structure-aware]",
+          "description": "Exported service does not require permission [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3799,7 +3799,7 @@
           }
         },
         "SetJavaScriptEnabled": {
-          "description": "Using setJavaScriptEnabled [precision: type-aware]",
+          "description": "Using setJavaScriptEnabled [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3913,7 +3913,7 @@
           }
         },
         "SmallSpResource": {
-          "description": "Text size below 12sp [precision: project-structure-aware]",
+          "description": "Text size below 12sp [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3932,7 +3932,7 @@
           }
         },
         "SpUsageResource": {
-          "description": "Using dp instead of sp for textSize [precision: project-structure-aware]",
+          "description": "Using dp instead of sp for textSize [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3951,7 +3951,7 @@
           }
         },
         "StateListReachableResource": {
-          "description": "Unreachable item in selector drawable [precision: project-structure-aware]",
+          "description": "Unreachable item in selector drawable [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3970,7 +3970,7 @@
           }
         },
         "StopShip": {
-          "description": "STOPSHIP comment found [precision: heuristic/text-backed]",
+          "description": "STOPSHIP comment found [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -3989,7 +3989,7 @@
           }
         },
         "StringFormatCountResource": {
-          "description": "Formatting argument types incomplete or inconsistent [precision: project-structure-aware]",
+          "description": "Formatting argument types incomplete or inconsistent [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4008,7 +4008,7 @@
           }
         },
         "StringFormatInvalidResource": {
-          "description": "Invalid format string [precision: project-structure-aware]",
+          "description": "Invalid format string [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4027,7 +4027,7 @@
           }
         },
         "StringFormatMatchesResource": {
-          "description": "String.format string doesn't match the XML format string [precision: project-structure-aware]",
+          "description": "String.format string doesn't match the XML format string [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4046,7 +4046,7 @@
           }
         },
         "StringFormatTrivialResource": {
-          "description": "Placeholder-only string format [precision: project-structure-aware]",
+          "description": "Placeholder-only string format [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4065,7 +4065,7 @@
           }
         },
         "StringInteger": {
-          "description": "String value where integer expected in Gradle DSL [precision: project-structure-aware]",
+          "description": "String value where integer expected in Gradle DSL [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4084,7 +4084,7 @@
           }
         },
         "StringNotLocalizableResource": {
-          "description": "String resource should not be localized [precision: project-structure-aware]",
+          "description": "String resource should not be localized [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4103,7 +4103,7 @@
           }
         },
         "StringNotSelectable": {
-          "description": "Non-selectable text with URLs or phone numbers [precision: project-structure-aware]",
+          "description": "Non-selectable text with URLs or phone numbers [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4122,7 +4122,7 @@
           }
         },
         "StringRepeatedInContentDescription": {
-          "description": "contentDescription duplicates visible text [precision: project-structure-aware]",
+          "description": "contentDescription duplicates visible text [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4141,7 +4141,7 @@
           }
         },
         "StringResourceMissingPositional": {
-          "description": "String resource has multiple non-positional format specifiers [precision: project-structure-aware]",
+          "description": "String resource has multiple non-positional format specifiers [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4160,7 +4160,7 @@
           }
         },
         "StringShouldBeInt": {
-          "description": "String value where integer expected in Gradle DSL [precision: project-structure-aware]",
+          "description": "String value where integer expected in Gradle DSL [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4179,7 +4179,7 @@
           }
         },
         "StringSpanInContentDescription": {
-          "description": "String with HTML used in contentDescription [precision: project-structure-aware]",
+          "description": "String with HTML used in contentDescription [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4198,7 +4198,7 @@
           }
         },
         "StringTrailingWhitespace": {
-          "description": "String resource has trailing whitespace [precision: project-structure-aware]",
+          "description": "String resource has trailing whitespace [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4236,7 +4236,7 @@
           }
         },
         "Suspicious0dpResource": {
-          "description": "0dp dimension on wrong axis in LinearLayout [precision: project-structure-aware]",
+          "description": "0dp dimension on wrong axis in LinearLayout [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4274,7 +4274,7 @@
           }
         },
         "SystemPermission": {
-          "description": "Requesting dangerous system permission [precision: project-structure-aware]",
+          "description": "Requesting dangerous system permission [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4293,7 +4293,7 @@
           }
         },
         "TargetNewer": {
-          "description": "Target SDK version is too old [precision: project-structure-aware]",
+          "description": "Target SDK version is too old [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4312,7 +4312,7 @@
           }
         },
         "TextFieldsResource": {
-          "description": "EditText missing inputType or hint [precision: project-structure-aware]",
+          "description": "EditText missing inputType or hint [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4350,7 +4350,7 @@
           }
         },
         "TooDeepLayoutResource": {
-          "description": "Layout nesting too deep [precision: project-structure-aware]",
+          "description": "Layout nesting too deep [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4369,7 +4369,7 @@
           }
         },
         "TooManyViewsResource": {
-          "description": "Layout has too many views [precision: project-structure-aware]",
+          "description": "Layout has too many views [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4388,7 +4388,7 @@
           }
         },
         "TrulyRandom": {
-          "description": "Hardcoded seed defeats SecureRandom [precision: heuristic/text-backed]",
+          "description": "Hardcoded seed defeats SecureRandom [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4445,7 +4445,7 @@
           }
         },
         "UniquePermission": {
-          "description": "Custom permission collides with system permission [precision: project-structure-aware]",
+          "description": "Custom permission collides with system permission [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4483,7 +4483,7 @@
           }
         },
         "UnpackedNativeCodeManifest": {
-          "description": "Missing extractNativeLibs=false with native libraries [precision: project-structure-aware]",
+          "description": "Missing extractNativeLibs=false with native libraries [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4502,7 +4502,7 @@
           }
         },
         "UnprotectedSMSBroadcastReceiverManifest": {
-          "description": "SMS receiver without permission protection [precision: project-structure-aware]",
+          "description": "SMS receiver without permission protection [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4521,7 +4521,7 @@
           }
         },
         "UnsafeProtectedBroadcastReceiverManifest": {
-          "description": "Exported receiver for protected broadcast without permission [precision: project-structure-aware]",
+          "description": "Exported receiver for protected broadcast without permission [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4540,7 +4540,7 @@
           }
         },
         "UnsupportedChromeOsHardwareManifest": {
-          "description": "Hardware feature unsupported on Chrome OS not marked optional [precision: project-structure-aware]",
+          "description": "Hardware feature unsupported on Chrome OS not marked optional [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4559,7 +4559,7 @@
           }
         },
         "UnusedAttributeResource": {
-          "description": "Attribute unused on older platforms [precision: project-structure-aware]",
+          "description": "Attribute unused on older platforms [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4578,7 +4578,7 @@
           }
         },
         "UnusedNamespaceResource": {
-          "description": "Unused namespace [precision: project-structure-aware]",
+          "description": "Unused namespace [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4597,7 +4597,7 @@
           }
         },
         "UnusedQuantityResource": {
-          "description": "Plural defines quantity unused for language [precision: project-structure-aware]",
+          "description": "Plural defines quantity unused for language [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4635,7 +4635,7 @@
           }
         },
         "UseAlpha2": {
-          "description": "3-letter ISO code in locale folder [precision: heuristic/text-backed]",
+          "description": "3-letter ISO code in locale folder [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4654,7 +4654,7 @@
           }
         },
         "UseCheckPermissionManifest": {
-          "description": "Exported service with sensitive action but no permission [precision: project-structure-aware]",
+          "description": "Exported service with sensitive action but no permission [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4673,7 +4673,7 @@
           }
         },
         "UseCompoundDrawablesResource": {
-          "description": "Node can be replaced by a TextView with compound drawables [precision: project-structure-aware]",
+          "description": "Node can be replaced by a TextView with compound drawables [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4730,7 +4730,7 @@
           }
         },
         "UselessLeafResource": {
-          "description": "Empty ViewGroup with no background or id [precision: project-structure-aware]",
+          "description": "Empty ViewGroup with no background or id [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4749,7 +4749,7 @@
           }
         },
         "UselessParentResource": {
-          "description": "Useless parent layout with single child [precision: project-structure-aware]",
+          "description": "Useless parent layout with single child [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4768,7 +4768,7 @@
           }
         },
         "UsesSdkManifest": {
-          "description": "Missing \u003cuses-sdk\u003e element in manifest [precision: project-structure-aware]",
+          "description": "Missing \u003cuses-sdk\u003e element in manifest [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4806,7 +4806,7 @@
           }
         },
         "ViewHolder": {
-          "description": "View holder candidates [precision: type-aware]",
+          "description": "View holder candidates [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4825,7 +4825,7 @@
           }
         },
         "ViewTag": {
-          "description": "Tagged object may leak [precision: heuristic/text-backed]",
+          "description": "Tagged object may leak [precision: heuristic/text-backed] [capabilities: oracle:call-targets, oracle:supertypes, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4844,7 +4844,7 @@
           }
         },
         "Wakelock": {
-          "description": "Incorrect WakeLock usage [precision: heuristic/text-backed]",
+          "description": "Incorrect WakeLock usage [precision: heuristic/text-backed] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -4939,7 +4939,7 @@
           }
         },
         "WebViewInScrollViewResource": {
-          "description": "WebView inside ScrollView [precision: project-structure-aware]",
+          "description": "WebView inside ScrollView [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5053,7 +5053,7 @@
           }
         },
         "WrongCaseResource": {
-          "description": "Wrong case in view tag [precision: project-structure-aware]",
+          "description": "Wrong case in view tag [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5072,7 +5072,7 @@
           }
         },
         "WrongConstant": {
-          "description": "Wrong constant passed to API [precision: type-aware]",
+          "description": "Wrong constant passed to API [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5091,7 +5091,7 @@
           }
         },
         "WrongFolderResource": {
-          "description": "Resource file in the wrong res folder [precision: project-structure-aware]",
+          "description": "Resource file in the wrong res folder [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5129,7 +5129,7 @@
           }
         },
         "WrongManifestParentManifest": {
-          "description": "Element declared under wrong parent in manifest [precision: project-structure-aware]",
+          "description": "Element declared under wrong parent in manifest [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5148,7 +5148,7 @@
           }
         },
         "WrongRegionResource": {
-          "description": "Suspicious Language/Region Combination [precision: project-structure-aware]",
+          "description": "Suspicious Language/Region Combination [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5186,7 +5186,7 @@
           }
         },
         "WrongViewCast": {
-          "description": "Mismatched view type [precision: type-aware]",
+          "description": "Mismatched view type [precision: type-aware] [capabilities: oracle:call-targets, oracle:supertypes, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5217,7 +5217,7 @@
       "additionalProperties": false,
       "properties": {
         "FanInFanOutHotspot": {
-          "description": "Detects class-like declarations with unusually high fan-in across the project. [precision: project-structure-aware]",
+          "description": "Detects class-like declarations with unusually high fan-in across the project. [precision: project-structure-aware] [capabilities: cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5250,7 +5250,7 @@
           }
         },
         "GodClassOrModule": {
-          "description": "Detects source files that import from an unusually broad set of packages, suggesting too many responsibilities. [precision: heuristic/text-backed]",
+          "description": "Detects source files that import from an unusually broad set of packages, suggesting too many responsibilities. [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5269,7 +5269,7 @@
           }
         },
         "LayerDependencyViolation": {
-          "description": "Flags Gradle module dependencies that cross architectural layer boundaries not permitted by the configured layer matrix. [precision: project-structure-aware]",
+          "description": "Flags Gradle module dependencies that cross architectural layer boundaries not permitted by the configured layer matrix. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5288,7 +5288,7 @@
           }
         },
         "ModuleDependencyCycle": {
-          "description": "Detects cycles in the Gradle module dependency graph (e.g. :a → :b → :c → :a). [precision: project-structure-aware]",
+          "description": "Detects cycles in the Gradle module dependency graph (e.g. :a → :b → :c → :a). [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5307,7 +5307,7 @@
           }
         },
         "PackageDependencyCycle": {
-          "description": "Detects cycles in the package-level import graph within a single Gradle module. [precision: project-structure-aware]",
+          "description": "Detects cycles in the package-level import graph within a single Gradle module. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5345,7 +5345,7 @@
           }
         },
         "PublicToInternalLeakyAbstraction": {
-          "description": "Flags public classes that are thin wrappers delegating to a single private or internal field, which leak internal abstractions through a nominally public API. [precision: heuristic/text-backed]",
+          "description": "Flags public classes that are thin wrappers delegating to a single private or internal field, which leak internal abstractions through a nominally public API. [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5380,7 +5380,7 @@
       "additionalProperties": false,
       "properties": {
         "AbsentOrWrongFileLicense": {
-          "description": "Detects files that are missing a valid license header comment. [fixable: cosmetic] [precision: heuristic/text-backed]",
+          "description": "Detects files that are missing a valid license header comment. [fixable: cosmetic] [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5510,7 +5510,7 @@
           }
         },
         "KdocLinkValidation": {
-          "description": "Detects KDoc bracket links that do not resolve to source symbols. [precision: project-structure-aware]",
+          "description": "Detects KDoc bracket links that do not resolve to source symbols. [precision: project-structure-aware] [capabilities: cross-file, parsed-files]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -5558,7 +5558,7 @@
           }
         },
         "SampleAnnotationFreshness": {
-          "description": "Detects KDoc @sample tags whose fully-qualified target function is not present in analysed sources. [precision: project-structure-aware]",
+          "description": "Detects KDoc @sample tags whose fully-qualified target function is not present in analysed sources. [precision: project-structure-aware] [capabilities: cross-file, parsed-files]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -6849,7 +6849,7 @@
           }
         },
         "MainDispatcherInLibraryCode": {
-          "description": "Detects Dispatchers.Main usage in library modules that lack the kotlinx-coroutines-android dependency. [precision: project-structure-aware]",
+          "description": "Detects Dispatchers.Main usage in library modules that lack the kotlinx-coroutines-android dependency. [precision: project-structure-aware] [capabilities: module-index, oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -6887,7 +6887,7 @@
           }
         },
         "RedundantSuspendModifier": {
-          "description": "Detects suspend functions that contain no suspend calls in their body. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects suspend functions that contain no suspend calls in their body. [fixable: idiomatic] [precision: type-aware] [capabilities: oracle:call-targets, oracle:suspend-markers, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7020,7 +7020,7 @@
           }
         },
         "SuspendFunSwallowedCancellation": {
-          "description": "Detects catch blocks that catch CancellationException without rethrowing, breaking structured concurrency. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects catch blocks that catch CancellationException without rethrowing, breaking structured concurrency. [fixable: idiomatic] [precision: type-aware] [capabilities: oracle:call-targets, oracle:suspend-markers, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7153,7 +7153,7 @@
           }
         },
         "WithContextInSuspendFunctionNoop": {
-          "description": "Detects nested withContext calls using the same dispatcher as the parent, which is redundant. [precision: type-aware]",
+          "description": "Detects nested withContext calls using the same dispatcher as the parent, which is redundant. [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7402,7 +7402,7 @@
           }
         },
         "RoomConflictStrategyReplaceOnFk": {
-          "description": "Detects @Insert(onConflict = REPLACE) on a Room entity that declares foreign keys; REPLACE deletes and re-inserts, cascading FK deletes. [precision: project-structure-aware]",
+          "description": "Detects @Insert(onConflict = REPLACE) on a Room entity that declares foreign keys; REPLACE deletes and re-inserts, cascading FK deletes. [precision: project-structure-aware] [capabilities: cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7421,7 +7421,7 @@
           }
         },
         "RoomDatabaseVersionNotBumped": {
-          "description": "Detects @Database whose version is unchanged while @Entity sources have changed since HEAD. CI-only: skipped unless KRIT_CI_MODE=1. [precision: project-structure-aware]",
+          "description": "Detects @Database whose version is unchanged while @Entity sources have changed since HEAD. CI-only: skipped unless KRIT_CI_MODE=1. [precision: project-structure-aware] [capabilities: parsed-files]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7440,7 +7440,7 @@
           }
         },
         "RoomEntityChangedMigrationMissing": {
-          "description": "Detects @Entity columns whose names do not appear in any Room Migration(M, N) declaration in the project. [precision: project-structure-aware]",
+          "description": "Detects @Entity columns whose names do not appear in any Room Migration(M, N) declaration in the project. [precision: project-structure-aware] [capabilities: cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7497,7 +7497,7 @@
           }
         },
         "RoomFlowQueryWithoutDistinct": {
-          "description": "Detects callers of Room @Query DAO functions returning Flow\u003c...\u003e that omit a chained .distinctUntilChanged(). [precision: project-structure-aware]",
+          "description": "Detects callers of Room @Query DAO functions returning Flow\u003c...\u003e that omit a chained .distinctUntilChanged(). [precision: project-structure-aware] [capabilities: parsed-files]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7592,7 +7592,7 @@
           }
         },
         "RoomRelationWithoutIndex": {
-          "description": "Detects @Relation(entityColumn = ...) referencing a column that is not declared in the target @Entity's indices. [precision: project-structure-aware]",
+          "description": "Detects @Relation(entityColumn = ...) referencing a column that is not declared in the target @Entity's indices. [precision: project-structure-aware] [capabilities: cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7680,7 +7680,7 @@
       "additionalProperties": false,
       "properties": {
         "DeadCode": {
-          "description": "Detects public or internal symbols that are never referenced from any other file. [precision: project-structure-aware]",
+          "description": "Detects public or internal symbols that are never referenced from any other file. [precision: project-structure-aware] [capabilities: cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7699,7 +7699,7 @@
           }
         },
         "ModuleDeadCode": {
-          "description": "Detects dead code with module-boundary awareness, categorizing symbols as truly dead or could-be-internal. [precision: project-structure-aware]",
+          "description": "Detects dead code with module-boundary awareness, categorizing symbols as truly dead or could-be-internal. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7749,7 +7749,7 @@
           }
         },
         "AnvilMergeComponentEmptyScope": {
-          "description": "Detects @MergeComponent scopes with no matching @ContributesTo or @ContributesBinding declarations. [precision: project-structure-aware]",
+          "description": "Detects @MergeComponent scopes with no matching @ContributesTo or @ContributesBinding declarations. [precision: project-structure-aware] [capabilities: cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7825,7 +7825,7 @@
           }
         },
         "ComponentMissingModule": {
-          "description": "Detects @Component(modules = [...]) declarations whose listed modules do not transitively cover every reachable binding. [precision: project-structure-aware]",
+          "description": "Detects @Component(modules = [...]) declarations whose listed modules do not transitively cover every reachable binding. [precision: project-structure-aware] [capabilities: cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7844,7 +7844,7 @@
           }
         },
         "DeadBindings": {
-          "description": "Detects @Provides/@Binds functions whose return type is not requested by any @Inject site or component exposure in the project. [precision: project-structure-aware]",
+          "description": "Detects @Provides/@Binds functions whose return type is not requested by any @Inject site or component exposure in the project. [precision: project-structure-aware] [capabilities: cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7863,7 +7863,7 @@
           }
         },
         "DiCycleDetection": {
-          "description": "Detects cycles in the constructor-injected DI binding graph. [precision: project-structure-aware]",
+          "description": "Detects cycles in the constructor-injected DI binding graph. [precision: project-structure-aware] [capabilities: parsed-files]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7958,7 +7958,7 @@
           }
         },
         "IntoMapDuplicateKey": {
-          "description": "Detects @IntoMap providers that share the same key in the same module/component; duplicate map keys create conflicting contributions. [precision: project-structure-aware]",
+          "description": "Detects @IntoMap providers that share the same key in the same module/component; duplicate map keys create conflicting contributions. [precision: project-structure-aware] [capabilities: cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -7996,7 +7996,7 @@
           }
         },
         "IntoSetDuplicateType": {
-          "description": "Detects @IntoSet providers that contribute the same concrete impl in the same module/component; the set dedupes, dropping contributions. [precision: project-structure-aware]",
+          "description": "Detects @IntoSet providers that contribute the same concrete impl in the same module/component; the set dedupes, dropping contributions. [precision: project-structure-aware] [capabilities: cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8167,7 +8167,7 @@
           }
         },
         "SubcomponentNotInstalled": {
-          "description": "Detects @Subcomponent declarations not returned from any parent component method; the subcomponent is orphaned. [precision: project-structure-aware]",
+          "description": "Detects @Subcomponent declarations not returned from any parent component method; the subcomponent is orphaned. [precision: project-structure-aware] [capabilities: cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8399,7 +8399,7 @@
           }
         },
         "EmptyKotlinFile": {
-          "description": "Detects Kotlin files with no meaningful code beyond package and import declarations. [precision: heuristic/text-backed]",
+          "description": "Detects Kotlin files with no meaningful code beyond package and import declarations. [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8506,7 +8506,7 @@
       "additionalProperties": false,
       "properties": {
         "ErrorUsageWithThrowable": {
-          "description": "Detects error() calls that pass a Throwable argument instead of using throw directly. [precision: type-aware]",
+          "description": "Detects error() calls that pass a Throwable argument instead of using throw directly. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8595,7 +8595,7 @@
           }
         },
         "ObjectExtendsThrowable": {
-          "description": "Detects Kotlin object declarations that extend Throwable, which are singletons that lose stack trace information. [precision: type-aware]",
+          "description": "Detects Kotlin object declarations that extend Throwable, which are singletons that lose stack trace information. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8828,7 +8828,7 @@
           }
         },
         "TooGenericExceptionThrown": {
-          "description": "Detects throwing overly generic exception types like Exception or Throwable. [precision: type-aware]",
+          "description": "Detects throwing overly generic exception types like Exception or Throwable. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8904,7 +8904,7 @@
           }
         },
         "PluralsMissingZero": {
-          "description": "\u003cplurals\u003e in a CLDR zero-form locale is missing the zero quantity [precision: project-structure-aware]",
+          "description": "\u003cplurals\u003e in a CLDR zero-form locale is missing the zero quantity [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8942,7 +8942,7 @@
           }
         },
         "StringContainsHtmlWithoutCDATA": {
-          "description": "\u003cstring\u003e value contains literal HTML markup not wrapped in \u003c![CDATA[...]]\u003e or entity-escaped. [precision: project-structure-aware]",
+          "description": "\u003cstring\u003e value contains literal HTML markup not wrapped in \u003c![CDATA[...]]\u003e or entity-escaped. [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -8961,7 +8961,7 @@
           }
         },
         "StringResourcePlaceholderOrder": {
-          "description": "Variant string drops positional format syntax used by the default value [precision: project-structure-aware]",
+          "description": "Variant string drops positional format syntax used by the default value [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -9018,7 +9018,7 @@
           }
         },
         "TranslatableMarkupMismatch": {
-          "description": "\u003cstring\u003e markup style differs across locale variants (HTML vs Markdown vs plain text). [precision: project-structure-aware]",
+          "description": "\u003cstring\u003e markup style differs across locale variants (HTML vs Markdown vs plain text). [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -9156,7 +9156,7 @@
       "additionalProperties": false,
       "properties": {
         "CopyrightYearOutdated": {
-          "description": "Detects stale copyright years in file header comments. [fixable: cosmetic] [precision: heuristic/text-backed]",
+          "description": "Detects stale copyright years in file header comments. [fixable: cosmetic] [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -9175,7 +9175,7 @@
           }
         },
         "DependencyLicenseIncompatible": {
-          "description": "Detects external dependencies whose license is incompatible with the project's declared license. [precision: project-structure-aware]",
+          "description": "Detects external dependencies whose license is incompatible with the project's declared license. [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -9199,7 +9199,7 @@
           }
         },
         "DependencyLicenseUnknown": {
-          "description": "Detects external dependencies not present in the embedded license registry. [precision: project-structure-aware]",
+          "description": "Detects external dependencies not present in the embedded license registry. [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -9223,7 +9223,7 @@
           }
         },
         "LgplStaticLinkingInApk": {
-          "description": "Detects Android application modules that statically link known-LGPL dependencies into the APK. [precision: project-structure-aware]",
+          "description": "Detects Android application modules that statically link known-LGPL dependencies into the APK. [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -9242,7 +9242,7 @@
           }
         },
         "MissingSpdxIdentifier": {
-          "description": "Detects file header comments that are missing a SPDX license identifier. [precision: heuristic/text-backed]",
+          "description": "Detects file header comments that are missing a SPDX license identifier. [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -9261,7 +9261,7 @@
           }
         },
         "NoticeFileOutOfDate": {
-          "description": "Detects projects whose NOTICE file is missing required attribution for declared dependencies. [precision: project-structure-aware]",
+          "description": "Detects projects whose NOTICE file is missing required attribution for declared dependencies. [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -9351,7 +9351,7 @@
           }
         },
         "OssLicensesNotIncludedInAndroid": {
-          "description": "Detects Android app modules with implementation dependencies but no attribution surface (oss-licenses-plugin or LICENSE file). [precision: project-structure-aware]",
+          "description": "Detects Android app modules with implementation dependencies but no attribution surface (oss-licenses-plugin or LICENSE file). [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -9408,7 +9408,7 @@
           }
         },
         "SpdxIdentifierInvalid": {
-          "description": "Detects file header SPDX-License-Identifier values that are not recognised SPDX short IDs. [precision: heuristic/text-backed]",
+          "description": "Detects file header SPDX-License-Identifier values that are not recognised SPDX short IDs. [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -9434,7 +9434,7 @@
           }
         },
         "SpdxIdentifierMismatchWithProject": {
-          "description": "Detects file SPDX identifiers that disagree with the project's configured license. [precision: heuristic/text-backed]",
+          "description": "Detects file SPDX identifiers that disagree with the project's configured license. [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10476,7 +10476,7 @@
           }
         },
         "StructuredLogKeyMixedCase": {
-          "description": "Detects mixed snake_case and camelCase structured logging keys within one file. [precision: heuristic/text-backed]",
+          "description": "Detects mixed snake_case and camelCase structured logging keys within one file. [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10610,7 +10610,7 @@
       "additionalProperties": false,
       "properties": {
         "ArrayPrimitive": {
-          "description": "Detects Array\u003cInt\u003e and similar boxed primitive arrays that should use IntArray, LongArray, etc. [fixable: idiomatic] [precision: heuristic/text-backed]",
+          "description": "Detects Array\u003cInt\u003e and similar boxed primitive arrays that should use IntArray, LongArray, etc. [fixable: idiomatic] [precision: heuristic/text-backed] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10648,7 +10648,7 @@
           }
         },
         "CouldBeSequence": {
-          "description": "Detects collection operation chains that could use sequences to avoid intermediate allocations. [precision: heuristic/text-backed]",
+          "description": "Detects collection operation chains that could use sequences to avoid intermediate allocations. [precision: heuristic/text-backed] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10771,7 +10771,7 @@
           }
         },
         "UnnecessaryTypeCasting": {
-          "description": "Detects safe casts immediately compared with null and redundant casts to an already-known type. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects safe casts immediately compared with null and redundant casts to an already-known type. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10802,7 +10802,7 @@
       "additionalProperties": false,
       "properties": {
         "AbstractMemberNotImplemented": {
-          "description": "Detects concrete classes that fail to implement abstract members declared on a supertype. [precision: type-aware]",
+          "description": "Detects concrete classes that fail to implement abstract members declared on a supertype. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10821,7 +10821,7 @@
           }
         },
         "AvoidReferentialEquality": {
-          "description": "Detects usage of referential equality operators === or !== which compare object identity instead of value. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects usage of referential equality operators === or !== which compare object identity instead of value. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10847,7 +10847,7 @@
           }
         },
         "CastNullableToNonNullableType": {
-          "description": "Detects casting a nullable expression to a non-nullable type using 'as Type'. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects casting a nullable expression to a non-nullable type using 'as Type'. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10885,7 +10885,7 @@
           }
         },
         "CharArrayToStringCall": {
-          "description": "Detects charArray.toString() calls that return the array's address instead of its content. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects charArray.toString() calls that return the array's address instead of its content. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10904,7 +10904,7 @@
           }
         },
         "Deprecation": {
-          "description": "Detects usage of deprecated functions, classes, or properties. [precision: type-aware]",
+          "description": "Detects usage of deprecated functions, classes, or properties. [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10928,7 +10928,7 @@
           }
         },
         "DontDowncastCollectionTypes": {
-          "description": "Detects downcasting read-only collection types to mutable variants like 'as MutableList'. [fixable: semantic] [precision: type-aware]",
+          "description": "Detects downcasting read-only collection types to mutable variants like 'as MutableList'. [fixable: semantic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -10973,7 +10973,7 @@
           }
         },
         "ElseCaseInsteadOfExhaustiveWhen": {
-          "description": "Detects when expressions on sealed classes or enums that use an else branch instead of exhaustive matching. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects when expressions on sealed classes or enums that use an else branch instead of exhaustive matching. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11125,7 +11125,7 @@
           }
         },
         "IgnoredReturnValue": {
-          "description": "Detects discarded return values from functional operations or @CheckReturnValue-annotated functions. [precision: type-aware]",
+          "description": "Detects discarded return values from functional operations or @CheckReturnValue-annotated functions. [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11177,7 +11177,7 @@
           }
         },
         "ImplicitDefaultLocale": {
-          "description": "Detects locale-sensitive string methods called without an explicit Locale argument. [fixable: semantic] [precision: type-aware]",
+          "description": "Detects locale-sensitive string methods called without an explicit Locale argument. [fixable: semantic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11234,7 +11234,7 @@
           }
         },
         "IteratorHasNextCallsNextMethod": {
-          "description": "Detects hasNext() implementations that call next(), which modifies iterator state. [precision: type-aware]",
+          "description": "Detects hasNext() implementations that call next(), which modifies iterator state. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11253,7 +11253,7 @@
           }
         },
         "IteratorNotThrowingNoSuchElementException": {
-          "description": "Detects Iterator.next() implementations that do not throw NoSuchElementException when exhausted. [precision: type-aware]",
+          "description": "Detects Iterator.next() implementations that do not throw NoSuchElementException when exhausted. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11316,7 +11316,7 @@
           }
         },
         "MapGetWithNotNullAssertionOperator": {
-          "description": "Detects map[key]!! usage and suggests getValue() or safe alternatives. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects map[key]!! usage and suggests getValue() or safe alternatives. [fixable: idiomatic] [precision: type-aware] [capabilities: oracle:call-targets, oracle:members, oracle:supertypes, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11335,7 +11335,7 @@
           }
         },
         "MissingPackageDeclaration": {
-          "description": "Detects Kotlin or Java source files that are missing a package declaration. [fixable: cosmetic] [precision: heuristic/text-backed]",
+          "description": "Detects Kotlin or Java source files that are missing a package declaration. [fixable: cosmetic] [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11354,7 +11354,7 @@
           }
         },
         "MissingReturn": {
-          "description": "Detects block-bodied functions with a non-Unit return type whose body does not terminate on every path. [precision: type-aware]",
+          "description": "Detects block-bodied functions with a non-Unit return type whose body does not terminate on every path. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11402,7 +11402,7 @@
           }
         },
         "MissingUseCall": {
-          "description": "Detects Closeable or AutoCloseable resources opened without a .use {} block. [precision: type-aware]",
+          "description": "Detects Closeable or AutoCloseable resources opened without a .use {} block. [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11421,7 +11421,7 @@
           }
         },
         "NoElseInWhenSealed": {
-          "description": "Detects when expressions on sealed classes or enums that are missing variants and have no else branch. [precision: type-aware]",
+          "description": "Detects when expressions on sealed classes or enums that are missing variants and have no else branch. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11440,7 +11440,7 @@
           }
         },
         "NonExhaustiveWhen": {
-          "description": "Detects 'when' used as an expression on a sealed/enum/Boolean subject without an else branch and missing one or more variants. [precision: type-aware]",
+          "description": "Detects 'when' used as an expression on a sealed/enum/Boolean subject without an else branch and missing one or more variants. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11459,7 +11459,7 @@
           }
         },
         "NullCheckOnMutableProperty": {
-          "description": "Detects null checks on mutable var properties that may be changed by another thread between the check and use. [precision: type-aware]",
+          "description": "Detects null checks on mutable var properties that may be changed by another thread between the check and use. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11478,7 +11478,7 @@
           }
         },
         "NullableToStringCall": {
-          "description": "Detects .toString() calls on nullable receivers that may produce the string \"null\". [precision: type-aware]",
+          "description": "Detects .toString() calls on nullable receivers that may produce the string \"null\". [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11497,7 +11497,7 @@
           }
         },
         "OverrideSignatureMismatch": {
-          "description": "Detects 'override' functions whose parameter count does not match any supertype member with the same name. [precision: type-aware]",
+          "description": "Detects 'override' functions whose parameter count does not match any supertype member with the same name. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11597,7 +11597,7 @@
           }
         },
         "UnnecessaryNotNullCheck": {
-          "description": "Detects unnecessary null checks on expressions that are already non-nullable. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects unnecessary null checks on expressions that are already non-nullable. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11616,7 +11616,7 @@
           }
         },
         "UnnecessaryNotNullOperator": {
-          "description": "Detects the !! operator applied to expressions that are already non-nullable. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects the !! operator applied to expressions that are already non-nullable. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11635,7 +11635,7 @@
           }
         },
         "UnnecessarySafeCall": {
-          "description": "Detects the ?. safe-call operator applied to expressions that are already non-nullable. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects the ?. safe-call operator applied to expressions that are already non-nullable. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11654,7 +11654,7 @@
           }
         },
         "UnreachableCatchBlock": {
-          "description": "Detects catch blocks that are unreachable because a more general exception type is caught above. [precision: type-aware]",
+          "description": "Detects catch blocks that are unreachable because a more general exception type is caught above. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11704,7 +11704,7 @@
           }
         },
         "UnsafeCast": {
-          "description": "Detects casts that Kotlin reports can never succeed. [fixable: semantic] [precision: heuristic/text-backed]",
+          "description": "Detects casts that Kotlin reports can never succeed. [fixable: semantic] [precision: heuristic/text-backed] [capabilities: oracle:call-targets, oracle:diagnostics, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11754,7 +11754,7 @@
           }
         },
         "UselessElvisOnNonNull": {
-          "description": "Detects the ?: elvis operator applied to expressions that are already non-nullable, making the fallback dead code. [fixable: semantic] [precision: type-aware]",
+          "description": "Detects the ?: elvis operator applied to expressions that are already non-nullable, making the fallback dead code. [fixable: semantic] [precision: type-aware] [capabilities: oracle:expr-type, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11823,7 +11823,7 @@
       "additionalProperties": false,
       "properties": {
         "DeprecatedSymbolUsedError": {
-          "description": "Detects references to symbols annotated with @Deprecated(level = DeprecationLevel.ERROR). Mirrors kotlinc's DEPRECATION_ERROR. [precision: ast-backed]",
+          "description": "Detects references to symbols annotated with @Deprecated(level = DeprecationLevel.ERROR). Mirrors kotlinc's DEPRECATION_ERROR. [precision: ast-backed] [capabilities: oracle:member-annotations, oracle:members]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11930,7 +11930,7 @@
           }
         },
         "AnalyticsCallWithoutConsentGate": {
-          "description": "Detects analytics event calls that are not guarded by a consent or GDPR check. [precision: type-aware]",
+          "description": "Detects analytics event calls that are not guarded by a consent or GDPR check. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11949,7 +11949,7 @@
           }
         },
         "AnalyticsEventWithPiiParamName": {
-          "description": "Detects analytics event parameters whose key names match PII patterns like email, phone, or SSN. [precision: type-aware]",
+          "description": "Detects analytics event parameters whose key names match PII patterns like email, phone, or SSN. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -11968,7 +11968,7 @@
           }
         },
         "AnalyticsUserIdFromPii": {
-          "description": "Detects user-ID setter calls whose argument is a PII property like email or phoneNumber. [precision: type-aware]",
+          "description": "Detects user-ID setter calls whose argument is a PII property like email or phoneNumber. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12044,7 +12044,7 @@
           }
         },
         "CrashlyticsCustomKeyWithPii": {
-          "description": "Detects Crashlytics setCustomKey calls where the key name matches PII patterns. [precision: type-aware]",
+          "description": "Detects Crashlytics setCustomKey calls where the key name matches PII patterns. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12063,7 +12063,7 @@
           }
         },
         "FirebaseRemoteConfigDefaultsWithPii": {
-          "description": "Detects Firebase Remote Config default map keys that match PII patterns. [precision: type-aware]",
+          "description": "Detects Firebase Remote Config default map keys that match PII patterns. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12101,7 +12101,7 @@
           }
         },
         "LogOfSharedPreferenceRead": {
-          "description": "Detects logger calls that directly pass SharedPreferences values with sensitive keys. [precision: type-aware]",
+          "description": "Detects logger calls that directly pass SharedPreferences values with sensitive keys. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12120,7 +12120,7 @@
           }
         },
         "PlainFileWriteOfSensitive": {
-          "description": "Detects plain-file writes to paths containing sensitive terms without using EncryptedFile. [precision: type-aware]",
+          "description": "Detects plain-file writes to paths containing sensitive terms without using EncryptedFile. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12158,7 +12158,7 @@
           }
         },
         "SharedPreferencesForSensitiveKey": {
-          "description": "Detects SharedPreferences put calls with key names matching sensitive patterns like token, password, or secret. [precision: type-aware]",
+          "description": "Detects SharedPreferences put calls with key names matching sensitive patterns like token, password, or secret. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12246,7 +12246,7 @@
           }
         },
         "CommentedOutCodeBlock": {
-          "description": "Detects consecutive lines of commented-out Kotlin code that should be deleted or restored. [fixable: idiomatic] [precision: heuristic/text-backed]",
+          "description": "Detects consecutive lines of commented-out Kotlin code that should be deleted or restored. [fixable: idiomatic] [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12284,7 +12284,7 @@
           }
         },
         "ConventionPluginDeadCode": {
-          "description": "Detects convention plugins under build-logic or buildSrc that are never applied by any module. [precision: project-structure-aware]",
+          "description": "Detects convention plugins under build-logic or buildSrc that are never applied by any module. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12322,7 +12322,7 @@
           }
         },
         "GradleBuildContainsTodo": {
-          "description": "Detects TODO comments in build.gradle(.kts) files that may block release readiness. [precision: heuristic/text-backed]",
+          "description": "Detects TODO comments in build.gradle(.kts) files that may block release readiness. [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12398,7 +12398,7 @@
           }
         },
         "MergeConflictMarkerLeftover": {
-          "description": "Detects unresolved merge conflict markers (\u003c\u003c\u003c, ===, \u003e\u003e\u003e) left in source files. [precision: heuristic/text-backed]",
+          "description": "Detects unresolved merge conflict markers (\u003c\u003c\u003c, ===, \u003e\u003e\u003e) left in source files. [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12417,7 +12417,7 @@
           }
         },
         "ModuleTemplateConformance": {
-          "description": "Detects feature modules that do not conform to the configured module template. [precision: project-structure-aware]",
+          "description": "Detects feature modules that do not conform to the configured module template. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12455,7 +12455,7 @@
           }
         },
         "OpenForTestingCallerInNonTest": {
-          "description": "Detects subclassing of @OpenForTesting types outside test source sets. [precision: project-structure-aware]",
+          "description": "Detects subclassing of @OpenForTesting types outside test source sets. [precision: project-structure-aware] [capabilities: cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12512,7 +12512,7 @@
           }
         },
         "TestFixtureAccessedFromProduction": {
-          "description": "Detects usage of types declared under src/testFixtures/ from production source files. [precision: project-structure-aware]",
+          "description": "Detects usage of types declared under src/testFixtures/ from production source files. [precision: project-structure-aware] [capabilities: cross-file, parsed-files, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12550,7 +12550,7 @@
           }
         },
         "TimberTreeNotPlanted": {
-          "description": "Detects Timber logging usage without any Timber.plant() call in the project. [precision: project-structure-aware]",
+          "description": "Detects Timber logging usage without any Timber.plant() call in the project. [precision: project-structure-aware] [capabilities: cross-file, oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12569,7 +12569,7 @@
           }
         },
         "VisibleForTestingCallerInNonTest": {
-          "description": "Detects calls to @VisibleForTesting-annotated functions from non-test source files. [precision: project-structure-aware]",
+          "description": "Detects calls to @VisibleForTesting-annotated functions from non-test source files. [precision: project-structure-aware] [capabilities: cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12695,7 +12695,7 @@
           }
         },
         "DatabaseQueryOnMainThread": {
-          "description": "Detects SQLiteDatabase query calls in code with positive main-thread evidence. [precision: project-structure-aware]",
+          "description": "Detects SQLiteDatabase query calls in code with positive main-thread evidence. [precision: project-structure-aware] [capabilities: parsed-files]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12733,7 +12733,7 @@
           }
         },
         "ImageLoadedAtFullSizeInList": {
-          "description": "Detects Glide or Coil image loading without size constraints in list item contexts. [precision: type-aware]",
+          "description": "Detects Glide or Coil image loading without size constraints in list item contexts. [precision: type-aware] [capabilities: oracle:supertypes, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12847,7 +12847,7 @@
           }
         },
         "RecyclerAdapterStableIdsDefault": {
-          "description": "Detects RecyclerView.Adapter subclasses that do not enable stable IDs for better animation. [precision: type-aware]",
+          "description": "Detects RecyclerView.Adapter subclasses that do not enable stable IDs for better animation. [precision: type-aware] [capabilities: oracle:supertypes, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12866,7 +12866,7 @@
           }
         },
         "RecyclerAdapterWithoutDiffUtil": {
-          "description": "Detects RecyclerView.Adapter subclasses using notifyDataSetChanged() without DiffUtil. [precision: type-aware]",
+          "description": "Detects RecyclerView.Adapter subclasses using notifyDataSetChanged() without DiffUtil. [precision: type-aware] [capabilities: oracle:supertypes, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12923,7 +12923,7 @@
           }
         },
         "RoomLoadsAllWhereFirstUsed": {
-          "description": "Detects getAll().first() patterns that load an entire table for a single element instead of using LIMIT 1. [precision: project-structure-aware]",
+          "description": "Detects getAll().first() patterns that load an entire table for a single element instead of using LIMIT 1. [precision: project-structure-aware] [capabilities: parsed-files]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13030,7 +13030,7 @@
           }
         },
         "ContentProviderQueryWithSelectionInterpolation": {
-          "description": "Detects interpolated selection strings passed to ContentResolver.query() that may enable SQL injection. [precision: type-aware]",
+          "description": "Detects interpolated selection strings passed to ContentResolver.query() that may enable SQL injection. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13049,7 +13049,7 @@
           }
         },
         "DeepLinkMissingAutoVerify": {
-          "description": "Deep link intent filter missing autoVerify [precision: project-structure-aware]",
+          "description": "Deep link intent filter missing autoVerify [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13106,7 +13106,7 @@
           }
         },
         "GoogleApiKeyInResources": {
-          "description": "Detects Google API keys embedded directly in XML resource files [precision: project-structure-aware]",
+          "description": "Detects Google API keys embedded directly in XML resource files [precision: project-structure-aware] [capabilities: resources]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13334,7 +13334,7 @@
           }
         },
         "JdbcStatementExecute": {
-          "description": "Detects java.sql.Statement execution calls with interpolated or computed SQL strings. [precision: type-aware]",
+          "description": "Detects java.sql.Statement execution calls with interpolated or computed SQL strings. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13378,7 +13378,7 @@
           }
         },
         "NetworkSecurityConfigDebugOverrides": {
-          "description": "Debug overrides in release network security config [precision: project-structure-aware]",
+          "description": "Debug overrides in release network security config [precision: project-structure-aware] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13435,7 +13435,7 @@
           }
         },
         "ProcessBuilderShellArg": {
-          "description": "Detects ProcessBuilder shell commands whose -c script argument is interpolated or computed. [precision: type-aware]",
+          "description": "Detects ProcessBuilder shell commands whose -c script argument is interpolated or computed. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13454,7 +13454,7 @@
           }
         },
         "RoomRawQueryStringConcat": {
-          "description": "Detects SimpleSQLiteQuery SQL strings built with interpolation or non-static concatenation without bind args. [precision: type-aware]",
+          "description": "Detects SimpleSQLiteQuery SQL strings built with interpolation or non-static concatenation without bind args. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13492,7 +13492,7 @@
           }
         },
         "RuntimeExecUnsafeShape": {
-          "description": "Detects Runtime.getRuntime().exec(String) commands built with interpolation or non-static concatenation. [precision: type-aware]",
+          "description": "Detects Runtime.getRuntime().exec(String) commands built with interpolation or non-static concatenation. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13511,7 +13511,7 @@
           }
         },
         "SqlInjectionRawQuery": {
-          "description": "Detects SQLiteDatabase SQL arguments built with interpolation or non-static concatenation. [precision: type-aware]",
+          "description": "Detects SQLiteDatabase SQL arguments built with interpolation or non-static concatenation. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13738,7 +13738,7 @@
       "additionalProperties": false,
       "properties": {
         "AbstractClassCanBeConcreteClass": {
-          "description": "Detects abstract classes that have no abstract members and could be made concrete. [precision: type-aware]",
+          "description": "Detects abstract classes that have no abstract members and could be made concrete. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13853,7 +13853,7 @@
           }
         },
         "CanBeNonNullable": {
-          "description": "Detects nullable types that are initialized with non-null values and never assigned null. [precision: type-aware]",
+          "description": "Detects nullable types that are initialized with non-null values and never assigned null. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13872,7 +13872,7 @@
           }
         },
         "CascadingCallWrapping": {
-          "description": "Detects chained calls that are not properly indented from the previous line. [precision: heuristic/text-backed]",
+          "description": "Detects chained calls that are not properly indented from the previous line. [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -13960,7 +13960,7 @@
           }
         },
         "DataClassShouldBeImmutable": {
-          "description": "Detects data class properties declared as var instead of val. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects data class properties declared as var instead of val. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14071,7 +14071,7 @@
           }
         },
         "EqualsOnSignatureLine": {
-          "description": "Detects expression body equals signs placed on a separate line from the function signature. [fixable: cosmetic] [precision: heuristic/text-backed]",
+          "description": "Detects expression body equals signs placed on a separate line from the function signature. [fixable: cosmetic] [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14090,7 +14090,7 @@
           }
         },
         "ExplicitCollectionElementAccessMethod": {
-          "description": "Detects explicit .get() and .set() calls that should use index operator syntax. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects explicit .get() and .set() calls that should use index operator syntax. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14274,7 +14274,7 @@
           }
         },
         "ForbiddenMethodCall": {
-          "description": "Detects calls to methods that are configured as forbidden. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects calls to methods that are configured as forbidden. [fixable: idiomatic] [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14645,7 +14645,7 @@
           }
         },
         "MaxChainedCallsOnSameLine": {
-          "description": "Detects lines with more chained method calls than the configured maximum. [precision: heuristic/text-backed]",
+          "description": "Detects lines with more chained method calls than the configured maximum. [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14673,7 +14673,7 @@
           }
         },
         "MaxLineLength": {
-          "description": "Detects lines that exceed the configured maximum character length. [precision: heuristic/text-backed]",
+          "description": "Detects lines that exceed the configured maximum character length. [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14828,7 +14828,7 @@
           }
         },
         "NewLineAtEndOfFile": {
-          "description": "Detects files that do not end with a newline character. [fixable: cosmetic] [precision: heuristic/text-backed]",
+          "description": "Detects files that do not end with a newline character. [fixable: cosmetic] [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14847,7 +14847,7 @@
           }
         },
         "NoTabs": {
-          "description": "Detects tab characters used for indentation instead of spaces. [fixable: cosmetic] [precision: heuristic/text-backed]",
+          "description": "Detects tab characters used for indentation instead of spaces. [fixable: cosmetic] [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14902,7 +14902,7 @@
           }
         },
         "ObjectLiteralToLambda": {
-          "description": "Detects object literals implementing a single method that could be converted to a lambda. [precision: type-aware]",
+          "description": "Detects object literals implementing a single method that could be converted to a lambda. [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -14959,7 +14959,7 @@
           }
         },
         "ProtectedMemberInFinalClass": {
-          "description": "Detects protected members in final classes where they should be private. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects protected members in final classes where they should be private. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15016,7 +15016,7 @@
           }
         },
         "RedundantExplicitType": {
-          "description": "Detects explicit type annotations that can be inferred from the initializer. [fixable: cosmetic] [precision: type-aware]",
+          "description": "Detects explicit type annotations that can be inferred from the initializer. [fixable: cosmetic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15142,7 +15142,7 @@
           }
         },
         "SerialVersionUIDInSerializableClass": {
-          "description": "Detects Serializable classes that are missing a serialVersionUID field. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects Serializable classes that are missing a serialVersionUID field. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15161,7 +15161,7 @@
           }
         },
         "SpacingAfterPackageAndImports": {
-          "description": "Detects missing blank lines after package and import declarations. [fixable: cosmetic] [precision: heuristic/text-backed]",
+          "description": "Detects missing blank lines after package and import declarations. [fixable: cosmetic] [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15241,7 +15241,7 @@
           }
         },
         "TrailingWhitespace": {
-          "description": "Detects lines that end with trailing whitespace characters. [fixable: cosmetic] [precision: heuristic/text-backed]",
+          "description": "Detects lines that end with trailing whitespace characters. [fixable: cosmetic] [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15391,7 +15391,7 @@
           }
         },
         "UnnecessaryFilter": {
-          "description": "Detects .filter {}.first() chains that can be simplified to .first {} with the predicate. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects .filter {}.first() chains that can be simplified to .first {} with the predicate. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15737,7 +15737,7 @@
           }
         },
         "UseCheckNotNull": {
-          "description": "Detects check(x != null) calls that should use checkNotNull(x) instead. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects check(x != null) calls that should use checkNotNull(x) instead. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15861,7 +15861,7 @@
           }
         },
         "UseIsNullOrEmpty": {
-          "description": "Detects x == null || x.isEmpty() patterns that should use isNullOrEmpty(). [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects x == null || x.isEmpty() patterns that should use isNullOrEmpty(). [fixable: idiomatic] [precision: type-aware] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15937,7 +15937,7 @@
           }
         },
         "UseRequireNotNull": {
-          "description": "Detects require(x != null) calls that should use requireNotNull(x) instead. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects require(x != null) calls that should use requireNotNull(x) instead. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -15975,7 +15975,7 @@
           }
         },
         "UselessCallOnNotNull": {
-          "description": "Detects calls like .orEmpty() or .isNullOrEmpty() on receivers that are already non-null. [fixable: idiomatic] [precision: type-aware]",
+          "description": "Detects calls like .orEmpty() or .isNullOrEmpty() on receivers that are already non-null. [fixable: idiomatic] [precision: type-aware] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16080,7 +16080,7 @@
       "additionalProperties": false,
       "properties": {
         "ApplyPluginTwice": {
-          "description": "Detects a Gradle plugin applied in both plugins { } and apply(plugin = ...) in the same build file. [fixable: idiomatic] [precision: project-structure-aware]",
+          "description": "Detects a Gradle plugin applied in both plugins { } and apply(plugin = ...) in the same build file. [fixable: idiomatic] [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16099,7 +16099,7 @@
           }
         },
         "CompileSdkMismatchAcrossModules": {
-          "description": "Detects Android modules whose compileSdk is lower than the maximum compileSdk in the project. [precision: project-structure-aware]",
+          "description": "Detects Android modules whose compileSdk is lower than the maximum compileSdk in the project. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16118,7 +16118,7 @@
           }
         },
         "ConfigurationsAllSideEffect": {
-          "description": "Detects configurations.all blocks that mutate dependency resolution globally. [precision: project-structure-aware]",
+          "description": "Detects configurations.all blocks that mutate dependency resolution globally. [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16142,7 +16142,7 @@
           }
         },
         "ConventionPluginAppliedToWrongTarget": {
-          "description": "Detects convention plugins applied to incompatible Gradle module targets. [precision: project-structure-aware]",
+          "description": "Detects convention plugins applied to incompatible Gradle module targets. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16168,7 +16168,7 @@
           }
         },
         "DependenciesInRootProject": {
-          "description": "Detects dependency declarations directly in the root Gradle project. [precision: project-structure-aware]",
+          "description": "Detects dependency declarations directly in the root Gradle project. [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16198,7 +16198,7 @@
           }
         },
         "DependencyFromBintray": {
-          "description": "Detects Gradle repositories hosted on retired Bintray endpoints. [precision: project-structure-aware]",
+          "description": "Detects Gradle repositories hosted on retired Bintray endpoints. [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16217,7 +16217,7 @@
           }
         },
         "DependencyFromHttp": {
-          "description": "Detects Gradle Maven/Ivy repositories fetched over plaintext HTTP. [precision: project-structure-aware]",
+          "description": "Detects Gradle Maven/Ivy repositories fetched over plaintext HTTP. [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16255,7 +16255,7 @@
           }
         },
         "DependencyFromJcenter": {
-          "description": "Detects Gradle repositories that still use JCenter. [precision: project-structure-aware]",
+          "description": "Detects Gradle repositories that still use JCenter. [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16274,7 +16274,7 @@
           }
         },
         "DependencySnapshotInRelease": {
-          "description": "Detects Gradle dependencies that use SNAPSHOT versions in release builds. [precision: project-structure-aware]",
+          "description": "Detects Gradle dependencies that use SNAPSHOT versions in release builds. [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16305,7 +16305,7 @@
           }
         },
         "DependencyVerificationDisabled": {
-          "description": "Detects Gradle dependency verification disabled in gradle.properties. [precision: project-structure-aware]",
+          "description": "Detects Gradle dependency verification disabled in gradle.properties. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16329,7 +16329,7 @@
           }
         },
         "DependencyWithoutGroup": {
-          "description": "Detects legacy Gradle dependency coordinates that omit the group. [precision: project-structure-aware]",
+          "description": "Detects legacy Gradle dependency coordinates that omit the group. [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16348,7 +16348,7 @@
           }
         },
         "GradleWrapperValidationAction": {
-          "description": "Detects GitHub Actions Gradle setup steps missing wrapper validation. [precision: project-structure-aware]",
+          "description": "Detects GitHub Actions Gradle setup steps missing wrapper validation. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16367,7 +16367,7 @@
           }
         },
         "JvmTargetMismatch": {
-          "description": "Detects Kotlin JVM target and Java compatibility settings that disagree. [precision: project-structure-aware]",
+          "description": "Detects Kotlin JVM target and Java compatibility settings that disagree. [precision: project-structure-aware] [capabilities: gradle]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16386,7 +16386,7 @@
           }
         },
         "KotlinVersionMismatchAcrossModules": {
-          "description": "Detects modules whose Kotlin JVM target or toolchain differs from the project majority. [precision: project-structure-aware]",
+          "description": "Detects modules whose Kotlin JVM target or toolchain differs from the project majority. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16405,7 +16405,7 @@
           }
         },
         "MissingGradleChecksums": {
-          "description": "Detects Gradle dependency locking declarations without a sibling gradle.lockfile. [precision: project-structure-aware]",
+          "description": "Detects Gradle dependency locking declarations without a sibling gradle.lockfile. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16424,7 +16424,7 @@
           }
         },
         "VersionCatalogBuildSrcMismatch": {
-          "description": "Detects buildSrc/build-logic dependency coordinates whose version disagrees with libs.versions.toml. [precision: project-structure-aware]",
+          "description": "Detects buildSrc/build-logic dependency coordinates whose version disagrees with libs.versions.toml. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16443,7 +16443,7 @@
           }
         },
         "VersionCatalogDuplicateVersion": {
-          "description": "Detects [versions] aliases in libs.versions.toml that share the same literal version string. [precision: project-structure-aware]",
+          "description": "Detects [versions] aliases in libs.versions.toml that share the same literal version string. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16462,7 +16462,7 @@
           }
         },
         "VersionCatalogRawVersionInBuild": {
-          "description": "Detects build.gradle(.kts) dependency literals whose group:name coordinate is already declared in libs.versions.toml. [precision: project-structure-aware]",
+          "description": "Detects build.gradle(.kts) dependency literals whose group:name coordinate is already declared in libs.versions.toml. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16481,7 +16481,7 @@
           }
         },
         "VersionCatalogUnused": {
-          "description": "Detects libs.versions.toml aliases not referenced by any build script or convention plugin. [precision: project-structure-aware]",
+          "description": "Detects libs.versions.toml aliases not referenced by any build script or convention plugin. [precision: project-structure-aware] [capabilities: module-index]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16595,7 +16595,7 @@
           }
         },
         "MixedAssertionLibraries": {
-          "description": "Detects files that import both JUnit Assert and Google Truth assertion APIs. [precision: heuristic/text-backed]",
+          "description": "Detects files that import both JUnit Assert and Google Truth assertion APIs. [precision: heuristic/text-backed] [capabilities: line-pass]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -16873,7 +16873,7 @@
           }
         },
         "UntestedPublicApi": {
-          "description": "Detects public Kotlin API declarations that are not referenced from test sources. [precision: project-structure-aware]",
+          "description": "Detects public Kotlin API declarations that are not referenced from test sources. [precision: project-structure-aware] [capabilities: cross-file, parsed-files]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

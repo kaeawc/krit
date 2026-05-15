@@ -80,6 +80,13 @@ func mergeRuleDescriptor(r *api.Rule, extra api.RuleDescriptor) api.RuleDescript
 	} else {
 		out.Aliases = extra.Aliases
 	}
+	if r.IntroducedIn != "" {
+		out.IntroducedIn = r.IntroducedIn
+	} else if extra.IntroducedIn != "" {
+		out.IntroducedIn = extra.IntroducedIn
+	} else {
+		out.IntroducedIn = api.DefaultIntroducedIn
+	}
 	if r.EnabledByDefaultSince != "" {
 		out.EnabledByDefaultSince = r.EnabledByDefaultSince
 	} else {
@@ -90,13 +97,44 @@ func mergeRuleDescriptor(r *api.Rule, extra api.RuleDescriptor) api.RuleDescript
 	} else {
 		out.Deprecated = extra.Deprecated
 	}
+	if len(r.RelatedRules) > 0 {
+		out.RelatedRules = r.RelatedRules
+	} else {
+		out.RelatedRules = extra.RelatedRules
+	}
 	if len(r.Tags) > 0 {
 		out.Tags = r.Tags
 	} else {
 		out.Tags = extra.Tags
 	}
+	out.Owners = resolveOwners(r, extra)
+	if r.DocsURL != "" {
+		out.DocsURL = r.DocsURL
+	} else {
+		out.DocsURL = extra.DocsURL
+	}
+	if out.DocsURL == "" {
+		out.DocsURL = api.RuleDocsURL(r)
+	}
 	out.Precision = resolvePrecision(r, extra)
+	out.Effort = resolveEffort(r, extra)
+	out.Stability = resolveStability(r, extra)
 	return out
+}
+
+// resolveOwners returns the owners published in the descriptor. Rules
+// may declare owners directly via Rule.Owners, via their MetaProvider
+// implementation, or rely on api.DefaultRuleOwners. The first non-empty
+// source wins; the fallback guarantees MetaForRule always emits at least
+// one pingable maintainer.
+func resolveOwners(r *api.Rule, extra api.RuleDescriptor) []string {
+	if len(r.Owners) > 0 {
+		return r.Owners
+	}
+	if len(extra.Owners) > 0 {
+		return extra.Owners
+	}
+	return api.DefaultRuleOwners
 }
 
 // resolvePrecision picks the tier returned in a descriptor. A
@@ -110,6 +148,61 @@ func resolvePrecision(r *api.Rule, extra api.RuleDescriptor) api.Precision {
 		return extra.Precision
 	}
 	return V2RulePrecision(r)
+}
+
+// resolveEffort mirrors resolvePrecision for the Effort tier: an explicit
+// extra.Effort wins only when the Rule itself didn't declare a value;
+// otherwise V2RuleEffort (which honors Rule.Effort and EffortProvider)
+// owns the answer. V2RuleEffort never returns EffortUnset so MetaForRule
+// always emits a populated tier.
+func resolveEffort(r *api.Rule, extra api.RuleDescriptor) api.Effort {
+	if r.Effort == api.EffortUnset && extra.Effort != api.EffortUnset {
+		return extra.Effort
+	}
+	return V2RuleEffort(r)
+}
+
+// resolveStability picks the tier returned in a descriptor. A
+// MetaProvider-supplied extra.Stability only wins when the rule itself
+// declared no explicit override; otherwise V2RuleStability is the
+// single source of truth (it already honors Rule.Stability and
+// StabilityProvider). V2RuleStability never returns StabilityUnset, so
+// MetaForRule always emits a populated tier.
+func resolveStability(r *api.Rule, extra api.RuleDescriptor) api.Stability {
+	if r.Stability == api.StabilityUnset && extra.Stability != api.StabilityUnset {
+		return extra.Stability
+	}
+	return V2RuleStability(r)
+}
+
+// V2RuleStability returns the rule's effective output-shape stability.
+//
+// Resolution order:
+//  1. Rule.Stability when set (non-zero) — the rule declared a tier.
+//  2. Rule.Implementation when it implements api.StabilityProvider —
+//     lets tests stub a tier without touching the Rule literal.
+//  3. Derived default: experimental rules are StabilityEvolving (their
+//     output is expected to change as they soak), every other rule
+//     defaults to StabilityStable. Rules that need the strongest
+//     "frozen" commitment must opt in explicitly.
+func V2RuleStability(r *api.Rule) api.Stability {
+	if r == nil {
+		return api.StabilityEvolving
+	}
+	if r.Stability != api.StabilityUnset {
+		return r.Stability
+	}
+	if r.Implementation != nil {
+		if sp, ok := r.Implementation.(api.StabilityProvider); ok {
+			if s := sp.Stability(); s != api.StabilityUnset {
+				return s
+			}
+		}
+	}
+	if r.Maturity == api.MaturityExperimental {
+		return api.StabilityEvolving
+	}
+	return api.StabilityStable
 }
 
 func withRuleLanguageSupport(r *api.Rule, m api.RuleDescriptor) api.RuleDescriptor {

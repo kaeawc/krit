@@ -35,6 +35,17 @@ const (
 	VerbAnalyzeProject = "analyze-project"
 )
 
+// ErrBinaryHashMismatchPrefix is the error.Error() prefix the daemon
+// emits when it rejects a request whose ClientBinaryHash does not
+// match its own. CLI callers detect this prefix to fall back to
+// in-process execution after printing a short "binary diverged"
+// warning. The full error reads
+// "binary hash mismatch (daemon=<x> client=<y>)" so logs carry both
+// hashes for diagnostics. Mirrors the JSON-RPC error code -32001 the
+// issue calls out, transported via the daemon's
+// `{ok:false,error:...}` envelope instead of a code field.
+const ErrBinaryHashMismatchPrefix = "binary hash mismatch"
+
 // AbiHashArgs is the argument shape for the abi-hash verb.
 type AbiHashArgs struct {
 	Target string `json:"target"`
@@ -160,6 +171,13 @@ type AnalyzeProjectArgs struct {
 	// hard SLA set this — useful for IDE workflows that can show a
 	// "warming up" indicator instead of blocking on the first call.
 	RequireWarm bool `json:"require_warm,omitempty"`
+	// ClientBinaryHash is the SHA-256 of the calling CLI's krit
+	// binary. When non-empty and the daemon's hash is non-empty, the
+	// daemon refuses the request when they differ — prevents a
+	// freshly-installed CLI from talking to a stale daemon. Empty
+	// disables the handshake (back-compat for clients that don't
+	// know their hash).
+	ClientBinaryHash string `json:"client_binary_hash,omitempty"`
 }
 
 // AnalyzeProjectResult is the response payload. Findings is the raw

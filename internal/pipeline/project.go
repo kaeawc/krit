@@ -249,6 +249,12 @@ type ProjectHostState struct {
 	AnalysisCacheResult   *cache.Result
 	AnalysisCacheStats    *cache.Stats
 	AnalysisCacheRuleHash string
+	// AnalysisCacheDirty opts the cacheCheck pass into
+	// CheckFilesIncremental: only listed paths get stat'd, the rest hit
+	// when an entry exists. nil = use the legacy CheckFiles path; a
+	// non-nil (possibly empty) slice means "trust me, the watcher saw
+	// every change." See issue #206.
+	AnalysisCacheDirty []string
 	// FindingsBundleStore, when non-nil, enables the whole-run findings
 	// cache (#55). RunProject computes a RunFingerprint from rules +
 	// config + source set + cross-file state + Android + library
@@ -867,7 +873,12 @@ func warmAnalysisCacheResult(args ProjectArgs, host ProjectHostState, filePaths 
 		return host.AnalysisCacheResult, stats
 	}
 	start := time.Now()
-	result := host.AnalysisCache.CheckFiles(filePaths, ruleHash, args.Paths...)
+	var result *cache.Result
+	if host.AnalysisCacheDirty != nil {
+		result = host.AnalysisCache.CheckFilesIncremental(filePaths, host.AnalysisCacheDirty, ruleHash, args.Paths...)
+	} else {
+		result = host.AnalysisCache.CheckFiles(filePaths, ruleHash, args.Paths...)
+	}
 	stats := &cache.Stats{
 		Cached:    result.TotalCached,
 		Total:     result.TotalFiles,
@@ -1077,6 +1088,7 @@ func wireAnalysisCacheLookup(in *IndexInput, args ProjectArgs, host ProjectHostS
 		}
 	}
 	in.CacheRuleNames = ruleNames
+	in.CacheDirty = host.AnalysisCacheDirty
 }
 
 // wireOracleHandles fills in the oracle-related IndexInput fields when

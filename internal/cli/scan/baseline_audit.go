@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -17,10 +18,17 @@ type baselineAuditIssue struct {
 	Reason string                `json:"reason"`
 }
 
+type baselineAuditWarning struct {
+	Entry     scanner.BaselineEntry `json:"entry"`
+	Stability string                `json:"stability"`
+	Message   string                `json:"message"`
+}
+
 type baselineAuditReport struct {
-	BaselinePath string               `json:"baselinePath"`
-	ScanPaths    []string             `json:"scanPaths"`
-	StaleEntries []baselineAuditIssue `json:"staleEntries"`
+	BaselinePath string                 `json:"baselinePath"`
+	ScanPaths    []string               `json:"scanPaths"`
+	StaleEntries []baselineAuditIssue   `json:"staleEntries"`
+	Warnings     []baselineAuditWarning `json:"warnings,omitempty"`
 }
 
 func RunBaselineAuditColumns(columns *scanner.FindingColumns, baseline *scanner.Baseline, baselinePath, basePath string, scanPaths []string, format string) int {
@@ -37,29 +45,21 @@ func RunBaselineAuditColumns(columns *scanner.FindingColumns, baseline *scanner.
 	}
 
 	knownRules := make(map[string]bool, len(api.Registry))
+	ruleByID := make(map[string]*api.Rule, len(api.Registry))
 	for _, rule := range api.Registry {
 		knownRules[rule.ID] = true
+		ruleByID[rule.ID] = rule
 	}
 
 	knownFiles := collectBaselineAuditFiles(scanPaths)
-	stale := make([]baselineAuditIssue, 0)
-	for _, entry := range baseline.Entries() {
-		if liveIDs[entry.ID] {
-			continue
-		}
+	stale, warnings := classifyBaselineEntries(baseline.Entries(), liveIDs, knownRules, ruleByID, baselinePath, basePath, knownFiles)
 
-		reason := "finding no longer exists"
-		switch {
-		case entry.Rule == "" || !knownRules[entry.Rule]:
-			reason = "rule deleted"
-		case !baselineEntryFileExists(entry, baselinePath, basePath, knownFiles):
-			reason = "file no longer exists"
+	sort.Slice(warnings, func(i, j int) bool {
+		if warnings[i].Entry.Rule != warnings[j].Entry.Rule {
+			return warnings[i].Entry.Rule < warnings[j].Entry.Rule
 		}
-		stale = append(stale, baselineAuditIssue{
-			Entry:  entry,
-			Reason: reason,
-		})
-	}
+		return warnings[i].Entry.ID < warnings[j].Entry.ID
+	})
 
 	sort.Slice(stale, func(i, j int) bool {
 		if stale[i].Reason != stale[j].Reason {
@@ -81,6 +81,7 @@ func RunBaselineAuditColumns(columns *scanner.FindingColumns, baseline *scanner.
 			BaselinePath: baselinePath,
 			ScanPaths:    append([]string(nil), scanPaths...),
 			StaleEntries: stale,
+			Warnings:     warnings,
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "error: encode baseline-audit JSON: %v\n", err)
 			return 2
@@ -89,20 +90,83 @@ func RunBaselineAuditColumns(columns *scanner.FindingColumns, baseline *scanner.
 	}
 
 	fmt.Printf("Baseline audit - %s\n", baselinePath)
-	if len(stale) == 0 {
+	if len(stale) == 0 && len(warnings) == 0 {
 		fmt.Println("No stale baseline entries found.")
 		return 0
 	}
 
-	fmt.Printf("Dead baseline entries: %d\n", len(stale))
-	for _, issue := range stale {
-		path := issue.Entry.Path
-		if path == "" {
-			path = "(unknown path)"
+	if len(stale) > 0 {
+		fmt.Printf("Dead baseline entries: %d\n", len(stale))
+		for _, issue := range stale {
+			path := issue.Entry.Path
+			if path == "" {
+				path = "(unknown path)"
+			}
+			fmt.Printf("  %s :: %s (%s)\n", path, issue.Entry.Rule, issue.Reason)
 		}
-		fmt.Printf("  %s :: %s (%s)\n", path, issue.Entry.Rule, issue.Reason)
+	}
+
+	if len(warnings) > 0 {
+		fmt.Printf("Stability warnings: %d (rules whose output may change between minor versions)\n", len(warnings))
+		for _, w := range warnings {
+			path := w.Entry.Path
+			if path == "" {
+				path = "(unknown path)"
+			}
+			fmt.Printf("  %s :: %s [stability=%s]\n", path, w.Entry.Rule, w.Stability)
+		}
 	}
 	return 0
+}
+
+// classifyBaselineEntries splits baseline entries into (stale, warnings).
+// Stale entries are baseline IDs no longer produced by the scan; warnings
+// flag live findings whose owning rule has StabilityEvolving so consumers
+// know the pin may break on a minor-version bump.
+func classifyBaselineEntries(
+	entries []scanner.BaselineEntry,
+	liveIDs, knownRules map[string]bool,
+	ruleByID map[string]*api.Rule,
+	baselinePath, basePath string,
+	knownFiles map[string]bool,
+) ([]baselineAuditIssue, []baselineAuditWarning) {
+	stale := make([]baselineAuditIssue, 0)
+	warnings := make([]baselineAuditWarning, 0)
+	seenWarning := make(map[string]bool)
+	for _, entry := range entries {
+		if liveIDs[entry.ID] {
+			if w, ok := stabilityWarning(entry, ruleByID); ok && !seenWarning[entry.ID] {
+				seenWarning[entry.ID] = true
+				warnings = append(warnings, w)
+			}
+			continue
+		}
+		reason := "finding no longer exists"
+		switch {
+		case entry.Rule == "" || !knownRules[entry.Rule]:
+			reason = "rule deleted"
+		case !baselineEntryFileExists(entry, baselinePath, basePath, knownFiles):
+			reason = "file no longer exists"
+		}
+		stale = append(stale, baselineAuditIssue{Entry: entry, Reason: reason})
+	}
+	return stale, warnings
+}
+
+func stabilityWarning(entry scanner.BaselineEntry, ruleByID map[string]*api.Rule) (baselineAuditWarning, bool) {
+	r := ruleByID[entry.Rule]
+	if r == nil {
+		return baselineAuditWarning{}, false
+	}
+	s := rules.V2RuleStability(r)
+	if s != api.StabilityEvolving {
+		return baselineAuditWarning{}, false
+	}
+	return baselineAuditWarning{
+		Entry:     entry,
+		Stability: s.String(),
+		Message:   "rule output may change between minor versions; baseline pin is fragile",
+	}, true
 }
 
 func ResolveBaselineAuditPath(explicit string, scanPaths []string) (string, error) {

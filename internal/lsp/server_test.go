@@ -1566,8 +1566,8 @@ func TestHoverReturnsRuleInfo(t *testing.T) {
 	if !strings.Contains(hover.Contents.Value, "Detects magic number literals") {
 		t.Errorf("expected hover to contain rule description, got: %s", hover.Contents.Value)
 	}
-	if !strings.Contains(hover.Contents.Value, "[Open rule docs](file://") || !strings.Contains(hover.Contents.Value, "/docs/rules.md)") {
-		t.Errorf("expected hover to contain rule docs link, got: %s", hover.Contents.Value)
+	if !strings.Contains(hover.Contents.Value, "[Open rule docs](https://krit.dev/rules/MagicNumber)") {
+		t.Errorf("expected hover to contain canonical rule docs link, got: %s", hover.Contents.Value)
 	}
 	if !strings.Contains(hover.Contents.Value, "Severity: `warning`") {
 		t.Errorf("expected hover to contain severity, got: %s", hover.Contents.Value)

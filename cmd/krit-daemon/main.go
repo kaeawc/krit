@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/sessdaemon"
 )
 
@@ -44,6 +46,20 @@ func main() {
 	if info, err := os.Stat(repo); err != nil || !info.IsDir() {
 		log.Fatalf("krit-daemon: --repo is not a directory: %s", repo)
 	}
+
+	lock, err := daemon.AcquireRepoLock(repo)
+	if err != nil {
+		if errors.Is(err, daemon.ErrAlreadyHeld) {
+			if pid := daemon.ReadPIDFile(repo); pid > 0 {
+				fmt.Fprintf(os.Stderr, "krit-daemon: already running, PID %d\n", pid)
+			} else {
+				fmt.Fprintln(os.Stderr, "krit-daemon: already running (PID unknown)")
+			}
+			os.Exit(2)
+		}
+		log.Fatalf("krit-daemon: acquire lock: %v", err)
+	}
+	defer lock.Close() //nolint:errcheck // best effort on shutdown
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

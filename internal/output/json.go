@@ -46,6 +46,7 @@ type JSONFinding struct {
 	Fixable    bool    `json:"fixable"`
 	FixLevel   string  `json:"fixLevel,omitempty"`
 	Confidence float64 `json:"confidence,omitempty"`
+	Effort     string  `json:"effort,omitempty"`
 }
 
 // JSONSummary summarizes findings.
@@ -101,8 +102,9 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 
 	cols := normalizedFindingColumns(columns)
 
-	// Build fix-level lookup
+	// Build fix-level and effort lookups
 	fixLevels := make(map[string]string)
+	efforts := make(map[string]string)
 	for _, r := range activeRules {
 		if r == nil {
 			continue
@@ -110,12 +112,15 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 		if lvl, ok := rules.GetV2FixLevel(r); ok {
 			fixLevels[r.ID] = lvl.String()
 		}
+		if e := rules.V2RuleEffort(r); e != api.EffortUnset {
+			efforts[r.ID] = e.String()
+		}
 	}
 
 	byRuleSet := make(map[string]int)
 	byRule := make(map[string]int)
 	fixableCount := 0
-	findingsJSON, err := buildJSONFindings(columns, fixLevels, byRuleSet, byRule, &fixableCount, indent)
+	findingsJSON, err := buildJSONFindings(columns, fixLevels, efforts, byRuleSet, byRule, &fixableCount, indent)
 	if err != nil {
 		return fmt.Errorf("marshal findings: %w", err)
 	}
@@ -164,7 +169,7 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 	return enc.Encode(report)
 }
 
-func buildJSONFindings(columns *scanner.FindingColumns, fixLevels map[string]string, byRuleSet, byRule map[string]int, fixableCount *int, indent bool) (json.RawMessage, error) {
+func buildJSONFindings(columns *scanner.FindingColumns, fixLevels, efforts map[string]string, byRuleSet, byRule map[string]int, fixableCount *int, indent bool) (json.RawMessage, error) {
 	cols := normalizedFindingColumns(columns)
 	if cols.Len() == 0 {
 		return json.RawMessage("[]"), nil
@@ -215,6 +220,7 @@ func buildJSONFindings(columns *scanner.FindingColumns, fixLevels map[string]str
 			finding.FixLevel = fixLevels[rule]
 			*fixableCount = *fixableCount + 1
 		}
+		finding.Effort = efforts[rule]
 		byRuleSet[ruleSet]++
 		byRule[rule]++
 

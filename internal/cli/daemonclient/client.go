@@ -14,6 +14,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/kaeawc/krit/internal/daemon"
@@ -46,6 +48,36 @@ func Discover(repoRoot string) (*Client, bool) {
 		return nil, false
 	}
 	return &Client{socketPath: socket}, true
+}
+
+// TryConnect is Discover with an explicit socket-path override. When
+// socketOverride is empty the behaviour matches Discover; otherwise
+// the override drives the dial directly so `--daemon-socket PATH`
+// can point at non-default locations (test fixtures, multi-root
+// setups). Never returns an error — the CLI's auto-detect contract
+// is that socket noise does not bubble up to the user.
+func TryConnect(repoRoot, socketOverride string) (*Client, bool) {
+	if socketOverride == "" {
+		return Discover(repoRoot)
+	}
+	if !daemon.Available(socketOverride) {
+		return nil, false
+	}
+	return &Client{socketPath: socketOverride}, true
+}
+
+// CurrentBinaryHash returns the SHA-256 hex digest of the running CLI's
+// binary. Empty when the executable can't be located or read; callers
+// treat empty as "skip the handshake" so out-of-tree builds and tests
+// stay usable.
+func CurrentBinaryHash() string { return currentBinaryHash() }
+
+// IsBinaryHashMismatch reports whether err is the daemon's
+// "binary hash mismatch" rejection. Used by the CLI to print a
+// one-line warning and fall back to in-process execution after a
+// `go install` left a stale daemon resident.
+func IsBinaryHashMismatch(err error) bool {
+	return err != nil && strings.Contains(err.Error(), daemon.ErrBinaryHashMismatchPrefix)
 }
 
 // EnsureCompatible discovers a running daemon, compares its
@@ -103,8 +135,20 @@ func waitForSocketGone(socket string, timeout time.Duration) {
 // currentBinaryHash returns the SHA-256 hex digest of the running
 // CLI's binary. Empty string disables the hash comparison so old
 // daemons (or unreadable executables) don't trigger spurious
-// restarts.
+// restarts. Cached after the first call — the executable path
+// doesn't change within a process lifetime, and the daemon-handshake
+// path would otherwise re-read + re-hash a 50MB binary on every
+// AnalyzeProject invocation.
 func currentBinaryHash() string {
+	if cached := binaryHashCache.Load(); cached != nil {
+		return *cached
+	}
+	hash := computeCurrentBinaryHash()
+	binaryHashCache.Store(&hash)
+	return hash
+}
+
+func computeCurrentBinaryHash() string {
 	exe, err := os.Executable()
 	if err != nil {
 		return ""
@@ -120,6 +164,8 @@ func currentBinaryHash() string {
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
+
+var binaryHashCache atomic.Pointer[string]
 
 // SpawnOptions controls EnsureRunning's behaviour.
 type SpawnOptions struct {
@@ -240,6 +286,25 @@ func (c *Client) AnalyzeBuffers(args daemon.AnalyzeBuffersArgs) (daemon.AnalyzeB
 	var result daemon.AnalyzeBuffersResult
 	if err := daemon.Call(c.socketPath, daemon.VerbAnalyzeBuffers, args, &result); err != nil {
 		return daemon.AnalyzeBuffersResult{}, err
+	}
+	return result, nil
+}
+
+// AnalyzeProject dispatches the analyze-project verb. The caller's
+// binary hash is injected automatically when args.ClientBinaryHash is
+// empty, so default callers always participate in the handshake. A
+// daemon-side hash mismatch surfaces as an error that
+// IsBinaryHashMismatch matches.
+func (c *Client) AnalyzeProject(args daemon.AnalyzeProjectArgs) (daemon.AnalyzeProjectResult, error) {
+	if c == nil {
+		return daemon.AnalyzeProjectResult{}, errors.New("daemonclient: nil client")
+	}
+	if args.ClientBinaryHash == "" {
+		args.ClientBinaryHash = currentBinaryHash()
+	}
+	var result daemon.AnalyzeProjectResult
+	if err := daemon.Call(c.socketPath, daemon.VerbAnalyzeProject, args, &result); err != nil {
+		return daemon.AnalyzeProjectResult{}, err
 	}
 	return result, nil
 }

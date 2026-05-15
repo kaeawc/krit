@@ -166,6 +166,12 @@ type RuleDescriptor struct {
 	// they publish other metadata.
 	Aliases []string
 
+	// IntroducedIn mirrors Rule.IntroducedIn — the krit version in
+	// which this rule first shipped. MetaForRule always returns a
+	// populated value (auto-filled with api.DefaultIntroducedIn when
+	// the rule literal does not declare one).
+	IntroducedIn string
+
 	// EnabledByDefaultSince mirrors Rule.EnabledByDefaultSince — the
 	// krit version in which this rule became default-active. Empty
 	// string means inception or unrecorded.
@@ -175,6 +181,11 @@ type RuleDescriptor struct {
 	// scheduled for removal; consumers should surface migration
 	// guidance via ReplacedBy / Reason.
 	Deprecated *Deprecation
+
+	// RelatedRules mirrors Rule.RelatedRules — advisory cross-links to
+	// other rule IDs covering overlapping concerns. See Rule.RelatedRules
+	// for the full contract.
+	RelatedRules []string
 
 	// RuleSet is the configuration group this rule belongs to
 	// (e.g. "complexity", "naming", "performance").
@@ -187,11 +198,21 @@ type RuleDescriptor struct {
 	// descriptive and do not affect activation or dispatch.
 	Tags []string
 
+	// Owners are GitHub handles or team aliases that maintain this
+	// rule. See Rule.Owners for the full contract. MetaForRule always
+	// emits a non-empty Owners slice, falling back to DefaultRuleOwners
+	// when neither Rule.Owners nor a MetaProvider supplied one.
+	Owners []string
+
 	// Severity is "error", "warning", or "info".
 	Severity string
 
 	// Description is the human-readable rule summary.
 	Description string
+
+	// DocsURL mirrors Rule.DocsURL — the canonical documentation URL.
+	// When empty, RuleDocsURL derives one from DefaultDocsBaseURL + ID.
+	DocsURL string
 
 	// DefaultActive reports whether the rule runs by default. Rules with
 	// DefaultActive == false are opt-in (must be enabled via config or
@@ -216,6 +237,19 @@ type RuleDescriptor struct {
 	// policy). PrecisionUnset means MetaForRule should derive the tier
 	// from rule shape; otherwise this value is authoritative.
 	Precision Precision
+
+	// Effort mirrors Rule.Effort — manual-fix difficulty
+	// (trivial / local / refactor / architectural). EffortUnset means
+	// MetaForRule should derive the tier from rule shape via
+	// V2RuleEffort; otherwise this value is authoritative. Orthogonal
+	// to FixLevel (auto-fix safety).
+	Effort Effort
+
+	// Stability mirrors Rule.Stability — the rule's output-shape
+	// commitment (evolving / stable / frozen). StabilityUnset means
+	// the rule has not declared a tier; consumers should treat that
+	// conservatively. See Rule.Stability for the contract.
+	Stability Stability
 
 	// LanguageSupport records per-source-language support status for a rule.
 	// It is product/support metadata rather than dispatcher routing: Languages

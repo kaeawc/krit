@@ -32,6 +32,7 @@ type scanFlags struct {
 	DryRun                   *bool
 	AllRules                 *bool
 	Experimental             *bool
+	Maturity                 *string
 	Baseline                 *string
 	CreateBaseline           *string
 	BasePath                 *string
@@ -73,6 +74,7 @@ type scanFlags struct {
 	Diff                     *string
 	Delta                    *string
 	DisableRules             *string
+	DisableRelated           *bool
 	EnableRules              *string
 	MaxCost                  *string
 	Experiment               *string
@@ -101,6 +103,8 @@ type scanFlags struct {
 	RuleAuditCluster         *string
 	BaselineAudit            *bool
 	Depth                    *string
+	NoDaemon                 *bool
+	DaemonSocket             *string
 }
 
 // registerScanFlags declares every scan-verb flag against fs and returns a
@@ -131,6 +135,8 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.DryRun = fs.Bool("dry-run", false, "Show what --fix would change without modifying files")
 	f.AllRules = fs.Bool("all-rules", false, "Enable all rules including opt-in")
 	f.Experimental = fs.Bool("experimental", false, "Enable rules whose Maturity is experimental (does not enable deprecated rules)")
+	fs.BoolVar(f.Experimental, "enable-experimental", false, "Alias for --experimental")
+	f.Maturity = fs.String("maturity", "", "With --list-rules: filter to rules whose Maturity matches (stable, experimental, or deprecated)")
 	f.Baseline = fs.String("baseline", "", "Baseline file to suppress known issues (XML or JSON)")
 	f.CreateBaseline = fs.String("create-baseline", "", "Create a baseline file from current findings")
 	f.BasePath = fs.String("base-path", "", "Base path for relative file paths in baselines and reports (default: first scan path)")
@@ -172,6 +178,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.Diff = fs.String("diff", "", "Only report findings in files changed since git ref (e.g., HEAD~1, main, origin/main)")
 	f.Delta = fs.String("delta", "", "Only fail/report findings newly introduced since git ref (e.g., main, origin/main)")
 	f.DisableRules = fs.String("disable-rules", "", "Comma-separated rules to disable (e.g., MagicNumber,MaxLineLength)")
+	f.DisableRelated = fs.Bool("disable-related", false, "Also disable every rule listed in the RelatedRules metadata of each --disable-rules entry (non-transitive: only one hop is followed).")
 	f.EnableRules = fs.String("enable-rules", "", "Comma-separated rules to enable (overrides config)")
 	f.MaxCost = fs.String("max-cost", "", "Maximum rule weight class to run: trivial, line, ast (fast), crossfile (balanced), oracle, fir (thorough). Filters the active rule set so higher-cost rules are skipped.")
 	f.Experiment = fs.String("experiment", "", "Comma-separated experiment feature flags to enable")
@@ -200,5 +207,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.RuleAuditCluster = fs.String("rule-audit-cluster", "", "Filter --rule-audit to rules whose cluster label contains this substring (e.g. 'res/', 'manifest', 'kt')")
 	f.BaselineAudit = fs.Bool("baseline-audit", false, "Audit a baseline file for dead entries and removed rules, then exit")
 	f.Depth = fs.String("depth", "", "Analysis depth preset: fast (skip JVM oracle), balanced (default), thorough. Overrides krit.yml analysis.depth; individual --no-* flags still take precedence.")
+	f.NoDaemon = fs.Bool("no-daemon", false, "Force in-process execution; do not contact the krit daemon even if a socket is reachable.")
+	f.DaemonSocket = fs.String("daemon-socket", "", "Override the krit daemon socket path (default <repoRoot>/.krit/daemon.sock).")
 	return f
 }

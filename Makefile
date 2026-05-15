@@ -1,4 +1,4 @@
-.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression all install install-completions watch
+.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression daemon-verify all install install-completions watch
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
@@ -8,6 +8,7 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o krit-lsp ./cmd/krit-lsp/
 	go build -ldflags "$(LDFLAGS)" -o krit-mcp ./cmd/krit-mcp/
 	go build -ldflags "$(LDFLAGS)" -o krit-daemon ./cmd/krit-daemon/
+	go build -ldflags "$(LDFLAGS)" -o krit-changelog ./cmd/krit-changelog/
 
 test:
 	go test ./... -count=1
@@ -34,7 +35,7 @@ schema: build
 	./krit --generate-schema > schemas/krit-config.schema.json
 
 clean:
-	rm -f krit krit-lsp krit-mcp krit-daemon
+	rm -f krit krit-lsp krit-mcp krit-daemon krit-changelog
 
 bench:
 	go test ./internal/... -bench=. -benchmem -count=3 -timeout 120s
@@ -49,7 +50,14 @@ playground: build
 regression: build
 	bash scripts/regression-check.sh
 
-ci: build vet test integration regression
+# daemon-verify runs the divergence harness unit suite, which is the
+# correctness oracle for the daemon's resident-cache path. When daemon
+# strict-verify mode lands it will also drive the harness across the
+# fixture tree and any opt-in corpus pointed at by KRIT_CORPUS_DIR.
+daemon-verify:
+	go test ./internal/daemon/ -run 'TestCompare|TestDiff' -count=1
+
+ci: build vet test integration regression daemon-verify
 
 DESTDIR ?=
 

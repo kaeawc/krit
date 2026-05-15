@@ -549,6 +549,37 @@ func (m Maturity) String() string {
 	}
 }
 
+// ParseMaturity returns the Maturity matching the given label. Labels
+// accepted are exactly the canonical strings emitted by String() — keeping
+// the MCP schema enum, CLI flag parser, and downstream consumers in
+// lockstep. Unknown labels (and the empty string) return MaturityStable,
+// false.
+func ParseMaturity(s string) (Maturity, bool) {
+	switch s {
+	case "stable":
+		return MaturityStable, true
+	case "experimental":
+		return MaturityExperimental, true
+	case "deprecated":
+		return MaturityDeprecated, true
+	default:
+		return MaturityStable, false
+	}
+}
+
+// MaturityFilter returns rules whose Maturity matches the provided value.
+// Useful from production code (MCP/CLI filters) and tests alike. The
+// returned slice preserves input order and is always non-nil.
+func MaturityFilter(rules []*Rule, m Maturity) []*Rule {
+	out := make([]*Rule, 0, len(rules))
+	for _, r := range rules {
+		if r != nil && r.Maturity == m {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // OptInReason classifies *why* a default-inactive rule ships off by default.
 // It is required when DefaultActive == false and must remain unset
 // (OptInReasonUnspecified) when DefaultActive == true. The ruleslinter gate
@@ -707,6 +738,10 @@ type Rule struct {
 	Description string
 	Sev         Severity
 
+	// DocsURL is the canonical documentation URL for this rule. When
+	// empty, RuleDocsURL derives a URL from DefaultDocsBaseURL + rule ID.
+	DocsURL string
+
 	// Aliases are legacy or alternate IDs for this rule. They do NOT
 	// appear in the registry as separate rules; they only affect
 	// suppression: @Suppress("<alias>") (and inline `// krit:ignore[<alias>]`)
@@ -725,6 +760,21 @@ type Rule struct {
 	// config activation today.
 	Tags []string
 
+	// Owners are GitHub handles or team aliases (e.g. "@kaeawc" or
+	// "@kaeawc/android") that maintain this rule. Surfaces in MCP
+	// `explain` so users know who to ping when a rule misfires; also
+	// pre-fills the `/cc @owner` line on issue templates and CI failure
+	// messages. Empty Owners on a registered rule falls back to
+	// DefaultRuleOwners when projected through MetaForRule.
+	Owners []string
+
+	// IntroducedIn records the krit version in which this rule first
+	// shipped (typically opt-in). Empty string at Register time is
+	// auto-filled with DefaultIntroducedIn so changelog/explain output is
+	// always populated. Used by docs and release-note generation; the
+	// runtime does not key behavior on it.
+	IntroducedIn string
+
 	// EnabledByDefaultSince records the krit version in which this rule
 	// became default-active (DefaultActive transitioned from false to
 	// true). Empty string means the rule has been default-active since
@@ -738,6 +788,19 @@ type Rule struct {
 	// — they continue to fire so existing baselines stay valid until the
 	// user migrates.
 	Deprecated *Deprecation
+
+	// RelatedRules names other rule IDs that cover overlapping concerns —
+	// near-duplicates, narrower/broader variants, or alternative styles for
+	// the same defect class. Unlike Deprecated.ReplacedBy (which only
+	// applies to deprecated rules) this field is a general advisory link
+	// usable by all rules. Relations are directional hints and need not be
+	// symmetric. Consumers:
+	//   - MCP `explain` renders a "Related rules" cross-link section.
+	//   - `--disable-related` extends the disabled set with the related
+	//     IDs of every explicitly disabled rule (non-transitive).
+	// ValidateRelations enforces that every referenced ID exists in the
+	// registry at NewDispatcher time.
+	RelatedRules []string
 
 	// Dispatch routing.
 	//
@@ -786,6 +849,25 @@ type Rule struct {
 	// explicitly. The dispatcher does not key behavior on this field;
 	// it is filterable metadata for CLI, MCP, SARIF, and IDE consumers.
 	Precision Precision
+
+	// Effort estimates manual-fix difficulty for findings emitted by
+	// this rule. Orthogonal to Fix (auto-fix safety): a rule can be
+	// auto-fixable (FixCosmetic) and still EffortRefactor — the
+	// autofix runs across many files. When EffortUnset (the zero
+	// value), MetaForRule derives a tier from rule shape using
+	// V2RuleEffort. Filterable metadata for CLI (`triage --max-effort`),
+	// MCP `explain`, and SARIF triage dashboards.
+	Effort Effort
+
+	// Stability declares the rule's *output-shape* commitment — whether
+	// message text, finding location, or fix range may change between
+	// versions. Distinct from Maturity (which describes the rule's
+	// lifecycle). Consumers that pin findings (baseline files, CI gates,
+	// dashboards) read this to decide whether the rule is safe to depend
+	// on. The dispatcher does not key behavior on this field. Zero value
+	// (StabilityUnset) means the rule has not declared a tier and
+	// consumers should treat it conservatively.
+	Stability Stability
 
 	// KotlincAnalog names the closest standard kotlinc diagnostic that
 	// this rule approximates, e.g. "UNREACHABLE_CODE". Informational
@@ -1108,6 +1190,66 @@ func NeedsJavaFacts(rules []*Rule) bool {
 	return false
 }
 
+// ValidateRelations checks that every ID listed in any rule's
+// RelatedRules exists in the supplied rule set. Relations are
+// directional advisory hints — symmetry is NOT required. Returns nil
+// when every reference resolves; otherwise an error naming the first
+// offending (rule, referenced ID) pair found in stable iteration order.
+//
+// Callers are expected to invoke this from NewDispatcher (or another
+// registry-construction boundary) so dangling references surface at
+// startup rather than via silent dead links in MCP output.
+func ValidateRelations(rules []*Rule) error {
+	ids := make(map[string]bool, len(rules))
+	for _, r := range rules {
+		if r == nil {
+			continue
+		}
+		ids[r.ID] = true
+	}
+	for _, r := range rules {
+		if r == nil {
+			continue
+		}
+		for _, ref := range r.RelatedRules {
+			if ref == r.ID {
+				return &RelationError{Rule: r.ID, Reference: ref, Reason: "rule cannot relate to itself"}
+			}
+			if !ids[ref] {
+				return &RelationError{Rule: r.ID, Reference: ref, Reason: "unknown rule ID"}
+			}
+		}
+	}
+	return nil
+}
+
+// RelationError describes an invalid RelatedRules entry surfaced by
+// ValidateRelations.
+type RelationError struct {
+	Rule      string
+	Reference string
+	Reason    string
+}
+
+func (e *RelationError) Error() string {
+	return "rule " + e.Rule + " RelatedRules entry " + e.Reference + ": " + e.Reason
+}
+
+// DefaultIntroducedIn is the krit version assigned to rules whose
+// Rule.IntroducedIn is empty at registration time. It mirrors the first
+// public release that carried broad lint-rule coverage; new rules added
+// after a release bump should set IntroducedIn explicitly to that
+// release's version.
+const DefaultIntroducedIn = "0.2.0"
+
+// DefaultRuleOwners is the fallback owner list used when a rule does
+// not declare its own Owners. It mirrors the project's CODEOWNERS
+// root entry ("* @kaeawc") so every registered rule has at least one
+// pingable maintainer surfaced through MetaForRule and MCP `explain`.
+//
+// Treat the slice as read-only.
+var DefaultRuleOwners = []string{"@kaeawc"}
+
 // Registry holds all registered v2 rules.
 var Registry []*Rule
 
@@ -1126,6 +1268,9 @@ func Register(r *Rule) {
 	}
 	if r.Needs.Has(NeedsAggregate) && r.Aggregate == nil {
 		panic("api.Register: rule " + r.ID + " declares NeedsAggregate but Aggregate is nil")
+	}
+	if r.IntroducedIn == "" {
+		r.IntroducedIn = DefaultIntroducedIn
 	}
 	Registry = append(Registry, r)
 }

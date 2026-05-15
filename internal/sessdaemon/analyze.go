@@ -85,8 +85,26 @@ func (s *Server) buildProjectInput(paths []string) (pipeline.ProjectInput, error
 	if sess := s.session; sess != nil {
 		host.ParseCache = sess.ParseCache
 		host.AnalysisCache = sess.AnalysisCache
+		host.AnalysisCacheFilePath = sess.AnalysisCacheFilePath
 		host.PrebuiltLibraryFacts = sess.LibraryFacts
+		// The daemon's file watcher feeds WorkspaceState.Touch, so
+		// CheckFilesIncremental can trust DrainDirty as the
+		// "changed since last analyze" set. See issue #206.
+		if sess.AnalysisCache != nil && sess.AnalysisCacheFilePath != "" {
+			host.AnalysisCacheLookup = true
+			dirty := sess.Workspace.DrainDirty()
+			if dirty == nil {
+				dirty = []string{}
+			}
+			host.AnalysisCacheDirty = dirty
+		}
 	}
+	// Lazy-start (or recover) the resident krit-types JVM. ensureOracle
+	// returns nil when the JAR is missing or after a crash-retry has
+	// exhausted its budget — analyze proceeds without oracle in that
+	// case so the client always gets a response.
+	oracleDaemon := s.ensureOracle(paths)
+	host.OracleDaemon = oracleDaemon
 	// scan.NewSession leaves ParseCache nil — lazily attach one and
 	// stash it on the session so subsequent analyze calls are warm.
 	// Safe because analyze is serialised through s.mu.
@@ -103,11 +121,12 @@ func (s *Server) buildProjectInput(paths []string) (pipeline.ProjectInput, error
 
 	return pipeline.ProjectInput{
 		Args: pipeline.ProjectArgs{
-			Config:      cfg,
-			Paths:       paths,
-			ActiveRules: activeRules,
-			Format:      "json",
-			Version:     "daemon",
+			Config:        cfg,
+			Paths:         paths,
+			ActiveRules:   activeRules,
+			Format:        "json",
+			Version:       "daemon",
+			OracleEnabled: oracleDaemon != nil,
 		},
 		Host: host,
 	}, nil

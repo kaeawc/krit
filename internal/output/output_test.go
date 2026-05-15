@@ -698,6 +698,43 @@ func TestFormatJSON_SortsByFileLineAndLexicalTieBreakers(t *testing.T) {
 	}
 }
 
+// TestFormatSARIF_Effort verifies the SARIF effort property is wired
+// through from V2RuleEffort. The test registers a temporary rule so the
+// formatter's registry lookup picks up the effort tier, then restores
+// the registry to its prior state.
+func TestFormatSARIF_Effort(t *testing.T) {
+	savedRegistry := api.Registry
+	t.Cleanup(func() { api.Registry = savedRegistry })
+
+	r := &api.Rule{
+		ID: "EffortFixture", Category: "triage",
+		Description: "fixture", Sev: api.SeverityWarning,
+		NodeTypes: []string{"call_expression"},
+		Effort:    api.EffortArchitectural,
+		Check:     func(*api.Context) {},
+	}
+	api.Registry = append(append([]*api.Rule{}, savedRegistry...), r)
+
+	findings := []scanner.Finding{
+		{File: "a.kt", Line: 1, Col: 1, Severity: "warning",
+			RuleSet: "triage", Rule: "EffortFixture", Message: "m"},
+	}
+	var buf bytes.Buffer
+	FormatSARIF(&buf, findings, "1.0.0")
+	var sarif map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &sarif); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	results := sarif["runs"].([]interface{})[0].(map[string]interface{})["results"].([]interface{})
+	props, ok := results[0].(map[string]interface{})["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("missing properties; result=%v", results[0])
+	}
+	if got := props["effort"]; got != "architectural" {
+		t.Errorf("effort = %v, want architectural", got)
+	}
+}
+
 func TestFormatSARIF_MultipleRules(t *testing.T) {
 	findings := []scanner.Finding{
 		{File: "a.kt", Line: 1, Col: 1, Severity: "warning", RuleSet: "style", Rule: "R1", Message: "m1"},
@@ -918,6 +955,44 @@ func TestFormatSARIF_ConfidenceField(t *testing.T) {
 	// Second result has no confidence
 	if results[1].Properties != nil {
 		t.Errorf("expected nil properties on second result, got %+v", results[1].Properties)
+	}
+}
+
+func TestFormatSARIF_HelpURI(t *testing.T) {
+	findings := []scanner.Finding{
+		{File: "a.kt", Line: 1, Col: 1, Severity: "warning", RuleSet: "style", Rule: "MagicNumber",
+			Message: "magic"},
+	}
+	var buf bytes.Buffer
+	FormatSARIF(&buf, findings, "1.0.0")
+
+	var sarif sarifLog
+	if err := json.Unmarshal(buf.Bytes(), &sarif); err != nil {
+		t.Fatalf("invalid SARIF JSON: %v", err)
+	}
+	if len(sarif.Runs) == 0 {
+		t.Fatal("expected at least one run")
+	}
+	rulesOut := sarif.Runs[0].Tool.Driver.Rules
+	if len(rulesOut) == 0 {
+		t.Fatal("expected at least one rule in driver")
+	}
+	if rulesOut[0].HelpURI != "https://krit.dev/rules/MagicNumber" {
+		t.Errorf("expected helpUri https://krit.dev/rules/MagicNumber, got %q", rulesOut[0].HelpURI)
+	}
+}
+
+func TestFormatSARIF_HelpURI_OmittedForUnknownRule(t *testing.T) {
+	findings := []scanner.Finding{
+		{File: "a.kt", Line: 1, Col: 1, Severity: "warning", RuleSet: "synthetic", Rule: "DoesNotExist",
+			Message: "x"},
+	}
+	var buf bytes.Buffer
+	FormatSARIF(&buf, findings, "1.0.0")
+
+	// helpUri is omitempty: rules absent from the registry contribute no URI.
+	if strings.Contains(buf.String(), `"helpUri"`) {
+		t.Errorf("expected no helpUri for unknown rule, got:\n%s", buf.String())
 	}
 }
 

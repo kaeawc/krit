@@ -330,6 +330,45 @@ func TestExplainRule(t *testing.T) {
 	if _, ok := info["fixable"]; !ok {
 		t.Error("expected fixable in result")
 	}
+	owners, ok := info["owners"].([]interface{})
+	if !ok {
+		t.Fatalf("expected owners array in result, got %T", info["owners"])
+	}
+	if len(owners) == 0 {
+		t.Error("expected at least one owner")
+	}
+	maintained, ok := info["maintainedBy"].(string)
+	if !ok || !strings.HasPrefix(maintained, "Maintained by ") {
+		t.Errorf("expected maintainedBy 'Maintained by ...', got %q", info["maintainedBy"])
+	}
+	if info["introducedIn"] == nil || info["introducedIn"] == "" {
+		t.Error("expected introducedIn in result")
+	}
+	if info["lifecycle"] == nil || info["lifecycle"] == "" {
+		t.Error("expected lifecycle summary in result")
+	}
+}
+
+func TestFormatLifecycle(t *testing.T) {
+	tests := []struct {
+		name        string
+		introduced  string
+		enabled     string
+		wantSummary string
+	}{
+		{"both", "0.2.0", "0.4.0", "Introduced in 0.2.0; default since 0.4.0"},
+		{"introduced only", "0.2.0", "", "Introduced in 0.2.0"},
+		{"default only", "", "0.4.0", "Default since 0.4.0"},
+		{"empty", "", "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatLifecycle(tc.introduced, tc.enabled)
+			if got != tc.wantSummary {
+				t.Errorf("formatLifecycle(%q,%q) = %q, want %q", tc.introduced, tc.enabled, got, tc.wantSummary)
+			}
+		})
+	}
 }
 
 func TestExplainRuleUnknown(t *testing.T) {

@@ -125,6 +125,15 @@ func NewDispatcher(rules []*api.Rule, resolver ...typeinfer.TypeResolver) *Dispa
 		d.typeResolver = resolver[0]
 	}
 
+	// Validate RelatedRules references against the full registry so
+	// dangling cross-links panic at startup rather than producing dead
+	// links in MCP output or surprising --disable-related behavior. The
+	// full registry is used (not just the active subset) so a project
+	// disabling some rules does not mask a typo in another's metadata.
+	if err := api.ValidateRelations(api.Registry); err != nil {
+		panic("rules: invalid RelatedRules registration: " + err.Error())
+	}
+
 	// Apply RunAfter ordering so any rule that declares a dependency
 	// runs after the rule(s) it depends on across every per-file scope
 	// bucket. Rules without RunAfter keep their original relative order.

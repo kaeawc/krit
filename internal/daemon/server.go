@@ -67,6 +67,17 @@ type Server struct {
 	// dispatched request. Read by the idle watchdog, written under the
 	// dispatch hot path — atomic to avoid contention.
 	lastActivity atomic.Int64
+
+	// SocketWatchdogInterval overrides the cadence of the
+	// socket-presence check. Zero (the default) uses
+	// socketWatchdogDefaultInterval. Exposed so tests can speed up
+	// the loop without waiting for the production interval.
+	SocketWatchdogInterval time.Duration
+	// SocketWatchdogDisabled, when true, suppresses the periodic
+	// os.Stat on the socket. Tests that drive a server through manual
+	// lifecycle calls set this so they don't race against the
+	// watchdog calling Stop.
+	SocketWatchdogDisabled bool
 }
 
 // reporter returns Server.Reporter, or a default stderr Reporter when nil.
@@ -140,8 +151,57 @@ func (s *Server) Start(ctx context.Context) error {
 		go s.idleWatchdog(cctx)
 	}
 
+	// socketWatchdog catches the phantom-socket failure mode: the
+	// dirent at s.socketPath has been unlinked (rm -rf .krit, errant
+	// test cleanup, IDE/Spotlight artifact) while the daemon process
+	// is still alive and bound to the now-orphan inode. New
+	// connections fail at connect(2) with ENOENT and clients silently
+	// fall back to in-process forever. Stop on detection so the next
+	// CLI invocation hits "no daemon, spawn fresh" rather than
+	// "daemon socket missing, give up".
+	s.wg.Add(1)
+	go s.socketWatchdog(cctx)
+
 	return nil
 }
+
+// socketWatchdog polls every socketWatchdogInterval for the socket
+// dirent and triggers Stop the first time os.Stat fails. The poll
+// cost is one os.Stat every few seconds — well below the budget for
+// a long-lived daemon process, and the alternative (clients silently
+// timing out forever) is worse. Skips the check while
+// SocketWatchdogDisabled is set so unit tests can opt out without a
+// custom mock.
+func (s *Server) socketWatchdog(ctx context.Context) {
+	defer s.wg.Done()
+	if s.SocketWatchdogDisabled || s.socketPath == "" {
+		return
+	}
+	tick := s.SocketWatchdogInterval
+	if tick <= 0 {
+		tick = socketWatchdogDefaultInterval
+	}
+	t := time.NewTicker(tick)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if _, err := os.Stat(s.socketPath); err != nil {
+				s.reporter().Warnf("krit daemon: socket %s disappeared (%v); exiting so the next CLI invocation can respawn\n", s.socketPath, err)
+				go s.Stop()
+				return
+			}
+		}
+	}
+}
+
+// socketWatchdogDefaultInterval is the production cadence for the
+// socket-presence check. 5s balances detection latency (a single CLI
+// fallback at most) against the cost of one stat call per daemon
+// lifetime.
+const socketWatchdogDefaultInterval = 5 * time.Second
 
 // idleWatchdog calls Stop when no request has been dispatched for
 // IdleTimeout. Polls at IdleTimeout/4 (clamped to a minimum of one

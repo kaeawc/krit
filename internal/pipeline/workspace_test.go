@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -466,4 +467,57 @@ func TestWorkspaceState_StoreParsedIdempotent(t *testing.T) {
 	if got != first {
 		t.Errorf("StoreParsed replaced pointer for same content hash")
 	}
+}
+
+// TestWorkspaceState_AndroidProjectCachesByFingerprint verifies the
+// memoization contract: same fingerprint reuses the cached pointer
+// without firing build; different fingerprint forces a rebuild.
+func TestWorkspaceState_AndroidProjectCachesByFingerprint(t *testing.T) {
+	w := NewWorkspaceState("")
+	var builds int
+	first := w.AndroidProject("fp-a", func() *android.Project {
+		builds++
+		return &android.Project{ManifestPaths: []string{"AndroidManifest.xml"}}
+	})
+	if builds != 1 {
+		t.Fatalf("AndroidProject builds = %d, want 1", builds)
+	}
+	again := w.AndroidProject("fp-a", func() *android.Project {
+		builds++
+		return &android.Project{}
+	})
+	if builds != 1 {
+		t.Errorf("AndroidProject builds = %d after hit, want 1", builds)
+	}
+	if again != first {
+		t.Errorf("AndroidProject returned different pointer for same fingerprint")
+	}
+	_ = w.AndroidProject("fp-b", func() *android.Project { builds++; return &android.Project{} })
+	if builds != 2 {
+		t.Errorf("AndroidProject builds = %d after fp mismatch, want 2", builds)
+	}
+}
+
+// TestWorkspaceState_InvalidateLibraryFactsDropsAndroid verifies the
+// watcher's InvalidateLibraryFacts hook also drops the AndroidProject
+// slot — the two share the build.gradle dependency boundary, so a
+// build script edit must invalidate both.
+func TestWorkspaceState_InvalidateLibraryFactsDropsAndroid(t *testing.T) {
+	w := NewWorkspaceState("")
+	w.AndroidProject("fp", func() *android.Project { return &android.Project{} })
+	if !w.CrossFileStats().HasLibraryFacts && w.androidProject.present {
+		// confirm initial population path
+	}
+	w.LibraryFacts("lf", func() *librarymodel.Facts { return &librarymodel.Facts{} })
+
+	w.InvalidateLibraryFacts()
+
+	if w.CrossFileStats().HasLibraryFacts {
+		t.Errorf("LibraryFacts not invalidated")
+	}
+	w.xfileMu.Lock()
+	if w.androidProject.present {
+		t.Errorf("AndroidProject slot survived InvalidateLibraryFacts")
+	}
+	w.xfileMu.Unlock()
 }

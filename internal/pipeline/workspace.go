@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/oracle"
@@ -43,12 +44,13 @@ type WorkspaceState struct {
 	// fingerprint discards the prior value and rebuilds. Slots are
 	// independent so a libraryFacts rebuild doesn't drop the
 	// (much more expensive) codeIndex.
-	xfileMu      sync.Mutex
-	libraryFacts xfileSlot[*librarymodel.Facts]
-	codeIndex    xfileSlot[*scanner.CodeIndex]
-	dependents   xfileSlot[*scanner.DependentsIndex]
-	resolver     xfileSlot[typeinfer.TypeResolver]
-	oracleFilter xfileSlot[*oracle.CallTargetFilterSummary]
+	xfileMu        sync.Mutex
+	libraryFacts   xfileSlot[*librarymodel.Facts]
+	codeIndex      xfileSlot[*scanner.CodeIndex]
+	dependents     xfileSlot[*scanner.DependentsIndex]
+	resolver       xfileSlot[typeinfer.TypeResolver]
+	oracleFilter   xfileSlot[*oracle.CallTargetFilterSummary]
+	androidProject xfileSlot[*android.Project]
 }
 
 // xfileSlot pairs a fingerprint with a value. Zero value means
@@ -260,6 +262,7 @@ func (w *WorkspaceState) InvalidateAll() {
 	w.dependents = xfileSlot[*scanner.DependentsIndex]{}
 	w.resolver = xfileSlot[typeinfer.TypeResolver]{}
 	w.oracleFilter = xfileSlot[*oracle.CallTargetFilterSummary]{}
+	w.androidProject = xfileSlot[*android.Project]{}
 	w.xfileMu.Unlock()
 }
 
@@ -394,14 +397,45 @@ func (w *WorkspaceState) CrossFileStats() CrossFileStats {
 
 // InvalidateLibraryFacts drops the cached *librarymodel.Facts. Called
 // when a Gradle build script or version catalog changes — the next
-// LibraryFacts call rebuilds.
+// LibraryFacts call rebuilds. Also drops the AndroidProject cache
+// since its GradlePaths set could have changed.
 func (w *WorkspaceState) InvalidateLibraryFacts() {
 	if w == nil {
 		return
 	}
 	w.xfileMu.Lock()
 	w.libraryFacts = xfileSlot[*librarymodel.Facts]{}
+	w.androidProject = xfileSlot[*android.Project]{}
 	w.xfileMu.Unlock()
+}
+
+// AndroidProject memoizes the detected Android project across calls.
+// fingerprint must capture every input that affects detection (today
+// just the project root, since DetectProject is path-only and the
+// watcher invalidates this slot whenever a build.gradle / version
+// catalog changes). nil receiver always builds (no caching).
+func (w *WorkspaceState) AndroidProject(fingerprint string, build func() *android.Project) *android.Project {
+	if w == nil || fingerprint == "" {
+		return build()
+	}
+	w.xfileMu.Lock()
+	if w.androidProject.present && w.androidProject.fingerprint == fingerprint {
+		v := w.androidProject.value
+		w.xfileMu.Unlock()
+		return v
+	}
+	w.xfileMu.Unlock()
+
+	v := build()
+
+	w.xfileMu.Lock()
+	if w.androidProject.present && w.androidProject.fingerprint == fingerprint {
+		v = w.androidProject.value
+	} else {
+		w.androidProject = xfileSlot[*android.Project]{fingerprint: fingerprint, value: v, present: true}
+	}
+	w.xfileMu.Unlock()
+	return v
 }
 
 // InvalidateCodeIndex drops the cached *scanner.CodeIndex. Called

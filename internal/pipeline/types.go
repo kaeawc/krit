@@ -346,6 +346,15 @@ type ResolverCache = XFileCache[typeinfer.TypeResolver]
 // fresh classification.
 type OracleFilterCache = XFileCache[*oracle.CallTargetFilterSummary]
 
+// AndroidProjectCache memoizes the detected *android.Project across
+// RunProject calls. DetectProject walks the project tree for
+// AndroidManifest.xml / build.gradle / src/main/res markers, which
+// costs ~1s on a 60k-file corpus even when nothing changed. The
+// watcher invalidates this slot whenever a build.gradle / version
+// catalog changes (same hook as LibraryFactsCache), so a non-nil
+// cached value is safe to reuse for the current run.
+type AndroidProjectCache = XFileCache[*android.Project]
+
 // FileTiming captures per-file dispatch timing recorded when
 // IndexResult.ProfileDispatch is set.
 type FileTiming struct {

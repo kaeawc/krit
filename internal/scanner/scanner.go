@@ -59,6 +59,9 @@ type Finding struct {
 
 // Fix describes an auto-fix for a finding.
 type Fix struct {
+	// TargetFile optionally redirects the edit to a different file than
+	// the finding location. Empty means edit the finding's File.
+	TargetFile string
 	// Line-based replacement: replace lines[StartLine-1:EndLine] with Replacement
 	StartLine   int
 	EndLine     int

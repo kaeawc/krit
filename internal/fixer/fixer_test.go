@@ -65,6 +65,46 @@ func ApplyAllFixes(findings []scanner.Finding, suffix string) (int, int, []error
 	return ApplyAllFixesColumns(&columns, suffix)
 }
 
+func TestApplyAllFixesColumns_TargetFile(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "build.gradle.kts")
+	targetPath := filepath.Join(dir, "krit.yml")
+	if err := os.WriteFile(sourcePath, []byte("dependencies {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	columns := scanner.CollectFindings([]scanner.Finding{{
+		File:     sourcePath,
+		Line:     1,
+		Col:      1,
+		RuleSet:  "supply-chain",
+		Rule:     "DependenciesInRootProject",
+		Severity: "warning",
+		Message:  "root dependencies",
+		Fix: &scanner.Fix{
+			TargetFile:  targetPath,
+			ByteMode:    true,
+			StartByte:   0,
+			EndByte:     0,
+			Replacement: "supply-chain:\n",
+		},
+	}})
+
+	applied, modified, errs := ApplyAllFixesColumns(&columns, "")
+	if len(errs) > 0 {
+		t.Fatalf("ApplyAllFixesColumns errors: %v", errs)
+	}
+	if applied != 1 || modified != 1 {
+		t.Fatalf("applied=%d modified=%d, want 1/1", applied, modified)
+	}
+	if got := readFile(t, targetPath); got != "supply-chain:\n" {
+		t.Fatalf("target content = %q", got)
+	}
+	if got := readFile(t, sourcePath); got != "dependencies {}\n" {
+		t.Fatalf("source content changed: %q", got)
+	}
+}
+
 // splitByMode is a test-only helper kept after the production splitByMode
 // was deleted with ApplyFixesDetailed. It mirrors the old semantics so
 // the few remaining split-by-mode tests continue to pass.

@@ -14,6 +14,7 @@ import (
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"gopkg.in/yaml.v3"
 )
 
 // DependencySnapshotInReleaseRule flags release dependencies pinned to SNAPSHOT versions.
@@ -125,9 +126,110 @@ func (r *DependenciesInRootProjectRule) check(ctx *api.Context) {
 			Rule:       r.RuleName,
 			Severity:   r.Sev,
 			Message:    fmt.Sprintf("Root project dependencies block declares %s. Move project dependencies into an owning module or add legitimate root tooling configurations to allowedConfigurations.", strings.Join(block.configurations, ", ")),
+			Fix:        rootDependencyAllowedConfigurationsFix(path, r.AllowedConfigurations, block.configurations),
 			Confidence: r.Confidence(),
 		})
 	}
+}
+
+func rootDependencyAllowedConfigurationsFix(gradlePath string, existingAllowed, missing []string) *scanner.Fix {
+	targetPath, content, ok := rootKritConfigForFix(filepath.Dir(gradlePath))
+	if !ok {
+		return nil
+	}
+	replacement, ok := mergeRootDependencyAllowedConfigurations(content, existingAllowed, missing)
+	if !ok {
+		return nil
+	}
+	return &scanner.Fix{
+		TargetFile:  targetPath,
+		ByteMode:    true,
+		StartByte:   0,
+		EndByte:     len(content),
+		Replacement: replacement,
+	}
+}
+
+func rootKritConfigForFix(root string) (string, []byte, bool) {
+	for _, name := range []string{"krit.yml", ".krit.yml"} {
+		path := filepath.Join(root, name)
+		content, err := os.ReadFile(path)
+		if err == nil {
+			return path, content, true
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return "", nil, false
+		}
+	}
+	return filepath.Join(root, "krit.yml"), nil, true
+}
+
+func mergeRootDependencyAllowedConfigurations(content []byte, existingAllowed, missing []string) (string, bool) {
+	root := make(map[string]any)
+	if len(strings.TrimSpace(string(content))) > 0 {
+		if err := yaml.Unmarshal(content, &root); err != nil {
+			return "", false
+		}
+		if root == nil {
+			root = make(map[string]any)
+		}
+	}
+
+	supplyChain := yamlMap(root["supply-chain"])
+	root["supply-chain"] = supplyChain
+	rule := yamlMap(supplyChain["DependenciesInRootProject"])
+	supplyChain["DependenciesInRootProject"] = rule
+
+	allowed := append([]string(nil), yamlStringList(rule["allowedConfigurations"])...)
+	allowed = appendMissingStrings(allowed, existingAllowed...)
+	allowed = appendMissingStrings(allowed, missing...)
+	rule["allowedConfigurations"] = allowed
+
+	out, err := yaml.Marshal(root)
+	if err != nil {
+		return "", false
+	}
+	if len(out) == 0 || out[len(out)-1] != '\n' {
+		out = append(out, '\n')
+	}
+	return string(out), true
+}
+
+func yamlMap(value any) map[string]any {
+	if m, ok := value.(map[string]any); ok && m != nil {
+		return m
+	}
+	return make(map[string]any)
+}
+
+func yamlStringList(value any) []string {
+	raw, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	items := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+			items = append(items, s)
+		}
+	}
+	return items
+}
+
+func appendMissingStrings(items []string, values ...string) []string {
+	seen := make(map[string]bool, len(items)+len(values))
+	for _, item := range items {
+		seen[item] = true
+	}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		items = append(items, value)
+		seen[value] = true
+	}
+	return items
 }
 
 type rootProjectDependencyBlock struct {

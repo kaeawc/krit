@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/fixer"
 	"github.com/kaeawc/krit/internal/module"
 	rulespkg "github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -412,6 +413,15 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(content)
+}
+
 func TestDependencySnapshotInRelease(t *testing.T) {
 	r := findGradleRule(t, "DependencySnapshotInRelease")
 
@@ -508,6 +518,44 @@ dependencies {
 		}
 		if !strings.Contains(findings[0].Message, "implementation") {
 			t.Fatalf("expected message to name implementation, got %q", findings[0].Message)
+		}
+		if findings[0].Fix == nil {
+			t.Fatal("expected finding to include config autofix")
+		}
+		if got, want := findings[0].Fix.TargetFile, filepath.Join(root, "krit.yml"); got != want {
+			t.Fatalf("Fix.TargetFile = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("autofix creates root krit config allowlist", func(t *testing.T) {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, "settings.gradle.kts"), ``)
+		buildPath := filepath.Join(root, "build.gradle.kts")
+		content := `dependencies {
+    implementation("com.example:lib:1.0")
+    ksp("com.example:processor:1.0")
+    testImplementation("com.example:test:1.0")
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, buildPath, content, cfg)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+
+		columns := scanner.CollectFindings(findings)
+		applied, _, errs := fixer.ApplyAllFixesColumns(&columns, "")
+		if len(errs) > 0 {
+			t.Fatalf("ApplyAllFixesColumns errors: %v", errs)
+		}
+		if applied != 1 {
+			t.Fatalf("applied fixes = %d, want 1", applied)
+		}
+		got := readFile(t, filepath.Join(root, "krit.yml"))
+		for _, want := range []string{"classpath", "detektPlugins", "implementation", "ksp", "testImplementation"} {
+			if !strings.Contains(got, "- "+want) {
+				t.Fatalf("krit.yml missing %q:\n%s", want, got)
+			}
 		}
 	})
 

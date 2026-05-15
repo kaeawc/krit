@@ -93,6 +93,9 @@ func ApplyAllFixesColumns(columns *scanner.FindingColumns, suffix string) (total
 	byFile := make(map[string][]int)
 	columns.VisitRowsWithTextFixes(func(row int) {
 		file := columns.FileAt(row)
+		if fix := columns.FixAt(row); fix != nil && fix.TargetFile != "" {
+			file = fix.TargetFile
+		}
 		byFile[file] = append(byFile[file], row)
 	})
 
@@ -126,7 +129,10 @@ func applyFixesDetailedColumns(path string, columns *scanner.FindingColumns, row
 
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return FixResult{}, err
+		if !os.IsNotExist(err) || !allFixesExplicitlyTargetPath(path, fixes) {
+			return FixResult{}, err
+		}
+		content = nil
 	}
 
 	byteFixes, lineFixes := splitTextFixRowsByMode(fixes)
@@ -179,11 +185,18 @@ func applyFixesDetailedColumns(path string, columns *scanner.FindingColumns, row
 func collectTextFixRows(path string, columns *scanner.FindingColumns, rows []int) []textFixRow {
 	fixes := make([]textFixRow, 0, len(rows))
 	for _, row := range rows {
-		if row < 0 || row >= columns.Len() || columns.FileAt(row) != path {
+		if row < 0 || row >= columns.Len() {
 			continue
 		}
 		fix := columns.FixAt(row)
 		if fix == nil {
+			continue
+		}
+		targetPath := columns.FileAt(row)
+		if fix.TargetFile != "" {
+			targetPath = fix.TargetFile
+		}
+		if targetPath != path {
 			continue
 		}
 		fixes = append(fixes, textFixRow{
@@ -193,6 +206,18 @@ func collectTextFixRows(path string, columns *scanner.FindingColumns, rows []int
 		})
 	}
 	return fixes
+}
+
+func allFixesExplicitlyTargetPath(path string, fixes []textFixRow) bool {
+	if len(fixes) == 0 {
+		return false
+	}
+	for _, f := range fixes {
+		if f.fix.TargetFile != path {
+			return false
+		}
+	}
+	return true
 }
 
 func applyByteFixes(result string, byteFixes []textFixRow, path string) (string, []DroppedFix) {

@@ -43,6 +43,10 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		}
 	}
 
+	if daemonHash := daemonBinaryHash(); args.ClientBinaryHash != "" && daemonHash != "" && args.ClientBinaryHash != daemonHash {
+		return nil, fmt.Errorf("%s (daemon=%s client=%s)", daemon.ErrBinaryHashMismatchPrefix, daemonHash, args.ClientBinaryHash)
+	}
+
 	state.analyzeMu.Lock()
 	cold := !state.coldDone.Load()
 	if args.RequireWarm && cold {

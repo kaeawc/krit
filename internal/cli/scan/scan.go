@@ -288,6 +288,9 @@ func Run() int {
 
 	ctx := context.Background()
 	repoDir := oracle.FindRepoDir(flag.Args())
+	if handled, code := tryDaemonDelegate(f, flag.Args(), repoDir); handled {
+		return code
+	}
 	sess, err := NewSession(ctx, repoDir, f)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

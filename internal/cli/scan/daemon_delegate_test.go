@@ -236,3 +236,62 @@ func redirectStdout(t *testing.T) func() string {
 		return string(buf)
 	}
 }
+
+// TestDaemonCompatibleFlags_PerfAllowed pins the contract added with
+// daemon-side perf tracking: --perf and --perf-rules must be served
+// by the daemon (the pipeline wires its own perf.Tracker and emits
+// the JSON section); --profile-dispatch still falls through because
+// per-file dispatch fan-out isn't on the wire yet.
+func TestDaemonCompatibleFlags_PerfAllowed(t *testing.T) {
+	tests := []struct {
+		name string
+		set  func(*scanFlags)
+		want bool
+	}{
+		{"no flags", func(f *scanFlags) {}, true},
+		{"--perf", func(f *scanFlags) { *f.Perf = true }, true},
+		{"--perf-rules", func(f *scanFlags) { *f.PerfRules = true }, true},
+		{"--perf and --perf-rules", func(f *scanFlags) { *f.Perf = true; *f.PerfRules = true }, true},
+		{"--profile-dispatch", func(f *scanFlags) { *f.ProfileDispatch = true }, false},
+		{"--fix", func(f *scanFlags) { *f.Fix = true }, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := freshScanFlags(t)
+			tt.set(f)
+			if got := daemonCompatibleFlags(f); got != tt.want {
+				t.Errorf("daemonCompatibleFlags = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestBuildDaemonAnalyzeArgs_ForwardsPerfFlags confirms --perf and
+// --perf-rules translate into the wire's ShowPerf / PerfRules fields
+// (and --perf-rules implies ShowPerf, so the daemon builds a tracker).
+func TestBuildDaemonAnalyzeArgs_ForwardsPerfFlags(t *testing.T) {
+	tests := []struct {
+		name         string
+		set          func(*scanFlags)
+		wantShow     bool
+		wantPerfRule bool
+	}{
+		{"neither", func(f *scanFlags) {}, false, false},
+		{"--perf", func(f *scanFlags) { *f.Perf = true }, true, false},
+		{"--perf-rules implies show", func(f *scanFlags) { *f.PerfRules = true }, true, true},
+		{"both", func(f *scanFlags) { *f.Perf = true; *f.PerfRules = true }, true, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := freshScanFlags(t)
+			tt.set(f)
+			args := buildDaemonAnalyzeArgs(f, []string{"/tmp"})
+			if args.ShowPerf != tt.wantShow {
+				t.Errorf("ShowPerf = %v, want %v", args.ShowPerf, tt.wantShow)
+			}
+			if args.PerfRules != tt.wantPerfRule {
+				t.Errorf("PerfRules = %v, want %v", args.PerfRules, tt.wantPerfRule)
+			}
+		})
+	}
+}

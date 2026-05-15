@@ -28,6 +28,8 @@ func main() {
 	flag.BoolVar(verboseFlag, "v", false, "alias for --verbose")
 	strictVerifyFlag := flag.Bool("strict-verify", true,
 		"run an in-process baseline alongside every analyze and fail on divergence (issue #202; on by default during alpha)")
+	idleTimeoutFlag := flag.Duration("idle-timeout", 0,
+		"exit after this duration of no requests (e.g. 30m); 0 disables auto-shutdown")
 	flag.Parse()
 
 	if *versionFlag {
@@ -70,6 +72,7 @@ func main() {
 		RepoDir:      repo,
 		SocketPath:   *socketFlag,
 		StrictVerify: *strictVerifyFlag,
+		IdleTimeout:  *idleTimeoutFlag,
 	})
 	if err != nil {
 		log.Fatalf("krit-daemon: %v", err)

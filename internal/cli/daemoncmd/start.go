@@ -30,7 +30,13 @@ func runStart(args []string) int {
 	socketFlag := fs.String("socket", "", "socket path (defaults to <repo>/.krit/daemon.sock)")
 	binaryFlag := fs.String("binary", "", "krit-daemon binary path (defaults to one next to krit)")
 	timeoutFlag := fs.Duration("timeout", startWaitTimeout, "how long to wait for the daemon to become ready")
+	idleTimeoutFlag := fs.Duration("idle-timeout", 0,
+		"daemon exits after this duration of no requests (e.g. 30m); 0 disables auto-shutdown")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *idleTimeoutFlag < 0 {
+		fmt.Fprintf(os.Stderr, "krit daemon start: --idle-timeout must be >= 0 (got %s)\n", *idleTimeoutFlag)
 		return 2
 	}
 
@@ -61,7 +67,7 @@ func runStart(args []string) int {
 		return 1
 	}
 
-	pid, err := spawnDaemon(binary, repo, socket)
+	pid, err := spawnDaemon(binary, repo, socket, *idleTimeoutFlag)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "krit daemon start: spawn: %v\n", err)
 		return 1
@@ -106,7 +112,7 @@ func resolveDaemonBinary(explicit string) (string, error) {
 // spawnDaemon launches krit-daemon detached via Setsid so a SIGHUP on
 // the parent terminal (e.g. closing the shell) doesn't take the
 // daemon down with it.
-func spawnDaemon(binary, repo, socket string) (int, error) {
+func spawnDaemon(binary, repo, socket string, idleTimeout time.Duration) (int, error) {
 	dotKrit := filepath.Join(repo, ".krit")
 	if err := os.MkdirAll(dotKrit, 0o755); err != nil {
 		return 0, fmt.Errorf("prepare .krit dir: %w", err)
@@ -121,6 +127,9 @@ func spawnDaemon(binary, repo, socket string) (int, error) {
 	args := []string{"--repo", repo}
 	if socket != "" {
 		args = append(args, "--socket", socket)
+	}
+	if idleTimeout > 0 {
+		args = append(args, "--idle-timeout", idleTimeout.String())
 	}
 	cmd := exec.CommandContext(context.Background(), binary, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

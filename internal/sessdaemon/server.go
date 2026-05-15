@@ -62,6 +62,9 @@ type Server struct {
 	flushInterval time.Duration
 	flushWG       sync.WaitGroup
 
+	idleTimeout  time.Duration
+	lastActivity atomic.Int64
+
 	stopOnce sync.Once
 	stopped  chan struct{}
 	cancel   context.CancelFunc
@@ -81,6 +84,14 @@ type Options struct {
 	// correctness oracle issue #202 added; on by default during alpha,
 	// opt-in post-stabilization.
 	StrictVerify bool
+
+	// IdleTimeout, when > 0, makes the daemon self-stop after no
+	// requests have been received for the given duration. Useful on
+	// laptops where leaving a long-lived process running drains battery
+	// and pins file descriptors across sleep/wake. Zero (the default)
+	// disables auto-shutdown — the operator must call `krit daemon
+	// stop` or send SIGTERM.
+	IdleTimeout time.Duration
 }
 
 // NewServer constructs a Server with a fresh scan.Session for opts.RepoDir.
@@ -88,6 +99,9 @@ type Options struct {
 func NewServer(ctx context.Context, opts Options) (*Server, error) {
 	if opts.RepoDir == "" {
 		return nil, errors.New("sessdaemon: RepoDir is required")
+	}
+	if opts.IdleTimeout < 0 {
+		return nil, fmt.Errorf("sessdaemon: IdleTimeout must be >= 0 (got %s)", opts.IdleTimeout)
 	}
 	sess, err := scan.NewSession(ctx, opts.RepoDir, nil)
 	if err != nil {
@@ -113,6 +127,7 @@ func NewServer(ctx context.Context, opts Options) (*Server, error) {
 		oracle:        oracleDaemonState{starter: defaultOracleStarter{}},
 		stopped:       make(chan struct{}),
 		flushInterval: defaultFlushInterval,
+		idleTimeout:   opts.IdleTimeout,
 	}, nil
 }
 
@@ -140,10 +155,14 @@ func (s *Server) Start(ctx context.Context) error {
 	cctx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 
+	s.lastActivity.Store(time.Now().UnixNano())
 	go s.acceptLoop(cctx)
 	if s.flushInterval > 0 && s.session != nil && s.session.AnalysisCache != nil && s.session.AnalysisCacheFilePath != "" {
 		s.flushWG.Add(1)
 		go s.flushLoop(cctx)
+	}
+	if s.idleTimeout > 0 {
+		go s.idleWatchdog(cctx)
 	}
 	go func() {
 		<-cctx.Done()
@@ -240,6 +259,7 @@ func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 	s.requestCount.Add(1)
+	s.lastActivity.Store(time.Now().UnixNano())
 
 	switch req.Method {
 	case MethodAnalyze:
@@ -285,4 +305,30 @@ func (s *Server) handleShutdown(w io.Writer, req Request) {
 		_ = bw.Flush()
 	}
 	go s.Stop()
+}
+
+// idleWatchdog cancels the server context when no request has been
+// dispatched for idleTimeout. Polls at idleTimeout/4 (clamped to
+// >=100ms) so worst-case overshoot is roughly 25 percent. The
+// existing context-cancel teardown goroutine in Start drives Stop.
+func (s *Server) idleWatchdog(ctx context.Context) {
+	tick := s.idleTimeout / 4
+	if tick < 100*time.Millisecond {
+		tick = 100 * time.Millisecond
+	}
+	t := time.NewTicker(tick)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			last := time.Unix(0, s.lastActivity.Load())
+			if time.Since(last) >= s.idleTimeout {
+				fmt.Fprintf(os.Stderr, "krit-daemon: idle for %s, exiting\n", s.idleTimeout)
+				s.cancel()
+				return
+			}
+		}
+	}
 }

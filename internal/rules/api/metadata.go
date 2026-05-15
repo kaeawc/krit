@@ -340,6 +340,22 @@ type LanguageSupport struct {
 	Fixtures []string              `json:"fixtures,omitempty" yaml:"fixtures,omitempty"`
 }
 
+// Summary returns a one-line human-readable justification for the
+// classification, preferring Reason, then evidence, then fixtures.
+// Empty string when none are populated.
+func (s LanguageSupport) Summary() string {
+	if s.Reason != "" {
+		return s.Reason
+	}
+	if len(s.Evidence) > 0 {
+		return "evidence: " + strings.Join(s.Evidence, ", ")
+	}
+	if len(s.Fixtures) > 0 {
+		return "fixtures: " + strings.Join(s.Fixtures, ", ")
+	}
+	return ""
+}
+
 // ConfigOption describes a single configurable field on a rule.
 //
 // Apply closures downcast the target interface to the concrete rule struct and

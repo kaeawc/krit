@@ -1,0 +1,13 @@
+RULE                                            CATEGORY             JAVA STATUS     REASON/EVIDENCE
+AbsentOrWrongFileLicense                        comments             pending         Source comment and documentation rules need Java-specific syntax review.
+AbstractClassCanBeConcreteClass                 style                partial         Java comment/import style rules, line-based formatting checks, and decimal numeric literal readability are supported; most remaining style rules encode Kotlin syntax and require explicit per-rule review.
+AbstractClassCanBeInterface                     style                partial         Java comment/import style rules, line-based formatting checks, and decimal numeric literal readability are supported; most remaining style rules encode Kotlin syntax and require explicit per-rule review.
+...
+
+Total: 784 rule(s)
+  supported: 119
+  partial: 455
+  pending: 140
+  needs-design: 0
+  not-applicable: 49
+  (unclassified): 21

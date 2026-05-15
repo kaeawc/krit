@@ -31,6 +31,69 @@ func TestRulesSearch(t *testing.T) {
 	}
 }
 
+// TestRulesSearchLanguageSupportFilter verifies search filters by
+// LanguageSupport classification.
+func TestRulesSearchLanguageSupportFilter(t *testing.T) {
+	args, _ := json.Marshal(rulesArgs{
+		Operation: "search",
+		LanguageSupport: &languageSupportArg{
+			Language: "java",
+			Status:   []string{"supported"},
+		},
+	})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "rules", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].Text)
+	}
+	text := result.Content[0].Text
+	if !strings.Contains(text, "AddJavascriptInterface") {
+		t.Errorf("expected AddJavascriptInterface in java=supported hits, got: %s", text)
+	}
+}
+
+// TestRulesSearchLanguageSupportNegated verifies the negate flag flips
+// LanguageSupport membership.
+func TestRulesSearchLanguageSupportNegated(t *testing.T) {
+	args, _ := json.Marshal(rulesArgs{
+		Operation: "search",
+		LanguageSupport: &languageSupportArg{
+			Language: "java",
+			Status:   []string{"supported"},
+			Negate:   true,
+		},
+	})
+	responses := runServer(t, Request{
+		JSONRPC: "2.0",
+		ID:      float64(1),
+		Method:  "tools/call",
+		Params:  mustJSON(t, ToolCallParams{Name: "rules", Arguments: args}),
+	})
+	data, _ := json.Marshal(responses[0].Result)
+	var result ToolResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %s", result.Content[0].Text)
+	}
+	text := result.Content[0].Text
+	// AddJavascriptInterface is explicitly java=supported and must be excluded
+	// from the negated set.
+	if strings.Contains(text, "\"name\":\"AddJavascriptInterface\"") {
+		t.Errorf("expected AddJavascriptInterface excluded by negate; got: %s", text)
+	}
+}
+
 // TestRulesSearchMissingQuery verifies search requires a query.
 func TestRulesSearchMissingQuery(t *testing.T) {
 	args, _ := json.Marshal(rulesArgs{Operation: "search"})

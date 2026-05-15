@@ -28,6 +28,18 @@ type rulesArgs struct {
 	// operation=configure
 	Active   *bool  `json:"active"`
 	Severity string `json:"severity"`
+
+	// operation=search: optional LanguageSupport filter. Empty Language
+	// disables the filter; an empty Status list with a non-empty Language
+	// keeps every rule with a classification for that language.
+	LanguageSupport *languageSupportArg `json:"languageSupport,omitempty"`
+}
+
+// languageSupportArg mirrors rules.LanguageSupportFilter on the wire.
+type languageSupportArg struct {
+	Language string   `json:"language"`
+	Status   []string `json:"status,omitempty"`
+	Negate   bool     `json:"negate,omitempty"`
 }
 
 func (s *Server) toolRules(arguments json.RawMessage) ToolResult {
@@ -145,8 +157,7 @@ func resolveRelatedRules(r *api.Rule) []string {
 }
 
 // formatLifecycle renders a human-readable summary of when a rule first
-// shipped and (optionally) when it became default-active, e.g.
-// "Introduced in 0.2.0; default since 0.4.0".
+// shipped and (optionally) when it became default-active.
 func formatLifecycle(introducedIn, enabledByDefaultSince string) string {
 	switch {
 	case introducedIn == "" && enabledByDefaultSince == "":
@@ -160,8 +171,8 @@ func formatLifecycle(introducedIn, enabledByDefaultSince string) string {
 	}
 }
 
-// parseSearchFilters validates the precision/maturity filter arguments.
-// Returns a non-nil ToolResult pointer when validation fails.
+// parseSearchFilters validates the precision/maturity arguments. Returns a
+// non-nil ToolResult pointer when validation fails.
 func parseSearchFilters(args rulesArgs) (api.Precision, api.Maturity, bool, *ToolResult) {
 	var precisionFilter api.Precision
 	if args.Precision != "" {
@@ -202,83 +213,100 @@ func validateCapabilityArgs(needs, without []string) *ToolResult {
 	return nil
 }
 
-// rulesSearch performs a case-insensitive substring match over rule name,
-// description, and category. Results are ranked by where the match landed
-// (name > description > category) then alphabetical.
-func (s *Server) rulesSearch(args rulesArgs) ToolResult {
-	capabilityFilter := api.CapabilityFilter{Require: args.Needs, Exclude: args.Without}
-	if args.Query == "" && args.Precision == "" && args.Maturity == "" && capabilityFilter.IsZero() {
-		return errorResult("'query', 'precision', 'maturity', 'needs', or 'without' argument is required for operation=search")
+// buildSupportFilter converts a rulesArgs.LanguageSupport payload into a
+// validated rules.LanguageSupportFilter. Returns a non-nil ToolResult only
+// when validation fails.
+func buildSupportFilter(args rulesArgs) (rules.LanguageSupportFilter, *ToolResult) {
+	if args.LanguageSupport == nil || args.LanguageSupport.Language == "" {
+		return rules.LanguageSupportFilter{}, nil
 	}
-
-	if errResult := validateCapabilityArgs(args.Needs, args.Without); errResult != nil {
-		return *errResult
+	statuses := make([]api.LanguageSupportStatus, 0, len(args.LanguageSupport.Status))
+	for _, s := range args.LanguageSupport.Status {
+		statuses = append(statuses, api.LanguageSupportStatus(s))
 	}
-
-	q := strings.ToLower(args.Query)
-	categoryFilter := strings.ToLower(args.Category)
-
-	precisionFilter, maturityFilter, maturityFilterSet, errResult := parseSearchFilters(args)
-	if errResult != nil {
-		return *errResult
+	f := rules.LanguageSupportFilter{
+		Language: args.LanguageSupport.Language,
+		Status:   statuses,
+		Negate:   args.LanguageSupport.Negate,
 	}
-
-	type hit struct {
-		Name         string   `json:"name"`
-		Category     string   `json:"ruleSet"`
-		Severity     string   `json:"severity"`
-		Active       bool     `json:"active"`
-		Fixable      bool     `json:"fixable"`
-		Precision    string   `json:"precision"`
-		Maturity     string   `json:"maturity"`
-		Cost         string   `json:"cost"`
-		Capabilities []string `json:"capabilities"`
-		Description  string   `json:"description"`
-		Score        int      `json:"-"`
+	if err := f.Validate(); err != nil {
+		errRes := errorResult(err.Error())
+		return rules.LanguageSupportFilter{}, &errRes
 	}
+	return f, nil
+}
 
-	hits := make([]hit, 0, 32)
+type ruleHit struct {
+	Name         string   `json:"name"`
+	Category     string   `json:"ruleSet"`
+	Severity     string   `json:"severity"`
+	Active       bool     `json:"active"`
+	Fixable      bool     `json:"fixable"`
+	Precision    string   `json:"precision"`
+	Maturity     string   `json:"maturity"`
+	Cost         string   `json:"cost"`
+	Capabilities []string `json:"capabilities"`
+	Description  string   `json:"description"`
+	Score        int      `json:"-"`
+}
+
+type searchOpts struct {
+	query             string
+	category          string
+	precisionFilter   api.Precision
+	maturityFilter    api.Maturity
+	maturityFilterSet bool
+	supportFilter     rules.LanguageSupportFilter
+	hasSupportFilter  bool
+	capabilityFilter  api.CapabilityFilter
+	hasCapabilityFilt bool
+}
+
+// scoreRuleForSearch returns (score, keep). Scoring favors name > description
+// > category matches; a missing query is allowed when another filter is set.
+func scoreRuleForSearch(r *api.Rule, opts searchOpts) (int, bool) {
+	if opts.query == "" {
+		if opts.precisionFilter == api.PrecisionUnset && !opts.maturityFilterSet && !opts.hasSupportFilter && !opts.hasCapabilityFilt {
+			return 0, false
+		}
+		return 1, true
+	}
+	switch {
+	case strings.Contains(strings.ToLower(r.ID), opts.query):
+		return 3, true
+	case strings.Contains(strings.ToLower(r.Description), opts.query):
+		return 2, true
+	case strings.Contains(strings.ToLower(r.Category), opts.query):
+		return 1, true
+	}
+	return 0, false
+}
+
+func collectRuleHits(opts searchOpts) []ruleHit {
+	hits := make([]ruleHit, 0, 32)
 	for _, r := range api.Registry {
-		if categoryFilter != "" && !strings.EqualFold(r.Category, args.Category) {
+		if opts.category != "" && !strings.EqualFold(r.Category, opts.category) {
 			continue
 		}
-
 		precision := rules.V2RulePrecision(r)
-		if precisionFilter != api.PrecisionUnset && precision != precisionFilter {
+		if opts.precisionFilter != api.PrecisionUnset && precision != opts.precisionFilter {
 			continue
 		}
-
-		if maturityFilterSet && r.Maturity != maturityFilter {
+		if opts.maturityFilterSet && r.Maturity != opts.maturityFilter {
 			continue
 		}
-
-		if !capabilityFilter.MatchRule(r) {
+		if opts.hasSupportFilter && !opts.supportFilter.Matches(r) {
 			continue
 		}
-
-		score := 0
-		nameMatch := strings.Contains(strings.ToLower(r.ID), q)
-		descMatch := strings.Contains(strings.ToLower(r.Description), q)
-		catMatch := strings.Contains(strings.ToLower(r.Category), q)
-
-		switch {
-		case q == "":
-			// No query text: any of precision / maturity / needs / without acts
-			// as the filter. We've already applied those above, so anything that
-			// reaches here matches.
-			score = 1
-		case nameMatch:
-			score = 3
-		case descMatch:
-			score = 2
-		case catMatch:
-			score = 1
-		default:
+		if !opts.capabilityFilter.MatchRule(r) {
 			continue
 		}
-
+		score, keep := scoreRuleForSearch(r, opts)
+		if !keep {
+			continue
+		}
 		_, fixable := rules.GetV2FixLevel(r)
-		hits = append(hits, hit{
+		hits = append(hits, ruleHit{
 			Name:         r.ID,
 			Category:     r.Category,
 			Severity:     string(r.Sev),
@@ -292,6 +320,46 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 			Score:        score,
 		})
 	}
+	return hits
+}
+
+// rulesSearch performs a case-insensitive substring match over rule name,
+// description, and category. Results are ranked by where the match landed
+// (name > description > category) then alphabetical.
+func (s *Server) rulesSearch(args rulesArgs) ToolResult {
+	hasSupportFilter := args.LanguageSupport != nil && args.LanguageSupport.Language != ""
+	capabilityFilter := api.CapabilityFilter{Require: args.Needs, Exclude: args.Without}
+	hasCapabilityFilt := !capabilityFilter.IsZero()
+
+	if args.Query == "" && args.Precision == "" && args.Maturity == "" && !hasSupportFilter && !hasCapabilityFilt {
+		return errorResult("'query', 'precision', 'maturity', 'languageSupport', 'needs', or 'without' argument is required for operation=search")
+	}
+
+	if errResult := validateCapabilityArgs(args.Needs, args.Without); errResult != nil {
+		return *errResult
+	}
+
+	precisionFilter, maturityFilter, maturityFilterSet, errResult := parseSearchFilters(args)
+	if errResult != nil {
+		return *errResult
+	}
+
+	supportFilter, errResult := buildSupportFilter(args)
+	if errResult != nil {
+		return *errResult
+	}
+
+	hits := collectRuleHits(searchOpts{
+		query:             strings.ToLower(args.Query),
+		category:          args.Category,
+		precisionFilter:   precisionFilter,
+		maturityFilter:    maturityFilter,
+		maturityFilterSet: maturityFilterSet,
+		supportFilter:     supportFilter,
+		hasSupportFilter:  hasSupportFilter,
+		capabilityFilter:  capabilityFilter,
+		hasCapabilityFilt: hasCapabilityFilt,
+	})
 
 	sort.SliceStable(hits, func(i, j int) bool {
 		if hits[i].Score != hits[j].Score {
@@ -301,9 +369,9 @@ func (s *Server) rulesSearch(args rulesArgs) ToolResult {
 	})
 
 	type searchResult struct {
-		Query string `json:"query"`
-		Total int    `json:"total"`
-		Hits  []hit  `json:"hits"`
+		Query string    `json:"query"`
+		Total int       `json:"total"`
+		Hits  []ruleHit `json:"hits"`
 	}
 
 	return jsonResult(searchResult{

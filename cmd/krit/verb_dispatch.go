@@ -21,6 +21,7 @@ import (
 	climprecommit "github.com/kaeawc/krit/internal/cli/precommit"
 	climrename "github.com/kaeawc/krit/internal/cli/rename"
 	climriskmap "github.com/kaeawc/krit/internal/cli/riskmap"
+	climrules "github.com/kaeawc/krit/internal/cli/rules"
 	climscore "github.com/kaeawc/krit/internal/cli/score"
 	climscorecard "github.com/kaeawc/krit/internal/cli/scorecard"
 	climselecttests "github.com/kaeawc/krit/internal/cli/selecttests"
@@ -67,6 +68,7 @@ const (
 	verbPrecommit
 	verbSnapshot
 	verbTriage
+	verbRules
 )
 
 var verbByName = map[string]subcommandVerb{
@@ -100,6 +102,7 @@ var verbByName = map[string]subcommandVerb{
 	"precommit":          verbPrecommit,
 	"snapshot":           verbSnapshot,
 	"triage":             verbTriage,
+	"rules":              verbRules,
 }
 
 func classifyVerb(arg string) subcommandVerb {
@@ -180,6 +183,8 @@ func runVerbAndExitB(verb subcommandVerb, rest []string) bool {
 		os.Exit(climsnapshot.Run(rest))
 	case verbTriage:
 		os.Exit(climtriage.Run(rest))
+	case verbRules:
+		os.Exit(climrules.Run(rest))
 	}
 	return false
 }

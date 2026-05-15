@@ -122,8 +122,16 @@ func rulesToolDef() ToolDefinition {
 			"maturity":  jsonschema.StringEnum([]string{"stable", "experimental", "deprecated"}, "Filter by lifecycle stage (operation=search)"),
 			"needs":     jsonschema.Array(jsonschema.String(""), "Require these capability labels — every label must be present (operation=search). Use 'oracle' as a shorthand for any oracle:* bit."),
 			"without":   jsonschema.Array(jsonschema.String(""), "Exclude rules that declare any of these capability labels (operation=search). 'without: [oracle]' filters out every NeedsOracle* rule."),
-			"active":    jsonschema.Boolean("Override active flag (operation=configure)"),
-			"severity":  jsonschema.StringEnum([]string{"error", "warning", "info"}, "Override severity (operation=configure)"),
+			"languageSupport": jsonschema.Object(map[string]*jsonschema.Schema{
+				"language": jsonschema.String("Language key (currently 'java')"),
+				"status": jsonschema.Array(
+					jsonschema.StringEnum([]string{"supported", "partial", "pending", "not-applicable", "needs-design"}, "LanguageSupport status"),
+					"Status set; empty means any classified rule for that language",
+				),
+				"negate": jsonschema.Boolean("Invert the membership test (e.g. status=['supported'], negate=true means 'not yet fully supported')"),
+			}).WithDescription("Filter by LanguageSupport classification (operation=search)"),
+			"active":   jsonschema.Boolean("Override active flag (operation=configure)"),
+			"severity": jsonschema.StringEnum([]string{"error", "warning", "info"}, "Override severity (operation=configure)"),
 		}),
 	}
 }

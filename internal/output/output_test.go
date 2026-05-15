@@ -921,6 +921,44 @@ func TestFormatSARIF_ConfidenceField(t *testing.T) {
 	}
 }
 
+func TestFormatSARIF_HelpURI(t *testing.T) {
+	findings := []scanner.Finding{
+		{File: "a.kt", Line: 1, Col: 1, Severity: "warning", RuleSet: "style", Rule: "MagicNumber",
+			Message: "magic"},
+	}
+	var buf bytes.Buffer
+	FormatSARIF(&buf, findings, "1.0.0")
+
+	var sarif sarifLog
+	if err := json.Unmarshal(buf.Bytes(), &sarif); err != nil {
+		t.Fatalf("invalid SARIF JSON: %v", err)
+	}
+	if len(sarif.Runs) == 0 {
+		t.Fatal("expected at least one run")
+	}
+	rulesOut := sarif.Runs[0].Tool.Driver.Rules
+	if len(rulesOut) == 0 {
+		t.Fatal("expected at least one rule in driver")
+	}
+	if rulesOut[0].HelpURI != "https://krit.dev/rules/MagicNumber" {
+		t.Errorf("expected helpUri https://krit.dev/rules/MagicNumber, got %q", rulesOut[0].HelpURI)
+	}
+}
+
+func TestFormatSARIF_HelpURI_OmittedForUnknownRule(t *testing.T) {
+	findings := []scanner.Finding{
+		{File: "a.kt", Line: 1, Col: 1, Severity: "warning", RuleSet: "synthetic", Rule: "DoesNotExist",
+			Message: "x"},
+	}
+	var buf bytes.Buffer
+	FormatSARIF(&buf, findings, "1.0.0")
+
+	// helpUri is omitempty: rules absent from the registry contribute no URI.
+	if strings.Contains(buf.String(), `"helpUri"`) {
+		t.Errorf("expected no helpUri for unknown rule, got:\n%s", buf.String())
+	}
+}
+
 func TestFormatCheckstyle_EmptyFindings(t *testing.T) {
 	var buf bytes.Buffer
 	FormatCheckstyle(&buf, nil)

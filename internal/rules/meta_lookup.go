@@ -101,6 +101,14 @@ func mergeRuleDescriptor(r *api.Rule, extra api.RuleDescriptor) api.RuleDescript
 		out.Tags = extra.Tags
 	}
 	out.Owners = resolveOwners(r, extra)
+	if r.DocsURL != "" {
+		out.DocsURL = r.DocsURL
+	} else {
+		out.DocsURL = extra.DocsURL
+	}
+	if out.DocsURL == "" {
+		out.DocsURL = api.RuleDocsURL(r)
+	}
 	out.Precision = resolvePrecision(r, extra)
 	return out
 }

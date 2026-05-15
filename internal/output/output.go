@@ -104,6 +104,7 @@ type sarifRule struct {
 	ID               string               `json:"id"`
 	ShortDescription sarifText            `json:"shortDescription"`
 	FullDescription  *sarifText           `json:"fullDescription,omitempty"`
+	HelpURI          string               `json:"helpUri,omitempty"`
 	Properties       *sarifRuleProperties `json:"properties,omitempty"`
 }
 
@@ -152,6 +153,7 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 	cols := normalizedFindingColumns(columns)
 
 	descMap := make(map[string]string)
+	helpURIMap := make(map[string]string)
 	precisionMap := make(map[string]string)
 	costMap := make(map[string]string)
 	capabilityMap := make(map[string][]string)
@@ -159,6 +161,9 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 		key := r.Category + "/" + r.ID
 		if r.Description != "" {
 			descMap[key] = r.Description
+		}
+		if uri := api.RuleDocsURL(r); uri != "" {
+			helpURIMap[key] = uri
 		}
 		precisionMap[key] = rules.V2RulePrecision(r).String()
 		costMap[key] = rules.CostFor(r).String()
@@ -181,6 +186,9 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 			}
 			if desc, ok := descMap[ruleID]; ok {
 				sr.FullDescription = &sarifText{Text: desc}
+			}
+			if uri, ok := helpURIMap[ruleID]; ok {
+				sr.HelpURI = uri
 			}
 			if cost, ok := costMap[ruleID]; ok && cost != "unset" {
 				sr.Properties = &sarifRuleProperties{Cost: cost}

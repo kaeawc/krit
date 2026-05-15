@@ -900,7 +900,7 @@ func (s *Server) handleHover(req *Request) {
 	var sections []string
 	matched := hoverFindingRows(&columns, doc.Content, params.Position)
 	if len(matched) > 0 {
-		sections = append(sections, formatHoverColumns(&columns, matched, s.cfg, s.ruleDocsURI()))
+		sections = append(sections, formatHoverColumns(&columns, matched, s.cfg))
 	}
 
 	if section := s.oracleHoverSection(uri, params.Position); section != "" {
@@ -962,17 +962,6 @@ func positionToByteOffset(content []byte, pos Position) int {
 		col++
 	}
 	return len(content)
-}
-
-func (s *Server) ruleDocsURI() string {
-	rootPath := uriToPath(s.rootURI)
-	if rootPath == "" {
-		rootPath, _ = os.Getwd()
-	}
-	if rootPath == "" {
-		return ""
-	}
-	return pathToURI(filepath.Join(rootPath, "docs", "rules.md"))
 }
 
 // handleDocumentSymbol returns the symbol outline for a Kotlin file using the flat tree.

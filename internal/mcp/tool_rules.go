@@ -88,6 +88,9 @@ func (s *Server) rulesExplain(args rulesArgs) ToolResult {
 		"owners":       desc.Owners,
 		"maintainedBy": "Maintained by " + strings.Join(desc.Owners, ", "),
 	}
+	if docs := api.RuleDocsURL(r); docs != "" {
+		info["docsURL"] = docs
+	}
 	if fixLevel != "" {
 		info["fixLevel"] = fixLevel
 	}

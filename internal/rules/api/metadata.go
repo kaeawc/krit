@@ -204,6 +204,10 @@ type RuleDescriptor struct {
 	// Description is the human-readable rule summary.
 	Description string
 
+	// DocsURL mirrors Rule.DocsURL — the canonical documentation URL.
+	// When empty, RuleDocsURL derives one from DefaultDocsBaseURL + ID.
+	DocsURL string
+
 	// DefaultActive reports whether the rule runs by default. Rules with
 	// DefaultActive == false are opt-in (must be enabled via config or
 	// --all-rules).

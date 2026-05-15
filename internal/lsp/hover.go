@@ -53,7 +53,7 @@ type hoverRuleMeta struct {
 // formatHoverColumns renders hover markdown for the rows in columns whose
 // indices are listed in rowIndices (typically all rows whose Line == the
 // hovered LSP line).
-func formatHoverColumns(columns *scanner.FindingColumns, rowIndices []int, cfg *config.Config, docsURI string) string {
+func formatHoverColumns(columns *scanner.FindingColumns, rowIndices []int, cfg *config.Config) string {
 	if columns == nil {
 		return ""
 	}
@@ -62,12 +62,12 @@ func formatHoverColumns(columns *scanner.FindingColumns, rowIndices []int, cfg *
 		if i > 0 {
 			sb.WriteString("\n\n---\n\n")
 		}
-		sb.WriteString(formatHoverRow(columns, row, cfg, docsURI))
+		sb.WriteString(formatHoverRow(columns, row, cfg))
 	}
 	return sb.String()
 }
 
-func formatHoverRow(columns *scanner.FindingColumns, row int, cfg *config.Config, docsURI string) string {
+func formatHoverRow(columns *scanner.FindingColumns, row int, cfg *config.Config) string {
 	rule := columns.RuleAt(row)
 	ruleSet := columns.RuleSetAt(row)
 	currentSeverity := currentRuleSeverity(cfg, ruleSet, rule, columns.SeverityAt(row))
@@ -87,8 +87,8 @@ func formatHoverRow(columns *scanner.FindingColumns, row int, cfg *config.Config
 			sb.WriteString(desc.Description)
 			sb.WriteString("\n\n")
 		}
-		if docsURI != "" {
-			fmt.Fprintf(&sb, "[Open rule docs](%s)\n\n", docsURI)
+		if desc.DocsURL != "" {
+			fmt.Fprintf(&sb, "[Open rule docs](%s)\n\n", desc.DocsURL)
 		}
 	}
 	if sb.Len() == 0 {

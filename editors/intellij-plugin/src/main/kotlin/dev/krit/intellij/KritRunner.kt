@@ -47,6 +47,41 @@ object KritRunner {
         }
     }
 
+    fun fixProject(project: Project): Boolean {
+        val projectDir = project.baseDir() ?: return false
+        return try {
+            val command = listOf(
+                kritBinary(),
+                "--fix",
+                "--fix-level",
+                "idiomatic",
+                "-q",
+                projectDir.absolutePath,
+            )
+            val process = ProcessBuilder(command)
+                .directory(projectDir)
+                .redirectError(ProcessBuilder.Redirect.PIPE)
+                .start()
+
+            if (!process.waitFor(120, TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+                log.warn("krit fix timed out for ${projectDir.path}")
+                return false
+            }
+
+            val stderr = process.errorStream.bufferedReader().readText()
+            val exit = process.exitValue()
+            if (exit != 0) {
+                log.warn("krit fix failed for ${projectDir.path} with exit $exit: $stderr")
+                return false
+            }
+            true
+        } catch (t: Throwable) {
+            log.warn("krit fix failed for ${projectDir.path}", t)
+            false
+        }
+    }
+
     private fun kritBinary(): String {
         return System.getProperty("krit.binary")
             ?: System.getenv("KRIT_BINARY")

@@ -30,6 +30,25 @@ class KritProjectService(private val project: Project) : Disposable {
         return findingsByFile[canonicalPath(path)].orEmpty()
     }
 
+    fun applyFixes() {
+        executor.execute {
+            if (project.isDisposed || !running.compareAndSet(false, true)) {
+                return@execute
+            }
+            try {
+                if (KritRunner.fixProject(project)) {
+                    val report = KritRunner.analyzeProject(project)
+                    findingsByFile = report.findings.groupBy { canonicalPath(it.file, project.basePath) }
+                    restartHighlighting()
+                }
+            } catch (t: Throwable) {
+                log.warn("krit fix runner failed", t)
+            } finally {
+                running.set(false)
+            }
+        }
+    }
+
     private fun runIfIdle() {
         if (project.isDisposed || !running.compareAndSet(false, true)) {
             return

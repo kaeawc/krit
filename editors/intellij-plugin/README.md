@@ -12,6 +12,7 @@ annotations and inspections.
 - Inspect Code integration through `LocalInspectionTool`
 - Severity mapping for `error`, `warning`, and `info`
 - Project-wide background Krit runs every 5 seconds, skipping ticks while a prior run is active
+- Native quick fix action for fixable findings; it invokes `krit --fix --fix-level idiomatic`
 
 ## Local Development
 

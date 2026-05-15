@@ -1,9 +1,12 @@
 package dev.krit.intellij
 
 import com.intellij.codeInspection.LocalInspectionTool
+import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemHighlightType
+import com.intellij.codeInspection.ProblemDescriptor
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.openapi.components.service
+import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementVisitor
 
@@ -24,6 +27,7 @@ class KritInspection : LocalInspectionTool() {
                         target,
                         finding.message,
                         problemHighlightType(finding),
+                        *quickFixes(finding),
                     )
                 }
             }
@@ -44,5 +48,20 @@ class KritInspection : LocalInspectionTool() {
             "info" -> ProblemHighlightType.INFORMATION
             else -> ProblemHighlightType.WARNING
         }
+    }
+
+    private fun quickFixes(finding: KritFinding): Array<LocalQuickFix> {
+        if (!finding.fixable) {
+            return emptyArray()
+        }
+        return arrayOf(KritApplyFixesQuickFix)
+    }
+}
+
+object KritApplyFixesQuickFix : LocalQuickFix {
+    override fun getFamilyName(): String = "Apply Krit auto-fixes"
+
+    override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
+        project.service<KritProjectService>().applyFixes()
     }
 }

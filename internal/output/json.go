@@ -1,10 +1,10 @@
 package output
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"time"
 
 	"github.com/kaeawc/krit/internal/cache"
@@ -120,9 +120,42 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 	byRuleSet := make(map[string]int)
 	byRule := make(map[string]int)
 	fixableCount := 0
-	findingsJSON, err := buildJSONFindings(columns, fixLevels, efforts, byRuleSet, byRule, &fixableCount, indent)
-	if err != nil {
-		return fmt.Errorf("marshal findings: %w", err)
+	findingsJSON := buildJSONFindings(columns, fixLevels, efforts, byRuleSet, byRule, &fixableCount, indent)
+
+	summary := JSONSummary{
+		Total:     cols.Len(),
+		ByRuleSet: byRuleSet,
+		ByRule:    byRule,
+		Fixable:   fixableCount,
+	}
+	var perfRuleStatsArg []rules.RuleExecutionStat
+	if len(perfRuleStats) > 0 {
+		perfRuleStatsArg = perfRuleStats[0]
+	}
+
+	// Compact mode (the daemon's wire format) bypasses json.Encoder so
+	// the 30 MB findings RawMessage doesn't get re-scanned through
+	// encoding/json.appendCompact — which dominated CPU on the warm
+	// baseline before this fast path. Indented mode keeps the
+	// Encoder route since CLI consumers see that form and the
+	// human-facing extra escapes / indentation tradeoff isn't worth
+	// hand-rolling a second time.
+	if !indent {
+		return writeCompactReport(w,
+			cols.Len() == 0,
+			version,
+			time.Since(start).Milliseconds(),
+			fileCount,
+			ruleCount,
+			experiments,
+			findingsJSON,
+			summary,
+			cacheStats,
+			caches,
+			cacheBudget,
+			perfTimings,
+			perfRuleStatsArg,
+		)
 	}
 
 	report := struct {
@@ -147,49 +180,138 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 		Rules:       ruleCount,
 		Experiments: append([]string(nil), experiments...),
 		Findings:    findingsJSON,
-		Summary: JSONSummary{
-			Total:     cols.Len(),
-			ByRuleSet: byRuleSet,
-			ByRule:    byRule,
-			Fixable:   fixableCount,
-		},
+		Summary:     summary,
 		Cache:       cacheStats,
 		Caches:      caches,
 		CacheBudget: cacheBudget,
 		PerfTiming:  perfTimings,
+		PerfRules:   perfRuleStatsArg,
 	}
-	if len(perfRuleStats) > 0 {
-		report.PerfRules = perfRuleStats[0]
-	}
-
 	enc := json.NewEncoder(w)
-	if indent {
-		enc.SetIndent("", "  ")
-	}
+	enc.SetIndent("", "  ")
 	return enc.Encode(report)
 }
 
-func buildJSONFindings(columns *scanner.FindingColumns, fixLevels, efforts map[string]string, byRuleSet, byRule map[string]int, fixableCount *int, indent bool) (json.RawMessage, error) {
-	cols := normalizedFindingColumns(columns)
-	if cols.Len() == 0 {
-		return json.RawMessage("[]"), nil
+// writeCompactReport assembles the report envelope directly into a
+// byte buffer without routing through json.Encoder, so the 30 MB
+// findings RawMessage doesn't get re-scanned through
+// encoding/json.appendCompact. Small sub-objects (summary, caches,
+// perfTiming) still go through json.Marshal — they're small enough
+// that the reflection overhead doesn't matter, and avoiding hand-
+// rolled encoders for every nested type keeps the schema in sync
+// with the struct tags.
+func writeCompactReport(w io.Writer, success bool, version string, durationMs int64,
+	fileCount, ruleCount int, experiments []string,
+	findingsJSON json.RawMessage, summary JSONSummary,
+	cacheStats *cache.Stats, caches []cacheutil.NamedCacheStats,
+	cacheBudget *cacheutil.BudgetReport, perfTimings []perf.TimingEntry,
+	perfRuleStatsArg []rules.RuleExecutionStat) error {
+	buf := make([]byte, 0, len(findingsJSON)+512)
+
+	buf = append(buf, `{"success":`...)
+	if success {
+		buf = append(buf, "true"...)
+	} else {
+		buf = append(buf, "false"...)
 	}
 
-	var buf bytes.Buffer
-	var marshalErr error
-	buf.WriteByte('[')
+	buf = append(buf, `,"version":`...)
+	buf = appendJSONString(buf, version)
+
+	buf = append(buf, `,"durationMs":`...)
+	buf = strconv.AppendInt(buf, durationMs, 10)
+
+	buf = append(buf, `,"files":`...)
+	buf = strconv.AppendInt(buf, int64(fileCount), 10)
+
+	buf = append(buf, `,"rules":`...)
+	buf = strconv.AppendInt(buf, int64(ruleCount), 10)
+
+	if len(experiments) > 0 {
+		expBytes, err := json.Marshal(experiments)
+		if err != nil {
+			return fmt.Errorf("marshal experiments: %w", err)
+		}
+		buf = append(buf, `,"experiments":`...)
+		buf = append(buf, expBytes...)
+	}
+
+	buf = append(buf, `,"findings":`...)
+	buf = append(buf, findingsJSON...)
+
+	summaryBytes, err := json.Marshal(summary)
+	if err != nil {
+		return fmt.Errorf("marshal summary: %w", err)
+	}
+	buf = append(buf, `,"summary":`...)
+	buf = append(buf, summaryBytes...)
+
+	if cacheStats != nil {
+		csBytes, err := json.Marshal(cacheStats)
+		if err != nil {
+			return fmt.Errorf("marshal cache: %w", err)
+		}
+		buf = append(buf, `,"cache":`...)
+		buf = append(buf, csBytes...)
+	}
+	if len(caches) > 0 {
+		cBytes, err := json.Marshal(caches)
+		if err != nil {
+			return fmt.Errorf("marshal caches: %w", err)
+		}
+		buf = append(buf, `,"caches":`...)
+		buf = append(buf, cBytes...)
+	}
+	if cacheBudget != nil {
+		cbBytes, err := json.Marshal(cacheBudget)
+		if err != nil {
+			return fmt.Errorf("marshal cacheBudget: %w", err)
+		}
+		buf = append(buf, `,"cacheBudget":`...)
+		buf = append(buf, cbBytes...)
+	}
+	if len(perfTimings) > 0 {
+		ptBytes, err := json.Marshal(perfTimings)
+		if err != nil {
+			return fmt.Errorf("marshal perfTiming: %w", err)
+		}
+		buf = append(buf, `,"perfTiming":`...)
+		buf = append(buf, ptBytes...)
+	}
+	if len(perfRuleStatsArg) > 0 {
+		prBytes, err := json.Marshal(perfRuleStatsArg)
+		if err != nil {
+			return fmt.Errorf("marshal perfRuleStats: %w", err)
+		}
+		buf = append(buf, `,"perfRuleStats":`...)
+		buf = append(buf, prBytes...)
+	}
+	buf = append(buf, '}', '\n')
+	_, werr := w.Write(buf)
+	return werr
+}
+
+func buildJSONFindings(columns *scanner.FindingColumns, fixLevels, efforts map[string]string, byRuleSet, byRule map[string]int, fixableCount *int, indent bool) json.RawMessage {
+	cols := normalizedFindingColumns(columns)
+	if cols.Len() == 0 {
+		return json.RawMessage("[]")
+	}
+
+	// Pre-size for ~150 B / finding (the kotlin-corpus warm baseline
+	// averages ~140 B; a small over-estimate avoids the geometric
+	// re-grow chain a bytes.Buffer would otherwise pay on 87 k
+	// AppendByte calls).
+	buf := make([]byte, 0, cols.Len()*150)
+	buf = append(buf, '[')
 	if indent {
-		buf.WriteByte('\n')
+		buf = append(buf, '\n')
 	}
 	first := true
 	cols.VisitSortedByFileLine(func(row int) {
-		if marshalErr != nil {
-			return
-		}
 		if !first {
-			buf.WriteByte(',')
+			buf = append(buf, ',')
 			if indent {
-				buf.WriteByte('\n')
+				buf = append(buf, '\n')
 			}
 		}
 		first = false
@@ -224,22 +346,18 @@ func buildJSONFindings(columns *scanner.FindingColumns, fixLevels, efforts map[s
 		byRuleSet[ruleSet]++
 		byRule[rule]++
 
-		encoded, err := json.Marshal(finding)
-		if err != nil {
-			marshalErr = err
-			return
-		}
 		if indent {
-			buf.WriteString("    ")
+			buf = append(buf, ' ', ' ', ' ', ' ')
 		}
-		buf.Write(encoded)
+		// Hand-rolled per-finding encoder: byte-identical to
+		// json.Marshal(finding) but ~10x faster (no reflection,
+		// no intermediate buffer allocations). Pinned by
+		// TestAppendFindingJSON_MatchesJSONMarshal.
+		buf = appendFindingJSON(buf, finding)
 	})
-	if marshalErr != nil {
-		return nil, marshalErr
-	}
 	if indent {
-		buf.WriteString("\n  ")
+		buf = append(buf, '\n', ' ', ' ')
 	}
-	buf.WriteByte(']')
-	return json.RawMessage(buf.Bytes()), nil
+	buf = append(buf, ']')
+	return json.RawMessage(buf)
 }

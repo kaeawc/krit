@@ -159,7 +159,11 @@ restart_ide_macos() {
 
   echo "Restarting ${app_name}..."
   osascript -e "tell application \"${app_name}\" to quit" 2>/dev/null || true
-  sleep 2
+  sleep 3
+  if pgrep -f "${app_name}.app/Contents/MacOS" >/dev/null 2>&1; then
+    pkill -f "${app_name}.app/Contents/MacOS" 2>/dev/null || true
+    sleep 1
+  fi
   open -a "${app_name}"
 }
 

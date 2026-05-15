@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <idea-plugin>
-  <id>dev.krit.ide</id>
+  <id>dev.jasonpearson.krit</id>
   <name>Krit</name>
   <vendor url="https://github.com/kaeawc/krit">Krit</vendor>
   <description><![CDATA[

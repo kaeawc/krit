@@ -35,7 +35,7 @@ dependencies {
 
 intellijPlatform {
     pluginConfiguration {
-        id.set("dev.krit.ide")
+        id.set("dev.jasonpearson.krit")
         name.set("Krit")
         version.set(project.version.toString())
         description.set("Native IntelliJ integration for Krit diagnostics.")

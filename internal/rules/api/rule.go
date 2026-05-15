@@ -707,6 +707,10 @@ type Rule struct {
 	Description string
 	Sev         Severity
 
+	// DocsURL is the canonical documentation URL for this rule. When
+	// empty, RuleDocsURL derives a URL from DefaultDocsBaseURL + rule ID.
+	DocsURL string
+
 	// Aliases are legacy or alternate IDs for this rule. They do NOT
 	// appear in the registry as separate rules; they only affect
 	// suppression: @Suppress("<alias>") (and inline `// krit:ignore[<alias>]`)
